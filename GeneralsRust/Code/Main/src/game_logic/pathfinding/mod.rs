@@ -26,6 +26,38 @@ pub struct PathRouteNode {
     pub next_optimized: Option<usize>,
 }
 
+/// One movement cursor on the optimized chain, using raw-node indices.
+/// `current == usize::MAX` denotes no current node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PathCursor {
+    previous: Option<usize>,
+    current: usize,
+}
+
+impl Default for PathCursor {
+    fn default() -> Self {
+        Self { previous: None, current: usize::MAX }
+    }
+}
+
+impl PathCursor {
+    pub fn previous(&self) -> Option<usize> { self.previous }
+    pub fn current(&self) -> Option<usize> {
+        (self.current != usize::MAX).then_some(self.current)
+    }
+    pub fn advance(&mut self, path: &PathRoute) {
+        if let Some(current) = self.current() {
+            self.previous = Some(current);
+            self.current = path.node(current).and_then(|node| node.next_optimized).unwrap_or(usize::MAX);
+        } else {
+            self.current = match self.previous {
+                Some(previous) => path.node(previous).and_then(|node| node.next_optimized),
+                None => (!path.is_empty()).then_some(0),
+            }.unwrap_or(usize::MAX);
+        }
+    }
+}
+
 /// A single owner for the raw path and its optimized traversal.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct PathRoute {
@@ -125,6 +157,55 @@ impl PathRoute {
     }
 
     pub fn nodes(&self) -> &[PathRouteNode] { &self.nodes }
+
+    pub fn node(&self, index: usize) -> Option<&PathRouteNode> { self.nodes.get(index) }
+
+    pub fn iter_from_raw(&self, start: Option<usize>) -> impl Iterator<Item = (usize, &PathRouteNode)> {
+        std::iter::successors(start, |&index| {
+            self.nodes.get(index).and_then(|node| node.next_optimized)
+        }).filter_map(|index| self.nodes.get(index).map(|node| (index, node)))
+    }
+
+    pub fn cursor_start(&self) -> PathCursor {
+        PathCursor { previous: None, current: if self.is_empty() { usize::MAX } else { 0 } }
+    }
+
+    pub fn cursor_at_ordinal(&self, ordinal: usize) -> PathCursor {
+        let mut cursor = self.cursor_start();
+        for _ in 0..ordinal {
+            if cursor.current().is_none() { break; }
+            cursor.advance(self);
+        }
+        cursor
+    }
+
+    /// Validate an untrusted persisted cursor against this route.
+    pub fn cursor_from_raw(&self, previous: Option<usize>, current: Option<usize>) -> Option<PathCursor> {
+        let mut preceding = None;
+        for (index, _) in self.iter_from_raw((!self.is_empty()).then_some(0)) {
+            if current == Some(index) {
+                return (previous == preceding).then_some(PathCursor { previous, current: index });
+            }
+            if current.is_none() && previous == Some(index) {
+                return Some(PathCursor { previous, current: usize::MAX });
+            }
+            preceding = Some(index);
+        }
+        (current.is_none() && previous.is_none())
+            .then_some(PathCursor { previous: None, current: usize::MAX })
+    }
+
+    pub fn cursor_ordinal(&self, cursor: &PathCursor) -> usize {
+        match cursor.current() {
+            Some(current) => self.iter_from_raw((!self.is_empty()).then_some(0))
+                .position(|(index, _)| index == current).unwrap_or(self.len()),
+            None => cursor.previous.map_or(0, |previous| {
+                self.iter_from_raw((!self.is_empty()).then_some(0))
+                    .position(|(index, _)| index == previous)
+                    .map_or(self.len(), |ordinal| ordinal + 1)
+            }),
+        }
+    }
 
     /// Rebuild and validate the derived optimized-node count from the links.
     pub fn from_nodes(nodes: Vec<PathRouteNode>, blocked_by_ally: bool) -> Option<Self> {

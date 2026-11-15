@@ -1256,6 +1256,9 @@ impl GameLogic {
                         .or(unit.movement.target_position)
                         .unwrap_or(wp);
                     unit.movement.path.push(end);
+                    if unit.movement.path_cursor.current().is_none() {
+                        unit.movement.path_cursor.advance(&unit.movement.path);
+                    }
                     if unit.movement.target_position.is_some_and(|dest| {
                         let dx = dest.x - wp.x;
                         let dz = dest.z - wp.z;
@@ -1272,11 +1275,9 @@ impl GameLogic {
         // After the path is installed — move_object_with_pathfinding
         // clears this on new orders (C++ FollowPath onExit).
         if let Some(unit) = self.objects.get_mut(&unit_id) {
-            if let Some(node) = unit
-                .movement
-                .path
-                .get(unit.movement.current_path_index)
-                .copied()
+            if let Some(node) = unit.movement.path_cursor.current()
+                .and_then(|i| unit.movement.path.node(i))
+                .map(|node| node.position)
             {
                 unit.movement.target_position = Some(node);
                 {}
@@ -1289,7 +1290,7 @@ impl GameLogic {
             // C++ AIFollowPathState::onEnter writes m_adjustFinal after
             // requestPath has already copied the pre-search false.
             unit.set_adjust_destinations(
-                unit.movement.current_path_index + 1 >= unit.movement.path.len(),
+                unit.movement.path_cursor.current().and_then(|i| unit.movement.path.node(i)).and_then(|n| n.next_optimized).is_none(),
             );
             unit.refresh_follow_path_extra_distance();
         }

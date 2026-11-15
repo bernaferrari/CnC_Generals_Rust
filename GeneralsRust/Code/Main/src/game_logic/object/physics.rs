@@ -1537,7 +1537,7 @@ impl Object {
         self.can_path_through_units = false;
         self.set_locomotor_goal_position_on_path();
         self.movement.set_path_coords(vec![start, destination]);
-        self.movement.current_path_index = 1;
+        self.movement.path_cursor = self.movement.path.cursor_at_ordinal(1);
         self.movement.target_position = Some(destination);
         self.refresh_follow_path_extra_distance();
         self.path_timestamp = current_frame;
@@ -1758,10 +1758,10 @@ impl Object {
             // C++ AIFollowPathState::onEnter starts at index zero (the
             // current-position node), while movement heads for the next node.
             // The host advances this index by projection on its first update.
-            self.movement.current_path_index = 0;
+            self.movement.path_cursor = self.movement.path.cursor_start();
             self.movement.target_position = Some(self.movement.path[1]);
         } else {
-            self.movement.current_path_index = 0;
+            self.movement.path_cursor = self.movement.path.cursor_start();
             self.movement.target_position = self.movement.path.first().copied();
         }
         self.is_attack_path = false;

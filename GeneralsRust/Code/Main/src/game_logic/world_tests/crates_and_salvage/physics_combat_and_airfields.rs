@@ -137,7 +137,7 @@ fn vehicle_requests_infantry_move_away() {
     // (AIUpdate::processCollision); give the vehicle the blocked column path.
     if let Some(v) = logic.objects.get_mut(&vid) {
         v.movement.set_path_coords(vec![Vec3::new(0.0, 0.0, 8.0), Vec3::new(0.0, 0.0, 16.0)]);
-        v.movement.current_path_index = 0;
+        v.movement.path_cursor = v.movement.path.cursor_at_ordinal(0);
     }
     assert!(logic.try_physics_collide(vid, iid, 8.0).unwrap());
     let inf = logic.objects.get(&iid).unwrap();
@@ -1802,7 +1802,7 @@ fn minimum_attack_range_too_close_backs_away() {
             fixture_partition_o,
         );
         o.movement.target_position = None;
-        o.movement.path.clear();
+        o.movement.clear_path();
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,
@@ -1834,7 +1834,7 @@ fn minimum_attack_range_too_close_backs_away() {
             fixture_partition_o,
         );
         o.movement.target_position = None;
-        o.movement.path.clear();
+        o.movement.clear_path();
         o.set_status_moving(false);
         o.target = Some(tgt);
         o.set_ai_state(
@@ -2340,7 +2340,7 @@ fn helipad_takeoff_is_two_point_climb_not_altitude_pop() {
                 );
                 heli.status.airborne_target = false;
                 heli.return_to_base_requested = false;
-                heli.movement.path.clear();
+                heli.movement.clear_path();
                 heli.movement.target_position = None;
                 heli.set_locomotor_goal_none();
                 heli.set_precise_z_and_ultra_accurate(false);

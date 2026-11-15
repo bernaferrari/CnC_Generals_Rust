@@ -85,7 +85,7 @@ impl Object {
         // getPath() is already non-null (AIStates.cpp:2127-2133).
         self.set_adjust_destinations(true);
         self.movement.path = path.clone();
-        self.movement.current_path_index = 1;
+        self.movement.path_cursor = self.movement.path.cursor_at_ordinal(1);
         self.movement.target_position = path.last().copied();
         self.is_attack_path = false;
         self.is_exact_path = false;
@@ -142,9 +142,8 @@ impl Object {
                 self.move_away_destination = None;
                 self.can_path_through_units = false;
                 if still_on_yield {
-                    self.movement.path.clear();
+                    self.movement.clear_path();
                     self.movement.target_position = None;
-                    self.movement.current_path_index = 0;
                     self.waiting_for_path = false;
                     self.is_attack_path = false;
                     self.locomotor_goal_type = super::LocoGoalType::None;

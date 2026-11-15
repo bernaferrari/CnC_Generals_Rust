@@ -136,7 +136,7 @@ impl GameLogic {
             let mut path = vec![start, end, end];
             if let Some(rally) = rally { path.push(rally); }
             child.movement.set_path_coords(path);
-            child.movement.current_path_index = 1;
+            child.movement.path_cursor = child.movement.path.cursor_at_ordinal(1);
             child.movement.target_position = Some(end);
             child.set_ai_state(AIState::Moving, self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events));

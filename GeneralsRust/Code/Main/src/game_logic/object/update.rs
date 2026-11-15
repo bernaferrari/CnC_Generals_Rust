@@ -56,16 +56,19 @@ impl Object {
     /// Remaining distance along the optimized route, without copying waypoints.
     pub(crate) fn route_distance(
         path: &crate::game_logic::pathfinding::PathRoute,
-        start: usize,
+        start: Option<usize>,
         pos: Vec3,
         flight: bool,
     ) -> f32 {
-        let mut points = path.iter().skip(start);
+        let mut points = path.iter_from_raw(start).map(|(_, node)| &node.position);
         let Some(first) = points.next().copied() else { return 0.0 };
         if points.next().is_none() {
             return (Vec3::new(pos.x, 0.0, pos.z) - Vec3::new(first.x, 0.0, first.z)).length();
         }
-        let pairs = || path.iter().skip(start).zip(path.iter().skip(start + 1));
+        let pairs = || {
+            let points = || path.iter_from_raw(start).map(|(_, node)| &node.position);
+            points().zip(points().skip(1))
+        };
         if flight {
             return pairs().map(|(a, b)| {
                 let delta = Vec3::new(b.x - a.x, 0.0, b.z - a.z);
@@ -379,7 +382,7 @@ impl Object {
             let along = if self.movement.path.is_empty() {
                 straight
             } else {
-                Self::route_distance(&self.movement.path, self.movement.current_path_index.saturating_sub(1), current, false)
+                Self::route_distance(&self.movement.path, self.movement.path_cursor.previous().or(self.movement.path_cursor.current()), current, false)
             };
             // C++ AIUpdate.cpp:2496-2499. Straight line is to the last node.
             // Short or shorter-than-straight remainders use that line.
@@ -396,7 +399,7 @@ impl Object {
         let flight = if self.movement.path.is_empty() {
             straight
         } else {
-            Self::route_distance(&self.movement.path, self.movement.current_path_index.saturating_sub(1), current, true)
+            Self::route_distance(&self.movement.path, self.movement.path_cursor.previous().or(self.movement.path_cursor.current()), current, true)
         };
         // C++ overwrites goalPos with the last node before dx/dy (AIUpdate.cpp:2475-2488).
         if flight * flight > straight * straight {
@@ -420,13 +423,13 @@ impl Object {
             return;
         }
         let path = &self.movement.path;
-        let i = self.movement.current_path_index;
-        self.path_extra_distance = match (path.get(i), path.get(i + 1)) {
+        let mut points = path.iter_from_raw(self.movement.path_cursor.current()).map(|(_, node)| &node.position);
+        self.path_extra_distance = match (points.next(), points.next()) {
             (Some(goal), Some(next)) => {
                 let dx = next.x - goal.x;
                 let dz = next.z - goal.z;
                 let mut offset = (dx * dx + dz * dz).sqrt();
-                if path.get(i + 2).is_some() {
+                if points.next().is_some() {
                     offset += 4.0 * cell;
                 }
                 offset
@@ -441,10 +444,9 @@ impl Object {
             return;
         }
         let on_last = !self.movement.path.is_empty()
-            && self
-                .movement
-                .path
-                .get(self.movement.current_path_index + 1)
+            && self.movement.path_cursor.current()
+                .and_then(|i| self.movement.path.node(i))
+                .and_then(|node| node.next_optimized)
                 .is_none();
         if on_last {
             self.set_precise_z_pos(true);
@@ -456,16 +458,15 @@ impl Object {
     pub(crate) fn waypoint_link_extra_distance(&self) -> f32 {
         let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
         let path = &self.movement.path;
-        let mut i = self.movement.current_path_index;
+        let mut points = path.iter_from_raw(self.movement.path_cursor.current()).map(|(_, node)| &node.position);
         let mut extra = cell / 10.0;
-        for _ in 0..5 {
-            let (Some(cur), Some(next)) = (path.get(i), path.get(i + 1)) else {
-                break;
-            };
-            let dx = next.x - cur.x;
-            let dz = next.z - cur.z;
-            extra += (dx * dx + dz * dz).sqrt();
-            i += 1;
+        if let Some(mut cur) = points.next() {
+            for next in points.take(5) {
+                let dx = next.x - cur.x;
+                let dz = next.z - cur.z;
+                extra += (dx * dx + dz * dz).sqrt();
+                cur = next;
+            }
         }
         extra
     }
@@ -536,17 +537,16 @@ impl Object {
 
             if dist_2d < 1.0e-4 {
                 // Advance path or stop.
-                let next_waypoint =
-                    if self.movement.current_path_index + 1 < self.movement.path.len() {
-                        self.movement.current_path_index += 1;
-                        Some(self.movement.path[self.movement.current_path_index])
-                    } else {
-                        None
-                    };
+                let next_waypoint = if self.movement.has_next_path_node() {
+                    self.movement.path_cursor.advance(&self.movement.path);
+                    self.movement.current_path_position()
+                } else {
+                    None
+                };
                 if let Some(waypoint) = next_waypoint {
                     self.movement.target_position = Some(waypoint);
                     self.set_adjust_destinations(
-                        if self.movement.current_path_index + 1 < self.movement.path.len() {
+                        if self.movement.path_cursor.current().and_then(|i| self.movement.path.node(i)).and_then(|n| n.next_optimized).is_some() {
                             false
                         } else {
                             crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
@@ -554,8 +554,7 @@ impl Object {
                     );
                     self.refresh_follow_path_extra_distance();
                 } else if matches!(self.ai_state(), AIState::AttackMoving) {
-                    self.movement.path.clear();
-                    self.movement.current_path_index = 0;
+                    self.movement.clear_path();
                     self.movement.target_position = None;
                     self.set_status_moving(false);
                 } else {
@@ -583,9 +582,9 @@ impl Object {
             if matches!(self.loco_appearance, LocomotorAppearance::LegsTwo) && self.downhill_only {
                 let goal_y = self
                     .movement
-                    .path
-                    .get(self.movement.current_path_index)
-                    .map(|p| p.y)
+                    .path_cursor.current()
+                    .and_then(|i| self.movement.path.node(i))
+                    .map(|p| p.position.y)
                     .unwrap_or(target_pos.y);
                 if self.downhill_only_blocks_goal(current_pos.y, goal_y) {
                     return;
@@ -743,17 +742,16 @@ impl Object {
                 .unwrap_or(2.0);
             let distance_to_target = self.host_locomotor_distance_to_goal(current_pos, target_pos);
             if distance_to_target < arrive_dist {
-                let next_waypoint =
-                    if self.movement.current_path_index + 1 < self.movement.path.len() {
-                        self.movement.current_path_index += 1;
-                        Some(self.movement.path[self.movement.current_path_index])
-                    } else {
-                        None
-                    };
+                let next_waypoint = if self.movement.has_next_path_node() {
+                    self.movement.path_cursor.advance(&self.movement.path);
+                    self.movement.current_path_position()
+                } else {
+                    None
+                };
                 if let Some(waypoint) = next_waypoint {
                     self.movement.target_position = Some(waypoint);
                     self.set_adjust_destinations(
-                        if self.movement.current_path_index + 1 < self.movement.path.len() {
+                        if self.movement.path_cursor.current().and_then(|i| self.movement.path.node(i)).and_then(|n| n.next_optimized).is_some() {
                             false
                         } else {
                             crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)

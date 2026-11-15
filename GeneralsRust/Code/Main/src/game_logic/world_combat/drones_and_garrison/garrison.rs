@@ -1449,7 +1449,7 @@ impl GameLogic {
                         path.push(rally_point);
                     }
                     unit.movement.set_path_coords(path);
-                    unit.movement.current_path_index = 1;
+                    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
                     unit.movement.target_position = Some(door_end);
                 } else {
                     unit.set_destination_with_operation(
@@ -1460,7 +1460,7 @@ impl GameLogic {
                         &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
                     );
                     unit.movement.set_path_coords(vec![start, door_end]);
-                    unit.movement.current_path_index = 1;
+                    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
                     unit.movement.target_position = Some(door_end);
                 }
                 unit.set_ai_state(

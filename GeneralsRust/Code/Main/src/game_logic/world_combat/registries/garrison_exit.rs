@@ -131,7 +131,7 @@ impl GameLogic {
             };
             p.movement.path.clear();
             p.movement.path.push(end);
-            p.movement.current_path_index = 0;
+            p.movement.path_cursor = p.movement.path.cursor_start();
             p.is_attack_path = false;
             p.can_path_through_units = false;
             p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
@@ -213,7 +213,7 @@ impl GameLogic {
             p.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
             p.movement.path.clear();
             p.movement.path.push(end);
-            p.movement.current_path_index = 0;
+            p.movement.path_cursor = p.movement.path.cursor_start();
             p.is_attack_path = false;
             p.can_path_through_units = false;
             p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;

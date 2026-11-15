@@ -451,7 +451,7 @@ fn skipped_layered_route_survives_restore_without_changing_peer() {
     ] {
         let unit = world.host_object_mut(id).unwrap();
         unit.movement.target_position = path.get(1).copied();
-        unit.movement.current_path_index = 1;
+        unit.movement.path_cursor = path.cursor_at_ordinal(1);
         unit.movement.path = path;
     }
     assert_eq!(owner_route.coords(), vec![points[0], points[2], points[3]]);

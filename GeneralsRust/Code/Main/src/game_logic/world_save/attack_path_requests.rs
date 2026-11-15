@@ -60,7 +60,7 @@ impl GameLogic {
         if safe {
             if let Some(unit) = self.objects.get_mut(&req.unit_id) {
                 unit.movement.path.clear();
-                unit.movement.current_path_index = 0;
+                unit.movement.path_cursor = unit.movement.path.cursor_start();
                 unit.is_attack_path = false;
                 unit.set_locomotor_goal_none();
                 unit.waiting_for_path = false;
@@ -123,7 +123,7 @@ impl GameLogic {
         if approach {
             if let Some(unit) = self.objects.get_mut(&req.unit_id) {
                 unit.movement.path.clear();
-                unit.movement.current_path_index = 0;
+                unit.movement.path_cursor = unit.movement.path.cursor_start();
                 unit.is_attack_path = false;
                 unit.set_locomotor_goal_none();
                 unit.waiting_for_path = false;

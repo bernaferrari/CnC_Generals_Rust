@@ -908,7 +908,7 @@ impl BuildingBehavior {
                                 if unit.is_alive() && !unit.can_move() {
                                     unit.pending_move = Some(rally);
                                     unit.movement.target_position = None;
-                                    unit.movement.path.clear();
+                                    unit.movement.clear_path();
                                     unit.set_ai_state(
                                         AIState::Moving,
                                         frame,

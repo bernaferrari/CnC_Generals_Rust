@@ -34,7 +34,7 @@ fn observe(world: &GameLogic, id: ObjectId) -> Observation {
         state: unit.ai_state().clone(),
         position: unit.get_position(),
         path: unit.movement.path.coords(),
-        index: unit.movement.current_path_index,
+        index: unit.movement.path.cursor_ordinal(&unit.movement.path_cursor),
         destination: unit.requested_destination,
         path_goal: unit.path_goal_position,
         moving: unit.status.moving,

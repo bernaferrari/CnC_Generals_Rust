@@ -1184,8 +1184,7 @@ impl GameLogic {
         }
         // Direct backup residual (fail-closed vs full reverse-pathfind matrix).
         if let Some(a) = self.objects.get_mut(&attacker_id) {
-            a.movement.path.clear();
-            a.movement.current_path_index = 0;
+            a.movement.clear_path();
 
             a.movement.target_position = Some(dest);
             let entered_attack = !matches!(

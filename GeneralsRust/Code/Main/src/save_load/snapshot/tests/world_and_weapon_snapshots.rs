@@ -1056,6 +1056,7 @@ fn snapshot_restore_does_not_replace_authoritative_empty_movement_from_path_cach
             Vec3::new(11.0, 0.0, 6.0),
             Vec3::new(21.0, 0.0, 11.0),
         ]);
+        mover.movement.path_cursor = mover.movement.path.cursor_start();
     }
 
     let builder = SnapshotBuilder::new();
@@ -1069,8 +1070,7 @@ fn snapshot_restore_does_not_replace_authoritative_empty_movement_from_path_cach
             .objects
             .get_mut(&mover_id)
             .expect("mover snapshot should exist");
-        mover_snap.movement.path.clear();
-        mover_snap.movement.current_path_index = 0;
+        mover_snap.movement.clear_path();
         mover_snap.status.moving = false;
     }
 
@@ -1084,7 +1084,7 @@ fn snapshot_restore_does_not_replace_authoritative_empty_movement_from_path_cach
         .host_object(mover_id)
         .expect("restored mover should exist");
     assert!(mover.movement.path.is_empty());
-    assert_eq!(mover.movement.current_path_index, 0);
+    assert_eq!(mover.movement.path_cursor.current(), None);
     assert!(!mover.status.moving);
     assert_eq!(mover.ai_state(), AIState::Idle);
 }

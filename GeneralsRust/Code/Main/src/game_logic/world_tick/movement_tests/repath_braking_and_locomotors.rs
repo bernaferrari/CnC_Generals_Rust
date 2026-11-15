@@ -40,7 +40,7 @@ fn locomotor_layer_uses_receiving_bridge_and_raw_predecessor() {
         nodes[0].next_optimized = Some(2);
         let route = PathRoute::from_nodes(nodes, route.blocked_by_ally).expect("valid route topology");
         unit.movement.path = route;
-        unit.movement.current_path_index = 1;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
         unit.movement.target_position = Some(Vec3::new(70.0, 20.0, 50.0));
         unit.set_locomotor_goal_position_on_path();
         unit.set_status_moving(true);
@@ -61,14 +61,14 @@ fn locomotor_layer_uses_receiving_bridge_and_raw_predecessor() {
         world.update_movement_locomotor_pass(&[id], 0.0).unwrap();
         let unit = world.objects.get(&id).unwrap();
         assert_eq!(unit.pathfind_layer, 1);
-        assert_eq!(unit.movement.current_path_index, 2);
+        assert_eq!(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor), 2);
         assert_eq!(unit.movement.path.len(), 3);
         assert!(unit.status.moving, "movement must continue after the skipped raw node");
         world.set_fixture_object_position(id, Vec3::new(95.0, 20.0, 50.0));
         world.update_movement_locomotor_pass(&[id], 0.0).unwrap();
         let unit = world.objects.get(&id).unwrap();
         assert_eq!(unit.pathfind_layer, 1);
-        assert_eq!(unit.movement.current_path_index, 2);
+        assert_eq!(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor), 2);
         assert!(unit.status.moving);
     }
 }
@@ -684,7 +684,7 @@ fn downhill_only_refuses_an_uphill_path_waypoint() {
     unit.movement.max_speed = 30.0;
     unit.movement.velocity = Vec3::new(8.0, 0.0, 0.0);
     unit.movement.set_path_coords(vec![Vec3::ZERO, Vec3::new(20.0, 10.0, 0.0)]);
-    unit.movement.current_path_index = 0;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(0);
     unit.movement.target_position = Some(Vec3::new(20.0, 0.0, 0.0));
     unit.set_status_moving(true);
     logic.objects.insert(ObjectId(9503), unit);
@@ -743,7 +743,7 @@ fn climber_path_lead_keeps_goal_y_and_latches_climbing() {
     let start = Vec3::new(0.0, 20.0, 0.0);
     let goal = Vec3::new(40.0, 0.0, 0.0);
     unit.movement.set_path_coords(vec![start, goal]);
-    unit.movement.current_path_index = 1;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
     unit.movement.target_position = Some(goal);
     logic.objects.insert(id, unit);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
@@ -808,7 +808,7 @@ fn climber_descent_reverses_toward_goal() {
     unit.no_slow_down_as_approaching_dest = true;
     unit.set_status_moving(true);
     unit.movement.set_path_coords(vec![start, goal]);
-    unit.movement.current_path_index = 1;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
     unit.movement.target_position = Some(goal);
     logic.objects.insert(id, unit);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
@@ -1109,7 +1109,7 @@ fn wings_idle_hold_circles_at_min_speed() {
     jet.motive_force_expires = 10;
     jet.status.airborne_target = true;
     jet.movement.set_path_coords(vec![Vec3::new(0.0, 50.0, 0.0)]);
-    jet.movement.current_path_index = 0;
+    jet.movement.path_cursor = jet.movement.path.cursor_at_ordinal(0);
     jet.movement.target_position = Some(Vec3::new(0.0, 50.0, 0.0));
     let start = jet.get_position();
     logic.objects.insert(id, jet);
@@ -1542,7 +1542,7 @@ fn arrival_arms_final_position_at_path_last_node() {
     let stop = goal - Vec3::new(0.6, 0.0, 0.0);
     arriver.set_position(stop);
     arriver.movement.set_path_coords(vec![Vec3::new(70.0, 0.0, 80.0), goal]);
-    arriver.movement.current_path_index = 1;
+    arriver.movement.path_cursor = arriver.movement.path.cursor_at_ordinal(1);
     arriver.movement.target_position = Some(goal);
     arriver.set_locomotor_goal_position_on_path();
     arriver.set_status_moving(true);

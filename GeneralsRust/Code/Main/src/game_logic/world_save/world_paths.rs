@@ -149,8 +149,8 @@ impl GameLogic {
         let (started, entered_move) = if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.waiting_for_path = false;
             unit.queue_for_path_frame = 0;
-            unit.movement.current_path_index = 0;
             unit.movement.path = route;
+            unit.movement.path_cursor = unit.movement.path.cursor_start();
             unit.movement.target_position = unit.movement.path.first().copied();
             unit.is_exact_path = true;
             unit.is_attack_path = false;
@@ -665,10 +665,10 @@ impl GameLogic {
             unit.set_locomotor_goal_position_on_path();
             unit.movement.path = path;
             if unit.movement.path.len() >= 2 {
-                unit.movement.current_path_index = 1;
+                unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
                 unit.movement.target_position = Some(unit.movement.path[1]);
             } else {
-                unit.movement.current_path_index = 0;
+                unit.movement.path_cursor = unit.movement.path.cursor_start();
                 unit.movement.target_position = Some(destination);
             }
             unit.refresh_follow_path_extra_distance();
@@ -696,7 +696,7 @@ impl GameLogic {
         unit.is_exact_path = false;
         unit.set_locomotor_goal_position_on_path();
         unit.movement.path = route;
-        unit.movement.current_path_index = 1;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
         unit.movement.target_position = Some(destination);
         unit.refresh_follow_path_extra_distance();
         // C++ AIUpdate::requestPath stores this before computeQuickPath.
@@ -736,7 +736,7 @@ impl GameLogic {
         {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.movement.path.clear();
-                unit.movement.current_path_index = 0;
+                unit.movement.path_cursor = unit.movement.path.cursor_start();
                 unit.movement.target_position = None;
                 unit.is_attack_path = false;
                 unit.set_locomotor_goal_none();
@@ -1022,10 +1022,10 @@ impl GameLogic {
         // installer: skip it and aim at the first corner, or the final
         // destination when the path is a single node.
         if full_path.len() >= 2 {
-            unit.movement.current_path_index = 1;
+            unit.movement.path_cursor = full_path.cursor_at_ordinal(1);
             unit.movement.target_position = Some(full_path[1]);
         } else {
-            unit.movement.current_path_index = 0;
+            unit.movement.path_cursor = full_path.cursor_start();
             unit.movement.target_position = Some(destination);
         }
         unit.movement.path = full_path;
@@ -1877,7 +1877,7 @@ impl GameLogic {
         let closest_attempted = !stuck_with_path && unit.movement.path.is_empty();
         if stuck_with_path {
             unit.movement.path.clear();
-            unit.movement.current_path_index = 0;
+            unit.movement.path_cursor = unit.movement.path.cursor_start();
             unit.movement.target_position = None;
             unit.is_attack_path = false;
             unit.final_position = goal_pos;
@@ -2235,7 +2235,7 @@ impl GameLogic {
                         if let Some(unit) = self.objects.get_mut(&unit_id) {
                             unit.movement.path.clear();
                             unit.movement.target_position = None;
-                            unit.movement.current_path_index = 0;
+                            unit.movement.path_cursor = unit.movement.path.cursor_start();
                             unit.set_status_moving(false);
                         }
                         return false;
@@ -2249,7 +2249,7 @@ impl GameLogic {
                     unit.num_frames_blocked = 0;
                     unit.is_blocked_and_stuck = false;
 
-                    unit.movement.current_path_index = 1;
+                    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
 
                     unit.movement.target_position = Some(unit.movement.path[1]);
                     if contact {
@@ -2554,7 +2554,7 @@ impl GameLogic {
             if obj.is_alive() && !obj.can_move() {
                 obj.pending_move = Some(goal);
                 obj.movement.target_position = None;
-                obj.movement.path.clear();
+                obj.movement.clear_path();
             }
         }
         if attack_moving {
@@ -2701,18 +2701,18 @@ impl GameLogic {
         }
         unit.movement.path = appended;
         if had_no_path {
-            unit.movement.current_path_index = usize::from(unit.movement.path.len() > 1);
+            unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(usize::from(unit.movement.path.len() > 1));
+        } else if unit.movement.path_cursor.current().is_none() {
+            unit.movement.path_cursor.advance(&unit.movement.path);
         }
         let last_node = unit.movement.path.last().copied();
         unit.refresh_follow_path_extra_distance();
         // Appending a goal must not replace the path segment already being
         // traversed. An idle unit starts toward its new goal instead.
         if unit.movement.target_position.is_none() {
-            unit.movement.target_position = unit
-                .movement
-                .path
-                .get(unit.movement.current_path_index)
-                .copied()
+            unit.movement.target_position = unit.movement.path_cursor.current()
+                .and_then(|index| unit.movement.path.node(index))
+                .map(|node| node.position)
                 .or(Some(waypoint));
         }
         if !handoff {

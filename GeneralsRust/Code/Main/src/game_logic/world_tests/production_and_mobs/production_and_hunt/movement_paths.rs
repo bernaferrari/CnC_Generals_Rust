@@ -48,7 +48,7 @@ fn finished_move_clears_the_ignored_obstacle() {
             fixture_partition_unit,
         );
         unit.movement.set_path_coords(vec![Vec3::ZERO]);
-        unit.movement.current_path_index = 0;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(0);
         unit.movement.target_position = Some(Vec3::ZERO);
         unit.set_locomotor_goal_position_on_path();
         unit.ignored_obstacle_id = Some(building);
@@ -77,7 +77,7 @@ fn finished_move_clears_the_ignored_obstacle() {
         );
         unit.movement.velocity = Vec3::ZERO;
         unit.movement.set_path_coords(vec![near]);
-        unit.movement.current_path_index = 0;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(0);
         unit.movement.target_position = Some(near);
         unit.close_enough_dist = Some(2.0);
         unit.set_locomotor_goal_position_on_path();
@@ -252,7 +252,7 @@ fn full_truck_returns_to_the_supply_center_approach() {
             &mut Default::default(),
             fixture_partition_unit,
         );
-        unit.movement.path.clear();
+        unit.movement.clear_path();
         unit.movement.target_position = None;
         unit.supply_truck_state = SupplyTruckState::Wanting;
     }
@@ -349,7 +349,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
         unit.set_stored_supplies(0);
         unit.supply_truck_force_pending = true;
         unit.set_status_moving(false);
-        unit.movement.path.clear();
+        unit.movement.clear_path();
         unit.movement.target_position = None;
         unit.ignored_obstacle_id = Some(center);
     }
@@ -402,7 +402,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
         unit.set_status_moving(false);
         unit.set_stored_supplies(0);
         unit.supply_truck_force_pending = true;
-        unit.movement.path.clear();
+        unit.movement.clear_path();
         unit.movement.target_position = None;
         unit.ignored_obstacle_id = Some(center);
     }
@@ -483,7 +483,7 @@ fn repair_approach_crosses_the_buildings_obstacle() {
             ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        obj.movement.path.clear();
+        obj.movement.clear_path();
         obj.waiting_for_path = false;
     }
     logic.force_map_loaded_for_path_test(true);
@@ -1087,7 +1087,7 @@ fn intermediate_path_keeps_the_next_segment_distance() {
         Vec3::new(10.0, 0.0, 30.0),
         Vec3::new(50.0, 0.0, 30.0),
     ]);
-    unit.movement.current_path_index = 1;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
     unit.refresh_follow_path_extra_distance();
     assert!((unit.path_extra_distance - 70.0).abs() < 0.01);
     unit.path_extra_distance = 100.0;
@@ -1098,6 +1098,35 @@ fn intermediate_path_keeps_the_next_segment_distance() {
     unit.is_attack_path = true;
     unit.refresh_follow_path_extra_distance();
     assert!((unit.path_extra_distance - 100.0).abs() < 0.01);
+}
+
+#[test]
+fn intermediate_path_distance_follows_optimized_links_after_cursor() {
+    use crate::game_logic::pathfinding::PathRoute;
+    use crate::game_logic::{KindOf, Player, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
+    let mut template = ThingTemplate::new("OptimizedPathExtraInf");
+    template.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic.templates.insert("OptimizedPathExtraInf".into(), template);
+    let id = logic
+        .create_object_for_player("OptimizedPathExtraInf", 0, Vec3::ZERO)
+        .expect("unit");
+    let unit = logic.host_object_mut(id).expect("unit");
+    let route = PathRoute::from_coords(vec![
+        Vec3::ZERO,
+        Vec3::new(10.0, 0.0, 0.0),
+        Vec3::new(1000.0, 0.0, 1000.0),
+        Vec3::new(10.0, 0.0, 30.0),
+        Vec3::new(50.0, 0.0, 30.0),
+    ]);
+    let mut nodes = route.nodes().to_vec();
+    nodes[1].next_optimized = Some(3);
+    unit.movement.path = PathRoute::from_nodes(nodes, false).expect("valid optimized route");
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
+    unit.refresh_follow_path_extra_distance();
+    assert!((unit.path_extra_distance - 70.0).abs() < 0.01);
 }
 
 #[test]
@@ -1116,7 +1145,7 @@ fn exact_waypoint_path_sums_five_links() {
         .collect();
     let unit = logic.host_object_mut(id).expect("unit");
     unit.movement.set_path_coords(points);
-    unit.movement.current_path_index = 0;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(0);
     unit.is_exact_path = true;
     unit.is_attack_path = false;
     unit.path_extra_distance = 100.0;
@@ -1233,7 +1262,7 @@ fn live_corner_refreshes_the_extra_distance() {
             Vec3::new(90.0, 0.0, 0.0),
             Vec3::new(130.0, 0.0, 0.0),
         ]);
-        unit.movement.current_path_index = 1;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
         unit.movement.target_position = Some(Vec3::new(10.0, 0.0, 0.0));
         unit.movement.max_speed = 0.0;
         unit.path_extra_distance = 0.0;
@@ -1246,7 +1275,7 @@ fn live_corner_refreshes_the_extra_distance() {
     }
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     let unit = logic.host_object(id).expect("unit");
-    assert_eq!(unit.movement.current_path_index, 2);
+    assert_eq!(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor), 2);
     assert!(
         (unit.path_extra_distance - 80.0).abs() < 0.01,
         "live corner must keep the next segment plus the one after, extra={}",
@@ -1280,7 +1309,7 @@ fn click_move_sets_follow_path_extra_distance() {
         "a click move is not an exact waypoint path"
     );
     let path = &unit.movement.path;
-    let index = unit.movement.current_path_index;
+    let index = unit.movement.path.cursor_ordinal(&unit.movement.path_cursor);
     let expected = if index + 1 < path.len() {
         let goal = path[index];
         let next = path[index + 1];
@@ -1339,7 +1368,7 @@ fn queued_waypoint_drops_the_exact_path_formula() {
     {
         let unit = logic.host_object_mut(id).expect("unit");
         unit.movement.set_path_coords(vec![Vec3::ZERO, Vec3::new(40.0, 0.0, 0.0)]);
-        unit.movement.current_path_index = 1;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
         unit.is_exact_path = true;
         unit.path_extra_distance = 100.0;
         unit.set_status_moving(true);
@@ -1349,7 +1378,7 @@ fn queued_waypoint_drops_the_exact_path_formula() {
     let unit = logic.host_object(id).expect("unit");
     assert!(!unit.is_exact_path);
     let path = &unit.movement.path;
-    let index = unit.movement.current_path_index;
+    let index = unit.movement.path.cursor_ordinal(&unit.movement.path_cursor);
     let expected = if index + 1 < path.len() {
         let goal = path[index];
         let next = path[index + 1];
@@ -1394,7 +1423,7 @@ fn residual_path_installs_drop_the_exact_path_formula() {
             ]),
         );
         assert!(!unit.is_exact_path);
-        assert_eq!(unit.movement.current_path_index, 0);
+        assert_eq!(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor), 0);
         assert_eq!(
             unit.movement.target_position,
             Some(Vec3::new(10.0, 0.0, 0.0))
@@ -1404,7 +1433,7 @@ fn residual_path_installs_drop_the_exact_path_formula() {
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     {
         let unit = logic.host_object(id).expect("unit");
-        assert_eq!(unit.movement.current_path_index, 1);
+        assert_eq!(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor), 1);
         assert_eq!(
             unit.movement.target_position,
             Some(Vec3::new(10.0, 0.0, 0.0))
@@ -1450,10 +1479,10 @@ fn projectile_precise_z_starts_on_the_last_segment() {
             Vec3::new(10.0, 0.0, 0.0),
             Vec3::new(30.0, 0.0, 0.0),
         ]);
-        shell.movement.current_path_index = 1;
+        shell.movement.path_cursor = shell.movement.path.cursor_at_ordinal(1);
         shell.refresh_follow_path_extra_distance();
         assert!(!shell.precise_z_pos);
-        shell.movement.current_path_index = 2;
+        shell.movement.path_cursor = shell.movement.path.cursor_at_ordinal(2);
         shell.refresh_follow_path_extra_distance();
         assert!(shell.precise_z_pos);
         shell.stop_moving(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
@@ -1479,7 +1508,7 @@ fn extra_distance_uses_the_easy_goal_metric() {
         let unit = logic.host_object_mut(id).expect("unit");
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.movement.set_path_coords(vec![here, middle, last]);
-        unit.movement.current_path_index = 1;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
         unit.path_extra_distance = 0.0;
     }
     logic.register_path_goal(id, last);
@@ -1566,7 +1595,7 @@ fn live_arrival_clears_the_ignored_obstacle() {
         let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("unit");
         unit.movement.set_path_coords(vec![Vec3::ZERO, goal]);
-        unit.movement.current_path_index = 1;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
         unit.movement.target_position = Some(goal);
         unit.movement.max_speed = 0.0;
         unit.ignored_obstacle_id = Some(ObjectId(9));
@@ -1602,7 +1631,7 @@ fn live_air_hold_clears_the_ignore_and_the_queue() {
         let unit = logic.host_object_mut(id).expect("jet");
         unit.loco_appearance = LocomotorAppearance::Wings;
         unit.movement.set_path_coords(vec![Vec3::ZERO, goal]);
-        unit.movement.current_path_index = 1;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
         unit.movement.target_position = Some(goal);
         unit.movement.max_speed = 0.0;
         unit.ignored_obstacle_id = Some(ObjectId(9));
@@ -1667,7 +1696,7 @@ fn far_arrival_snaps_the_current_cell_not_the_goal() {
         unit.selection_radius = 8.0;
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.movement.set_path_coords(vec![here, goal]);
-        unit.movement.current_path_index = 1;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
         unit.movement.target_position = Some(goal);
         unit.movement.max_speed = 0.0;
         unit.close_enough_dist = Some(30.0);
@@ -1714,7 +1743,7 @@ fn close_arrival_plants_the_goal_cell_not_the_raw_point() {
         unit.selection_radius = 8.0;
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.movement.set_path_coords(vec![here, raw]);
-        unit.movement.current_path_index = 1;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
         unit.movement.target_position = Some(raw);
         unit.movement.max_speed = 0.0;
         unit.close_enough_dist = Some(30.0);

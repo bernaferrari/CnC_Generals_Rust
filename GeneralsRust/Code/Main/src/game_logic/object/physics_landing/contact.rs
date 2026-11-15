@@ -121,7 +121,7 @@ impl Object {
                     // receiving delete callbacks and queues physical disposal.
                     self.status.destroyed = true;
                     self.set_locomotor_goal_none();
-                    self.movement.path.clear();
+                    self.movement.clear_path();
                     return value;
                 }
                 ContactStep::PositionFx { reaction, next } => {

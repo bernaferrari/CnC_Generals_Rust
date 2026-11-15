@@ -62,9 +62,10 @@ before its center-position callback. This does not establish complete
 pathfinder-event or save/load parity.
 
 Main path searches return owned raw nodes with optimized links and per-node
-layers. Movement uses the raw predecessor for bridge transitions, and snapshot
-transfer retains and validates the links. Batched repaths and waypoint chains
-carry their own routes rather than reading the last search's metadata.
+layers. Movement uses a validated raw-node cursor and the raw predecessor for
+bridge transitions; snapshot transfer retains both route and cursor. Batched
+repaths and waypoint chains carry their own routes rather than reading the last
+search's metadata.
 Quick-path queries compare the receiving world's endpoint layers, including a
 bridge deck above impassable ground. The query uses non-crusher connectivity,
 as in C++.

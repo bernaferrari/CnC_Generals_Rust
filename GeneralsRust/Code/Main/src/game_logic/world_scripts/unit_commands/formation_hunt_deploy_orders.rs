@@ -75,7 +75,7 @@ impl GameLogic {
                 unit.ignored_obstacle_id = None;
                 unit.pending_move = Some(clipped);
                 unit.movement.target_position = None;
-                unit.movement.path.clear();
+                unit.movement.clear_path();
                 unit.set_ai_state(
                     AIState::Moving,
                     self.frame,
@@ -177,7 +177,7 @@ impl GameLogic {
                 if unit.is_alive() && !unit.can_move() {
                     unit.pending_move = Some(dock);
                     unit.movement.target_position = None;
-                    unit.movement.path.clear();
+                    unit.movement.clear_path();
                 }
             } else {
                 return Ok(false);
@@ -346,7 +346,7 @@ impl GameLogic {
         if !unit.can_move() {
             unit.pending_move = Some(destination);
             unit.movement.target_position = None;
-            unit.movement.path.clear();
+            unit.movement.clear_path();
         }
         unit.set_ai_state(AIState::Moving, frame, audio);
     }

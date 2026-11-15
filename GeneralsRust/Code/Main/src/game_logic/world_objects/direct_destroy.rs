@@ -27,7 +27,7 @@ impl GameLogic {
         }
         object.status.destroyed = true;
         object.set_locomotor_goal_none();
-        object.movement.path.clear();
+        object.movement.clear_path();
         // Queue before OpenContain child deletion. Reentrant deletion sees
         // the DESTROYED latch and appends distinct children to this same list.
         self.objects_to_destroy

@@ -409,7 +409,7 @@ impl GameLogic {
                     unit.movement.path.clear();
                     unit.movement.path.push(door_end);
                     unit.movement.path.push(door_end);
-                    unit.movement.current_path_index = 0;
+                    unit.movement.path_cursor = unit.movement.path.cursor_start();
                     unit.movement.target_position = Some(door_end);
                     // AI_FOLLOW_EXITPRODUCTION_PATH (AIStates.cpp:3250-3273).
                     unit.set_can_path_through_units(true);
@@ -721,7 +721,7 @@ impl GameLogic {
             return Ok(());
         }
         let still_moving =
-            obj.status.moving || obj.movement.current_path_index < obj.movement.path.len();
+            obj.status.moving || obj.movement.path_cursor.current().is_some();
         // C++ RegroupingState::update succeeds only once AI is idle.
         if still_moving {
             return Ok(());

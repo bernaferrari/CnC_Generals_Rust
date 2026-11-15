@@ -1674,8 +1674,7 @@ impl GameLogic {
                 dozer.target = Some(tid);
                 dozer.idle_since_frame = 0;
                 if at_dock {
-                    dozer.movement.path.clear();
-                    dozer.movement.current_path_index = 0;
+                    dozer.movement.clear_path();
                     dozer.movement.target_position = None;
                     dozer.waiting_for_path = false;
                     dozer.set_status_moving(false);
@@ -1718,8 +1717,7 @@ impl GameLogic {
                 dozer.selection_radius,
                 snapped,
             ) {
-                dozer.movement.path.clear();
-                dozer.movement.current_path_index = 0;
+                dozer.movement.clear_path();
                 dozer.movement.target_position = None;
                 dozer.waiting_for_path = false;
                 dozer.set_status_moving(false);

@@ -92,7 +92,7 @@ impl GameLogic {
         if !at_dock {
             let has_valid_active_approach_path = self.objects.get(&object_id).is_some_and(|obj| {
                 obj.status.moving
-                    && obj.movement.current_path_index < obj.movement.path.len()
+                    && obj.movement.path_cursor.current().is_some()
                     && obj.movement.path.last().is_some_and(|endpoint| {
                         crate::game_logic::host_repair::dozer_within_action_dock(
                             *endpoint,
@@ -118,8 +118,7 @@ impl GameLogic {
             return Ok(());
         }
         if let Some(dozer) = self.objects.get_mut(&object_id) {
-            dozer.movement.path.clear();
-            dozer.movement.current_path_index = 0;
+            dozer.movement.clear_path();
             dozer.movement.target_position = None;
             dozer.waiting_for_path = false;
             dozer.set_status_moving(false);
@@ -371,7 +370,7 @@ impl GameLogic {
             // the mover stopped, retaining obstacle recovery.
             let has_valid_active_approach_path = self.objects.get(&object_id).is_some_and(|obj| {
                 obj.status.moving
-                    && obj.movement.current_path_index < obj.movement.path.len()
+                    && obj.movement.path_cursor.current().is_some()
                     && obj.movement.path.last().is_some_and(|endpoint| {
                         endpoint.distance(support_target_pos) <= INTERACT_RANGE
                     })

@@ -1283,8 +1283,7 @@ impl GameLogic {
         if obj.movement.path.is_empty() && obj.movement.target_position.is_none() {
             return false;
         }
-        obj.movement.path.clear();
-        obj.movement.current_path_index = 0;
+        obj.movement.clear_path();
         obj.movement.target_position = None;
         obj.status.moving = false;
         true

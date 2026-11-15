@@ -85,7 +85,7 @@ fn appending_to_an_unpathed_move_queues_after_the_active_goal() {
     assert!(world.append_unit_waypoint(id, next_goal));
     let movement = &world.host_object(id).unwrap().movement;
     assert_eq!(movement.target_position, Some(current_goal));
-    assert_eq!(movement.path[movement.current_path_index], current_goal);
+    assert_eq!(movement.path[movement.path.cursor_ordinal(&movement.path_cursor)], current_goal);
     assert_eq!(movement.path.last(), Some(&next_goal));
 }
 
@@ -95,7 +95,7 @@ fn first_waypoint_starts_on_the_first_path_segment() {
     assert!(world.append_unit_waypoint(id, Vec3::new(80.0, 0.0, 0.0)));
     let movement = &world.host_object(id).unwrap().movement;
     assert_eq!(
-        movement.path.get(movement.current_path_index).copied(),
+        movement.path.get(movement.path.cursor_ordinal(&movement.path_cursor)).copied(),
         movement.target_position
     );
 }
@@ -504,7 +504,7 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
         unit.get_position(),
         unit.movement.velocity,
         unit.movement.target_position,
-        unit.movement.current_path_index,
+        unit.movement.path.cursor_ordinal(&unit.movement.path_cursor),
     );
     let mut expected = Vec::new();
     for _ in 0..10 {
@@ -515,7 +515,7 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
             timing.steps_run,
             unit.get_position(),
             unit.movement.target_position,
-            unit.movement.current_path_index,
+            unit.movement.path.cursor_ordinal(&unit.movement.path_cursor),
         ));
     }
     builder
@@ -527,7 +527,7 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
             unit.get_position(),
             unit.movement.velocity,
             unit.movement.target_position,
-            unit.movement.current_path_index
+            unit.movement.path.cursor_ordinal(&unit.movement.path_cursor)
         ),
         saved_motion,
         "restore must preserve motion before stepping"
@@ -541,7 +541,7 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
                 timing.steps_run,
                 unit.get_position(),
                 unit.movement.target_position,
-                unit.movement.current_path_index,
+                unit.movement.path.cursor_ordinal(&unit.movement.path_cursor),
             ),
             expected_step,
             "saved route must continue with the same movement state"
@@ -571,7 +571,7 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
                 timing.steps_run,
                 unit.get_position(),
                 unit.movement.target_position,
-                unit.movement.current_path_index
+                unit.movement.path.cursor_ordinal(&unit.movement.path_cursor)
             ),
             expected_step,
             "reloading an advanced session must preserve route continuation"
@@ -637,13 +637,13 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
                 unit.get_position(),
                 unit.movement.velocity,
                 unit.movement.target_position,
-                unit.movement.current_path_index
+                unit.movement.path.cursor_ordinal(&unit.movement.path_cursor)
             ),
             (
                 peer.get_position(),
                 peer.movement.velocity,
                 peer.movement.target_position,
-                peer.movement.current_path_index
+                peer.movement.path.cursor_ordinal(&peer.movement.path_cursor)
             ),
             "freshly restored session must continue the same route"
         );
@@ -667,6 +667,6 @@ fn waypoints_are_traversed_in_order_by_the_owning_world() {
         object.get_position(),
         object.movement.target_position,
         object.movement.path,
-        object.movement.current_path_index
+        object.movement.path.cursor_ordinal(&object.movement.path_cursor)
     );
 }

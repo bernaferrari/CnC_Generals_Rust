@@ -1492,8 +1492,7 @@ impl Object {
         };
         audio.stop_loop(self);
         self.movement.velocity = glam::Vec3::ZERO;
-        self.movement.path.clear();
-        self.movement.current_path_index = 0;
+        self.movement.clear_path();
         self.movement.target_position = None;
         self.set_status_moving(false);
         self.queue_for_path_frame = 0;
@@ -1541,8 +1540,7 @@ impl Object {
         self.movement.velocity = Vec3::ZERO;
         self.set_status_moving(false);
         self.queue_for_path_frame = 0;
-        self.movement.path.clear();
-        self.movement.current_path_index = 0;
+        self.movement.clear_path();
         self.set_status_moving(false);
         self.requested_destination = None;
         self.waiting_for_path = false;

@@ -102,7 +102,7 @@ impl GameLogic {
             if let Some(unit) = self.objects.get_mut(&child) {
                 unit.movement.path.clear();
                 unit.movement.path.push(end);
-                unit.movement.current_path_index = 0;
+                unit.movement.path_cursor = unit.movement.path.cursor_start();
                 unit.is_attack_path = false;
                 unit.can_path_through_units = false;
                 unit.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;

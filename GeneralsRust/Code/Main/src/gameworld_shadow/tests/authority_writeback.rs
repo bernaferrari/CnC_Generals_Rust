@@ -1543,7 +1543,7 @@ fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
                 glam::Vec3::new(10.0, 0.0, 0.0),
                 glam::Vec3::new(30.0, 0.0, 4.0),
             ]);
-            o.movement.current_path_index = 1;
+            o.movement.path_cursor = o.movement.path.cursor_at_ordinal(1);
         });
 
         let frame = logic

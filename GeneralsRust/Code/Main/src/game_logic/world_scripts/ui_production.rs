@@ -754,7 +754,7 @@ impl GameLogic {
             .filter(|(_, o)| {
                 o.is_alive()
                     && !o.movement.path.is_empty()
-                    && o.movement.current_path_index < o.movement.path.len()
+                    && o.movement.path_cursor.current().is_some()
             })
             .map(|(&id, _)| id)
             .collect()

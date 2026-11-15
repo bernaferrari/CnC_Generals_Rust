@@ -240,8 +240,8 @@ fn nearest_actual_script_snapshot_preserves_moving_goal_continuation() {
         assert_eq!(loaded.path_goal_position, original.path_goal_position);
         assert_eq!(loaded.movement.path, original.movement.path);
         assert_eq!(
-            loaded.movement.current_path_index,
-            original.movement.current_path_index
+            loaded.movement.path.cursor_ordinal(&loaded.movement.path_cursor),
+            original.movement.path.cursor_ordinal(&original.movement.path_cursor)
         );
         assert_eq!(loaded.get_position(), original.get_position());
     }

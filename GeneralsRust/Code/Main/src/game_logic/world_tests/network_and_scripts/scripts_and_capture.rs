@@ -413,7 +413,7 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
         dozer_after_walk.ai_state(),
         dozer_after_walk.target,
         dozer_after_walk.status.moving,
-        dozer_after_walk.movement.current_path_index,
+        dozer_after_walk.movement.path.cursor_ordinal(&dozer_after_walk.movement.path_cursor),
         dozer_after_walk.movement.path.len(),
         dozer_after_walk.movement.target_position,
     );

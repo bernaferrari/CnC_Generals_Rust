@@ -924,9 +924,9 @@ fn move_to_and_evacuate_unloads_when_path_completes() {
                 partition,
             );
         }
-        t.movement.current_path_index = t.movement.path.len().saturating_sub(0);
+        t.movement.path_cursor = t.movement.path.cursor_at_ordinal(t.movement.path.len().saturating_sub(0));
         // Force index past end
-        t.movement.current_path_index = t.movement.path.len();
+        t.movement.path_cursor = t.movement.path.cursor_at_ordinal(t.movement.path.len());
         t.pending_evacuate_on_stop = true;
     }
     // Direct evacuate_now residual (arrival hook)
@@ -1566,8 +1566,7 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
         let jet = logic
             .host_object_mut(producer_jet)
             .expect("producer jet object");
-        jet.movement.path.clear();
-        jet.movement.current_path_index = 0;
+        jet.movement.clear_path();
         jet.movement.target_position = None;
         jet.set_status_moving(false);
     }
@@ -1617,8 +1616,7 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
         let jet = logic
             .host_object_mut(allied_fallback_jet)
             .expect("allied fallback jet object");
-        jet.movement.path.clear();
-        jet.movement.current_path_index = 0;
+        jet.movement.clear_path();
         jet.movement.target_position = None;
         jet.set_status_moving(false);
     }
@@ -1733,7 +1731,7 @@ End
         assert!(ferry.add_occupant(rider));
         ferry.movement.set_path_coords(original_path.clone());
         ferry.movement.target_position = original_target;
-        ferry.movement.current_path_index = 1;
+        ferry.movement.path_cursor = ferry.movement.path.cursor_at_ordinal(1);
         ferry.set_ai_state(
             AIState::Idle,
             frame,
@@ -1765,7 +1763,7 @@ End
     assert_eq!(ferry.contained_units(), vec![rider]);
     assert_eq!(ferry.movement.path.coords(), original_path);
     assert_eq!(ferry.movement.target_position, original_target);
-    assert_eq!(ferry.movement.current_path_index, 1);
+    assert_eq!(ferry.movement.path.cursor_ordinal(&ferry.movement.path_cursor), 1);
     assert_eq!(ferry.ai_state(), AIState::Idle);
     let passenger = logic.host_object(rider).expect("passenger after rejection");
     assert_eq!(passenger.contained_by, Some(carrier));

@@ -255,6 +255,7 @@ mod tests {
             let mut target = source.clone();
             target.unit_ai_runtime.clear_guard();
             target.movement.path = crate::game_logic::pathfinding::PathRoute::from_coords(vec![Vec3::splat(20.0)]);
+            target.movement.path_cursor = target.movement.path.cursor_start();
             target.waiting_for_path = true;
             target
                 .restore_base_ai_continuation(source.capture_base_ai_continuation())

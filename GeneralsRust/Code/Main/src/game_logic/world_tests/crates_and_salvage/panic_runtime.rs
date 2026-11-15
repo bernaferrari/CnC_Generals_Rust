@@ -146,7 +146,7 @@ fn assert_panic_arrival_preconditions(unit: &Object) {
         "panic arrival: distance={distance}, threshold={threshold}, locomotor={name}, path={:?}, position={:?}, index={}, extra={}",
         unit.movement.path,
         unit.get_position(),
-        unit.movement.current_path_index,
+        unit.movement.path.cursor_ordinal(&unit.movement.path_cursor),
         unit.path_extra_distance
     );
     assert!(unit.is_alive());
@@ -494,7 +494,7 @@ fn panic_follows_multiple_waypoints_and_finishes_after_real_locomotor_arrivals()
         "terminal InternalMove cleanup stops movement"
     );
     assert!(unit.movement.path.is_empty());
-    assert_eq!(unit.movement.current_path_index, 0);
+    assert_eq!(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor), 0);
     assert!(unit.path_goal_position.is_some());
     assert_eq!(unit.path_goal_position, unit.requested_destination);
     assert_eq!(unit.queue_for_path_frame, 0);
@@ -528,7 +528,7 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
     // advance the waypoint in that case.
     {
         let unit = logic.objects.get_mut(&PANIC_UNIT).unwrap();
-        unit.movement.path.clear();
+        unit.movement.clear_path();
         unit.movement.target_position = None;
         unit.set_status_moving(false);
         unit.waiting_for_path = false;
@@ -546,7 +546,7 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
     unit.panic_runtime.as_mut().unwrap().current_waypoint_id = WAYPOINT_NEXT;
     let current = unit.get_position();
     unit.movement.set_path_coords(vec![current]);
-    unit.movement.current_path_index = 0;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(0);
     unit.movement.target_position = None;
     unit.waiting_for_path = false;
     unit.retry_path = true;
@@ -569,7 +569,7 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
         vec!["PanicTerminal", "", ""]
     );
     assert!(unit.movement.path.is_empty());
-    assert_eq!(unit.movement.current_path_index, 0);
+    assert_eq!(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor), 0);
     assert_eq!(unit.movement.target_position, None);
     assert_eq!(unit.path_goal_position, Some(current));
     assert_eq!(unit.requested_destination, Some(current));
@@ -604,7 +604,7 @@ fn panic_arrival_uses_selected_locomotor_close_enough_distance() {
     unit.panic_runtime.as_mut().unwrap().append_goal_position = false;
     let destination = unit.get_position() + Vec3::new(binding.close_enough_dist + 0.25, 0.0, 0.0);
     unit.movement.set_path_coords(vec![destination]);
-    unit.movement.current_path_index = 0;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(0);
     unit.movement.target_position = None;
     unit.waiting_for_path = false;
     unit.is_blocked_and_stuck = false;
@@ -650,7 +650,7 @@ fn blocked_panic_repath_runs_before_arrival_and_timer_processing() {
             &mut Default::default(),
             fixture_partition_unit,
         );
-        unit.movement.current_path_index = unit.movement.path.len() - 1;
+        unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(unit.movement.path.len() - 1);
         unit.set_locomotor_goal_position_on_path();
         unit.movement.target_position = None;
         unit.waiting_for_path = false;

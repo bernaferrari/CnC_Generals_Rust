@@ -51,7 +51,7 @@ fn angle_min_speed_uses_same_thrust_position_kernel_without_changing_canonical_g
     let stale = Vec3::new(-500.0, 2.0, -500.0);
     object.movement.target_position = Some(stale);
     object.movement.set_path_coords(vec![stale]);
-    object.movement.current_path_index = 0;
+    object.movement.path_cursor = object.movement.path.cursor_at_ordinal(0);
     object.path_extra_distance = 91.0;
     object.set_locomotor_goal_orientation(0.0);
     let start = object.get_position();
@@ -74,7 +74,7 @@ fn angle_min_speed_uses_same_thrust_position_kernel_without_changing_canonical_g
     );
     assert_eq!(object.movement.target_position, Some(stale));
     assert_eq!(object.movement.path.coords(), [stale]);
-    assert_eq!(object.movement.current_path_index, 0);
+    assert_eq!(object.movement.path.cursor_ordinal(&object.movement.path_cursor), 0);
     assert_eq!(object.path_extra_distance, 91.0);
     world.integrate_owned_physics_motion_with_effects(&mut Default::default());
     let object = world.objects.get(&id).unwrap();

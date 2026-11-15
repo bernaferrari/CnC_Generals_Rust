@@ -110,7 +110,7 @@ fn path_and_beacon_presentation_residual() {
             glam::Vec3::new(10.0, 0.0, 0.0),
             glam::Vec3::new(50.0, 0.0, 0.0),
         ]);
-        o.movement.current_path_index = 0;
+        o.movement.path_cursor = o.movement.path.cursor_at_ordinal(0);
         o.status.moving = true;
     }
     let active = logic.object_ids_with_active_path();

@@ -2098,9 +2098,7 @@ fn disguise_team_from_u8(value: u8) -> Option<Team> {
 }
 
 fn remaining_unit_waypoints(object: &Object) -> Vec<Vec3> {
-    let idx = object
-        .movement
-        .current_path_index
-        .min(object.movement.path.len());
-    object.movement.path.iter().skip(idx).copied().collect()
+    object.movement.path.iter_from_raw(object.movement.path_cursor.current())
+        .map(|(_, node)| node.position)
+        .collect()
 }

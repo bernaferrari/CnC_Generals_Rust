@@ -591,7 +591,7 @@ impl GameLogic {
         if object.status.on_die_started {
             if let Some(object) = self.objects.get_mut(&id) {
                 object.set_locomotor_goal_none();
-                object.movement.path.clear();
+                object.movement.clear_path();
             }
             self.enqueue_object_destruction_with_effects(id, death_credit, presentation_effects);
             self.apply_object_delete_callbacks_with_effects(id, presentation_effects)?;

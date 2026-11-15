@@ -101,7 +101,7 @@ fn close_enough_dist_plants_before_default_one() {
     let mut unit = ranger_at(9712, start);
     unit.close_enough_dist = Some(25.0);
     unit.movement.set_path_coords(vec![start, goal]);
-    unit.movement.current_path_index = 1;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
     unit.movement.target_position = Some(goal);
     unit.set_status_moving(true);
     logic.objects.insert(id, unit);
@@ -128,7 +128,7 @@ fn close_enough_ground_sanity_refuses_far_last_node() {
     let mut unit = ranger_at(9713, start);
     unit.close_enough_dist = Some(25.0);
     unit.movement.set_path_coords(vec![start, last]);
-    unit.movement.current_path_index = 1;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
     unit.movement.target_position = Some(last);
     unit.movement.max_speed = 1.0;
     unit.set_status_moving(true);
@@ -184,7 +184,7 @@ fn no_slow_down_does_not_latch_is_braking_after_path_raise() {
     jet.movement.acceleration = 10_000.0;
     jet.movement.velocity = Vec3::new(30.0, 0.0, 0.0);
     jet.movement.set_path_coords(vec![Vec3::ZERO, Vec3::new(200.0, 0.0, 0.0)]);
-    jet.movement.current_path_index = 1;
+    jet.movement.path_cursor = jet.movement.path.cursor_at_ordinal(1);
     jet.movement.target_position = Some(Vec3::new(200.0, 0.0, 0.0));
     logic.objects.insert(id, jet);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
@@ -275,7 +275,7 @@ fn treat_as_airborne_still_plants_near_goal() {
     unit.allow_motive_force_while_airborne = false;
     unit.close_enough_dist = Some(1.0);
     unit.movement.set_path_coords(vec![start, last]);
-    unit.movement.current_path_index = 1;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
     unit.movement.target_position = Some(last);
     unit.movement.max_speed = 40.0;
     unit.set_status_moving(true);
@@ -732,7 +732,7 @@ fn close_enough_dist_3d_does_not_plant_while_high() {
     dive.movement.max_speed = 0.0;
     dive.movement.velocity = Vec3::ZERO;
     dive.movement.set_path_coords(vec![Vec3::new(0.0, 40.0, 0.0), Vec3::new(1.0, 0.0, 0.0)]);
-    dive.movement.current_path_index = 1;
+    dive.movement.path_cursor = dive.movement.path.cursor_at_ordinal(1);
     dive.movement.target_position = Some(Vec3::new(1.0, 0.0, 0.0));
     logic.objects.insert(id, dive);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
@@ -763,7 +763,7 @@ fn stuck_unit_with_failing_patch_concedes_and_backs_off() {
         Vec3::new(35.0, 0.0, 5.0),
         Vec3::new(95.0, 0.0, 5.0),
     ]);
-    unit.movement.current_path_index = 1;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
     unit.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
     unit.set_locomotor_goal_position_on_path();
     unit.is_blocked = true;
@@ -815,7 +815,7 @@ fn stuck_unit_with_failing_patch_concedes_and_backs_off() {
             Vec3::new(35.0, 0.0, 5.0),
             Vec3::new(95.0, 0.0, 5.0),
         ]);
-        obj.movement.current_path_index = 1;
+        obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
         obj.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
         obj.set_locomotor_goal_position_on_path();
         // An installed path has completed its request. The concession's
@@ -869,7 +869,7 @@ fn blocked_not_jammed_unit_concedes_without_tunnel() {
         Vec3::new(35.0, 0.0, 5.0),
         Vec3::new(95.0, 0.0, 5.0),
     ]);
-    unit.movement.current_path_index = 1;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
     unit.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
     unit.set_locomotor_goal_position_on_path();
     unit.num_frames_blocked = 90;

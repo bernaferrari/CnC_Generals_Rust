@@ -61,7 +61,7 @@ fn panic_observation(logic: &GameLogic) -> PanicObservation {
         panic: unit.panic_runtime.clone(),
         path: unit.movement.path.coords(),
         target: unit.movement.target_position,
-        current_path_index: unit.movement.current_path_index,
+        current_path_index: unit.movement.path.cursor_ordinal(&unit.movement.path_cursor),
         requested_destination: unit.requested_destination,
         path_goal: unit.path_goal_position,
         waiting_for_path: unit.waiting_for_path,
@@ -317,7 +317,7 @@ fn moving_path_snapshot() -> crate::save_load::snapshot::WorldSnapshot {
         Vec3::new(30.0, 0.0, 0.0),
         Vec3::new(60.0, 0.0, 0.0),
     ]);
-    unit.movement.current_path_index = 1;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
     unit.movement.target_position = Some(Vec3::new(60.0, 0.0, 0.0));
     unit.requested_destination = Some(Vec3::new(75.0, 0.0, 0.0));
     crate::save_load::snapshot::SnapshotBuilder::new()
@@ -346,7 +346,7 @@ fn complete_world_restore_keeps_full_ordinary_moving_path_and_index() {
         ],
         "ObjectSnapshot restores the full path, not TMAI's remaining suffix"
     );
-    assert_eq!(unit.movement.current_path_index, 1);
+    assert_eq!(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor), 1);
     assert_eq!(
         unit.movement.target_position,
         Some(Vec3::new(60.0, 0.0, 0.0))
@@ -365,8 +365,7 @@ fn complete_world_restore_does_not_resurrect_authoritative_empty_movement() {
         .objects
         .get_mut(&PANIC_UNIT)
         .expect("snapshot object");
-    object.movement.path.clear();
-    object.movement.current_path_index = 0;
+    object.movement.clear_path();
     object.movement.target_position = None;
     // UnitSnapshot retains its legacy nonempty waypoints to prove that it
     // cannot override the authoritative ObjectSnapshot Movement either.
@@ -394,7 +393,7 @@ fn complete_world_restore_does_not_resurrect_authoritative_empty_movement() {
         unit.movement.path.is_empty(),
         "TMAI must not resurrect a path"
     );
-    assert_eq!(unit.movement.current_path_index, 0);
+    assert_eq!(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor), 0);
     assert_eq!(unit.movement.target_position, None);
     assert_eq!(
         unit.requested_destination,

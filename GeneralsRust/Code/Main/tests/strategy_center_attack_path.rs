@@ -14,7 +14,7 @@ fn path_state(logic: &GameLogic, id: ObjectId) -> Value {
     json!({"frame":logic.get_frame(),"position":object.get_position().to_array(),
         "body_yaw":object.get_orientation(),"moving":object.status.moving,
         "path":object.movement.path.iter().map(|p|p.to_array()).collect::<Vec<_>>(),
-        "path_index":object.movement.current_path_index,
+        "path_index":object.movement.path.cursor_ordinal(&object.movement.path_cursor),
         "move_target":object.movement.target_position.map(|p|p.to_array()),
         "requested_destination":object.requested_destination.map(|p|p.to_array()),
         "path_goal":object.path_goal_position.map(|p|p.to_array()),

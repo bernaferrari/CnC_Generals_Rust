@@ -520,7 +520,7 @@ fn full_truck_returns_to_its_supply_center() {
     );
 
     if let Some(truck) = logic.host_object_mut(id) {
-        truck.movement.path.clear();
+        truck.movement.clear_path();
         truck.waiting_for_path = false;
     }
     logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);

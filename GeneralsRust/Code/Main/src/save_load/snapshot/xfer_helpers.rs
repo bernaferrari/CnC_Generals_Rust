@@ -388,6 +388,20 @@ impl XferData for Resources {
 
 impl XferData for Movement {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        if xfer.get_mode() == XferMode::Load {
+            let mut decoded = Movement::default();
+            decoded.xfer_movement(xfer)?;
+            *self = decoded;
+            Ok(())
+        } else {
+            validate_movement_path(self)?;
+            self.xfer_movement(xfer)
+        }
+    }
+}
+
+impl Movement {
+    fn xfer_movement(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("Movement")?;
         xfer.xfer_marker_label("TargetPosition")?;
         xfer_option(xfer, &mut self.target_position, glam::Vec3::ZERO)?;
@@ -415,9 +429,6 @@ impl XferData for Movement {
             return Err(SaveLoadError::VersionMismatch { expected: 1, actual: version as u32 });
         }
         let loading = xfer.get_mode() == XferMode::Load;
-        if !loading {
-            validate_path_links(&self.path)?;
-        }
         let mut count = u32::try_from(self.path.nodes().len())
             .map_err(|_| SaveLoadError::Corrupted("path has too many nodes".into()))?;
         xfer.xfer_u32(&mut count)?;
@@ -465,10 +476,23 @@ impl XferData for Movement {
             self.path = path;
         }
         xfer.xfer_bool(&mut self.path.blocked_by_ally)?;
-        xfer.xfer_marker_label("CurrentPathIndex")?;
-        let mut idx = self.current_path_index as u32;
-        xfer.xfer_u32(&mut idx)?;
-        self.current_path_index = idx as usize;
+        xfer.xfer_marker_label("PreviousPathNode")?;
+        let encode_index = |index: Option<usize>| -> SaveLoadResult<u32> {
+            match index {
+                None => Ok(u32::MAX),
+                Some(index) => u32::try_from(index).ok().filter(|&index| index != u32::MAX)
+                    .ok_or_else(|| SaveLoadError::Corrupted("path cursor index is too large".into())),
+            }
+        };
+        let mut previous = encode_index(self.path_cursor.previous())?;
+        let mut current = encode_index(self.path_cursor.current())?;
+        xfer.xfer_u32(&mut previous)?;
+        xfer.xfer_marker_label("CurrentPathNode")?;
+        xfer.xfer_u32(&mut current)?;
+        let previous = (previous != u32::MAX).then_some(previous as usize);
+        let current = (current != u32::MAX).then_some(current as usize);
+        self.path_cursor = self.path.cursor_from_raw(previous, current)
+            .ok_or_else(|| SaveLoadError::Corrupted("invalid movement path cursor".into()))?;
         Ok(())
     }
 }
@@ -574,5 +598,57 @@ mod tests {
         assert!((loaded.max_speed_damaged - 18.0).abs() < 0.001);
         assert!((loaded.acceleration_damaged - 6.0).abs() < 0.001);
         assert!((loaded.turn_rate_damaged - 0.4).abs() < 0.001);
+    }
+
+    #[test]
+    fn movement_round_trip_preserves_exhausted_cursor_across_appended_nodes() {
+        let mut source = Movement::default();
+        source.set_path_coords(vec![Vec3::ZERO, Vec3::X]);
+        source.path_cursor = source.path.cursor_at_ordinal(1);
+        source.path_cursor.advance(&source.path);
+        source.path.push(Vec3::Y);
+        assert_eq!(source.path_cursor.previous(), Some(1));
+        assert_eq!(source.path_cursor.current(), None);
+
+        let binary = bincode_legacy::serialize(&source).unwrap();
+        let binary_loaded: Movement = bincode_legacy::deserialize(&binary).unwrap();
+        assert_eq!(binary_loaded.path_cursor, source.path_cursor);
+        assert_eq!(binary_loaded.path, source.path);
+
+        let mut bytes = Cursor::new(Vec::new());
+        source.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+        let mut loaded = Movement::default();
+        loaded.xfer(&mut XferLoad::new(Cursor::new(bytes.into_inner()))).unwrap();
+        assert_eq!(loaded.path_cursor, source.path_cursor);
+        assert_eq!(loaded.path, source.path);
+        loaded.path_cursor.advance(&loaded.path);
+        assert_eq!(loaded.path_cursor.previous(), Some(1));
+        assert_eq!(loaded.path_cursor.current(), Some(2));
+    }
+
+    #[test]
+    fn movement_xfer_rejects_invalid_cursor_without_mutating_receiver() {
+        let mut source = Movement::default();
+        source.set_path_coords(vec![Vec3::ZERO, Vec3::X, Vec3::Y]);
+        source.path_cursor = source.path.cursor_at_ordinal(1);
+        let mut bytes = Cursor::new(Vec::new());
+        source.xfer(&mut XferSave::new(&mut bytes)).unwrap();
+        let bytes = bytes.into_inner();
+        for (previous, current) in [(0u32, 3u32), (0, 2), (2, 1)] {
+            let mut malformed = bytes.clone();
+            let cursor_offset = malformed.len() - 8;
+            malformed[cursor_offset..cursor_offset + 4].copy_from_slice(&previous.to_le_bytes());
+            malformed[cursor_offset + 4..].copy_from_slice(&current.to_le_bytes());
+            let mut receiver = Movement::default();
+            receiver.set_path_coords(vec![Vec3::Z]);
+            receiver.target_position = Some(Vec3::Z);
+            receiver.max_speed = 123.0;
+            let before = receiver.clone();
+            assert!(receiver.xfer(&mut XferLoad::new(Cursor::new(malformed))).is_err());
+            assert_eq!(receiver.path, before.path);
+            assert_eq!(receiver.path_cursor, before.path_cursor);
+            assert_eq!(receiver.target_position, before.target_position);
+            assert_eq!(receiver.max_speed, before.max_speed);
+        }
     }
 }

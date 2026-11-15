@@ -423,7 +423,7 @@ impl GameLogic {
             let route = self.route_for_points(vec![end]);
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.movement.path = route;
-                jet.movement.current_path_index = 0;
+                jet.movement.path_cursor = jet.movement.path.cursor_start();
                 jet.movement.target_position = Some(end);
                 jet.is_attack_path = false;
                 jet.is_exact_path = false;
@@ -732,8 +732,7 @@ impl GameLogic {
                 );
             }
             jet.set_status_moving(true);
-            jet.movement.path.clear();
-            jet.movement.current_path_index = 0;
+            jet.movement.clear_path();
             jet.set_locomotor_goal_position_explicit(path[0]);
             {}
         }
@@ -803,8 +802,7 @@ impl GameLogic {
                         jet.set_allow_invalid_position(false);
                         jet.status.airborne_target = true;
                         jet.set_status_moving(false);
-                        jet.movement.path.clear();
-                        jet.movement.current_path_index = 0;
+                        jet.movement.clear_path();
                         jet.movement.target_position = None;
                     }
                 }
@@ -837,8 +835,7 @@ impl GameLogic {
             jet.set_allow_invalid_position(false);
             jet.status.airborne_target = false;
             jet.target = None;
-            jet.movement.path.clear();
-            jet.movement.current_path_index = 0;
+            jet.movement.clear_path();
             jet.movement.target_position = None;
             // Produced-at-helipad aircraft skip ParkOrient's positioning
             // (C++ :1149), then enter ReloadAmmo without changing their pose.
@@ -2029,7 +2026,7 @@ impl GameLogic {
             taxi_surfaces,
             self.locomotor_definitions.receiving(),
         );
-        jet.movement.path.clear();
+        jet.movement.clear_path();
         {}
         self.admit_object_drawable_deselection(jet_id);
         self.sync_airfield_hangar_doors(producer_id);
@@ -2436,7 +2433,7 @@ impl GameLogic {
             let route = self.route_for_points(taxi.clone());
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.movement.path = route;
-                jet.movement.current_path_index = 0;
+                jet.movement.path_cursor = jet.movement.path.cursor_start();
                 jet.movement.target_position = Some(dest);
                 jet.is_attack_path = false;
                 jet.is_exact_path = false;
@@ -3175,7 +3172,7 @@ impl GameLogic {
                 );
             }
             jet.movement.path = route;
-            jet.movement.current_path_index = 0;
+            jet.movement.path_cursor = jet.movement.path.cursor_start();
             jet.movement.target_position = Some(dest);
             jet.is_attack_path = false;
             jet.is_exact_path = false;
@@ -3243,8 +3240,7 @@ impl GameLogic {
             jet.set_precise_z_and_ultra_accurate(false);
             jet.set_allow_invalid_position(false);
             jet.target = None;
-            jet.movement.path.clear();
-            jet.movement.current_path_index = 0;
+            jet.movement.clear_path();
             jet.movement.target_position = None;
         }
         if !self.set_owned_object_position_with_effects(jet_id, pad, pose_frame, effects)

@@ -519,7 +519,7 @@ impl GameLogic {
                     if let Some(end) = burst_end {
                         p.movement.path.clear();
                         p.movement.path.push(end);
-                        p.movement.current_path_index = 0;
+                        p.movement.path_cursor = p.movement.path.cursor_start();
                         p.is_attack_path = false;
                         p.can_path_through_units = false;
                         p.last_command_source =
@@ -566,7 +566,7 @@ impl GameLogic {
                 if let Some(p) = self.objects.get_mut(pid) {
                     p.movement.path.clear();
                     p.movement.path.push(end);
-                    p.movement.current_path_index = 0;
+                    p.movement.path_cursor = p.movement.path.cursor_start();
                     p.is_attack_path = false;
                     p.can_path_through_units = false;
                     p.last_command_source =
@@ -815,8 +815,7 @@ impl GameLogic {
             }
             let Some(p) = self.objects.get_mut(&pid) else { return false };
             let dest = glam::Vec3::new(hover.x, dest_y, hover.z);
-            p.movement.path.clear();
-            p.movement.current_path_index = 0;
+            p.movement.clear_path();
             p.movement.target_position = Some(dest);
             p.movement.max_speed = rappel_speed;
             p.begin_rappel(dest_y, target_is_bldg, drop_target);
@@ -1219,7 +1218,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&pid) else { return };
             obj.set_orientation_with_partition_owner(exit_angle, &mut self.partition_manager);
             obj.movement.set_path_coords(vec![start, end]);
-            obj.movement.current_path_index = 1;
+            obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
             obj.movement.target_position = Some(end);
             obj.is_attack_path = false;
             obj.is_exact_path = false;

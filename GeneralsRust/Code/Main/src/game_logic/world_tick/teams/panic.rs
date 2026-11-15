@@ -57,8 +57,7 @@ impl GameLogic {
         self.apply_arrival_goal_snap(id, None);
 
         if let Some(unit) = self.objects.get_mut(&id) {
-            unit.movement.path.clear();
-            unit.movement.current_path_index = 0;
+            unit.movement.clear_path();
             unit.movement.target_position = None;
             unit.waiting_for_path = false;
             unit.queue_for_path_frame = 0;
@@ -345,8 +344,8 @@ impl GameLogic {
                         } else {
                             unit.movement.path.push(goal);
                             if unit.movement.target_position.is_none() {
-                                unit.movement.current_path_index =
-                                    unit.movement.path.len().saturating_sub(2);
+                                unit.movement.path_cursor =
+                                    unit.movement.path.cursor_at_ordinal(unit.movement.path.len().saturating_sub(2));
                                 unit.movement.target_position = Some(goal);
                                 unit.set_status_moving(true);
                             }

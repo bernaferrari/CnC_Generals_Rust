@@ -431,7 +431,7 @@ fn waypoint_motion_debug(world: &GameLogic, id: ObjectId) -> String {
         actor.movement.velocity,
         actor.movement.target_position,
         actor.movement.path,
-        actor.movement.current_path_index,
+        actor.movement.path.cursor_ordinal(&actor.movement.path_cursor),
         actor.waiting_for_path,
         actor.requested_destination,
         actor.pending_waypoint_id,

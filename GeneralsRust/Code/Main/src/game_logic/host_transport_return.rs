@@ -135,6 +135,9 @@ impl GameLogic {
         if let Some(object) = self.host_object_mut(id) {
             // C++ appendNode is unconditional, including an identical final node.
             object.movement.path.push(goal);
+            if object.movement.path_cursor.current().is_none() {
+                object.movement.path_cursor.advance(&object.movement.path);
+            }
             object.refresh_follow_path_extra_distance();
             object.transport_return_state = Some(TransportReturnState::MoveAndDelete {
                 origin,

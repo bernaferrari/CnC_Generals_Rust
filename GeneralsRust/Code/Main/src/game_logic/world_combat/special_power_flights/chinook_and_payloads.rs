@@ -197,7 +197,7 @@ impl GameLogic {
             if let Some(dest) = path_fly {
                 if entered_head_off_map || (obj.movement.path.is_empty() && !obj.status.moving) {
                     obj.movement.set_path_coords(vec![p, dest]);
-                    obj.movement.current_path_index = 1;
+                    obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
                     obj.movement.target_position = Some(dest);
                     obj.set_locomotor_goal_position_on_path();
                     obj.is_attack_path = false;

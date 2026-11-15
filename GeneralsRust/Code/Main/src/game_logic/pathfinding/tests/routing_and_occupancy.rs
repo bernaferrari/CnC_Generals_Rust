@@ -1,5 +1,33 @@
 use super::super::*;
 
+#[test]
+fn raw_cursor_validation_and_append_resume_follow_optimized_links() {
+    let route = PathRoute::from_coords(vec![Vec3::ZERO, Vec3::X, Vec3::Y]);
+    let mut nodes = route.nodes().to_vec();
+    nodes[0].next_optimized = Some(2);
+    let mut route = PathRoute::from_nodes(nodes, false).expect("valid optimized route");
+    assert!(route.cursor_from_raw(Some(0), Some(1)).is_none());
+    assert!(route.cursor_from_raw(Some(1), Some(2)).is_none());
+    assert!(route.cursor_from_raw(None, Some(2)).is_none());
+    let cursor = route.cursor_from_raw(Some(0), Some(2)).expect("reachable cursor");
+    assert_eq!((cursor.previous(), cursor.current()), (Some(0), Some(2)));
+
+    let mut exhausted = route.cursor_at_ordinal(2);
+    assert_eq!((exhausted.previous(), exhausted.current()), (Some(2), None));
+    route.push(Vec3::Z);
+    let restored = route.cursor_from_raw(exhausted.previous(), exhausted.current());
+    assert_eq!(restored, Some(exhausted));
+    exhausted.advance(&route);
+    assert_eq!((exhausted.previous(), exhausted.current()), (Some(2), Some(3)));
+
+    let mut empty = PathRoute::default();
+    let mut empty_cursor = empty.cursor_start();
+    empty.push(Vec3::X);
+    assert_eq!(empty.cursor_from_raw(None, None), Some(empty_cursor));
+    empty_cursor.advance(&empty);
+    assert_eq!((empty_cursor.previous(), empty_cursor.current()), (None, Some(0)));
+}
+
 fn open_grid(w: i32, h: i32) -> PathfindingGrid {
     PathfindingGrid::new(w as f32 * 10.0, h as f32 * 10.0, 10.0)
 }
@@ -1919,7 +1947,7 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
     inf.owner_player_id = Some(0);
     inf.selection_radius = 5.0;
     inf.movement.path = PathRoute::from_coords(vec![stand, path_end]);
-    inf.movement.current_path_index = 1;
+    inf.movement.path_cursor = inf.movement.path.cursor_at_ordinal(1);
     inf.do_final_position = true;
     inf.final_position = planted;
     let old_goal = g.update_ground_goal_cell(inf.id.0, inf.geometry_info().bounding_circle_radius(), false, (-1, -1), path_end);
@@ -1941,7 +1969,7 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
             .goal_unit,
         0
     );
-    objects.get_mut(&ObjectId(7)).unwrap().movement.path.clear();
+    objects.get_mut(&ObjectId(7)).unwrap().movement.clear_path();
     let actor = objects.get(&ObjectId(7)).unwrap();
     g.update_ground_goal_cell(actor.id.0, actor.geometry_info().bounding_circle_radius(), false, old_goal, actor.final_position);
     g.update_dynamic_obstacles(
@@ -2000,7 +2028,7 @@ fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
     let final_cell = g.cell_for_unit_position(planted, true);
     assert_eq!(g.goal_aircraft(path_cell), 8);
     assert_eq!(g.goal_aircraft(final_cell), 0);
-    objects.get_mut(&ObjectId(8)).unwrap().movement.path.clear();
+    objects.get_mut(&ObjectId(8)).unwrap().movement.clear_path();
     let actor = objects.get(&ObjectId(8)).unwrap();
     g.update_aircraft_goal_cell(actor.id.0, actor.geometry_info().bounding_circle_radius(), old_goal, 0, actor.final_position, true);
     g.update_dynamic_obstacles(

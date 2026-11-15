@@ -469,8 +469,7 @@ impl Object {
         self.target = None;
         self.set_status_attacking(false);
         self.set_status_moving(false);
-        self.movement.path.clear();
-        self.movement.current_path_index = 0;
+        self.movement.clear_path();
         self.movement.target_position = None;
         // Circling is a source class state; its read projection is Idle.
         let _ = audio;
@@ -896,8 +895,7 @@ impl Object {
             return false;
         }
         let Some(start) = self.jet_ai.takeoff_runway_start else {
-            return self.movement.path.is_empty()
-                || self.movement.current_path_index >= self.movement.path.len();
+            return self.movement.path_cursor.current().is_none();
         };
         let start = Vec3::new(start[0], start[1], start[2]);
         let pos = self.get_position();

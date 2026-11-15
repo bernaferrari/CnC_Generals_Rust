@@ -535,7 +535,7 @@ fn path_follow_owned_by_update_movement_single_step() {
         glam::Vec3::new(100.0, 0.0, 0.0),
         glam::Vec3::new(200.0, 0.0, 0.0),
     ]);
-    obj.movement.current_path_index = 1;
+    obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
     obj.movement.max_speed = 30.0; // world units / second
     // Reach max speed in one frame so distance ≈ max_speed * dt.
     obj.movement.acceleration = 10_000.0;
@@ -550,8 +550,9 @@ fn path_follow_owned_by_update_movement_single_step() {
         dist > 0.5 && dist < 2.5,
         "expected single-frame path step, got dist={dist} pos={after:?}"
     );
+    let movement = &logic.objects.get(&id).unwrap().movement;
     assert_eq!(
-        logic.objects.get(&id).unwrap().movement.current_path_index,
+        movement.path.cursor_ordinal(&movement.path_cursor),
         1,
         "should not skip waypoints in one frame"
     );

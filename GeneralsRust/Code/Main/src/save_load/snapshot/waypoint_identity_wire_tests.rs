@@ -72,6 +72,20 @@ fn malformed_waypoint_identity_rejects_before_any_live_ai_order_mutation() {
 }
 
 #[test]
+fn malformed_tail_path_cursor_rejects_before_live_mutation() {
+    let (mut source, id) = world();
+    source.host_object_mut(id).unwrap().movement.set_path_coords(vec![Vec3::ZERO, Vec3::X]);
+    let mut payload = current_tmai_payload(&source);
+    payload.orders_mut().previous.ai.orders[0].path_cursor_ordinal = 3;
+    let malformed = encode_tmai_owner(&payload);
+    let (mut receiver, receiver_id) = world();
+    assert_eq!(receiver_id, id);
+    receiver.host_object_mut(id).unwrap().requested_destination = Some(Vec3::Z);
+    assert!(apply_from_lifecycle_tail(&malformed, &mut receiver).is_err());
+    assert_eq!(receiver.host_object(id).unwrap().requested_destination, Some(Vec3::Z));
+}
+
+#[test]
 fn receiving_graph_missing_or_changed_waypoint_rejects_before_mutating_live_ai() {
     let (mut source, id) = world();
     source

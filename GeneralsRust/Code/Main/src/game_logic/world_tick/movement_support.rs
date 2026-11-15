@@ -122,7 +122,7 @@ impl GameLogic {
                     obj.movement.path = route;
                     accepted_goal = obj.movement.path.last().copied();
 
-                    obj.movement.current_path_index = 1; // skip start node
+                    obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1); // skip start node
                     obj.movement.target_position = Some(obj.movement.path[1]);
                     obj.is_attack_path = false;
                     obj.is_exact_path = false;
@@ -148,7 +148,7 @@ impl GameLogic {
                     obj.movement.path.set_node_layer(1, layer);
                     accepted_goal = Some(dest);
 
-                    obj.movement.current_path_index = 1;
+                    obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
                     obj.movement.target_position = Some(dest);
                     obj.is_attack_path = false;
                     obj.is_exact_path = false;
@@ -887,7 +887,7 @@ impl GameLogic {
                     }
                     obj.movement.path = path;
                     obj.set_locomotor_goal_position_on_path();
-                    obj.movement.current_path_index = 1;
+                    obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
                     obj.movement.target_position = Some(obj.movement.path[1]);
                     obj.is_attack_path = false;
                     obj.is_exact_path = false;
@@ -987,7 +987,6 @@ impl GameLogic {
                 continue;
             };
             obj.movement.clear_path();
-            obj.movement.current_path_index = 0;
             obj.movement.target_position = None;
             obj.waiting_for_path = true;
             obj.is_attack_path = false;
@@ -1553,7 +1552,7 @@ impl GameLogic {
                     let mut raw_goal_y: Option<f32> = None;
                     if angle_position_goal.is_none()
                         && !obj.movement.path.is_empty()
-                        && obj.movement.current_path_index < obj.movement.path.len()
+                        && obj.movement.path_cursor.current().is_some()
                     {
                         let current_pos = obj.get_position();
                         // C++ Path::computePointOnPath (AIPathfind.cpp:769-860)
@@ -1564,11 +1563,11 @@ impl GameLogic {
                         // node[i]; arrival is a separate final-goal check.
                         let advanced = Self::advance_path_index_by_projection(
                             &obj.movement.path,
-                            obj.movement.current_path_index,
+                            obj.movement.path_cursor,
                             current_pos,
                         );
-                        if advanced != obj.movement.current_path_index {
-                            obj.movement.current_path_index = advanced;
+                        if advanced != obj.movement.path_cursor {
+                            obj.movement.path_cursor = advanced;
                             obj.refresh_follow_path_extra_distance();
                             advanced_index_this_frame = true;
                         }
@@ -1577,14 +1576,14 @@ impl GameLogic {
                         // close-enough distance to the last node, with the C++
                         // ground sanity refusing to plant when 2D to it exceeds
                         // 4*PATHFIND_CELL_SIZE (AIStates.cpp:1887-1904).
-                        if obj.movement.current_path_index + 1 >= obj.movement.path.len() {
+                        if !obj.movement.has_next_path_node() {
                             let last = *obj.movement.path.last().unwrap();
                             let plant_ok =
                                 z_motive || horiz(current_pos, last) <= close_enough_sanity;
                             if obj.host_locomotor_distance_to_goal(current_pos, last) < close_enough
                                 && plant_ok
                             {
-                                obj.movement.current_path_index += 1;
+                                obj.movement.path_cursor.advance(&obj.movement.path);
                                 advanced_index_this_frame = true;
                                 obj.note_waypoint_path_arrival();
                                 let do_evac = obj.pending_evacuate_on_stop;
@@ -1619,7 +1618,6 @@ impl GameLogic {
                                     }
                                 } else if obj.holds_air_position_when_idle() {
                                     obj.movement.clear_path();
-                                    obj.movement.current_path_index = 0;
                                     obj.movement.target_position = None;
                                     obj.maintain_pos_valid = false;
                                     obj.can_path_through_units = false;
@@ -1653,7 +1651,6 @@ impl GameLogic {
                                     plant_goal = obj.movement.path.last().copied();
                                     if matches!(obj.ai_state(), AIState::AttackMoving) {
                                         obj.movement.clear_path();
-                                        obj.movement.current_path_index = 0;
                                         obj.movement.target_position = None;
                                         let crate_leg = obj.requested_victim_id.is_some_and(|id| {
                                             self.host_money_crates.get(id).is_some()
@@ -1770,11 +1767,7 @@ impl GameLogic {
                             let dx = flat_target.x - current_pos.x;
                             let dz = flat_target.z - current_pos.z;
                             if dx * dx + dz * dz < 1.0e-4 {
-                                if let Some(node) = obj
-                                    .movement
-                                    .path
-                                    .get(obj.movement.current_path_index)
-                                    .copied()
+                                if let Some(node) = obj.movement.current_path_position()
                                 {
                                     flat_target.x = node.x;
                                     flat_target.z = node.z;
@@ -1915,12 +1908,7 @@ impl GameLogic {
                                 // A blocked line-check returns the segment start,
                                 // whose Y is the unit. C++ dz uses goalPos.z
                                 // (Locomotor.cpp:1710), the path node.
-                                let climb_goal = obj
-                                    .movement
-                                    .path
-                                    .get(obj.movement.current_path_index)
-                                    .copied()
-                                    .unwrap_or(target_pos);
+                                let climb_goal = obj.movement.current_path_position().unwrap_or(target_pos);
                                 let backwards = obj.update_climber_flags(
                                     current_pos,
                                     climb_goal,
@@ -1949,10 +1937,10 @@ impl GameLogic {
                                 // FROM_CENTER_3D to last node (AIUpdate.cpp:2448-2456).
                                 let dest = obj.movement.path.last().copied().unwrap_or(target_pos);
                                 obj.host_locomotor_distance_to_goal(current_pos, dest)
-                            } else if obj.movement.path.get(obj.movement.current_path_index.saturating_sub(1)).is_some() {
+                            } else if obj.movement.path_cursor.previous().or(obj.movement.path_cursor.current()).is_some() {
                                 Object::route_distance(
                                     &obj.movement.path,
-                                    obj.movement.current_path_index.saturating_sub(1),
+                                    obj.movement.path_cursor.previous().or(obj.movement.path_cursor.current()),
                                     current_pos,
                                     airborne,
                                 )
@@ -2093,9 +2081,7 @@ impl GameLogic {
                                     && obj.host_locomotor_distance_to_goal(current_pos, target_pos)
                                         < close_enough;
                                 if reached_target {
-                                    let finishing = obj.movement.path.is_empty()
-                                        || obj.movement.current_path_index + 1
-                                            >= obj.movement.path.len();
+                                    let finishing = !obj.movement.has_next_path_node();
                                     if finishing {
                                         if let Some(last) = obj.movement.path.last().copied() {
                                             if !z_motive
@@ -2107,9 +2093,7 @@ impl GameLogic {
                                     }
                                 }
                                 if reached_target {
-                                    if obj.movement.path.is_empty()
-                                        || obj.movement.current_path_index + 1
-                                            >= obj.movement.path.len()
+                                    if !obj.movement.has_next_path_node()
                                     {
                                         obj.note_waypoint_path_arrival();
                                         if obj.needs_internal_move_arrival_observation() {
@@ -2144,7 +2128,6 @@ impl GameLogic {
                                             }
                                         } else if obj.holds_air_position_when_idle() {
                                             obj.movement.clear_path();
-                                            obj.movement.current_path_index = 0;
                                             obj.movement.target_position = None;
                                             obj.maintain_pos_valid = false;
                                             obj.can_path_through_units = false;
@@ -2185,7 +2168,6 @@ impl GameLogic {
                                             plant_goal = obj.movement.path.last().copied();
                                             if matches!(obj.ai_state(), AIState::AttackMoving) {
                                                 obj.movement.clear_path();
-                                                obj.movement.current_path_index = 0;
                                                 obj.movement.target_position = None;
                                                 let crate_leg =
                                                     obj.requested_victim_id.is_some_and(|id| {
@@ -2234,10 +2216,9 @@ impl GameLogic {
                                             }
                                         }
                                     } else {
-                                        obj.movement.current_path_index += 1;
+                                        obj.movement.path_cursor.advance(&obj.movement.path);
                                         obj.refresh_follow_path_extra_distance();
-                                        let mut next =
-                                            obj.movement.path[obj.movement.current_path_index];
+                                        let mut next = obj.movement.current_path_position().expect("next path node");
                                         if !keep_goal_y {
                                             next.y = obj.get_position().y;
                                         }
@@ -2632,9 +2613,7 @@ impl GameLogic {
                                 && obj.host_locomotor_distance_to_goal(current_pos, target_pos)
                                     < close_enough;
                             if reached_target {
-                                let finishing = obj.movement.path.is_empty()
-                                    || obj.movement.current_path_index + 1
-                                        >= obj.movement.path.len();
+                                let finishing = !obj.movement.has_next_path_node();
                                 if finishing {
                                     if let Some(last) = obj.movement.path.last().copied() {
                                         if !z_motive
@@ -2789,9 +2768,7 @@ impl GameLogic {
                             if reached_target {
                                 // Only stop when there is no further path waypoint.
                                 // Mid-path "reached" is handled by index advance above.
-                                if obj.movement.path.is_empty()
-                                    || obj.movement.current_path_index + 1
-                                        >= obj.movement.path.len()
+                                if !obj.movement.has_next_path_node()
                                 {
                                     obj.note_waypoint_path_arrival();
                                     if obj.needs_internal_move_arrival_observation() {
@@ -2874,7 +2851,6 @@ impl GameLogic {
                                         plant_goal = obj.movement.path.last().copied();
                                         if matches!(obj.ai_state(), AIState::AttackMoving) {
                                             obj.movement.clear_path();
-                                            obj.movement.current_path_index = 0;
                                             obj.movement.target_position = None;
                                             let crate_leg =
                                                 obj.requested_victim_id.is_some_and(|id| {
@@ -2927,16 +2903,17 @@ impl GameLogic {
                                     // top-of-loop; reaching the lead's vicinity
                                     // counts as at least the current node.
                                     let reached_pos = obj.get_position();
-                                    obj.movement.current_path_index =
-                                        Self::advance_path_index_by_projection(
-                                            &obj.movement.path,
-                                            obj.movement.current_path_index,
-                                            reached_pos,
-                                        )
-                                        .max(obj.movement.current_path_index + 1);
+                                    let before = obj.movement.path_cursor;
+                                    obj.movement.path_cursor = Self::advance_path_index_by_projection(
+                                        &obj.movement.path,
+                                        before,
+                                        reached_pos,
+                                    );
+                                    if obj.movement.path_cursor == before {
+                                        obj.movement.path_cursor.advance(&obj.movement.path);
+                                    }
                                     obj.refresh_follow_path_extra_distance();
-                                    let mut next =
-                                        obj.movement.path[obj.movement.current_path_index];
+                                    let mut next = obj.movement.current_path_position().expect("next path node");
                                     if !keep_goal_y {
                                         next.y = obj.get_position().y;
                                     }
@@ -3018,9 +2995,7 @@ impl GameLogic {
                                     obj.ai_state(),
                                     AIState::Moving | AIState::AttackMoving
                                 ) || obj.has_temporary_ai_move())
-                                && (obj.movement.path.is_empty()
-                                    || obj.movement.current_path_index + 1
-                                        >= obj.movement.path.len())
+                                && !obj.movement.has_next_path_node()
                             {
                                 obj.note_waypoint_path_arrival();
                                 if obj.holds_air_position_when_idle() {
@@ -3048,7 +3023,6 @@ impl GameLogic {
                                     plant_goal = obj.movement.path.last().copied();
                                     if matches!(obj.ai_state(), AIState::AttackMoving) {
                                         obj.movement.clear_path();
-                                        obj.movement.current_path_index = 0;
                                         obj.movement.target_position = None;
                                         let crate_leg = obj.requested_victim_id.is_some_and(|id| {
                                             self.host_money_crates.get(id).is_some()
@@ -3247,17 +3221,17 @@ impl GameLogic {
     /// (pathfinding/system_routes.rs; C++ AIPathfind.cpp:769-851). Returns the
     /// closest segment's start-node index and clamped projection parameter so
     /// the waypoint advance and the lead-point computation agree.
-    fn closest_segment_projection(pos: Vec3, path: &crate::game_logic::pathfinding::PathRoute, start: usize) -> (usize, f32, usize) {
+    fn closest_segment_projection(pos: Vec3, path: &crate::game_logic::pathfinding::PathRoute, start: Option<usize>) -> (Option<usize>, f32) {
         let mut best_d2 = f32::MAX;
-        let mut best_seg = 0usize;
+        let mut best_seg = None;
         let mut best_t = 0.0f32;
-        let mut segment_count = 0;
-        let mut positions = path.iter().skip(start);
-        let Some(mut a) = positions.next() else {
-            return (best_seg, best_t, segment_count);
+        let mut positions = path.iter_from_raw(start);
+        let Some((mut a_index, first)) = positions.next() else {
+            return (best_seg, best_t);
         };
-        for (i, b) in positions.enumerate() {
-            segment_count += 1;
+        let mut a = &first.position;
+        for (b_index, node) in positions {
+            let b = &node.position;
             let sx = b.x - a.x;
             let sz = b.z - a.z;
             let len_sqr = sx * sx + sz * sz;
@@ -3275,29 +3249,32 @@ impl GameLogic {
             let d2 = dx * dx + dz * dz;
             if d2 < best_d2 {
                 best_d2 = d2;
-                best_seg = i;
+                best_seg = Some(a_index);
                 best_t = t;
             }
             a = b;
+            a_index = b_index;
         }
-        (best_seg, best_t, segment_count)
+        (best_seg, best_t)
     }
 
     /// C++ tracks the path by closest segment with forward projection
     /// (AIPathfind.cpp:769-860): intermediate nodes have no arrival radius —
     /// only the final goal uses closeEnoughDist (AIStates.cpp:1885-1904).
-    /// Returns the first node index whose projection the unit has not passed.
-    /// node[i] counts as passed when the closest segment starts at i or later,
-    /// or is the segment ending at i with t clamped at 1.0.
-    fn advance_path_index_by_projection(path: &crate::game_logic::pathfinding::PathRoute, current: usize, pos: Vec3) -> usize {
-        let start = current.saturating_sub(1);
-        let (best_seg, best_t, segment_count) = Self::closest_segment_projection(pos, path, start);
-        let last = start + segment_count;
-        if current >= last {
-            return current;
+    fn advance_path_index_by_projection(path: &crate::game_logic::pathfinding::PathRoute, mut cursor: crate::game_logic::pathfinding::PathCursor, pos: Vec3) -> crate::game_logic::pathfinding::PathCursor {
+        let start = cursor.previous().or(cursor.current());
+        let (best_seg, best_t) = Self::closest_segment_projection(pos, path, start);
+        let Some(segment) = best_seg else { return cursor };
+        let Some(next) = path.node(segment).and_then(|n| n.next_optimized) else { return cursor };
+        let target = if best_t >= 1.0 {
+            path.node(next).and_then(|n| n.next_optimized).unwrap_or(next)
+        } else {
+            next
+        };
+        while cursor.current().is_some_and(|i| i < target) {
+            cursor.advance(path);
         }
-        let segment_start = start + best_seg;
-        current.max((segment_start + 1 + usize::from(best_t >= 1.0)).min(last))
+        cursor
     }
     /// C++ `Pathfinder::updateGoal` on path acceptance. Last node, not the click.
     /// Prefer the installed PathNode layer (AIStates.cpp:1783 getLastNode()->getLayer).

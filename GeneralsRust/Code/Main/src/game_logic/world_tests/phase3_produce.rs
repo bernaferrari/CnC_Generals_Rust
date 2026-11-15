@@ -818,7 +818,7 @@ fn completed_production_preserves_factory_identity_exit_facing_and_rally() {
         unit.movement.target_position,
         unit.movement
             .path
-            .get(unit.movement.current_path_index)
+            .get(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor))
             .copied(),
         "active exit target must remain the current path node"
     );

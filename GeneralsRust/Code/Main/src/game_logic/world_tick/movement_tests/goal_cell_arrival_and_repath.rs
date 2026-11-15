@@ -136,7 +136,7 @@ fn moving_unit_already_on_goal_finishes_once() {
     unit.set_position(Vec3::ZERO);
     // C++ InternalMoveToState requires an installed Path, even at its goal.
     unit.movement.set_path_coords(vec![Vec3::ZERO, Vec3::ZERO]);
-    unit.movement.current_path_index = 1;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);
     unit.movement.target_position = Some(Vec3::ZERO);
     unit.set_locomotor_goal_position_on_path();
     unit.set_status_moving(true);
@@ -401,7 +401,7 @@ fn fast_repath_waits_one_logic_second() {
     assert!(!unit.is_blocked);
     assert!(!unit.is_blocked_and_stuck);
     assert_eq!(unit.movement.path.len(), 2);
-    unit.movement.path.clear();
+    unit.movement.clear_path();
     unit.is_blocked_and_stuck = true;
     unit.is_blocked = true;
     unit.num_frames_blocked = 8;
@@ -463,7 +463,7 @@ fn flying_non_aircraft_gets_a_two_node_quick_path() {
     assert_eq!(jet.movement.path.last().copied(), Some(jet_dest));
     {
         let jet = logic.objects.get_mut(&jet_id).expect("jet");
-        jet.movement.current_path_index = 1;
+        jet.movement.path_cursor = jet.movement.path.cursor_at_ordinal(1);
         jet.num_frames_blocked = 4;
         jet.is_blocked_and_stuck = true;
     }
@@ -477,7 +477,7 @@ fn flying_non_aircraft_gets_a_two_node_quick_path() {
         .clone();
     assert!(logic.assign_unit_path(jet_id, jet_dest, &[]));
     let jet = logic.objects.get(&jet_id).expect("jet");
-    assert_eq!(jet.movement.current_path_index, 1);
+    assert_eq!(jet.movement.path.cursor_ordinal(&jet.movement.path_cursor), 1);
     assert_eq!(jet.path_timestamp, stamp);
     assert_eq!(jet.num_frames_blocked, 4);
     assert!(jet.is_blocked_and_stuck);
@@ -835,7 +835,7 @@ fn arrival_clears_locomotor_goal_only_when_adjusting() {
     keep.set_position(here);
     keep.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     keep.movement.set_path_coords(vec![Vec3::ZERO, here]);
-    keep.movement.current_path_index = 1;
+    keep.movement.path_cursor = keep.movement.path.cursor_at_ordinal(1);
     keep.set_status_parachuting(true);
     keep.is_final_goal = true;
     keep.set_locomotor_goal_position_explicit(explicit);
@@ -857,7 +857,7 @@ fn arrival_clears_locomotor_goal_only_when_adjusting() {
     clear.set_position(here);
     clear.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     clear.movement.set_path_coords(vec![Vec3::ZERO, here]);
-    clear.movement.current_path_index = 1;
+    clear.movement.path_cursor = clear.movement.path.cursor_at_ordinal(1);
     clear.is_final_goal = false;
     clear.set_locomotor_goal_position_explicit(explicit);
     logic.objects.insert(ObjectId(9727), clear);
@@ -884,7 +884,7 @@ fn zero_delta_arrival_keeps_goal_unless_adjusting() {
     keep.set_position(here);
     keep.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
     keep.movement.set_path_coords(vec![Vec3::ZERO, here]);
-    keep.movement.current_path_index = 1;
+    keep.movement.path_cursor = keep.movement.path.cursor_at_ordinal(1);
     keep.is_final_goal = false;
     keep.set_adjust_destinations(false);
     keep.set_locomotor_goal_position_explicit(explicit);
@@ -904,7 +904,7 @@ fn zero_delta_arrival_keeps_goal_unless_adjusting() {
     clear.movement.max_speed = 20.0;
     clear.set_position(here);
     clear.set_ai_state(AIState::Moving, logic.frame, &mut ObjectAudio::record(&mut Vec::new()));
-    clear.movement.path.clear();
+    clear.movement.clear_path();
     clear.movement.target_position = Some(here);
     clear.set_status_parachuting(true);
     clear.is_final_goal = true;

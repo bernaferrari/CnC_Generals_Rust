@@ -20,13 +20,13 @@ fn immediate_move_records_with_the_object_owner_and_preserves_force_inputs() {
     let object = first.host_object_mut(id).unwrap();
     object.movement.velocity = velocity;
     object.movement.set_path_coords(path.clone());
-    object.movement.current_path_index = 1;
+    object.movement.path_cursor = object.movement.path.cursor_at_ordinal(1);
     let goal = glam::Vec3::new(11.0, 12.0, 13.0);
     assert!(first.move_object_to(id, goal));
     let object = first.host_object(id).unwrap();
     assert_eq!(object.movement.velocity, velocity);
     assert_eq!(object.movement.path.coords(), path);
-    assert_eq!(object.movement.current_path_index, 1);
+    assert_eq!(object.movement.path.cursor_ordinal(&object.movement.path_cursor), 1);
     assert_eq!(object.movement.target_position, Some(goal));
     assert!(object.status.moving);
     let receipts = first.movement_events.snapshot_pending().to_vec();

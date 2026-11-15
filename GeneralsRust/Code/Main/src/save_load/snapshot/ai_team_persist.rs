@@ -52,7 +52,8 @@ struct PendingPathPersist {
 struct ObjectAiOrderPersist {
     object_id: u32,
     path: Vec<[f32; 3]>,
-    current_path_index: u32,
+    /// Ordinal in this flattened remaining-only TMAI path, not a raw route index.
+    path_cursor_ordinal: u32,
     target_position: Option<[f32; 3]>,
     requested_destination: Option<[f32; 3]>,
     requested_victim_id: u32,
@@ -470,6 +471,9 @@ pub(super) fn prepare_from_lifecycle_tail(
                 "invalid TMAI v12 order receiver/duplicate".into(),
             ));
         }
+        if order.path_cursor_ordinal as usize > order.path.len() {
+            return Err(SaveLoadError::Corrupted("invalid TMAI path cursor".into()));
+        }
     }
     let mut seen = std::collections::HashSet::new();
     for row in &current.waypoints {
@@ -829,7 +833,7 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
         orders.push(ObjectAiOrderPersist {
             object_id: id.0,
             path: remaining.iter().map(vec3_to_arr).collect(),
-            current_path_index: 0,
+            path_cursor_ordinal: 0,
             target_position: object.movement.target_position.as_ref().map(vec3_to_arr),
             requested_destination: object.requested_destination.as_ref().map(vec3_to_arr),
             requested_victim_id: object.requested_victim_id.map(|v| v.0).unwrap_or(0),
@@ -901,7 +905,7 @@ fn apply_payload(
             let path: Vec<Vec3> = order.path.iter().copied().map(arr_to_vec3).collect();
             if !path.is_empty() {
                 object.movement.path = crate::game_logic::pathfinding::PathRoute::from_coords(path);
-                object.movement.current_path_index = order.current_path_index as usize;
+                object.movement.path_cursor = object.movement.path.cursor_at_ordinal(order.path_cursor_ordinal as usize);
             }
             if let Some(pos) = order.target_position {
                 object.movement.target_position = Some(arr_to_vec3(pos));
@@ -960,11 +964,9 @@ fn apply_payload(
 }
 
 fn remaining_path(object: &crate::game_logic::Object) -> Vec<Vec3> {
-    let idx = object
-        .movement
-        .current_path_index
-        .min(object.movement.path.len());
-    object.movement.path.iter().skip(idx).copied().collect()
+    object.movement.path.iter_from_raw(object.movement.path_cursor.current())
+        .map(|(_, node)| node.position)
+        .collect()
 }
 
 fn persist_pending_path(req: &PendingHostPath) -> PendingPathPersist {
@@ -1155,7 +1157,7 @@ mod tests {
                     PathRouteNode { position: remaining[1], layer: None, can_optimize: true, next_optimized: Some(4) },
                     PathRouteNode { position: remaining[2], layer: Some(2), can_optimize: false, next_optimized: None },
                 ], true).unwrap();
-            obj.movement.current_path_index = 1;
+            obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
             obj.movement.target_position = Some(remaining[0]);
             obj.requested_destination = Some(*remaining.last().unwrap());
             obj.pending_waypoint_labels = vec!["HeroPath".into()];
@@ -1193,12 +1195,18 @@ mod tests {
         let original_route = &source.host_object(id).unwrap().movement.path;
         assert_eq!(&decoded.objects[&id].movement.path, original_route);
         assert_eq!(&binary.objects[&id].movement.path, original_route);
+        let original_cursor = source.host_object(id).unwrap().movement.path_cursor;
+        assert_eq!(decoded.objects[&id].movement.path_cursor, original_cursor);
+        assert_eq!(binary.objects[&id].movement.path_cursor, original_cursor);
         assert_eq!(decoded.objects[&id].movement.path.len(), 4);
         assert_eq!(binary.objects[&id].movement.path.len(), 4);
         assert_eq!(
             decoded.objects[&id].movement.path.raw_predecessor(1).map(|node| node.position),
             Some(Vec3::new(10.0, 0.0, 0.0))
         );
+        let mut binary_restored = ranger_logic();
+        builder.restore_from_snapshot(&binary, &mut binary_restored).expect("binary restore");
+        assert_eq!(binary_restored.host_object(id).unwrap().movement.path_cursor, original_cursor);
 
         let mut restored = ranger_logic();
         builder
@@ -1210,10 +1218,7 @@ mod tests {
         // must not replace it during a complete-world restore.
         let original = source.host_object(id).expect("source ranger");
         assert_eq!(loaded.movement.path, original.movement.path);
-        assert_eq!(
-            loaded.movement.current_path_index,
-            original.movement.current_path_index
-        );
+        assert_eq!(loaded.movement.path_cursor, original.movement.path_cursor);
         assert_eq!(
             loaded.movement.target_position,
             original.movement.target_position
@@ -1236,7 +1241,7 @@ mod tests {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             frame,
         );
-        assert_eq!(loaded.movement.current_path_index, 2);
+        assert_eq!(loaded.movement.path_cursor.current(), Some(3));
         assert_eq!(loaded.movement.target_position, Some(remaining[1]));
     }
 
@@ -1254,6 +1259,8 @@ mod tests {
                 Vec3::new(2345.5, 0.0, 0.0),
                 Vec3::new(3456.5, 0.0, 0.0),
             ]);
+        let movement = &mut source.host_object_mut(id).unwrap().movement;
+        movement.path_cursor = movement.path.cursor_start();
         let builder = SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).unwrap();
         let route = &snapshot.objects[&id].movement.path;
@@ -1290,6 +1297,45 @@ mod tests {
         truncated_chain[link - 1] = 0; // first node has no optimized successor
         let mut loaded = crate::game_logic::Movement::default();
         assert!(loaded.xfer(&mut XferLoad::new(Cursor::new(truncated_chain))).is_err());
+    }
+
+    #[test]
+    fn invalid_raw_cursor_rejects_world_before_receiver_mutation() {
+        use crate::game_logic::pathfinding::{PathRoute, PathRouteNode};
+        use crate::save_load::{Snapshot, XferSave};
+        let mut source = ranger_logic();
+        let id = source.create_object("Ranger", Team::USA, Vec3::ZERO).unwrap();
+        let object = source.host_object_mut(id).unwrap();
+        object.movement.path = PathRoute::from_nodes(vec![
+            PathRouteNode { position: Vec3::ZERO, layer: None, can_optimize: false, next_optimized: Some(2) },
+            PathRouteNode { position: Vec3::X, layer: None, can_optimize: true, next_optimized: Some(2) },
+            PathRouteNode { position: Vec3::Y, layer: None, can_optimize: false, next_optimized: Some(3) },
+            PathRouteNode { position: Vec3::Z, layer: None, can_optimize: false, next_optimized: None },
+        ], false).unwrap();
+        object.movement.path_cursor = object.movement.path.cursor_start();
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let valid_wire = bincode_legacy::serialize(&snapshot).unwrap();
+        let flat = PathRoute::from_coords(vec![Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::Z]);
+        // Raw node 1 was skipped; raw node 2 with predecessor 1 is nonadjacent.
+        for ordinal in [1, 2] {
+            let mut malformed: crate::save_load::WorldSnapshot = bincode_legacy::deserialize(&valid_wire).unwrap();
+            malformed.objects.get_mut(&id).unwrap().movement.path_cursor = flat.cursor_at_ordinal(ordinal);
+            let bytes = bincode_legacy::serialize(&malformed).unwrap();
+            assert!(super::super::decode_bincode_world_snapshot(&bytes).is_err());
+            let mut direct = std::io::Cursor::new(Vec::new());
+            assert!(malformed.xfer(&mut XferSave::new(&mut direct)).is_err());
+            assert!(direct.into_inner().is_empty());
+
+            let mut receiver = ranger_logic();
+            let receiver_id = receiver.create_object("Ranger", Team::USA, Vec3::ZERO).unwrap();
+            assert_eq!(id, receiver_id);
+            receiver.host_object_mut(id).unwrap().requested_destination = Some(Vec3::splat(77.0));
+            let frame = receiver.frame;
+            assert!(builder.restore_from_snapshot(&malformed, &mut receiver).is_err());
+            assert_eq!(receiver.frame, frame);
+            assert_eq!(receiver.host_object(id).unwrap().requested_destination, Some(Vec3::splat(77.0)));
+        }
     }
 
     #[test]

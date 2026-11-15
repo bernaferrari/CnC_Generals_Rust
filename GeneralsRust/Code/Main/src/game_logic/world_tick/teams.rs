@@ -2388,7 +2388,7 @@ mod tests {
             unit.movement.target_position,
             unit.movement
                 .path
-                .get(unit.movement.current_path_index)
+                .get(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor))
                 .copied()
         );
         assert!(
@@ -2418,7 +2418,7 @@ mod tests {
             unit.movement.target_position,
             unit.movement
                 .path
-                .get(unit.movement.current_path_index)
+                .get(unit.movement.path.cursor_ordinal(&unit.movement.path_cursor))
                 .copied()
         );
         assert!(

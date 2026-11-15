@@ -568,7 +568,7 @@ fn sync_from_host_copies_entity_path_waypoints_residual() {
             glam::Vec3::new(2.0, 0.0, 2.0),
             glam::Vec3::new(3.0, 0.0, 3.0),
         ]);
-        obj.movement.current_path_index = 1;
+        obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
         obj.secondary_weapon = Some(Weapon {
             damage: 8.0,
             range: 90.0,
@@ -851,7 +851,7 @@ fn sync_from_host_copies_entity_weapon_move_residual() {
             glam::Vec3::new(0.0, 0.0, 0.0),
             glam::Vec3::new(10.0, 0.0, 10.0),
         ]);
-        obj.movement.current_path_index = 1;
+        obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

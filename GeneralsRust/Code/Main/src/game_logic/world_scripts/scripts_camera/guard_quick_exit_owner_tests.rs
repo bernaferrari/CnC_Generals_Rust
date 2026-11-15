@@ -40,7 +40,7 @@ fn observe(owner: &GameLogic, id: ObjectId) -> Observation {
         position: unit.get_position(),
         velocity: unit.movement.velocity,
         path: unit.movement.path.coords(),
-        index: unit.movement.current_path_index,
+        index: unit.movement.path.cursor_ordinal(&unit.movement.path_cursor),
         destination: unit.requested_destination,
         path_goal: unit.path_goal_position,
         moving: unit.status.moving,
@@ -85,7 +85,7 @@ fn overlay(owner: &mut GameLogic, id: ObjectId, until: u32, distance: f32) -> Ve
     let end = unit.get_position() + Vec3::new(distance, 0.0, 0.0);
     // Same explicit path/deadline admission as the real tunnel producer.
     unit.movement.set_path_coords(vec![end, end]);
-    unit.movement.current_path_index = 0;
+    unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(0);
     unit.movement.target_position = Some(end);
     unit.movement.velocity = Vec3::ZERO;
     unit.requested_destination = Some(end);

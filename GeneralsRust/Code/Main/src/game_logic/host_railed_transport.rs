@@ -125,8 +125,8 @@ impl GameLogic {
             return false;
         };
         unit.waiting_for_path = false;
-        unit.movement.current_path_index = 0;
         unit.movement.path = route;
+        unit.movement.path_cursor = unit.movement.path.cursor_start();
         unit.movement.target_position = unit.movement.path.first().copied();
         unit.is_exact_path = true;
         unit.is_attack_path = false;
@@ -259,8 +259,7 @@ impl GameLogic {
                     obj.railed_in_transit,
                     obj.get_position(),
                     matches!(obj.ai_state(), AIState::Idle)
-                        || obj.movement.path.is_empty()
-                        || obj.movement.current_path_index >= obj.movement.path.len(),
+                        || obj.movement.path_cursor.current().is_none(),
                 )
             };
             let (loaded, paths) = self.ensure_railed_waypoint_data(&prefix, loaded, &paths);

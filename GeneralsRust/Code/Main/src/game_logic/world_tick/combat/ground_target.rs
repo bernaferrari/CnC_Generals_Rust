@@ -142,7 +142,7 @@ impl GameLogic {
                     || attacker.movement.velocity.x != 0.0
                     || attacker.movement.velocity.z != 0.0)
                 {
-                    attacker.movement.path.clear();
+                    attacker.movement.clear_path();
                     attacker.movement.target_position = None;
                     attacker.movement.velocity.x = 0.0;
                     attacker.movement.velocity.z = 0.0;
@@ -453,7 +453,7 @@ impl GameLogic {
                         dx * dx + dz * dz > 0.25
                     });
                     if stale {
-                        attacker.movement.path.clear();
+                        attacker.movement.clear_path();
                         attacker.movement.target_position = None;
                     }
                     attacker.set_status_moving(true);

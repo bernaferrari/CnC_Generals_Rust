@@ -47,8 +47,9 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// roster and preserves its update cadence. Older bodies are rejected.
 /// Version46 adds authoritative Weapon integer deadlines in an object tail.
 /// Version47 saves raw Movement path nodes and their optimized links.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 47;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 47;
+/// Version48 stores both raw cursor pointers instead of an optimized ordinal.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 48;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 48;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 
@@ -92,9 +93,22 @@ pub(crate) fn validate_path_links(path: &PathRoute) -> SaveLoadResult<()> {
     Ok(())
 }
 
+pub(crate) fn validate_movement_path(movement: &Movement) -> SaveLoadResult<()> {
+    validate_path_links(&movement.path)?;
+    if movement.path.cursor_from_raw(
+        movement.path_cursor.previous(),
+        movement.path_cursor.current(),
+    ).is_none() {
+        return Err(crate::save_load::SaveLoadError::Corrupted(
+            "invalid movement path cursor".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_world_path_links(snapshot: &WorldSnapshot) -> SaveLoadResult<()> {
     for object in snapshot.objects.values() {
-        validate_path_links(&object.movement.path)?;
+        validate_movement_path(&object.movement)?;
     }
     Ok(())
 }

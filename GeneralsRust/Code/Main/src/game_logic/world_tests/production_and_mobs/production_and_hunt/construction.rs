@@ -344,7 +344,7 @@ fn arrived_moving_dozer_builds_at_the_dock() {
             ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        obj.movement.path.clear();
+        obj.movement.clear_path();
         obj.waiting_for_path = false;
     }
     logic.update_construction(&[pad_id], 1.0);
@@ -410,7 +410,7 @@ fn simulation_step_builds_when_dozer_is_at_the_pad() {
             ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        obj.movement.path.clear();
+        obj.movement.clear_path();
         obj.waiting_for_path = false;
     }
     for _ in 0..30 {
@@ -480,7 +480,7 @@ fn simulation_step_finishes_a_short_build() {
             ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        obj.movement.path.clear();
+        obj.movement.clear_path();
         obj.waiting_for_path = false;
     }
     let mut at_finish: Option<Vec3> = None;
@@ -578,7 +578,7 @@ fn owned_construction_completion_walks_the_dozer_off_the_pad() {
             ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        obj.movement.path.clear();
+        obj.movement.clear_path();
         obj.waiting_for_path = false;
     }
 

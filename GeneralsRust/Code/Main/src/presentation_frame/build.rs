@@ -653,7 +653,7 @@ impl PresentationFrame {
                 attack_target: auth_target,
                 path_waypoints: obj.movement.path.iter().copied().take(16).collect(),
                 path_len: obj.movement.path.len().min(u16::MAX as usize) as u16,
-                path_index: obj.movement.current_path_index.min(u16::MAX as usize) as u16,
+                path_index: obj.movement.path.cursor_ordinal(&obj.movement.path_cursor).min(u16::MAX as usize) as u16,
                 occupant_count: if garrison_hide_from_local {
                     0
                 } else {

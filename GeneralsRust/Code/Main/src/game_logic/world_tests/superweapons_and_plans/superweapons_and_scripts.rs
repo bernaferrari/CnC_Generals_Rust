@@ -1466,7 +1466,7 @@ fn queue_factory_exit_follows_snapped_production_path() {
             unit.ai_state().clone(),
             unit.movement.target_position,
             unit.movement.path.clone(),
-            unit.movement.current_path_index,
+            unit.movement.path.cursor_ordinal(&unit.movement.path_cursor),
             unit.path_extra_distance,
         )
     };
@@ -1593,7 +1593,7 @@ fn queue_exit_with_a_rally_keeps_the_next_segment() {
     );
     let unit = logic.host_object(uid).expect("unit");
     assert!(!unit.is_exact_path, "exit production is AIFollowPathState");
-    let index = unit.movement.current_path_index;
+    let index = unit.movement.path.cursor_ordinal(&unit.movement.path_cursor);
     let path = unit.movement.path.clone();
     let extra = unit.path_extra_distance;
     assert!(

@@ -48,8 +48,7 @@ impl GameLogic {
                     // before AIUpdate consumes movementComplete. Preserve the
                     // previous adapter behavior for unmigrated base states.
                     if !owned_guard {
-                        u.movement.path.clear();
-                        u.movement.current_path_index = 0;
+                        u.movement.clear_path();
                         u.movement.target_position = None;
                     }
                     u.can_path_through_units = false;
@@ -91,8 +90,7 @@ impl GameLogic {
         }
         self.apply_arrival_goal_snap(object_id, None);
         if let Some(unit) = self.objects.get_mut(&object_id) {
-            unit.movement.path.clear();
-            unit.movement.current_path_index = 0;
+            unit.movement.clear_path();
             unit.movement.target_position = None;
             unit.waiting_for_path = false;
             unit.queue_for_path_frame = 0;
