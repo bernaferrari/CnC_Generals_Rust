@@ -1038,20 +1038,51 @@ impl Engine {
         ensure_class_registry_initialized();
         let instance = Arc::new(wgpu::Instance::new(config.instance_descriptor()));
         let adapter = request_adapter(&instance, None, config.power_preference).await?;
+        let authority = DeviceAuthority::new();
+        let gpu_device = acquire_or_create_gpu_device(
+            &adapter,
+            config.features,
+            config.limits.clone(),
+            &authority,
+        )
+        .await?;
+        Ok(Self::assemble_headless(
+            config, instance, adapter, gpu_device, authority,
+        ))
+    }
+
+    /// Create a headless engine that renders on a host-owned device.
+    ///
+    /// Several engines (one per game instance) can share one [`HostGpu`]: each
+    /// keeps its own off-screen target, frame bookkeeping and device authority,
+    /// so a host can composite their targets without a CPU read-back.
+    pub fn new_headless_on(config: EngineConfig, host: &HostGpu) -> EngineResult<Self> {
+        ensure_class_registry_initialized();
+        let authority = DeviceAuthority::new();
+        authority
+            .adopt_device((*host.device).clone(), (*host.queue).clone())
+            .map_err(EngineError::Gpu)?;
+        let gpu_device = Arc::new(GpuDevice::from_shared(
+            Arc::clone(&host.device),
+            Arc::clone(&host.queue),
+        ));
+        Ok(Self::assemble_headless(
+            config,
+            Arc::clone(&host.instance),
+            host.adapter.clone(),
+            gpu_device,
+            authority,
+        ))
+    }
+
+    fn assemble_headless(
+        config: EngineConfig,
+        instance: Arc<wgpu::Instance>,
+        adapter: wgpu::Adapter,
+        gpu_device: Arc<GpuDevice>,
+        device_authority: DeviceAuthority,
+    ) -> Self {
         let adapter_info = adapter.get_info();
-
-        let (gpu_device, device_authority) = {
-            let authority = DeviceAuthority::new();
-            let gpu = acquire_or_create_gpu_device(
-                &adapter,
-                config.features,
-                config.limits.clone(),
-                &authority,
-            )
-            .await?;
-            (gpu, authority)
-        };
-
         let device = gpu_device.device_arc();
         let queue = gpu_device.queue_arc();
 
@@ -1072,7 +1103,7 @@ impl Engine {
 
         let now = Instant::now();
 
-        Ok(Self {
+        Self {
             #[cfg(target_arch = "wasm32")]
             _thread_local: std::marker::PhantomData,
             _instance: instance,
@@ -1101,7 +1132,16 @@ impl Engine {
             pending_screenshot_readbacks: Vec::new(),
             last_frame_stats: RenderFrameStats::default(),
             fixed_clock: None,
-        })
+        }
+    }
+
+    /// Single-sample color target of a headless engine (`None` when windowed
+    /// or multisampled). A host copies it out after a completed frame.
+    pub fn headless_color_texture(&self) -> Option<&wgpu::Texture> {
+        match &self.surface {
+            SurfaceMode::Headless(target) if target.sample_count == 1 => Some(&target.color),
+            _ => None,
+        }
     }
 
     /// Update all subsystems (should be called before begin_render each frame)
@@ -2367,6 +2407,46 @@ pub fn init_headless_blocking(config: EngineConfig) -> EngineResult<SharedEngine
 /// Initialise a headless engine. Caller owns the returned handle.
 pub async fn init_headless(config: EngineConfig) -> EngineResult<SharedEngine> {
     Ok(Engine::new_headless(config).await?.into_shared())
+}
+
+/// Initialise a headless engine on a host-owned device. Caller owns the handle.
+pub fn init_headless_on(config: EngineConfig, host: &HostGpu) -> EngineResult<SharedEngine> {
+    Ok(Engine::new_headless_on(config, host)?.into_shared())
+}
+
+/// One wgpu device owned by a host that runs several engines (for example a
+/// multi-instance viewer). Each engine adopts it through its own
+/// [`DeviceAuthority`]; there is no process-wide device slot.
+#[derive(Debug, Clone)]
+pub struct HostGpu {
+    pub instance: Arc<wgpu::Instance>,
+    pub adapter: wgpu::Adapter,
+    pub device: Arc<wgpu::Device>,
+    pub queue: Arc<wgpu::Queue>,
+}
+
+impl HostGpu {
+    /// Request a device with the same features and limits a headless engine
+    /// built from `config` would request for itself.
+    pub async fn request(config: &EngineConfig) -> EngineResult<Self> {
+        ensure_class_registry_initialized();
+        let instance = Arc::new(wgpu::Instance::new(config.instance_descriptor()));
+        let adapter = request_adapter(&instance, None, config.power_preference).await?;
+        let authority = DeviceAuthority::new();
+        let gpu = acquire_or_create_gpu_device(
+            &adapter,
+            config.features,
+            config.limits.clone(),
+            &authority,
+        )
+        .await?;
+        Ok(Self {
+            instance,
+            adapter,
+            device: gpu.device_arc(),
+            queue: gpu.queue_arc(),
+        })
+    }
 }
 
 /// Enumerate GPU adapters without a live engine instance.
