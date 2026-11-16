@@ -40,6 +40,28 @@ the game state itself. Gameplay fields live **on** those bags
    explicitly. The former raw live-client snapshot slot has been removed;
    this alone does not establish isolation of every presentation callback.
 
+## Application channels
+
+C++ creates `TheMessageStream`, `TheCommandList` and `TheFileSystem` once in
+`GameEngine::init` and never resets them per match. In Rust they live in
+`CommonServices::application` (`ApplicationChannels`). The application's boot
+bag creates the channels; every bag derived inside that application (each
+world's fresh Common bag, worker publications) shares the same `Arc`, so
+messages appended under one published bag are read under another exactly as
+with the C++ singleton, while a second game instance in the process has its
+own channels. GameClient-level singletons use `ApplicationChannels::extension`.
+
+## Multi-instance host
+
+`cnc_game_engine::multi_instance` (binary `generals_multi`) boots N complete
+`CnCGameEngine`s, one per thread. Each thread publishes its own
+`MainServices` / `CommonServices` scope for its whole life; the only shared
+object is one host-owned wgpu device that every engine adopts through its own
+`DeviceAuthority` (`ww3d_engine::HostGpu`, `Engine::new_headless_on`). Each
+engine renders into its own headless target, copies it into a grid tile on
+that device, and the host composites the tiles into one labelled window or an
+off-screen grid for PNG dumps.
+
 ## Budget gate
 
 `scripts/globals_baseline.json` records current ceilings, not a claim that

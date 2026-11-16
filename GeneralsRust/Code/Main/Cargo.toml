@@ -453,6 +453,10 @@ name = "golden_capture"
 path = "src/bin/golden_capture.rs"
 
 [[bin]]
+name = "generals_multi"
+path = "src/bin/generals_multi.rs"
+
+[[bin]]
 name = "lone_eagle_bench"
 path = "src/bin/lone_eagle_bench.rs"
 

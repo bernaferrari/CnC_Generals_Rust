@@ -1,0 +1,465 @@
+//! One game instance on its own thread: boot, scenario, frame loop, tile copy.
+
+use super::super::types::register_real_game_client_bootstrap;
+use super::super::{CnCGameEngine, StartupLoadState};
+use super::scenario::InstanceScenario;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+use winit::window::Window;
+
+/// C++ LOGICFRAMES_PER_SECOND = 30: one host update per logic interval, as
+/// the headless runtime host drives it.
+const LOGIC_INTERVAL: Duration = Duration::from_nanos(33_333_333);
+const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(5);
+/// Debug-depth recursion through map load and AI; matches the harness.
+const INSTANCE_THREAD_STACK: usize = 64 * 1024 * 1024;
+
+/// Lifecycle of one instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstancePhase {
+    Booting,
+    Running,
+    Failed(String),
+    Finished,
+}
+
+impl InstancePhase {
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Failed(_) | Self::Finished)
+    }
+}
+
+/// Snapshot an instance publishes for the host (labels, report, shots).
+#[derive(Debug, Clone)]
+pub struct InstanceStatus {
+    pub index: usize,
+    pub scenario: String,
+    pub map: String,
+    pub phase: InstancePhase,
+    /// `GameState` of the engine (`Menu`, `Loading`, `InGame`, ...).
+    pub state: String,
+    pub logic_frame: u32,
+    pub rendered_frames: u64,
+    /// Presents per wall second over the last sample window.
+    pub render_fps: f32,
+    /// Logic frames per wall second over the last sample window (30 = real time).
+    pub sim_rate: f32,
+    /// Mean host frame cost (update + render) in ms over the last window.
+    pub frame_ms: f32,
+    pub boot_secs: f32,
+    /// Runtime-host commands applied for the scenario.
+    pub commands: Vec<String>,
+}
+
+impl InstanceStatus {
+    fn new(index: usize, scenario: &InstanceScenario) -> Self {
+        Self {
+            index,
+            scenario: scenario.label(),
+            map: scenario.map_name().to_string(),
+            phase: InstancePhase::Booting,
+            state: "Booting".into(),
+            logic_frame: 0,
+            rendered_frames: 0,
+            render_fps: 0.0,
+            sim_rate: 0.0,
+            frame_ms: 0.0,
+            boot_secs: 0.0,
+            commands: Vec::new(),
+        }
+    }
+
+    /// Phase name for labels.
+    pub fn phase_name(&self) -> &str {
+        match &self.phase {
+            InstancePhase::Booting => "booting",
+            InstancePhase::Running => "running",
+            InstancePhase::Failed(_) => "FAILED",
+            InstancePhase::Finished => "finished",
+        }
+    }
+
+    pub fn one_line(&self) -> String {
+        let mut line = format!(
+            "{} state={} frame={} present={:.1}fps sim={:.1}f/s cost={:.1}ms boot={:.1}s presents={}",
+            self.phase_name(),
+            self.state,
+            self.logic_frame,
+            self.render_fps,
+            self.sim_rate,
+            self.frame_ms,
+            self.boot_secs,
+            self.rendered_frames
+        );
+        if let InstancePhase::Failed(reason) = &self.phase {
+            line.push_str(&format!(" error={reason}"));
+        }
+        line
+    }
+}
+
+/// Limits how many instances run their (I/O and memory heavy) boot at once.
+pub struct BootGate {
+    free: Mutex<usize>,
+    released: Condvar,
+}
+
+pub struct BootPermit<'a>(&'a BootGate);
+
+impl BootGate {
+    pub fn new(permits: usize) -> Self {
+        Self {
+            free: Mutex::new(permits),
+            released: Condvar::new(),
+        }
+    }
+
+    fn acquire(&self, stop: &AtomicBool) -> Option<BootPermit<'_>> {
+        let mut free = self.free.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if stop.load(Ordering::Relaxed) {
+                return None;
+            }
+            if *free > 0 {
+                *free -= 1;
+                return Some(BootPermit(self));
+            }
+            free = self
+                .released
+                .wait_timeout(free, Duration::from_millis(100))
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+    }
+}
+
+impl Drop for BootPermit<'_> {
+    fn drop(&mut self) {
+        *self.0.free.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        self.0.released.notify_one();
+    }
+}
+
+/// Everything an instance thread needs; moved onto the thread.
+pub struct InstanceSpawn {
+    pub index: usize,
+    pub scenario: InstanceScenario,
+    pub window: Arc<Window>,
+    pub gpu: ww3d_engine::HostGpu,
+    pub tile: wgpu::Texture,
+    pub userdata: PathBuf,
+    pub extra_args: Vec<String>,
+    pub present_interval: Duration,
+    pub runtime: Option<tokio::runtime::Handle>,
+    pub boot_gate: Arc<BootGate>,
+}
+
+struct Shared {
+    status: Mutex<InstanceStatus>,
+    stop: AtomicBool,
+}
+
+impl Shared {
+    fn update(&self, f: impl FnOnce(&mut InstanceStatus)) {
+        f(&mut self.status.lock().unwrap_or_else(|e| e.into_inner()));
+    }
+}
+
+/// Host-side handle of a running instance.
+pub struct InstanceHandle {
+    index: usize,
+    scenario: InstanceScenario,
+    shared: Arc<Shared>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl InstanceHandle {
+    pub fn spawn(spawn: InstanceSpawn) -> std::io::Result<Self> {
+        let index = spawn.index;
+        let scenario = spawn.scenario.clone();
+        let shared = Arc::new(Shared {
+            status: Mutex::new(InstanceStatus::new(index, &scenario)),
+            stop: AtomicBool::new(false),
+        });
+        let thread_shared = Arc::clone(&shared);
+        let thread = std::thread::Builder::new()
+            .name(format!("generals-instance-{index}"))
+            .stack_size(INSTANCE_THREAD_STACK)
+            .spawn(move || {
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_instance(spawn, &thread_shared)
+                }));
+                let phase = match outcome {
+                    Ok(Ok(())) => InstancePhase::Finished,
+                    Ok(Err(reason)) => InstancePhase::Failed(reason),
+                    Err(payload) => InstancePhase::Failed(format!(
+                        "panic: {}",
+                        payload
+                            .downcast_ref::<String>()
+                            .cloned()
+                            .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                            .unwrap_or_else(|| "<non-string panic>".into())
+                    )),
+                };
+                if let InstancePhase::Failed(reason) = &phase {
+                    log::error!("instance {index} failed: {reason}");
+                }
+                thread_shared.update(|s| s.phase = phase);
+            })?;
+        Ok(Self {
+            index,
+            scenario,
+            shared,
+            thread: Some(thread),
+        })
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    pub fn scenario(&self) -> &InstanceScenario {
+        &self.scenario
+    }
+
+    pub fn status(&self) -> InstanceStatus {
+        self.shared
+            .status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    pub fn request_stop(&self) {
+        self.shared.stop.store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.thread.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+
+    pub fn join(mut self) -> InstanceStatus {
+        self.request_stop();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        self.status()
+    }
+}
+
+fn retail_assets_dir() -> Option<PathBuf> {
+    ["GENERALS_ASSETS_DIR", "GENERALS_RETAIL_DIR"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from)
+        .find(|root| root.is_dir())
+}
+
+/// Engine command line of one instance: the headless runtime host the
+/// golden capture uses, with a private user-data root.
+fn instance_argv(spawn: &InstanceSpawn) -> Vec<String> {
+    let size = spawn.tile.size();
+    let (w, h) = (size.width, size.height);
+    let mut argv = vec![
+        "generals".to_string(),
+        "-runtime_host=headless".to_string(),
+        "-runtime_host_private_profile=1".to_string(),
+        "-windowed".to_string(),
+        format!("-width={w}"),
+        format!("-height={h}"),
+        "-nologo".to_string(),
+        "-nointro".to_string(),
+        format!("-userdata={}", spawn.userdata.display()),
+    ];
+    argv.extend(spawn.extra_args.iter().cloned());
+    argv
+}
+
+fn run_instance(spawn: InstanceSpawn, shared: &Shared) -> Result<(), String> {
+    let _runtime = spawn.runtime.as_ref().map(tokio::runtime::Handle::enter);
+    // This thread's own service bags; nothing published here is visible to
+    // any other instance (docs/instance_binding.md, rule 2).
+    let _main_services = crate::main_services::MainServicesScope::new();
+    let _common_services = game_engine::common::common_services::CommonServicesScope::new();
+    game_engine::common::system::game_memory::init_memory_manager();
+    crate::localization::init("English");
+    register_real_game_client_bootstrap();
+
+    std::fs::create_dir_all(&spawn.userdata)
+        .map_err(|e| format!("userdata {}: {e}", spawn.userdata.display()))?;
+    let args = crate::command_line::CommandLineArgs::parse_from_args(instance_argv(&spawn))
+        .map_err(|e| format!("command line: {e}"))?;
+    *crate::main_services::main_services()
+        .command_line_args
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(args.clone());
+    let args = Arc::new(args);
+
+    let Some(permit) = spawn.boot_gate.acquire(&shared.stop) else {
+        return Ok(());
+    };
+    let boot_started = Instant::now();
+    let window = Arc::clone(&spawn.window);
+    let gpu = spawn.gpu.clone();
+    let (mut engine, mut services) = pollster::block_on(async move {
+        let startup_sources = CnCGameEngine::load_startup_game_data_texts(None)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let paths = crate::config::startup_paths::StartupUserData::admit(
+            &startup_sources
+                .iter()
+                .map(|(_, text)| text.clone())
+                .collect::<Vec<_>>(),
+            &args,
+        )?;
+        let mut services = crate::subsystem_manager::ApplicationServices::new();
+        let engine = CnCGameEngine::new_for_instance(
+            window,
+            args,
+            startup_sources,
+            paths,
+            &mut services,
+            gpu,
+        )
+        .await?;
+        anyhow::Ok((Box::new(engine), services))
+    })
+    .map_err(|e| format!("engine boot: {e:#}"))?;
+
+    let result = drive_instance(&mut engine, &spawn, shared, boot_started, permit);
+    drop(engine);
+    if let Err(error) = services.shutdown() {
+        log::warn!(
+            "instance {}: application services shutdown: {error}",
+            spawn.index
+        );
+    }
+    result
+}
+
+fn drive_instance(
+    engine: &mut CnCGameEngine,
+    spawn: &InstanceSpawn,
+    shared: &Shared,
+    boot_started: Instant,
+    permit: BootPermit<'_>,
+) -> Result<(), String> {
+    // Startup asset worker: drained on the owning thread, as the run loop does.
+    while matches!(
+        engine.startup_load_state,
+        StartupLoadState::InProgress { .. }
+    ) {
+        if shared.stop.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        engine
+            .update_startup_loading()
+            .map_err(|e| format!("startup load: {e}"))?;
+        std::thread::sleep(STARTUP_POLL_INTERVAL);
+    }
+    drop(permit);
+    let boot_secs = boot_started.elapsed().as_secs_f32();
+    shared.update(|s| {
+        s.phase = InstancePhase::Running;
+        s.boot_secs = boot_secs;
+    });
+    log::info!("instance {} booted in {boot_secs:.1}s", spawn.index);
+
+    let assets = retail_assets_dir();
+    let mut commands_sent = false;
+    let mut last_drive_frame_start = None;
+    let mut next_present = Instant::now();
+    let mut rendered: u64 = 0;
+    let mut window_started = Instant::now();
+    let mut window_logic_start = engine.presentation_or_boot_logic_frame();
+    let mut window_presents = 0u32;
+    let mut window_frames = 0u32;
+    let mut window_cost = Duration::ZERO;
+
+    while !shared.stop.load(Ordering::Relaxed) {
+        let tick_started = Instant::now();
+        if !commands_sent && matches!(engine.get_state(), super::super::GameState::Menu) {
+            commands_sent = true;
+            let commands = spawn.scenario.menu_commands(assets.as_deref());
+            for command in &commands {
+                log::info!("instance {}: {command}", spawn.index);
+                engine.apply_runtime_host_command(command)?;
+            }
+            shared.update(|s| s.commands = commands.clone());
+            window_logic_start = engine.presentation_or_boot_logic_frame();
+        }
+
+        engine.drive_frame_update(&mut last_drive_frame_start, &mut |_, _| Ok(()))?;
+        let now = Instant::now();
+        if now >= next_present && engine.should_present_w3d_frame() {
+            next_present = now + spawn.present_interval;
+            engine.render().map_err(|e| format!("render: {e:#}"))?;
+            copy_frame_to_tile(engine, &spawn.gpu, &spawn.tile);
+            rendered += 1;
+            window_presents += 1;
+        }
+        window_frames += 1;
+        window_cost += tick_started.elapsed();
+        if engine.is_quitting() {
+            break;
+        }
+
+        let elapsed = window_started.elapsed();
+        if elapsed >= Duration::from_secs(1) {
+            let logic = engine.presentation_or_boot_logic_frame();
+            let secs = elapsed.as_secs_f32();
+            let state = format!("{:?}", engine.get_state());
+            let sim = logic.saturating_sub(window_logic_start) as f32 / secs;
+            let fps = window_presents as f32 / secs;
+            let cost = window_cost.as_secs_f32() * 1000.0 / window_frames.max(1) as f32;
+            shared.update(|s| {
+                s.state = state;
+                s.logic_frame = logic;
+                s.rendered_frames = rendered;
+                s.render_fps = fps;
+                s.sim_rate = sim;
+                s.frame_ms = cost;
+            });
+            window_started = Instant::now();
+            window_logic_start = logic;
+            window_presents = 0;
+            window_frames = 0;
+            window_cost = Duration::ZERO;
+        }
+
+        // Headless runtime-host cadence: one update per logic interval.
+        let spent = tick_started.elapsed();
+        if spent < LOGIC_INTERVAL {
+            std::thread::sleep(LOGIC_INTERVAL - spent);
+        }
+    }
+    Ok(())
+}
+
+/// Copy the engine's finished off-screen frame into its grid tile. Both live
+/// on the host device, so this is a GPU-side copy ordered on the shared queue
+/// after the frame's own submission.
+fn copy_frame_to_tile(engine: &CnCGameEngine, gpu: &ww3d_engine::HostGpu, tile: &wgpu::Texture) {
+    let ww3d = engine.ww3d.lock();
+    let Some(color) = ww3d.headless_color_texture() else {
+        return;
+    };
+    if color.format() != tile.format() {
+        return;
+    }
+    let extent = wgpu::Extent3d {
+        width: color.width().min(tile.width()),
+        height: color.height().min(tile.height()),
+        depth_or_array_layers: 1,
+    };
+    let mut encoder = gpu
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("multi-instance tile copy"),
+        });
+    encoder.copy_texture_to_texture(color.as_image_copy(), tile.as_image_copy(), extent);
+    gpu.queue.submit([encoder.finish()]);
+}
