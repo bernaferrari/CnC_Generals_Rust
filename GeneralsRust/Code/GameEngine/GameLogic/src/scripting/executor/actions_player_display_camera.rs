@@ -303,13 +303,12 @@ impl ScriptActionDispatcher<'_> {
                 ScriptDisplayRequest::Cinematic { .. } => "display_cinematic_text",
                 ScriptDisplayRequest::MilitaryCaption { .. } => "military_caption",
             };
-            if matches!(request, ScriptDisplayRequest::MilitaryCaption { .. }) {
-                return Err(ScriptError::ExecutionFailed(err.to_string()));
-            }
             log::warn!("Script action handler {} failed: {}", name, err);
         }
-        // Match the legacy display actions: callback errors are logged and
-        // the action chain continues, without retrying or delaying an effect.
+        // C++ doDisplayText / doDisplayCinematicText / doMilitaryCaption
+        // (ScriptActions.cpp:3828-3836) have no failure path: a presentation
+        // error is logged and the action chain continues, without retrying or
+        // delaying an effect.
         Ok(ScriptActionResult::Success)
     }
 

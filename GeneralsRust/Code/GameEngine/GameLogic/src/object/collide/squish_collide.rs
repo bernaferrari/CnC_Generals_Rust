@@ -166,11 +166,9 @@ impl SquishCollide {
     }
 
     fn should_allow_squish(&self, owner: &OwnerSnapshot, target: &TargetSnapshot) -> bool {
-        // Wave 408: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
+        // C++ SquishCollide::onCollide (SquishCollide.cpp) only refuses the
+        // squish when the owner's AI goal is this target and it is hijacking
+        // or TNT-attacking; an owner absent from the registry has no such goal.
         OBJECT_REGISTRY
             .with_object(owner.id, |owner_guard| {
                 let goal_matches_target = if let Some(ai) = owner_guard.get_ai_update_interface() {

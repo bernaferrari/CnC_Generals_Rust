@@ -318,13 +318,15 @@ impl VeterancyCrateCollide {
 
     /// Get the number of levels this crate will grant
     pub fn get_levels_to_gain(&self) -> i32 {
+        // C++ VeterancyCrateCollide.cpp:35-37: without AddsOwnerVeterancy the
+        // crate grants one level before any owner Object is consulted.
+        if !self.module_data.read().adds_owner_veterancy {
+            return 1;
+        }
+
         // Wave 368: empty dual-world → 0.
         if dual_world_registry_unavailable() {
             return 0;
-        }
-
-        if !self.module_data.read().adds_owner_veterancy {
-            return 1;
         }
 
         // C++ parity: derive levels from the crate owner's veterancy.

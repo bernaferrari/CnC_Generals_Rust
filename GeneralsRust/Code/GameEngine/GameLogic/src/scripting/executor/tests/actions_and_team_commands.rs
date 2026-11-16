@@ -1609,6 +1609,23 @@ impl crate::scripting::engine::ScriptExecutionDriver for VictoryOwner<'_> {
         );
         Some(Ok(()))
     }
+    // The owner is the receiving UI: C++ ScriptActions::closeWindows
+    // (ScriptActions.cpp:156-163), GameLogic::closeWindows and
+    // winCreateFromScript (ScriptActions.cpp:196-247) present on it.
+    fn destroy_win_lose_window(&mut self) -> Option<GameLogicResult<()>> {
+        assert_eq!(self.engine.current_win_lose_window(), None);
+        Some(Ok(()))
+    }
+    fn close_game_windows(&mut self) -> Option<GameLogicResult<()>> {
+        Some(Ok(()))
+    }
+    fn create_win_lose_window(&mut self, layout: &str) -> Option<GameLogicResult<()>> {
+        assert_eq!(
+            self.engine.current_win_lose_window().as_deref(),
+            Some(layout)
+        );
+        Some(Ok(()))
+    }
 }
 
 fn run_owned_victory_action(kind: ScriptActionType, observer: bool, already_defeated: bool) {

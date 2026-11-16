@@ -564,9 +564,12 @@ fn do_bounty_for_kill_obj_uses_calc_cost_to_build_and_score_keeper() {
         under_construction: false,
     };
     let bounty = player.do_bounty_for_kill_obj(&victim, &victim);
-    assert_eq!(bounty, 200);
-    assert_eq!(player.get_score_keeper().get_total_money_earned(), 200);
-    assert_eq!(player.get_money().count_money(), 200);
+    // Player.cpp:2410 REAL_TO_INT_CEIL(1000 * 0.2f): the product is exactly
+    // 200.0f, and BaseType.h fast_float_ceil adds almost-one in PC24
+    // round-to-nearest, so the source ceiling of an integral 200 is 201.
+    assert_eq!(bounty, 201);
+    assert_eq!(player.get_score_keeper().get_total_money_earned(), 201);
+    assert_eq!(player.get_money().count_money(), 201);
 }
 
 include!("radar_tests.rs");

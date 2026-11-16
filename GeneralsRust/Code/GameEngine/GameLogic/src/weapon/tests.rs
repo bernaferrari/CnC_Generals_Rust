@@ -649,7 +649,14 @@ fn test_weapon_status_transitions() {
     assert_eq!(weapon.load_status(), WeaponStatus::ReloadingClip);
     assert_eq!(weapon.ammo_in_clip, 1);
     assert_eq!(weapon.when_we_can_fire_again, TheGameLogic::get_frame());
+    // The shared-reference read is pure (hq-2qedt.78); the mutable owner's
+    // observation performs the C++ `mutable m_status` write.
     assert_eq!(weapon.get_status(), WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReloadingClip);
+    assert_eq!(
+        weapon.observe_status_at(TheGameLogic::get_frame()),
+        WeaponStatus::ReadyToFire
+    );
     assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire);
     assert_eq!(weapon.ammo_in_clip, 1);
 }

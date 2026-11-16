@@ -1535,11 +1535,14 @@ mod tests {
             .unwrap()
             .ammo_in_clip = 1;
         assert!(!set.is_out_of_ammo_at(100));
+        // The shared-reference query is the pure observation; the C++
+        // `mutable m_status` write belongs to observe_out_of_ammo_at (tested
+        // below), so the stored status is untouched here (hq-2qedt.78).
         assert_eq!(
             set.get_weapon_in_slot(WeaponSlotType::Secondary)
                 .unwrap()
                 .load_status(),
-            WeaponStatus::ReadyToFire,
+            WeaponStatus::ReloadingClip,
         );
     }
 

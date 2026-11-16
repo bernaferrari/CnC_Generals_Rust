@@ -64,12 +64,29 @@ fn with_flat_pathfind_map(test: impl FnOnce()) {
 /// Author definitions into the same AI-owned set used by requestPath and Xfer.
 /// C++ AIUpdate.cpp:229-232,278,813-826 constructs runtime members from the
 /// module's NORMAL list; a Unit's independent legacy set is not AI authority.
+///
+/// C++ AIUpdate.cpp:813-826 reads `TheLocomotorStore` of the engine that owns
+/// the AI's Object. A fixture Object registered as a Unit is assembled in the
+/// child's fixture world, so the definition is authored in that world's store;
+/// only an Object-less AI names a detached fixture catalog.
 fn configure_ai_locomotor(ai: &mut UnitAIUpdate, template: LocomotorTemplate) {
     let name = AsciiString::from(template.name.as_str());
-    ai.runtime
-        .fixture_locomotors
-        .get_or_insert_with(|| Arc::new(crate::locomotor::LocomotorStore::new()))
-        .register_template(template);
+    if let Some(owner) = ai.runtime.native_owner() {
+        let world = crate::system::engine_stores::active_services();
+        let mut object = owner.write().unwrap();
+        if object.owning_world_services().is_none() {
+            object.bind_owner_world_for_test(&world);
+        }
+        object
+            .owning_locomotor_store()
+            .expect("fixture Object has an owning world")
+            .register_template(template);
+    } else {
+        ai.runtime
+            .fixture_locomotors
+            .get_or_insert_with(|| Arc::new(crate::locomotor::LocomotorStore::new()))
+            .register_template(template);
+    }
     let mut data = crate::object::update::AIUpdateModuleData::default();
     data.set_locomotor_set_entries(LocomotorSetType::Normal, vec![name]);
     ai.apply_ai_update_module_data(&data);

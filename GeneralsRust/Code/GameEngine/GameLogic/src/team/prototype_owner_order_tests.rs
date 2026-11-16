@@ -38,17 +38,26 @@ fn owned_prototypes_preserve_order_controller_identity_replacement_and_reset() {
     replacement.set_production_priority(29);
     source.replace_team_prototype(replacement);
     assert_eq!(source.prototype_names(), ["Zulu", "Alpha", "Other"]);
-    source
-        .restore_prototype_admission_order(&["Alpha".into(), "Zulu".into(), "Other".into()])
-        .unwrap();
-    assert_eq!(
-        source
+    let owned = |factory: &TeamFactory| {
+        factory
             .owned_team_prototypes_for_controller(7)
             .iter()
             .map(|prototype| prototype.get_name().to_string())
-            .collect::<Vec<_>>(),
-        ["Alpha", "Zulu"]
-    );
+            .collect::<Vec<_>>()
+    };
+    source
+        .restore_prototype_admission_order(&["Alpha".into(), "Zulu".into(), "Other".into()])
+        .unwrap();
+    assert_eq!(source.prototype_names(), ["Alpha", "Zulu", "Other"]);
+    // C++ Player::m_playerTeamPrototypes is the Player's own list (Player.cpp
+    // xfer restores it by its saved indices), independent of factory order.
+    assert_eq!(owned(&source), ["Zulu", "Alpha"]);
+    assert!(source.restore_player_prototype_orders(&[
+        ("Alpha".into(), 7, 0),
+        ("Zulu".into(), 7, 1),
+        ("Other".into(), 8, 0),
+    ]));
+    assert_eq!(owned(&source), ["Alpha", "Zulu"]);
     assert_eq!(peer.prototype_names(), ["Zulu", "Alpha", "Other"]);
     let before = source.prototype_names();
     assert!(
