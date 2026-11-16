@@ -239,84 +239,10 @@ pub async fn run_cnc_game(
                 let _ = applied;
             }
 
-            // Frame-start captured ONCE per drive_frame, before any work: the
-            // logic dt must span the full previous frame, the way C++
-            // GameEngine::execute measures one whole update()+draw iteration
-            // per clock stamp (GameEngine.cpp:856-866).
-            let frame_started = Instant::now();
-            let mut ww3d_elapsed = Duration::ZERO;
-            let frame_timing = if matches!(
-                engine.get_state(),
-                GameState::Loading | GameState::Menu | GameState::InGame | GameState::Paused
-            ) {
-                let ww3d_started = Instant::now();
-                if matches!(engine.get_state(), GameState::Menu) {
-                    log::trace!("drive_frame: pre ww3d_engine::update Menu");
-                }
-                // One guard for update + timing: a `lock()` temporary in the
-                // match scrutinee lives for the whole match, so locking again
-                // inside an arm self-deadlocks the non-reentrant mutex.
-                let timing = {
-                    let mut ww3d = engine.ww3d.lock();
-                    ww3d.update().map(|()| ww3d.timing())
-                };
-                let timing = match timing {
-                    Ok(timing) => Some(timing),
-                    Err(err) => {
-                        error!("WW3D engine update failed: {err:?}");
-                        None
-                    }
-                };
-                ww3d_elapsed = ww3d_started.elapsed();
-                timing
-            } else {
-                None
-            };
-
-            // DT-CHAIN GUARD: timing.delta_time must equal the elapsed since
-            // the PREVIOUS drive_frame that fed the logic chain — the FULL
-            // previous frame (WW3D update + logic batch + render), matching
-            // the single C++ frame clock (GameEngine.cpp:774-884). Correct
-            // rather than trust, so a re-introduced second clock stamp
-            // (begin_render re-stamp) cannot re-halve sim speed to its
-            // measured ~16-17 fps equilibrium (1.6-2 logic steps per
-            // 98-190 ms frame). Post-fix this never fires; the ww3d clock
-            // stamp and this anchor differ only by microseconds.
-            let frame_timing = frame_timing.map(|mut timing| {
-                if let Some(prev_start) = last_drive_frame_start {
-                    let true_elapsed = frame_started.duration_since(prev_start);
-                    if timing.delta_time.abs_diff(true_elapsed) > Duration::from_millis(2) {
-                        warn!(
-                            "WW3D timing dt {:?} diverged from full-frame elapsed {:?}; using full-frame elapsed",
-                            timing.delta_time, true_elapsed
-                        );
-                        timing.delta_time = true_elapsed;
-                    }
-                }
-                timing
-            });
-            // Only timed frames advance the anchor: logic-less states use
-            // update_with_frame_clock()'s own internal clock, and timing
-            // deltas keep spanning update-to-update across them.
-            if frame_timing.is_some() {
-                last_drive_frame_start = Some(frame_started);
-            }
-
-            let update_started = Instant::now();
-            // Admit the app's presentation control into this specific session.
-            let client_quiet = engine.game_client.in_game_ui_subsystem()
-                .expect("receiving InGameUI initialized").is_client_quiet();
-            engine.host_game_logic_mut().set_radar_client_quiet(client_quiet);
-            // C++ GameEngine::update (GameEngine.cpp:732-752):
-            // VERIFY_CRC → TheRadar->UPDATE() → TheAudio->UPDATE() →
-            // TheGameClient->UPDATE() → propagateMessages → … →
-            // TheGameLogic->UPDATE().
-            engine.host_update_the_radar();
-            engine.host_update_the_audio();
-            if let Some(timing) = frame_timing {
-                #[cfg(feature = "integration-diagnostics")]
+            #[cfg(feature = "integration-diagnostics")]
+            let mut before_logic = |engine: &mut CnCGameEngine, timing: &FrameTiming| -> std::result::Result<(), String> {
                 if let Some(bridge) = integration_bridge.as_mut() {
-                    if let Err(err) = runtime_handle.block_on(bridge.pump_with_timing(engine, timing))
+                    if let Err(err) = runtime_handle.block_on(bridge.pump_with_timing(engine, *timing))
                     {
                         error!(
                             "Integration telemetry pump failed: {err:?}. Disabling bridge."
@@ -324,12 +250,12 @@ pub async fn run_cnc_game(
                         integration_bridge = None;
                     }
                 }
-                engine.update_with_timing(&timing)?;
-            } else {
-                engine.update_with_frame_clock()?;
-            }
-
-            let update_elapsed = update_started.elapsed();
+                Ok(())
+            };
+            #[cfg(not(feature = "integration-diagnostics"))]
+            let mut before_logic = |_: &mut CnCGameEngine, _: &FrameTiming| -> std::result::Result<(), String> { Ok(()) };
+            let HostFrameUpdate { frame_started, ww3d_elapsed, update_elapsed } =
+                engine.drive_frame_update(&mut last_drive_frame_start, &mut before_logic)?;
             let dfn = crate::main_services::main_services()
                 .drive_frame_count
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1031,6 +957,122 @@ pub(super) fn resolve_ui_structure_template_name(name: &str) -> String {
 
 /// C++ `GameEngine::execute` wait (`GameEngine.cpp:856-866`):
 /// `(now - prevTime)` includes the just-finished `update()`+draw.
+/// Phase timings of one host frame's update half.
+pub(super) struct HostFrameUpdate {
+    pub(super) frame_started: Instant,
+    pub(super) ww3d_elapsed: Duration,
+    pub(super) update_elapsed: Duration,
+}
+
+impl CnCGameEngine {
+    /// The update half of one C++ `GameEngine::execute` iteration
+    /// (GameEngine.cpp:732-752, 856-866): WW3D clock, radar, audio, then the
+    /// client/logic update. Shared by the windowed run loop and every engine
+    /// of a multi-instance host so both drive the same frame order.
+    /// `before_logic` runs after the radar/audio update with the frame timing,
+    /// before the logic update (integration telemetry hook).
+    pub(super) fn drive_frame_update(
+        &mut self,
+        last_drive_frame_start: &mut Option<Instant>,
+        before_logic: &mut dyn FnMut(
+            &mut CnCGameEngine,
+            &FrameTiming,
+        ) -> std::result::Result<(), String>,
+    ) -> std::result::Result<HostFrameUpdate, String> {
+        // Frame-start captured ONCE per drive_frame, before any work: the
+        // logic dt must span the full previous frame, the way C++
+        // GameEngine::execute measures one whole update()+draw iteration
+        // per clock stamp (GameEngine.cpp:856-866).
+        let frame_started = Instant::now();
+        let mut ww3d_elapsed = Duration::ZERO;
+        let frame_timing = if matches!(
+            self.get_state(),
+            GameState::Loading | GameState::Menu | GameState::InGame | GameState::Paused
+        ) {
+            let ww3d_started = Instant::now();
+            if matches!(self.get_state(), GameState::Menu) {
+                log::trace!("drive_frame: pre ww3d_engine::update Menu");
+            }
+            // One guard for update + timing: a `lock()` temporary in the
+            // match scrutinee lives for the whole match, so locking again
+            // inside an arm self-deadlocks the non-reentrant mutex.
+            let timing = {
+                let mut ww3d = self.ww3d.lock();
+                ww3d.update().map(|()| ww3d.timing())
+            };
+            let timing = match timing {
+                Ok(timing) => Some(timing),
+                Err(err) => {
+                    error!("WW3D engine update failed: {err:?}");
+                    None
+                }
+            };
+            ww3d_elapsed = ww3d_started.elapsed();
+            timing
+        } else {
+            None
+        };
+
+        // DT-CHAIN GUARD: timing.delta_time must equal the elapsed since
+        // the PREVIOUS drive_frame that fed the logic chain — the FULL
+        // previous frame (WW3D update + logic batch + render), matching
+        // the single C++ frame clock (GameEngine.cpp:774-884). Correct
+        // rather than trust, so a re-introduced second clock stamp
+        // (begin_render re-stamp) cannot re-halve sim speed to its
+        // measured ~16-17 fps equilibrium (1.6-2 logic steps per
+        // 98-190 ms frame). Post-fix this never fires; the ww3d clock
+        // stamp and this anchor differ only by microseconds.
+        let frame_timing = frame_timing.map(|mut timing| {
+            if let Some(prev_start) = *last_drive_frame_start {
+                let true_elapsed = frame_started.duration_since(prev_start);
+                if timing.delta_time.abs_diff(true_elapsed) > Duration::from_millis(2) {
+                    warn!(
+                        "WW3D timing dt {:?} diverged from full-frame elapsed {:?}; using full-frame elapsed",
+                        timing.delta_time, true_elapsed
+                    );
+                    timing.delta_time = true_elapsed;
+                }
+            }
+            timing
+        });
+        // Only timed frames advance the anchor: logic-less states use
+        // update_with_frame_clock()'s own internal clock, and timing
+        // deltas keep spanning update-to-update across them.
+        if frame_timing.is_some() {
+            *last_drive_frame_start = Some(frame_started);
+        }
+
+        let update_started = Instant::now();
+        // Admit the app's presentation control into this specific session.
+        let client_quiet = self
+            .game_client
+            .in_game_ui_subsystem()
+            .expect("receiving InGameUI initialized")
+            .is_client_quiet();
+        self.host_game_logic_mut()
+            .set_radar_client_quiet(client_quiet);
+        // C++ GameEngine::update (GameEngine.cpp:732-752):
+        // VERIFY_CRC → TheRadar->UPDATE() → TheAudio->UPDATE() →
+        // TheGameClient->UPDATE() → propagateMessages → … →
+        // TheGameLogic->UPDATE().
+        self.host_update_the_radar();
+        self.host_update_the_audio();
+        if let Some(timing) = frame_timing {
+            before_logic(self, &timing)?;
+            self.update_with_timing(&timing)?;
+        } else {
+            self.update_with_frame_clock()?;
+        }
+
+        let update_elapsed = update_started.elapsed();
+        Ok(HostFrameUpdate {
+            frame_started,
+            ww3d_elapsed,
+            update_elapsed,
+        })
+    }
+}
+
 fn control_flow_wait_until(deadline: Instant) -> ControlFlow {
     #[cfg(not(target_arch = "wasm32"))]
     {

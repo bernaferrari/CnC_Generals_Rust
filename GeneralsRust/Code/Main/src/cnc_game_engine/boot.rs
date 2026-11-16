@@ -265,6 +265,28 @@ impl CnCGameEngine {
             startup_sources,
             application_paths,
             application_services,
+            None,
+        )
+        .await
+    }
+
+    /// Boot one engine of a multi-instance host: headless, rendering on the
+    /// host's shared device into this engine's own off-screen target.
+    pub(super) async fn new_for_instance(
+        window: Arc<Window>,
+        command_line: Arc<CommandLineArgs>,
+        startup_sources: Vec<(&'static str, String)>,
+        application_paths: crate::config::startup_paths::StartupUserData,
+        application_services: &mut crate::subsystem_manager::ApplicationServices,
+        host_gpu: ww3d_engine::HostGpu,
+    ) -> Result<Self> {
+        Self::new_with_startup(
+            window,
+            command_line,
+            startup_sources,
+            application_paths,
+            application_services,
+            Some(host_gpu),
         )
         .await
     }
@@ -282,6 +304,7 @@ impl CnCGameEngine {
             startup_sources,
             application_paths,
             application_services,
+            None,
         )
         .await
     }
@@ -292,6 +315,7 @@ impl CnCGameEngine {
         startup_sources: Vec<(&'static str, String)>,
         application_paths: crate::config::startup_paths::StartupUserData,
         application_services: &mut crate::subsystem_manager::ApplicationServices,
+        host_gpu: Option<ww3d_engine::HostGpu>,
     ) -> Result<Self> {
         let total_timer = InitTimer::new("🎮 Engine initialization");
         info!("🎮 Initializing Command & Conquer Generals Zero Hour Game Engine");
@@ -414,7 +438,11 @@ impl CnCGameEngine {
         engine_config.width = surface_w;
         engine_config.height = surface_h;
         let size = winit::dpi::LogicalSize::new(surface_w, surface_h);
-        let ww3d = if runtime_host_headless {
+        let ww3d = if let Some(host) = host_gpu.as_ref() {
+            ww3d_engine::init_headless_on(engine_config, host).map_err(|err| {
+                anyhow::anyhow!("Failed to initialize WW3D instance engine: {err:?}")
+            })?
+        } else if runtime_host_headless {
             ww3d_engine::init_headless(engine_config)
                 .await
                 .map_err(|err| anyhow::anyhow!("Failed to initialize WW3D headless engine: {err:?}"))?
