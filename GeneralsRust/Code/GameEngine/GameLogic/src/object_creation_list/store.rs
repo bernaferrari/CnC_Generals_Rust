@@ -1765,8 +1765,8 @@ End
                 .iter()
                 .find(|(candidate, _)| candidate == name)
                 .unwrap();
-            let nugget = list.nuggets()[0]
-                .as_any()
+            // Dispatch through the trait object, not the Box's own Any.
+            let nugget = ObjectCreationNugget::as_any(list.nuggets()[0].as_ref())
                 .downcast_ref::<GenericObjectCreationNugget>()
                 .unwrap();
             nugget.debris_to_generate

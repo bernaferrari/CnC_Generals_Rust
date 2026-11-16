@@ -21,6 +21,9 @@ fn parse(center: &mut UpgradeCenter, name: &str, kind: &str, cost: u32, seconds:
 
 fn producer_catalog() -> UpgradeCenter {
     std::thread::spawn(|| {
+        // Each thread is its own engine: C++ NameKeyGenerator::init resets
+        // the namespace at engine start, before any definition is interned.
+        NameKeyGenerator::init();
         let mut center = UpgradeCenter::new();
         parse(&mut center, "OwnedCatalogPlayer", "PLAYER", 321, 7);
         parse(&mut center, "OwnedCatalogObject", "OBJECT", 654, 19);
@@ -46,6 +49,7 @@ fn producer_catalog() -> UpgradeCenter {
 fn named_catalog_lookup_ignores_foreign_sequential_key_namespace() {
     let center = producer_catalog();
     std::thread::spawn(move || {
+        NameKeyGenerator::init();
         assert_eq!(
             NameKeyGenerator::name_to_key("AbsentCatalogRule"),
             1,
@@ -89,6 +93,7 @@ fn named_catalog_lookup_ignores_foreign_sequential_key_namespace() {
 fn named_catalog_registration_and_reparse_keep_other_templates_and_masks() {
     let mut center = producer_catalog();
     std::thread::spawn(move || {
+        NameKeyGenerator::init();
         assert_eq!(NameKeyGenerator::name_to_key("OwnedCatalogThird"), 1);
         let added = center.new_upgrade(AsciiString::from("OwnedCatalogThird"));
         assert_eq!(

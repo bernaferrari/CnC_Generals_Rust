@@ -4,21 +4,28 @@ use crate::helpers::TheFXListStore;
 
 #[test]
 fn fx_catalog_does_not_alias_names_from_another_key_namespace() {
-    std::thread::spawn(|| {
-        NameKeyGenerator::init();
-        TheFXListStore::ensure_fx_list("FX_CatalogNamespaceExisting");
+    use game_engine::common::common_services::{CommonServices, with_common_services};
+    // One engine's FX catalog, reached from two threads; the second thread
+    // restarts that engine's NameKey namespace (C++ NameKeyGenerator::init).
+    let engine = std::sync::Arc::new(CommonServices::new());
+    let producer = std::sync::Arc::clone(&engine);
+    std::thread::spawn(move || {
+        with_common_services(&producer, || {
+            NameKeyGenerator::init();
+            TheFXListStore::ensure_fx_list("FX_CatalogNamespaceExisting");
+        })
     })
     .join()
     .unwrap();
 
-    std::thread::spawn(|| {
+    std::thread::spawn(move || with_common_services(&engine, || {
         NameKeyGenerator::init();
         // The missing name receives the same numeric key as the previous
         // thread's existing name. C++ findFXList still compares exact names.
         assert!(TheFXListStore::find_fx_list("FX_CatalogNamespaceMissing").is_none());
         let fx = TheFXListStore::find_fx_list("FX_CatalogNamespaceExisting").unwrap();
         assert_eq!(fx.name(), "FX_CatalogNamespaceExisting");
-    })
+    }))
     .join()
     .unwrap();
 }

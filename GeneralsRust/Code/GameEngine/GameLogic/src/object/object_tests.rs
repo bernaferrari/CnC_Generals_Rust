@@ -1968,6 +1968,9 @@ mod tests {
             assert!(selection.select_objects(vec![id], SelectionType::Replace));
         }
         let mut obj = Object::new_test(id, 100.0);
+        // Object::markUIDirty reaches the ControlBar of the engine that owns
+        // the Object (TheControlBar of its GameEngine), so it joins this world.
+        obj.bind_owner_world_for_test(stores.services());
         dirty.store(0, Ordering::SeqCst);
         obj.on_veterancy_level_changed(VeterancyLevel::Regular, VeterancyLevel::Veteran, false);
         let quiet = dirty.load(Ordering::SeqCst);

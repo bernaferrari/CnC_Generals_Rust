@@ -87,6 +87,10 @@ fn empty_receipt() {
 fn detached_a_allows_b_failed_c_drop_and_commit_interleavings_without_reserving_singletons() {
     let _serial = crate::test_sync::lock();
     let live = Arc::new(WorldServices::new_for_world());
+    // The C++ singleton counterparts now belong to this engine. The staging
+    // boundary snapshots `live`; seed and observe must target that same owner,
+    // not the test-ambient engine created by a free accessor.
+    engine_stores::with_world_services(&live, || {
     let original = HostRuntimeGlobals::take_from_singletons(&live);
     let _restore = RestoreGlobals {
         bundle: Arc::clone(&live),
@@ -166,12 +170,17 @@ fn detached_a_allows_b_failed_c_drop_and_commit_interleavings_without_reserving_
     drop(reset);
     observe(2);
     engine_stores::uninstall_services(&a_services);
+    });
 }
 
 #[test]
 fn native_rejection_drops_detached_receipts_without_callbacks_and_releases_reservation() {
     let _serial = crate::test_sync::lock();
     let live = Arc::new(WorldServices::new_for_world());
+    // The C++ singleton counterparts now belong to this engine. The staging
+    // boundary snapshots `live`; seed and observe must target that same owner,
+    // not the test-ambient engine created by a free accessor.
+    engine_stores::with_world_services(&live, || {
     let original = HostRuntimeGlobals::take_from_singletons(&live);
     let _restore = RestoreGlobals {
         bundle: Arc::clone(&live),
@@ -201,4 +210,5 @@ fn native_rejection_drops_detached_receipts_without_callbacks_and_releases_reser
     observe(1);
     assert!(WorldRuntimeTransactionLock::is_free());
     observe(1);
+    });
 }
