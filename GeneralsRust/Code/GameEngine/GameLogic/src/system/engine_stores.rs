@@ -190,11 +190,21 @@ fn fresh_common_for_world() -> Arc<CommonServices> {
         .try_with(|slot| slot.borrow().clone())
         .ok()
         .flatten()
-        .unwrap_or_else(|| Arc::new(CommonServices::new()))
+        .unwrap_or_else(common_in_publishing_application)
 }
 #[cfg(not(any(test, feature = "test-ambient-services")))]
 fn fresh_common_for_world() -> Arc<CommonServices> {
-    Arc::new(CommonServices::new())
+    common_in_publishing_application()
+}
+/// A world's fresh Common bag stays inside the application that creates it:
+/// C++ keeps one `TheMessageStream` / `TheCommandList` / `TheFileSystem` for
+/// the whole run, across every match, so the new bag shares the publishing
+/// application's channels. A thread with no published application starts one.
+fn common_in_publishing_application() -> Arc<CommonServices> {
+    Arc::new(match common_services::try_common_services() {
+        Some(parent) => CommonServices::in_application(Arc::clone(&parent.application)),
+        None => CommonServices::new(),
+    })
 }
 impl WorldServices {
     /// Snapshot engine content; fresh mutable per-world services. Inert.

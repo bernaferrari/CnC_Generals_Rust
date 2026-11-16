@@ -1,7 +1,7 @@
 {
-  "Common": 2,
+  "Common": 0,
   "EngineCrates": 0,
-  "GameClient": 1,
+  "GameClient": 0,
   "GameEngineDevice": 8,
   "GameLogic": 0,
   "GameNetwork": 25,

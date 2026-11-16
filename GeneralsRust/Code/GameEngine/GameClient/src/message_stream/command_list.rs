@@ -311,15 +311,15 @@ impl CommandListStatistics {
     }
 }
 
-/// Global command list instance
-lazy_static::lazy_static! {
-    pub static ref THE_COMMAND_LIST: Arc<RwLock<CommandList>> =
-        Arc::new(RwLock::new(CommandList::new()));
-}
-
-/// Helper function to get the global command list
+/// This application's command list (C++ `TheCommandList`, created once by
+/// `GameEngine::init` and never reset). It lives in the application channels
+/// shared by every `CommonServices` bag of one game, so each game instance
+/// has its own list.
 pub fn get_command_list() -> Arc<RwLock<CommandList>> {
-    THE_COMMAND_LIST.clone()
+    let shared = game_engine::common::common_services::common_services()
+        .application
+        .extension(|| RwLock::new(CommandList::new()));
+    shared
 }
 
 /// Convenience function to append a message to the global command list

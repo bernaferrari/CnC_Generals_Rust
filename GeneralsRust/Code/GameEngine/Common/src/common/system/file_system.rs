@@ -401,14 +401,10 @@ impl Default for FileSystem {
     }
 }
 
-// Global file system instance (matches TheFileSystem singleton in C++)
-lazy_static::lazy_static! {
-    pub static ref THE_FILE_SYSTEM: Arc<Mutex<FileSystem>> = Arc::new(Mutex::new(FileSystem::new()));
-}
-
-/// Convenience function to access the global file system
+/// This application's file system (C++ `TheFileSystem`): owned by the
+/// application channels every `CommonServices` bag of one game shares.
 pub fn get_file_system() -> Arc<Mutex<FileSystem>> {
-    THE_FILE_SYSTEM.clone()
+    Arc::clone(&crate::common::common_services::common_services().application.file_system)
 }
 
 /// C++ `FileSystem::areMusicFilesOnCD` (does not require a live `FileSystem` instance).

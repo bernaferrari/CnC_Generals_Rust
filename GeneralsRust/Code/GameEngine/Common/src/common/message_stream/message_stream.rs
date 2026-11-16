@@ -869,15 +869,11 @@ impl SubsystemInterface for MessageStream {
     }
 }
 
-// Global message stream instance
-lazy_static::lazy_static! {
-    pub static ref THE_MESSAGE_STREAM: Arc<RwLock<MessageStream>> =
-        Arc::new(RwLock::new(MessageStream::new()));
-}
-
-/// Helper function to get the global message stream
+/// This application's message stream (C++ `TheMessageStream`): owned by the
+/// application channels every `CommonServices` bag of one game shares, so
+/// each game instance has its own stream.
 pub fn get_message_stream() -> Arc<RwLock<MessageStream>> {
-    THE_MESSAGE_STREAM.clone()
+    Arc::clone(&crate::common::common_services::common_services().application.message_stream)
 }
 
 /// Convenience function to append a message to the global stream

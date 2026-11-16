@@ -1,4 +1,4 @@
-use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
+use crate::message_stream::message_stream::get_message_stream;
 // Receiving native prefix facts are observed at the original late UI boundary.
 use super::*;
 use crate::test_support::with_receiving_ui;
@@ -530,7 +530,7 @@ fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match(
     assert!(!a_shell.is_shell_active());
     b.window_manager_owner().shell_handle().init().unwrap();
     {
-        THE_MESSAGE_STREAM.write().unwrap().clear_messages();
+        get_message_stream().write().unwrap().clear_messages();
     }
     for receiving in [&mut a, &mut b] {
         let prepared = receiving
@@ -542,7 +542,8 @@ fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match(
             }, 0)
             .unwrap();
         drop(prepared);
-        let stream = THE_MESSAGE_STREAM.read().unwrap();
+        let stream_owner = get_message_stream();
+        let stream = stream_owner.read().unwrap();
         assert!(
             !stream.get_messages().iter().any(|message| matches!(
                 message.get_type(),

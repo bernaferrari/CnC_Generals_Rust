@@ -16,7 +16,6 @@ mod tests {
     include!("specialized_draw_owner_tests.rs");
     use super::*;
     use crate::drawable::Drawable;
-    use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
 use crate::message_stream::game_message::GameMessageType;
     use crate::network::is_network_command_message;
     use crate::system::{Coord3D, GameMessageResult};

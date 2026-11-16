@@ -32,7 +32,10 @@ use crate::common::system_stores::SystemStores;
 use crate::common::system::geometry::Coord3D;
 use crate::common::time::SimulationClock;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::any::{Any, TypeId};
+use std::collections::{HashMap, HashSet};
+use crate::common::message_stream::message_stream::MessageStream;
+use crate::common::system::file_system::FileSystem;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use parking_lot::Mutex as ParkingMutex;
@@ -154,8 +157,58 @@ impl Default for CrcRuntimeFlags {
     }
 }
 
+/// Application singletons C++ creates once in `GameEngine::init` and never
+/// resets per match (`TheMessageStream`, `TheCommandList`, `TheFileSystem`).
+///
+/// One `ApplicationChannels` belongs to one running game. The application's
+/// boot `CommonServices` creates it and every bag the application derives
+/// (per-world bags, worker publications) shares the same `Arc`, so a second
+/// game instance in the process never sees this one's messages or files.
+pub struct ApplicationChannels {
+    pub message_stream: Arc<RwLock<MessageStream>>,
+    pub file_system: Arc<Mutex<FileSystem>>,
+    /// Typed application singletons of crates above Common (for example the
+    /// GameClient command list), created on first use.
+    extensions: ParkingMutex<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+}
+
+impl ApplicationChannels {
+    pub fn new() -> Self {
+        Self {
+            message_stream: Arc::new(RwLock::new(MessageStream::new())),
+            file_system: Arc::new(Mutex::new(FileSystem::new())),
+            extensions: ParkingMutex::new(HashMap::new()),
+        }
+    }
+
+    /// The application's `T`, created by `init` on first use.
+    pub fn extension<T: Any + Send + Sync>(&self, init: impl FnOnce() -> T) -> Arc<T> {
+        let mut extensions = self.extensions.lock();
+        let entry = extensions
+            .entry(TypeId::of::<T>())
+            .or_insert_with(|| Arc::new(init()) as Arc<dyn Any + Send + Sync>);
+        Arc::clone(entry)
+            .downcast::<T>()
+            .unwrap_or_else(|_| unreachable!("extension slot keyed by its own TypeId"))
+    }
+}
+
+impl Default for ApplicationChannels {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for ApplicationChannels {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApplicationChannels").finish_non_exhaustive()
+    }
+}
+
 /// One game-instance owned Common service bag (C++ TheGameEngine singleton fields).
 pub struct CommonServices {
+    /// Application-scoped channels shared by every bag of this game.
+    pub application: Arc<ApplicationChannels>,
     pub random: RandomServices,
     pub crc_flags: CrcRuntimeFlags,
     /// ThingFactory slot for this instance (C++ `TheThingFactory`).
@@ -211,6 +264,7 @@ pub struct CommonServices {
 impl Default for CommonServices {
     fn default() -> Self {
         Self {
+            application: Arc::new(ApplicationChannels::new()),
             random: RandomServices::default(),
             crc_flags: CrcRuntimeFlags::default(),
             thing_factory: Arc::new(ParkingMutex::new(None)),
@@ -244,6 +298,16 @@ impl Default for CommonServices {
 impl CommonServices {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A fresh bag inside an existing application: per-match/world state is
+    /// new, while the application channels (message stream, command list,
+    /// file system) stay the application's own.
+    pub fn in_application(application: Arc<ApplicationChannels>) -> Self {
+        Self {
+            application,
+            ..Self::default()
+        }
     }
 
     /// Run NameKey-dependent store init after this bag is published on TLS.
