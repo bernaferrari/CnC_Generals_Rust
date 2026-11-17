@@ -395,6 +395,8 @@ impl CnCGameEngine {
                 )
                 .map_err(|error| error.to_string())?;
             } else {
+                // The shell map stepped logic since the frame was synced.
+                self.host_destroy_drawables_of_destroyed_objects()?;
                 let facts = self.host_prepare_presentation_materials()?;
                 let frames = NativeParticleFrames {
                     logic_frame: self.game_logic.frame,

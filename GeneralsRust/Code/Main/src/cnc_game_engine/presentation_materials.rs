@@ -15,10 +15,22 @@ pub(super) fn prepare(
     let Some(frame) = frame else {
         return Ok(Vec::new());
     };
+    // C++ destroys an Object's Drawable the moment the Object is destroyed
+    // (GameLogic::sendObjectDestroyed -> GameClient::destroyDrawable,
+    // GameLogic.cpp:4134-4151 / GameClient.cpp:799-805 remove it from
+    // m_drawableList), so a later client draw only ever walks drawables whose
+    // owner is alive. A completed frame may predate this logic step (the shell
+    // map steps logic between renders); an entry whose owner has since been
+    // destroyed has no Drawable to receive materials and is skipped.
     let observations = frame
         .direct_host_drawables
         .iter()
         .filter(|direct| direct.resident)
+        .filter(|direct| {
+            logic
+                .host_object(crate::game_logic::ObjectId(direct.object.id.0))
+                .is_some()
+        })
         .map(|direct| {
             let frozen = &direct.object;
             let (_, effectively_dead) = frozen

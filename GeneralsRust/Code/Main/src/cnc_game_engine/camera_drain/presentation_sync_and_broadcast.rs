@@ -33,6 +33,46 @@ impl game_client::core::game_client::NativeClientWorld for ClientWorldLoan<'_> {
 }
 
 impl CnCGameEngine {
+    /// C++ GameLogic::sendObjectDestroyed -> GameClient::destroyDrawable
+    /// (GameLogic.cpp:4134-4151, GameClient.cpp:799-805): retire the direct
+    /// Drawables of Objects logic destroyed since the last presentation sync
+    /// before a Draw walks them, through the same native observer the sync's
+    /// prune reports to. The installed frame stops listing those Objects, as
+    /// C++ `GameClient::draw` only visits live Drawables. No animation or
+    /// frame rebuild happens here.
+    #[cfg(feature = "game_client")]
+    pub(in crate::cnc_game_engine) fn host_destroy_drawables_of_destroyed_objects(
+        &mut self,
+    ) -> Result<usize, String> {
+        let logic = &self.game_logic;
+        let native_owner = &mut self.render_pipeline;
+        let graphics = &mut self.graphics_system;
+        let dead = std::cell::RefCell::new(Vec::new());
+        let retired = self
+            .game_client
+            .destroy_presentation_drawables_of_dead_owners(
+                self.host_direct_visual_world_epoch,
+                |object_id| {
+                    let alive = logic
+                        .host_object(crate::game_logic::ObjectId(object_id))
+                        .is_some();
+                    if !alive {
+                        dead.borrow_mut().push(object_id);
+                    }
+                    alive
+                },
+                |mutation| native_owner.receive_native_drawable_mutation(mutation, None, graphics),
+            )
+            .map_err(|error| error.to_string())?;
+        let dead = dead.into_inner();
+        if !dead.is_empty() {
+            if let Some(frame) = self.render_pipeline.presentation_frame_mut() {
+                frame.objects.retain(|object| !dead.contains(&object.id.0));
+            }
+        }
+        Ok(retired)
+    }
+
     /// Admit logic-origin material commands only after resolving this world's
     /// current complete Drawable association. The pending command remains on
     /// its host object until the receiving owner accepts the whole batch.

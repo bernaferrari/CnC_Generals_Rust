@@ -1064,6 +1064,18 @@ impl GameClient {
                 }
             })
             .collect();
+        let pruned = self.destroy_presentation_bindings(stale, &mut observe)?;
+
+        Ok((created, updated, pruned))
+    }
+
+    /// Destroy presentation-direct Drawables and their bindings, reporting
+    /// each to the native observers as the sync's prune does.
+    fn destroy_presentation_bindings(
+        &mut self,
+        stale: Vec<(DrawableId, PresentationDirectDrawableBindingKey)>,
+        observe: &mut impl FnMut(PresentationDrawableMutation<'_>),
+    ) -> GameClientResult<usize> {
         let mut pruned = 0usize;
         for (drawable_id, binding_key) in stale {
             self.destroy_drawable(drawable_id)?;
@@ -1087,8 +1099,35 @@ impl GameClient {
                 .remove(&drawable_id);
             pruned = pruned.saturating_add(1);
         }
+        Ok(pruned)
+    }
 
-        Ok((created, updated, pruned))
+    /// C++ destroys an Object's Drawable when the Object is destroyed
+    /// (GameLogic::sendObjectDestroyed -> GameClient::destroyDrawable,
+    /// GameLogic.cpp:4134-4151, GameClient.cpp:799-805), so no Draw walks a
+    /// Drawable whose owner is gone. A Draw that runs between presentation
+    /// syncs (the shell map steps logic between renders) first retires the
+    /// direct Drawables of `host_epoch` whose owner `owner_alive` rejects,
+    /// exactly as the next sync's prune would. Semantic-lifetime Drawables
+    /// outlive their Object in C++ and are kept.
+    pub fn destroy_presentation_drawables_of_dead_owners(
+        &mut self,
+        host_epoch: u64,
+        owner_alive: impl Fn(ObjectID) -> bool,
+        mut observe: impl FnMut(PresentationDrawableMutation<'_>),
+    ) -> GameClientResult<usize> {
+        let stale: Vec<(DrawableId, PresentationDirectDrawableBindingKey)> = self
+            .drawables
+            .presentation_direct_drawable_bindings
+            .iter()
+            .filter(|(_, binding)| {
+                !binding.semantic_lifetime
+                    && binding.binding_key.host_epoch == host_epoch
+                    && !owner_alive(binding.binding_key.object_id)
+            })
+            .map(|(&drawable_id, binding)| (drawable_id, binding.binding_key))
+            .collect();
+        self.destroy_presentation_bindings(stale, &mut observe)
     }
 
     fn presentation_visual_template_name(e: &PresentationDrawableSync) -> &str {

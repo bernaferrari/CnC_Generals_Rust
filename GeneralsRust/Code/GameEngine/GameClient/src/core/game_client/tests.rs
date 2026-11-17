@@ -1565,6 +1565,47 @@ use crate::message_stream::game_message::GameMessageType;
     }
 
     #[test]
+    fn destroyed_owner_drawable_is_retired_before_the_next_draw() {
+        // C++ GameLogic::sendObjectDestroyed -> GameClient::destroyDrawable:
+        // a Draw between syncs never walks the Drawable of a destroyed Object.
+        crate::test_support::ensure_ambient_host();
+        let mut client = GameClient::new().unwrap();
+        let epoch = 21;
+        let entry = |id| {
+            presentation_drawable_sync_for_test(
+                id, epoch, "VisualA", true, false, [0.0, 0.0, 0.0], 0.0,
+            )
+        };
+        assert_eq!(
+            client.sync_presentation_drawables([entry(7), entry(8)]).unwrap(),
+            (2, 0, 0)
+        );
+        let mut destroyed = Vec::new();
+        let retired = client
+            .destroy_presentation_drawables_of_dead_owners(
+                epoch,
+                |object_id| object_id != 7,
+                |mutation| {
+                    if let PresentationDrawableMutation::Destroyed { object_id, .. } = mutation {
+                        destroyed.push(object_id);
+                    }
+                },
+            )
+            .unwrap();
+        assert_eq!(retired, 1);
+        assert_eq!(destroyed, vec![7]);
+        assert_eq!(client.presentation_direct_drawable_state(epoch, 7), None);
+        assert!(client.presentation_direct_drawable_state(epoch, 8).is_some());
+        // Another epoch's owners are left to that epoch's sync.
+        assert_eq!(
+            client
+                .destroy_presentation_drawables_of_dead_owners(epoch + 1, |_| false, |_| {})
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
     fn direct_visual_binding_prunes_nonresident_and_world_invalidation_mints_a_new_generation() {
         crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();

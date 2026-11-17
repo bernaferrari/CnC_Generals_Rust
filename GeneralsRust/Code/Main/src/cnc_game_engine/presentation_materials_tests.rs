@@ -288,9 +288,11 @@ fn failed_material_admission_preserves_pending_commands_and_receiving_owner() {
             .pending_second_material_pass(),
         Some(0.625)
     );
+    // An owner destroyed after the frame completed has no Drawable left to
+    // receive materials (C++ GameLogic::sendObjectDestroyed destroys it at
+    // once): the frame's entry is skipped and nothing is admitted.
     let object = world.logic.host_objects_mut().remove(&world.id).unwrap();
-    let error = world.admit(&frame).unwrap_err();
-    assert!(error.contains("lacks its host owner"));
+    assert!(world.admit(&frame).unwrap().is_empty());
     assert_eq!(object.pending_second_material_pass(), Some(0.625));
     assert_eq!(world.opacity(), 0.);
     world.logic.host_objects_mut().admit(world.id, object);
