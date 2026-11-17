@@ -24,24 +24,24 @@ impl crate::game_logic::ScriptUiEffects for Ui {
     }
 }
 
+/// Authored builder and scaffold: DozerAIUpdate owns BUILD (DozerAIUpdate.cpp
+/// newTask/DozerActionDoActionState), so the builder carries that module.
+const CONSTRUCTION_UI_INI: &str = "Object UiDozer\nKindOf = VEHICLE DOZER SELECTABLE\nLocomotor = SET_NORMAL AmericaVehicleDozerLocomotor\nBody = ActiveBody Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = DozerAIUpdate DozerAI\nRepairHealthPercentPerSecond = 2\nEnd\nEnd\nObject UiScaffold\nKindOf = STRUCTURE SELECTABLE\nBuildCost = 100\nBuildTime = 0.001\nBody = ActiveBody Body\nMaxHealth = 900\nInitialHealth = 900\nEnd\nEnd\n";
+
 fn fixture() -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "Construction UI", true);
     player.resources.supplies = 1000;
     world.add_player(player);
-    let mut dozer = ThingTemplate::new("UiDozer");
-    dozer.add_kind_of(KindOf::Dozer).set_health(200.);
-    world.templates.insert(dozer.name.clone(), dozer);
+    world
+        .admit_object_ini_sources([(
+            "construction-ui.ini".to_string(),
+            CONSTRUCTION_UI_INI.to_string(),
+        )])
+        .expect("authored construction content admits");
     let builder = world
         .create_object_for_player("UiDozer", 0, Vec3::ZERO)
         .unwrap();
-    let mut structure = ThingTemplate::new("UiScaffold");
-    structure
-        .add_kind_of(KindOf::Structure)
-        .set_health(900.)
-        .set_cost(100, 0);
-    structure.build_time = 0.001;
-    world.templates.insert(structure.name.clone(), structure);
     let id = world
         .create_dozer_scaffold(
             "UiScaffold",
@@ -55,16 +55,10 @@ fn fixture() -> (GameLogic, ObjectId) {
             },
         )
         .unwrap().expect("ObjectId");
-    let frame = world.frame;
-    let dozer = world.host_object_mut(builder).unwrap();
-    dozer.set_dozer_task_build_target(Some(id));
-    dozer.set_dozer_dock_action(Some(Vec3::ZERO));
-    dozer.target = Some(id);
-    dozer.set_ai_state(
-        AIState::Constructing,
-        frame,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
+    // DozerAIUpdate::privateResumeConstruction -> newTask(DOZER_TASK_BUILD):
+    // records the request and claims the scaffold (setBuilder).
+    assert!(world.resume_construction(&[builder], id).expect("resume"));
+    assert_eq!(world.host_object(id).unwrap().builder_id, Some(builder));
     world
         .ai_manager
         .add_ai_player(0, Team::USA, crate::ai::AIDifficulty::Medium);
@@ -110,9 +104,11 @@ fn ordinary_completion_runs_attached_ui_synchronously_without_pending_delivery()
     let (mut world, id) = fixture();
     let (peer, peer_id) = fixture();
     assert_eq!(id, peer_id);
-    let ids: Vec<_> = world.objects.registered_keys().copied().collect();
     let mut ui = Ui::default();
-    world.update_construction_with_ui(&ids, 1., &mut Some(&mut ui));
+    // One DozerActionDoActionState frame: BuildTime 0.001 s is one logic frame.
+    world
+        .fixture_build_action_frames_with_ui(&[id], 1. / 30., &mut Some(&mut ui))
+        .expect("build action");
     assert_eq!(
         ui.events,
         [true, false],
@@ -156,7 +152,8 @@ fn admitted_native_step_keeps_ui_loan_through_ordinary_construction_phase() {
     let mut ui = Ui::default();
     world.tick_logic_frame_with_script_ui(0., None, Some(1), Some(&mut ui), |_| {}, |_| {});
     assert!(ui.events.is_empty());
-    for _ in 0..3 {
+    // Pick -> Move -> DoAction (DozerAIUpdate.cpp:318-348) before the build frame.
+    for _ in 0..60 {
         world.tick_logic_frame_with_script_ui(
             1. / 30.,
             None,
