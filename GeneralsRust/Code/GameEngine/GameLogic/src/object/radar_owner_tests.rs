@@ -13,15 +13,13 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
 use std::io::Cursor;
 
-fn authored_definitions() -> &'static (
+/// Upgrade and Object definitions live in each engine's own UpgradeCenter and
+/// ThingFactory (C++ INI load into TheUpgradeCenter / TheThingFactory per
+/// GameEngine), so every published world authors them for itself.
+fn authored_definitions() -> (
     Arc<dyn crate::common::ThingTemplate>,
     Arc<crate::upgrade::UpgradeTemplate>,
 ) {
-    static DEFINITIONS: std::sync::OnceLock<(
-        Arc<dyn crate::common::ThingTemplate>,
-        Arc<crate::upgrade::UpgradeTemplate>,
-    )> = std::sync::OnceLock::new();
-    DEFINITIONS.get_or_init(|| {
     assert!(ensure_thing_factory_exists());
     crate::upgrade::center::with_upgrade_center_mut(|center| {
         if center.find_upgrade("Upgrade_OwnedRadarTrigger").is_none() {
@@ -35,13 +33,14 @@ fn authored_definitions() -> &'static (
         game_engine::common::thing::module_factory::init_module_factory().unwrap();
     }
     crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
-    assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
-        "Object OwnedRadarScheduledFixture\n KindOf = INERT\n Behavior = RadarUpdate OwnedRadar\n RadarExtendTime = 1s\n End\n Behavior = ProductionUpdate OwnedProduction\n End\n Behavior = RadarUpgrade OwnedRadarGrant\n TriggeredBy = Upgrade_OwnedRadarTrigger\n DisableProof = Yes\n End\nEnd\n"
-    ), 1);
+    if TheThingFactory::find_template("OwnedRadarScheduledFixture").is_none() {
+        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
+            "Object OwnedRadarScheduledFixture\n KindOf = INERT\n Behavior = RadarUpdate OwnedRadar\n RadarExtendTime = 1s\n End\n Behavior = ProductionUpdate OwnedProduction\n End\n Behavior = RadarUpgrade OwnedRadarGrant\n TriggeredBy = Upgrade_OwnedRadarTrigger\n DisableProof = Yes\n End\nEnd\n"
+        ), 1);
+    }
     let template = TheThingFactory::find_template("OwnedRadarScheduledFixture").unwrap();
     let upgrade = crate::upgrade::center::with_upgrade_center(|center| center.find_upgrade("Upgrade_OwnedRadarTrigger").unwrap());
     (template, upgrade)
-    })
 }
 
 fn authored_owner() -> (Arc<RwLock<Object>>, Arc<crate::object::ModuleEntry>) {
