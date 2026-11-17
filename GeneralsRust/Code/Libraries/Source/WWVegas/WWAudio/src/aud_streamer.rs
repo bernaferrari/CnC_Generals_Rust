@@ -498,6 +498,9 @@ impl AudioStreamer {
             *format_guard = format;
         }
 
+        // AudioSample::set_name is debug-only (aud_source.rs), like the
+        // C++ debug sample name.
+        #[cfg(debug_assertions)]
         {
             let mut sample_guard = self.sample.lock().unwrap();
             let name_string = path.display().to_string();
