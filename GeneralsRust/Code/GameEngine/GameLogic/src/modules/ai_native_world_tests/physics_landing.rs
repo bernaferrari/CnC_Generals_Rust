@@ -136,7 +136,9 @@ fn game_config(
             sounds: vec!["landing.wav".into()],
             filename: "landing.wav".into(),
             type_field: game_engine::common::audio::ST_GLOBAL,
-            limit: -1,
+            // MilesAudioManager::doesViolateLimit: 0 is unlimited; a
+            // negative limit rejects every request.
+            limit: 0,
             loop_count: 1,
             pitch_shift_min: 1.0,
             pitch_shift_max: 1.0,
