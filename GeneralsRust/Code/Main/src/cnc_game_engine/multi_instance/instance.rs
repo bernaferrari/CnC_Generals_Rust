@@ -1,7 +1,8 @@
 //! One game instance on its own thread: boot, scenario, frame loop, tile copy.
 
+use super::super::runtime::RuntimeHostBridge;
 use super::super::types::register_real_game_client_bootstrap;
-use super::super::{CnCGameEngine, StartupLoadState};
+use super::super::{CnCGameEngine, GameState, StartupLoadState};
 use super::scenario::InstanceScenario;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,9 +11,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use winit::window::Window;
 
-/// C++ LOGICFRAMES_PER_SECOND = 30: one host update per logic interval, as
-/// the headless runtime host drives it.
-const LOGIC_INTERVAL: Duration = Duration::from_nanos(33_333_333);
+/// One C++ logic frame (LOGICFRAMES_PER_SECOND = 30).
+const LOGIC_FRAME: Duration = Duration::from_nanos(33_333_333);
 const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(5);
 /// Debug-depth recursion through map load and AI; matches the harness.
 const INSTANCE_THREAD_STACK: usize = 64 * 1024 * 1024;
@@ -29,6 +29,36 @@ pub enum InstancePhase {
 impl InstancePhase {
     pub fn is_terminal(&self) -> bool {
         matches!(self, Self::Failed(_) | Self::Finished)
+    }
+}
+
+/// Outcome of the tile's scenario assertions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Verdict {
+    /// Assertions not decided yet.
+    Pending,
+    Pass(String),
+    Fail(String),
+}
+
+impl Verdict {
+    pub fn is_decided(&self) -> bool {
+        !matches!(self, Self::Pending)
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Pass(_) => "PASS",
+            Self::Fail(_) => "FAIL",
+        }
+    }
+
+    pub fn detail(&self) -> &str {
+        match self {
+            Self::Pending => "",
+            Self::Pass(d) | Self::Fail(d) => d,
+        }
     }
 }
 
@@ -52,10 +82,12 @@ pub struct InstanceStatus {
     pub boot_secs: f32,
     /// Runtime-host commands applied for the scenario.
     pub commands: Vec<String>,
+    /// Scenario assertion outcome (set by the host).
+    pub verdict: Verdict,
 }
 
 impl InstanceStatus {
-    fn new(index: usize, scenario: &InstanceScenario) -> Self {
+    pub(super) fn new(index: usize, scenario: &InstanceScenario) -> Self {
         Self {
             index,
             scenario: scenario.label(),
@@ -69,6 +101,7 @@ impl InstanceStatus {
             frame_ms: 0.0,
             boot_secs: 0.0,
             commands: Vec::new(),
+            verdict: Verdict::Pending,
         }
     }
 
@@ -96,6 +129,9 @@ impl InstanceStatus {
         );
         if let InstancePhase::Failed(reason) = &self.phase {
             line.push_str(&format!(" error={reason}"));
+        }
+        if self.verdict.is_decided() {
+            line.push_str(&format!(" verdict={} {}", self.verdict.name(), self.verdict.detail()));
         }
         line
     }
@@ -153,8 +189,38 @@ pub struct InstanceSpawn {
     pub userdata: PathBuf,
     pub extra_args: Vec<String>,
     pub present_interval: Duration,
+    /// Host update cadence (one update per interval); `None` runs updates
+    /// back to back to measure an instance's capacity.
+    pub update_interval: Option<Duration>,
     pub runtime: Option<tokio::runtime::Handle>,
     pub boot_gate: Arc<BootGate>,
+    /// Read-only retail content every instance of this host shares.
+    pub shared_retail: crate::assets::ww3d_asset_manager::SharedRetailContent,
+    /// Runtime-host control/status files this instance serves (the bridge a
+    /// spawned `generals -runtime_host=headless` would serve), for attached
+    /// smoke drivers. `None` = no bridge.
+    pub bridge: Option<InstanceBridgePaths>,
+}
+
+/// Where an instance's runtime-host bridge files live.
+#[derive(Debug, Clone)]
+pub struct InstanceBridgePaths {
+    pub control: PathBuf,
+    pub status: PathBuf,
+    pub frame: PathBuf,
+    /// Frame-loop outcome for attached drivers: 0 clean, 1 failed.
+    pub exit: Arc<Mutex<Option<i32>>>,
+}
+
+impl InstanceBridgePaths {
+    pub fn in_dir(dir: &std::path::Path) -> Self {
+        Self {
+            control: dir.join("control.txt"),
+            status: dir.join("status.txt"),
+            frame: dir.join("frame.png"),
+            exit: Arc::new(Mutex::new(None)),
+        }
+    }
 }
 
 struct Shared {
@@ -174,6 +240,8 @@ pub struct InstanceHandle {
     scenario: InstanceScenario,
     shared: Arc<Shared>,
     thread: Option<JoinHandle<()>>,
+    /// Attached gate driver of this tile, if any.
+    driver: Option<JoinHandle<()>>,
 }
 
 impl InstanceHandle {
@@ -185,6 +253,7 @@ impl InstanceHandle {
             stop: AtomicBool::new(false),
         });
         let thread_shared = Arc::clone(&shared);
+        let exit_cell = spawn.bridge.as_ref().map(|b| Arc::clone(&b.exit));
         let thread = std::thread::Builder::new()
             .name(format!("generals-instance-{index}"))
             .stack_size(INSTANCE_THREAD_STACK)
@@ -207,6 +276,10 @@ impl InstanceHandle {
                 if let InstancePhase::Failed(reason) = &phase {
                     log::error!("instance {index} failed: {reason}");
                 }
+                if let Some(cell) = exit_cell {
+                    let code = if matches!(phase, InstancePhase::Finished) { 0 } else { 1 };
+                    *cell.lock().unwrap_or_else(|e| e.into_inner()) = Some(code);
+                }
                 thread_shared.update(|s| s.phase = phase);
             })?;
         Ok(Self {
@@ -214,7 +287,37 @@ impl InstanceHandle {
             scenario,
             shared,
             thread: Some(thread),
+            driver: None,
         })
+    }
+
+    /// Run `drive` on its own thread; its verdict becomes the tile's.
+    pub fn attach_driver(
+        &mut self,
+        drive: impl FnOnce() -> Verdict + Send + 'static,
+    ) -> std::io::Result<()> {
+        let shared = Arc::clone(&self.shared);
+        let index = self.index;
+        self.driver = Some(
+            std::thread::Builder::new()
+                .name(format!("generals-instance-{index}-driver"))
+                .spawn(move || {
+                    let verdict = drive();
+                    log::info!("instance {index} verdict: {} {}", verdict.name(), verdict.detail());
+                    shared.update(|s| s.verdict = verdict);
+                })?,
+        );
+        Ok(())
+    }
+
+    /// Whether this tile's verdict comes from an attached driver.
+    pub fn has_driver(&self) -> bool {
+        self.driver.is_some()
+    }
+
+    /// Record a host-assessed verdict (scenarios without a driver).
+    pub fn set_verdict(&self, verdict: Verdict) {
+        self.shared.update(|s| s.verdict = verdict);
     }
 
     pub fn index(&self) -> usize {
@@ -239,6 +342,7 @@ impl InstanceHandle {
 
     pub fn is_finished(&self) -> bool {
         self.thread.as_ref().is_none_or(JoinHandle::is_finished)
+            && self.driver.as_ref().is_none_or(JoinHandle::is_finished)
     }
 
     pub fn join(mut self) -> InstanceStatus {
@@ -246,11 +350,15 @@ impl InstanceHandle {
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+        // The driver sees the instance exit (its exit cell) and returns.
+        if let Some(driver) = self.driver.take() {
+            let _ = driver.join();
+        }
         self.status()
     }
 }
 
-fn retail_assets_dir() -> Option<PathBuf> {
+pub(super) fn retail_assets_dir() -> Option<PathBuf> {
     ["GENERALS_ASSETS_DIR", "GENERALS_RETAIL_DIR"]
         .into_iter()
         .filter_map(std::env::var_os)
@@ -274,6 +382,11 @@ fn instance_argv(spawn: &InstanceSpawn) -> Vec<String> {
         "-nointro".to_string(),
         format!("-userdata={}", spawn.userdata.display()),
     ];
+    if let Some(bridge) = &spawn.bridge {
+        argv.push(format!("-gpui_control={}", bridge.control.display()));
+        argv.push(format!("-gpui_status={}", bridge.status.display()));
+        argv.push(format!("-gpui_frame={}", bridge.frame.display()));
+    }
     argv.extend(spawn.extra_args.iter().cloned());
     argv
 }
@@ -284,6 +397,12 @@ fn run_instance(spawn: InstanceSpawn, shared: &Shared) -> Result<(), String> {
     // any other instance (docs/instance_binding.md, rule 2).
     let _main_services = crate::main_services::MainServicesScope::new();
     let _common_services = game_engine::common::common_services::CommonServicesScope::new();
+    // Hand this application the host's shared read-only retail content
+    // before anything loads (an explicit handle, not process state).
+    let shared_retail = spawn.shared_retail.clone();
+    game_engine::common::common_services::common_services()
+        .application
+        .extension(move || shared_retail);
     game_engine::common::system::game_memory::init_memory_manager();
     crate::localization::init("English");
     register_real_game_client_bootstrap();
@@ -296,6 +415,10 @@ fn run_instance(spawn: InstanceSpawn, shared: &Shared) -> Result<(), String> {
         .command_line_args
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = Some(args.clone());
+    let mut bridge = RuntimeHostBridge::from_command_line(&args);
+    if let Some(bridge) = bridge.as_mut() {
+        bridge.publish_booting();
+    }
     let args = Arc::new(args);
 
     let Some(permit) = spawn.boot_gate.acquire(&shared.stop) else {
@@ -329,7 +452,9 @@ fn run_instance(spawn: InstanceSpawn, shared: &Shared) -> Result<(), String> {
     })
     .map_err(|e| format!("engine boot: {e:#}"))?;
 
-    let result = drive_instance(&mut engine, &spawn, shared, boot_started, permit);
+    // One logic frame per host update; the update cadence sets the sim rate.
+    engine.fixed_logic_step = Some(LOGIC_FRAME);
+    let result = drive_instance(&mut engine, &spawn, shared, boot_started, permit, bridge);
     drop(engine);
     if let Err(error) = services.shutdown() {
         log::warn!(
@@ -346,6 +471,7 @@ fn drive_instance(
     shared: &Shared,
     boot_started: Instant,
     permit: BootPermit<'_>,
+    mut bridge: Option<RuntimeHostBridge>,
 ) -> Result<(), String> {
     // Startup asset worker: drained on the owning thread, as the run loop does.
     while matches!(
@@ -358,6 +484,9 @@ fn drive_instance(
         engine
             .update_startup_loading()
             .map_err(|e| format!("startup load: {e}"))?;
+        if let Some(bridge) = bridge.as_mut() {
+            bridge.publish_booting();
+        }
         std::thread::sleep(STARTUP_POLL_INTERVAL);
     }
     drop(permit);
@@ -381,7 +510,7 @@ fn drive_instance(
 
     while !shared.stop.load(Ordering::Relaxed) {
         let tick_started = Instant::now();
-        if !commands_sent && matches!(engine.get_state(), super::super::GameState::Menu) {
+        if !commands_sent && matches!(engine.get_state(), GameState::Menu) {
             commands_sent = true;
             let commands = spawn.scenario.menu_commands(assets.as_deref());
             for command in &commands {
@@ -392,6 +521,23 @@ fn drive_instance(
             window_logic_start = engine.presentation_or_boot_logic_frame();
         }
 
+        // Runtime-host bridge, as the run loop serves it: apply queued
+        // commands and publish status after each one.
+        if let Some(bridge) = bridge.as_mut() {
+            for command in bridge.drain_commands() {
+                log::info!("instance {}: runtime_host {command}", spawn.index);
+                engine.apply_runtime_host_command(&command)?;
+                let snapshot = engine.runtime_host_status_snapshot();
+                bridge.publish_status(&snapshot);
+            }
+            if engine.take_runtime_host_pending_capture() {
+                bridge.force_capture_request(&engine.ww3d);
+            }
+        }
+        if engine.is_state_change_pending(GameState::Exiting) {
+            break;
+        }
+
         engine.drive_frame_update(&mut last_drive_frame_start, &mut |_, _| Ok(()))?;
         let now = Instant::now();
         if now >= next_present && engine.should_present_w3d_frame() {
@@ -400,6 +546,10 @@ fn drive_instance(
             copy_frame_to_tile(engine, &spawn.gpu, &spawn.tile);
             rendered += 1;
             window_presents += 1;
+        }
+        if let Some(bridge) = bridge.as_mut() {
+            let snapshot = engine.runtime_host_status_snapshot();
+            bridge.publish_runtime(&engine.ww3d, &snapshot);
         }
         window_frames += 1;
         window_cost += tick_started.elapsed();
@@ -430,10 +580,12 @@ fn drive_instance(
             window_cost = Duration::ZERO;
         }
 
-        // Headless runtime-host cadence: one update per logic interval.
+        // Host cadence: one update per interval (MultiInstanceOptions::update_hz).
         let spent = tick_started.elapsed();
-        if spent < LOGIC_INTERVAL {
-            std::thread::sleep(LOGIC_INTERVAL - spent);
+        if let Some(interval) = spawn.update_interval {
+            if spent < interval {
+                std::thread::sleep(interval - spent);
+            }
         }
     }
     Ok(())

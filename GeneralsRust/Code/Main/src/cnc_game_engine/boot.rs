@@ -1175,6 +1175,7 @@ impl CnCGameEngine {
                 game_client::gui::shell::replay_menu::ReplayMenuMetadataPolicy::capture_application(
                 ),
             last_frame_timing: None,
+            fixed_logic_step: None,
             frame_clock: FrameClock::new(),
             menu_loading_tick_accumulator: Duration::ZERO,
             menu_loading_last_tick: Instant::now(),

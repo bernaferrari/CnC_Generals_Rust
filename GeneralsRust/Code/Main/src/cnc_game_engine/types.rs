@@ -1143,6 +1143,12 @@ pub struct CnCGameEngine {
     #[cfg(feature = "game_client")]
     pub(super) replay_menu_metadata: game_client::gui::shell::replay_menu::ReplayMenuMetadataPolicy,
     pub(crate) last_frame_timing: Option<FrameTiming>,
+    /// Host-chosen logic delta per update. `None` (the `generals` run
+    /// loop) feeds the measured frame time; the multi-instance host sets one
+    /// logic frame (1/30 s) so each update steps the logic exactly once, as
+    /// C++ GameEngine::update runs one TheGameLogic->UPDATE() per frame and
+    /// paces frames with the FPS limit (GameEngine.cpp:732-752, 856-866).
+    pub(crate) fixed_logic_step: Option<Duration>,
     pub(crate) frame_clock: FrameClock,
     pub(crate) menu_loading_tick_accumulator: Duration,
     pub(crate) menu_loading_last_tick: Instant,

@@ -23,6 +23,48 @@ impl Drop for SmokeChild {
     }
 }
 
+/// The runtime host a smoke session drives: the `generals` child this run
+/// spawned, or an in-process instance (a `generals_multi` tile) that serves
+/// the same control/status files.
+enum SmokeHost {
+    Spawned(SmokeChild),
+    Attached(AttachedSmokeHost),
+}
+
+/// How a driven host ended: the process exit code, or the attached host's
+/// frame-loop outcome (0 = clean exit).
+struct HostExit(Option<i32>);
+
+impl HostExit {
+    fn code(&self) -> Option<i32> {
+        self.0
+    }
+
+    fn success(&self) -> bool {
+        self.0 == Some(0)
+    }
+}
+
+impl SmokeHost {
+    fn try_wait(&mut self) -> std::io::Result<Option<HostExit>> {
+        match self {
+            Self::Spawned(child) => Ok(child.try_wait()?.map(|status| HostExit(status.code()))),
+            Self::Attached(host) => Ok(host.exit_code().map(|code| HostExit(Some(code)))),
+        }
+    }
+
+    /// Stop the host. An attached instance is not ours to kill; it gets the
+    /// same `exit` command the drivers send and winds down on its own thread.
+    fn kill(&mut self) {
+        match self {
+            Self::Spawned(child) => kill_child(child),
+            Self::Attached(host) => {
+                let _ = write_control(&host.control_path, &["exit"]);
+            }
+        }
+    }
+}
+
 fn configure_smoke_child_assets(command: &mut Command, options: &SmokeOptions) {
     if let Some(assets_dir) = &options.assets_dir {
         command.env("GENERALS_ASSETS_DIR", assets_dir);

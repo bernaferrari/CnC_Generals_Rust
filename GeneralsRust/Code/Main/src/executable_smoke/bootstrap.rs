@@ -7,11 +7,15 @@
 
 /// Spawned child plus its runtime-host file paths for one smoke run.
 struct SmokeBootstrap {
-    child: SmokeChild,
+    child: SmokeHost,
     tmp: PathBuf,
+    /// Spawned runs own (and remove) their temp dir; an attached host's
+    /// control directory belongs to whoever runs that host.
+    owns_tmp: bool,
     control_path: PathBuf,
     status_path: PathBuf,
     map: String,
+    screenshot_path: Option<PathBuf>,
 }
 
 /// Resolve binary/assets and spawn the production `generals` child.
@@ -137,10 +141,12 @@ fn bootstrap_smoke_child(
     result.process_started = true;
 
     Some(SmokeBootstrap {
-        child: SmokeChild(child),
+        child: SmokeHost::Spawned(SmokeChild(child)),
         tmp,
+        owns_tmp: true,
         control_path,
         status_path,
         map,
+        screenshot_path: options.screenshot_path.clone(),
     })
 }

@@ -252,6 +252,7 @@ mod tests {
             .spawn()
             .unwrap();
         child.wait().unwrap();
+        let mut child = SmokeHost::Spawned(SmokeChild(child));
         let mut result = ExecutableSmokeResult {
             reached_ingame: true,
             reached_menu: true,
@@ -278,6 +279,7 @@ mod tests {
             .spawn()
             .unwrap();
         shutdown_child.wait().unwrap();
+        let mut shutdown_child = SmokeHost::Spawned(SmokeChild(shutdown_child));
         let mut shutdown_result = ExecutableSmokeResult {
             reached_ingame: true,
             reached_menu: true,
@@ -292,6 +294,55 @@ mod tests {
         ));
         assert_eq!(shutdown_result.status, "process_exited");
         assert!(!shutdown_result.executable_host_ok);
+    }
+
+    #[test]
+    fn attached_host_reports_its_frame_loop_exit_and_receives_exit_on_kill() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = AttachedSmokeHost {
+            control_path: dir.path().join("control.txt"),
+            status_path: dir.path().join("status.txt"),
+            exit: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            map: None,
+        };
+        let exit = std::sync::Arc::clone(&host.exit);
+        let mut smoke_host = SmokeHost::Attached(host.clone());
+        assert!(smoke_host.try_wait().unwrap().is_none());
+        smoke_host.kill();
+        assert_eq!(fs::read_to_string(&host.control_path).unwrap().trim(), "exit");
+        *exit.lock().unwrap() = Some(0);
+        let ended = smoke_host.try_wait().unwrap().expect("ended");
+        assert!(ended.success());
+        assert_eq!(ended.code(), Some(0));
+    }
+
+    #[test]
+    fn smoke_gates_parse_and_apply_their_gate_binary_predicates() {
+        for gate in SmokeGate::ALL {
+            assert_eq!(gate.name().parse::<SmokeGate>().unwrap(), gate);
+        }
+        assert!("nope".parse::<SmokeGate>().is_err());
+        let menu = ExecutableSmokeResult {
+            status: "success".into(),
+            executable_host_ok: true,
+            reached_menu: true,
+            shell_wnd_ok: true,
+            ..Default::default()
+        };
+        assert!(SmokeGate::BootShellMenu.passed(&menu));
+        assert!(!SmokeGate::IssueOrders.passed(&menu));
+        let orders = ExecutableSmokeResult {
+            reached_ingame: true,
+            gameplay_cmd_ok: true,
+            ..menu.clone()
+        };
+        assert!(SmokeGate::IssueOrders.passed(&orders));
+        assert!(!SmokeGate::SaveLoad.passed(&orders));
+        let timed_out = ExecutableSmokeResult {
+            status: "timeout".into(),
+            ..orders
+        };
+        assert!(!SmokeGate::IssueOrders.passed(&timed_out));
     }
 
     #[test]
@@ -320,10 +371,12 @@ mod tests {
     fn wall_timeout_rejects_stalled_ingame_host() {
         let dir = tempfile::tempdir().unwrap();
         let control = dir.path().join("control.txt");
-        let mut child = std::process::Command::new("sleep")
-            .arg("10")
-            .spawn()
-            .unwrap();
+        let mut child = SmokeHost::Spawned(SmokeChild(
+            std::process::Command::new("sleep")
+                .arg("10")
+                .spawn()
+                .unwrap(),
+        ));
         let mut st = SmokeRunState {
             saw_shell_wnd_ok: true,
             last_ingame_frame: Some(210),

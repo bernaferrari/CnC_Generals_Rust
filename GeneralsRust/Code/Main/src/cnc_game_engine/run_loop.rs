@@ -1022,7 +1022,12 @@ impl CnCGameEngine {
         // measured ~16-17 fps equilibrium (1.6-2 logic steps per
         // 98-190 ms frame). Post-fix this never fires; the ww3d clock
         // stamp and this anchor differ only by microseconds.
+        let fixed_logic_step = self.fixed_logic_step;
         let frame_timing = frame_timing.map(|mut timing| {
+            if let Some(step) = fixed_logic_step {
+                timing.delta_time = step;
+                return timing;
+            }
             if let Some(prev_start) = *last_drive_frame_start {
                 let true_elapsed = frame_started.duration_since(prev_start);
                 if timing.delta_time.abs_diff(true_elapsed) > Duration::from_millis(2) {

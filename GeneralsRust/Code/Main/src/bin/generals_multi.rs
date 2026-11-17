@@ -4,17 +4,26 @@
 //! ```text
 //! generals_multi [--instances N] [--scenario S]... [--columns C]
 //!                [--headless] [--shots DIR] [--shot-frame F] [--shot-timeout SECS]
-//!                [--run-for SECS] [--present-fps FPS] [--boot-parallel K]
-//!                [--instance-size WxH] [--cell-size WxH] [--audio] [-- <engine args>]
+//!                [--run-for SECS] [--present-fps FPS] [--update-hz HZ (60; 0 uncapped)]
+//!                [--boot-parallel K]
+//!                [--instance-size WxH] [--cell-size WxH] [--audio]
+//!                [--suite e2e] [--gate-timeout SECS] [--pass-frame F]
+//!                [--verdict-timeout SECS] [--until-verdicts] [-- <engine args>]
 //! ```
 //! Scenarios: `golden` (Lone Eagle skirmish, default), `shell`,
-//! `skirmish:<map>[:<faction>]`, `cmds:<runtime-host cmd>;<cmd>`; they are
-//! cycled across instances. Retail assets come from `GENERALS_ASSETS_DIR`.
+//! `skirmish:<map>[:<faction>]`, `cmds:<runtime-host cmd>;<cmd>`, and
+//! `gate:<menu|map_load|orders|ai|save_load>[:<map>]` (a retail executable
+//! gate's smoke driver attached to the tile); they are cycled across
+//! instances. `--suite e2e` fills the grid with every retail gate, the
+//! golden skirmish, the shell and skirmishes on other maps/factions. Each
+//! tile shows a PASS/FAIL verdict. Retail assets come from
+//! `GENERALS_ASSETS_DIR`; extra maps from `GENERALS_MAPS_DIR`.
 //! `--headless` composites off-screen only and exits after the dump.
-//! Exit codes: 0 all instances ran, 1 an instance failed, 3 usage.
+//! Exit codes: 0 every tile passed (or ran, if undecided), 1 a tile failed,
+//! 3 usage.
 
 use generals_main::cnc_game_engine::multi_instance::{
-    InstanceScenario, MultiInstanceOptions, run_multi_instance,
+    InstanceScenario, MultiInstanceOptions, e2e_suite, run_multi_instance,
 };
 use std::path::PathBuf;
 use std::time::Duration;
@@ -23,7 +32,9 @@ fn usage() -> ! {
     eprintln!(
         "usage: generals_multi [--instances N] [--scenario golden|shell|skirmish:<map>[:<faction>]|cmds:<a>;<b>]... \
          [--columns C] [--headless] [--shots DIR] [--shot-frame F] [--shot-timeout SECS] [--run-for SECS] \
-         [--present-fps FPS] [--boot-parallel K] [--instance-size WxH] [--cell-size WxH] [--audio] [-- <engine args>]"
+         [--present-fps FPS] [--update-hz HZ] [--boot-parallel K] [--instance-size WxH] [--cell-size WxH] [--audio] [--suite e2e] [--gate-timeout SECS] \
+         [--pass-frame F] [--verdict-timeout SECS] [--until-verdicts] [-- <engine args>]\n\
+         scenarios also: gate:<menu|map_load|orders|ai|save_load>[:<map>]"
     );
     std::process::exit(3);
 }
@@ -40,6 +51,7 @@ fn parse() -> MultiInstanceOptions {
     let mut scenarios = Vec::new();
     let mut cell_size = None;
     let mut audio = false;
+    let mut suite = false;
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         let mut value = || args.next().unwrap_or_else(|| usage());
@@ -67,6 +79,7 @@ fn parse() -> MultiInstanceOptions {
                 ))
             }
             "--present-fps" => options.present_fps = value().parse().unwrap_or_else(|_| usage()),
+            "--update-hz" => options.update_hz = value().parse().unwrap_or_else(|_| usage()),
             "--boot-parallel" => {
                 options.boot_parallelism = value().parse().unwrap_or_else(|_| usage())
             }
@@ -74,6 +87,22 @@ fn parse() -> MultiInstanceOptions {
             "--cell-size" => cell_size = Some(size(&value())),
             "--userdata" => options.userdata_root = absolute(value()),
             "--audio" => audio = true,
+            "--suite" => match value().as_str() {
+                "e2e" => suite = true,
+                _ => usage(),
+            },
+            "--gate-timeout" => {
+                options.gate_timeout =
+                    Duration::from_secs(value().parse().unwrap_or_else(|_| usage()))
+            }
+            "--pass-frame" => {
+                options.assertions.pass_logic_frame = value().parse().unwrap_or_else(|_| usage())
+            }
+            "--verdict-timeout" => {
+                options.assertions.timeout =
+                    Duration::from_secs(value().parse().unwrap_or_else(|_| usage()))
+            }
+            "--until-verdicts" => options.stop_when_decided = true,
             "--" => {
                 options.extra_args.extend(args.by_ref());
                 break;
@@ -81,6 +110,10 @@ fn parse() -> MultiInstanceOptions {
             "-h" | "--help" => usage(),
             _ => usage(),
         }
+    }
+    if suite {
+        options.scenarios = e2e_suite(options.instances);
+        options.stop_when_decided = true;
     }
     if !scenarios.is_empty() {
         options.scenarios = scenarios;
@@ -166,10 +199,12 @@ async fn main() {
                 started.elapsed().as_secs_f32()
             );
             print!("{}", report.summary());
-            let failed = report
-                .instances
-                .iter()
-                .any(|r| r.status.phase_name() == "FAILED");
+            let (_, verdict_failures, _) = report.verdict_counts();
+            let failed = verdict_failures > 0
+                || report
+                    .instances
+                    .iter()
+                    .any(|r| r.status.phase_name() == "FAILED");
             std::process::exit(i32::from(failed));
         }
         Err(e) => {

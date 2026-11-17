@@ -214,16 +214,32 @@ fn run_executable_smoke_once(
     let Some(boot) = bootstrap_smoke_child(launch, options, &mut result) else {
         return result;
     };
+    run_smoke_session(boot, result, timeout, started, use_new_game_path, launch, driver)
+}
+
+/// Drive one bootstrapped runtime host (spawned child or attached in-process
+/// instance) through the driver's phases until it passes, fails, or times out.
+fn run_smoke_session(
+    boot: SmokeBootstrap,
+    mut result: ExecutableSmokeResult,
+    timeout: Duration,
+    started: Instant,
+    use_new_game_path: bool,
+    launch: ExecutableSmokeLaunch,
+    driver: SmokeDriver,
+) -> ExecutableSmokeResult {
     let SmokeBootstrap {
         mut child,
         tmp,
+        owns_tmp,
         control_path,
         status_path,
         map,
+        screenshot_path,
     } = boot;
 
     let mut st = SmokeRunState {
-        screenshot_path: options.screenshot_path.clone(),
+        screenshot_path,
         boot_shell_menu_goal: matches!(driver, SmokeDriver::MenuOnly),
         map_load_goal: matches!(driver, SmokeDriver::MapLoadOnly),
         orders_goal: matches!(driver, SmokeDriver::OrdersOnly),
@@ -318,7 +334,7 @@ fn run_executable_smoke_once(
 
         if result.status == "save_load_command_failed" {
             let _ = write_control(&control_path, &["exit"]);
-            kill_child(&mut child);
+            child.kill();
             break;
         }
 
@@ -328,7 +344,9 @@ fn run_executable_smoke_once(
     append_smoke_failure_diagnostics(&mut result, &st, &tmp);
     // The profile lock and writable data must remain until our child is gone.
     drop(child);
-    let _ = fs::remove_dir_all(&tmp);
+    if owns_tmp {
+        let _ = fs::remove_dir_all(&tmp);
+    }
 
     // Lifecycle: shutdown — merge latched poll residuals, then the gates.
     merge_shutdown_residuals(&mut result, &st);
@@ -340,7 +358,7 @@ fn run_executable_smoke_once(
 fn smoke_wall_budget_exceeded(
     st: &mut SmokeRunState,
     result: &mut ExecutableSmokeResult,
-    child: &mut Child,
+    child: &mut SmokeHost,
     control_path: &Path,
     timeout: Duration,
     started: Instant,
@@ -513,7 +531,7 @@ fn smoke_wall_budget_exceeded(
             );
         }
         let _ = write_control(&control_path, &["exit"]);
-        kill_child(child);
+        child.kill();
         return true;
     }
     false
@@ -531,7 +549,7 @@ fn ingame_frame_stalled(st: &SmokeRunState, max_idle: Duration) -> bool {
 fn smoke_child_exited_early(
     st: &mut SmokeRunState,
     result: &mut ExecutableSmokeResult,
-    child: &mut Child,
+    child: &mut SmokeHost,
     use_new_game_path: bool,
 ) -> bool {
     if let Ok(Some(status)) = child.try_wait() {
@@ -1237,7 +1255,7 @@ fn smoke_phase_skirmish_start_wait(
 fn smoke_phase_wait_clean_exit(
     st: &mut SmokeRunState,
     result: &mut ExecutableSmokeResult,
-    child: &mut Child,
+    child: &mut SmokeHost,
     use_new_game_path: bool,
 ) -> bool {
     // Wait for clean exit.
@@ -1302,7 +1320,7 @@ fn smoke_phase_wait_clean_exit(
         .unwrap_or(false)
         && st.phase == 3
     {
-        kill_child(child);
+        child.kill();
         if result.reached_ingame {
             result.executable_host_ok =
                 executable_host_ok_from_residuals(true, result.shell_wnd_ok);

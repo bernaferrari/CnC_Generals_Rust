@@ -263,6 +263,7 @@ include!("executable_smoke/status.rs");
 mod retail_map;
 include!("executable_smoke/process.rs");
 include!("executable_smoke/bootstrap.rs");
+include!("executable_smoke/attached.rs");
 include!("executable_smoke/frame_loop.rs");
 include!("executable_smoke/construction_wait.rs");
 include!("executable_smoke/windowed_navigation.rs");

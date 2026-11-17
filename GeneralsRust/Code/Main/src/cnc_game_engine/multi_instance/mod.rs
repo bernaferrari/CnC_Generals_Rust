@@ -17,8 +17,8 @@ mod compositor;
 mod instance;
 mod scenario;
 
-pub use instance::{InstancePhase, InstanceStatus};
-pub use scenario::InstanceScenario;
+pub use instance::{InstancePhase, InstanceStatus, Verdict};
+pub use scenario::{e2e_suite, Assertions, InstanceScenario};
 
 use compositor::GridCompositor;
 use instance::InstanceHandle;
@@ -53,14 +53,25 @@ pub struct MultiInstanceOptions {
     /// Stop after this long (`None` = until the window closes, or after the
     /// dump when not windowed).
     pub run_for: Option<Duration>,
-    /// Instance present rate (logic always runs at 30 Hz).
+    /// Instance present rate.
     pub present_fps: u32,
+    /// Host updates per second of every instance (each update steps the
+    /// logic once, as the headless runtime host drives it). 60 is the grid's
+    /// sim target; 0 runs uncapped to measure capacity.
+    pub update_hz: u32,
     /// Instances allowed to boot at the same time.
     pub boot_parallelism: usize,
     /// Private user-data root; instance `i` uses `<root>/instance-<i>`.
     pub userdata_root: PathBuf,
     /// Extra engine command-line switches for every instance.
     pub extra_args: Vec<String>,
+    /// Pass/fail rules of host-assessed scenarios.
+    pub assertions: Assertions,
+    /// Wall budget of one attached retail gate (the `*_gate` binaries
+    /// default to 180 s for a single process; a full grid shares the CPU).
+    pub gate_timeout: Duration,
+    /// Stop once every tile has a verdict (and the dump, if any, is taken).
+    pub stop_when_decided: bool,
 }
 
 impl Default for MultiInstanceOptions {
@@ -77,9 +88,13 @@ impl Default for MultiInstanceOptions {
             shot_timeout: Duration::from_secs(900),
             run_for: None,
             present_fps: 15,
+            update_hz: 60,
             boot_parallelism: 4,
             userdata_root: std::env::temp_dir().join("generals_multi"),
             extra_args: Vec::new(),
+            assertions: Assertions::default(),
+            gate_timeout: Duration::from_secs(900),
+            stop_when_decided: false,
         }
     }
 }
@@ -114,6 +129,19 @@ pub struct MultiInstanceReport {
 }
 
 impl MultiInstanceReport {
+    /// (pass, fail, pending) tile verdicts.
+    pub fn verdict_counts(&self) -> (usize, usize, usize) {
+        let mut counts = (0, 0, 0);
+        for r in &self.instances {
+            match r.status.verdict {
+                Verdict::Pass(_) => counts.0 += 1,
+                Verdict::Fail(_) => counts.1 += 1,
+                Verdict::Pending => counts.2 += 1,
+            }
+        }
+        counts
+    }
+
     /// Human-readable summary (one line per instance).
     pub fn summary(&self) -> String {
         let mut out = String::new();
@@ -133,6 +161,10 @@ impl MultiInstanceReport {
             mb(self.rss_after_boot_bytes),
             mb(self.rss_peak_bytes),
             mb(self.rss_peak_bytes.saturating_sub(self.rss_before_boot_bytes) / n),
+        ));
+        let (pass, fail, pending) = self.verdict_counts();
+        out.push_str(&format!(
+            "verdicts: {pass} pass, {fail} fail, {pending} pending\n"
         ));
         for shot in &self.shots {
             out.push_str(&format!("shot: {}\n", shot.display()));
@@ -226,6 +258,7 @@ pub fn run_multi_instance(
         ..Default::default()
     };
     let boot_gate = Arc::new(instance::BootGate::new(options.boot_parallelism.max(1)));
+    let shared_retail = crate::assets::ww3d_asset_manager::SharedRetailContent::default();
     let mut instances: Vec<InstanceHandle> = Vec::new();
     let mut grid_window: Option<Arc<Window>> = None;
     let mut compositor: Option<GridCompositor> = None;
@@ -279,21 +312,62 @@ pub fn run_multi_instance(
                                 .map_err(|e| format!("instance window {index}: {e}"))?,
                         );
                         let scenario = options.scenarios[index % options.scenarios.len()].clone();
-                        let handle = InstanceHandle::spawn(instance::InstanceSpawn {
+                        let userdata = options.userdata_root.join(format!("instance-{index}"));
+                        let bridge = match scenario.gate() {
+                            Some(_) => {
+                                let dir = userdata.join("runtime-host");
+                                std::fs::create_dir_all(&dir)
+                                    .map_err(|e| format!("bridge dir {}: {e}", dir.display()))?;
+                                Some(instance::InstanceBridgePaths::in_dir(&dir))
+                            }
+                            None => None,
+                        };
+                        let mut handle = InstanceHandle::spawn(instance::InstanceSpawn {
                             index,
-                            scenario,
+                            scenario: scenario.clone(),
                             window,
                             gpu: gpu.clone(),
                             tile: comp.tile_texture(index).clone(),
-                            userdata: options.userdata_root.join(format!("instance-{index}")),
+                            userdata,
                             extra_args: options.extra_args.clone(),
                             present_interval: Duration::from_secs_f64(
                                 1.0 / f64::from(options.present_fps.max(1)),
                             ),
+                            update_interval: (options.update_hz > 0)
+                                .then(|| Duration::from_secs_f64(1.0 / f64::from(options.update_hz))),
                             runtime: runtime.clone(),
                             boot_gate: Arc::clone(&boot_gate),
+                            shared_retail: shared_retail.clone(),
+                            bridge: bridge.clone(),
                         })
                         .map_err(|e| format!("spawn instance {index}: {e}"))?;
+                        if let (Some(gate), Some(bridge)) = (scenario.gate(), bridge) {
+                            let host = crate::executable_smoke::AttachedSmokeHost {
+                                control_path: bridge.control,
+                                status_path: bridge.status,
+                                exit: bridge.exit,
+                                map: scenario.gate_map_path(instance::retail_assets_dir().as_deref()),
+                            };
+                            let timeout = options.gate_timeout;
+                            handle
+                                .attach_driver(move || {
+                                    let smoke = crate::executable_smoke::SmokeOptions::from_environment();
+                                    let r = crate::executable_smoke::run_attached_smoke(
+                                        gate, host, timeout, &smoke,
+                                    );
+                                    if gate.passed(&r) {
+                                        Verdict::Pass(format!("{} {}", gate.name(), r.status))
+                                    } else {
+                                        Verdict::Fail(format!(
+                                            "{} {}: {}",
+                                            gate.name(),
+                                            r.status,
+                                            r.detail.chars().take(120).collect::<String>()
+                                        ))
+                                    }
+                                })
+                                .map_err(|e| format!("gate driver {index}: {e}"))?;
+                        }
                         instances.push(handle);
                     }
                     compositor = Some(comp);
@@ -326,6 +400,39 @@ pub fn run_multi_instance(
                     let now = Instant::now();
                     let statuses: Vec<InstanceStatus> =
                         instances.iter().map(InstanceHandle::status).collect();
+                    // Host-assessed verdicts; a crash after a pass still fails.
+                    for (handle, status) in instances.iter().zip(statuses.iter()) {
+                        if handle.has_driver() {
+                            continue;
+                        }
+                        match &status.verdict {
+                            Verdict::Pending => {
+                                let verdict = handle.scenario().assess(
+                                    status,
+                                    started.elapsed(),
+                                    &options.assertions,
+                                );
+                                if verdict.is_decided() {
+                                    log::info!(
+                                        "instance {} verdict: {} {}",
+                                        status.index,
+                                        verdict.name(),
+                                        verdict.detail()
+                                    );
+                                    handle.set_verdict(verdict);
+                                }
+                            }
+                            Verdict::Pass(_) => {
+                                if let InstancePhase::Failed(reason) = &status.phase {
+                                    handle.set_verdict(Verdict::Fail(format!(
+                                        "failed after pass: {}",
+                                        reason.chars().take(80).collect::<String>()
+                                    )));
+                                }
+                            }
+                            Verdict::Fail(_) => {}
+                        }
+                    }
                     let (rss, peak) = process_rss();
                     report.rss_peak_bytes = report.rss_peak_bytes.max(peak.max(rss));
                     if !boot_rss_recorded
@@ -376,6 +483,13 @@ pub fn run_multi_instance(
                     if options
                         .run_for
                         .is_some_and(|limit| started.elapsed() >= limit)
+                    {
+                        stopping = true;
+                    }
+                    if options.stop_when_decided
+                        && shot_taken
+                        && !statuses.is_empty()
+                        && statuses.iter().all(|s| s.verdict.is_decided())
                     {
                         stopping = true;
                     }

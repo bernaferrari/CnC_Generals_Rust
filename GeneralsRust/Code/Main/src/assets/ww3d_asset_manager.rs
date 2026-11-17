@@ -15,23 +15,78 @@ use crate::assets::ini_parser::{
 use anyhow::Result;
 use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+
+/// The resolved retail Object INI catalogue: immutable once loaded, so one
+/// copy serves every engine loading the same archive content (C++ builds it
+/// once per process in `ThingFactory`/`WW3DAssetManager` and never mutates the
+/// master templates during a game). Per-game overlays copy on write.
+#[derive(Debug, Clone, Default)]
+pub struct ObjectCatalog {
+    object_definitions: HashMap<String, ObjectDefinition>,
+    /// Lowercase -> canonical name lookup for case-insensitive matches
+    normalized_name_lookup: HashMap<String, String>,
+    /// Texture cache: object_name -> texture_filename
+    texture_cache: HashMap<String, String>,
+    /// Model cache: object_name -> model_filename
+    model_cache: HashMap<String, String>,
+}
+
+impl ObjectCatalog {
+    fn register_definition_indices(&mut self, name: &str) {
+        self.normalized_name_lookup
+            .entry(name.trim().to_ascii_lowercase())
+            .or_insert_with(|| name.to_string());
+    }
+}
+
+/// Read-only retail content shared by the engines one host runs (the
+/// multi-instance grid hands every instance the same handle through its
+/// application channels; a lone `generals` gets a private one). Content is
+/// keyed by a fingerprint of the exact source files, so an engine whose
+/// archives differ never adopts another engine's catalogue.
+#[derive(Debug, Clone, Default)]
+pub struct SharedRetailContent {
+    object_catalog: Arc<Mutex<Option<(u64, Arc<ObjectCatalog>)>>>,
+    /// Held while one engine builds the catalogue, so engines booting in
+    /// parallel wait and adopt it instead of each parsing a private copy.
+    catalog_build: Arc<Mutex<()>>,
+}
+
+impl SharedRetailContent {
+    /// This application's handle (installed by the host, else private).
+    pub fn for_current_application() -> Option<Self> {
+        game_engine::common::common_services::try_common_services()
+            .map(|services| (*services.application.extension(Self::default)).clone())
+    }
+
+    fn begin_catalog_build(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.catalog_build.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn catalog_for(&self, fingerprint: u64) -> Option<Arc<ObjectCatalog>> {
+        let slot = self.object_catalog.lock().unwrap_or_else(|e| e.into_inner());
+        slot.as_ref()
+            .filter(|(key, _)| *key == fingerprint)
+            .map(|(_, catalog)| Arc::clone(catalog))
+    }
+
+    fn publish_catalog(&self, fingerprint: u64, catalog: &Arc<ObjectCatalog>) {
+        let mut slot = self.object_catalog.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_none() {
+            *slot = Some((fingerprint, Arc::clone(catalog)));
+        }
+    }
+}
 
 /// WW3D Asset Manager - Manages object definitions and their associated assets
 /// Equivalent to C++ WW3DAssetManager::Get_Texture() and object template system
 pub struct WW3DAssetManager {
-    /// Object definitions loaded from INI files
-    object_definitions: HashMap<String, ObjectDefinition>,
-    /// Lowercase -> canonical name lookup for case-insensitive matches
-    normalized_name_lookup: HashMap<String, String>,
+    /// Resolved object definitions and their lookups (shared read-only).
+    catalog: Arc<ObjectCatalog>,
 
-    /// INI parser instance
+    /// INI parser instance (its raw definitions are dropped after loading)
     ini_parser: IniParser,
-
-    /// Texture cache: object_name -> texture_filename
-    texture_cache: HashMap<String, String>,
-
-    /// Model cache: object_name -> model_filename
-    model_cache: HashMap<String, String>,
 
     /// Whether INI files have been loaded
     initialized: bool,
@@ -41,11 +96,8 @@ impl WW3DAssetManager {
     /// Create a new WW3D Asset Manager
     pub fn new() -> Self {
         Self {
-            object_definitions: HashMap::new(),
-            normalized_name_lookup: HashMap::new(),
+            catalog: Arc::new(ObjectCatalog::default()),
             ini_parser: IniParser::new(),
-            texture_cache: HashMap::new(),
-            model_cache: HashMap::new(),
             initialized: false,
         }
     }
@@ -64,10 +116,10 @@ impl WW3DAssetManager {
         // This avoids stale hardcoded names and keeps parity with mods/expansions.
         let object_ini_files = Self::discover_object_ini_files(archive_system);
 
-        let mut total_objects_loaded = 0;
-        let mut files_processed = 0;
+        // Read every source first: the fingerprint over the exact bytes
+        // decides whether a catalogue this host already built applies.
         let total_files = object_ini_files.len();
-
+        let mut sources: Vec<(&String, String)> = Vec::with_capacity(total_files);
         for (idx, ini_file) in object_ini_files.iter().enumerate() {
             debug!(
                 "📄 Loading INI file {}/{}: {}",
@@ -75,43 +127,64 @@ impl WW3DAssetManager {
                 total_files,
                 ini_file
             );
-
             match archive_system.open_file(ini_file).await {
-                Ok(data) => {
-                    // Try to parse as UTF-8
-                    match String::from_utf8(data) {
-                        Ok(content) => {
-                            // Parse the INI content
-                            match self.ini_parser.parse_ini_content(&content, ini_file) {
-                                Ok(count) => {
-                                    debug!("✅ Loaded {} objects from {}", count, ini_file);
-                                    total_objects_loaded += count;
-                                    files_processed += 1;
-                                }
-                                Err(e) => {
-                                    warn!("⚠️ Failed to parse {}: {}", ini_file, e);
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            warn!("⚠️ Failed to decode {} as UTF-8", ini_file);
-                        }
-                    }
-                }
+                Ok(data) => match String::from_utf8(data) {
+                    Ok(content) => sources.push((ini_file, content)),
+                    Err(_) => warn!("⚠️ Failed to decode {} as UTF-8", ini_file),
+                },
                 Err(e) => {
                     // File not found or other error - continue with next
                     debug!("File not found or not accessible: {}: {}", ini_file, e);
                 }
             }
         }
+        let fingerprint = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            for (name, content) in &sources {
+                name.hash(&mut hasher);
+                content.hash(&mut hasher);
+            }
+            hasher.finish()
+        };
+        let shared = SharedRetailContent::for_current_application();
+        let _building = shared.as_ref().map(SharedRetailContent::begin_catalog_build);
+        if let Some(catalog) = shared.as_ref().and_then(|s| s.catalog_for(fingerprint)) {
+            info!(
+                "✅ WW3DAssetManager adopted the host's shared catalogue ({} objects)",
+                catalog.object_definitions.len()
+            );
+            self.catalog = catalog;
+            self.initialized = true;
+            return Ok(());
+        }
 
-        // Copy parsed definitions to internal cache
-        let raw_definitions: HashMap<String, ObjectDefinition> = self
-            .ini_parser
-            .get_all_definitions()
-            .iter()
-            .map(|(name, def)| (name.clone(), def.clone()))
-            .collect();
+        let mut total_objects_loaded = 0;
+        let mut files_processed = 0;
+        for (ini_file, content) in &sources {
+            match self.ini_parser.parse_ini_content(content, ini_file) {
+                Ok(count) => {
+                    debug!("✅ Loaded {} objects from {}", count, ini_file);
+                    total_objects_loaded += count;
+                    files_processed += 1;
+                }
+                Err(e) => {
+                    warn!("⚠️ Failed to parse {}: {}", ini_file, e);
+                }
+            }
+        }
+        drop(sources);
+
+        // Resolve inheritance from the parser's raw definitions, then drop
+        // the parser's copy: only the resolved catalogue is ever read.
+        let raw_definitions: HashMap<String, ObjectDefinition> = std::mem::replace(
+            &mut self.ini_parser,
+            IniParser::new(),
+        )
+        .get_all_definitions()
+        .iter()
+        .map(|(name, def)| (name.clone(), def.clone()))
+        .collect();
         let mut resolved_definitions = HashMap::with_capacity(raw_definitions.len());
         for name in raw_definitions.keys() {
             let mut stack = HashSet::new();
@@ -124,23 +197,27 @@ impl WW3DAssetManager {
                 resolved_definitions.insert(name.clone(), definition);
             }
         }
+        drop(raw_definitions);
 
         let mut definitions: Vec<(String, ObjectDefinition)> =
             resolved_definitions.into_iter().collect();
         definitions.sort_by(|a, b| a.0.cmp(&b.0));
 
+        let mut catalog = ObjectCatalog::default();
         for (name, def) in definitions {
-            self.register_definition_indices(&name, &def);
-            self.object_definitions.insert(name.clone(), def.clone());
-
+            catalog.register_definition_indices(&name);
             // Build texture and model caches for quick lookup
             if let Some(model) = &def.model_name {
-                self.model_cache.insert(name.clone(), model.clone());
+                catalog.model_cache.insert(name.clone(), model.clone());
             }
-
             if let Some(texture) = def.get_primary_texture() {
-                self.texture_cache.insert(name.clone(), texture.to_string());
+                catalog.texture_cache.insert(name.clone(), texture.to_string());
             }
+            catalog.object_definitions.insert(name, def);
+        }
+        self.catalog = Arc::new(catalog);
+        if let Some(shared) = &shared {
+            shared.publish_catalog(fingerprint, &self.catalog);
         }
 
         info!(
@@ -524,7 +601,7 @@ impl WW3DAssetManager {
 
     /// Get the model filename for an object
     pub fn get_model_for_object(&self, object_name: &str) -> Option<String> {
-        if let Some(model) = self.model_cache.get(object_name) {
+        if let Some(model) = self.catalog.model_cache.get(object_name) {
             return Some(model.clone());
         }
 
@@ -562,7 +639,7 @@ impl WW3DAssetManager {
 
     /// Get the full object definition
     pub fn get_object_definition(&self, object_name: &str) -> Option<&ObjectDefinition> {
-        self.object_definitions.get(object_name)
+        self.catalog.object_definitions.get(object_name)
     }
 
     /// Resolve an object definition by its authored Object INI identity.
@@ -577,13 +654,13 @@ impl WW3DAssetManager {
         object_name: &str,
         _model_hint: Option<&str>,
     ) -> Option<&ObjectDefinition> {
-        if let Some(def) = self.object_definitions.get(object_name) {
+        if let Some(def) = self.catalog.object_definitions.get(object_name) {
             return Some(def);
         }
 
         let normalized_key = Self::normalize_object_key(object_name);
-        if let Some(canonical) = self.normalized_name_lookup.get(&normalized_key) {
-            if let Some(def) = self.object_definitions.get(canonical) {
+        if let Some(canonical) = self.catalog.normalized_name_lookup.get(&normalized_key) {
+            if let Some(def) = self.catalog.object_definitions.get(canonical) {
                 return Some(def);
             }
         }
@@ -593,7 +670,7 @@ impl WW3DAssetManager {
 
     /// Get all loaded object definitions
     pub fn get_all_objects(&self) -> &HashMap<String, ObjectDefinition> {
-        &self.object_definitions
+        &self.catalog.object_definitions
     }
 
     /// Take a stable, owned view of the resolved retail Object INI catalogue.
@@ -604,6 +681,7 @@ impl WW3DAssetManager {
     /// diagnostics.
     pub fn object_definitions_snapshot(&self) -> Vec<(String, ObjectDefinition)> {
         let mut definitions: Vec<_> = self
+            .catalog
             .object_definitions
             .iter()
             .map(|(name, definition)| (name.clone(), definition.clone()))
@@ -625,12 +703,13 @@ impl WW3DAssetManager {
         }
         let lookup_key = Self::normalize_object_key(name);
         let canonical = self
+            .catalog
             .normalized_name_lookup
             .get(&lookup_key)
             .cloned()
             .unwrap_or_else(|| name.to_string());
         let mut definition =
-            if let Some(existing) = self.object_definitions.get(&canonical).cloned() {
+            if let Some(existing) = self.catalog.object_definitions.get(&canonical).cloned() {
                 existing
             } else if !reskin_from.is_empty() {
                 if let Some(parent) = self.resolve_object_definition(reskin_from, None).cloned() {
@@ -647,16 +726,21 @@ impl WW3DAssetManager {
                 ObjectDefinition::new(name.to_string())
             };
         definition.apply_create_override_properties(properties);
-        self.register_definition_indices(&definition.name, &definition);
+        // A map overlay is this game's: copy the shared catalogue on write.
+        let catalog = self.catalog_mut();
+        catalog.register_definition_indices(&definition.name);
         if let Some(model) = definition.model_name.as_deref() {
-            self.model_cache
+            catalog
+                .model_cache
                 .insert(definition.name.clone(), model.to_string());
         }
         if let Some(texture) = definition.get_primary_texture() {
-            self.texture_cache
+            catalog
+                .texture_cache
                 .insert(definition.name.clone(), texture.to_string());
         }
-        self.object_definitions
+        catalog
+            .object_definitions
             .insert(definition.name.clone(), definition);
     }
 
@@ -667,7 +751,7 @@ impl WW3DAssetManager {
 
     /// Get total number of objects loaded
     pub fn object_count(&self) -> usize {
-        self.object_definitions.len()
+        self.catalog.object_definitions.len()
     }
 
     /// Check if manager is initialized
@@ -681,7 +765,7 @@ impl WW3DAssetManager {
         let mut textures = std::collections::HashSet::new();
 
         // Collect all texture filenames from all object definitions
-        for (_, def) in self.object_definitions.iter() {
+        for (_, def) in self.catalog.object_definitions.iter() {
             if let Some(texture) = def.get_primary_texture() {
                 textures.insert(texture.to_string());
             }
@@ -701,10 +785,14 @@ impl Default for WW3DAssetManager {
 }
 
 impl WW3DAssetManager {
+    /// This manager's own catalogue, copied out of the shared one first.
+    fn catalog_mut(&mut self) -> &mut ObjectCatalog {
+        Arc::make_mut(&mut self.catalog)
+    }
+
+    #[cfg(test)]
     fn register_definition_indices(&mut self, name: &str, _def: &ObjectDefinition) {
-        self.normalized_name_lookup
-            .entry(Self::normalize_object_key(name))
-            .or_insert_with(|| name.to_string());
+        self.catalog_mut().register_definition_indices(name);
     }
 
     fn get_texture_for_object_with_model(
@@ -712,7 +800,7 @@ impl WW3DAssetManager {
         object_name: &str,
         model_hint: Option<&str>,
     ) -> Option<String> {
-        if let Some(texture) = self.texture_cache.get(object_name) {
+        if let Some(texture) = self.catalog.texture_cache.get(object_name) {
             return Some(texture.clone());
         }
 
@@ -751,9 +839,11 @@ mod tests {
         def.textures
             .insert("0".to_string(), "test_texture.tga".to_string());
         manager
+            .catalog_mut()
             .object_definitions
             .insert("TestUnit".to_string(), def);
         manager
+            .catalog_mut()
             .texture_cache
             .insert("TestUnit".to_string(), "test_texture.tga".to_string());
 
@@ -770,6 +860,7 @@ mod tests {
             .insert("0".to_string(), "avhummer.tga".to_string());
 
         manager
+            .catalog_mut()
             .object_definitions
             .insert("AmericaVehicleHumvee".to_string(), def.clone());
         manager.register_definition_indices("AmericaVehicleHumvee", &def);
@@ -783,11 +874,11 @@ mod tests {
     #[test]
     fn object_definition_snapshot_is_owned_and_name_sorted() {
         let mut manager = WW3DAssetManager::new();
-        manager.object_definitions.insert(
+        manager.catalog_mut().object_definitions.insert(
             "ZuluUnit".to_string(),
             ObjectDefinition::new("ZuluUnit".to_string()),
         );
-        manager.object_definitions.insert(
+        manager.catalog_mut().object_definitions.insert(
             "AlphaUnit".to_string(),
             ObjectDefinition::new("AlphaUnit".to_string()),
         );

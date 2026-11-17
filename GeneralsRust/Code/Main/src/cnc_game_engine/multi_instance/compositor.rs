@@ -3,7 +3,7 @@
 //! This is host chrome around the instances, not game presentation: each
 //! tile is the engine's own finished frame, copied unchanged.
 
-use super::instance::{InstancePhase, InstanceStatus};
+use super::instance::{InstancePhase, InstanceStatus, Verdict};
 use font8x8::UnicodeFonts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ use winit::window::Window;
 /// Instance frames are rendered into the WW3D headless default format.
 pub const TILE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 const LABEL_WIDTH: u32 = 480;
-const LABEL_LINES: u32 = 2;
+const LABEL_LINES: u32 = 3;
 const LABEL_HEIGHT: u32 = LABEL_LINES * 10 + 2;
 
 const SHADER: &str = r#"
@@ -549,7 +549,13 @@ impl GridCompositor {
 
 fn label_lines(s: &InstanceStatus) -> Vec<String> {
     vec![
-        format!("#{:02} {}  [{}]", s.index, s.scenario, s.phase_name()),
+        format!(
+            "#{:02} {}  [{}] {}",
+            s.index,
+            s.scenario,
+            s.phase_name(),
+            s.verdict.name()
+        ),
         match &s.phase {
             InstancePhase::Failed(reason) => reason.chars().take(60).collect(),
             _ => format!(
@@ -557,10 +563,16 @@ fn label_lines(s: &InstanceStatus) -> Vec<String> {
                 s.state, s.logic_frame, s.render_fps, s.sim_rate, s.frame_ms
             ),
         },
+        s.verdict.detail().chars().take(60).collect(),
     ]
 }
 
 fn label_color(s: &InstanceStatus) -> [u8; 4] {
+    match s.verdict {
+        Verdict::Pass(_) => return [110, 255, 110, 255],
+        Verdict::Fail(_) => return [255, 80, 80, 255],
+        Verdict::Pending => {}
+    }
     match s.phase {
         InstancePhase::Failed(_) => [255, 90, 90, 255],
         InstancePhase::Booting => [255, 220, 90, 255],
