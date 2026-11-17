@@ -1170,10 +1170,19 @@ impl GameWorldShadow {
         e.applied_upgrade_count = obj.applied_upgrades.len().min(u16::MAX as usize) as u16;
         {
             const MAX_UPGRADES: usize = 24;
-            let mut names: Vec<String> = obj.applied_upgrades.iter().cloned().collect();
-            names.sort();
-            names.truncate(MAX_UPGRADES);
-            e.applied_upgrade_names = names;
+            // Refreshed per object per frame: keep the stored sorted list when
+            // it already names exactly the applied set (the common case).
+            let applied = &obj.applied_upgrades;
+            let unchanged = applied.len() <= MAX_UPGRADES
+                && e.applied_upgrade_names.len() == applied.len()
+                && e.applied_upgrade_names.windows(2).all(|w| w[0] < w[1])
+                && e.applied_upgrade_names.iter().all(|name| applied.contains(name));
+            if !unchanged {
+                let mut names: Vec<String> = applied.iter().cloned().collect();
+                names.sort();
+                names.truncate(MAX_UPGRADES);
+                e.applied_upgrade_names = names;
+            }
         }
         e.special_power_ready = obj.special_power_ready;
         e.special_power_cooldown = obj.special_power_cooldown;
@@ -1261,10 +1270,13 @@ impl GameWorldShadow {
             use crate::game_logic::host_oil_derrick::is_oil_derrick_template;
             use crate::game_logic::is_black_market_template;
             let name = obj.template_name.as_str();
-            let is_bm =
-                is_black_market_template(name) || name.to_ascii_lowercase().contains("blackmarket");
-            let is_fake = name.to_ascii_lowercase().contains("fake");
-            if is_bm && !is_fake {
+            let contains_ci = |needle: &[u8]| {
+                name.as_bytes()
+                    .windows(needle.len())
+                    .any(|w| w.eq_ignore_ascii_case(needle))
+            };
+            let is_bm = is_black_market_template(name) || contains_ci(b"blackmarket");
+            if is_bm && !contains_ci(b"fake") {
                 e.black_market_building = true;
                 e.black_market_next_deposit_frame =
                     logic.black_markets.peek_next_deposit(oid).unwrap_or(0);
