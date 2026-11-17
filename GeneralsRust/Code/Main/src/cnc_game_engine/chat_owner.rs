@@ -5,8 +5,9 @@ impl CnCGameEngine {
     pub(super) fn receiving_chat_world_facts(
         &self,
     ) -> Option<game_client::gui::callbacks::ingame_callbacks::ChatWorldFacts> {
-        let roster = self.receiving_observer_roster()?;
-        chat_world_facts_from_world(&self.game_logic, roster.multiplayer)
+        // Only the roster's multiplayer flag is read here; building the
+        // full roster counted every object on each menu-facts query.
+        chat_world_facts_from_world(&self.game_logic, self.receiving_observer_multiplayer())
     }
 }
 #[cfg(feature = "game_client")]

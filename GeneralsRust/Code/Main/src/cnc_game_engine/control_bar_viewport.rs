@@ -3,6 +3,21 @@ use super::*;
 
 #[cfg(feature = "game_client")]
 impl CnCGameEngine {
+    /// Recorder multiplayer flag the observer roster is built with
+    /// (C++ `Recorder::isMultiplayer` for this match's game mode).
+    pub(super) fn receiving_observer_multiplayer(&self) -> bool {
+        let recorder = self.game_logic.replay_pending.recorder_owned();
+        recorder.is_multiplayer_for_game_mode(match self.game_logic.game_mode() {
+            crate::game_logic::GameMode::SinglePlayer => 0,
+            crate::game_logic::GameMode::Skirmish => 2,
+            crate::game_logic::GameMode::Replay => 3,
+            crate::game_logic::GameMode::Shell => 4,
+            crate::game_logic::GameMode::None => 6,
+            crate::game_logic::GameMode::Internet => 5,
+            _ => 1,
+        })
+    }
+
     pub(super) fn receiving_observer_roster(
         &self,
     ) -> Option<game_client::gui::control_bar::control_bar_observer::NativeObserverRoster> {
@@ -23,15 +38,7 @@ impl CnCGameEngine {
             .or(Some(recorder.get_game_info()));
         receiving_observer_roster_from_world(
             &self.game_logic,
-            recorder.is_multiplayer_for_game_mode(match self.game_logic.game_mode() {
-                crate::game_logic::GameMode::SinglePlayer => 0,
-                crate::game_logic::GameMode::Skirmish => 2,
-                crate::game_logic::GameMode::Replay => 3,
-                crate::game_logic::GameMode::Shell => 4,
-                crate::game_logic::GameMode::None => 6,
-                crate::game_logic::GameMode::Internet => 5,
-                _ => 1,
-            }),
+            self.receiving_observer_multiplayer(),
             game_info,
         )
     }

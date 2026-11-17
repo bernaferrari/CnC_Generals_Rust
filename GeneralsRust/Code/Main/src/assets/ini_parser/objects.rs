@@ -356,7 +356,8 @@ impl ObjectDefinition {
         modules: &[DrawModuleDefinition],
         condition_bits: u128,
     ) -> Option<Vec<AuthoredDrawModel>> {
-        let mut selected = Vec::new();
+        // At most one selected state per Draw module.
+        let mut selected = Vec::with_capacity(modules.len());
         let found = Self::visit_selected_named_draw_states(
             modules,
             condition_bits,
