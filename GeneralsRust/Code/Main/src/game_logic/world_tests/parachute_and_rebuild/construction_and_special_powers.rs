@@ -6,97 +6,59 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
     use crate::game_logic::host_enum_table_residual::{
         actively_constructing_model_bit, host_model_condition_has,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::USA, "USA", true));
-    let mut st = ThingTemplate::new("AmericaPowerPlant");
-    st.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSPower)
-        .set_health(1000.0);
-    logic.templates.insert("AmericaPowerPlant".into(), st);
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    // C++ ActionManager.cpp:442-443 canResumeConstructionOf requires
-    // KINDOF_DOZER; retail AmericaVehicleDozer authors KindOf = ... DOZER ...
-    // (FixBuildQueue5: Vehicle+Worker alone is not a constructor).
-    dozer_t
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Worker)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t);
+    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+    let mut logic = admitted_dozer_world();
     let sid = logic
-        .create_object(
-            "AmericaPowerPlant",
-            Team::USA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("pp");
-    if let Some(o) = logic.host_object_mut(sid) {
-        o.set_status_under_construction(false);
-        o.construction_percent = 1.0;
-        o.health.current = 100.0; // damaged
-    }
+        .create_object("TestBuilding", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("site");
+    logic.host_object_mut(sid).unwrap().health.current = 100.0; // damaged
     let did = logic
-        .create_object(
-            "AmericaVehicleDozer",
-            Team::USA,
-            glam::Vec3::new(2.0, 0.0, 0.0),
-        )
+        .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("dozer");
-    let ai_entry_frame = logic.frame;
-    if let Some(o) = logic.host_object_mut(did) {
-        o.set_ai_state(
-            AIState::Repairing,
-            ai_entry_frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        o.target = Some(sid);
-        assert!(o.can_construct(), "dozer must can_construct");
-        assert!(o.can_repair(), "dozer must can_repair");
+    assert!(logic.host_object(did).unwrap().can_repair(), "dozer must can_repair");
+    logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::Repair { target_id: sid },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![did],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    logic.process_commands();
+    // DozerActionDoActionState::update sets MODELCONDITION_ACTIVELY_CONSTRUCTING
+    // while it heals (DozerAIUpdate.cpp DOZER_TASK_REPAIR branch).
+    let mut constructing = false;
+    for _ in 0..10 {
+        drive_dozer_frame(&mut logic, &[did, sid]);
+        let d = logic.host_object(did).unwrap();
+        if d.dozer_tasks.action_is_running(DozerTask::Repair)
+            && host_model_condition_has(d.model_condition_bits, actively_constructing_model_bit())
+        {
+            constructing = true;
+            break;
+        }
     }
-    logic.update_actively_constructing_model_conditions();
     let d = logic.host_object(did).unwrap();
     assert!(
-        host_model_condition_has(d.model_condition_bits, actively_constructing_model_bit()),
-        "bits={:#x} bit={} can={} state={:?}",
+        constructing,
+        "bits={:#x} bit={} current={:?}",
         d.model_condition_bits,
         actively_constructing_model_bit(),
-        d.can_construct(),
-        d.ai_state(),
+        d.dozer_tasks.current,
     );
-    // Simulate complete residual messaging path.
-    if let Some(o) = logic.host_object_mut(sid) {
-        o.health.current = o.health.maximum;
-    }
-    // Fire complete residual by calling internal path via heal-to-full frames.
-    // Use many update_simulation steps with Repairing in range.
+    // Full health: the next action update posts DOZER:RepairComplete and
+    // internalTaskComplete clears the animation and the REPAIR request.
+    let max = logic.host_object(sid).unwrap().health.maximum;
+    logic.host_object_mut(sid).unwrap().health.current = max;
     for _ in 0..5 {
-        // Manually apply complete residual similar to AI branch.
-        if let Some(t) = logic.host_object(sid) {
-            if t.health.current >= t.health.maximum - 0.01 {
-                let pos = t.get_position();
-                let msg = "DOZER:RepairComplete";
-                logic.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
-                logic.repair_complete_events = logic.repair_complete_events.saturating_add(1);
-                let ai_entry_frame = logic.frame;
-                if let Some(d) = logic.host_object_mut(did) {
-                    d.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
-                    d.set_ai_state(
-                        AIState::Idle,
-                        ai_entry_frame,
-                        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-                    );
-                    d.set_actively_constructing(false);
-                }
-                break;
-            }
+        drive_dozer_frame(&mut logic, &[did, sid]);
+        if logic.honesty_repair_complete_ok() {
+            break;
         }
     }
     assert!(logic.honesty_repair_complete_ok());
     let d = logic.host_object(did).expect("d");
-    assert_eq!(d.ai_state(), AIState::Idle);
+    assert_eq!(d.dozer_tasks.requests[1].target, None);
     assert!(!host_model_condition_has(
         d.model_condition_bits,
         actively_constructing_model_bit()
@@ -108,53 +70,44 @@ fn resume_construction_assigns_dozer_and_model_bits() {
         actively_being_constructed_model_bit, actively_constructing_model_bit,
         host_model_condition_has, partially_constructed_model_bit,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::USA, "USA", true));
-    let mut st = ThingTemplate::new("AmericaPowerPlant");
-    st.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSPower)
-        .set_health(500.0);
-    logic.templates.insert("AmericaPowerPlant".into(), st);
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    // C++ ActionManager.cpp:442-443: resume construction needs KINDOF_DOZER.
-    dozer_t
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Worker)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t);
-
+    let mut logic = admitted_dozer_world();
     let sid = logic
-        .create_object(
-            "AmericaPowerPlant",
-            Team::USA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("pp");
+        .create_object("TestBuilding", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("site");
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_status_under_construction(true);
         o.construction_percent = 0.35;
         o.set_under_construction_model_conditions(false); // awaiting
     }
     let did = logic
-        .create_object(
-            "AmericaVehicleDozer",
-            Team::USA,
-            glam::Vec3::new(10.0, 0.0, 0.0),
-        )
+        .create_object("TestDozer", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
         .expect("dozer");
     assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
     assert!(logic.honesty_resume_construction_ok());
+    // privateResumeConstruction -> newTask(BUILD) records the request and
+    // claims the site (DozerAIUpdate.cpp:1985-1986 setBuilder).
+    assert_eq!(logic.host_object(did).unwrap().dozer_tasks.requests[0].target, Some(sid));
+    assert_eq!(logic.host_object(sid).unwrap().builder_id, Some(did));
+    // DozerAIUpdate.cpp:507-511: only DoBuildAtDock animates the builder.
+    for _ in 0..300 {
+        // Full logic frames so the authored locomotor carries it to the dock.
+        logic.update();
+        if host_model_condition_has(
+            logic.host_object(did).unwrap().model_condition_bits,
+            actively_constructing_model_bit(),
+        ) {
+            break;
+        }
+    }
     let d = logic.host_object(did).expect("d");
-    assert_eq!(d.ai_state(), AIState::Constructing);
     assert_eq!(d.target, Some(sid));
-    assert!(host_model_condition_has(
-        d.model_condition_bits,
-        actively_constructing_model_bit()
-    ));
+    assert!(
+        host_model_condition_has(d.model_condition_bits, actively_constructing_model_bit()),
+        "state={:?} current={:?} sub={:?}",
+        d.ai_state(),
+        d.dozer_tasks.current,
+        d.dozer_tasks.build_sub_task,
+    );
     let s = logic.host_object(sid).expect("s");
     assert!(host_model_condition_has(
         s.model_condition_bits,
@@ -166,11 +119,7 @@ fn resume_construction_assigns_dozer_and_model_bits() {
     ));
     // Second dozer cannot resume while first is actively building.
     let did2 = logic
-        .create_object(
-            "AmericaVehicleDozer",
-            Team::USA,
-            glam::Vec3::new(12.0, 0.0, 0.0),
-        )
+        .create_object("TestDozer", Team::USA, glam::Vec3::new(12.0, 0.0, 0.0))
         .expect("dozer2");
     assert!(!logic.can_resume_construction_of(did2, sid));
     assert_eq!(logic.resume_construction(&[did2], sid).expect("result"), false);
@@ -224,38 +173,23 @@ fn resume_construction_paths_distant_dozer_without_constructing_anim() {
     use crate::game_logic::host_enum_table_residual::{
         actively_constructing_model_bit, host_model_condition_has,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::USA, "USA", true));
-    let mut st = ThingTemplate::new("AmericaPowerPlant");
-    st.add_kind_of(KindOf::Structure).set_health(500.0);
-    logic.templates.insert("AmericaPowerPlant".into(), st);
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    dozer_t
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t);
-
+    let mut logic = admitted_dozer_world();
     let sid = logic
-        .create_object("AmericaPowerPlant", Team::USA, glam::Vec3::ZERO)
-        .expect("pp");
+        .create_object("TestBuilding", Team::USA, glam::Vec3::ZERO)
+        .expect("site");
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_status_under_construction(true);
         o.construction_percent = 0.1;
+        o.set_under_construction_model_conditions(false); // awaiting
     }
     let did = logic
-        .create_object(
-            "AmericaVehicleDozer",
-            Team::USA,
-            glam::Vec3::new(400.0, 0.0, 0.0),
-        )
+        .create_object("TestDozer", Team::USA, glam::Vec3::new(400.0, 0.0, 0.0))
         .expect("dozer");
     assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
+    // Next update picks BUILD; the one after moves toward the picked dock.
+    drive_dozer_frame(&mut logic, &[did, sid]);
+    drive_dozer_frame(&mut logic, &[did, sid]);
     let d = logic.host_object(did).expect("d");
-    assert_eq!(d.ai_state(), AIState::Constructing);
     assert_eq!(d.target, Some(sid));
     assert!(
         d.movement.target_position.is_some()
@@ -272,31 +206,19 @@ fn resume_construction_paths_distant_dozer_without_constructing_anim() {
 #[test]
 fn resume_construction_crosses_the_scaffold_obstacle() {
     use crate::game_logic::pathfinding::GridPos;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::USA, "USA", true));
-    let mut st = ThingTemplate::new("AmericaPowerPlant");
-    st.add_kind_of(KindOf::Structure).set_health(500.0);
-    logic.templates.insert("AmericaPowerPlant".into(), st);
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    dozer_t
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t);
     let from = glam::Vec3::new(10.0, 0.0, 10.0);
     let to = glam::Vec3::new(160.0, 0.0, 10.0);
+    let mut logic = admitted_dozer_world();
     let sid = logic
-        .create_object("AmericaPowerPlant", Team::USA, to)
-        .expect("pp");
+        .create_object("TestBuilding", Team::USA, to)
+        .expect("site");
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_status_under_construction(true);
         o.construction_percent = 0.1;
+        o.set_under_construction_model_conditions(false); // awaiting
     }
     let did = logic
-        .create_object("AmericaVehicleDozer", Team::USA, from)
+        .create_object("TestDozer", Team::USA, from)
         .expect("dozer");
     let wall_x = {
         let grid = &logic.pathfinding_system.grid;
@@ -317,9 +239,11 @@ fn resume_construction_crosses_the_scaffold_obstacle() {
     }
     logic.force_map_loaded_for_path_test(true);
     assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
+    // Pick, then the move state paths ignoring the scaffold it will build.
+    drive_dozer_frame(&mut logic, &[did, sid]);
+    drive_dozer_frame(&mut logic, &[did, sid]);
     logic.process_pathfind_queue();
     let d = logic.host_object(did).expect("d");
-    assert_eq!(d.ai_state(), AIState::Constructing);
     assert_eq!(d.ignored_obstacle_id, Some(sid));
     let xs: Vec<i32> = d
         .movement
@@ -521,61 +445,39 @@ fn cancel_construction_clears_dozer_actively_constructing() {
     use crate::game_logic::host_enum_table_residual::{
         actively_constructing_model_bit, host_model_condition_has,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::USA, "USA", true));
-    let mut st = ThingTemplate::new("AmericaPowerPlant");
-    st.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSPower)
-        .set_health(500.0);
-    st.build_cost.supplies = 500;
-    logic.templates.insert("AmericaPowerPlant".into(), st);
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    // C++ ActionManager.cpp:442-443: dozer-brain tasks need KINDOF_DOZER.
-    dozer_t
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Worker)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t);
+    let mut logic = admitted_dozer_world();
     let sid = logic
-        .create_object(
-            "AmericaPowerPlant",
-            Team::USA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("pp");
+        .create_object("TestBuilding", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("site");
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_status_under_construction(true);
         o.construction_percent = 0.4;
+        o.set_under_construction_model_conditions(false); // awaiting
     }
     let did = logic
-        .create_object(
-            "AmericaVehicleDozer",
-            Team::USA,
-            glam::Vec3::new(5.0, 0.0, 0.0),
-        )
+        .create_object("TestDozer", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
         .expect("dozer");
-    let ai_entry_frame = logic.frame;
-    if let Some(o) = logic.host_object_mut(did) {
-        o.set_ai_state(
-            AIState::Constructing,
-            ai_entry_frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        o.target = Some(sid);
-        o.set_actively_constructing(true);
+    assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
+    // DozerAIUpdate.cpp:507-511: only DoBuildAtDock animates the builder.
+    for _ in 0..300 {
+        // Full logic frames so the authored locomotor carries it to the dock.
+        logic.update();
+        if host_model_condition_has(
+            logic.host_object(did).unwrap().model_condition_bits,
+            actively_constructing_model_bit(),
+        ) {
+            break;
+        }
     }
     assert!(host_model_condition_has(
         logic.host_object(did).unwrap().model_condition_bits,
         actively_constructing_model_bit()
     ));
-    logic.cancel_dozers_building(sid);
+    logic.cancel_dozers_building(sid).expect("cancel");
+    // cancelTask(BUILD) -> internalTaskComplete clears the animation and request.
     let d = logic.host_object(did).expect("d");
     assert_eq!(d.ai_state(), AIState::Idle);
-    assert!(d.target.is_none());
+    assert_eq!(d.dozer_tasks.requests[0].target, None);
     assert!(!host_model_condition_has(
         d.model_condition_bits,
         actively_constructing_model_bit()

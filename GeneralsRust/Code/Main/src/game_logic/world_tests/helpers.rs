@@ -1126,3 +1126,34 @@ pub(super) fn step_test_point_defense(world: &mut GameLogic) {
     world.update_point_defense_intercept().unwrap();
     world.apply_owned_projectileless_delayed_damage().unwrap();
 }
+
+/// Dozer and structures authored as Object INI and admitted before any live
+/// Object, so the dozer owns its `DozerAIUpdate` module data the way retail
+/// `AmericaVehicleDozer` does (DozerAIUpdate.cpp: RepairHealthPercentPerSecond
+/// feeds DozerActionDoActionState; newTask only records the request and the
+/// dozer machine picks it on its next update, DozerAIUpdate.cpp:1948-2008).
+/// Clock starts past frame 0 like a live session (Object.cpp:1905 sole
+/// benefactor gate compares `now > expirationFrame`).
+pub(super) const ADMITTED_DOZER_INI: &str = "Object TestDozer\nKindOf = VEHICLE DOZER SELECTABLE\nLocomotor = SET_NORMAL AmericaVehicleDozerLocomotor\nBody = ActiveBody Body\nMaxHealth = 300\nInitialHealth = 300\nEnd\nBehavior = DozerAIUpdate DozerAI\nRepairHealthPercentPerSecond = 2\nEnd\nEnd\nObject TestDozerTank\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 300\nInitialHealth = 300\nEnd\nEnd\nObject TestBuilding\nKindOf = STRUCTURE SELECTABLE\nBuildCost = 0\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\nObject USA_WarFactory\nKindOf = STRUCTURE SELECTABLE FS_WARFACTORY\nBuildCost = 2000\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1500\nInitialHealth = 1500\nEnd\nEnd\n";
+
+pub(super) fn admitted_dozer_world() -> GameLogic {
+    let mut logic = GameLogic::new();
+    logic.frame = 10;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    logic
+        .admit_object_ini_sources([(
+            "admitted-dozer-world.ini".to_string(),
+            ADMITTED_DOZER_INI.to_string(),
+        )])
+        .expect("authored dozer content admits");
+    logic
+}
+
+/// One original logic frame for the listed actors (inherited AI update, then
+/// the derived dozer machine).
+pub(super) fn drive_dozer_frame(logic: &mut GameLogic, ids: &[ObjectId]) {
+    logic.frame += 1;
+    logic
+        .update_ai(ids, 1.0 / 30.0)
+        .expect("receiving AI operation succeeds");
+}

@@ -379,6 +379,11 @@ impl GameLogic {
                     }) {
                         return Ok(());
                     }
+                    if healed {
+                        // Same heal-tick telemetry the command boundary pairs
+                        // with record_structure_repair_residual_command.
+                        self.record_structure_repair_residual_heal();
+                    }
                     if !healed {
                         self.dozer_internal_task_complete(id, true);
                         if let Some(actor) = self.objects.get_mut(&id)

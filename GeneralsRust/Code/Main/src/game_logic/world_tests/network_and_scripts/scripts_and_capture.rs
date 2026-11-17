@@ -85,10 +85,8 @@ fn capture_command_rejects_non_infantry_units() {
 
 #[test]
 fn repair_command_sets_all_selected_repairers_to_repairing() {
-    let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    ensure_test_dozer_template(&mut game_logic);
-    ensure_test_structure_template(&mut game_logic);
+    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+    let mut game_logic = admitted_dozer_world();
 
     let repairer_a = game_logic
         .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -108,7 +106,7 @@ fn repair_command_sets_all_selected_repairers_to_repairing() {
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
-        command_type: crate::command_system::CommandType::Repair { target_id },
+        command_type: crate::command_system::CommandType::Repair { target_id: target_id },
         player_id: 0,
         command_id: 1,
         timestamp: std::time::SystemTime::now(),
@@ -117,17 +115,25 @@ fn repair_command_sets_all_selected_repairers_to_repairing() {
     });
     game_logic.process_commands();
 
-    let a = game_logic
-        .host_object(repairer_a)
-        .expect("repairer A should exist");
-    let b = game_logic
-        .host_object(repairer_b)
-        .expect("repairer B should exist");
-
-    assert_eq!(a.ai_state(), AIState::Repairing);
-    assert_eq!(b.ai_state(), AIState::Repairing);
-    assert_eq!(a.target, Some(target_id));
-    assert_eq!(b.target, Some(target_id));
+    // DozerAIUpdate::privateRepair -> newTask (DozerAIUpdate.cpp:1948-2008):
+    // every selected dozer records the REPAIR request; the dozer machine only
+    // resets, so no task is current until its next update picks one.
+    for id in [repairer_a, repairer_b] {
+        let dozer = game_logic.host_object(id).expect("repairer should exist");
+        assert_eq!(dozer.dozer_tasks.requests[1].target, Some(target_id));
+        assert_eq!(dozer.dozer_tasks.current, DozerTask::Invalid);
+    }
+    drive_dozer_frame(&mut game_logic, &[repairer_a, repairer_b, target_id]);
+    for id in [repairer_a, repairer_b] {
+        let dozer = game_logic.host_object(id).expect("repairer should exist");
+        assert_eq!(dozer.dozer_tasks.current, DozerTask::Repair);
+    }
+    // DozerActionPickActionPosState -> move state aims each dozer at the target.
+    drive_dozer_frame(&mut game_logic, &[repairer_a, repairer_b, target_id]);
+    for id in [repairer_a, repairer_b] {
+        let dozer = game_logic.host_object(id).expect("repairer should exist");
+        assert_eq!(dozer.target, Some(target_id));
+    }
 }
 
 #[test]
@@ -170,9 +176,8 @@ fn repair_command_ignores_non_worker_units() {
 
 #[test]
 fn repair_command_allows_repairing_neutral_structures() {
-    let mut game_logic = GameLogic::new();
-    ensure_test_dozer_template(&mut game_logic);
-    ensure_test_structure_template(&mut game_logic);
+    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+    let mut game_logic = admitted_dozer_world();
 
     let repairer_id = game_logic
         .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -195,7 +200,7 @@ fn repair_command_allows_repairing_neutral_structures() {
         .current;
 
     game_logic.queue_command(crate::command_system::GameCommand {
-        command_type: crate::command_system::CommandType::Repair { target_id },
+        command_type: crate::command_system::CommandType::Repair { target_id: target_id },
         player_id: 0,
         command_id: 1,
         timestamp: std::time::SystemTime::now(),
@@ -203,20 +208,25 @@ fn repair_command_allows_repairing_neutral_structures() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    // The real logic clock has advanced past frame 0 by the time a player can
-    // issue Repair; C++ Object::attemptHealingFromSoleBenefactor (Object.cpp:1905)
-    // refuses all healers while `now <= m_soleHealingBenefactorExpirationFrame`
-    // (0 > 0 is false on a virgin frame-0 fixture), so stamp frame 1 to model
-    // the live clock before the in-range heal tick.
-    game_logic.frame = 1;
-    game_logic
-        .update_ai(&[repairer_id, target_id], 1.0 / 60.0)
-        .expect("receiving AI operation succeeds");
+
+    assert_eq!(
+        game_logic
+            .host_object(repairer_id)
+            .expect("repairer should exist")
+            .dozer_tasks
+            .requests[1]
+            .target,
+        Some(target_id),
+        "ActionManager::canRepairObject admits a non-enemy (neutral) structure"
+    );
+    for _ in 0..8 {
+        drive_dozer_frame(&mut game_logic, &[repairer_id, target_id]);
+    }
 
     let repairer = game_logic
         .host_object(repairer_id)
         .expect("repairer should exist");
-    assert_eq!(repairer.ai_state(), AIState::Repairing);
+    assert_eq!(repairer.dozer_tasks.current, DozerTask::Repair);
     assert_eq!(repairer.target, Some(target_id));
 
     let after = game_logic
@@ -224,32 +234,18 @@ fn repair_command_allows_repairing_neutral_structures() {
         .expect("target should exist")
         .health
         .current;
-    assert!(after > before);
+    assert!(after > before, "before={before} after={after}");
 }
 
 #[test]
 fn dozer_structure_repair_residual_recovers_hp_over_time() {
-    let mut game_logic = GameLogic::new();
-    ensure_test_dozer_template(&mut game_logic);
-    ensure_test_structure_template(&mut game_logic);
+    let mut game_logic = admitted_dozer_world();
 
-    // Place dozer in interact range so heal starts immediately.
+    // Place dozer in interact range so heal starts once the action is entered.
     let dozer_id = game_logic
         .create_object("TestDozer", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("dozer");
-    // Explicit WarFactory-named structure so residual covers "repair WarFactory".
-    let mut war_factory_tpl = crate::game_logic::ThingTemplate::new("USA_WarFactory");
-    war_factory_tpl
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSWarFactory)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(1500.0)
-        .set_cost(2000, -2);
-    game_logic
-        .templates
-        .insert("USA_WarFactory".to_string(), war_factory_tpl);
-
+    // Explicit WarFactory-authored structure so residual covers "repair WarFactory".
     let structure_id = game_logic
         .create_object("USA_WarFactory", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("war factory structure");
@@ -274,9 +270,7 @@ fn dozer_structure_repair_residual_recovers_hp_over_time() {
     assert!(!game_logic.honesty_structure_repair_ok());
 
     game_logic.queue_command(crate::command_system::GameCommand {
-        command_type: crate::command_system::CommandType::Repair {
-            target_id: structure_id,
-        },
+        command_type: crate::command_system::CommandType::Repair { target_id: structure_id },
         player_id: 0,
         command_id: 1,
         timestamp: std::time::SystemTime::now(),
@@ -290,21 +284,14 @@ fn dozer_structure_repair_residual_recovers_hp_over_time() {
         1,
         "successful Repair command must record honesty"
     );
-    {
-        let dozer = game_logic.host_object(dozer_id).expect("dozer");
-        assert_eq!(dozer.ai_state(), AIState::Repairing);
-        assert_eq!(dozer.target, Some(structure_id));
-    }
-    // Frame-0 stamp models the live clock: the C++-faithful sole-benefactor
-    // gate (Object.cpp:1905 `now > expirationFrame`) refuses the first in-range
-    // heal while the fixture clock still sits on virgin frame 0.
-    game_logic.frame = 1;
+    assert_eq!(
+        game_logic.host_object(dozer_id).expect("dozer").dozer_tasks.requests[1].target,
+        Some(structure_id)
+    );
 
     // Several logic frames: HP must increase over time.
     for _ in 0..30 {
-        game_logic
-            .update_ai(&[dozer_id, structure_id], 1.0 / 30.0)
-            .expect("receiving AI operation succeeds");
+        drive_dozer_frame(&mut game_logic, &[dozer_id, structure_id]);
     }
 
     let after = game_logic
@@ -314,7 +301,7 @@ fn dozer_structure_repair_residual_recovers_hp_over_time() {
         .current;
     assert!(
         after > before,
-        "dozer Repair residual must restore structure HP over time (before={before}, after={after})"
+        "dozer Repair must restore structure HP over time (before={before}, after={after})"
     );
     assert!(
         game_logic.repair_residual_structure_heals() > 0,
@@ -329,10 +316,7 @@ fn dozer_structure_repair_residual_recovers_hp_over_time() {
 
 #[test]
 fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
-    let mut game_logic = GameLogic::new();
-    ensure_test_player_for_team(&mut game_logic, Team::USA);
-    ensure_test_dozer_template(&mut game_logic);
-    ensure_test_structure_template(&mut game_logic);
+    let mut game_logic = admitted_dozer_world();
 
     // DozerAIUpdate.cpp:44/320–322 uses bounding-sphere distance with
     // MIN_ACTION_TOLERANCE=70, not the UI interaction range. Start well outside.
@@ -372,15 +356,10 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
     });
     game_logic.process_commands();
 
-    {
-        let dozer = game_logic.host_object(dozer_id).expect("dozer");
-        assert_eq!(dozer.ai_state(), AIState::Repairing);
-        assert_eq!(dozer.target, Some(structure_id));
-        assert!(
-            !dozer.movement.path.is_empty(),
-            "out-of-range repair must retain an A* approach path rather than bypass movement"
-        );
-    }
+    assert_eq!(
+        game_logic.host_object(dozer_id).expect("dozer").dozer_tasks.requests[1].target,
+        Some(structure_id)
+    );
     // Must not heal while still out of range on first short step.
     game_logic.update();
     let mid = game_logic
@@ -424,12 +403,12 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
         game_logic.repair_residual_structure_heals(),
     );
 
-    // Repairing must not be clobbered to Idle mid-approach without finishing.
+    // The REPAIR task stays current through the approach (DozerAIUpdate.cpp
+    // keeps m_currentTask until internalTaskComplete).
     let dozer = game_logic.host_object(dozer_id).expect("dozer");
-    assert!(
-        matches!(dozer.ai_state(), AIState::Repairing | AIState::Idle),
-        "dozer should still be repairing or finished idle, got {:?}",
-        dozer.ai_state()
+    assert_eq!(
+        dozer.dozer_tasks.current,
+        gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Repair
     );
 }
 
