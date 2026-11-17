@@ -21,6 +21,14 @@ impl BasicDrawable {
         }
     }
 
+    /// [`Self::clear_and_set_model_condition_flags`] with the clear mask and
+    /// set bits given as the low 128 condition bits.
+    pub fn assign_model_condition_bits(&mut self, mask: u128, value: u128) {
+        if self.model_condition_flags.assign_low_bits_changed(mask, value) {
+            self.is_model_dirty = true;
+        }
+    }
+
     /// C++ `Drawable::clearModelConditionFlags`.
     pub fn clear_model_condition_flags(&mut self, clr: &ModelConditionBitFlags) {
         let empty = create_model_condition_flags();

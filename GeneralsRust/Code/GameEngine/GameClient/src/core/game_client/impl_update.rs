@@ -1147,27 +1147,18 @@ impl GameClient {
         e: &PresentationDrawableSync,
         advance_specialized: bool,
     ) {
-        use game_engine::common::bit_flags::{ModelConditionFlags, create_model_condition_flags};
+        use game_engine::common::bit_flags::ModelConditionFlags;
         use gamelogic::common::types::BodyDamageType;
 
-        let bit_names = ModelConditionFlags::BIT_NAMES;
-        let mut set = create_model_condition_flags();
-        let mut clear_all = create_model_condition_flags();
-        let n = bit_names.len().min(128);
         // Main's authored receiving entry carries its session TOD. Core-only
         // compatibility Drawables retain the original ambient client NIGHT.
         // SNOW remains client-owned until its separate producer migration.
         let receiving = e.module_admission.authored_template().is_some();
-        for i in 0..n {
-            if i == ModelConditionFlags::SNOW || (i == ModelConditionFlags::NIGHT && !receiving) {
-                continue;
-            }
-            clear_all.set(i, true);
-            if (e.model_condition_bits >> i) & 1 == 1 {
-                set.set(i, true);
-            }
+        let mut mask = !(1u128 << ModelConditionFlags::SNOW);
+        if !receiving {
+            mask &= !(1u128 << ModelConditionFlags::NIGHT);
         }
-        drawable.clear_and_set_model_condition_flags(&clear_all, &set);
+        drawable.assign_model_condition_bits(mask, e.model_condition_bits);
 
         let body = match e.body_damage_state {
             1 => BodyDamageType::Damaged,

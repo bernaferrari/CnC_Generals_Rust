@@ -508,6 +508,34 @@ impl BitFlags {
         self.bits != before
     }
 
+    /// Assign every bit `i < 128` selected by `mask` from `value`, leaving
+    /// other bits untouched, and report whether any bit changed. Equivalent to
+    /// `clear_and_set_changed(mask, value & mask)` without building two
+    /// temporary flag tables.
+    pub fn assign_low_bits_changed(&mut self, mask: u128, value: u128) -> bool {
+        let n = self.bits.len().min(128);
+        let mask = if n == 128 { mask } else { mask & ((1u128 << n) - 1) };
+        let mut current = 0u128;
+        let block_bits = u32::BITS as usize;
+        for (k, block) in self.bits.blocks().enumerate() {
+            if k * block_bits >= 128 {
+                break;
+            }
+            current |= u128::from(block) << (k * block_bits);
+        }
+        let next = (current & !mask) | (value & mask);
+        let mut diff = (current ^ next) & mask;
+        if diff == 0 {
+            return false;
+        }
+        while diff != 0 {
+            let i = diff.trailing_zeros() as usize;
+            self.bits.set(i, (next >> i) & 1 == 1);
+            diff &= diff - 1;
+        }
+        true
+    }
+
     /// Test that specified bits are set and others are clear
     pub fn test_set_and_clear(&self, must_be_set: &Self, must_be_clear: &Self) -> bool {
         // Check that no bits in must_be_clear are set
@@ -625,6 +653,30 @@ mod tests {
         let mut word_path = BitFlags::with_bits(names, &[1, 100]);
         word_path.clear_and_set(&clr, &set);
         assert_eq!(word_path, flags);
+    }
+
+    #[test]
+    fn assign_low_bits_changed_matches_clear_and_set() {
+        let names = ModelConditionFlags::BIT_NAMES;
+        let mask = !(1u128 << ModelConditionFlags::SNOW);
+        for (start, value) in [
+            (vec![1usize, 100], (1u128 << 1) | (1u128 << 100)),
+            (vec![1, 100], (1u128 << 5) | (1u128 << 127)),
+            (vec![ModelConditionFlags::SNOW, 40], 0),
+            (vec![], u128::MAX),
+        ] {
+            let mut fast = BitFlags::with_bits(names, &start);
+            let mut slow = fast.clone();
+            let n = names.len().min(128);
+            let clr_idx: Vec<usize> = (0..n).filter(|i| (mask >> i) & 1 == 1).collect();
+            let set_idx: Vec<usize> =
+                clr_idx.iter().copied().filter(|i| (value >> i) & 1 == 1).collect();
+            let clr = BitFlags::with_bits(names, &clr_idx);
+            let set = BitFlags::with_bits(names, &set_idx);
+            let slow_changed = slow.clear_and_set_changed(&clr, &set);
+            assert_eq!(fast.assign_low_bits_changed(mask, value), slow_changed);
+            assert_eq!(fast, slow);
+        }
     }
 
     #[test]
