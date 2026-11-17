@@ -94,6 +94,11 @@ pub struct GoldenSkirmishResult {
     /// Honesty: true when weapons used store/template damage without a slice
     /// damage floor (retail RangerAdvancedCombatRifle ~5). Fail-closed residual.
     pub combat_store_damage_ok: bool,
+    /// Damage exchanged between the human and the skirmish AI over the slice.
+    pub tally: CombatTally,
+    /// Skirmish AI state before the human's fight and at the slice's end.
+    pub ai_mid: AiProbe,
+    pub ai_end: AiProbe,
     pub status: String,
 }
 
@@ -124,6 +129,12 @@ struct VerticalSliceOutcome {
     combat_realistic_speed_ok: bool,
     /// No slice damage floor above WeaponStore/template stats.
     combat_store_damage_ok: bool,
+    /// Damage exchanged between the human and the skirmish AI.
+    tally: CombatTally,
+    /// AI state once the human's production finished (before the fight).
+    ai_mid: AiProbe,
+    /// AI state at the end of the slice.
+    ai_end: AiProbe,
 }
 
 impl VerticalSliceOutcome {
@@ -148,6 +159,9 @@ impl VerticalSliceOutcome {
             combat_no_mopup_ok: true,
             combat_realistic_speed_ok: false,
             combat_store_damage_ok: false,
+            tally: CombatTally::default(),
+            ai_mid: AiProbe::default(),
+            ai_end: AiProbe::default(),
         }
     }
 }
@@ -816,8 +830,131 @@ fn golden_allow_teleport_pull() -> bool {
 ///
 /// `take_damage` commits HP synchronously and records the applied event; this
 /// drain only clears the log and routes reported kills (never re-subtracts).
-fn materialize_host_damage_log(logic: &mut GameLogic) {
+/// Damage the slice observed between the human (player 0) and the skirmish
+/// AI (player 1), counted from the host damage receipts before each drain.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CombatTally {
+    /// Damage receipts whose target the human owns (the AI fighting back).
+    pub hits_on_us: u32,
+    /// Damage receipts whose target the AI owns.
+    pub hits_on_ai: u32,
+    /// Human-owned objects the receipts report destroyed.
+    pub losses_us: u32,
+}
+
+impl CombatTally {
+    fn observe(&mut self, logic: &GameLogic, events: &[crate::game_logic::HostDamageEvent]) {
+        let owner = |id: Option<ObjectId>| {
+            id.and_then(|id| logic.host_object(id))
+                .and_then(|o| o.owner_player_id)
+        };
+        for e in events {
+            if e.amount <= 0.0 && !e.destroyed {
+                continue;
+            }
+            // A target removed before the drain is classified by its source.
+            let target_owner = owner(Some(e.target)).or_else(|| match owner(e.source) {
+                Some(1) => Some(0),
+                Some(0) => Some(1),
+                _ => None,
+            });
+            match target_owner {
+                Some(0) => {
+                    self.hits_on_us += 1;
+                    if e.destroyed {
+                        self.losses_us += 1;
+                    }
+                }
+                Some(1) => self.hits_on_ai += 1,
+                _ => {}
+            }
+        }
+    }
+
+    /// Count receipts still pending before a caller clears them.
+    fn observe_pending(&mut self, logic: &GameLogic) {
+        let events = logic.health_events.snapshot_damage();
+        self.observe(logic, &events);
+    }
+}
+
+/// The skirmish AI's (player 1) visible state at one point of the slice.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AiProbe {
+    pub frame: u32,
+    pub cash: u32,
+    pub structures: usize,
+    pub units: usize,
+    /// Non-default team instances the AI controls that hold members.
+    pub teams: usize,
+    pub structure_names: Vec<String>,
+    pub team_names: Vec<String>,
+}
+
+impl AiProbe {
+    fn capture(logic: &GameLogic) -> Self {
+        let mut probe = AiProbe {
+            frame: logic.get_frame(),
+            cash: logic.get_player(1).map(|p| p.resources.supplies).unwrap_or(0),
+            ..AiProbe::default()
+        };
+        let mut names = std::collections::BTreeMap::<String, usize>::new();
+        for o in logic.host_objects().registered_values() {
+            if o.owner_player_id != Some(1) || !o.is_alive() {
+                continue;
+            }
+            if o.is_kind_of(KindOf::Structure) {
+                probe.structures += 1;
+                *names.entry(o.template_name.clone()).or_default() += 1;
+            } else {
+                probe.units += 1;
+            }
+        }
+        probe.structure_names = names
+            .into_iter()
+            .map(|(name, count)| format!("{name}x{count}"))
+            .collect();
+        let teams = logic
+            .team_factory
+            .with_read_without_flushing(|factory| factory.get_all_teams())
+            .unwrap_or_else(|error| error.into_inner());
+        for team in teams {
+            let team = team.read().unwrap_or_else(|error| error.into_inner());
+            if team.get_controlling_player_id() != Some(1) || team.get_member_count() == 0 {
+                continue;
+            }
+            let name = team.get_name().to_string();
+            // The player's default team ("team<PlayerName>") is not a built team.
+            if logic
+                .get_player(1)
+                .is_some_and(|p| name == format!("team{}", p.map_side.map_player_name))
+            {
+                continue;
+            }
+            probe.teams += 1;
+            probe.team_names.push(format!("{name}({})", team.get_member_count()));
+        }
+        probe
+    }
+
+    fn summary(&self) -> String {
+        format!(
+            "f{} cash={} structures={} units={} teams={} [{}] [{}]",
+            self.frame,
+            self.cash,
+            self.structures,
+            self.units,
+            self.teams,
+            self.structure_names.join(","),
+            self.team_names.join(",")
+        )
+    }
+}
+
+
+fn materialize_host_damage_log(logic: &mut GameLogic, tally: &mut CombatTally) {
     let events = logic.health_events.drain_damage();
+    tally.observe(logic, &events);
     if events.is_empty() {
         return;
     }
@@ -936,6 +1073,7 @@ fn fight_enemies_with_rangers(
     rangers: &[ObjectId],
     primary_target: Option<ObjectId>,
     max_rounds: u32,
+    tally: &mut CombatTally,
 ) -> gamelogic::GameLogicResult<(bool, bool, bool, bool, bool)> {
     if rangers.is_empty() {
         return Ok((false, false, false, false, false));
@@ -948,6 +1086,7 @@ fn fight_enemies_with_rangers(
     let primary_hp_before = primary_target
         .and_then(|id| logic.host_object(id).map(|o| o.health.current))
         .unwrap_or(0.0);
+    tally.observe_pending(logic);
     logic.health_events.clear_damage();
     let mut any_damage = false;
     let mut combat_destroyed = false;
@@ -1024,7 +1163,7 @@ fn fight_enemies_with_rangers(
                 let used = run_until_budget(logic, march_frames, |g| {
                     any_ranger_in_weapon_range(g, &live, ep)
                 })?;
-                materialize_host_damage_log(logic);
+                materialize_host_damage_log(logic, tally);
                 fight_sim_frames = fight_sim_frames.saturating_add(used);
             }
         }
@@ -1113,7 +1252,7 @@ fn fight_enemies_with_rangers(
             // Bound per-focus thrash so multi-base retarget cannot hang.
             let mini = (((dist / march_speed) * 30.0) as usize + 180).clamp(30, 450);
             let used = run_until_budget(logic, mini, |g| any_ranger_in_weapon_range(g, &live, ep))?;
-            materialize_host_damage_log(logic);
+            materialize_host_damage_log(logic, tally);
             fight_sim_frames = fight_sim_frames.saturating_add(used);
             if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
                 break;
@@ -1214,7 +1353,7 @@ fn fight_enemies_with_rangers(
             }
             let step = step_frames.min(MAX_FIGHT_SIM_FRAMES.saturating_sub(fight_sim_frames));
             run_frames(logic, step)?;
-            materialize_host_damage_log(logic);
+            materialize_host_damage_log(logic, tally);
             fight_sim_frames = fight_sim_frames.saturating_add(step);
             if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
                 break;
@@ -1234,7 +1373,7 @@ fn fight_enemies_with_rangers(
             }
             let step = 3usize.min(MAX_FIGHT_SIM_FRAMES.saturating_sub(fight_sim_frames));
             run_frames(logic, step)?;
-            materialize_host_damage_log(logic);
+            materialize_host_damage_log(logic, tally);
             fight_sim_frames = fight_sim_frames.saturating_add(step);
             if fight_sim_frames >= MAX_FIGHT_SIM_FRAMES {
                 break;
@@ -1646,6 +1785,8 @@ fn run_map_world_skirmish(
     // Multi-wave clear: map army + residual AI rebuilds can wipe the first squad
     // (common fail: primary map CC dead, rebuilt GLA_CommandCenter full HP, 0 rangers).
     // Re-produce from barracks and sweep until all_cleared or wave budget ends.
+    let mut tally = CombatTally::default();
+    let ai_mid = AiProbe::capture(logic);
     let mut fought = false;
     let mut all_cleared = false;
     let mut combat_no_teleport_ok = true;
@@ -1656,7 +1797,10 @@ fn run_map_world_skirmish(
     let mut wave_primary = primary_enemy;
     // Wave 830: full golden (frames≈30+) gets a second wave for residual rebuilds;
     // short RC soak (frames<=5) stays at 1 wave for wall time.
-    let clear_waves: u32 = 1; // Wave 830: primary seed makes multi-wave unnecessary
+    // The skirmish AI now builds and defends (barracks infantry), so a
+    // single squad can be worn down; later waves re-produce rangers through
+    // the same barracks queue (no spawn, teleport or mop-up).
+    let clear_waves: u32 = 3;
 
     for wave in 0..clear_waves {
         if let Some(bid) = barracks_id {
@@ -1718,7 +1862,7 @@ fn run_map_world_skirmish(
             .or_else(|| find_map_enemy_structure(logic))
             .or_else(|| find_any_enemy(logic));
         let (f, c, t, s, d) =
-            fight_enemies_with_rangers(logic, &wave_rangers, focus, fight_rounds)?;
+            fight_enemies_with_rangers(logic, &wave_rangers, focus, fight_rounds, &mut tally)?;
         fought |= f;
         all_cleared = c
             && !logic
@@ -1769,7 +1913,7 @@ fn run_map_world_skirmish(
                 }
             }
             let (f, c, nt, rs, sd) =
-                fight_enemies_with_rangers(logic, &live, Some(focus), cleanup_fight_rounds)?;
+                fight_enemies_with_rangers(logic, &live, Some(focus), cleanup_fight_rounds, &mut tally)?;
             fought |= f;
             combat_no_teleport_ok &= nt;
             combat_realistic_speed_ok &= rs;
@@ -1822,6 +1966,8 @@ fn run_map_world_skirmish(
     // Trailing frames (the AI was live for the whole slice).
     run_frames(logic, frames.max(1) as usize)?;
     let frames_advanced = logic.get_frame().saturating_sub(slice_start_frame).max(1);
+    tally.observe_pending(logic);
+    let ai_end = AiProbe::capture(logic);
 
     let save_load_ok = mid_match_save_load_ok(logic, map_identity);
 
@@ -1845,6 +1991,9 @@ fn run_map_world_skirmish(
         combat_no_mopup_ok,
         combat_realistic_speed_ok,
         combat_store_damage_ok,
+        tally,
+        ai_mid,
+        ai_end,
     })
 }
 
@@ -2046,13 +2195,16 @@ pub fn run_golden_skirmish(
         combat_no_mopup_ok: outcome.combat_no_mopup_ok,
         combat_realistic_speed_ok: outcome.combat_realistic_speed_ok,
         combat_store_damage_ok: outcome.combat_store_damage_ok,
+        tally: outcome.tally,
+        ai_mid: outcome.ai_mid,
+        ai_end: outcome.ai_end,
         status,
     })
 }
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} map_host_ok={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_no_mopup={} combat_realistic_speed={} combat_store_damage={}",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} map_host_ok={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_no_mopup={} combat_realistic_speed={} combat_store_damage={} hits_on_us={} losses_us={} hits_on_ai={} ai_mid=({}) ai_end=({})",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -2085,7 +2237,12 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.combat_no_teleport_ok,
         r.combat_no_mopup_ok,
         r.combat_realistic_speed_ok,
-        r.combat_store_damage_ok
+        r.combat_store_damage_ok,
+        r.tally.hits_on_us,
+        r.tally.losses_us,
+        r.tally.hits_on_ai,
+        r.ai_mid.summary(),
+        r.ai_end.summary()
     )
 }
 
@@ -2113,7 +2270,7 @@ mod tests {
             object.take_damage(10.0, 0, health_events);
         }
         assert_eq!(logic.host_object(id).unwrap().health.current, 90.0);
-        materialize_host_damage_log(&mut logic);
+        materialize_host_damage_log(&mut logic, &mut CombatTally::default());
         let object = logic.host_object(id).unwrap();
         assert_eq!(object.health.current, 90.0, "committed damage replayed");
         assert!(!object.status.destroyed);
@@ -2345,6 +2502,7 @@ mod tests {
             return;
         };
         let result = run_golden_skirmish(Some(map), 30).unwrap();
+        eprintln!("golden report: {}", format_golden_report(&result));
         assert!(
             result.map_loaded,
             "retail map must load on main logic: {}",
