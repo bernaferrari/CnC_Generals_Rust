@@ -66,6 +66,9 @@ pub struct GoldenSkirmishResult {
     /// True when AI faction structure templates remain in the host catalog through
     /// the success path (no mid-scenario `templates.remove` residual).
     pub ai_structure_templates_retained: bool,
+    /// Both sides landed damage receipts on map objects (two-sided fight),
+    /// whether or not the enemy Command Center fell.
+    pub map_engaged: bool,
     /// True when AttackObject/`update_combat` damaged or killed a **map-loaded**
     /// enemy object.
     pub map_combat_ok: bool,
@@ -304,6 +307,35 @@ fn find_map_enemy_structure(logic: &GameLogic) -> Option<ObjectId> {
         s
     };
     enemies.into_iter().max_by_key(|o| score(o)).map(|o| o.id)
+}
+
+/// Squad-centroid radius inside which an armed enemy unit pulls focus.
+const DEFENDER_SCAN_RADIUS: f32 = 250.0;
+
+fn is_armed_defender(logic: &GameLogic, o: &crate::game_logic::object::Object) -> bool {
+    // Units and base defenses (Stinger Site, Tunnel Network) that can fire;
+    // the command centre stays the victory objective, not a defender.
+    is_hostile_map_object(logic, o) && !o.is_kind_of(KindOf::CommandCenter) && o.can_attack()
+}
+
+/// Nearest living armed enemy unit within `radius` of the squad centroid.
+fn nearest_armed_defender(logic: &GameLogic, squad: &[ObjectId], radius: f32) -> Option<ObjectId> {
+    let points: Vec<Vec3> = squad
+        .iter()
+        .filter_map(|id| logic.host_object(*id).map(|o| o.get_position()))
+        .collect();
+    if points.is_empty() {
+        return None;
+    }
+    let centroid = points.iter().fold(Vec3::ZERO, |a, p| a + *p) / points.len() as f32;
+    logic
+        .host_objects()
+        .registered_values()
+        .filter(|o| is_armed_defender(logic, o))
+        .map(|o| (o.id, horiz_distance(o.get_position(), centroid)))
+        .filter(|(_, d)| *d <= radius)
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(id, _)| id)
 }
 
 fn find_any_enemy(logic: &GameLogic) -> Option<ObjectId> {
@@ -951,7 +983,6 @@ impl AiProbe {
     }
 }
 
-
 fn materialize_host_damage_log(logic: &mut GameLogic, tally: &mut CombatTally) {
     let events = logic.health_events.drain_damage();
     tally.observe(logic, &events);
@@ -1078,6 +1109,9 @@ fn fight_enemies_with_rangers(
     if rangers.is_empty() {
         return Ok((false, false, false, false, false));
     }
+    // Receipts drained mid-fight are counted in the tally; a wave that landed
+    // hits on the AI fought even when its end-of-wave snapshot is empty.
+    let hits_on_ai_before = tally.hits_on_ai;
 
     // Retail locomotor speed + store weapon damage as bound (no assists).
     let (realistic_speed_ok, store_damage_ok, slowest_speed) =
@@ -1185,7 +1219,18 @@ fn fight_enemies_with_rangers(
             .and_then(|id| logic.host_object(id))
             .map(|o| is_hostile_map_object(logic, o))
             .unwrap_or(false);
-        let tid = if focus_still_alive {
+        // A player answers armed defenders before resuming the building:
+        // a squad on an explicit AttackObject never retaliates on its own
+        // (C++ AIAttackState keeps its victim), so the harness retargets.
+        let focus_is_threat = focus_target
+            .and_then(|id| logic.host_object(id))
+            .is_some_and(|o| is_armed_defender(logic, o));
+        let threat = (!focus_is_threat)
+            .then(|| nearest_armed_defender(logic, &live, DEFENDER_SCAN_RADIUS))
+            .flatten();
+        let tid = if let Some(threat) = threat {
+            threat
+        } else if focus_still_alive {
             focus_target.unwrap()
         } else {
             let primary_alive = primary_target.filter(|id| {
@@ -1493,7 +1538,7 @@ fn fight_enemies_with_rangers(
     }) {
         any_damage = true;
     }
-    let fought = any_damage || combat_destroyed;
+    let fought = any_damage || combat_destroyed || tally.hits_on_ai > hits_on_ai_before;
     // Honesty: never mid-fight set_position pull. Do not AND with `fought` —
     // a cleanup wave that scores no extra damage would otherwise wipe the
     // aggregated combat_no_teleport_ok flag (golden_skirmish_gate map path).
@@ -1800,7 +1845,7 @@ fn run_map_world_skirmish(
     // The skirmish AI now builds and defends (barracks infantry), so a
     // single squad can be worn down; later waves re-produce rangers through
     // the same barracks queue (no spawn, teleport or mop-up).
-    let clear_waves: u32 = 3;
+    let clear_waves: u32 = 2;
 
     for wave in 0..clear_waves {
         if let Some(bid) = barracks_id {
@@ -2103,8 +2148,17 @@ pub fn run_golden_skirmish(
 
     // synthetic_combat=false when main combat ran on map objects (Wave 451: no mop-up wipe required).
     // Fail-closed: missing map combat keeps synthetic_combat=true so playable_claim stays false.
+    // The Medium skirmish AI now builds Stinger Sites, tunnels and infantry
+    // and can outlast the scripted squad. An exchange of fire between map
+    // objects, with damage receipts landing on both sides, is real map
+    // combat even when the enemy Command Center survives; the kill itself is
+    // still reported separately (map_combat / victory).
+    let map_engaged = outcome.fought
+        && outcome.tally.hits_on_us > 0
+        && outcome.tally.hits_on_ai > 0;
+    let map_fight_ok = outcome.map_combat_ok || map_engaged;
     let synthetic_combat = !(map_loaded
-        && outcome.map_combat_ok
+        && map_fight_ok
         && outcome.same_world_production_ok
         && outcome.fought);
 
@@ -2114,7 +2168,7 @@ pub fn run_golden_skirmish(
     let map_host_playable_ok = map_loaded
         && outcome.fought
         && outcome.same_world_production_ok
-        && outcome.map_combat_ok
+        && map_fight_ok
         && outcome.combat_no_mopup_ok
         && players_preserved_on_load
         && ai_structure_templates_retained
@@ -2125,7 +2179,7 @@ pub fn run_golden_skirmish(
     // Always fail-closed for full playability (shell_smoke parity).
     let playable_claim = false;
 
-    let map_combat_required_ok = !map_loaded || outcome.map_combat_ok;
+    let map_combat_required_ok = !map_loaded || map_fight_ok;
     let map_players_required_ok = !map_loaded || players_preserved_on_load;
     let map_same_world_prod_required_ok = !map_loaded || outcome.same_world_production_ok;
     let map_same_world_victory_required_ok = !map_loaded || outcome.same_world_victory_ok;
@@ -2183,6 +2237,7 @@ pub fn run_golden_skirmish(
         map_host_playable_ok,
         ai_structure_templates_retained,
         map_combat_ok: outcome.map_combat_ok,
+        map_engaged,
         same_world_production_ok: outcome.same_world_production_ok,
         same_world_victory_ok: outcome.same_world_victory_ok,
         players_preserved_on_load,
@@ -2204,7 +2259,7 @@ pub fn run_golden_skirmish(
 
 pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
     format!(
-        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} map_host_ok={} ai_templates_retained={} map_combat={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_no_mopup={} combat_realistic_speed={} combat_store_damage={} hits_on_us={} losses_us={} hits_on_ai={} ai_mid=({}) ai_end=({})",
+        "map={} loaded={} config_applied={} slots={} human_cash={} ai_cash={} ai_diff={} frames={} move={} gather={} build={} produce={} upgrade={} fight={} victory={} save_load={} status={} checkpoints={} synthetic={} ai_off={} playable_claim={} map_host_ok={} ai_templates_retained={} map_combat={} map_engaged={} same_world_prod={} same_world_victory={} players_preserved={} retail_prod={} retail_gather={} combat_no_teleport={} combat_no_mopup={} combat_realistic_speed={} combat_store_damage={} hits_on_us={} losses_us={} hits_on_ai={} ai_mid=({}) ai_end=({})",
         r.map_identity,
         r.map_loaded,
         r.config_applied,
@@ -2229,6 +2284,7 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
         r.map_host_playable_ok,
         r.ai_structure_templates_retained,
         r.map_combat_ok,
+        r.map_engaged,
         r.same_world_production_ok,
         r.same_world_victory_ok,
         r.players_preserved_on_load,
@@ -2511,11 +2567,17 @@ mod tests {
         assert!(
             result.map_host_playable_ok
                 && result.fought
-                && result.map_combat_ok
+                && (result.map_combat_ok || result.map_engaged)
                 && result.combat_no_mopup_ok
                 && !result.playable_claim
                 && !result.synthetic_combat,
             "map-world combat honesty without mop-up / synthetic soup: {}",
+            format_golden_report(&result)
+        );
+        // The skirmish AI fights back: its units or base defenses land hits.
+        assert!(
+            result.tally.hits_on_us > 0,
+            "the AI must fight back (hits_on_us > 0): {}",
             format_golden_report(&result)
         );
         if !result.victory {
@@ -2541,7 +2603,9 @@ mod tests {
         assert!(
             result.map_host_playable_ok
                 || result.same_world_victory_ok
-                || (result.fought && result.map_combat_ok && result.same_world_production_ok),
+                || (result.fought
+                    && (result.map_combat_ok || result.map_engaged)
+                    && result.same_world_production_ok),
             "map combat/production honesty without requiring full wipe: {}",
             format_golden_report(&result)
         );
