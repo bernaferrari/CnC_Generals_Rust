@@ -379,6 +379,13 @@ fn unit_training_science_veterancy_grant_residual() {
     };
 
     let mut game_logic = GameLogic::new();
+    // ActiveBody::onVeterancyLevelChanged scales by retail GameData.ini
+    // HealthBonus_Veteran/Elite; the receiving world admits them.
+    game_logic
+        .admit_combat_bonus_ini_sources([
+            "GameData\n HealthBonus_Veteran = 120%\n HealthBonus_Elite = 130%\nEnd\n",
+        ])
+        .unwrap();
     ensure_test_player_for_team(&mut game_logic, Team::China);
 
     let mut rg_tpl = crate::game_logic::ThingTemplate::new("ChinaInfantryRedguard");
@@ -387,6 +394,9 @@ fn unit_training_science_veterancy_grant_residual() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(120.0);
+    // Retail ChinaInfantry.ini authors IsTrainable = Yes; ThingTemplate
+    // defaults m_isTrainable to FALSE, and untrainable Objects never gain rank.
+    rg_tpl.is_trainable = true;
     game_logic
         .templates
         .insert("ChinaInfantryRedguard".to_string(), rg_tpl);
@@ -397,6 +407,7 @@ fn unit_training_science_veterancy_grant_residual() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(480.0);
+    bm_tpl.is_trainable = true;
     game_logic
         .templates
         .insert("ChinaTankBattleMaster".to_string(), bm_tpl);
