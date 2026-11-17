@@ -399,8 +399,9 @@ impl ObjectDefinition {
         mut visit: impl FnMut(u32, u32, &'m DrawModuleDefinition, &'m DrawConditionStateDefinition),
     ) -> Option<bool> {
         let mut found_selectable_module = false;
+        // At most one pick per module; reserve once instead of growing.
         let mut picks: Vec<(u32, u32, &'m DrawModuleDefinition, &'m DrawConditionStateDefinition)> =
-            Vec::new();
+            Vec::with_capacity(modules.len());
 
         for (module_index, module) in modules.iter().enumerate() {
             if !module.has_selectable_condition_states() {
