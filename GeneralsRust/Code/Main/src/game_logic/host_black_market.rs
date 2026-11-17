@@ -123,6 +123,15 @@ pub fn deposit_interval_frames_from_ms(ms: u32) -> u32 {
 
 /// True when a template is a residual real black market (not fake/display-only).
 pub fn is_black_market_template(name: &str) -> bool {
+    // Every accepting form contains "black"; skip the allocation otherwise
+    // (queried per object per frame by the GameWorld shadow refresh).
+    if !name
+        .as_bytes()
+        .windows(5)
+        .any(|w| w.eq_ignore_ascii_case(b"black"))
+    {
+        return false;
+    }
     let n = name.to_ascii_lowercase();
     if n.contains("fake") {
         return false;

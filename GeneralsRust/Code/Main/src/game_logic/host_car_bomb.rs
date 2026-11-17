@@ -261,6 +261,20 @@ pub fn car_bomb_range_ok(distance: f32) -> bool {
 pub(crate) fn definition_has_carbomb_weapon_set(
     definition: &crate::assets::ObjectDefinition,
 ) -> bool {
+    // Only a set carrying a CARBOMB / CAR_BOMB token can win with it; skip the
+    // per-set token tables (queried per object per frame) when none does.
+    let mentions = |condition: &str| {
+        let b = condition.as_bytes();
+        b.windows(7).any(|w| w.eq_ignore_ascii_case(b"CARBOMB"))
+            || b.windows(8).any(|w| w.eq_ignore_ascii_case(b"CAR_BOMB"))
+    };
+    if !definition
+        .weapon_sets
+        .iter()
+        .any(|set| set.conditions.iter().any(|c| mentions(c.as_str())))
+    {
+        return false;
+    }
     let mut best = None;
     let mut best_matches = 0usize;
     let mut best_extra = 999usize;

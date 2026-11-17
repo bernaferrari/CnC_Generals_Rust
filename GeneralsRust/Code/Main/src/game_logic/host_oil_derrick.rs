@@ -157,6 +157,15 @@ pub fn deposit_interval_frames_from_ms(ms: u32) -> u32 {
 
 /// True when a template is a residual oil derrick tech building.
 pub fn is_oil_derrick_template(name: &str) -> bool {
+    // Every accepting form contains "derrick"; skip the allocation otherwise
+    // (queried per object per frame by the GameWorld shadow refresh).
+    if !name
+        .as_bytes()
+        .windows(7)
+        .any(|w| w.eq_ignore_ascii_case(b"derrick"))
+    {
+        return false;
+    }
     let n = name.to_ascii_lowercase();
     n.contains("oilderrick") || n.contains("oil_derrick") || n == "testoilderrick"
 }

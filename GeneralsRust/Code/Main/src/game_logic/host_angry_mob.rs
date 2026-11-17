@@ -232,7 +232,28 @@ pub fn angry_mob_projectile_kind_for_tick(tick_index: u32) -> AngryMobProjectile
     }
 }
 
+/// Whether `alnum_lower(s)` contains "angrymob", without allocating.
+fn alnum_lower_contains_angrymob(s: &str) -> bool {
+    const NEEDLE: &[u8] = b"angrymob";
+    let mut window = [0u8; 8];
+    let mut seen = 0usize;
+    for b in s.bytes().filter(u8::is_ascii_alphanumeric) {
+        window.copy_within(1.., 0);
+        window[7] = b.to_ascii_lowercase();
+        seen += 1;
+        if seen >= NEEDLE.len() && window == *NEEDLE {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn is_angry_mob_nexus_template(template_name: &str) -> bool {
+    // Every accepting branch below needs "angrymob" in the folded name; this
+    // runs per object per frame, so reject the rest without allocating.
+    if !alnum_lower_contains_angrymob(template_name) {
+        return false;
+    }
     let n = alnum_lower(template_name);
     if n.is_empty() {
         return false;

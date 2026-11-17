@@ -115,6 +115,15 @@ pub fn drop_cash_amount(has_supply_lines: bool) -> u32 {
 /// Fail-closed: does **not** match crate / cargo / parachute payload names
 /// (`SupplyDropZoneCrate`, `TestSupplyDropZoneCrate`) — only the structure.
 pub fn is_supply_drop_zone_template(name: &str) -> bool {
+    // Every accepting branch needs "supply" (or is the test name, which has
+    // it too); skip the lowercase allocation for the per-frame common case.
+    if !name
+        .as_bytes()
+        .windows(6)
+        .any(|w| w.eq_ignore_ascii_case(b"supply"))
+    {
+        return false;
+    }
     let n = name.to_ascii_lowercase();
     // Exclude cargo payload / crate residuals (substring would false-positive).
     if n.contains("crate") || n.contains("cargo") || n.contains("parachute") {
