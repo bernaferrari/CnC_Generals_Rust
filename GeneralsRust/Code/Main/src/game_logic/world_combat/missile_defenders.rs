@@ -1632,20 +1632,14 @@ impl GameLogic {
                 }
                 id
             };
-            let Some(occupant_damage_type) =
+            // C++ bustTheBunker (BunkerBusterBehavior.cpp:186-197): with an
+            // OccupantDamageWeaponTemplate, harmAndForceExitAllContained deals
+            // 100 of its damage/death type; without one, killAllContained
+            // (Object::kill: DAMAGE_UNRESISTABLE, DEATH_NORMAL).
+            let occupant_weapon =
                 crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
                     BUNKER_BUSTER_OCCUPANT_WEAPON,
-                )
-            else { continue; };
-            let occupant_death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
-                Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
-                occupant_damage_type,
-            );
-            let context = crate::game_logic::object::DamageHitContext::new(
-                attacker_id.and_then(|id| self.objects.get(&id)),
-                Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
-                occupant_damage_type,
-            );
+                );
             let Some(occ) = self.objects.get(&occ_id) else {
                 continue;
             };
@@ -1653,8 +1647,18 @@ impl GameLogic {
                 continue;
             }
             let identity = self.live_draw_playback_identity(occ);
-            let killed = self
-                .apply_owned_damage_with_killer_team_with_effects(
+            let killed = if let Some(occupant_damage_type) = occupant_weapon {
+                let occupant_death_type =
+                    crate::game_logic::host_armor_residual::resolve_host_death_type(
+                        Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
+                        occupant_damage_type,
+                    );
+                let context = crate::game_logic::object::DamageHitContext::new(
+                    attacker_id.and_then(|id| self.objects.get(&id)),
+                    Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
+                    occupant_damage_type,
+                );
+                self.apply_owned_damage_with_killer_team_with_effects(
                     occ_id,
                     BUNKER_BUSTER_HARM_AMOUNT,
                     attacker_id,
@@ -1665,7 +1669,16 @@ impl GameLogic {
                     Some(attacker_team),
                     presentation_effects,
                 )?
-                .is_some_and(|result| result.destroyed());
+                .is_some_and(|result| result.destroyed())
+            } else {
+                self.apply_owned_kill_with_effects(
+                    occ_id,
+                    crate::game_logic::combat::DamageType::Unresistable,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                    presentation_effects,
+                )?
+                .is_some_and(|result| result.destroyed())
+            };
             // Body/Die callbacks may reenter this owner. Never classify or
             // queue a same-number replacement using the old occupant hit.
             let current = self
