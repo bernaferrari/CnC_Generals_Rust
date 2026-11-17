@@ -8,7 +8,6 @@ use crate::nat_traversal::{MANGLER_PORT, MANGLER_SERVERS};
 use crate::transport_udp::{GENERALS_MAGIC_NUMBER, calculate_packet_crc, xor_decrypt, xor_encrypt};
 use parking_lot::Mutex;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{Duration, Instant};
 
 const MAX_MANGLERS: usize = 4;
@@ -68,9 +67,12 @@ struct ManglerData {
     padding: u16,
 }
 
-static SOURCE_PORT_POOL: AtomicU16 = AtomicU16::new(4096 + 256);
+/// First mangler source port. C++ `FirewallHelperClass` resets
+/// `m_sourcePortPool` when the helper is built (FirewallHelper.cpp:71) and
+/// post-increments it per probe (FirewallHelper.cpp:222); it lives with the
+/// detection bundle here instead of in its own static.
+const SOURCE_PORT_POOL_START: u16 = 4096 + 256;
 
-#[derive(Default)]
 struct Detection {
     state: FirewallDetectionState,
     behavior: FirewallBehavior,
@@ -79,21 +81,39 @@ struct Detection {
     responses: Vec<(SocketAddr, u16, u16)>,
     started: Option<Instant>,
     tries: u32,
+    source_port_pool: u16,
+}
+
+impl Default for Detection {
+    fn default() -> Self {
+        Self::IDLE
+    }
+}
+
+impl Detection {
+    const IDLE: Self = Self {
+        state: FirewallDetectionState::Idle,
+        behavior: FirewallBehavior::UNKNOWN,
+        port_delta: 0,
+        packet_id: 1,
+        responses: Vec::new(),
+        started: None,
+        tries: 0,
+        source_port_pool: SOURCE_PORT_POOL_START,
+    };
+
+    fn next_source_port(&mut self) -> u16 {
+        let port = self.source_port_pool;
+        self.source_port_pool = port.wrapping_add(1);
+        port
+    }
 }
 
 /// THREAD: the single detection bundle, mirroring the C++ `TheFirewallHelper`
 /// global. `behavior_detection_update` runs on the game loop thread (holding the
 /// lock across its blocking mangler probes, as in C++), while other threads poll
 /// `firewall_detection_done` / `get_firewall_behavior`.
-static DETECTION: Mutex<Detection> = Mutex::new(Detection {
-    state: FirewallDetectionState::Idle,
-    behavior: FirewallBehavior::UNKNOWN,
-    port_delta: 0,
-    packet_id: 1,
-    responses: Vec::new(),
-    started: None,
-    tries: 0,
-});
+static DETECTION: Mutex<Detection> = Mutex::new(Detection::IDLE);
 
 /// C++ `TheFirewallHelper` — start TEST1–TEST5.
 pub fn detect_firewall() -> bool {
@@ -206,12 +226,8 @@ fn persist(det: &Detection) {
     let _ = std::fs::write(path, out);
 }
 
-fn next_source_port() -> u16 {
-    SOURCE_PORT_POOL.fetch_add(1, Ordering::Relaxed)
-}
-
 fn run_mangler_round(det: &mut Detection, test: u8) -> bool {
-    let original = next_source_port();
+    let original = det.next_source_port();
     let packet_id = det.packet_id;
     let socket = match UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, original))) {
         Ok(s) => s,

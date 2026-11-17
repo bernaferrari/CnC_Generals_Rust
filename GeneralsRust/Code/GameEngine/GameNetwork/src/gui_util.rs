@@ -7,18 +7,32 @@ use crate::game_info::{
     GameInfo, MAX_SLOTS, Money, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM, lookup_game_text,
     lookup_multiplayer_settings,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
-
-static SLOT_LIST_UPDATES_ENABLED: AtomicBool = AtomicBool::new(true);
-
-/// Enable or disable slot-list gadget refreshes (C++ `EnableSlotListUpdates`).
-pub fn enable_slot_list_updates(enabled: bool) {
-    SLOT_LIST_UPDATES_ENABLED.store(enabled, Ordering::SeqCst);
+/// Slot-list refresh gate owned by the lobby menu that applies the rows.
+///
+/// C++ keeps this as a GUIUtil.cpp file-static toggled through
+/// `EnableSlotListUpdates` / `AreSlotListUpdatesEnabled`; here the owning menu
+/// holds it, so separate sessions cannot gate each other. Starts enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlotListUpdates {
+    enabled: bool,
 }
 
-/// C++ `AreSlotListUpdatesEnabled`.
-pub fn are_slot_list_updates_enabled() -> bool {
-    SLOT_LIST_UPDATES_ENABLED.load(Ordering::SeqCst)
+impl Default for SlotListUpdates {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+impl SlotListUpdates {
+    /// C++ `EnableSlotListUpdates`.
+    pub fn enable(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    /// C++ `AreSlotListUpdatesEnabled`.
+    pub fn are_enabled(&self) -> bool {
+        self.enabled
+    }
 }
 
 /// One combo-box row matching `GadgetComboBoxAddEntry` + `SetItemData`.
@@ -264,11 +278,12 @@ pub fn enable_accept_controls(
 
 /// C++ `UpdateSlotList` data (menus apply this to combo/accept gadgets).
 pub fn update_slot_list(
+    updates: &SlotListUpdates,
     game: &GameInfo,
     local_slot: Option<usize>,
     is_host: bool,
 ) -> Vec<SlotListRow> {
-    if !are_slot_list_updates_enabled() {
+    if !updates.are_enabled() {
         return Vec::new();
     }
     let enablement = enable_accept_controls(true, game, None, local_slot, is_host);
