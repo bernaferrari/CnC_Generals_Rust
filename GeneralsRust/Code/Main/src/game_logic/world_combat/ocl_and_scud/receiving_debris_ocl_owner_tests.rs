@@ -15,48 +15,18 @@ fn world(
                 "ObjectCreationList OCL_ReceivingBridgeDebris\nCreateDebris\nModelNames = {model_names}\nCount = {count}\nMass = {mass}\nOffset = 1 2 3\nMinLifetime = {min_lifetime}f\nMaxLifetime = {max_lifetime}f\nDisposition = SEND_IT_FLYING\nDispositionIntensity = 1\nEnd\nEnd\n"
             )])
             .expect("OCL belongs to this session");
-    let mut source_template = ThingTemplate::new("ReceivingBridgeSource");
-    source_template
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .set_health(100.0);
-    let mut debris_template = ThingTemplate::new("GenericDebris");
-    debris_template
-        .add_kind_of(crate::game_logic::KindOf::Projectile)
-        .set_health(100.0);
-    debris_template.native_lifecycle_definitions =
-        Some(
-            vec![crate::game_logic::native_lifecycle_definition::NativeLifecycleDefinition {
-                module_tag: Some("DebrisLife".into()),
-                kind: crate::game_logic::native_lifecycle_definition::NativeLifecycleKind::Lifetime(
-                    crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
-                        minimum: 1,
-                        maximum: 1,
-                    },
-                ),
-            }]
-            .into_boxed_slice(),
-        );
+    // C++ ThingFactory builds both Objects from parsed INI module data
+    // (ThingFactory.cpp parseObjectDefinition). The debris keeps the retail
+    // GenericDebris module path (W3DDebrisDraw) plus a one-frame
+    // LifetimeUpdate (LifetimeUpdate.cpp: MinLifetime/MaxLifetime in ms).
     world
-        .templates
-        .insert("ReceivingBridgeSource".into(), source_template);
-    world
-        .templates
-        .insert("GenericDebris".into(), debris_template);
-    // The receiving model override is only meaningful through an authored
-    // W3DDebrisDraw receiver. Keep this fixture on the same module path as
-    // the retail GenericDebris template rather than inventing a Draw row.
-    let mut parser = crate::assets::IniParser::new();
-    parser
-            .parse_ini_content(
-                "Object GenericDebris\nKindOf = PROJECTILE\nBody = ActiveBody DebrisBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nDraw = W3DDebrisDraw DebrisDrawTag\nEnd\nEnd\n",
-                "generic-debris-owner-test.ini",
-            )
-            .expect("authored GenericDebris Draw fixture");
-    let definition = parser
-        .get_definition("GenericDebris")
-        .expect("GenericDebris definition")
-        .clone();
-    world.seed_asset_definition_templates_from_snapshot([("GenericDebris".into(), definition)]);
+        .admit_object_ini_sources([(
+            "generic-debris-owner-test.ini".to_string(),
+            "Object ReceivingBridgeSource\nKindOf = STRUCTURE\nBody = ActiveBody SourceBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n\
+Object GenericDebris\nKindOf = PROJECTILE\nBody = ActiveBody DebrisBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nDraw = W3DDebrisDraw DebrisDrawTag\nEnd\nBehavior = LifetimeUpdate DebrisLife\nMinLifetime = 1\nMaxLifetime = 1\nEnd\nEnd\n"
+                .to_string(),
+        )])
+        .expect("authored debris fixture admitted before NewGame");
     let source = world
         .create_object(
             "ReceivingBridgeSource",
