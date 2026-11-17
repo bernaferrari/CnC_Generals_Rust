@@ -92,6 +92,19 @@ pub fn height_die_config_for_template(name: &str) -> Option<(f32, bool, u32)> {
 
 /// C++ HeightDieUpdate INI lookup (TargetHeight + structures flag).
 pub fn height_die_ini_for_template(name: &str) -> Option<HeightDieIni> {
+    // Every accepting branch below needs one of these substrings; this runs
+    // per object per frame, so reject the rest without allocating.
+    const ANY_OF: [&[u8]; 8] = [
+        b"bomb", b"missile", b"gas", b"projectile", b"shell", b"daisy", b"moab", b"fuelair",
+    ];
+    let bytes = name.as_bytes();
+    if !ANY_OF.iter().any(|needle| {
+        bytes
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle))
+    }) {
+        return None;
+    }
     let n = name.to_ascii_lowercase();
     // FuelAir gas cloud before bomb/projectile peels.
     // Retail FuelAir / Aurora gas HeightDieUpdate TargetHeight = 15, not descending.
@@ -249,6 +262,21 @@ pub fn height_die_target_world_y(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn height_die_prefilter_keeps_every_authored_peel() {
+        for name in [
+            "FuelAirBombGas", "AuroraBombGas", "NapalmBomb", "DaisyCutterBomb",
+            "Daisy_Cutter", "ScudStormMissile", "SCUDMissile", "TomahawkMissile",
+            "ChinaNuclearMissile", "CarpetBomb", "MOAB", "FuelAirBomb",
+            "ArtilleryShell", "GenericProjectile", "AnthraxBomb", "ClusterMinesBomb",
+            "EMPPulseBomb", "NukeBomb", "CruiseMissile", "NeutronMissile",
+            "PatriotMissileEMPHelper", "TestMissile",
+        ] {
+            assert!(height_die_ini_for_template(name).is_some(), "{name}");
+        }
+        assert!(height_die_ini_for_template("ChinaTankOverlord").is_none());
+    }
 
     #[test]
     fn height_die_on_descent() {
