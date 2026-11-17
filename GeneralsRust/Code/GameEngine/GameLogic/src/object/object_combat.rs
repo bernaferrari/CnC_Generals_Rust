@@ -456,16 +456,21 @@ impl Object {
             }
         }
 
-        if new_level > old_level && provide_feedback {
-            let mut sound = match new_level {
-                VeterancyLevel::Veteran => self.get_template().get_sound_promoted_veteran(),
-                VeterancyLevel::Elite => self.get_template().get_sound_promoted_elite(),
-                VeterancyLevel::Heroic => self.get_template().get_sound_promoted_hero(),
-                _ => crate::common::audio::AudioEventRts::default(),
-            };
-            sound.set_object_id(self.id as u32);
-            if let Some(audio) = crate::helpers::TheAudio::of_object(self) {
-                audio.add_audio_event_for_owner(&sound, self);
+        // C++ ActiveBody::onVeterancyLevelChanged (ActiveBody.cpp:1393-1439):
+        // only the promotion sound is gated by provideFeedback; the selected
+        // (or contained-in-selected) markUIDirty runs on every promotion.
+        if new_level > old_level {
+            if provide_feedback {
+                let mut sound = match new_level {
+                    VeterancyLevel::Veteran => self.get_template().get_sound_promoted_veteran(),
+                    VeterancyLevel::Elite => self.get_template().get_sound_promoted_elite(),
+                    VeterancyLevel::Heroic => self.get_template().get_sound_promoted_hero(),
+                    _ => crate::common::audio::AudioEventRts::default(),
+                };
+                sound.set_object_id(self.id as u32);
+                if let Some(audio) = crate::helpers::TheAudio::of_object(self) {
+                    audio.add_audio_event_for_owner(&sound, self);
+                }
             }
             let __player_list_arc = crate::player::player_list();
             let selected = __player_list_arc
