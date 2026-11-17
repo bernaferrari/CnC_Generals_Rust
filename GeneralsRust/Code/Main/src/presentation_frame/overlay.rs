@@ -2410,6 +2410,15 @@ impl PresentationFrame {
     /// `gameworld_rebuilt`. Default engine path when shadow is live (Wave 194).
     /// Fail-closed: sparse host-only FX/UI fields stay default unless host merge
     /// fills them; not full playable_claim cutover.
+    /// Whether [`Self::rebuild_objects_from_gameworld`] would emit any entity.
+    fn gameworld_roster_nonempty(shadow: &crate::gameworld_shadow::GameWorldShadow) -> bool {
+        shadow
+            .world()
+            .world()
+            .entities()
+            .any(|ent| !(ent.destroyed && ent.health <= 0.0))
+    }
+
     pub fn rebuild_objects_from_gameworld(
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
@@ -2702,12 +2711,22 @@ impl PresentationFrame {
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
+        let gameworld_roster = shadow.filter(|_| presentation_from_gameworld_enabled());
+        // The rebuild below replaces the host roster whenever it yields any
+        // entity, so the host `objects` list is only needed as the empty-
+        // shadow fallback (Wave 838).
+        let host_roster = if gameworld_roster.is_some_and(Self::gameworld_roster_nonempty) {
+            super::build::HostRoster::DrawablesOnly
+        } else {
+            super::build::HostRoster::Keep
+        };
         let mut frame = Self::build_with_victory_with_tint_update(
             logic,
             local_player_id,
             runtime_heightmap,
             false,
             camera_fade,
+            host_roster,
         );
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {

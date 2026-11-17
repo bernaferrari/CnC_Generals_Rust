@@ -323,6 +323,31 @@ impl PresentationFrame {
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
         camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
+        Self::build_from_logic_with_host_roster(
+            logic,
+            local_player_id,
+            runtime_heightmap,
+            freeze_tints,
+            discharges,
+            camera_fade,
+            HostRoster::Keep,
+        )
+    }
+
+    /// `HostRoster::DrawablesOnly` is for callers that replace `objects`
+    /// wholesale (the GameWorld roster rebuild): the host renderables are
+    /// moved into `direct_host_drawables` instead of being cloned into an
+    /// `objects` list that would be discarded unread.
+    pub(super) fn build_from_logic_with_host_roster(
+        logic: &mut GameLogic,
+        local_player_id: u32,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+        freeze_tints: bool,
+        discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
+        camera_fade: super::camera_fade::FrameFade,
+        host_roster: HostRoster,
+    ) -> Self {
+        let keep_host_roster = host_roster == HostRoster::Keep;
         let application_assets = logic.application_assets();
         #[cfg(feature = "game_client")]
         let w3d_ghost_scene = Some(super::ghosts::freeze_owned_scene(logic, local_player_id));
@@ -391,7 +416,11 @@ impl PresentationFrame {
             )
         };
         let weapon_ready_time_seconds = logic.frame as f32 / 30.0;
-        let mut objects = Vec::with_capacity(logic.host_objects().registered_len());
+        let mut objects = Vec::with_capacity(if keep_host_roster {
+            logic.host_objects().registered_len()
+        } else {
+            0
+        });
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().registered_len());
         for (obj, (fow_visibility, drawable_shroud)) in logic
             .host_objects()
@@ -1083,8 +1112,13 @@ impl PresentationFrame {
                 drawable_explicit_opacity: obj.drawable_explicit_opacity,
                 camo_heat_vision_opacity: obj.pending_second_material_pass().unwrap_or(0.0),
             };
+            let (object, roster_entry) = if keep_host_roster {
+                (renderable.clone(), Some(renderable))
+            } else {
+                (renderable, None)
+            };
             direct_host_drawables.push(PresentationDirectHostDrawable {
-                object: renderable.clone(),
+                object,
                 receiving_client_template: logic
                     .receiving_module_content
                     .as_ref()
@@ -1160,7 +1194,7 @@ impl PresentationFrame {
                 // derive it from health or gameplay destruction flags.
                 resident: true,
             });
-            objects.push(renderable);
+            objects.extend(roster_entry);
         }
         #[cfg(feature = "game_client")]
         let host_physics_visuals = {
@@ -1803,8 +1837,10 @@ impl PresentationFrame {
             }
         }
 
+        // Every host renderable lands in `direct_host_drawables`; `objects`
+        // holds the same set only when the host roster is kept.
         let dual_tick = PresentationDualTickResidual::from_counts(
-            objects.len(),
+            direct_host_drawables.len(),
             selected.len(),
             laser_beams.len(),
             floating_texts.len(),
@@ -2253,6 +2289,7 @@ impl PresentationFrame {
             runtime_heightmap,
             true,
             super::camera_fade::FrameFade::Compatibility,
+            HostRoster::Keep,
         )
     }
 
@@ -2262,19 +2299,21 @@ impl PresentationFrame {
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         freeze_tints: bool,
         camera_fade: super::camera_fade::FrameFade,
+        host_roster: HostRoster,
     ) -> Self {
         // C++ GameLogic.cpp:3769 owns victory and killPlayer in the logic step.
         // Read its completed result and accepted discharges together; building
         // a frame must not run defeat callbacks or change their timing.
         let victory = logic.current_victory_observation();
         let discharges = logic.take_weapon_discharges_for_presentation();
-        let mut frame = Self::build_from_logic_with_tint_update(
+        let mut frame = Self::build_from_logic_with_host_roster(
             logic,
             local_player_id,
             runtime_heightmap,
             false,
             discharges,
             camera_fade,
+            host_roster,
         );
         frame.match_over = victory.match_over;
         if let Some(v) = victory.outcome {
@@ -2898,4 +2937,11 @@ mod sw_hud_tests {
         assert!(row.remaining <= 0.0);
         assert!(!row.ready, "brownout ready PUC is 0:00 not bold");
     }
+}
+
+/// Whether a host presentation build keeps its own `objects` roster.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HostRoster {
+    Keep,
+    DrawablesOnly,
 }
