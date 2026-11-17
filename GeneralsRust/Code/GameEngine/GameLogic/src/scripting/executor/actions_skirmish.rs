@@ -837,7 +837,14 @@ impl ScriptActionDispatcher<'_> {
         action: &ScriptAction,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.get_string_param(action, 0)?;
+        // C++ doBuildSupplyCenter resolves through getPlayerFromAsciiString:
+        // <This Player> is the script's current player, not the local one.
+        let Some(player_name) = self.resolve_player_name_token_with_driver(
+            &self.get_string_param(action, 0)?,
+            driver,
+        ) else {
+            return Ok(ScriptActionResult::Success);
+        };
         let building_type = self.get_string_param(action, 1)?;
         let cash = self.get_int_param(action, 2)?;
         if let Some(result) = driver.ai_player(
@@ -917,7 +924,13 @@ impl ScriptActionDispatcher<'_> {
         action: &ScriptAction,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.get_string_param(action, 0)?;
+        // C++ doBuildTypeNearestTeam: getPlayerFromAsciiString (THIS_PLAYER).
+        let Some(player_name) = self.resolve_player_name_token_with_driver(
+            &self.get_string_param(action, 0)?,
+            driver,
+        ) else {
+            return Ok(ScriptActionResult::Success);
+        };
         let build_type = self.get_string_param(action, 1)?;
         let team_name = self.get_string_param(action, 2)?;
         let engine = self.context.borrowed_engine();
