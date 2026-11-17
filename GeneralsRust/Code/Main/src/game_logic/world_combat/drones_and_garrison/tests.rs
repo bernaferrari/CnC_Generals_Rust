@@ -231,13 +231,16 @@ fn combat_chinook_vehicle_rider_does_not_residual_fire() {
             0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             last_fire_time: -10.0,
             reload_time: 0.1,
             range: 150.0,
             damage: 40.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
     }
     let victim = logic
         .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
@@ -304,13 +307,16 @@ fn subdued_transport_stops_passenger_residual_fire() {
             0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             last_fire_time: -10.0,
             reload_time: 0.1,
             range: 150.0,
             damage: 10.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
     }
     let victim = logic
         .create_object("GLARebel", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
@@ -1134,13 +1140,16 @@ fn garrison_fire_releases_old_firepoint_before_taking_closer() {
         .unwrap();
     {
         let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             damage: 40.0,
             range: 200.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
@@ -1198,13 +1207,16 @@ fn garrison_fire_frees_firepoint_when_no_in_range_victim() {
         .unwrap();
     {
         let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             damage: 10.0,
             range: 20.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
@@ -1877,13 +1889,16 @@ fn garrison_residual_fire_skips_undetected_stealth() {
         .unwrap();
     {
         let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             damage: 40.0,
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
@@ -1949,13 +1964,16 @@ fn garrison_residual_fire_uses_garrisoned_133_range() {
         .unwrap();
     {
         let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             damage: 25.0,
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
@@ -2029,13 +2047,16 @@ fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
             0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             damage: 20.0,
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
         // Docked + contained must not grant the bunker AIState bonus.
         assert!((r.effective_weapon_range(100.0) - 100.0).abs() < 0.01);
     }
@@ -2176,13 +2197,16 @@ fn tunnel_occupants_do_not_garrison_fire() {
     {
         let r = logic.host_object_mut(rebel).unwrap();
         r.owner_player_id = Some(0);
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             damage: 40.0,
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
         r.set_ai_state(
             AIState::Entering,
             0,
@@ -2266,13 +2290,16 @@ fn firebase_does_not_spawn_garrison_gun() {
         .unwrap();
     {
         let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             damage: 25.0,
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
         r.set_contained_by_with_partition_owner(Some(fb), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
@@ -2343,13 +2370,16 @@ fn poison_garrison_shot_skips_muzzle_flash() {
         .unwrap();
     {
         let (r, fixture_partition_r) = logic.host_object_and_partition_mut(rebel).unwrap();
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             damage: 20.0,
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
@@ -2415,13 +2445,16 @@ fn garrison_gun_aims_at_occupant_target() {
         .unwrap();
     {
         let (r, fixture_partition_r) = logic.host_object_and_partition_mut(ranger).unwrap();
-        r.weapon = Some(crate::game_logic::Weapon {
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
             damage: 25.0,
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
-        });
+        },
+        );
         r.set_contained_by_with_partition_owner(Some(bunker), true, fixture_partition_r);
         r.set_ai_state(
             AIState::Garrisoned,
