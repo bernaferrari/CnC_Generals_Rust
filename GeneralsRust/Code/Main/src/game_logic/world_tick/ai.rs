@@ -1018,7 +1018,6 @@ impl GameLogic {
             self.try_auto_find_healing_residual(object_id);
             // AutoFindRepair residual: AI idle damaged vehicles → RepairPad/WarFactory.
             self.try_auto_find_repair_residual(object_id);
-            self.try_auto_resume_construction_residual(object_id, presentation_effects)?;
             // C++ AIIdleState: CAN_BE_REPULSED idle units flee closest repulsor.
             let _ = self.try_idle_repulse(object_id);
             // C++ AIIdleState: checkForCrateToPickup → aiMoveToObject.
