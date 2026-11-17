@@ -415,6 +415,11 @@ fn pilot_veterancy_gain_uses_set_min_and_trainable_gate() {
     use crate::game_logic::{Team, ThingTemplate, VeterancyCrateCollideMetadata, VeterancyLevel};
 
     let mut logic = GameLogic::new();
+    // ActiveBody::onVeterancyLevelChanged scales by GameData
+    // HealthBonus_Veteran (retail 120%); the world admits that rule.
+    logic
+        .admit_combat_bonus_ini_sources(["GameData\n HealthBonus_Veteran = 120%\nEnd\n"])
+        .unwrap();
     ensure_test_player_for_team(&mut logic, Team::USA);
 
     let mut pilot = ThingTemplate::new("AmericaInfantryPilot");
