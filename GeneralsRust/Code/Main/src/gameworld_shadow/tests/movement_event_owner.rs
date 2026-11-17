@@ -15,6 +15,26 @@ fn admitted_world() -> (GameLogic, ObjectId) {
     (logic, id)
 }
 
+/// A world whose unit is admitted content carrying the AIUpdateInterface that
+/// owns its movement machine: a saved game records that module's state
+/// (AIUpdateInterface::xfer), so a hand-built unit with active control has no
+/// native machine to capture.
+fn admitted_ai_world() -> (GameLogic, ObjectId) {
+    let mut logic = GameLogic::new();
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("MovementBoundaryUnit")
+            .kind_of("INFANTRY")
+            .health(100.0)
+            .module("Behavior = AIUpdateInterface MovementAI\nEnd")],
+    );
+    logic.add_player(Player::new(0, Team::USA, "MovementOwner", true));
+    let id = logic
+        .create_object("MovementBoundaryUnit", Team::USA, Vec3::ZERO)
+        .unwrap();
+    (logic, id)
+}
+
 fn missing_mapping_retains_whole_suffix_until_a_later_session_case() {
     let (mut logic, a) = admitted_world();
     let mut shadow = GameWorldShadow::new(64);
@@ -202,7 +222,7 @@ fn eager_prefix_late_suffix_and_foreign_session_remain_once_and_ordered() {
 }
 
 fn restoring_a_snapshot_baselines_only_the_receiving_world_output_case() {
-    let (mut owner, id) = admitted_world();
+    let (mut owner, id) = admitted_ai_world();
     let (object, mut writer) = owner.host_object_and_movement_events_mut(id).unwrap();
     object.set_destination(
         Vec3::new(20.0, 0.0, 30.0),
@@ -214,7 +234,7 @@ fn restoring_a_snapshot_baselines_only_the_receiving_world_output_case() {
     let completed = owner.movement_events.snapshot_completed().to_vec();
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let mut saved = builder.create_world_snapshot(&owner).unwrap();
-    let (mut receiver, receiver_id) = admitted_world();
+    let (mut receiver, receiver_id) = admitted_ai_world();
     assert_eq!(receiver_id, id);
     let (object, mut writer) = receiver.host_object_and_movement_events_mut(id).unwrap();
     object.set_destination(

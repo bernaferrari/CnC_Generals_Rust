@@ -18,6 +18,10 @@ Object WorldReadOwnerProbe
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 100
   End
+  ; The fixture states an attack target and move destination, which are the
+  ; machine state of the object's AIUpdateInterface (AIUpdate.cpp xfer).
+  Behavior = AIUpdateInterface ModuleTag_AI
+  End
 End
 "#;
     let mut world = GameLogic::new();
