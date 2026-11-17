@@ -264,19 +264,26 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
 
     fn carrier() -> (GameLogic, ObjectId) {
         let mut logic = GameLogic::new();
         // A moving transport runs its authored AI module (TransportAIUpdate
         // derives AIUpdateInterface), so its machine snapshots by source.
-        logic
-            .admit_object_ini_sources([(
-                "return-carrier.ini".to_string(),
-                "Object ReturnCarrier\nKindOf = VEHICLE\nBody = ActiveBody ModuleTag_Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = AIUpdateInterface ModuleTag_AI\nEnd\nEnd\n"
-                    .to_string(),
-            )])
-            .expect("authored carrier admits");
+        // C++ loads Object and Locomotor INI before NewGame; a transport that
+        // is to move authors a Locomotor, and its passenger is content too.
+        crate::fixture_content::admit_fixture_objects(
+            &mut logic,
+            &[
+                crate::fixture_content::FixtureObject::new("ReturnCarrier")
+                    .kind_of("VEHICLE")
+                    .health(200.0)
+                    .walker(),
+                crate::fixture_content::FixtureObject::new("ReturnRider")
+                    .kind_of("INFANTRY")
+                    .health(100.0),
+            ],
+        );
         let mut template = logic.templates["ReturnCarrier"].clone();
         template.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
         template.contain_module.slots = Some(3);
@@ -326,9 +333,6 @@ mod tests {
         use crate::command_executor::CommandExecutor;
         use crate::command_system::CommandResult;
         let (mut logic, id) = carrier();
-        let mut rider_template = ThingTemplate::new("ReturnRider");
-        rider_template.add_kind_of(KindOf::Infantry);
-        logic.templates.insert("ReturnRider".into(), rider_template);
         let rider = logic
             .create_object("ReturnRider", Team::USA, Vec3::new(11.0, 0.0, 20.0))
             .unwrap();
@@ -343,6 +347,8 @@ mod tests {
             ), Ok(CommandResult::Success)));
         let mut saw_return = false;
         for _ in 0..3000 {
+            // Pathfinder::processPathfindQueue runs each AI frame.
+            logic.process_pathfind_queue().unwrap();
             logic.update_movement_for_test(&[id, rider], 1.0 / 30.0);
             let object = logic.host_object(id).unwrap();
             if matches!(
