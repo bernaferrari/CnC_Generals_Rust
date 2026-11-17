@@ -1952,8 +1952,8 @@ impl Object {
 
     /// C++ `ThingTemplate::m_kindof` bits for PartitionFilterAcceptByKindOf.
     pub fn kind_of_cpp_mask(&self) -> u128 {
-        crate::game_logic::host_radar_stealth_vision_residual::live_object_kind_of_cpp_mask(
-            self.thing.template.kind_of.iter(),
+        crate::game_logic::host_radar_stealth_vision_residual::kind_of_set_cpp_mask(
+            &self.thing.template.kind_of,
         )
     }
 

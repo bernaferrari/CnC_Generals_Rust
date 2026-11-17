@@ -52,6 +52,11 @@ impl KindOfSet {
         self.bits.count_ones() as usize
     }
 
+    /// Raw membership bits, indexed by host `KindOf` discriminant.
+    pub const fn bits(&self) -> u128 {
+        self.bits
+    }
+
     pub fn is_empty(&self) -> bool {
         self.bits == 0
     }

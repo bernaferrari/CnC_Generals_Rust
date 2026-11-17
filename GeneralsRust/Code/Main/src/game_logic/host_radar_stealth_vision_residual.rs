@@ -559,7 +559,7 @@ pub fn detector_accepts_kindof_residual(
 
 /// C++ `KindOf.h` bit for one live host KindOf token.
 #[inline]
-pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
+pub const fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
     use crate::game_logic::KindOf;
     use game_engine::common::system::kind_of::KindOfMask as M;
     match kind {
@@ -665,6 +665,33 @@ pub fn live_object_kind_of_cpp_mask<'a>(
     kinds
         .into_iter()
         .fold(0u128, |acc, k| acc | live_kind_of_cpp_mask(*k))
+}
+
+/// C++ `KindOf.h` bit for each host `KindOf` discriminant, built at compile
+/// time so a template's `m_kindof` mask is a walk over its set bits only
+/// (C++ `ThingTemplate::isKindOf` is a bit test, not an enum scan).
+const LIVE_KIND_OF_CPP_MASK_BY_DISCRIMINANT: [u128; 128] = {
+    let mut table = [0u128; 128];
+    let all = crate::game_logic::KindOf::ALL_KIND_OF;
+    let mut i = 0;
+    while i < all.len() {
+        table[all[i] as u8 as usize] = live_kind_of_cpp_mask(all[i]);
+        i += 1;
+    }
+    table
+};
+
+/// C++ `ThingTemplate::m_kindof` mask for a host KindOf set.
+#[inline]
+pub fn kind_of_set_cpp_mask(kinds: &crate::game_logic::KindOfSet) -> u128 {
+    let mut bits = kinds.bits();
+    let mut mask = 0u128;
+    while bits != 0 {
+        let index = bits.trailing_zeros() as usize;
+        mask |= LIVE_KIND_OF_CPP_MASK_BY_DISCRIMINANT[index];
+        bits &= bits - 1;
+    }
+    mask
 }
 
 
@@ -831,6 +858,17 @@ pub const VISION_UNIT_SAMPLE_TABLE_RESIDUAL: &[(&str, f32, f32)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kind_of_set_mask_table_matches_the_per_kind_mapping() {
+        use crate::game_logic::{KindOf, KindOfSet};
+        for kind in KindOf::ALL_KIND_OF {
+            let set: KindOfSet = [*kind].into_iter().collect();
+            assert_eq!(kind_of_set_cpp_mask(&set), live_kind_of_cpp_mask(*kind), "{kind:?}");
+        }
+        let all: KindOfSet = KindOf::ALL_KIND_OF.iter().copied().collect();
+        assert_eq!(kind_of_set_cpp_mask(&all), live_object_kind_of_cpp_mask(all.iter()));
+    }
 
     #[test]
     fn detector_residual_deepen_wave97_honesty() {
