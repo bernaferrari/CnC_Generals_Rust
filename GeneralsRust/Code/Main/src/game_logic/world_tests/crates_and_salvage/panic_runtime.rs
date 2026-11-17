@@ -91,17 +91,26 @@ fn install_panic_fork_path(logic: &GameLogic) {
     drop(terrain);
 }
 
+/// The authored Object a panic world runs. A world restoring a snapshot of it
+/// must admit the same content (its module roster is checked on restore).
+fn admit_panic_content(logic: &mut GameLogic) {
+    crate::fixture_content::admit_fixture_objects(
+        logic,
+        &[crate::fixture_content::FixtureObject::new("PanicRuntimeInfantry")
+            .kind_of("INFANTRY CAN_BE_REPULSED")
+            .health(100.0)
+            .module("Behavior = AIUpdateInterface PanicRuntimeAI\nEnd")],
+    );
+}
+
 fn panic_logic() -> GameLogic {
     let mut logic = GameLogic::new();
+    // AI_PANIC is an AIUpdateInterface state (AIStateMachine.h:756 AIPanicState).
+    // AIUpdateInterface::xfer saves the machine of that authored module, so the
+    // Object is admitted content carrying it, not a hand-built template.
+    admit_panic_content(&mut logic);
     install_panic_waypoint_path(&logic);
-    let mut template = ThingTemplate::new("PanicRuntimeInfantry");
-    template
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::CanBeRepulsed)
-        .set_health(100.0);
-    logic
-        .templates
-        .insert("PanicRuntimeInfantry".into(), template.clone());
+    let template = logic.templates["PanicRuntimeInfantry"].clone();
     let mut unit = Object::new(template, PANIC_UNIT, Team::GLA);
     unit.set_position(Vec3::new(0.0, 0.0, 100.0));
     unit.movement.max_speed = 20.0;
@@ -317,7 +326,7 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
     let path_before = source.objects[&PANIC_UNIT].movement.path.clone();
     let mut restored = GameLogic::new();
     install_panic_waypoint_path(&restored);
-    restored.templates = source.templates.clone();
+    admit_panic_content(&mut restored);
     builder
         .restore_from_snapshot(&decoded, &mut restored)
         .expect("restore panic snapshot");
@@ -381,7 +390,7 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
     }
     let mut missing_world = GameLogic::new();
     install_panic_waypoint_path(&missing_world);
-    missing_world.templates = source.templates.clone();
+    admit_panic_content(&mut missing_world);
     assert!(
         builder
             .restore_from_snapshot(&missing, &mut missing_world)
@@ -400,7 +409,7 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
     }
     let mut malformed_world = GameLogic::new();
     install_panic_waypoint_path(&malformed_world);
-    malformed_world.templates = source.templates.clone();
+    admit_panic_content(&mut malformed_world);
     assert!(
         builder
             .restore_from_snapshot(&malformed, &mut malformed_world)
@@ -427,7 +436,7 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
     }
     let mut missing_waypoint_world = GameLogic::new();
     install_panic_waypoint_path(&missing_waypoint_world);
-    missing_waypoint_world.templates = source.templates.clone();
+    admit_panic_content(&mut missing_waypoint_world);
     assert!(
         builder
             .restore_from_snapshot(&missing_waypoint, &mut missing_waypoint_world)
@@ -706,7 +715,7 @@ fn panic_waypoint_choice_and_next_rng_survive_save_load_continuation() {
         bincode_legacy::deserialize(&encoded).expect("decode panic path");
     let mut restored = GameLogic::new();
     install_panic_fork_path(&restored);
-    restored.templates = source.templates.clone();
+    admit_panic_content(&mut restored);
     builder
         .restore_from_snapshot(&decoded, &mut restored)
         .expect("restore forked panic path");

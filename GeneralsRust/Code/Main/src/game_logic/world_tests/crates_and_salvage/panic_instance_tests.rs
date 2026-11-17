@@ -152,7 +152,7 @@ fn same_id_panic_worlds_interleave_and_restore_without_crossing_state_or_rng() {
         bincode_legacy::deserialize(&encoded).expect("decode world A");
     let mut restored_a = GameLogic::new();
     install_panic_fork_path(&restored_a);
-    restored_a.templates = world_a.templates.clone();
+    admit_panic_content(&mut restored_a);
     builder
         .restore_from_snapshot(&decoded, &mut restored_a)
         .expect("restore world A with world B still alive");
@@ -211,7 +211,7 @@ fn panic_snapshot_rejects_invalid_internal_move_layer_ordinals() {
 
         let mut restored = GameLogic::new();
         install_panic_waypoint_path(&restored);
-        restored.templates = source.templates.clone();
+        admit_panic_content(&mut restored);
         assert!(
             builder
                 .restore_from_snapshot(&malformed, &mut restored)
@@ -263,7 +263,7 @@ fn panic_snapshot_rejects_unreachable_timer_and_nonfinite_width_capsules() {
 
         let mut restored = GameLogic::new();
         install_panic_waypoint_path(&restored);
-        restored.templates = source.templates.clone();
+        admit_panic_content(&mut restored);
         assert!(
             builder
                 .restore_from_snapshot(&malformed, &mut restored)
@@ -295,7 +295,7 @@ fn panic_snapshot_rejects_unreachable_timer_and_nonfinite_width_capsules() {
         .insert("AIPanicState".into(), state.to_string());
     let mut restored = GameLogic::new();
     install_panic_waypoint_path(&restored);
-    restored.templates = source.templates.clone();
+    admit_panic_content(&mut restored);
     assert!(
         builder
             .restore_from_snapshot(&malformed, &mut restored)
@@ -330,7 +330,7 @@ fn complete_world_restore_keeps_full_ordinary_moving_path_and_index() {
     let snapshot = moving_path_snapshot();
     let mut restored = GameLogic::new();
     install_panic_waypoint_path(&restored);
-    restored.templates = panic_logic().templates.clone();
+    admit_panic_content(&mut restored);
     crate::save_load::snapshot::SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore ordinary moving path");
@@ -383,7 +383,7 @@ fn complete_world_restore_does_not_resurrect_authoritative_empty_movement() {
 
     let mut restored = GameLogic::new();
     install_panic_waypoint_path(&restored);
-    restored.templates = panic_logic().templates.clone();
+    admit_panic_content(&mut restored);
     crate::save_load::snapshot::SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore authoritative empty movement");
