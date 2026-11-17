@@ -1380,7 +1380,10 @@ mod tests {
             .templates
             .insert("ChinaSpeakerTower".to_string(), tower_tpl);
 
+        // PropagandaTowerBehavior.cpp:280 grants ENTHUSIASTIC only when
+        // hasAnyDamageWeapon(), so the buffed infantry carries a real weapon.
         let mut inf = ThingTemplate::new("TestInfantry");
+        inf.set_primary_weapon_name(crate::game_logic::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
         inf.add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
