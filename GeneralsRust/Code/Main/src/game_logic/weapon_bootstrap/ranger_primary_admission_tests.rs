@@ -1,11 +1,12 @@
 //! Real Object INI projection -> ordinary Main Ranger creation.
 //! CPP WeaponSet.cpp:279–320 allocates only authored getNth(slot).
+//! ActiveBody.cpp:108-111 defaults InitialHealth to 0, so the body authors it.
 use super::*;
 use crate::game_logic::GameLogic;
 
 fn parsed_ranger(name: &str, weapon_set: &str) -> (ThingTemplate, String) {
     let source = format!(
-        "Object {name}\n  KindOf = INFANTRY SELECTABLE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n  End\n{weapon_set}End\n"
+        "Object {name}\n  KindOf = INFANTRY SELECTABLE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n{weapon_set}End\n"
     );
     let mut parser = crate::assets::IniParser::new();
     parser
