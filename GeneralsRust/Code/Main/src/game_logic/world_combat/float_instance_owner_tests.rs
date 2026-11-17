@@ -74,7 +74,7 @@ fn fixture() -> (GameLogic, ObjectId) {
         .admit_object_ini_sources([(
             "float-instance.ini".to_string(),
             "Object OwnedFloat
- Type = Vehicle
+ KindOf = VEHICLE
  Draw = W3DModelDraw ModuleTag_Draw
   DefaultConditionState
    Model = FloatModel
