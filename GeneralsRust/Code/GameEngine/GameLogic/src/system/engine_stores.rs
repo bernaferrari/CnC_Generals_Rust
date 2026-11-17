@@ -756,17 +756,30 @@ impl PublishedOwner {
         let _ = common_services::install_common_services(Arc::clone(&common));
         common.finish_bootstrap_after_publish();
         self.services().locomotor_store().sync_from_definitions();
-        if let Self::Core(core) = self {
-            common_upgrade::install_upgrade_center(Arc::clone(core.upgrade_center()));
-            ini_ai_data::install_ai_data_store(Arc::clone(core.ai_data()));
+        match self {
+            Self::Core(core) => {
+                common_upgrade::install_upgrade_center(Arc::clone(core.upgrade_center()));
+                ini_ai_data::install_ai_data_store(Arc::clone(core.ai_data()));
+            }
+            // A Main services boundary above a Core world is the same game's
+            // engine: TheAI->getAiData() still names the Core's AIData, so its
+            // own Common parser slot resolves that store rather than the
+            // engine-lifetime fallback.
+            Self::Services(_) => {
+                if let Some(prior_data) = stack_prior_core_ai_data() {
+                    ini_ai_data::install_ai_data_store(prior_data);
+                }
+            }
         }
     }
     fn uninstall_common(&self) {
-        let _ = common_services::uninstall_common_services_if_current(self.services().common());
+        // Release this engine's slots while its Common is still current, then
+        // pop the Common itself.
         if let Self::Core(core) = self {
             common_upgrade::uninstall_upgrade_center_if_current(core.upgrade_center());
             ini_ai_data::uninstall_ai_data_store_if_current(core.ai_data());
         }
+        let _ = common_services::uninstall_common_services_if_current(self.services().common());
     }
 }
 
@@ -989,11 +1002,6 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
     impl Drop for RestoreScope {
         fn drop(&mut self) {
             stack_pop_if_head(&self.owner);
-            if common_services::uninstall_common_services_if_current(self.owner.services().common()) {
-                if let Some(previous) = self.prior_common.take() {
-                    common_services::install_common_services(previous);
-                }
-            }
             if let PublishedOwner::Core(core) = &self.owner {
                 let upgrade = core.upgrade_center();
                 if Arc::ptr_eq(&common_upgrade::get_upgrade_center(), upgrade) {
@@ -1013,8 +1021,20 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
                     }
                 }
             }
+            // The engine's own upgrade/AIData slots are restored above while
+            // its Common is current; only then is the Common popped.
+            if common_services::uninstall_common_services_if_current(self.owner.services().common()) {
+                if let Some(previous) = self.prior_common.take() {
+                    common_services::install_common_services(previous);
+                }
+            }
         }
     }
+    // Publish the world's own Common first: its UpgradeCenter and AIData slots
+    // live in that Common (C++ TheUpgradeCenter / TheAI per GameEngine).
+    let common = Arc::clone(owner.services().common());
+    let prior_common = common_services::install_common_services(Arc::clone(&common));
+    common.finish_bootstrap_after_publish();
     let prior_upgrade = match &owner {
         PublishedOwner::Core(core) => {
             common_upgrade::install_upgrade_center(Arc::clone(core.upgrade_center()))
@@ -1027,9 +1047,6 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
         }
         PublishedOwner::Services(_) => None,
     };
-    let common = Arc::clone(owner.services().common());
-    let prior_common = common_services::install_common_services(Arc::clone(&common));
-    common.finish_bootstrap_after_publish();
     stack_push(owner.clone());
     let _restore = RestoreScope {
         owner,
