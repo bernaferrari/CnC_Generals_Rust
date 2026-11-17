@@ -68,7 +68,19 @@ fn tick(world: &mut GameLogic, victim: ObjectId) {
         1
     );
 }
+/// Player::doBountyForKill: REAL_TO_INT_CEIL(500 * 0.2). The source
+/// fast_float_ceil adds 0.99999994 before truncating (BaseType.h:204-210),
+/// so an exact 100.0 rounds to 101.
+const BOUNTY: u32 = 101;
+/// Player::addSkillPoints (Player.cpp:2439) also passes the 25-point
+/// SkillPointValue through REAL_TO_INT_CEIL, giving 26.
+const SKILL_POINTS: i32 = 26;
 fn credited(world: &GameLogic, source: ObjectId, owner: u32) {
+    assert_eq!(
+        game_engine::base_type::real_to_int_ceil(500.0 * 0.2),
+        BOUNTY as i32
+    );
+    assert_eq!(game_engine::base_type::real_to_int_ceil(25.0), SKILL_POINTS);
     for id in [0, 1, 3] {
         let expected = u32::from(id == owner);
         assert_eq!(
@@ -78,17 +90,17 @@ fn credited(world: &GameLogic, source: ObjectId, owner: u32) {
         );
         assert_eq!(
             world.players[&id].statistics.money_earned(),
-            expected * 100,
+            expected * BOUNTY,
             "owner {id}"
         );
         assert_eq!(
             world.players[&id].resources.supplies,
-            1000 + expected * 100,
+            1000 + expected * BOUNTY,
             "owner {id}"
         );
         assert_eq!(
             world.players[&id].skill_points,
-            (expected * 25) as i32,
+            expected as i32 * SKILL_POINTS,
             "owner {id}"
         );
     }
