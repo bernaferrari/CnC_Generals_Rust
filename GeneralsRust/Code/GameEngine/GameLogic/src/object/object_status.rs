@@ -178,9 +178,17 @@ impl Object {
             let orientation = self.get_orientation();
 
             if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-                for object_id in
-                    partition.iterate_potential_collisions(&position, &geometry, orientation)
-                {
+                // C++ ThingFactory::newObject registers the Object in the
+                // partition before initObject, so the query can return this
+                // Object. Its caller holds it, so pass its position as borrowed
+                // instead of reading it back through the registry.
+                let held = [(self.id, position)];
+                for object_id in partition.iterate_potential_collisions_with_borrowed_positions(
+                    &position,
+                    &geometry,
+                    orientation,
+                    &held,
+                ) {
                     if object_id == self.id {
                         continue;
                     }
