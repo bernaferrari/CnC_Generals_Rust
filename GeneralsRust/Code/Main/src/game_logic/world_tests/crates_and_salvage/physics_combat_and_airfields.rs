@@ -1114,7 +1114,7 @@ fn direct_hit_applies_dual_radius_splash_to_neighbors() {
     let mut logic = GameLogic::new();
     {
         let mut t = ThingTemplate::new("HitGun");
-        t.primary_weapon_name = Some("AmericaFireBaseHowitzer".into());
+        t.primary_weapon_name = Some("FireBaseHowitzerGun".into());
         t.add_kind_of(KindOf::Vehicle);
         t.add_kind_of(KindOf::Attackable);
         logic.templates.insert("HitGun".into(), t);
@@ -1142,6 +1142,11 @@ fn direct_hit_applies_dual_radius_splash_to_neighbors() {
             o.health.maximum = 300.0;
         }
     }
+    // Splash candidates come from the PartitionManager (C++ iterateObjectsInRange);
+    // objects created this frame enter it at the partition update.
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     let hits = logic.apply_instant_hit_splash_at(
         glam::Vec3::new(80.0, 0.0, 0.0),
         40.0,
@@ -1151,7 +1156,7 @@ fn direct_hit_applies_dual_radius_splash_to_neighbors() {
         gun,
         Team::USA,
         tgt,
-        Some("AmericaFireBaseHowitzer"),
+        Some("FireBaseHowitzerGun"),
     ).unwrap();
     assert!(hits >= 1, "neighbor in primary ring must splash");
     let nh = logic
@@ -1174,9 +1179,13 @@ fn direct_hit_applies_dual_radius_splash_to_neighbors() {
 #[test]
 fn splash_kill_awards_score_the_kill_experience() {
     let mut logic = GameLogic::new();
+    // Object::scoreTheKill (Object.cpp:2898-2905) awards XP only across Players:
+    // an enemy Relationship and a playable-side victim owner.
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_player_for_team(&mut logic, Team::China);
     {
         let mut t = ThingTemplate::new("SplashGun");
-        t.primary_weapon_name = Some("AmericaFireBaseHowitzer".into());
+        t.primary_weapon_name = Some("FireBaseHowitzerGun".into());
         t.add_kind_of(KindOf::Vehicle);
         t.add_kind_of(KindOf::Attackable);
         t.is_trainable = true;
@@ -1216,6 +1225,11 @@ fn splash_kill_awards_score_the_kill_experience() {
         o.template_mut().experience_value = 40.0;
         o.template_mut().experience_values = [40.0, 40.0, 80.0, 120.0];
     }
+    // Splash candidates come from the PartitionManager (C++ iterateObjectsInRange);
+    // objects created this frame enter it at the partition update.
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     let hits = logic.apply_instant_hit_splash_at(
         glam::Vec3::new(80.0, 0.0, 0.0),
         40.0,
@@ -1225,7 +1239,7 @@ fn splash_kill_awards_score_the_kill_experience() {
         gun,
         Team::USA,
         tgt,
-        Some("AmericaFireBaseHowitzer"),
+        Some("FireBaseHowitzerGun"),
     ).unwrap();
     assert!(hits >= 1, "neighbor in splash ring must be hit");
     let near_dead = logic
@@ -1259,6 +1273,9 @@ fn scatter_miss_splash_honors_radius_damage_affects() {
             r#"Weapon TestNoAllySplashWeapon
   RadiusDamageAffects = ENEMIES NEUTRALS
   PrimaryDamageRadius = 30
+  PrimaryDamage = 50
+  DamageType = EXPLOSION
+  DeathType = NORMAL
 End
 "#,
         ),
@@ -1303,6 +1320,11 @@ End
         }
     }
     let impact = glam::Vec3::new(11.0, 0.0, 0.0);
+    // Splash candidates come from the PartitionManager (C++ iterateObjectsInRange);
+    // objects created this frame enter it at the partition update.
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     let _ = logic.apply_scatter_miss_splash_at(
         impact,
         50.0,
@@ -1369,6 +1391,9 @@ fn scatter_miss_splash_honors_not_airborne_ini() {
             r#"Weapon TestNotAirborneSplashWeapon
   RadiusDamageAffects = ENEMIES NEUTRALS NOT_AIRBORNE
   PrimaryDamageRadius = 30
+  PrimaryDamage = 50
+  DamageType = EXPLOSION
+  DeathType = NORMAL
 End
 "#,
         ),
@@ -1418,6 +1443,11 @@ End
         o.template_mut().geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
         o.template_mut().geometry_info.height = 0.0;
     }
+    // Splash candidates come from the PartitionManager (C++ iterateObjectsInRange);
+    // objects created this frame enter it at the partition update.
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     let _ = logic.apply_scatter_miss_splash_at(
         glam::Vec3::ZERO,
         50.0,
@@ -1450,7 +1480,7 @@ fn scatter_miss_applies_splash_at_offset() {
     {
         let mut t = ThingTemplate::new("ArtySc");
         // Firebase howitzer often has splash; force peel via weapon fields.
-        t.primary_weapon_name = Some("AmericaFireBaseHowitzer".into());
+        t.primary_weapon_name = Some("FireBaseHowitzerGun".into());
         t.add_kind_of(KindOf::Vehicle);
         t.add_kind_of(KindOf::Attackable);
         logic.templates.insert("ArtySc".into(), t);
@@ -1499,6 +1529,11 @@ fn scatter_miss_applies_splash_at_offset() {
     }
     // Force a miss frame if possible and apply splash helper at known impact.
     let impact = glam::Vec3::new(105.0, 0.0, 0.0);
+    // Splash candidates come from the PartitionManager (C++ iterateObjectsInRange);
+    // objects created this frame enter it at the partition update.
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     let hits = logic.apply_scatter_miss_splash_at(
         impact,
         80.0,
@@ -1506,7 +1541,7 @@ fn scatter_miss_applies_splash_at_offset() {
         arty,
         Team::USA,
         intended,
-        Some("AmericaFireBaseHowitzer"),
+        Some("FireBaseHowitzerGun"),
     ).unwrap();
     assert!(hits >= 1, "neighbor in splash must be hit");
     let nh = logic
@@ -1729,7 +1764,7 @@ fn ground_force_fire_applies_base_scatter_radius_peel() {
     // after the module split; scan the live home of that code.
 
     // Honesty: base peel for crusader is 0; howitzer/firebase may be >0.
-    let _ = host_effective_scatter_radius("AmericaFireBaseHowitzer", false);
+    let _ = host_effective_scatter_radius("FireBaseHowitzerGun", false);
 }
 
 #[test]
@@ -1740,7 +1775,7 @@ fn minimum_attack_range_too_close_backs_away() {
     let mut logic = GameLogic::new();
     {
         let mut t = ThingTemplate::new("Arty");
-        t.primary_weapon_name = Some("AmericaFireBaseHowitzer".into());
+        t.primary_weapon_name = Some("FireBaseHowitzerGun".into());
         t.add_kind_of(KindOf::Vehicle);
         t.add_kind_of(KindOf::Attackable);
         logic.templates.insert("Arty".into(), t);
