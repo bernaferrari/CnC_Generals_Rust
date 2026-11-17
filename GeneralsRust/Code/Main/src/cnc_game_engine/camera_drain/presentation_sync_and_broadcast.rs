@@ -66,6 +66,12 @@ impl CnCGameEngine {
             .map_err(|error| error.to_string())?;
         let dead = dead.into_inner();
         if !dead.is_empty() {
+            // Render reinstalls `last_presentation_frame` for every Draw.
+            if let Some(frame) = self.last_presentation_frame.as_mut() {
+                std::rc::Rc::make_mut(frame)
+                    .objects
+                    .retain(|object| !dead.contains(&object.id.0));
+            }
             if let Some(frame) = self.render_pipeline.presentation_frame_mut() {
                 frame.objects.retain(|object| !dead.contains(&object.id.0));
             }

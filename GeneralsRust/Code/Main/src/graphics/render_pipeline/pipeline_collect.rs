@@ -322,8 +322,10 @@ impl RenderPipeline {
                 }
             }
             if !actors.is_empty() {
+                let mut orphans: Vec<_> = actors.keys().copied().collect();
+                orphans.sort_unstable();
                 return Err(anyhow::anyhow!(
-                    "native frozen actor has no canonical Drawable roster entry"
+                    "native frozen actor has no canonical Drawable roster entry (objects {orphans:?})"
                 ));
             }
             ordered
