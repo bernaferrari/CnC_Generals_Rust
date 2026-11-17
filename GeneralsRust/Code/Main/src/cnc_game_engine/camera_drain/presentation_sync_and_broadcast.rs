@@ -64,19 +64,62 @@ impl CnCGameEngine {
                 |mutation| native_owner.receive_native_drawable_mutation(mutation, None, graphics),
             )
             .map_err(|error| error.to_string())?;
-        let dead = dead.into_inner();
-        if !dead.is_empty() {
-            // Render reinstalls `last_presentation_frame` for every Draw.
-            if let Some(frame) = self.last_presentation_frame.as_mut() {
-                std::rc::Rc::make_mut(frame)
-                    .objects
-                    .retain(|object| !dead.contains(&object.id.0));
-            }
-            if let Some(frame) = self.render_pipeline.presentation_frame_mut() {
-                frame.objects.retain(|object| !dead.contains(&object.id.0));
-            }
-        }
+        self.host_forget_destroyed_objects_in_frame(dead.into_inner());
         Ok(retired)
+    }
+
+    /// Drop Objects logic no longer has from the frame render reinstalls for
+    /// every Draw (C++ `GameClient::draw` visits only live Drawables; fog
+    /// ghosts are separate GhostObject draws, not the Object's Drawable).
+    #[cfg(feature = "game_client")]
+    pub(in crate::cnc_game_engine) fn host_forget_destroyed_objects_in_frame(
+        &mut self,
+        mut dead: Vec<u32>,
+    ) {
+        if let Some(frame) = self.last_presentation_frame.as_deref() {
+            dead.extend(
+                frame
+                    .objects
+                    .iter()
+                    .map(|object| object.id.0)
+                    .chain(
+                        frame
+                            .direct_host_drawables
+                            .iter()
+                            .filter(|direct| direct.resident)
+                            .map(|direct| direct.object.id.0),
+                    )
+                    .filter(|id| {
+                        self.game_logic
+                            .host_object(crate::game_logic::ObjectId(*id))
+                            .is_none()
+                    }),
+            );
+        }
+        if dead.is_empty() {
+            return;
+        }
+        dead.sort_unstable();
+        dead.dedup();
+        let forget = |frame: &mut crate::presentation_frame::PresentationFrame| {
+            frame
+                .objects
+                .retain(|object| dead.binary_search(&object.id.0).is_err());
+            // Resident direct records outlive the ordinary row only while
+            // their Object does (deferred death); a destroyed Object's
+            // Drawable is gone.
+            frame
+                .direct_host_drawables
+                .retain(|direct| {
+                    !direct.resident || dead.binary_search(&direct.object.id.0).is_err()
+                });
+        };
+        if let Some(frame) = self.last_presentation_frame.as_mut() {
+            forget(std::rc::Rc::make_mut(frame));
+        }
+        if let Some(frame) = self.render_pipeline.presentation_frame_mut() {
+            forget(frame);
+        }
     }
 
     /// Admit logic-origin material commands only after resolving this world's

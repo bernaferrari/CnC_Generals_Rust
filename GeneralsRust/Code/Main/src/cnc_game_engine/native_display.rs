@@ -394,6 +394,7 @@ impl CnCGameEngine {
                     },
                 )
                 .map_err(|error| error.to_string())?;
+                self.host_forget_destroyed_objects_in_frame(Vec::new());
             } else {
                 // The shell map stepped logic since the frame was synced.
                 self.host_destroy_drawables_of_destroyed_objects()?;
