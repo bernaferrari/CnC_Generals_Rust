@@ -122,3 +122,21 @@ fn malformed_or_unsupported_footprints_fail_before_enumeration() {
         .is_err()
     );
 }
+
+#[test]
+fn footprint_cells_dedup_keeps_first_visit_order_past_linear_limit() {
+    let samples: Vec<(i64, i64)> = (0..3)
+        .flat_map(|round| (0..80i64).map(move |i| ((i * 7 + round) % 45, i % 3)))
+        .collect();
+    let mut cells = FootprintCells::default();
+    let mut expected: Vec<(i32, i32)> = Vec::new();
+    for &(x, z) in &samples {
+        cells.cell(x, z);
+        let key = (x as i32, z as i32);
+        if !expected.contains(&key) {
+            expected.push(key);
+        }
+    }
+    assert!(expected.len() > FootprintCells::LINEAR_DEDUP_LIMIT);
+    assert_eq!(cells.cells, expected);
+}

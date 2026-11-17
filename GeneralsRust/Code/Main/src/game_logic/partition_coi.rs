@@ -177,11 +177,28 @@ impl FootprintSink for FootprintCells {
         // Original cell indices are signed Int. Avoid overflow for invalid
         // off-map inputs; valid original indices retain first-visit order.
         if let (Ok(x), Ok(z)) = (i32::try_from(x), i32::try_from(z)) {
-            if self.seen.insert((x, z)) {
-                self.cells.push((x, z));
+            let key = (x, z);
+            // Typical footprints touch a handful of cells: a linear scan is
+            // cheaper than hashing every sample. Large footprints switch to
+            // the set (seeded with the cells so far) once past the limit.
+            if self.seen.is_empty() && self.cells.len() < Self::LINEAR_DEDUP_LIMIT {
+                if !self.cells.contains(&key) {
+                    self.cells.push(key);
+                }
+                return;
+            }
+            if self.seen.is_empty() {
+                self.seen.extend(self.cells.iter().copied());
+            }
+            if self.seen.insert(key) {
+                self.cells.push(key);
             }
         }
     }
+}
+
+impl FootprintCells {
+    const LINEAR_DEDUP_LIMIT: usize = 32;
 }
 
 fn collect_footprint(
