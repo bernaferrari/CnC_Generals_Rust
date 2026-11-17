@@ -293,8 +293,11 @@ impl GameLogic {
                         }
                     }
                 }
+                // C++ Object::setTeam also retargets m_team, which the Object
+                // destructor later unlinks from (Object.cpp:806).
                 if let Some(unit) = self.host_object_mut(unit_id) {
                     unit.team_instance_name = delivery.team_name;
+                    unit.team_instance_id = Some(team_id);
                 }
             }
             if let Some(home) = delivery.home {

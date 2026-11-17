@@ -88,11 +88,18 @@ impl GameLogic {
             return Ok(());
         }
         let team_factory = self.team_factory.clone();
+        // C++ Team::transferUnitsTo -> Object::setTeam retargets m_team, the
+        // pointer the Object destructor later unlinks from (Object.cpp:607).
+        let destination_id = destination
+            .read()
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .get_id();
         for id in members {
             let Some(object) = self.host_object_mut(ObjectId(id)) else {
                 continue;
             };
             object.team_instance_name = default_name.clone();
+            object.team_instance_id = Some(destination_id);
             object.apply_named_team_ai_profile(&team_factory, true);
 
             // No controlling-player change occurs in this operation. The

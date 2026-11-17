@@ -366,6 +366,7 @@ impl AIPlayer {
         }
         if let Some(obj) = game_logic.host_object_mut(unit_id) {
             obj.team_instance_name = dest_team_name.to_string();
+            obj.team_instance_id = dest_team_id;
         }
     }
 
@@ -427,6 +428,12 @@ impl AIPlayer {
             if let Ok(mut dg) = default_arc.write() {
                 for mid in &member_ids {
                     dg.add_member(*mid);
+                }
+            }
+            // C++ Team::transferUnitsTo -> Object::setTeam retargets m_team.
+            for mid in &member_ids {
+                if let Some(obj) = game_logic.host_object_mut(ObjectId(*mid)) {
+                    obj.team_instance_id = default_id;
                 }
             }
         }
@@ -607,6 +614,7 @@ impl AIPlayer {
             .flat_map(|order| order.observed_unit_ids.iter().copied())
             .collect();
 
+        let mut activated_id = None;
         if let Ok(mut factory) = self.team_factory.lock() {
             let team_arc = factory
                 .find_team_instances(&team.name)
@@ -619,6 +627,15 @@ impl AIPlayer {
                         tg.add_member(id.0);
                     }
                     tg.set_active();
+                    activated_id = Some(tg.get_id());
+                }
+            }
+        }
+        // C++ members already carry m_team for this instance (Object::setTeam).
+        if let Some(id) = activated_id {
+            for member in &members {
+                if let Some(obj) = game_logic.host_object_mut(*member) {
+                    obj.team_instance_id = Some(id);
                 }
             }
         }

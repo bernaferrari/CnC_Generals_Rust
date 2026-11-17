@@ -231,6 +231,11 @@ impl GameLogic {
                     .lock()
                     .expect("owned source")
                     .find_team_by_id(team_id);
+                // C++ Object::setTeam retargets m_team (Object.cpp:806).
+                let destination_id = destination
+                    .read()
+                    .expect("neutral transfer roster")
+                    .get_id();
                 if let Some((object, ownership_events, partition)) =
                     self.host_object_ownership_partition_mut(id)
                 {
@@ -241,6 +246,7 @@ impl GameLogic {
                         partition,
                     );
                     object.team_instance_name = default_name;
+                    object.team_instance_id = Some(destination_id);
                 }
                 if let Some(source) = source {
                     source

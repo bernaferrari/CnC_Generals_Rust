@@ -664,6 +664,7 @@ impl GameLogic {
             let Some(destination) = destination else {
                 return;
             };
+            let destination_id = destination.read().ok().map(|t| t.get_id());
             let source_team = factory
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -676,6 +677,8 @@ impl GameLogic {
                     continue;
                 };
                 object.team_instance_name = default.clone();
+                // C++ Team::transferUnitsTo -> Object::setTeam retargets m_team.
+                object.team_instance_id = destination_id;
                 object.apply_named_team_ai_profile(&factory, true);
 
                 source_team
