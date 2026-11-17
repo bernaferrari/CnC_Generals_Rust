@@ -196,24 +196,42 @@ fn work_order_waits_for_live_factory_output_before_completing() {
     player.resources.supplies = 10_000;
     logic.add_player(player);
 
-    let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
-    barracks
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::FSBarracks)
-        .set_cost(500, 0);
-    logic.templates.insert("AmericaBarracks".into(), barracks);
-
-    let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
-    ranger
-        .add_kind_of(crate::game_logic::KindOf::Infantry)
-        .add_kind_of(crate::game_logic::KindOf::Selectable)
-        .add_kind_of(crate::game_logic::KindOf::Attackable)
-        .set_cost(225, 0);
-    // Finish training in one frame; the authored door still gates delivery.
-    ranger.build_time = 0.001;
-    logic
-        .templates
-        .insert("AmericaInfantryRanger".into(), ranger);
+    // The produced Ranger walks its factory exit path, so it is authored with
+    // an AIUpdateInterface and a Locomotor like retail infantry; a template
+    // without either can never finish that move and go idle. Both Objects are
+    // INI content admitted before NewGame (GameEngine.cpp:428-458).
+    {
+        use crate::fixture_content::{FixtureObject, admit_fixture_content_with_actions};
+        admit_fixture_content_with_actions(
+            &mut logic,
+            &[
+                // FactionBuilding.ini AmericaBarracks: an empty ProductionUpdate
+                // and a DefaultProductionExitUpdate (the Object's ExitInterface).
+                FixtureObject::new("AmericaBarracks")
+                    .kind_of("STRUCTURE FS_BARRACKS")
+                    .build_cost(500)
+                    .field("CommandSet = AmericaBarracksCommandSet")
+                    .module(
+                        "Body = StructureBody FixtureBody\n MaxHealth = 1000.0\n InitialHealth = 1000.0\nEnd",
+                    )
+                    .module("Behavior = ProductionUpdate FixtureProduction\nEnd")
+                    .module(
+                        "Behavior = DefaultProductionExitUpdate FixtureExit\n UnitCreatePoint = X: 0.0 Y: 0.0 Z: 0.0\n NaturalRallyPoint = X: 55.0 Y: 0.0 Z: 0.0\nEnd",
+                    ),
+                // Finish training in one frame; the door still gates delivery.
+                FixtureObject::new("AmericaInfantryRanger")
+                    .kind_of("INFANTRY SELECTABLE")
+                    .build_cost(225)
+                    .build_time(0.001)
+                    .health(180.0)
+                    .walker(),
+            ],
+            &[],
+            // CommandButton.ini / CommandSet.ini: the barracks' UNIT_BUILD
+            // button is what BuildAssistant::isPossibleToMakeUnit scans.
+            "CommandButton Command_ConstructAmericaInfantryRanger\n Command = UNIT_BUILD\n Object = AmericaInfantryRanger\nEnd\nCommandSet AmericaBarracksCommandSet\n 1 = Command_ConstructAmericaInfantryRanger\nEnd\n",
+        );
+    }
 
     let factory = logic
         .create_object("AmericaBarracks", Team::USA, Vec3::ZERO)

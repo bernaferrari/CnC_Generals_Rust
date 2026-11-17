@@ -117,6 +117,12 @@ fn nearest_actual_script_tracks_selected_identity_and_preserves_missing_goal() {
         mover.cur_locomotor_name.as_deref(),
         Some("BasicHumanLocomotor")
     );
+    // C++ AIIdleState::doInitIdleState (AIStates.cpp:1346-1350) snaps an idle
+    // Object to its pathfind goal cell while getFrame() <= 1; move the target
+    // only after its idle state has initialised.
+    for _ in 0..2 {
+        world.update_with_dt(1.0 / 30.0);
+    }
     let moved = Vec3::new(180.0, 0.0, 170.0);
     world.set_fixture_object_position(target, moved);
     let before_frame = world.frame;
@@ -124,15 +130,19 @@ fn nearest_actual_script_tracks_selected_identity_and_preserves_missing_goal() {
         world.update_with_dt(1.0 / 30.0);
     }
     assert_eq!(world.frame, before_frame + 12);
+    // The armed enemy target is itself live after placement at `moved`; the
+    // mover tracks the goal object's current position each update.
+    let live_goal = world.host_object(target).unwrap().get_position();
     assert_eq!(
         world.host_object(unit).unwrap().requested_destination,
-        Some(moved)
+        Some(live_goal),
+        "goal placed at {moved:?}"
     );
     world.objects.remove(&target);
     world.refresh_movement_goal_objects(&[unit]);
     assert_eq!(
         world.host_object(unit).unwrap().requested_destination,
-        Some(moved)
+        Some(live_goal)
     );
     assert_eq!(
         world.host_object(unit).unwrap().movement_goal_object(),
@@ -250,9 +260,13 @@ fn nearest_actual_script_snapshot_preserves_moving_goal_continuation() {
         initial,
         "admitted locomotor must advance the real mover"
     );
+    // CPP AIInternalMoveToState re-goals on the goal object's live position;
+    // the armed enemy target may itself move after being placed at `future`.
+    let live_goal = source.host_object(target).unwrap().get_position();
     assert_eq!(
         source.host_object(unit).unwrap().requested_destination,
-        Some(future)
+        Some(live_goal),
+        "goal placed at {future:?}"
     );
     assert_eq!(source.unit_command_stop(unit).expect("result"), true);
     assert_eq!(restored.unit_command_stop(unit).expect("result"), true);

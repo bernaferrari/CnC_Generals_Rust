@@ -989,6 +989,10 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
     ai.add_building("TestFirstStructure", build_position, 1);
     ai.add_building("TestSecondStructure", Vec3::new(128.0, 0.0, 64.0), 1);
 
+    // AIPlayer.cpp:58 m_structureTimer(2): base building starts on frame 1.
+    // A frame-0 newTask stamps m_taskOrderFrame 0, which
+    // DozerAIUpdate::getMostRecentCommand's strict `>` never selects.
+    logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
     ai.process_building_queue(&mut logic, 0.0);
 
     let structure_id = ai.building_queue[0]
@@ -2665,16 +2669,31 @@ fn obstructed_pad_wiggles_to_first_legal_spiral_spot() {
                     .kind_of("VEHICLE DOZER")
                     .walker()
                     .dozer(),
+                // Authored geometry (ThingTemplate GeometryInfo) is what
+                // isLocationLegalToBuild collides; selection radius is not.
                 FixtureObject::new("WiggleStructure")
                     .kind_of("STRUCTURE")
                     .build_cost(300)
-                    .build_time(10.0),
-                FixtureObject::new("WiggleBlocker").kind_of("STRUCTURE IMMOBILE"),
+                    .build_time(10.0)
+                    .field("Geometry = CYLINDER")
+                    .field("GeometryMajorRadius = 5.0")
+                    .field("GeometryMinorRadius = 5.0")
+                    .field("GeometryHeight = 10.0"),
+                FixtureObject::new("WiggleBlocker")
+                    .kind_of("STRUCTURE IMMOBILE")
+                    .field("Geometry = CYLINDER")
+                    .field("GeometryMajorRadius = 20.0")
+                    .field("GeometryMinorRadius = 20.0")
+                    .field("GeometryHeight = 10.0"),
             ],
         );
     }
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
     player.resources.supplies = 1_000;
+    // The skewed wiggle is AISkirmishPlayer's (isSkirmishAI, AIPlayer.cpp:534);
+    // the same skirmish computer player widens the candidate's bounds by
+    // three pathfind cells (BuildAssistant.cpp:762-770).
+    player.map_side.is_skirmish_ai = true;
     logic.add_player(player);
 
     let pad = Vec3::new(150.0, 0.0, 150.0);
@@ -2685,14 +2704,14 @@ fn obstructed_pad_wiggles_to_first_legal_spiral_spot() {
     // not an enemy, so isLocationSafe still selects the pad
     // (AIPlayer::isLocationSafe rejects enemies only), but its
     // KINDOF_IMMOBILE footprint makes the pad illegal to build on.
-    let blocker = logic
+    let _blocker = logic
         .create_object("WiggleBlocker", Team::Neutral, pad)
         .expect("neutral blocker on the pad");
-    // The blocked pad forces a search. The original skewed ring-3 top
-    // sample (x+40, z-30) is the first candidate this footprint permits.
-    if let Some(o) = logic.host_object_mut(blocker) {
-        o.selection_radius = 30.0;
-    }
+    // The blocked pad forces a search. Without the skirmish 3-cell widening
+    // the ring-3 sample (x-20, z-30) would already clear the r=20 blocker;
+    // with myBounds widened to a 35-unit box (BuildAssistant.cpp:762-781)
+    // inside the 4*r_s + r_b = 40 partition range, the skewed ring-3 sample
+    // (x+40, z-30) is the first candidate C++ permits.
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     ai.add_building("WiggleStructure", pad, 1);
