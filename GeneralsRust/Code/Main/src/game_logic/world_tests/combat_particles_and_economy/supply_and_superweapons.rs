@@ -818,7 +818,7 @@ fn supply_deposit_fixture_ini(
     warehouse: Option<&str>,
 ) -> String {
     let mut ini = format!(
-        "Object {truck}\n KindOf = HARVESTER\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n  MaxBoxes = 4\n  SupplyWarehouseScanDistance = 700\n  SupplyWarehouseActionDelay = 0\n  SupplyCenterActionDelay = 0\n  UpgradedSupplyBoost = 0\n End\nEnd\n\
+        "Object {truck}\n KindOf = HARVESTER\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n  MaxBoxes = 4\n  SupplyWarehouseScanDistance = 700\n  SupplyWarehouseActionDelay = 0\n  SupplyCenterActionDelay = 0\n End\nEnd\n\
          Object {center}\n KindOf = STRUCTURE\n Geometry = CYLINDER\n GeometryMajorRadius = 25.0\n GeometryMinorRadius = 25.0\n GeometryHeight = 20.0\n Body = ActiveBody BodyTag\n  MaxHealth = {center_health}\n  InitialHealth = {center_health}\n End\n Behavior = SupplyCenterDockUpdate DockTag\n End\nEnd\n"
     );
     if let Some(warehouse) = warehouse {
