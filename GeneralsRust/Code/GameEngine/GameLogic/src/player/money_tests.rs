@@ -36,7 +36,20 @@ fn in_world(f: impl FnOnce()) {
     let common = Arc::new(game_engine::common::common_services::CommonServices::new());
     game_engine::common::common_services::with_common_services(&common, || {
         let stores = crate::system::engine_stores::new_for_world();
-        crate::system::engine_stores::with_active_stores(&stores, f);
+        // TheAudio and MiscAudio belong to the world's own GameEngine.
+        let engine = Arc::clone(stores.services().common());
+        {
+            // C++ GameEngine::init parses MiscAudio.ini before any Money
+            // moves; retail authors MoneyDepositSound = MoneyDeposited and
+            // MoneyWithdrawSound = MoneyWithdraw (Data/INI/MiscAudio.ini).
+            use game_engine::common::ini::ini_misc_audio::AudioEventRTS;
+            let mut misc = engine.ini.misc_audio.write();
+            misc.money_deposit_sound = AudioEventRTS::from_event_name("MoneyDeposited".to_string());
+            misc.money_withdraw_sound = AudioEventRTS::from_event_name("MoneyWithdraw".to_string());
+        }
+        game_engine::common::common_services::with_common_services(&engine, || {
+            crate::system::engine_stores::with_active_stores(&stores, f);
+        });
     });
 }
 fn admit(list: &mut PlayerList, index: Int, cash: Int) -> Arc<RwLock<Player>> {
