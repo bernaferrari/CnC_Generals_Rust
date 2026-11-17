@@ -483,6 +483,12 @@ fn successive_experience_awards_are_owned_before_promotion_callbacks() {
 fn authored_body_promotion_precedes_bonus_updates_and_ignores_ui_hide() {
     let mut owner = promotion_world();
     owner.set_draw_icon_ui(false);
+    // ActiveBody::onVeterancyLevelChanged reads GameData HealthBonus_Veteran
+    // (retail 120%) from the promoting world.
+    owner
+        .admit_combat_bonus_ini_sources(["GameData\n HealthBonus_Veteran = 120%\nEnd\n"])
+        .unwrap();
+    let health_bonus = owner.veterancy_health_bonus;
     let mut object = make_test_object();
     let id = object.id;
     object.health.maximum = 250.0;
@@ -502,10 +508,12 @@ fn authored_body_promotion_precedes_bonus_updates_and_ignores_ui_hide() {
                     object.experience.level,
                 ));
             };
-            object.gain_experience(
+            object.gain_experience_with_health_bonus_table(
                 60.0,
+                &health_bonus,
                 &mut crate::game_logic::ObjectAudio::callback(&mut emit),
                 feedback,
+                None,
             );
         })
         .unwrap();
