@@ -119,6 +119,15 @@ impl<'a> AiWorldView<'a> {
     pub(super) fn build_facility_template_names(&self) -> std::sync::Arc<std::collections::HashSet<String>> {
         self.world.build_facility_template_names()
     }
+    /// True when this world owns the command-set/button catalog that
+    /// BuildAssistant::isPossibleToMakeUnit consults.
+    pub(super) fn has_build_eligibility_catalog(&self) -> bool {
+        self.world.build_eligibility_action_definitions().is_some()
+    }
+    /// C++ BuildAssistant::isPossibleToMakeUnit(factory, thing).
+    pub(super) fn is_possible_to_make_unit(&self, factory: ObjectId, unit: &str) -> bool {
+        self.world.constructor_can_build_template(factory, unit)
+    }
     pub(super) fn template(&self, name: &str) -> Option<&'a ThingTemplate> {
         self.world.templates.get(name)
     }

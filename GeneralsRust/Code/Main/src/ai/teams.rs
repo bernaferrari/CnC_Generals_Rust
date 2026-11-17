@@ -2765,6 +2765,10 @@ impl AIPlayer {
         busy_ok: bool,
     ) -> Option<ObjectId> {
         let game_logic = &AiWorldView::new(game_logic);
+        if game_logic.has_build_eligibility_catalog() {
+            return Self::find_factory_cpp(game_logic, unit_template_name, team, busy_ok);
+        }
+        // Fixture worlds without a command-set catalog keep the name table.
         let factory_name = Self::factory_template_for_unit(unit_template_name, team)?;
         // Pure residual acquire: prefer idle factories (priority 0) over busy (1)
         // when busy_ok; nearest 3D tiebreak for stable multi-factory choice.
@@ -2803,6 +2807,44 @@ impl AIPlayer {
             cands,
         )
         .map(|(id, _, _)| id)
+    }
+
+    /// C++ AIPlayer::findFactory (AIPlayer.cpp:1388): constructed, unsold,
+    /// producing objects for which BuildAssistant::isPossibleToMakeUnit
+    /// holds; an idle one (productionCount==0) wins, else a busy one if
+    /// `busy_ok`. Ties keep the lowest id for a stable build-list order.
+    fn find_factory_cpp(
+        game_logic: &AiWorldView<'_>,
+        unit_template_name: &str,
+        team: Team,
+        busy_ok: bool,
+    ) -> Option<ObjectId> {
+        let mut factories: Vec<(ObjectId, bool)> = game_logic
+            .host_objects()
+            .registered()
+            .filter(|(_, object)| {
+                object.team == team
+                    && object.is_alive()
+                    && !object.status.under_construction
+                    && !object.status.sold
+                    && object.building_data.is_some()
+            })
+            .map(|(&id, object)| (id, Self::factory_is_idle(object)))
+            .collect();
+        factories.sort_by_key(|(id, _)| id.0);
+        let mut busy = None;
+        for (id, idle) in factories {
+            if !game_logic.is_possible_to_make_unit(id, unit_template_name) {
+                continue;
+            }
+            if idle {
+                return Some(id);
+            }
+            if busy_ok && busy.is_none() {
+                busy = Some(id);
+            }
+        }
+        busy
     }
 
     /// C++ `isPossibleToBuildTeam` factory residual (requireIdleFactory=true):
