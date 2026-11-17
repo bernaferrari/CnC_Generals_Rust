@@ -172,7 +172,7 @@ fn live_takeoff_exit_arms_original_position_path_without_integrating() {
         "live_takeoff_exit_arms_original_position_path_without_integrating",
         || {
             let (mut logic, transport, _) = authored_match();
-            let object = logic.host_object_mut(transport).unwrap();
+            let (object, partition) = logic.host_object_and_partition_mut(transport).unwrap();
             let ai = object.chinook_ai.as_mut().unwrap();
             let original = [-40.0, 40.0, 100.0];
             ai.original_pos = original;
@@ -181,7 +181,7 @@ fn live_takeoff_exit_arms_original_position_path_without_integrating() {
             // Retain its MOVING flag to check that the new state replaces the
             // old goal even before the movement phase clears that flag.
             let arrival = Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]);
-            object.set_position(arrival);
+            object.set_position_with_partition_owner(arrival, 0, &mut Default::default(), partition);
             object.status.moving = true;
             object.set_locomotor_goal_position_explicit(arrival);
             logic
@@ -241,9 +241,9 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
             );
             // The initial condition is a landed, loaded transport. Every
             // subsequent pose comes from the actual full-frame locomotor.
-            let object = logic.host_object_mut(transport).unwrap();
+            let (object, partition) = logic.host_object_and_partition_mut(transport).unwrap();
             let landed = Vec3::new(40.0, 0.0, 40.0);
-            object.set_position(landed);
+            object.set_position_with_partition_owner(landed, 0, &mut Default::default(), partition);
             // removeAllContained(FALSE) is immediate even when normal
             // passenger ExitBusy/ExitDelay streaming is unavailable.
             object.frame_exit_not_busy = 10_000;
@@ -369,9 +369,9 @@ fn authored_explicit_vertical_goal_does_not_add_maintain_height_force() {
         "authored_explicit_vertical_goal_does_not_add_maintain_height_force",
         || {
             let (mut logic, transport, _) = authored_match();
-            let object = logic.host_object_mut(transport).unwrap();
+            let (object, partition) = logic.host_object_and_partition_mut(transport).unwrap();
             let start = Vec3::new(40.0, 0.0, 40.0);
-            object.set_position(start);
+            object.set_position_with_partition_owner(start, 0, &mut Default::default(), partition);
             object.set_precise_z_and_ultra_accurate(true);
             object.set_locomotor_goal_position_explicit(start + Vec3::Y * 100.0);
             assert_eq!(object.physics_accel.y, 0.0);

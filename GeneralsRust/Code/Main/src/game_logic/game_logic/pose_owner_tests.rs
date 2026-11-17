@@ -89,12 +89,20 @@ fn pose_physics_translation_notifies_own_trigger_before_census_case() {
     assert_eq!(aid, bid, "same allocator-local identity in distinct owners");
     assert_eq!(trigger_pose(&a, aid), (90, 10));
     let frame = a.frame;
-    let position = {
-        let (object, health_events) = a.host_object_and_health_events_mut(aid).unwrap();
+    // The owning world's PhysicsBehavior phase: force integration, then the
+    // contact step whose pose write goes through this world's partition owner
+    // (PhysicsUpdate.cpp update -> Object::setPosition).
+    {
+        let object = a.host_object_mut(aid).unwrap();
         object.movement.velocity = Vec3::new(15.0, 0.0, 0.0);
-        let _ = object.tick_physics_motion_step(frame, 0.0, health_events);
-        object.get_position()
-    };
+        object.integrate_physics_force_phase(frame);
+    }
+    let _ = a.drive_owned_contact(
+        aid,
+        crate::game_logic::object::MotionContact::Start(0.0),
+        crate::game_logic::object::Object::step_motion_contact_with_effects,
+    );
+    let position = a.host_object(aid).unwrap().get_position();
     assert!(
         position.x > 100.0,
         "real physics translation reached the authored polygon"
@@ -369,10 +377,16 @@ fn direct_position_borrow_marks_same_id_team_without_object_attachment_case() {
 fn pose_setter_clone_and_current_snapshot_are_inert_controls_case() {
     let area = trigger(27103, "PoseControl");
     let (mut logic, id) = fixture(&area);
-    logic
-        .host_object_mut(id)
-        .unwrap()
-        .set_position(Vec3::new(110.0, 2.0, 10.0));
+    {
+        // C++ Object::setPosition updates its own PartitionManager entry.
+        let (object, partition) = logic.host_object_and_partition_mut(id).unwrap();
+        object.set_position_with_partition_owner(
+            Vec3::new(110.0, 2.0, 10.0),
+            0,
+            &mut Default::default(),
+            partition,
+        );
+    }
     let before = format!("{:?}", logic.host_trigger_world.lock().unwrap().capture());
     let object = logic.host_object(id).unwrap();
     let cloned = object.clone();

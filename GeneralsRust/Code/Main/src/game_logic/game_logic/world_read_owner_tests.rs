@@ -173,7 +173,9 @@ fn ordinary_mutable_borrows_never_overlay_or_publish_a_foreign_world() {
             let eid = shadow.entity_for_host(id).unwrap();
 
             {
-                let object = world.host_object_mut(id).unwrap();
+                // C++ Object::setPosition updates the Object's own
+                // PartitionManager entry; the receiving world lends it here.
+                let (object, partition) = world.host_object_and_partition_mut(id).unwrap();
                 assert_eq!(
                     object.health.current, 80.0,
                     "borrow must not copy foreign HP"
@@ -181,7 +183,12 @@ fn ordinary_mutable_borrows_never_overlay_or_publish_a_foreign_world() {
                 assert_eq!(object.get_position(), Vec3::new(1.0, 0.0, 2.0));
                 assert_eq!(object.target, Some(target));
                 object.health.current = 65.0;
-                object.set_position(Vec3::new(17.0, 0.0, 19.0));
+                object.set_position_with_partition_owner(
+                    Vec3::new(17.0, 0.0, 19.0),
+                    0,
+                    &mut Default::default(),
+                    partition,
+                );
                 world
                     .with_host_object_mut(id, |object| {
                         assert_eq!(object.health.current, 65.0);

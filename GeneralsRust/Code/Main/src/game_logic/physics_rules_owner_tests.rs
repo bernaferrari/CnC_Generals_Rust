@@ -183,8 +183,10 @@ fn owned_gamedata_parser_preserves_acceleration_units_and_overlay_values() {
 #[test]
 fn authored_stiffness_stays_raw_while_real_bounce_applies_cpp_limits() {
     for (authored, consumed) in [(0.0, 0.01), (1.0, 0.99), (-3.0, 0.01), (3.0, 0.99)] {
-        let (mut world, id) = rules_world(-1.0, authored, authored);
-        let object = world.objects.get_mut(&id).unwrap();
+        let (world, id) = rules_world(-1.0, authored, authored);
+        // handleBounce rights the pose; evaluate it on a detached copy of the
+        // admitted actor so no registered transform bypasses its partition owner.
+        let mut object = world.objects[&id].clone();
         assert_eq!(object.physics_rules.ground_stiffness, authored);
         assert_eq!(object.physics_rules.structure_stiffness, authored);
         object.movement.velocity = Vec3::new(0.0, -4.0, 0.0);
