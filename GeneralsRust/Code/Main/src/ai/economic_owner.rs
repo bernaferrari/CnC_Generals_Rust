@@ -101,7 +101,11 @@ impl GameLogic {
         let Some(ai) = self.ai_manager.ai_players.get(&player) else {
             return Ok(());
         };
-        if now < ai.next_building_time {
+        // C++ AIPlayer.cpp:58 m_structureTimer(2): "don't start building
+        // structures until frame 1". A frame-0 dozer newTask stamps
+        // m_taskOrderFrame=0, which getMostRecentCommand's strict `>` never
+        // selects, so the worker would hold the task forever.
+        if now < ai.next_building_time || self.frame == 0 {
             return Ok(());
         }
         let team = ai.team;
@@ -290,6 +294,8 @@ mod tests {
     fn owned_economic_pass_builds_one_paid_scaffold_with_peer_unchanged() {
         let (mut world, _) = world();
         let data = AiDataView::from_world(&world);
+        // AIPlayer.cpp:58: base building starts on frame 1, never frame 0.
+        world.frame = 1;
         world.update_owned_ai_economy(1, 0.0, &data).unwrap();
         assert!(
             world.ai_manager.ai_players[&1].building_queue[0]
