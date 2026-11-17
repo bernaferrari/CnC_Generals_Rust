@@ -319,30 +319,31 @@ const CONTROL_BAR_PARENT: &str = "ControlBar.wnd:ControlBarParent";
 const GEN_EXP_POINTS_AVAILABLE: &str = "GeneralsExpPoints.wnd:StaticTextRankPointsAvailable";
 const GEN_EXP_TITLE: &str = "GeneralsExpPoints.wnd:StaticTextTitle";
 
+type PurchaseScienceWindow = Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>;
+
+/// Hide every rank cameo window and return them by rank/index, so the
+/// per-button pass that follows reuses one name lookup per window instead
+/// of walking the window tree again for each hide/enable/status step.
 fn leftover_hide_all_purchase_science_windows(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
-) {
-    for i in 0..MAX_PURCHASE_SCIENCE_RANK_1 {
-        leftover_hide_window(
-            &format!("GeneralsExpPoints.wnd:ButtonRank1Number{i}"),
-            true,
-            receiving_manager,
-        );
-    }
-    for i in 0..MAX_PURCHASE_SCIENCE_RANK_3 {
-        leftover_hide_window(
-            &format!("GeneralsExpPoints.wnd:ButtonRank3Number{i}"),
-            true,
-            receiving_manager,
-        );
-    }
-    for i in 0..MAX_PURCHASE_SCIENCE_RANK_8 {
-        leftover_hide_window(
-            &format!("GeneralsExpPoints.wnd:ButtonRank8Number{i}"),
-            true,
-            receiving_manager,
-        );
-    }
+) -> [Vec<PurchaseScienceWindow>; 3] {
+    let mut hide_rank = |prefix: &str, count: usize| -> Vec<PurchaseScienceWindow> {
+        (0..count)
+            .map(|i| {
+                let win =
+                    leftover_find_window(&format!("GeneralsExpPoints.wnd:{prefix}{i}"), receiving_manager);
+                if let Some(win) = &win {
+                    let _ = receiving_manager.hide_window(win, true);
+                }
+                win
+            })
+            .collect()
+    };
+    [
+        hide_rank("ButtonRank1Number", MAX_PURCHASE_SCIENCE_RANK_1),
+        hide_rank("ButtonRank3Number", MAX_PURCHASE_SCIENCE_RANK_3),
+        hide_rank("ButtonRank8Number", MAX_PURCHASE_SCIENCE_RANK_8),
+    ]
 }
 
 /// C++ ControlBar.cpp:1118-1141 — bind rank cameo windows and USE_OVERLAY_STATES.
@@ -440,21 +441,17 @@ impl ControlBar {
         &self,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
     ) {
-        leftover_hide_all_purchase_science_windows(receiving_manager);
-        let mut apply_rank = |prefix: &str, buttons: &[ScienceButtonState]| {
+        let rank_windows = leftover_hide_all_purchase_science_windows(receiving_manager);
+        let mut apply_rank = |prefix: &str, windows: &[PurchaseScienceWindow], buttons: &[ScienceButtonState]| {
             for (i, button) in buttons.iter().enumerate() {
-                let name = format!("GeneralsExpPoints.wnd:{prefix}{i}");
-                leftover_hide_window(
-                    &name,
-                    button.is_hidden || button.command_name.is_empty(),
-                    receiving_manager,
-                );
-                leftover_enable_window(
-                    &name,
-                    button.is_enabled && !button.is_purchased,
-                    receiving_manager,
-                );
-                if let Some(win) = leftover_find_window(&name, receiving_manager) {
+                let found = match windows.get(i) {
+                    Some(win) => win.clone(),
+                    None => leftover_find_window(&format!("GeneralsExpPoints.wnd:{prefix}{i}"), receiving_manager),
+                };
+                if let Some(win) = found {
+                    let _ = receiving_manager
+                        .hide_window(&win, button.is_hidden || button.command_name.is_empty());
+                    let _ = win.borrow_mut().enable(button.is_enabled && !button.is_purchased);
                     {
                         let mut win = win.borrow_mut();
                         win.set_status(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES);
@@ -493,9 +490,10 @@ impl ControlBar {
                 }
             }
         };
-        apply_rank("ButtonRank1Number", &self.science_state.rank1_buttons);
-        apply_rank("ButtonRank3Number", &self.science_state.rank3_buttons);
-        apply_rank("ButtonRank8Number", &self.science_state.rank8_buttons);
+        let [rank1_windows, rank3_windows, rank8_windows] = &rank_windows;
+        apply_rank("ButtonRank1Number", rank1_windows, &self.science_state.rank1_buttons);
+        apply_rank("ButtonRank3Number", rank3_windows, &self.science_state.rank3_buttons);
+        apply_rank("ButtonRank8Number", rank8_windows, &self.science_state.rank8_buttons);
 
         leftover_set_button_text(
             GEN_EXP_POINTS_AVAILABLE,
