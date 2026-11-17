@@ -12,6 +12,14 @@ fn wave21_guard_weapon() -> Weapon {
     }
 }
 
+/// A WeaponSet slot always names an authored WeaponTemplate: target legality
+/// reads its AntiMask and estimateWeaponDamage its DamageType
+/// (WeaponSet.cpp getAbleToAttackSpecificObject, Weapon.cpp
+/// estimateWeaponDamage). Parse the test's stated stats as Weapon.ini.
+fn arm_guard(object: &mut crate::game_logic::Object) {
+    crate::fixture_content::arm_with_stats(object, wave21_guard_weapon());
+}
+
 fn mark_guard_scan_due(logic: &mut GameLogic, id: crate::game_logic::ObjectId) {
     let scan_deadline = logic.frame;
     logic

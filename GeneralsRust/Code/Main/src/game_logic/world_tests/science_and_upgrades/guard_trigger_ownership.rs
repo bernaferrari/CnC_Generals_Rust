@@ -27,7 +27,7 @@ fn populate(logic: &mut GameLogic, enemy_inside: bool) {
         .insert("OwnedAreaGuard".into(), template.clone());
     let mut guard = Object::new(template.clone(), ObjectId(77), Team::USA);
     guard.set_position(glam::Vec3::new(50.0, 0.0, 50.0));
-    guard.weapon = Some(wave21_guard_weapon());
+    arm_guard(&mut guard);
     logic.add_object(guard);
     let mut enemy = Object::new(template, ObjectId(88), Team::GLA);
     enemy.set_position(glam::Vec3::new(
