@@ -2780,12 +2780,17 @@ fn script_player_sell_everything_sells_live_faction_structures() {
         .create_object("TestInfantry", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
         .expect("unit");
 
-    let _ = gamelogic::scripting::take_host_script_player_misc_requests();
-    gamelogic::scripting::request_host_script_player_misc(
-        HostScriptPlayerMiscRequest::SellEverything {
-            player: "TestPlayer".into(),
-        },
-    );
+    // Script requests ride this world's own queues (one TheScriptEngine per engine).
+    logic.with_own_services(|| {
+        let _ = gamelogic::scripting::take_host_script_player_misc_requests();
+    });
+    logic.with_own_services(|| {
+        gamelogic::scripting::request_host_script_player_misc(
+            HostScriptPlayerMiscRequest::SellEverything {
+                player: "TestPlayer".into(),
+            },
+        );
+    });
     logic.evaluate_and_execute_scripts(0.0);
     assert!(
         logic.host_object(barracks).expect("barracks").status.sold,
@@ -2814,18 +2819,24 @@ fn script_exclude_from_score_and_select_skillset_write_live() {
         .add_ai_player(0, Team::USA, AIDifficulty::Medium);
     assert!(logic.get_player(0).expect("p").list_in_score_screen);
 
-    let _ = gamelogic::scripting::take_host_script_player_misc_requests();
-    gamelogic::scripting::request_host_script_player_misc(
-        HostScriptPlayerMiscRequest::ExcludeFromScore {
-            player: "TestPlayer".into(),
-        },
-    );
-    gamelogic::scripting::request_host_script_player_misc(
-        HostScriptPlayerMiscRequest::SelectSkillset {
-            player: "TestPlayer".into(),
-            skillset: 2,
-        },
-    );
+    logic.with_own_services(|| {
+        let _ = gamelogic::scripting::take_host_script_player_misc_requests();
+    });
+    logic.with_own_services(|| {
+        gamelogic::scripting::request_host_script_player_misc(
+            HostScriptPlayerMiscRequest::ExcludeFromScore {
+                player: "TestPlayer".into(),
+            },
+        );
+    });
+    logic.with_own_services(|| {
+        gamelogic::scripting::request_host_script_player_misc(
+            HostScriptPlayerMiscRequest::SelectSkillset {
+                player: "TestPlayer".into(),
+                skillset: 2,
+            },
+        );
+    });
     logic.evaluate_and_execute_scripts(0.0);
     assert!(
         !logic.get_player(0).expect("p").list_in_score_screen,
@@ -2855,9 +2866,13 @@ fn script_player_kill_destroys_live_army() {
         .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
         .expect("unit");
 
-    let _ = gamelogic::scripting::take_host_script_player_misc_requests();
-    gamelogic::scripting::request_host_script_player_misc(HostScriptPlayerMiscRequest::Kill {
-        player: "TestPlayer".into(),
+    logic.with_own_services(|| {
+        let _ = gamelogic::scripting::take_host_script_player_misc_requests();
+    });
+    logic.with_own_services(|| {
+        gamelogic::scripting::request_host_script_player_misc(HostScriptPlayerMiscRequest::Kill {
+            player: "TestPlayer".into(),
+        });
     });
     logic.evaluate_and_execute_scripts(0.0);
     assert!(
@@ -2894,12 +2909,16 @@ fn script_unit_destroy_all_contained_kills_live_occupants() {
         obj.contained_by = Some(container);
     }
 
-    let _ = gamelogic::scripting::take_host_script_kill_delete_damage_requests();
-    request_host_script_kill_delete_damage(
-        HostScriptKillDeleteDamageRequest::DestroyAllContained {
-            unit: "NamedChinook".into(),
-        },
-    );
+    logic.with_own_services(|| {
+        let _ = gamelogic::scripting::take_host_script_kill_delete_damage_requests();
+    });
+    logic.with_own_services(|| {
+        request_host_script_kill_delete_damage(
+            HostScriptKillDeleteDamageRequest::DestroyAllContained {
+                unit: "NamedChinook".into(),
+            },
+        );
+    });
     logic.evaluate_and_execute_scripts(0.0);
     let rider_gone = logic
         .host_object(rider)
@@ -2945,9 +2964,13 @@ fn script_idle_all_units_and_resume_supply_write_live() {
         obj.supply_truck_force_pending = false;
     }
 
-    let _ = gamelogic::scripting::take_host_script_idle_requests();
-    request_host_script_idle(HostScriptIdleRequest::IdleAll {
-        player: "TestPlayer".into(),
+    logic.with_own_services(|| {
+        let _ = gamelogic::scripting::take_host_script_idle_requests();
+    });
+    logic.with_own_services(|| {
+        request_host_script_idle(HostScriptIdleRequest::IdleAll {
+            player: "TestPlayer".into(),
+        });
     });
     logic.evaluate_and_execute_scripts(0.0);
     let tank_pos = logic.host_object(tank).expect("tank").get_position();
@@ -2969,8 +2992,10 @@ fn script_idle_all_units_and_resume_supply_write_live() {
         logic.update_with_dt(1.0 / 30.0);
     }
 
-    request_host_script_idle(HostScriptIdleRequest::ResumeSupply {
-        player: "TestPlayer".into(),
+    logic.with_own_services(|| {
+        request_host_script_idle(HostScriptIdleRequest::ResumeSupply {
+            player: "TestPlayer".into(),
+        });
     });
     logic.evaluate_and_execute_scripts(0.0);
     assert!(
@@ -3269,10 +3294,14 @@ fn script_named_use_command_button_stops_live_unit() {
     logic.initialize_receiving_named_cache_for_fixture();
     let _ = logic.unit_command_move_to(id, glam::Vec3::new(300.0, 0.0, 0.0));
 
-    let _ = gamelogic::scripting::take_host_script_use_command_button_requests();
-    request_host_script_use_command_button(HostScriptUseCommandButtonRequest::Named {
-        unit: "Hero".into(),
-        button: "Command_Stop".into(),
+    logic.with_own_services(|| {
+        let _ = gamelogic::scripting::take_host_script_use_command_button_requests();
+    });
+    logic.with_own_services(|| {
+        request_host_script_use_command_button(HostScriptUseCommandButtonRequest::Named {
+            unit: "Hero".into(),
+            button: "Command_Stop".into(),
+        });
     });
     logic.evaluate_and_execute_scripts(0.0);
     assert_eq!(
@@ -3282,9 +3311,11 @@ fn script_named_use_command_button_stops_live_unit() {
     );
 
     let _ = logic.unit_command_move_to(id, glam::Vec3::new(300.0, 0.0, 0.0));
-    request_host_script_use_command_button(HostScriptUseCommandButtonRequest::Team {
-        team: "teamAmerica".into(),
-        button: "Command_Stop".into(),
+    logic.with_own_services(|| {
+        request_host_script_use_command_button(HostScriptUseCommandButtonRequest::Team {
+            team: "teamAmerica".into(),
+            button: "Command_Stop".into(),
+        });
     });
     logic.evaluate_and_execute_scripts(0.0);
     assert_eq!(
@@ -3315,8 +3346,12 @@ fn script_set_base_construction_speed_writes_live_ai_team_seconds() {
         crate::ai::AIPlayer::TEAM_SECONDS
     );
 
-    let _ = gamelogic::scripting::take_host_set_base_construction_speed_requests();
-    request_host_set_base_construction_speed("TestPlayer", 3);
+    logic.with_own_services(|| {
+        let _ = gamelogic::scripting::take_host_set_base_construction_speed_requests();
+    });
+    logic.with_own_services(|| {
+        request_host_set_base_construction_speed("TestPlayer", 3);
+    });
     logic.evaluate_and_execute_scripts(0.0);
     assert_eq!(
         logic
