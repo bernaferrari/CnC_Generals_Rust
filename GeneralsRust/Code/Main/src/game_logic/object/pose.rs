@@ -840,6 +840,13 @@ impl Object {
 
     pub fn tick_production_door(&mut self, now: u32) -> bool {
         self.ensure_primary_door_array_sync();
+        // No door is cycling: nothing to advance (C++ ProductionUpdate::update
+        // only steps doors whose DoorInfo phase is active), so skip the INI
+        // door-count lookup every idle object would otherwise pay per frame.
+        if self.production_door_phases.iter().all(|&phase| phase == 0) {
+            self.sync_primary_production_door();
+            return false;
+        }
         let count = self.production_door_count();
         let mut closed_any = false;
         for i in 0..count {
