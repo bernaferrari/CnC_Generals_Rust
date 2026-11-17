@@ -23,9 +23,7 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .is_trainable = true;
 
     // AI player residual (is_local=false) — C++ PLAYER_HUMAN skips scan.
-    game_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA AI", false));
+    game_logic.add_player(Player::new(0, Team::USA, "USA AI", false));
 
     let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
     pilot_tpl
@@ -167,9 +165,7 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
     // Human player residual: no auto-scan (C++ sleep forever).
     let mut human_logic = GameLogic::new();
     ensure_test_tank_template(&mut human_logic);
-    human_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA Human", true));
+    human_logic.add_player(Player::new(0, Team::USA, "USA Human", true));
     human_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), {
@@ -236,9 +232,7 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
     use crate::game_logic::host_usa_pilot::PILOT_FIND_VEHICLE_SCAN_FRAMES;
 
     let mut game_logic = GameLogic::new();
-    game_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA AI", false));
+    game_logic.add_player(Player::new(0, Team::USA, "USA AI", false));
 
     let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
     pilot_tpl
@@ -338,9 +332,7 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
 
     // Human residual: no base-center fallback.
     let mut human_logic = GameLogic::new();
-    human_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA Human", true));
+    human_logic.add_player(Player::new(0, Team::USA, "USA Human", true));
     human_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), {
@@ -403,9 +395,7 @@ fn pilot_auto_find_healing_hospital_path_residual() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_heal_pad_template(&mut game_logic);
-    game_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA AI", false));
+    game_logic.add_player(Player::new(0, Team::USA, "USA AI", false));
 
     let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
     pilot_tpl
@@ -481,9 +471,7 @@ fn pilot_auto_find_healing_hospital_path_residual() {
     // Healthy pilot (> NeverHeal) must not auto-scan.
     let mut healthy_logic = GameLogic::new();
     ensure_test_heal_pad_template(&mut healthy_logic);
-    healthy_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA AI", false));
+    healthy_logic.add_player(Player::new(0, Team::USA, "USA AI", false));
     healthy_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), {
@@ -528,9 +516,7 @@ fn pilot_auto_find_healing_hospital_path_residual() {
     // Human residual: no AutoFindHealing auto-scan.
     let mut human_logic = GameLogic::new();
     ensure_test_heal_pad_template(&mut human_logic);
-    human_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA Human", true));
+    human_logic.add_player(Player::new(0, Team::USA, "USA Human", true));
     human_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), {
@@ -585,9 +571,7 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_heal_pad_template(&mut game_logic);
-    game_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA AI", false));
+    game_logic.add_player(Player::new(0, Team::USA, "USA AI", false));
 
     let mut ranger_tpl = ThingTemplate::new("AmericaInfantryRanger");
     ranger_tpl
@@ -663,9 +647,7 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
     // C++: China infantry with AutoFindHealingUpdate also scans.
     let mut china_logic = GameLogic::new();
     ensure_test_heal_pad_template(&mut china_logic);
-    china_logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China AI", false));
+    china_logic.add_player(Player::new(0, Team::China, "China AI", false));
     china_logic
         .templates
         .insert("ChinaInfantryRedguard".to_string(), {
@@ -904,9 +886,7 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         .expect("TestTank definition")
         .is_trainable = true;
 
-    game_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA AI", false));
+    game_logic.add_player(Player::new(0, Team::USA, "USA AI", false));
 
     let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
     pilot_tpl
@@ -1212,9 +1192,7 @@ fn strategy_center_turret_idle_scan_residual() {
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);
     if !game_logic.players.contains_key(&0) {
-        game_logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "USA", true));
+        game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     }
 
     let sc_id = game_logic
@@ -1421,9 +1399,7 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);
     if !game_logic.players.contains_key(&0) {
-        game_logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "USA", true));
+        game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     }
 
     let sc_id = game_logic
@@ -1585,9 +1561,7 @@ fn strategy_center_turret_mood_target_residual() {
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);
     if !game_logic.players.contains_key(&0) {
-        game_logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "USA", true));
+        game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     }
 
     let sc_id = game_logic

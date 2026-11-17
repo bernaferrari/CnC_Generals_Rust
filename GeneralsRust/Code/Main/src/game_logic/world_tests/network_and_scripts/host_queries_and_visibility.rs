@@ -969,9 +969,7 @@ fn clear_game_data_scrubs_map_and_player_state() {
             Team::USA,
         ),
     );
-    game_logic
-        .players
-        .insert(1, Player::new(1, Team::USA, "Player1", true));
+    game_logic.add_player(Player::new(1, Team::USA, "Player1", true));
 
     game_logic.clearGameData();
 

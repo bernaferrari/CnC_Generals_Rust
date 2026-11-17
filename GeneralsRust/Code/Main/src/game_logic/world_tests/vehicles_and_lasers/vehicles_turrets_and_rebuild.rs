@@ -2255,12 +2255,8 @@ fn parachute_landing_override_steers_xz() {
 fn reconstructing_death_transfers_attackers_back_to_hole() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(1, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
     // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
     st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
@@ -2341,7 +2337,7 @@ fn rebuild_hole_transfers_sticky_bombs_to_reconstruction() {
         "rebuild-sticky-fixture.ini".into(),
         "Object GLATunnelNetwork\n KindOf = STRUCTURE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = TunnelContain Tunnel\n End\n Behavior = RebuildHoleExposeDie Expose\n HoleName = GLAHoleTunnelNetwork\n End\nEnd\nObject GLAHoleTunnelNetwork\n KindOf = STRUCTURE SELECTABLE IMMOBILE REBUILD_HOLE\n Body = StructureBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = RebuildHoleBehavior Rebuild\n WorkerObjectName = GLAInfantryWorker\n WorkerRespawnDelay = 20000\n End\nEnd\nObject GLAInfantryWorker\n KindOf = INFANTRY SELECTABLE SALVAGER DOZER HARVESTER SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = WorkerAIUpdate WorkerAI\n End\nEnd\nObject TimedC4Charge\n KindOf = PROJECTILE MINE NO_COLLIDE\n Body = HighlanderBody Body\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = StickyBombUpdate Sticky\n End\n Behavior = LifetimeUpdate Lifetime\n MinLifetime = 20000\n MaxLifetime = 20000\n End\nEnd\n".into(),
     )]).expect("authored rebuild and sticky object content");
-    logic.players.insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let hole = {
         let sid = logic
             .create_object(
@@ -2384,12 +2380,8 @@ fn rebuild_hole_transfers_sticky_bombs_to_reconstruction() {
 fn rebuild_hole_transfers_attackers_and_cancel_skips_refund() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(1, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
     st.set_rebuild_hole_expose("GLAHole", 0.0);
@@ -2455,9 +2447,7 @@ fn rebuild_hole_transfers_attackers_and_cancel_skips_refund() {
 fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
     // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
     st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
@@ -2546,9 +2536,7 @@ fn rebuild_hole_transfers_script_name_and_skips_defeated_player() {
     // C++ RebuildHoleExposeDie.cpp:108-110 isPlayerActive; :131 transferObjectName.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
     // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
     st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
@@ -2606,9 +2594,7 @@ fn rebuild_hole_worker_death_resumes_existing_scaffold() {
     // C++ RebuildHoleBehavior.cpp:241 aiResumeConstruction when worker dies.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
     st.set_rebuild_hole_expose("GLAHole", 0.0);
@@ -2665,9 +2651,7 @@ fn rebuild_hole_copies_dying_building_geometry() {
     // C++ RebuildHoleExposeDie.cpp:126 hole->setGeometryInfo(us->getGeometryInfo()).
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLAPalace");
     st.add_kind_of(KindOf::Structure).set_health(2000.0);
     st.set_rebuild_hole_expose("GLAHole", 0.0);
@@ -2696,9 +2680,7 @@ fn rebuild_hole_complete_transfers_script_name() {
     // C++ RebuildHoleBehavior.cpp:302 transferObjectName(hole, reconstructing).
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
     // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
     st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
@@ -2748,9 +2730,7 @@ fn captured_gla_building_exposes_rebuild_hole() {
     // on the capturing player's team.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(1, Player::new(1, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
     st.set_rebuild_hole_expose("GLAHole", 0.0);
@@ -2778,9 +2758,7 @@ fn usa_china_command_center_does_not_expose_gla_rebuild_hole() {
     // AmericaCommandCenter / ChinaBarracks must not leave a free GLA hole.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     for name in [
         "AmericaCommandCenter",
         "ChinaBarracks",
@@ -2809,9 +2787,7 @@ fn rebuild_hole_and_scaffold_death_destroys_worker() {
     // C++ onDie / newWorkerRespawnProcess destroy the generated worker.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
     st.set_rebuild_hole_expose("GLAHole", 0.0);
@@ -2898,9 +2874,7 @@ fn rebuild_hole_and_scaffold_death_destroys_worker() {
 fn rebuild_hole_authored_max_clips_template_health() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut building = ThingTemplate::new("GLACommandCenter");
     building.add_kind_of(KindOf::Structure).set_health(5000.0);
     building.set_rebuild_hole_expose("GLAHoleCommandCenter", 500.0);
@@ -2930,9 +2904,7 @@ fn rebuild_hole_authored_max_clips_template_health() {
 fn scud_storm_uses_authored_rebuild_hole_name() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLAScudStorm");
     st.add_kind_of(KindOf::Structure).set_health(4000.0);
     st.set_rebuild_hole_expose("GLAScudStormRebuildHole", 500.0);
@@ -2974,9 +2946,7 @@ fn scud_storm_uses_authored_rebuild_hole_name() {
 fn rebuild_hole_clock_starts_at_death_start_not_topple_done() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
     st.set_rebuild_hole_expose("GLAHole", 0.0);
@@ -3010,12 +2980,8 @@ fn rebuild_hole_clock_starts_at_death_start_not_topple_done() {
 fn rebuild_hole_uses_dying_owner_not_faction_team() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA-A", true));
-    logic
-        .players
-        .insert(2, Player::new(2, Team::GLA, "GLA-B", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA-A", true));
+    logic.add_player(Player::new(2, Team::GLA, "GLA-B", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
     st.set_rebuild_hole_expose("GLAHole", 0.0);
@@ -3037,9 +3003,7 @@ fn rebuild_hole_uses_dying_owner_not_faction_team() {
 fn finished_rebuild_hole_goes_through_destroy_object() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLABarracks");
     st.add_kind_of(KindOf::Structure).set_health(800.0);
     st.set_rebuild_hole_expose("GLAHole", 0.0);

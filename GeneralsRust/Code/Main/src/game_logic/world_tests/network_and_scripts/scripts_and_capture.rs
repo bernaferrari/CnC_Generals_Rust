@@ -2517,12 +2517,8 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         .expect("TestTank definition")
         .is_trainable = true;
 
-    game_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA 0", true));
-    game_logic
-        .players
-        .insert(1, Player::new(1, Team::USA, "USA 1", true));
+    game_logic.add_player(Player::new(0, Team::USA, "USA 0", true));
+    game_logic.add_player(Player::new(1, Team::USA, "USA 1", true));
 
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()

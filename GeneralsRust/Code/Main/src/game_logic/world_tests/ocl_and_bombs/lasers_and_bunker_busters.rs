@@ -1430,12 +1430,8 @@ fn microwave_emitter_damages_nearby_enemy_infantry() {
     // C++ RadiusDamageAffects ENEMIES resolves through controlling players
     // (Player::setPlayerRelationship); ownerless objects resolve Neutral and
     // are excluded from the cook field. Bind owners + enemy relation.
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "China", false));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::China, "China", false));
     logic
         .players
         .get_mut(&0)

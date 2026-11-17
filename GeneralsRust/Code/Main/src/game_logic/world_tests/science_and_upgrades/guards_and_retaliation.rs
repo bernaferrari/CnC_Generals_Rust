@@ -270,12 +270,8 @@ fn aggressive_guard_range_is_mood_widened() {
 fn notify_computer_killer_only() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = guard_test_world();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "Human", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "AI", false));
+    logic.add_player(Player::new(0, Team::USA, "Human", true));
+    logic.add_player(Player::new(1, Team::China, "AI", false));
 
     let mut ht = ThingTemplate::new("Hum");
     ht.add_kind_of(KindOf::Infantry);
@@ -424,9 +420,7 @@ fn friends_retaliate_against_nearby_aggressor() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = guard_test_world();
     // Human local player USA
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "P0", true));
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
     logic.set_logical_retaliation_mode(0, true);
     // The original player's relationship map, not faction spelling, admits enemies.
     logic
@@ -497,9 +491,7 @@ fn friends_retaliate_against_nearby_aggressor() {
 fn friends_retaliate_skipped_when_mode_off() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = guard_test_world();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "P0", true));
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
     // mode off
     let mut vt = ThingTemplate::new("Vic2");
     vt.add_kind_of(KindOf::Infantry);
@@ -791,9 +783,7 @@ fn guard_retaliate_inner_scan_allows_base_defense() {
 
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
     let mut logic = guard_test_world();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "Human", true));
+    logic.add_player(Player::new(0, Team::USA, "Human", true));
 
     let mut t = ThingTemplate::new("Retaliator");
     t.add_kind_of(KindOf::Infantry);
@@ -859,9 +849,7 @@ fn guard_retaliate_computer_scan_allows_any_enemy_structure() {
 
     use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate};
     let mut logic = guard_test_world();
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "AI", false));
+    logic.add_player(Player::new(1, Team::China, "AI", false));
 
     let mut t = ThingTemplate::new("AiRet");
     t.add_kind_of(KindOf::Infantry);

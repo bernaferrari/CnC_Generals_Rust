@@ -225,9 +225,7 @@ fn patriot_create_binding_keys_on_authored_weapon_set() {
 fn stinger_hive_spawn_keys_on_authored_spawns_are_the_weapons() {
     let run = |name: &str, hive: bool| -> usize {
         let mut logic = GameLogic::new();
-        logic
-            .players
-            .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+        logic.add_player(crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
         let mut site = crate::game_logic::ThingTemplate::new(name);
         site.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::Selectable)
@@ -270,7 +268,7 @@ fn stinger_hive_spawn_keys_on_authored_spawns_are_the_weapons() {
 fn lotus_innate_stealth_comes_from_authored_stealth_update() {
     let run = |name: &str, authored: bool| {
         let mut logic = GameLogic::new();
-        logic.players.insert(0, crate::game_logic::Player::new(0, Team::China, "China", true));
+        logic.add_player(crate::game_logic::Player::new(0, Team::China, "China", true));
         let mut template = crate::game_logic::ThingTemplate::new(name);
         template.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable).set_health(200.0);
         if authored {
@@ -370,8 +368,8 @@ fn pathfinder_reveal_response_comes_from_authored_stealth_update() {
     let run = |name: &str, authored: bool| {
         let mut logic = GameLogic::new();
         admit_pathfinder_test_weapons(&mut logic, source);
-        logic.players.insert(0, crate::game_logic::Player::new(0, Team::USA, "USA", true));
-        logic.players.insert(1, crate::game_logic::Player::new(1, Team::China, "China", true));
+        logic.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
+        logic.add_player(crate::game_logic::Player::new(1, Team::China, "China", true));
         let mut template = crate::game_logic::ThingTemplate::new(name);
         template.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable).set_health(100.0)
             .set_primary_weapon_name("RevealTestRifle");

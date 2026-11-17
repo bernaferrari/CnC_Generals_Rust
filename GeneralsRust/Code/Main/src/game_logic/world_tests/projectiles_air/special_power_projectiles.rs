@@ -2798,9 +2798,7 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
             .unwrap(),
         )
         .unwrap();
-    game_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA 0", true));
+    game_logic.add_player(Player::new(0, Team::USA, "USA 0", true));
 
     // A real parsed ground module exposes the hijacker interface before its
     // death OCL runs, then the selected OCL gives the pilot its parsed 60f
@@ -3276,9 +3274,7 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         .expect("TestTank definition")
         .is_trainable = true;
 
-    game_logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA AI", false));
+    game_logic.add_player(Player::new(0, Team::USA, "USA AI", false));
 
     let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
     pilot_tpl

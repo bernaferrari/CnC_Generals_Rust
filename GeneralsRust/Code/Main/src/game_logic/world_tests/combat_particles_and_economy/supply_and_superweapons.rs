@@ -1489,12 +1489,8 @@ fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() 
 #[test]
 fn steal_cash_from_broke_victim_is_zero() {
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "Victim", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "Lotus", false));
+    logic.add_player(Player::new(0, Team::USA, "Victim", true));
+    logic.add_player(Player::new(1, Team::China, "Lotus", false));
     // Player::new seeds DEFAULT_STARTING_MONEY (10000); pin both sides so a
     // zero steal is observable on the attacker too.
     if let Some(p) = logic.players.get_mut(&0) {

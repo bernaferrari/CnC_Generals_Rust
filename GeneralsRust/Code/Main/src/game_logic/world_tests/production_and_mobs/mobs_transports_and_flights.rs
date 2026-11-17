@@ -168,9 +168,7 @@ fn grant_upgrade_create_branches_player_vs_object_type() {
     use crate::game_logic::{GrantUpgradeCreateMetadata, KindOf, Player, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
 
     let mut obj_tpl = ThingTemplate::new("ObjectGrantBuilding");
     obj_tpl.add_kind_of(KindOf::Structure).set_health(1000.0);
@@ -244,9 +242,7 @@ fn special_power_create_starts_unit_recharge() {
     };
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
 
     let mut tpl = ThingTemplate::new("AmericaInfantryColonelBurton");
     tpl.add_kind_of(KindOf::Infantry).set_health(200.0);
@@ -3256,10 +3252,7 @@ fn combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set() {
     let mut game_logic = GameLogic::new();
     // C++ TransportContain.cpp:105 "only OUR OWN units can be transported":
     // the exact-controller gate needs a registered controlling player.
-    game_logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
-    );
+    game_logic.add_player(crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true));
     ensure_test_infantry_template(&mut game_logic);
     let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let infantry_id = game_logic

@@ -588,9 +588,7 @@ fn search_and_destroy_active_queues_and_stops_idle_loop() {
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);
     if !game_logic.players.contains_key(&0) {
-        game_logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "USA", true));
+        game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     }
 
     let sc_id = game_logic

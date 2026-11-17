@@ -8,10 +8,7 @@ fn combat_chinook_residual_load_two_unload_both_free() {
     let mut game_logic = GameLogic::new();
     // C++ TransportContain.cpp:105 "only OUR OWN units can be transported":
     // the exact-controller gate needs a registered controlling player.
-    game_logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
-    );
+    game_logic.add_player(crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true));
     ensure_test_infantry_template(&mut game_logic);
     let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
 
@@ -139,14 +136,8 @@ fn combat_chinook_residual_load_two_unload_both_free() {
 fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
     let mut game_logic = GameLogic::new();
     // Ownership pair so USA passenger vs GLA enemy resolve to ENEMIES.
-    game_logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
-    );
-    game_logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, crate::game_logic::Team::GLA, "GLA", false),
-    );
+    game_logic.add_player(crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true));
+    game_logic.add_player(crate::game_logic::Player::new(1, crate::game_logic::Team::GLA, "GLA", false));
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_tank_template(&mut game_logic);
 
@@ -230,10 +221,7 @@ fn combat_chinook_residual_capacity_full_rejects_enter() {
     let mut game_logic = GameLogic::new();
     // C++ TransportContain.cpp:105 "only OUR OWN units can be transported":
     // the exact-controller gate needs a registered controlling player.
-    game_logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
-    );
+    game_logic.add_player(crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true));
     ensure_test_infantry_template(&mut game_logic);
     let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
 
@@ -302,10 +290,7 @@ fn combat_chinook_residual_allows_vehicle_enter() {
     let mut game_logic = GameLogic::new();
     // C++ TransportContain.cpp:105 "only OUR OWN units can be transported":
     // the exact-controller gate needs a registered controlling player.
-    game_logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
-    );
+    game_logic.add_player(crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true));
     ensure_test_tank_template(&mut game_logic);
     let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let tank_id = game_logic
@@ -591,9 +576,7 @@ fn listening_outpost_residual_detect_stealth_in_range() {
 #[test]
 fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
     logic
         .admit_object_ini_sources([(
             "TunnelSpawn.ini".into(),
@@ -658,9 +641,7 @@ fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
 #[test]
 fn stinger_without_a_receiving_bone_provider_has_no_available_exit() {
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
     logic.admit_object_ini_sources([(
         "StingerSpawn.ini".into(),
         "Object GLAStingerSite
@@ -1263,9 +1244,7 @@ fn spawned_require_spawner_kills_children_through_their_own_die_modules() {
                 .into(),
         )])
         .expect("ini");
-    logic
-        .players
-        .insert(1, crate::game_logic::Player::new(1, Team::GLA, "Owner", true));
+    logic.add_player(crate::game_logic::Player::new(1, Team::GLA, "Owner", true));
     let nest = logic
         .create_object_for_player("Nest", 1, Vec3::ZERO)
         .expect("nest");
@@ -1313,10 +1292,7 @@ fn authored_upgrade_die_removes_each_modules_upgrade_from_producer_like_cpp() {
                 .into(),
         )])
         .expect("ini");
-    logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, Team::USA, "Owner", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(1, Team::USA, "Owner", true));
     let producer = logic
         .create_object_for_player("FixtureProducer", 1, Vec3::ZERO)
         .expect("producer");
@@ -1352,10 +1328,7 @@ fn create_installs_upgrade_die_from_authored_module_without_template_name_sniff(
                 .into(),
         )])
         .expect("ini");
-    logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, Team::USA, "Owner", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(1, Team::USA, "Owner", true));
     let generic = logic
         .create_object_for_player("FixtureGenericDroneChild", 1, Vec3::ZERO)
         .expect("generic");

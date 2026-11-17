@@ -268,9 +268,7 @@ fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
     use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
 
     let mut tt = ThingTemplate::new("GLAVehicleToxinTruck");
     tt.add_kind_of(KindOf::Vehicle).set_health(240.0);
@@ -334,9 +332,7 @@ fn horde_morale_reads_the_players_completed_nationalism_and_fanaticism() {
     use crate::game_logic::host_battlemaster::{UPGRADE_FANATICISM, UPGRADE_NATIONALISM};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
     let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
     rg.add_kind_of(KindOf::Infantry).set_health(120.0);
     logic.templates.insert("ChinaInfantryRedguard".into(), rg);
@@ -389,7 +385,7 @@ fn admit_power_plants(logic: &mut GameLogic) {
 fn authored_power_plant_upgrade_adds_energy_bonus_once_by_module_not_name() {
     use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    logic.players.insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     admit_power_plants(&mut logic);
     let authored = logic
         .create_object_for_player("ModularReactor", 0, glam::Vec3::ZERO)
@@ -421,7 +417,7 @@ fn completed_player_upgrade_reaches_power_plant_built_afterwards() {
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.add_completed_upgrade("Upgrade_TestRods");
     logic.players.insert(0, player);
-    logic.players.insert(1, Player::new(1, Team::USA, "Other", false));
+    logic.add_player(Player::new(1, Team::USA, "Other", false));
     admit_power_plants(&mut logic);
     let upgraded = logic
         .create_object_for_player("ModularReactor", 0, glam::Vec3::ZERO)
@@ -901,12 +897,8 @@ fn typed_overcharge_capture_keeps_disabled_bonus_in_cxx_energy_pool() {
 fn capture_sets_private_captured_and_score() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA", true));
 
     let mut b = ThingTemplate::new("AmericaBarracks");
     b.add_kind_of(KindOf::Structure)
@@ -941,8 +933,8 @@ fn capture_sets_private_captured_and_score() {
 fn car_bomb_detonates_when_pilot_sniped_unmanned() {
     use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    logic.players.insert(0, Player::new(0, Team::USA, "USA", true));
-    logic.players.insert(1, Player::new(1, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA", true));
     logic.admit_receiving_module_content(
         crate::assets::ReceivingObjectContent::from_sources([(
             "deadman-car.ini".into(),
@@ -1036,12 +1028,8 @@ End
 fn infantry_collision_reclaims_unmanned_vehicle() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, VeterancyLevel};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA", true));
 
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
     humvee.add_kind_of(KindOf::Vehicle).set_health(300.0);
@@ -1121,9 +1109,7 @@ fn infantry_collision_reclaims_unmanned_vehicle() {
 fn unmanned_recrew_transfers_script_name_and_captured_bit() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
     humvee.add_kind_of(KindOf::Vehicle).set_health(300.0);
     logic
@@ -1172,12 +1158,8 @@ fn unmanned_recrew_transfers_script_name_and_captured_bit() {
 fn capture_tech_building_sets_captured_model_condition() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::Neutral, "Neutral", false));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::Neutral, "Neutral", false));
 
     let mut oil = ThingTemplate::new("TechOilDerrick");
     oil.add_kind_of(KindOf::Structure).set_health(2000.0);
@@ -1236,12 +1218,8 @@ fn capture_tech_building_sets_captured_model_condition() {
 fn capture_last_tunnel_ejects_shared_pool_for_old_owner() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA", true));
 
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
 
@@ -1304,12 +1282,8 @@ fn capture_last_tunnel_ejects_shared_pool_for_old_owner() {
 fn capture_non_last_tunnel_keeps_old_team_pool() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA", true));
 
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
 
@@ -1387,12 +1361,8 @@ fn capture_object_residual_idle_deselect_ai_sell() {
     use crate::ai::AIDifficulty;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA AI", false));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA AI", false));
     logic.add_ai_opponent(1, Team::GLA, AIDifficulty::Medium);
 
     let mut barracks = ThingTemplate::new("AmericaBarracks");
@@ -1453,12 +1423,8 @@ fn capture_object_residual_idle_deselect_ai_sell() {
 fn create_stamps_threat_value_not_build_cost_and_capture_restamps_mask() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA", false));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA", false));
 
     let mut barracks = ThingTemplate::new("ThreatStampBarracks");
     barracks
@@ -1520,12 +1486,8 @@ fn create_stamps_threat_value_not_build_cost_and_capture_restamps_mask() {
 fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA", true));
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
     humvee.add_kind_of(KindOf::Vehicle).set_health(300.0);
     logic
@@ -1609,12 +1571,8 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
 fn capture_team_flips_overlord_helix_portable_addon() {
     // hq-96958: C++ OverlordContain.cpp:227-235 / HelixContain.cpp:217-222.
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(1, Team::USA, "USA", true));
 
     let mut ov = ThingTemplate::new("ChinaTankOverlord");
     ov.add_kind_of(KindOf::Vehicle).set_health(1100.0);
@@ -1700,9 +1658,7 @@ fn capture_team_flips_overlord_helix_portable_addon() {
 fn helix_named_host_without_authored_contain_does_not_create_payload() {
     // A hull name alone cannot create or contain an unauthored portable rider.
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
     let mut t = ThingTemplate::new("TestHelix");
     t.add_kind_of(KindOf::Vehicle).set_health(400.0);
     logic.templates.insert("TestHelix".into(), t);
@@ -1738,9 +1694,7 @@ fn helix_containment_is_authored_not_inferred_from_name_or_weapon() {
 fn sell_last_tunnel_ejects_shared_pool() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
     // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
     tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
@@ -1785,9 +1739,7 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
     use crate::game_logic::ObjectType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut bunker = ThingTemplate::new("AmericaBunker");
     bunker
         .add_kind_of(KindOf::Structure)
@@ -1906,9 +1858,7 @@ fn sell_destroys_owned_mines_by_producer() {
     use crate::game_logic::host_mines::{HostMineData, HostMineKind};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -1950,9 +1900,7 @@ fn sell_allows_under_construction_and_reconstructing() {
     // C++ BuildAssistant::sellObject has no UC / reconstructing gate.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -2001,9 +1949,7 @@ fn sell_process_scaffold_sold_model_and_refund() {
     let mut logic = GameLogic::new();
     logic.admit_sell_percentage(0.5);
     // Seed a USA player (GameLogic::new does not create players).
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA Commander", true));
+    logic.add_player(Player::new(0, Team::USA, "USA Commander", true));
     if let Some(p) = logic.get_player_mut(0) {
         p.resources.supplies = 1000;
     }
@@ -2297,10 +2243,7 @@ fn construction_complete_radar_and_production_door_cycle() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
     dozer_t
         .add_kind_of(KindOf::Vehicle)
@@ -2360,10 +2303,7 @@ fn construction_complete_radar_and_production_door_cycle() {
 fn construction_complete_does_not_queue_invented_building_complete() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
     dozer_t
         .add_kind_of(KindOf::Vehicle)
@@ -2474,10 +2414,7 @@ fn structure_and_unit_complete_notify_local_feedback() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -2516,10 +2453,7 @@ fn structure_and_unit_complete_notify_local_feedback() {
 fn radar_upgrade_complete_queues_local_event() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     let mut st = ThingTemplate::new("AmericaWarFactory");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSWarFactory)
@@ -2543,10 +2477,7 @@ fn radar_upgrade_complete_queues_local_event() {
         "radar text: {text}"
     );
     // Non-local player must not fire.
-    logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, Team::China, "AI", false),
-    );
+    logic.add_player(crate::game_logic::Player::new(1, Team::China, "AI", false));
     let before = logic.radar_upgrade_events;
     logic.try_radar_upgrade_complete(1, Team::China, "Upgrade_ChinaNationalism", None);
     assert_eq!(logic.radar_upgrade_events, before);
@@ -2557,10 +2488,7 @@ fn eva_gps_and_sneak_launched_own_enemy() {
     use crate::game_logic::Team;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     logic.try_eva_special_launched_misc(Team::USA, "gps");
     assert!(logic.honesty_eva_special_launched_misc_ok());
     let events = logic.take_eva_requests();
@@ -2622,14 +2550,8 @@ fn eva_hero_detected_own_and_enemy_lotus() {
     use crate::game_logic::Team;
     use crate::game_logic::host_eva_log::EvaOperation;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
-    logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, Team::China, "China", false),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
+    logic.add_player(crate::game_logic::Player::new(1, Team::China, "China", false));
     let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
     lotus
         .add_kind_of(KindOf::Infantry)
@@ -2692,10 +2614,7 @@ fn eva_superweapon_launched_own_particle_and_enemy_scud() {
     use crate::game_logic::special_power_strikes::HostSuperweaponKind;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     logic.try_eva_superweapon_launched(Team::USA, HostSuperweaponKind::ParticleCannon);
     assert!(logic.honesty_eva_superweapon_launched_ok());
     let events = logic.take_eva_requests();
@@ -2729,10 +2648,7 @@ fn eva_superweapon_detected_enemy_nuke() {
     use crate::game_logic::Team;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     logic.try_eva_superweapon_detected(Team::China, "ChinaNuclearMissileLauncher");
     assert!(logic.honesty_eva_superweapon_detected_ok());
     let events = logic.take_eva_requests();
@@ -2759,10 +2675,7 @@ fn eva_superweapon_ready_own_particle_cannon() {
     use crate::game_logic::Team;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     logic.try_eva_superweapon_ready(ObjectId(1), Team::USA, "AmericaParticleUplinkCannon");
     assert!(logic.honesty_eva_superweapon_ready_ok());
     let events = logic.take_eva_requests();
@@ -2799,10 +2712,7 @@ fn eva_upgrade_complete_and_general_level_up() {
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.admit_retail_rank_catalog_for_test();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     logic.try_eva_upgrade_complete(0);
     assert!(logic.honesty_eva_upgrade_complete_ok());
     // Rank 1 → 2 at 800 skill points.
@@ -2854,10 +2764,7 @@ fn player_grant_science_script_honors_is_grantable() {
     use crate::game_logic::Team;
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"));
     let _ = gamelogic::scripting::take_host_science_action_requests();
     gamelogic::scripting::request_host_science_action("Local", "SCIENCE_PaladinTank", true);
     gamelogic::scripting::request_host_science_action("Local", "SCIENCE_NonGrantableTest", true);

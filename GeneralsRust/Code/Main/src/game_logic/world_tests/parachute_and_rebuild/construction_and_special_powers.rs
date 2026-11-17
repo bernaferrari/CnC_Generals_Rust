@@ -8,9 +8,7 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -112,9 +110,7 @@ fn resume_construction_assigns_dozer_and_model_bits() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -230,9 +226,7 @@ fn resume_construction_paths_distant_dozer_without_constructing_anim() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure).set_health(500.0);
     logic.templates.insert("AmericaPowerPlant".into(), st);
@@ -280,9 +274,7 @@ fn resume_construction_crosses_the_scaffold_obstacle() {
     use crate::game_logic::pathfinding::GridPos;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure).set_health(500.0);
     logic.templates.insert("AmericaPowerPlant".into(), st);
@@ -351,9 +343,7 @@ fn resume_construction_allows_dead_or_retasked_builder() {
     // C++ ActionManager.cpp:458-485 — stale exclusive builder must not freeze resume.
     use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure).set_health(500.0);
     logic.templates.insert("AmericaPowerPlant".into(), st);
@@ -424,9 +414,7 @@ fn worker_build_or_repair_releases_supply_dock() {
     // C++ WorkerAIUpdate.cpp:598-660 — newTask BUILD/REPAIR exits supply-truck.
     use crate::game_logic::{KindOf, SupplyTruckState, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut worker_t = ThingTemplate::new("GLAInfantryWorker");
     worker_t
         .add_kind_of(KindOf::Dozer)
@@ -495,9 +483,7 @@ fn mine_clear_drops_worker_supply_boxes() {
     // C++ WorkerAIUpdate.cpp:1004-1015 + AIUpdate.cpp:3120-3135.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut worker_t = ThingTemplate::new("GLAInfantryWorker");
     worker_t
         .add_kind_of(KindOf::Dozer)
@@ -537,9 +523,7 @@ fn cancel_construction_clears_dozer_actively_constructing() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -607,9 +591,7 @@ fn construction_complete_clears_after_duration() {
     use crate::game_logic::object::Object;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -3188,9 +3170,7 @@ fn demo_and_burton_charge_special_power_enum_residuals() {
     // Plant residual APIs remain available for special-power completion.
     let mut logic = GameLogic::new();
     crate::fixture_content::admit_retail_remote_c4(&mut logic);
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     use crate::game_logic::{KindOf, ThingTemplate};
     let mut unit = logic.templates["AmericaInfantryColonelBurton"].clone();
     unit.add_kind_of(KindOf::Infantry).set_health(200.0);

@@ -1012,9 +1012,7 @@ pub(super) fn ensure_eject_pilot_residual_fixture(game_logic: &mut GameLogic) {
             .insert(eject_pilot_template.to_string(), pilot_tpl);
     }
     if game_logic.get_player(0).is_none() {
-        game_logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "USA", true));
+        game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     }
 }
 

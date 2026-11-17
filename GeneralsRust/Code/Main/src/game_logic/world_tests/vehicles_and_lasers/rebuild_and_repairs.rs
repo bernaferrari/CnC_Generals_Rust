@@ -51,9 +51,7 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
     use crate::game_logic::host_mines::{HostMineData, HostMineKind};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
     dozer_t
         .add_kind_of(KindOf::Vehicle)
@@ -112,9 +110,7 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
 fn dozer_bored_auto_repair_assigns_damaged_structure() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -180,9 +176,7 @@ fn dozer_bored_auto_repair_assigns_damaged_structure() {
 fn dozer_repair_sole_benefactor_rejects_second_dozer() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)

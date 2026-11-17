@@ -263,7 +263,7 @@ fn stealth_upgrade_grants_can_stealth_to_existing_and_late_built_units() {
         stealth_module("StealthDelay = 0\nStealthForbiddenConditions = ATTACKING\nInnateStealth = No\n"),
     );
     let mut world = world(&[object("PlainRebel", "INFANTRY", &modules)]);
-    world.players.insert(0, Player::new(0, Team::GLA, "Owner", true));
+    world.add_player(Player::new(0, Team::GLA, "Owner", true));
     let early = world.create_object_for_player("PlainRebel", 0, Vec3::ZERO).unwrap();
     tick_to(&mut world, 5);
     assert!(!world.host_object(early).unwrap().innate_stealth);
@@ -329,7 +329,7 @@ fn stealth_upgrade_grants_only_current_weapon_spawn_roster() {
         object("OrdinaryNest", "STRUCTURE", &modules),
         object("UpgradeSlave", "INFANTRY", &stealth_module("StealthDelay = 0\nInnateStealth = No\n")),
     ]);
-    world.players.insert(0, Player::new(0, Team::GLA, "Owner", true));
+    world.add_player(Player::new(0, Team::GLA, "Owner", true));
     let nest = world.create_object_for_player("UpgradeNest", 0, Vec3::ZERO).unwrap();
     let ordinary = world.create_object_for_player("OrdinaryNest", 0, Vec3::X).unwrap();
     // SpawnBehavior::update creates the batch on its first sparse pass through

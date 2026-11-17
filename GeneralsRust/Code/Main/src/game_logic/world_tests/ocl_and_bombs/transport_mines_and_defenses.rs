@@ -1341,9 +1341,7 @@ fn demo_trap_proximity_uses_height_not_aircraft_kind() {
 fn bored_dozer_arms_mine_clearing_weaponset() {
     use crate::game_logic::host_mines::HostMineKind;
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, crate::game_logic::Player::new(0, Team::USA, "USA", true));
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
     ensure_test_dozer_template(&mut logic);
     let mid = logic
         .place_land_mine(Team::GLA, Vec3::new(10.0, 0.0, 0.0), None)

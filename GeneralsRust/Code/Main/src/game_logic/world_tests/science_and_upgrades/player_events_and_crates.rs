@@ -176,10 +176,7 @@ fn script_set_rank_level_plays_eva_general_level_up() {
             ranks.add_rank(rank).unwrap();
         }
     }
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"));
     assert!(logic.select_local_player(Some(0)));
     let mut action = ScriptAction::new(ScriptActionType::PlayerSetRanklevel);
     action
@@ -367,10 +364,7 @@ fn eva_insufficient_funds_on_production_spend_fail() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     if let Some(p) = logic.players.get_mut(&0) {
         p.resources.supplies = 0;
     }
@@ -404,10 +398,7 @@ fn try_under_attack_event_base_eva_and_throttle() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     let mut st = ThingTemplate::new("AmericaCommandCenter");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -448,14 +439,8 @@ fn local_unit_death_queues_eva_unit_lost() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Local", true),
-    );
-    logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, Team::GLA, "Enemy", false),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
+    logic.add_player(crate::game_logic::Player::new(1, Team::GLA, "Enemy", false));
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
     t.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic.templates.insert("AmericaInfantryRanger".into(), t);
@@ -512,10 +497,7 @@ fn local_unit_death_queues_eva_unit_lost() {
 fn capture_records_academy_building_capture() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::China, "Captor", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::China, "Captor", true));
     if let Some(p) = logic.get_player_mut_by_team(Team::China) {
         p.record_building_capture();
     }
@@ -535,10 +517,7 @@ fn hijack_queues_eva_vehicle_stolen_for_local_victim() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Victim", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Victim", true));
     let mut v = ThingTemplate::new("AmericaTankCrusader");
     v.add_kind_of(KindOf::Vehicle).set_health(400.0);
     logic.templates.insert("AmericaTankCrusader".into(), v);
@@ -563,14 +542,8 @@ fn capture_building_queues_eva_being_stolen_and_stolen() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Victim", true),
-    );
-    logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, Team::China, "Captor", false),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Victim", true));
+    logic.add_player(crate::game_logic::Player::new(1, Team::China, "Captor", false));
     let mut b = ThingTemplate::new("AmericaPowerPlant");
     b.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -604,14 +577,8 @@ fn black_lotus_cash_steal_records_score_and_floating_text() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "Victim", true),
-    );
-    logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, Team::China, "Lotus", false),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Victim", true));
+    logic.add_player(crate::game_logic::Player::new(1, Team::China, "Lotus", false));
     if let Some(p) = logic.players.get_mut(&0) {
         p.resources.supplies = 2500;
     }
@@ -665,14 +632,8 @@ fn sabotage_cash_steal_spawns_add_and_lose_floating_text() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true),
-    );
-    logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, Team::GLA, "EnemyGLA", false),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true));
+    logic.add_player(crate::game_logic::Player::new(1, Team::GLA, "EnemyGLA", false));
     if let Some(p) = logic.players.get_mut(&0) {
         p.resources.supplies = 5000;
     }
@@ -757,14 +718,8 @@ fn sabotage_queues_eva_building_sabotaged_for_local_victim() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use gamelogic::helpers::EvaEvent; // clear global queue
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true),
-    );
-    logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, Team::GLA, "EnemyGLA", false),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true));
+    logic.add_player(crate::game_logic::Player::new(1, Team::GLA, "EnemyGLA", false));
     let mut st = ThingTemplate::new("AmericaWarFactory");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSWarFactory)
@@ -814,10 +769,7 @@ fn supply_center_cash_steal_queues_eva_cash_stolen() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true));
     if let Some(p) = logic.players.get_mut(&0) {
         p.resources.supplies = 5000;
     }
@@ -847,10 +799,7 @@ fn try_infiltration_event_queues_victim_radar() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     // Local USA player residual.
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true));
     let mut st = ThingTemplate::new("AmericaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -881,14 +830,8 @@ fn try_infiltration_event_queues_victim_radar() {
 fn try_infiltration_event_ignores_ai_vs_ai() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.players.insert(
-        0,
-        crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true),
-    );
-    logic.players.insert(
-        1,
-        crate::game_logic::Player::new(1, Team::China, "AIChina", false),
-    );
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true));
+    logic.add_player(crate::game_logic::Player::new(1, Team::China, "AIChina", false));
     let mut st = ThingTemplate::new("ChinaPowerPlant");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSPower)
@@ -2055,9 +1998,7 @@ fn car_bomb_booby_trap_cancels_when_vehicle_dies() {
 fn shroud_crate_reveals_map_for_picker_player() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "U", true));
+    logic.add_player(Player::new(0, Team::USA, "U", true));
     let mut t = ThingTemplate::new("Scout");
     t.add_kind_of(KindOf::Infantry);
     let uid = ObjectId(5201);
@@ -2096,9 +2037,7 @@ fn shroud_crate_reveals_map_for_picker_player() {
 fn shroud_crate_collide_path() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(2, Player::new(2, Team::GLA, "G", true));
+    logic.add_player(Player::new(2, Team::GLA, "G", true));
     let mut ut = ThingTemplate::new("GUnit");
     ut.add_kind_of(KindOf::Infantry);
     let uid = ObjectId(5210);
@@ -2138,9 +2077,7 @@ fn heal_crate_heals_all_team_objects() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     // C++ heal scope is the picker's controlling player; give USA one slot.
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "U", true));
+    logic.add_player(Player::new(0, Team::USA, "U", true));
     let mut t = ThingTemplate::new("H1");
     t.add_kind_of(KindOf::Infantry);
     let a = ObjectId(5101);
@@ -2210,9 +2147,7 @@ fn unit_crate_spawns_units_for_picker_team() {
 fn heal_crate_collide_path() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "U", true));
+    logic.add_player(Player::new(0, Team::USA, "U", true));
     let mut ut = ThingTemplate::new("U");
     ut.add_kind_of(KindOf::Infantry);
     let uid = ObjectId(5120);
@@ -2241,9 +2176,7 @@ fn heal_crate_collide_path() {
 fn veterancy_crate_levels_picker_and_ally_in_range() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "U", true));
+    logic.add_player(Player::new(0, Team::USA, "U", true));
 
     let mut t1 = ThingTemplate::new("R1");
     t1.add_kind_of(KindOf::Infantry);
@@ -2294,9 +2227,7 @@ fn veterancy_crate_levels_picker_and_ally_in_range() {
 fn level_up_crate_collide_path() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "U", true));
+    logic.add_player(Player::new(0, Team::USA, "U", true));
     let mut ut = ThingTemplate::new("Unit");
     ut.add_kind_of(KindOf::Infantry);
     ut.is_trainable = true;
@@ -2329,9 +2260,7 @@ fn level_up_crate_collide_path() {
 fn veterancy_crate_ai_goal_grants_and_consumes() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "U", true));
+    logic.add_player(Player::new(0, Team::USA, "U", true));
     let mut ut = ThingTemplate::new("Unit");
     ut.add_kind_of(KindOf::Infantry);
     ut.is_trainable = true;
@@ -2395,9 +2324,7 @@ fn slave_drone_attach_inherits_master_rank() {
 fn heroic_unit_does_not_consume_promotion_crate() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "U", true));
+    logic.add_player(Player::new(0, Team::USA, "U", true));
     let mut ut = ThingTemplate::new("Hero");
     ut.add_kind_of(KindOf::Infantry);
     ut.is_trainable = true;
@@ -2431,9 +2358,7 @@ fn heroic_unit_does_not_consume_promotion_crate() {
 fn flying_unit_does_not_consume_promotion_crate() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, crate::game_logic::Player::new(0, Team::USA, "USA", true));
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
     let mut ut = ThingTemplate::new("AmericaJetRaptor");
     ut.add_kind_of(KindOf::Aircraft);
     ut.add_kind_of(KindOf::Vehicle);
@@ -2498,9 +2423,7 @@ fn crate_deletion_update_destroys_expired() {
 fn create_crate_die_arms_deletion_lifetime() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "AI", false));
+    logic.add_player(Player::new(1, Team::China, "AI", false));
     let mut kt = ThingTemplate::new("K");
     kt.add_kind_of(KindOf::Infantry);
     kt.add_kind_of(KindOf::Salvager);
@@ -2537,9 +2460,7 @@ fn create_crate_die_arms_deletion_lifetime() {
 fn salvage_crate_only_salvager_picks_up() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "G", true));
+    logic.add_player(Player::new(0, Team::GLA, "G", true));
     // Retail SalvageCrate PickupScience = SCIENCE_GLA; GLA players hold it
     // intrinsically (PlayerTemplate intrinsic science, Player::init).
     logic
@@ -2753,9 +2674,7 @@ fn crate_death_uses_receiving_world_definitions_after_reset() {
 fn create_crate_die_spawns_salvage_and_notifies_ai() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "AI", false));
+    logic.add_player(Player::new(1, Team::China, "AI", false));
 
     // Killer AI unit — retail SalvageCrateData KilledByType = SALVAGER
     let mut kt = ThingTemplate::new("AiKiller");
@@ -2885,9 +2804,7 @@ fn create_crate_die_skips_non_salvager_for_salvage_crate() {
     // C++ CreateCrateDie.cpp:72-73 — SalvageCrateData KilledByType = SALVAGER.
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "AI", false));
+    logic.add_player(Player::new(1, Team::China, "AI", false));
     let mut kt = ThingTemplate::new("RangerKiller");
     kt.add_kind_of(KindOf::Infantry);
     let kid = ObjectId(4720);

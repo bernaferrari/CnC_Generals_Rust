@@ -27,9 +27,7 @@ fn tank_hunter_tnt_and_laser_howitzer_special_power_residuals() {
     assert!(!tnt_in_start_range(TNT_START_ABILITY_RANGE + 1.0));
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
     let mut th = ThingTemplate::new("ChinaInfantryTankHunter");
     th.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic.templates.insert("ChinaInfantryTankHunter".into(), th);
@@ -632,9 +630,7 @@ fn host_upgrade_complete_helix_nuke_bomb_tags_helix() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
     let mut helix = ThingTemplate::new("ChinaHelix");
     helix
         .add_kind_of(KindOf::Vehicle)
@@ -678,9 +674,7 @@ fn helix_nuke_bomb_maps_to_helix_napalm_residual() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
     let mut helix = ThingTemplate::new("ChinaHelix");
     helix
         .add_kind_of(KindOf::Vehicle)
@@ -736,12 +730,8 @@ fn communications_download_maps_to_cia_intelligence_residual() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::GLA, "GLA", false));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA", false));
     let mut cc = ThingTemplate::new("AmericaCommandCenter");
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -780,9 +770,7 @@ fn general_special_power_aliases_map_to_host_residuals() {
     assert!(honesty_general_special_power_alias_pack_ok());
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut cc = ThingTemplate::new("AmericaCommandCenter");
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -845,9 +833,7 @@ fn superweapon_crate_drop_spawns_ten_200_dollar_crates() {
     assert_eq!(SUPERWEAPON_CRATE_DROP_MONEY, 200);
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut cc = ThingTemplate::new("AmericaCommandCenter");
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -922,9 +908,7 @@ fn napalm_strike_and_general_paradrop_terror_cell_map_host_residuals() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
     let mut cc = ThingTemplate::new("ChinaCommandCenter");
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -1005,9 +989,7 @@ fn black_market_and_dirty_nuke_queue_nuclear_missile_residual() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut sc = ThingTemplate::new("GLACommandCenter");
     sc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -1055,9 +1037,7 @@ fn airforce_carpet_bomb_forces_airforce_payload_tier() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
     let mut cc = ThingTemplate::new("ChinaCommandCenter");
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -1104,9 +1084,7 @@ fn early_china_carpet_bomb_forces_china_payload_tier() {
 
     let mut logic = GameLogic::new();
     // USA caster + EarlyChinaCarpetBomb still forces China payload residual.
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut cc = ThingTemplate::new("AmericaCommandCenter");
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -1164,9 +1142,7 @@ fn early_frenzy_and_emergency_repair_powers_activate() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
     logic
         .players
         .get_mut(&0)
@@ -1230,9 +1206,7 @@ fn early_leaflet_drop_queues_same_delay_residual() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     assert!(honesty_early_leaflet_drop_residual_pack_ok());
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut cc = ThingTemplate::new("AmericaCommandCenter");
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -1283,9 +1257,7 @@ fn host_upgrade_complete_fanaticism_does_not_map_to_nationalism() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
     let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
     rg.add_kind_of(KindOf::Infantry).set_health(120.0);
     logic.templates.insert("ChinaInfantryRedguard".into(), rg);
@@ -1322,12 +1294,8 @@ fn superweapon_cash_hack_science_tier_steals_amount() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::USA, "USA", false));
+    logic.add_player(Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(1, Team::USA, "USA", false));
     logic.players.get_mut(&0).unwrap().resources.supplies = 0;
     logic.players.get_mut(&1).unwrap().resources.supplies = 10_000;
     logic
@@ -1423,9 +1391,7 @@ fn carpet_bomb_faction_tier_from_team_and_airforce_science() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::China, "China", true));
     let mut cc = ThingTemplate::new("ChinaCommandCenter");
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -1451,9 +1417,7 @@ fn carpet_bomb_faction_tier_from_team_and_airforce_science() {
     );
 
     let mut logic_us = GameLogic::new();
-    logic_us
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic_us.add_player(Player::new(0, Team::USA, "USA", true));
     logic_us
         .players
         .get_mut(&0)
@@ -1512,9 +1476,7 @@ fn a10_science_tier_spawns_ocl_jets_from_map_edge() {
     assert!(l1.abs() < 0.1 && l3.abs() < 0.1, "l1={l1} l3={l3}");
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic
         .players
         .get_mut(&0)
@@ -1571,9 +1533,7 @@ fn tank_and_infantry_paradrop_use_faction_templates() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic
         .players
         .get_mut(&0)
@@ -1647,9 +1607,7 @@ fn emergency_repair_and_frenzy_science_tier_from_unlocked() {
     );
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic
         .players
         .get_mut(&0)
@@ -1671,9 +1629,7 @@ fn ambush_science_tier_selects_unit_count() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     let mut palace = ThingTemplate::new("GLAPalace");
     palace.add_kind_of(KindOf::Structure).set_health(3000.0);
     logic.templates.insert("GLAPalace".into(), palace);
@@ -1758,9 +1714,7 @@ fn paradrop_science_tier_selects_unit_count() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     let mut cc = ThingTemplate::new("AmericaCommandCenter");
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
@@ -1825,12 +1779,8 @@ fn host_upgrade_complete_moab_and_satellite_hack_unlock() {
         UPGRADE_AMERICA_MOAB, UPGRADE_CHINA_SATELLITE_HACK_TWO,
     };
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "China", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::China, "China", true));
     assert_eq!(
         logic.apply_player_unlock_upgrade(
             Team::USA.into(),
@@ -1855,9 +1805,7 @@ fn newly_trained_unit_gets_advanced_training_scalar() {
     use crate::game_logic::host_unit_training::UPGRADE_AMERICA_ADVANCED_TRAINING;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic
         .players
         .get_mut(&0)

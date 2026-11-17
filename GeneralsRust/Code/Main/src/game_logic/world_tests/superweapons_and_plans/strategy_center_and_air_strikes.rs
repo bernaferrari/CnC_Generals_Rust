@@ -22,9 +22,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);
     if !game_logic.players.contains_key(&0) {
-        game_logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "USA", true));
+        game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     }
 
     let sc_id = game_logic
@@ -421,9 +419,7 @@ fn strategy_center_bombardment_turret_fire_residual() {
 
     // Ensure USA player exists for player_id_for_team residual gate.
     if !game_logic.players.contains_key(&0) {
-        game_logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "USA", true));
+        game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     } else if let Some(p) = game_logic.players.get_mut(&0) {
         p.team = Team::USA;
     }
@@ -623,9 +619,7 @@ fn strategy_center_gun_scatter_misses_infantry_residual() {
         .insert("AmericaStrategyCenter".to_string(), sc_template);
 
     if !logic.players.contains_key(&0) {
-        logic
-            .players
-            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
     } else if let Some(p) = logic.players.get_mut(&0) {
         p.team = Team::USA;
     }
@@ -2292,12 +2286,8 @@ fn radar_van_scan_fires_stealth_discover_feedback() {
     use crate::game_logic::host_radar_stealth_vision_residual::SPOTTER_AUDIO_STEALTH_DISCOVERED;
     use crate::game_logic::{KindOf, Player};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::GLA, "Local", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "China", false));
+    logic.add_player(Player::new(0, Team::GLA, "Local", true));
+    logic.add_player(Player::new(1, Team::China, "China", false));
     let mut hero = crate::game_logic::ThingTemplate::new("ChinaInfantryBlackLotus");
     hero.add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Hero)

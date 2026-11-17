@@ -13,8 +13,8 @@ fn under_attack_uses_captured_projectile_mask_not_rewritten_launcher_owner() {
         "under_attack_uses_captured_projectile_mask_not_rewritten_launcher_owner",
         || {
             let mut world = GameLogic::new();
-            world.players.insert(0, Player::new(0, Team::USA, "Local", true));
-            world.players.insert(1, Player::new(1, Team::China, "Enemy", false));
+            world.add_player(Player::new(0, Team::USA, "Local", true));
+            world.add_player(Player::new(1, Team::China, "Enemy", false));
             assert!(world.select_local_player(Some(0)));
 
             let victim = ObjectId(10);
@@ -65,8 +65,8 @@ fn under_attack_uses_captured_projectile_mask_not_rewritten_launcher_owner() {
             // Friendly controller mask must suppress the ping even when sourceID
             // points at a foreign object.
             let mut world = GameLogic::new();
-            world.players.insert(0, Player::new(0, Team::USA, "Local", true));
-            world.players.insert(1, Player::new(1, Team::China, "Enemy", false));
+            world.add_player(Player::new(0, Team::USA, "Local", true));
+            world.add_player(Player::new(1, Team::China, "Enemy", false));
             assert!(world.select_local_player(Some(0)));
             let mut vt = ThingTemplate::new("LocalVictim");
             vt.add_kind_of(KindOf::Infantry).set_health(100.0);

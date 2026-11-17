@@ -2077,9 +2077,7 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
     // (ParkingPlaceBehavior.cpp:453-472 "only planes with reserved spaces can
     // reserve runways"), so the fixture authors the retail module + players.
     use crate::game_logic::{ParkingPlaceMetadata, Player};
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "P0", true));
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
     {
         let mut af_t = ThingTemplate::new("LandAF");
         af_t.add_kind_of(KindOf::Structure);
@@ -2199,9 +2197,7 @@ fn airfield_takeoff_releases_parking_slot() {
     let mut logic = GameLogic::new();
     // C++ findSuitableAirfield ally check resolves ownerless objects through
     // the unique team player.
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "P0", true));
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
     let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
     af_tmpl
         .add_kind_of(KindOf::Structure)
@@ -2446,9 +2442,7 @@ fn helipad_landing_uses_two_point_descent_not_pad_snap() {
         .insert("AmericaVehicleComanche".into(), heli_tmpl);
     // C++ findSuitableAirfield ally check runs through player relationships;
     // ownerless objects resolve through the unique team player.
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "P0", true));
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
 
     let pad_id = logic
         .create_object("AmericaHelipad", Team::USA, Vec3::ZERO)
@@ -2617,12 +2611,8 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
 fn supply_center_accepts_deposit_same_player_only() {
     use crate::game_logic::{DockKind, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "P0", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::USA, "P1", false));
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
+    logic.add_player(Player::new(1, Team::USA, "P1", false));
     let mut t = ThingTemplate::new("AmericaSupplyCenter");
     t.add_kind_of(KindOf::SupplyCenter);
     t.dock_kind = DockKind::SupplyCenter;

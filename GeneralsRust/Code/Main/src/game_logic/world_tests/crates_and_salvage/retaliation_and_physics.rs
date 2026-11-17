@@ -5,9 +5,7 @@ use super::*;
 fn drones_do_not_trigger_or_join_retaliation() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "P0", true));
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
     logic.set_logical_retaliation_mode(0, true);
     // Victim is drone → shouldRetaliateAgainstAggressor false
     let mut vt = ThingTemplate::new("DroneV");
@@ -1538,9 +1536,7 @@ fn host_direct_attack_authority_does_not_bypass_weaponset_target_legality() {
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "Local", true));
+    logic.add_player(Player::new(0, Team::USA, "Local", true));
 
     let attacker_id = ObjectId(2330);
     let mut attacker_template = ThingTemplate::new("HostAttackMaskSource");
