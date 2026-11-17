@@ -1003,9 +1003,11 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
         700,
         "only the started structure is charged"
     );
+    // C++ BuildAssistant::buildObjectNow hands the scaffold to the dozer as
+    // DozerAIInterface::newTask(DOZER_TASK_BUILD); the dozer machine selects
+    // it on its own later update (DozerAIUpdate::getMostRecentCommand).
     let dozer = logic.host_object(dozer_id).expect("assigned dozer");
-    assert_eq!(dozer.target, Some(structure_id));
-    assert_eq!(dozer.ai_state(), crate::game_logic::AIState::Constructing);
+    assert_eq!(dozer.dozer_task_build_target(), Some(structure_id));
 
     // C++ revisits under-construction base entries and hands them to a
     // replacement dozer if the original one is lost.
@@ -1021,11 +1023,9 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
     let replacement = logic
         .host_object(replacement_id)
         .expect("replacement assigned");
-    assert_eq!(replacement.target, Some(structure_id));
-    assert_eq!(
-        replacement.ai_state(),
-        crate::game_logic::AIState::Constructing
-    );
+    // aiResumeConstruction -> privateResumeConstruction -> newTask(BUILD)
+    // (DozerAIUpdate.cpp:1837-1851).
+    assert_eq!(replacement.dozer_task_build_target(), Some(structure_id));
 
     // C++ DozerAIUpdate.cpp:497-503 transitions DOZER_DO_BUILD_AT_DOCK when
     // the dozer AI goes idle at its ACTION dock, not on geometric arrival

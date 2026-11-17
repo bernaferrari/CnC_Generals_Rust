@@ -151,6 +151,11 @@ impl AIPlayer {
                 if skip == Some(object.id) {
                     return false;
                 }
+                // C++ AIPlayer::findDozer (AIPlayer.cpp:3187): a dozer with a
+                // pending DOZER_TASK_BUILD is "already building".
+                if object.dozer_tasks.requests[0].target.is_some() {
+                    return false;
+                }
                 !matches!(
                     object.ai_state(),
                     AIState::Constructing
@@ -164,7 +169,9 @@ impl AIPlayer {
                 let position = object.get_position();
                 let dx = position.x - target.x;
                 let dz = position.z - target.z;
-                let busy_rank = u8::from(object.ai_state() != AIState::Idle);
+                // C++ prefers a dozer with no task pending.
+                let any_task = object.dozer_tasks.requests.iter().any(|r| r.target.is_some());
+                let busy_rank = u8::from(any_task || object.ai_state() != AIState::Idle);
                 (busy_rank, dx * dx + dz * dz, object.id)
             })
             .min_by(|left, right| {

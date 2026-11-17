@@ -117,11 +117,14 @@ fn fixed_tick_scaffold_admission_follows_numeric_ai_slots() {
     // for wall/layer data while Main is stepping its own service context.
     let foreign = gamelogic::system::engine_stores::new_for_world();
     let held = foreign.ai().write().unwrap();
+    // AIPlayer.cpp:58 m_structureTimer(2): the frame-0 pass only counts
+    // down; base building starts on frame 1.
     gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+        world.update_with_dt_budget(1.0 / 30.0, 1);
         world.update_with_dt_budget(1.0 / 30.0, 1);
     });
     drop(held);
-    assert_eq!(world.frame, 1);
+    assert_eq!(world.frame, 2);
     let low = world.ai_manager.ai_players[&1].building_queue[0]
         .object_id
         .expect("slot1 scaffold");
