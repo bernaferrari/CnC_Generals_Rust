@@ -97,12 +97,14 @@ fn detached_a_allows_b_failed_c_drop_and_commit_interleavings_without_reserving_
         original: Some(original),
     };
     seed(1);
-    let a_services = Arc::new(WorldServices::new_for_world());
+    // C++ loads the next world into the one TheThingFactory/ThePlayerList
+    // engine: the stage swaps the live engine's metadata aside and the map load
+    // runs in place (HostRuntimeWorldStage::finish_and_restore_live(&live)).
     let a_stage = HostRuntimeWorldStage::begin(&live);
     seed(2);
     empty_receipt();
     empty_receipt();
-    let a = a_stage.finish_and_restore_live(&a_services);
+    let a = a_stage.finish_and_restore_live(&live);
     assert!(
         WorldRuntimeTransactionLock::is_free(),
         "detached A must not reserve stores"
@@ -124,11 +126,10 @@ fn detached_a_allows_b_failed_c_drop_and_commit_interleavings_without_reserving_
         1
     );
 
-    let b_services = Arc::new(WorldServices::new_for_world());
     let b_stage = HostRuntimeWorldStage::begin(&live);
     seed(3);
     empty_receipt();
-    let b = b_stage.finish_and_restore_live(&b_services);
+    let b = b_stage.finish_and_restore_live(&live);
     observe(1);
     // One seed guard receipt followed by the explicit empty receipt.
     assert_eq!(b.team_factory_effects.len(), 2);
@@ -165,11 +166,10 @@ fn detached_a_allows_b_failed_c_drop_and_commit_interleavings_without_reserving_
     committed.finish_after_logic_commit();
     assert!(WorldRuntimeTransactionLock::is_free());
     // A later reset-stage rollback preserves the just-committed A values.
-    let reset = HostRuntimeWorldStage::begin(&a_services);
+    let reset = HostRuntimeWorldStage::begin(&live);
     seed(5);
     drop(reset);
     observe(2);
-    engine_stores::uninstall_services(&a_services);
     });
 }
 
