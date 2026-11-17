@@ -1,7 +1,7 @@
 //! Header template manager for unified UI font styling.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::ini::{
@@ -131,7 +131,6 @@ fn load_header_template_ini() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-static HEADER_TEMPLATE_PARSER: OnceLock<()> = OnceLock::new();
 
 #[cfg(test)]
 thread_local! {
@@ -159,9 +158,8 @@ pub fn get_header_template_manager() -> Arc<Mutex<HeaderTemplateManager>> {
 }
 
 pub fn register_parser() {
-    HEADER_TEMPLATE_PARSER.get_or_init(|| {
-        let _ = register_block_parser("HeaderTemplate", parse_header_template_definition);
-    });
+    // Idempotent per Common bag (each engine registers into its own INI).
+    let _ = register_block_parser("HeaderTemplate", parse_header_template_definition);
 }
 
 fn parse_header_template_definition(ini: &mut INI) -> INIResult<()> {

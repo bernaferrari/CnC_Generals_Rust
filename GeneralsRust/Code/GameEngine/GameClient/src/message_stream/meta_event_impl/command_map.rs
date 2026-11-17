@@ -1,14 +1,11 @@
 // Split from `message_stream/meta_event.rs` dump. Included by `meta_event_impl/mod.rs`.
 
 fn ensure_meta_map_loaded() {
-    META_PARSER_REGISTERED.get_or_init(|| {
-        let _ = register_block_parser("CommandMap", parse_meta_map_definition);
-    });
-
     if with_meta_map_ref(|map| !map.records.is_empty()) {
         return;
     }
-
+    // Idempotent per Common bag (each engine registers into its own INI).
+    let _ = register_block_parser("CommandMap", parse_meta_map_definition);
     load_meta_map_files();
 }
 
@@ -280,9 +277,7 @@ pub fn update_command_map_entry(
 }
 
 pub fn reset_command_map_entries() {
-    META_PARSER_REGISTERED.get_or_init(|| {
-        let _ = register_block_parser("CommandMap", parse_meta_map_definition);
-    });
+    let _ = register_block_parser("CommandMap", parse_meta_map_definition);
     with_meta_map(|map| map.records.clear());
     load_meta_map_files();
 }

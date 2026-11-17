@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::hint::black_box;
 use std::path::PathBuf;
-use std::sync::{OnceLock, RwLock};
+use std::sync::RwLock;
 use std::time::Instant;
 
 use game_engine::common::audio::game_audio::{

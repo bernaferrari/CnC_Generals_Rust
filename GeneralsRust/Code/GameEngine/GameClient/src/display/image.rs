@@ -6,7 +6,6 @@
 use bitflags::bitflags;
 use image::{DynamicImage, GenericImageView, ImageBuffer, ImageError, ImageFormat, RgbaImage};
 use log::debug;
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1145,8 +1144,8 @@ fn ensure_engine_filesystem_backends() {
     // create_gpu_texture → ensure_image_data_loaded → this fn → readdir).
     // Search paths and mounted BIG roots never change mid-run, matching
     // C++ GameFileSystem::Init (once at boot) and the textures.rs twin.
-    static INSTALLED: OnceCell<()> = OnceCell::new();
-    INSTALLED.get_or_init(|| {
+    enum ImageFsRoots {}
+    game_engine::common::common_services::once_per_application::<ImageFsRoots>(|| {
         let fs = get_file_system();
         let Ok(mut fs_guard) = fs.lock() else {
             return;

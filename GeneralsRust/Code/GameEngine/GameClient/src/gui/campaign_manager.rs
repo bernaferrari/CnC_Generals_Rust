@@ -823,10 +823,8 @@ fn ensure_campaign_filesystem_backends() {
     use game_engine::common::system::subsystem_interface::{
         SubsystemInterface as CommonSubsystemInterface, SubsystemState,
     };
-    use std::sync::Once;
-
-    static INSTALL: Once = Once::new();
-    INSTALL.call_once(|| {
+    enum CampaignFsRoots {}
+    game_engine::common::common_services::once_per_application::<CampaignFsRoots>(|| {
         let fs = get_file_system();
         let Ok(mut fs_guard) = fs.lock() else {
             return;

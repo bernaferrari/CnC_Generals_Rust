@@ -2005,7 +2005,8 @@ pub(crate) fn add_game_fs_search_roots(roots: &[std::path::PathBuf], reload_arch
 }
 
 fn ensure_game_fs_backends() {
-    static INIT: std::sync::LazyLock<()> = std::sync::LazyLock::new(|| {
+    enum GameFsRoots {}
+    game_engine::common::common_services::once_per_application::<GameFsRoots>(|| {
         let mut roots = vec![std::path::PathBuf::from(".")];
         if let Ok(cwd) = std::env::current_dir() {
             roots.push(cwd.clone());
@@ -2031,7 +2032,6 @@ fn ensure_game_fs_backends() {
         }
         add_game_fs_search_roots(&roots, true);
     });
-    std::sync::LazyLock::force(&INIT);
 }
 
 fn tree_texture_path_candidates(texture_name: &str) -> Vec<String> {

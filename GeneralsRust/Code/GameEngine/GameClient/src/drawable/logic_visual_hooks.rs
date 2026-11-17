@@ -16,7 +16,7 @@ use gamelogic::object::draw::{
 use glam::{Mat4, Vec3};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Once};
+use std::sync::Arc;
 use ww3d_assets::prototypes::{BoxPrototype, HlodPrototype};
 
 #[derive(Default)]
@@ -496,21 +496,25 @@ fn preload_asset(name: &str) {
     log::debug!("W3DModelDraw preload_assets: {name}");
 }
 
-/// Install the live GameClient adapters. Safe to call more than once.
+/// Install the live GameClient adapters into the active world's services.
+/// Safe to call more than once: a world that already carries the adapters
+/// keeps them (each world, and each engine in the process, gets its own).
 pub fn ensure_logic_draw_hooks() {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        register_terrain_decal_client(Arc::new(ProjectedDecalClient::default()));
-        register_terrain_track_client(Arc::new(TrackClient {
-            by_object: Mutex::new(HashMap::new()),
-        }));
-        register_texture_aspect_hook(texture_aspect);
-        register_preload_asset_hook(preload_asset);
-        register_pristine_bone_lookup_hook(Some(Arc::new(lookup_pristine_bone)));
-        register_sub_object_name_hook(Some(Arc::new(lookup_sub_object_names)));
-        register_model_bounds_hook(Some(Arc::new(lookup_model_obj_bounds)));
-        let _ = TheGameLogic::get_frame();
-    });
+    if gamelogic::system::engine_stores::try_active_services().is_none()
+        || gamelogic::object::draw::client_visual::terrain_track_client().is_some()
+    {
+        return;
+    }
+    register_terrain_decal_client(Arc::new(ProjectedDecalClient::default()));
+    register_terrain_track_client(Arc::new(TrackClient {
+        by_object: Mutex::new(HashMap::new()),
+    }));
+    register_texture_aspect_hook(texture_aspect);
+    register_preload_asset_hook(preload_asset);
+    register_pristine_bone_lookup_hook(Some(Arc::new(lookup_pristine_bone)));
+    register_sub_object_name_hook(Some(Arc::new(lookup_sub_object_names)));
+    register_model_bounds_hook(Some(Arc::new(lookup_model_obj_bounds)));
+    let _ = TheGameLogic::get_frame();
 }
 
 #[cfg(test)]

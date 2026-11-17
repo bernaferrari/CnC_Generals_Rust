@@ -25,7 +25,7 @@ use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureView};
 
 /// Unique identifier for terrain textures
@@ -318,8 +318,8 @@ fn runtime_root_candidates() -> Vec<PathBuf> {
 }
 
 fn ensure_engine_filesystem_backends() {
-    static INIT: OnceLock<()> = OnceLock::new();
-    INIT.get_or_init(|| {
+    enum TerrainFsRoots {}
+    game_engine::common::common_services::once_per_application::<TerrainFsRoots>(|| {
         let fs = get_file_system();
         let Ok(mut fs_guard) = fs.lock() else {
             return;

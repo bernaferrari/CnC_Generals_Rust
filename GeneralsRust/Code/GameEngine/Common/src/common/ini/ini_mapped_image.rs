@@ -574,10 +574,8 @@ fn ensure_mapped_image_game_fs_backends() {
     use crate::common::system::subsystem_interface::{
         SubsystemInterface as CommonSubsystemInterface, SubsystemState,
     };
-    use std::sync::OnceLock;
-
-    static INSTALLED: OnceLock<()> = OnceLock::new();
-    INSTALLED.get_or_init(|| {
+    enum MappedImageFsRoots {}
+    crate::common::common_services::once_per_application::<MappedImageFsRoots>(|| {
         let mut roots = vec![
             PathBuf::from("."),
             PathBuf::from("Data"),

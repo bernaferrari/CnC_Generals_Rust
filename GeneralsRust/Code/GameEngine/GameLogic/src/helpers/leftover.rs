@@ -626,13 +626,11 @@ fn radar_eva_event(eva_name: &str) -> Option<EvaEvent> {
     }
 }
 
+/// Idempotent per Common bag: the radar slot keeps its first adapter.
 fn ensure_radar_event_feedback_registered() {
-    static REGISTERED: OnceLock<()> = OnceLock::new();
-    let _ = REGISTERED.get_or_init(|| {
-        let _ = game_engine::common::system::radar::register_radar_event_feedback(Arc::new(
-            LeftoverRadarEventFeedback,
-        ));
-    });
+    let _ = game_engine::common::system::radar::register_radar_event_feedback(Arc::new(
+        LeftoverRadarEventFeedback,
+    ));
 }
 
 /// C++ `TheTacticalView` camera constraint hook used by SWITCH_BORDER.

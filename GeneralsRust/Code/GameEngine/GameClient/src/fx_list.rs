@@ -26,7 +26,7 @@ pub use view_services::FxViewServices;
 use view_services::with_tactical_fx_view_services;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use glam::{Mat3, Vec3};
 
@@ -798,7 +798,6 @@ impl Default for FXListStore {
     }
 }
 
-static FX_LIST_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 
 // Test-only fallback when no live GameClient is bound. C++ `TheFXListStore`
 // is one persistent singleton; an ephemeral per-call store would drop every
@@ -844,9 +843,8 @@ pub fn sound_names_for_fx_list(name: &str) -> Vec<String> {
 }
 
 pub fn init_fx_list_store() -> Result<(), Box<dyn std::error::Error>> {
-    FX_LIST_PARSER_REGISTERED.get_or_init(|| {
-        let _ = register_block_parser("FXList", parse_fx_list_definition);
-    });
+    // Idempotent per Common bag (each engine registers into its own INI).
+    let _ = register_block_parser("FXList", parse_fx_list_definition);
 
     let mut ini = INI::new();
     let default_path = "Data/INI/Default/FXList.ini";
@@ -2053,9 +2051,7 @@ mod tests {
         let Ok(source) = std::fs::read_to_string(&path) else {
             return;
         };
-        FX_LIST_PARSER_REGISTERED.get_or_init(|| {
-            assert!(register_block_parser("FXList", parse_fx_list_definition));
-        });
+        let _ = register_block_parser("FXList", parse_fx_list_definition);
 
         let mut ini = INI::new();
         ini.with_inline_source(&source, |ini| ini.parse_current_file())

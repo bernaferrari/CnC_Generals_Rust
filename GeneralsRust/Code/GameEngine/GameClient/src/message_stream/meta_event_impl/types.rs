@@ -73,9 +73,8 @@ impl MetaMap {
     }
 }
 
-// Parser registration is a process-wide one-shot (idempotent). The CommandMap
-// table itself lives on `GameClient::meta_map` (live client / test TLS).
-static META_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
+// Parser registration is idempotent per Common bag. The CommandMap table
+// itself lives on `GameClient::meta_map` (live client / test TLS).
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 const EXTENT_BIG_CHANGE: f32 = 10.0;

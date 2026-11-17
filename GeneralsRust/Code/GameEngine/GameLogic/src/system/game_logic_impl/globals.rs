@@ -277,8 +277,6 @@ fn install_save_game_counter_integration() {
 // Global Singleton Access
 // =============================================================================
 
-static SAVE_GAME_COUNTER_HOOKS: OnceLock<()> = OnceLock::new();
-
 fn try_game_logic_mutex() -> Option<&'static Mutex<GameLogic>> {
     // Published Core preferred; Main world-services use the per-world slot.
     // No process-lifetime fallback bag.
@@ -291,9 +289,12 @@ fn try_game_logic_mutex() -> Option<&'static Mutex<GameLogic>> {
     } else {
         return None;
     };
-    SAVE_GAME_COUNTER_HOOKS.get_or_init(|| {
-        install_save_game_counter_integration();
-    });
+    enum SaveGameCounterHooks {}
+    if let Some(common) = game_engine::common::common_services::try_common_services() {
+        common
+            .application
+            .once::<SaveGameCounterHooks>(install_save_game_counter_integration);
+    }
     Some(mutex)
 }
 

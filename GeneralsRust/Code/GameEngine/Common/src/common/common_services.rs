@@ -191,6 +191,23 @@ impl ApplicationChannels {
             .downcast::<T>()
             .unwrap_or_else(|_| unreachable!("extension slot keyed by its own TypeId"))
     }
+
+    /// Run `init` once for this application, keyed by the marker type `K`.
+    ///
+    /// C++ one-time boot work (`GameEngine::init` mounting search roots,
+    /// registering parsers) happens once per engine; a process-wide `Once`
+    /// would perform it only for the first engine in the process.
+    pub fn once<K: 'static>(&self, init: impl FnOnce()) {
+        struct OnceFor<K>(std::sync::Once, std::marker::PhantomData<fn() -> K>);
+        self.extension(|| OnceFor::<K>(std::sync::Once::new(), std::marker::PhantomData))
+            .0
+            .call_once(init);
+    }
+}
+
+/// Run `init` once for the publishing application (see [`ApplicationChannels::once`]).
+pub fn once_per_application<K: 'static>(init: impl FnOnce()) {
+    common_services().application.once::<K>(init);
 }
 
 impl Default for ApplicationChannels {
