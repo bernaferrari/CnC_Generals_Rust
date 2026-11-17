@@ -82,16 +82,23 @@ fn weaponset_flag_and_salvage_unlock_unless_shared_across_sets() {
     assert_eq!(object.active_weapon_slot, 0);
 }
 
+/// Retail GameData.ini HealthBonus_Regular/Veteran/Elite/Heroic. A detached
+/// Object has GlobalData defaults (all 100%), so the promoting owner lends it.
+const RETAIL_HEALTH_BONUS: [f32; game_engine::common::global_data::LEVEL_COUNT] =
+    [1.0, 1.2, 1.3, 1.5, 1.0, 1.0, 1.0, 1.0];
+
 #[test]
 fn veterancy_preserves_health_ratio_when_max_health_changes() {
     let mut object = make_test_object();
     object.health.current = 50.0;
     object.health.maximum = 100.0;
 
-    object.gain_experience(
+    object.gain_experience_with_health_bonus_table(
         60.0,
+        &RETAIL_HEALTH_BONUS,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         &mut crate::game_logic::VeterancyFeedback::standalone(),
+        None,
     ); // Veteran → +20% HP
     assert!((object.health.maximum - 120.0).abs() < 0.01);
     assert!((object.health.current - 60.0).abs() < 0.01);
@@ -105,10 +112,12 @@ fn level_up_scales_current_max_health_not_template() {
     object.health.maximum = 250.0;
     object.health.current = 250.0;
     object.max_health = 250.0;
-    object.gain_experience(
+    object.gain_experience_with_health_bonus_table(
         60.0,
+        &RETAIL_HEALTH_BONUS,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         &mut crate::game_logic::VeterancyFeedback::standalone(),
+        None,
     );
     assert!(
         (object.health.maximum - 300.0).abs() < 0.01,
