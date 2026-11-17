@@ -532,7 +532,14 @@ mod tests {
         // C++ ScriptActions::doMusicTrackChange → TheAudio->addAudioEvent(track).
         // Live GAME_SHELL uses MissionScriptActionHandler, which previously only
         // noted the name and never queued AR_Play.
-        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        // TheAudio belongs to the GameEngine of the script's world.
+        let world = gamelogic::system::engine_stores::active_services();
+        let common = std::sync::Arc::clone(world.common());
+        let manager = game_engine::common::common_services::with_common_services(&common, || {
+            game_engine::common::audio::game_audio::get_global_audio_manager().unwrap_or_else(
+                game_engine::common::audio::game_audio::initialize_global_audio_manager,
+            )
+        });
         let before = {
             let guard = manager.lock().expect("THE_AUDIO lock");
             (
@@ -575,7 +582,7 @@ mod tests {
         }
 
         let hooks = MissionScriptHooks::new();
-        let handler = MissionScriptActionHandler::new(hooks);
+        let handler = MissionScriptActionHandler::new(hooks).in_world(&world);
         handler
             .music_set_track("ShellMapMusic", false, true)
             .expect("MUSIC_SET_TRACK must succeed");
