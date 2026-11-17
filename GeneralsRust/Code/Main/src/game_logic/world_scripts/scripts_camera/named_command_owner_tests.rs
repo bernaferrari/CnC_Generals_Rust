@@ -11,12 +11,15 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
-    crate::fixture_content::admit_fixture_objects(
+    // C++ WeaponSets are ThingTemplate content naming TheWeaponStore
+    // templates; a restored Object rebuilds its WeaponSet from that template.
+    crate::fixture_content::admit_fixture_content(
         &mut world,
         &[
             crate::fixture_content::FixtureObject::new("OwnedNamedInfantry")
                 .kind_of("INFANTRY SELECTABLE")
                 .health(100.0)
+                .armed("OwnedNamedRifle")
                 .walker(),
             // ThingFactory builds every template before NewGame; the AI-less
             // crate witness is startup content, not a late insertion.
@@ -24,6 +27,14 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
                 .kind_of("CRATE")
                 .health(100.0),
         ],
+        &[crate::fixture_content::FixtureWeapon::from_stats(
+            "OwnedNamedRifle",
+            &Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..Weapon::default()
+            },
+        )],
     );
     world.add_player(Player::new(1, Team::USA, "NamedOwner", true));
     world.add_player(Player::new(2, Team::China, "NamedVictim", false));
@@ -40,16 +51,6 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     let target = world
         .create_object_for_player("OwnedNamedInfantry", 2, Vec3::new(70.0, 0.0, 70.0))
         .unwrap();
-    for id in [unit, target] {
-        crate::fixture_content::arm_with_stats(
-            world.host_object_mut(id).unwrap(),
-            Weapon {
-                damage: 10.0,
-                range: 100.0,
-                ..Weapon::default()
-            },
-        );
-    }
     world.host_object_mut(unit).unwrap().name = "NamedUnit".into();
     world.host_object_mut(target).unwrap().name = "NamedTarget".into();
     let object = world.host_object_mut(unit).unwrap();
