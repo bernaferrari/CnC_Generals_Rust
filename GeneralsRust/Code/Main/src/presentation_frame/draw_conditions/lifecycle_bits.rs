@@ -65,9 +65,8 @@ impl DrawConditionFacts {
             };
             // C++ FlammableUpdate owns AFLAME / SMOLDERING / BURNED on the live
             // object. Host `refresh_model_condition_bits` already stamped them.
-            // Do not rewrite from death_type_name (alive burners have an empty
+            // Do not rewrite from the death type (alive burners have an empty
             // name; death.contains("burn") is unrelated to tryToIgnite).
-            let _death = self.death_type_name.to_ascii_lowercase();
             let _burn_b = burned_model_bit();
             let _flame_b = aflame_model_bit();
             let _smolder_b = {
@@ -76,7 +75,6 @@ impl DrawConditionFacts {
             };
             // Wave 524: SMOLDERING when burned residual without active flame.
             // Host bits stay as-is; death.contains("smolder") is not a stamp.
-            let _ = _death;
             let _ = (_burn_b, _flame_b, _smolder_b);
             // Wave 525: FRONTCRUSHED / BACKCRUSHED / PREORDER / USER_1 / USER_2 residual bits.
             {

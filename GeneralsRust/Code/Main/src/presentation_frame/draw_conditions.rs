@@ -18,7 +18,6 @@ pub(super) struct DrawConditionFacts {
     pub construction_percent: f32,
     pub continuous_fire_coast_until_frame: u32,
     pub continuous_fire_level: u8,
-    pub death_type_name: String,
     pub destroyed: bool,
     pub disabled: bool,
     pub disguised: bool,

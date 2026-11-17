@@ -3393,6 +3393,25 @@ impl GameLogic {
     /// `ProductionPrerequisite::getAllPossibleBuildFacilityTemplates`).
     pub fn invalidate_build_facility_template_names_cache(&self) {
         *self.build_facility_template_names_cache.borrow_mut() = None;
+        *self.fx_template_drawings_cache.borrow_mut() = None;
+        *self.known_template_names_cache.borrow_mut() = None;
+    }
+
+    /// Sorted template names (first 512) frozen into every PresentationFrame.
+    /// Rebuilt only when the template set changes, not per presentation update.
+    pub(crate) fn presentation_known_template_names(&self) -> std::sync::Arc<Vec<String>> {
+        if let Some((count, names)) = self.known_template_names_cache.borrow().as_ref() {
+            if *count == self.templates.len() {
+                return std::sync::Arc::clone(names);
+            }
+        }
+        let mut names: Vec<String> = self.templates.keys().cloned().collect();
+        names.sort();
+        names.truncate(512);
+        let names = std::sync::Arc::new(names);
+        *self.known_template_names_cache.borrow_mut() =
+            Some((self.templates.len(), std::sync::Arc::clone(&names)));
+        names
     }
 
     pub fn build_facility_template_names(&self) -> std::sync::Arc<std::collections::HashSet<String>> {

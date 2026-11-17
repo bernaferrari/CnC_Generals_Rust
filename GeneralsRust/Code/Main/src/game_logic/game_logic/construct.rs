@@ -579,6 +579,8 @@ impl GameLogic {
             receiving_template_baseline: None,
             templates: HashMap::new(),
             build_facility_template_names_cache: std::cell::RefCell::new(None),
+            fx_template_drawings_cache: std::cell::RefCell::new(None),
+            known_template_names_cache: std::cell::RefCell::new(None),
             unresolved_spawn_templates: HashSet::new(),
 
             map_name: String::new(),

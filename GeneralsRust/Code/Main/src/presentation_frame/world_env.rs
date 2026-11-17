@@ -620,7 +620,7 @@ impl PresentationWorldEnv {
         runtime_heightmap: Option<Arc<PresentationRuntimeHeightmap>>,
     ) -> Self {
         let (wmin, wmax) = logic.world_bounds();
-        let meta = logic.last_parsed_map_settings();
+        let meta = logic.last_parsed_map_settings_ref();
         let heightmap_hint = logic
             .heightmap_hint()
             .and_then(|p| p.to_str().map(|s| s.to_string()))

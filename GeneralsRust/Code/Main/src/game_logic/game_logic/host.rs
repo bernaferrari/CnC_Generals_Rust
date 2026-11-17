@@ -1181,6 +1181,12 @@ pub struct GameLogic {
     pub templates: HashMap<String, ThingTemplate>,
     /// Cached build-facility / CommandCenter prerequisite names for AI + script
     /// census (C++ walks factories once; rebuild only when templates mutate).
+    /// Template-name -> receiving Draw definitions for FX operations.
+    pub(crate) fx_template_drawings_cache:
+        std::cell::RefCell<Option<crate::game_logic::FxTemplateDrawings>>,
+    /// (template count, sorted names) for `presentation_known_template_names`.
+    pub(crate) known_template_names_cache:
+        std::cell::RefCell<Option<(usize, std::sync::Arc<Vec<String>>)>>,
     pub(crate) build_facility_template_names_cache: std::cell::RefCell<
         Option<std::sync::Arc<std::collections::HashSet<String>>>,
     >,

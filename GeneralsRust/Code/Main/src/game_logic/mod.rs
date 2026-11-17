@@ -46,6 +46,11 @@ pub(crate) use session_audio::SessionAudioSelection;
 pub(crate) mod terrain_definitions;
 pub(crate) use game_logic::PathfindingHeightSamples;
 pub(crate) use script_ui::ScriptUiEffects;
+/// Template name -> receiving Draw definitions, shared by FX operations
+/// until the template set changes.
+pub(crate) type FxTemplateDrawings = std::sync::Arc<
+    std::collections::HashMap<String, std::sync::Arc<thing::ReceivingDrawModels>>,
+>;
 mod script_presentation;
 #[cfg(feature = "game_client")]
 pub(crate) use script_presentation::NativeAuxiliarySource;

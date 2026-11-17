@@ -21,7 +21,9 @@ pub(crate) struct ObjectFxEnvironment {
     pub detected: HashSet<crate::game_logic::ObjectId>,
     pub tunnel_counts: HashMap<crate::game_logic::ObjectId, u16>,
     pub localities: HashMap<i32, game_engine::common::audio::AudioSubmissionLocality>,
-    pub drawings: HashMap<String, std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>>,
+    /// Template Draw definitions, built once per template revision and
+    /// borrowed by every FX operation (see `fx_template_drawings`).
+    pub drawings: crate::game_logic::FxTemplateDrawings,
     pub things: Option<Arc<HashMap<String, Arc<game_engine::common::thing::ThingTemplate>>>>,
 }
 impl crate::game_logic::GameLogic {
@@ -92,8 +94,20 @@ impl crate::game_logic::GameLogic {
                 })
                 .collect(),
             localities,
-            drawings: self
-                .templates
+            drawings: self.fx_template_drawings(),
+            things,
+        }
+    }
+
+    /// Every template's receiving Draw definitions. C++ ThingTemplates are
+    /// immutable during a game, so this is built once and shared until the
+    /// template set changes (same invalidation as the facility census).
+    pub(crate) fn fx_template_drawings(&self) -> crate::game_logic::FxTemplateDrawings {
+        if let Some(cached) = self.fx_template_drawings_cache.borrow().as_ref() {
+            return Arc::clone(cached);
+        }
+        let drawings: crate::game_logic::FxTemplateDrawings = Arc::new(
+            self.templates
                 .iter()
                 .filter_map(|(name, template)| {
                     template
@@ -101,8 +115,9 @@ impl crate::game_logic::GameLogic {
                         .map(|models| (name.clone(), models))
                 })
                 .collect(),
-            things,
-        }
+        );
+        *self.fx_template_drawings_cache.borrow_mut() = Some(Arc::clone(&drawings));
+        drawings
     }
 }
 impl ObjectFxEnvironment {
@@ -111,15 +126,13 @@ impl ObjectFxEnvironment {
         object: &crate::game_logic::Object,
     ) -> Result<crate::game_logic::NativeSlaveSource, String> {
         let name = crate::presentation_frame::current_object_visual_template(object);
-        let drawings = self
-            .drawings
-            .get(&name)
-            .cloned()
-            .or_else(|| {
-                (name == object.get_template().name)
-                    .then(|| object.get_template().receiving_draw_models())
-                    .flatten()
-            })
+        // The Object's own template is read live; the shared map serves
+        // disguise (visual) templates.
+        let own = (name == object.get_template().name)
+            .then(|| object.get_template().receiving_draw_models())
+            .flatten();
+        let drawings = own
+            .or_else(|| self.drawings.get(&name).cloned())
             .ok_or("missing receiving FX Draw definitions")?;
         let first_detected = object
             .contained_units()

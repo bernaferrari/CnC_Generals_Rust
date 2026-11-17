@@ -464,6 +464,10 @@ pub struct DrawConditionStateDefinition {
     pub is_default: bool,
     pub is_transition: bool,
     pub condition_sets: Vec<Vec<String>>,
+    /// C++ `ModelConditionFlags` for each entry of `condition_sets`, parsed
+    /// once at INI load (`None` = a token the port cannot name; selection
+    /// then refuses to guess, as C++ would have failed the INI parse).
+    pub(crate) condition_masks: Vec<Option<u128>>,
     pub model: AuthoredConditionModel,
     pub animations: Vec<AuthoredDrawAnimation>,
     pub animation_mode: AuthoredDrawAnimationMode,
@@ -498,12 +502,51 @@ pub struct DrawConditionStateDefinition {
     pub(super) animations_copied_from_default: bool,
 }
 
+/// C++ `ModelConditionFlags::parse`: OR of each named bit; `NONE` and empty
+/// tokens add nothing; an unknown name yields `None`.
+pub(crate) fn model_condition_tokens_mask(tokens: &[String]) -> Option<u128> {
+    let mut mask = 0u128;
+    for token in tokens {
+        let token = token.trim().trim_matches(',');
+        if token.is_empty() || token.eq_ignore_ascii_case("none") {
+            continue;
+        }
+        let bit_index =
+            crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(token)?;
+        let shift = u32::try_from(bit_index).ok()?;
+        mask |= 1u128.checked_shl(shift)?;
+    }
+    Some(mask)
+}
+
 impl DrawConditionStateDefinition {
+    /// Append an `AliasConditionState` token list with its parsed flags.
+    pub(super) fn push_condition_set(&mut self, tokens: Vec<String>) {
+        self.condition_masks.push(model_condition_tokens_mask(&tokens));
+        self.condition_sets.push(tokens);
+    }
+
+    /// Parsed flags per condition set; recomputed only if a caller edited
+    /// `condition_sets` directly after load.
+    pub(crate) fn condition_set_masks(&self) -> std::borrow::Cow<'_, [Option<u128>]> {
+        if self.condition_masks.len() == self.condition_sets.len() {
+            std::borrow::Cow::Borrowed(&self.condition_masks)
+        } else {
+            std::borrow::Cow::Owned(
+                self.condition_sets
+                    .iter()
+                    .map(|tokens| model_condition_tokens_mask(tokens))
+                    .collect(),
+            )
+        }
+    }
+
     pub(super) fn default_state() -> Self {
         Self {
             is_default: true,
             is_transition: false,
             condition_sets: vec![Vec::new()],
+            condition_masks: vec![Some(0)],
             model: AuthoredConditionModel::Unspecified,
             animations: Vec::new(),
             animation_mode: AuthoredDrawAnimationMode::Once,
@@ -523,6 +566,7 @@ impl DrawConditionStateDefinition {
         Self {
             is_default: false,
             is_transition: false,
+            condition_masks: vec![model_condition_tokens_mask(&condition_tokens)],
             condition_sets: vec![condition_tokens],
             model: AuthoredConditionModel::Unspecified,
             animations: Vec::new(),
@@ -543,6 +587,7 @@ impl DrawConditionStateDefinition {
         Self {
             is_default: false,
             is_transition: true,
+            condition_masks: vec![model_condition_tokens_mask(&transition_tokens)],
             condition_sets: vec![transition_tokens],
             model: AuthoredConditionModel::Unspecified,
             animations: Vec::new(),
@@ -580,6 +625,8 @@ impl DrawConditionStateDefinition {
 pub struct DrawModuleDefinition {
     pub declaration: String,
     pub ignored_condition_tokens: Vec<String>,
+    /// C++ `m_ignoreConditionStates` flags, parsed with the tokens above.
+    pub(crate) ignored_condition_mask: Option<u128>,
     /// W3DModelDrawModuleData::m_attachToDrawableBone.
     pub attach_to_drawable_bone: Option<String>,
     /// Module-scoped W3DModelDraw recoil coefficients. These are frozen on
@@ -600,6 +647,7 @@ impl DrawModuleDefinition {
         Self {
             declaration,
             ignored_condition_tokens: Vec::new(),
+            ignored_condition_mask: Some(0),
             attach_to_drawable_bone: None,
             recoil_kinematics: AuthoredDrawRecoilKinematics::default(),
             projectile_bone_feedback: AuthoredDrawProjectileBoneFeedback::default(),

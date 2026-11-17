@@ -588,20 +588,16 @@ impl UnitRenderInput {
     }
 
     pub(crate) fn resolve_draw_models_for_frozen_conditions(&mut self, asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>) {
-        let fallback_draw_models = self.draw_models.clone();
         let bits = self.model_condition_bits_with_combat_flags();
-        let dest = self
-            .receiving_draw_models
-            .as_deref()
-            .map(|models| models.select(bits))
-            .unwrap_or_else(|| {
-                crate::assets::resolve_presentation_draw_models_for_conditions(
-                    asset_manager,
-                    &self.template_name,
-                    &fallback_draw_models,
-                    bits,
-                )
-            });
+        let dest = match self.receiving_draw_models.as_deref() {
+            Some(models) => models.select(bits),
+            None => crate::assets::resolve_presentation_draw_models_for_conditions(
+                asset_manager,
+                &self.template_name,
+                &self.draw_models,
+                bits,
+            ),
+        };
         self.draw_models = dest;
         self.model_key = self
             .draw_models
@@ -866,7 +862,6 @@ impl UnitRenderInput {
             construction_percent: self.construction_percent,
             continuous_fire_coast_until_frame: self.continuous_fire_coast_until_frame,
             continuous_fire_level: self.continuous_fire_level,
-            death_type_name: self.death_type_name.clone(),
             destroyed: self.destroyed,
             disabled: self.disabled,
             disguised: self.disguised,

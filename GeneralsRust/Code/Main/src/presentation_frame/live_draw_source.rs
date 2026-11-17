@@ -154,11 +154,6 @@ pub(super) fn object_condition_facts(
         construction_percent: construction_percent.clamp(0.0, 1.0),
         continuous_fire_coast_until_frame: obj.continuous_fire_coast_until_frame,
         continuous_fire_level: obj.continuous_fire_level,
-        death_type_name: if destroyed {
-            obj.status.death_type.as_name().to_owned()
-        } else {
-            String::new()
-        },
         destroyed: destroyed,
         disabled: obj.is_disabled(),
         disguised: obj.status.disguised,

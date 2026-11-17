@@ -646,6 +646,10 @@ impl IniParser {
                             {
                                 draw_module.ignored_condition_tokens =
                                     Self::condition_tokens(value);
+                                draw_module.ignored_condition_mask =
+                                    super::types::model_condition_tokens_mask(
+                                        &draw_module.ignored_condition_tokens,
+                                    );
                             }
                             obj.attributes.insert(key.to_string(), value.to_string());
                         }
@@ -970,7 +974,7 @@ impl IniParser {
         else {
             return;
         };
-        state.condition_sets.push(condition_tokens);
+        state.push_condition_set(condition_tokens);
     }
 
     fn assign_draw_condition_model(

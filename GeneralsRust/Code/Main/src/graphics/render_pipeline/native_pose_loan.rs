@@ -21,6 +21,7 @@ pub struct NativeInstalledPoseLoan<'a> {
 }
 impl RenderPipeline {
     #[cfg(feature = "game_client")]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn admit_native_drawable_binding(
         &mut self,
         identity: &crate::assets::LiveDrawPlaybackIdentity,
@@ -28,6 +29,35 @@ impl RenderPipeline {
     ) -> Result<(), &'static str> {
         self.borrow_native_installed_poses()
             .admit_binding(identity, key)
+    }
+
+    /// Admit every post-sync Client binding of one presentation update.
+    /// Same per-binding validation as `admit_native_drawable_binding`, but the
+    /// owner -> Draw-module index is built once instead of rescanning every
+    /// module state per Drawable (C++ reaches a Drawable's modules directly).
+    #[cfg(feature = "game_client")]
+    pub(crate) fn admit_native_drawable_bindings<'i>(
+        &mut self,
+        bindings: impl IntoIterator<
+            Item = (
+                &'i crate::assets::LiveDrawPlaybackIdentity,
+                game_client::core::PresentationDirectDrawableBindingKey,
+            ),
+        >,
+    ) -> Result<(), &'static str> {
+        let mut loan = self.borrow_native_installed_poses();
+        let mut modules_by_owner: HashMap<NativeDrawOwnerId, Vec<u32>> = HashMap::new();
+        for (owner, module) in loan.drawable_visual_states.keys() {
+            modules_by_owner.entry(*owner).or_default().push(*module);
+        }
+        for (identity, key) in bindings {
+            let modules = modules_by_owner
+                .get(&NativeDrawOwnerId::Actor(identity.object_id()))
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            loan.admit_binding_for_modules(identity, key, modules)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn borrow_native_installed_poses(&mut self) -> NativeInstalledPoseLoan<'_> {
@@ -71,9 +101,28 @@ impl NativeInstalledPoseLoan<'_> {
         identity: &crate::assets::LiveDrawPlaybackIdentity,
         key: game_client::core::PresentationDirectDrawableBindingKey,
     ) -> Result<(), &'static str> {
+        let owner = NativeDrawOwnerId::Actor(identity.object_id());
+        let modules: Vec<u32> = self
+            .drawable_visual_states
+            .keys()
+            .filter(|(id, _)| *id == owner)
+            .map(|(_, module)| *module)
+            .collect();
+        self.admit_binding_for_modules(identity, key, &modules)
+    }
+
+    /// `admit_binding` with the owner's Draw-module state keys supplied.
+    #[cfg(feature = "game_client")]
+    fn admit_binding_for_modules(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        key: game_client::core::PresentationDirectDrawableBindingKey,
+        modules: &[u32],
+    ) -> Result<(), &'static str> {
         if key.object_id != identity.object_id() {
             return Err("Client binding object mismatch");
         }
+        let owner = NativeDrawOwnerId::Actor(identity.object_id());
         let lifetime = self
             .native_drawable_lifetimes
             .get(&NativeDrawOwnerId::Actor(identity.object_id()))
@@ -83,12 +132,15 @@ impl NativeInstalledPoseLoan<'_> {
         {
             return Err("Client binding belongs to another native Drawable constructor");
         }
-        if self.drawable_visual_states.iter().any(|((id, _), state)| {
-            *id == NativeDrawOwnerId::Actor(identity.object_id())
-                && (state.native_host_identity.as_ref() != Some(identity)
-                    || state
-                        .native_client_binding
-                        .is_some_and(|installed| installed != key))
+        if modules.iter().any(|module| {
+            self.drawable_visual_states
+                .get(&(owner, *module))
+                .is_some_and(|state| {
+                    state.native_host_identity.as_ref() != Some(identity)
+                        || state
+                            .native_client_binding
+                            .is_some_and(|installed| installed != key)
+                })
         }) {
             return Err("Client binding did not reach actual native constructor owner");
         }
@@ -96,8 +148,8 @@ impl NativeInstalledPoseLoan<'_> {
             .get_mut(&NativeDrawOwnerId::Actor(identity.object_id()))
             .unwrap()
             .binding = Some(key);
-        for ((id, _), state) in &mut *self.drawable_visual_states {
-            if *id == NativeDrawOwnerId::Actor(identity.object_id()) {
+        for module in modules {
+            if let Some(state) = self.drawable_visual_states.get_mut(&(owner, *module)) {
                 state.native_client_binding = Some(key);
             }
         }

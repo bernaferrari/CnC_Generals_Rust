@@ -1339,6 +1339,46 @@ impl PresentationFrame {
         host_id: crate::game_logic::ObjectId,
         ent: &gamelogic::world::entities::Entity,
     ) -> RenderableObject {
+        let command_set_name = crate::ui::construction_panel::resolve_command_set_name(
+            &ent.template.name,
+            Some(ent.command_set_override.as_str()),
+        )
+        .unwrap_or_default();
+        Self::renderable_from_gameworld_entity_with_command_set(
+            asset_manager,
+            host_id,
+            ent,
+            command_set_name,
+        )
+    }
+
+    /// Override first, else the template CommandSet. ThingTemplates are
+    /// immutable for the game, so one factory lookup per template per rebuild.
+    fn template_command_set_name(
+        memo: &mut std::collections::HashMap<String, String>,
+        template: &str,
+        ent: &gamelogic::world::entities::Entity,
+    ) -> String {
+        let command_set_override = ent.command_set_override.trim();
+        if !command_set_override.is_empty() {
+            return command_set_override.to_string();
+        }
+        if let Some(hit) = memo.get(template) {
+            return hit.clone();
+        }
+        let resolved =
+            crate::ui::construction_panel::resolve_command_set_name(template, None)
+                .unwrap_or_default();
+        memo.insert(template.to_string(), resolved.clone());
+        resolved
+    }
+
+    fn renderable_from_gameworld_entity_with_command_set(
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+        host_id: crate::game_logic::ObjectId,
+        ent: &gamelogic::world::entities::Entity,
+        command_set_name: String,
+    ) -> RenderableObject {
         let team = match ent.team_ordinal {
             0 => crate::game_logic::Team::USA,
             1 => crate::game_logic::Team::China,
@@ -1771,11 +1811,7 @@ impl PresentationFrame {
             // override must still expose its template CommandSet (same resolve as
             // build_from_logic) or the host ControlBar grid and translator catalog
             // carry an empty name and the command grid builds zero slots.
-            command_set_name: crate::ui::construction_panel::resolve_command_set_name(
-                &ent.template.name,
-                Some(ent.command_set_override.as_str()),
-            )
-            .unwrap_or_default(),
+            command_set_name,
             is_detector: ent.is_detector,
             active_weapon_slot: ent.active_weapon_slot,
             weapon_fire_status: ent.weapon_fire_status,
@@ -1895,6 +1931,8 @@ impl PresentationFrame {
         let existing: std::collections::HashSet<u32> =
             self.objects.iter().map(|o| o.id.0).collect();
         let mut appended = 0usize;
+        let mut command_sets: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         for ent in shadow.world().world().entities() {
             if ent.destroyed && ent.health <= 0.0 {
                 continue;
@@ -1905,8 +1943,14 @@ impl PresentationFrame {
             if existing.contains(&host_id.0) {
                 continue;
             }
-            self.objects
-                .push(Self::renderable_from_gameworld_entity(self.asset_owner.0.as_deref(), host_id, ent));
+            let command_set_name =
+                Self::template_command_set_name(&mut command_sets, &ent.template.name, ent);
+            self.objects.push(Self::renderable_from_gameworld_entity_with_command_set(
+                self.asset_owner.0.as_deref(),
+                host_id,
+                ent,
+                command_set_name,
+            ));
             appended += 1;
         }
         self.gameworld_appended = self.gameworld_appended.saturating_add(appended);
@@ -2372,6 +2416,8 @@ impl PresentationFrame {
     ) -> usize {
         self.objects.clear();
         let mut n = 0usize;
+        let mut command_sets: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         for ent in shadow.world().world().entities() {
             if ent.destroyed && ent.health <= 0.0 {
                 continue;
@@ -2379,8 +2425,14 @@ impl PresentationFrame {
             let host_id = shadow
                 .host_for_entity(ent.id)
                 .unwrap_or_else(|| crate::game_logic::ObjectId(0x8000_0000 | ent.id.get()));
-            self.objects
-                .push(Self::renderable_from_gameworld_entity(self.asset_owner.0.as_deref(), host_id, ent));
+            let command_set_name =
+                Self::template_command_set_name(&mut command_sets, &ent.template.name, ent);
+            self.objects.push(Self::renderable_from_gameworld_entity_with_command_set(
+                self.asset_owner.0.as_deref(),
+                host_id,
+                ent,
+                command_set_name,
+            ));
             n += 1;
         }
         self.gameworld_rebuilt = n;

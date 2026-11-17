@@ -138,7 +138,7 @@ impl CnCGameEngine {
         // Wave 846: diplomacy / template / sciences host residuals.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             self.host_match_diplomacy_players = Some(pres.players.clone());
-            self.host_match_known_template_names = Some(pres.known_template_names.clone());
+            self.host_match_known_template_names = Some(std::sync::Arc::clone(&pres.known_template_names));
             // Wave 901: sciences residual from freeze only (no player_unlocked dual-read).
             let mut sciences = std::collections::HashMap::new();
             sciences.insert(pres.local_player_id, pres.local_unlocked_sciences.clone());
@@ -149,7 +149,7 @@ impl CnCGameEngine {
         } else {
             // Wave 901: cold residual fail-closed (boot_player_info already residual-only).
             self.host_match_diplomacy_players = Some(Vec::new());
-            self.host_match_known_template_names = Some(Vec::new());
+            self.host_match_known_template_names = Some(Default::default());
             self.host_match_unlocked_sciences = Some(std::collections::HashMap::new());
         }
         // Wave 848: stamp local train producers after other match residuals.
@@ -568,9 +568,10 @@ impl CnCGameEngine {
     #[inline]
     pub(in crate::cnc_game_engine) fn host_stamp_known_template_name(&mut self, name: &str) {
         let key = name.to_string();
-        let entry = self
-            .host_match_known_template_names
-            .get_or_insert_with(Vec::new);
+        let entry = std::sync::Arc::make_mut(
+            self.host_match_known_template_names
+                .get_or_insert_with(Default::default),
+        );
         if entry.binary_search(&key).is_err() && !entry.iter().any(|n| n.eq_ignore_ascii_case(name))
         {
             match entry.binary_search(&key) {

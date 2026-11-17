@@ -339,7 +339,7 @@ pub struct PresentationFrame {
     /// Wave 563: host ThingTemplate name keys frozen for train/UI residual
     /// contains checks without dual-reading live `GameLogic::templates` mid-frame.
     /// Sorted; capped. Fail-closed: not full template body freeze / playable_claim.
-    pub known_template_names: Vec<String>,
+    pub known_template_names: std::sync::Arc<Vec<String>>,
     /// Compact local-player cell-grid FOW for terrain overlay / minimap texture.
     /// Frozen at build so GPU upload does not re-query shroud mid-render.
     /// Fail-closed: not full SAGE dirty-rect / multi-layer shroud streaming.

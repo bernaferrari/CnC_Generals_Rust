@@ -966,7 +966,7 @@ pub struct CnCGameEngine {
     /// Wave 846: host-owned diplomacy / template / sciences residuals.
     pub(crate) host_match_diplomacy_players:
         Option<Vec<crate::presentation_frame::PresentationPlayerInfo>>,
-    pub(crate) host_match_known_template_names: Option<Vec<String>>,
+    pub(crate) host_match_known_template_names: Option<std::sync::Arc<Vec<String>>>,
     pub(crate) host_match_unlocked_sciences: Option<std::collections::HashMap<u32, Vec<String>>>,
     /// Wave 848: host-owned local train producers residual (barracks / other).
     pub(crate) host_match_local_barracks_ids: Option<Vec<crate::game_logic::ObjectId>>,

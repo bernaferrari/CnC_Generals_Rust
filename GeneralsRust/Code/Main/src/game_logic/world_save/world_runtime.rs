@@ -106,6 +106,11 @@ impl GameLogic {
         self.last_map_settings.clone()
     }
 
+    /// Borrowed form of `last_parsed_map_settings` for per-frame readers.
+    pub(crate) fn last_parsed_map_settings_ref(&self) -> Option<&super::script_loader::MapMetadata> {
+        self.last_map_settings.as_ref()
+    }
+
     /// Player_N_Start / Player_N_Rally spots already decoded with map settings.
     /// Avoids a second RefPack decode of the same `.map` during spawn.
     pub(crate) fn cached_player_start_waypoints(

@@ -591,17 +591,19 @@ impl CnCGameEngine {
         // Creating precedes allocation of the real Client association. Only
         // now bind that exact lifetime to the already constructed Draw owner.
         // A changed key without Destroy/Creating is rejected, never relabeled.
-        for (object_id, source) in &native_source_inputs {
-            if let (Some(identity), Some(binding)) = (
-                source.draw_playback_identity.as_ref(),
-                self.game_client
-                    .presentation_direct_drawable_state(host_epoch, *object_id),
-            ) {
-                self.render_pipeline
-                    .admit_native_drawable_binding(identity, binding.binding_key)
-                    .map_err(str::to_owned)?;
-            }
-        }
+        let game_client = &self.game_client;
+        self.render_pipeline
+            .admit_native_drawable_bindings(native_source_inputs.iter().filter_map(
+                |(object_id, source)| {
+                    Some((
+                        source.draw_playback_identity.as_ref()?,
+                        game_client
+                            .presentation_direct_drawable_state(host_epoch, *object_id)?
+                            .binding_key,
+                    ))
+                },
+            ))
+            .map_err(str::to_owned)?;
         // Resolve the complete current binding *after* sync. The same runtime
         // key then guards raw C++ shroud status and frozen pose, so an ordinary
         // update preserves it while a visual replacement rejects predecessor

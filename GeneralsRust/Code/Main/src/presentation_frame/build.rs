@@ -2209,12 +2209,7 @@ impl PresentationFrame {
                 .fixed_step_diagnostics()
                 .accumulated_time_seconds,
             // Wave 563: freeze template name keys for presentation-owned contains residual.
-            known_template_names: {
-                let mut names: Vec<String> = logic.templates.keys().cloned().collect();
-                names.sort();
-                names.truncate(512);
-                names
-            },
+            known_template_names: logic.presentation_known_template_names(),
             fow_grid,
             projected_shroud,
             particle_systems,
@@ -2371,7 +2366,7 @@ impl PresentationFrame {
         self.logic_steps_budget_hit.hash(&mut h);
         self.logic_steps_accumulated_seconds.to_bits().hash(&mut h);
         self.known_template_names.len().hash(&mut h);
-        for n in &self.known_template_names {
+        for n in self.known_template_names.iter() {
             n.hash(&mut h);
         }
         self.fow_grid.content_fingerprint().hash(&mut h);

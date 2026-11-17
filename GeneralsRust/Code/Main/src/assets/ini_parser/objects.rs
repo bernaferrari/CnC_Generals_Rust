@@ -919,9 +919,14 @@ impl DrawModuleDefinition {
         &self,
         condition_bits: u128,
     ) -> std::result::Result<Option<(usize, &DrawConditionStateDefinition)>, ()> {
-        let Some(ignored_bits) =
-            ObjectDefinition::condition_tokens_mask(&self.ignored_condition_tokens)
-        else {
+        // Flags parsed at INI load; recomputed only when they cannot be
+        // trusted (unknown token, or tokens edited after load).
+        let ignored_bits = match self.ignored_condition_mask {
+            _ if self.ignored_condition_tokens.is_empty() => Some(0),
+            Some(mask) if mask != 0 => Some(mask),
+            _ => ObjectDefinition::condition_tokens_mask(&self.ignored_condition_tokens),
+        };
+        let Some(ignored_bits) = ignored_bits else {
             return Err(());
         };
         let query_bits = condition_bits & !ignored_bits;
@@ -934,9 +939,8 @@ impl DrawModuleDefinition {
             if state.is_transition {
                 continue;
             }
-            for condition_tokens in state.condition_sets.iter().rev() {
-                let Some(yes_bits) = ObjectDefinition::condition_tokens_mask(condition_tokens)
-                else {
+            for yes_bits in state.condition_set_masks().iter().rev() {
+                let Some(yes_bits) = *yes_bits else {
                     // C++ parses every condition token into the shared enum
                     // before it can reach SparseMatchFinder.  A token our
                     // port does not understand must not silently discard a
@@ -1071,18 +1075,7 @@ impl DrawModuleDefinition {
 
 impl ObjectDefinition {
     fn condition_tokens_mask(tokens: &[String]) -> Option<u128> {
-        let mut mask = 0u128;
-        for token in tokens {
-            let token = token.trim().trim_matches(',');
-            if token.is_empty() || token.eq_ignore_ascii_case("none") {
-                continue;
-            }
-            let bit_index =
-                crate::game_logic::host_enum_table_residual::model_condition_bit_name_index(token)?;
-            let shift = u32::try_from(bit_index).ok()?;
-            mask |= 1u128.checked_shl(shift)?;
-        }
-        Some(mask)
+        super::types::model_condition_tokens_mask(tokens)
     }
 }
 

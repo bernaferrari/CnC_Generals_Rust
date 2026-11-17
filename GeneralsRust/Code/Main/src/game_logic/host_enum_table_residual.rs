@@ -724,8 +724,9 @@ pub fn over_water_model_bit() -> u32 {
 
 /// C++ MODELCONDITION_RIDER1..RIDER8 residual bit index for passenger slot `n` (1..=8).
 pub fn rider_model_bit(slot: u8) -> u32 {
+    // C++ ModelConditionFlags declares RIDER1..RIDER8 consecutively.
     let n = slot.clamp(1, 8);
-    model_condition_bit_name_index(&format!("RIDER{n}")).unwrap_or(0) as u32
+    ModelConditionFlags::RIDER1 as u32 + u32::from(n - 1)
 }
 
 /// C++ MODELCONDITION_CAPTURED residual bit index.
@@ -1262,6 +1263,16 @@ pub fn honesty_enum_table_residual_pack_wave82() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rider_model_bits_match_their_cpp_names() {
+        for slot in 1..=8u8 {
+            assert_eq!(
+                rider_model_bit(slot) as usize,
+                model_condition_bit_name_index(&format!("RIDER{slot}")).unwrap()
+            );
+        }
+    }
 
     #[test]
     fn damage_type_enum_table_wave82_honesty() {
