@@ -2089,6 +2089,13 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     };
 
     let mut game_logic = GameLogic::new();
+    // Retail GameData.ini WeaponBonus rows the battle plan conditions select
+    // (Weapon.cpp computeBonus reads the session's WeaponBonusSet).
+    game_logic
+        .admit_combat_bonus_ini_sources([
+            "GameData\n WeaponBonus = BATTLEPLAN_BOMBARDMENT DAMAGE 120%\n WeaponBonus = BATTLEPLAN_SEARCHANDDESTROY RANGE 120%\nEnd\n",
+        ])
+        .unwrap();
     ensure_test_tank_template(&mut game_logic);
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_barracks_template(&mut game_logic);
@@ -2128,6 +2135,12 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         // Creation-armed per-module ReloadTime marked elapsed (setReadyFrame(0)).
         center.set_special_power_ready_seconds(&SpecialPowerType::BattlePlanBombardment, 0.0);
         center.object_type = ObjectType::Building;
+        // A retail Strategy Center's turret rests at NaturalTurretAngle/Pitch
+        // (-90/45); BattlePlanUpdate packs Bombardment only from that pose.
+        center.turret_ai.turret_angle_deg =
+            crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+        center.turret_ai.turret_pitch_deg =
+            crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
     }
 
     let ally_id = game_logic
