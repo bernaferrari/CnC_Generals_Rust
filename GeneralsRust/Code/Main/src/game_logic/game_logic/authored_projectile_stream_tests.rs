@@ -88,6 +88,9 @@ fn stream_world(missing_projectile: bool) -> GameLogic {
         .collect();
     let mut world = GameLogic::new();
     world
+        .admit_locomotor_definitions(crate::fixture_content::retail_locomotors_with_missile_flight())
+        .expect("Locomotor catalog admitted before Object content");
+    world
         .admit_weapon_content_snapshot(
             rows.into_values()
                 .map(|row| (row.name.clone(), row))

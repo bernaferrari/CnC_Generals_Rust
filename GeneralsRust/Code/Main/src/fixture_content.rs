@@ -38,6 +38,24 @@ pub(crate) const FIXTURE_WALK_LOCOMOTOR: &str = "FixtureWalk";
 /// MissileDefenderMissileLocomotor rows (Locomotor.ini).
 pub(crate) const FIXTURE_MISSILE_LOCOMOTOR: &str = "FixtureMissileFlight";
 
+/// The retail MissileDefenderMissileLocomotor block (Locomotor.ini).
+const RETAIL_MISSILE_DEFENDER_LOCOMOTOR: &str = "Locomotor MissileDefenderMissileLocomotor\n Surfaces = AIR\n Speed = 225\n MinSpeed = 120\n Acceleration = 675\n Braking = 0\n TurnRate = 100\n MaxThrustAngle = 45\n AllowAirborneMotiveForce = Yes\n Appearance = THRUST\nEnd\n";
+
+/// The application Locomotor catalog a fixture admits before Object content
+/// (C++ GameEngine::init loads Locomotor.ini before Object INI,
+/// GameEngine.cpp:428-458), guaranteed to hold the retail missile flight
+/// locomotor that WeaponObjects.ini MissileDefenderMissile names.
+pub(crate) fn retail_locomotors_with_missile_flight(
+) -> game_engine::common::ini::ini_locomotor::LocomotorStore {
+    let mut store = crate::game_logic::locomotor_bootstrap::default_host_locomotor_store();
+    if store.find_template("MissileDefenderMissileLocomotor").is_none() {
+        store
+            .apply_source(RETAIL_MISSILE_DEFENDER_LOCOMOTOR)
+            .expect("retail missile locomotor parses");
+    }
+    store
+}
+
 /// One authored fixture Object definition.
 #[derive(Clone, Debug)]
 pub(crate) struct FixtureObject {

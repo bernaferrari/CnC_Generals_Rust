@@ -624,6 +624,12 @@ End
         .map(|rule| (rule.name.clone(), rule))
         .collect();
     if game.receiving_module_content.is_none() {
+        if !game.locomotor_definitions.is_admitted() {
+            game.admit_locomotor_definitions(
+                crate::fixture_content::retail_locomotors_with_missile_flight(),
+            )
+            .expect("Locomotor catalog admitted before Object content");
+        }
         // These are the genuinely referenced masters/targets of the containing
         // fixtures. Individual tests retain their explicit local health/weapons
         // after admission; no production namespace fallback is enabled.
