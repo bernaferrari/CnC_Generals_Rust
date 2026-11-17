@@ -325,6 +325,9 @@ fn script_formation_move_keeps_shared_obstacle_spine_and_group_speed() {
     assert!(CommandExecutor::new(&mut logic, 0)
             .execute_script_team_move(&members, destination)
             .unwrap() == CommandResult::Success);
+    // C++ aiFollowPath queues the search; Pathfinder::processPathfindQueue
+    // (AI.cpp update) installs the paths on the next frame.
+    logic.process_pathfind_queue().unwrap();
     for id in &members {
         let unit = logic.host_object(*id).unwrap();
         assert!(

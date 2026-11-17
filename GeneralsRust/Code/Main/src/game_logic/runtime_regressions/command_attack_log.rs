@@ -2,25 +2,33 @@
 
 fn command_attack_log() -> bool {
     use crate::command_system::{CommandType, GameCommand, ModifierKeys};
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
     use std::time::SystemTime;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("AtkLog197");
+    // C++ loads Object and Weapon INI before NewGame; AttackObject reaches
+    // only an Object that authors an AIUpdateInterface and a WeaponSet.
+    use crate::fixture_content::{FixtureObject, FixtureWeapon};
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects_and_weapons(
+        &[
+            FixtureObject::new("AtkLogUnit197")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(120.0)
+                .walker()
+                .armed("AtkLogGun197"),
+            FixtureObject::new("AtkLogTarget197")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(120.0),
+        ],
+        &[FixtureWeapon::new("AtkLogGun197").damage(10.0).range(100.0)],
+    );
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("AtkLog197"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    for name in ["AtkLogUnit197", "AtkLogTarget197"] {
-        if !logic.templates.contains_key(name) {
-            let mut t = ThingTemplate::new(name);
-            t.set_health(120.0);
-            t.add_kind_of(KindOf::Selectable);
-            t.add_kind_of(KindOf::Vehicle);
-            t.add_kind_of(KindOf::Attackable);
-            logic.templates.insert(name.into(), t);
-        }
     }
     let Some(attacker) =
         logic.create_object("AtkLogUnit197", Team::USA, Vec3::new(10.0, 0.0, 10.0))

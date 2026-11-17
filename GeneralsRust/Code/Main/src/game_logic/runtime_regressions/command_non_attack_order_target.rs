@@ -1,27 +1,26 @@
 //! Executable command and lifecycle regressions.
 
 fn command_non_attack_order_target() -> bool {
-    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{AIState, Team};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("NonAtk207");
+    // C++ loads Object INI before NewGame.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("DockUnit207")
+            .kind_of("VEHICLE SELECTABLE")
+            .health(100.0)
+            .walker(),
+        crate::fixture_content::FixtureObject::new("DockPad207")
+            .kind_of("STRUCTURE")
+            .health(500.0),
+    ]);
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("NonAtk207"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    if !logic.templates.contains_key("DockUnit207") {
-        let mut t = ThingTemplate::new("DockUnit207");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Vehicle);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("DockUnit207".into(), t);
-    }
-    if !logic.templates.contains_key("DockPad207") {
-        let mut t = ThingTemplate::new("DockPad207");
-        t.set_health(500.0);
-        t.add_kind_of(KindOf::Structure);
-        logic.templates.insert("DockPad207".into(), t);
     }
     let Some(u) = logic.create_object("DockUnit207", Team::USA, Vec3::new(0.0, 0.0, 0.0)) else {
         return false;

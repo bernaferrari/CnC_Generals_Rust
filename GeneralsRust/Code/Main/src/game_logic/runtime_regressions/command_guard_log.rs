@@ -2,22 +2,25 @@
 
 fn command_guard_log() -> bool {
     use crate::command_system::{CommandType, GameCommand, GuardTarget, ModifierKeys};
-    use crate::game_logic::{GameLogic, GuardMode, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{GuardMode, Team};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
     use std::time::SystemTime;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("GuardLog198");
+    // C++ loads Object INI before NewGame; a Guard order reaches the Object's
+    // AIUpdateInterface (GameLogicDispatch.cpp), so the unit authors one.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("GuardLogUnit198")
+            .kind_of("VEHICLE SELECTABLE")
+            .health(140.0)
+            .walker(),
+    ]);
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("GuardLog198"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    if !logic.templates.contains_key("GuardLogUnit198") {
-        let mut t = ThingTemplate::new("GuardLogUnit198");
-        t.set_health(140.0);
-        t.add_kind_of(KindOf::Selectable);
-        t.add_kind_of(KindOf::Vehicle);
-        logic.templates.insert("GuardLogUnit198".into(), t);
     }
     let Some(unit) = logic.create_object("GuardLogUnit198", Team::USA, Vec3::new(12.0, 0.0, 13.0))
     else {

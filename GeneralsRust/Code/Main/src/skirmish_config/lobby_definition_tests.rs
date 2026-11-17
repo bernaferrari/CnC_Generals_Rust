@@ -35,6 +35,29 @@ pub(crate) fn slot_world_with_objects(
     world
 }
 
+/// [`slot_world_with_objects`] plus the authored Weapons the Objects' WeaponSets
+/// name (C++ loads Weapon.ini with the other startup INI).
+pub(crate) fn slot_world_with_objects_and_weapons(
+    objects: &[crate::fixture_content::FixtureObject],
+    weapons: &[crate::fixture_content::FixtureWeapon],
+) -> crate::game_logic::GameLogic {
+    let mut world = crate::game_logic::GameLogic::new();
+    world
+        .admit_player_template_definitions(slot_definitions())
+        .unwrap();
+    let mut content = vec![
+        crate::fixture_content::FixtureObject::new("AmericaCommandCenter")
+            .kind_of("STRUCTURE COMMANDCENTER")
+            .health(5000.0),
+        crate::fixture_content::FixtureObject::new("GLACommandCenter")
+            .kind_of("STRUCTURE COMMANDCENTER")
+            .health(5000.0),
+    ];
+    content.extend_from_slice(objects);
+    crate::fixture_content::admit_fixture_content(&mut world, &content, weapons);
+    world
+}
+
 /// A slot world whose own PlayerTemplate catalog also applies `overrides`
 /// (later INI blocks overwrite earlier ones, as C++ INI_LOAD_OVERWRITE).
 /// Fixtures author template fields here, never in the process-wide store.
