@@ -927,6 +927,9 @@ pub struct CnCGameEngine {
     /// Immutable presentation feed for client/render after last logic step.
     pub(crate) last_presentation_frame:
         Option<std::rc::Rc<crate::presentation_frame::PresentationFrame>>,
+    /// Headless multi-instance runner only: skip the post-logic presentation
+    /// build for frames that will not be rendered (see [`PresentationDefer`]).
+    pub(crate) presentation_defer: PresentationDefer,
     /// Runtime-only identity epoch for direct host Drawable associations.
     ///
     /// Object IDs are reused by reset, map install, and restore.  This epoch is
@@ -1415,3 +1418,58 @@ pub(super) fn register_real_game_client_bootstrap() {
 
 #[cfg(not(feature = "game_client"))]
 pub(super) fn register_real_game_client_bootstrap() {}
+
+/// Lets a host that renders less often than it simulates skip the
+/// presentation build (and client presentation shell) on frames it will not
+/// draw. C++ `GameClient::update` + `draw` run once per engine frame no matter
+/// how many logic steps ran since the last one (GameEngine.cpp:856-866), and
+/// every consumer here (drawable time, caption/floating text, world anims)
+/// carries frame-delta catch-up, so a later presented frame observes the same
+/// final state. The freeze also feeds a few simulation residuals
+/// (`presentation_or_boot_*`), so the number of consecutive skips is bounded
+/// and a frame is never skipped before the first one exists.
+#[derive(Debug, Default)]
+pub(crate) struct PresentationDefer {
+    /// The caller will not render the frame produced by the next update.
+    pub(crate) next_frame_unseen: bool,
+    skipped_in_a_row: u8,
+}
+
+impl PresentationDefer {
+    /// Longest run of skipped presentation frames (bounds freeze staleness).
+    pub(crate) const MAX_CONSECUTIVE_SKIPS: u8 = 3;
+
+    /// Whether this frame's presentation may be skipped; counts the skip.
+    pub(crate) fn skip_this_frame(&mut self, have_frame: bool, exact_capture: bool) -> bool {
+        if self.next_frame_unseen
+            && have_frame
+            && !exact_capture
+            && self.skipped_in_a_row < Self::MAX_CONSECUTIVE_SKIPS
+        {
+            self.skipped_in_a_row += 1;
+            true
+        } else {
+            self.skipped_in_a_row = 0;
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod presentation_defer_tests {
+    use super::PresentationDefer;
+
+    #[test]
+    fn skips_are_bounded_and_need_an_existing_frame() {
+        let mut defer = PresentationDefer { next_frame_unseen: true, ..Default::default() };
+        assert!(!defer.skip_this_frame(false, false), "first frame always builds");
+        for _ in 0..PresentationDefer::MAX_CONSECUTIVE_SKIPS {
+            assert!(defer.skip_this_frame(true, false));
+        }
+        assert!(!defer.skip_this_frame(true, false), "bounded staleness");
+        assert!(defer.skip_this_frame(true, false), "run restarts after a build");
+        assert!(!defer.skip_this_frame(true, true), "golden capture is exact");
+        defer.next_frame_unseen = false;
+        assert!(!defer.skip_this_frame(true, false), "rendered frame builds");
+    }
+}

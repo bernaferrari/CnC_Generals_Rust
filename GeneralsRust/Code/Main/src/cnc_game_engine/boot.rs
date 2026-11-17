@@ -1041,6 +1041,7 @@ impl CnCGameEngine {
             default_starting_cash: crate::game_logic::Player::DEFAULT_STARTING_MONEY,
             presentation_terrain_cache: PresentationTerrainCache::default(),
             last_presentation_frame: None,
+            presentation_defer: PresentationDefer::default(),
             host_direct_visual_world_epoch: 1,
             rejected_native_worlds: Default::default(),
             host_match_game_mode: None,

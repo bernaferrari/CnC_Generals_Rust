@@ -538,9 +538,13 @@ fn drive_instance(
             break;
         }
 
+        // C++ draws once per engine frame; frames the grid will not draw skip
+        // the presentation build (bounded, see `PresentationDefer`).
+        let present_due = Instant::now() >= next_present;
+        engine.set_next_frame_unseen(!present_due);
         engine.drive_frame_update(&mut last_drive_frame_start, &mut |_, _| Ok(()))?;
         let now = Instant::now();
-        if now >= next_present && engine.should_present_w3d_frame() {
+        if present_due && engine.should_present_w3d_frame() {
             next_present = now + spawn.present_interval;
             engine.render().map_err(|e| format!("render: {e:#}"))?;
             copy_frame_to_tile(engine, &spawn.gpu, &spawn.tile);

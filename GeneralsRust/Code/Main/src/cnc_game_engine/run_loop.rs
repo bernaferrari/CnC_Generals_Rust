@@ -1182,6 +1182,14 @@ impl CnCGameEngine {
 
     /// Consume the completed display decision; never advance a second clock
     /// or multiplier counter while scheduling the optional GPU attempt.
+    /// Declare whether the next `drive_frame_update` result will be rendered.
+    /// A runner that renders less often than it updates (headless grid) sets
+    /// `true` for the frames it will not draw so their presentation build is
+    /// skipped; see [`PresentationDefer`].
+    pub(super) fn set_next_frame_unseen(&mut self, unseen: bool) {
+        self.presentation_defer.next_frame_unseen = unseen;
+    }
+
     pub(super) fn should_present_w3d_frame(&self) -> bool {
         self.native_display.should_present()
     }

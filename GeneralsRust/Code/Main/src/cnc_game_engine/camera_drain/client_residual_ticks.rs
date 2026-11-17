@@ -513,6 +513,15 @@ impl CnCGameEngine {
         // The scoped couple publication ended with the fast-forward batch
         // above; release coupled-frame depth before the presentation shell.
 
+        // A host that renders less often than it simulates skips the build for
+        // frames it will not draw (headless multi-instance grid only).
+        if self.presentation_defer.skip_this_frame(
+            self.last_presentation_frame.is_some(),
+            self.golden_capture.is_some(),
+        ) {
+            return Ok(());
+        }
+
         // Wave 589: presentation finalize residual via helper (build + audio + FX).
         self.host_finalize_presentation_after_logic()?;
 
