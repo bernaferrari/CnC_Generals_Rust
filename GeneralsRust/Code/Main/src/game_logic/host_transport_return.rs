@@ -268,9 +268,16 @@ mod tests {
 
     fn carrier() -> (GameLogic, ObjectId) {
         let mut logic = GameLogic::new();
-        let mut template = ThingTemplate::new("ReturnCarrier");
-        template.set_health(200.0);
-        template.add_kind_of(KindOf::Vehicle);
+        // A moving transport runs its authored AI module (TransportAIUpdate
+        // derives AIUpdateInterface), so its machine snapshots by source.
+        logic
+            .admit_object_ini_sources([(
+                "return-carrier.ini".to_string(),
+                "Object ReturnCarrier\nKindOf = VEHICLE\nBody = ActiveBody ModuleTag_Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = AIUpdateInterface ModuleTag_AI\nEnd\nEnd\n"
+                    .to_string(),
+            )])
+            .expect("authored carrier admits");
+        let mut template = logic.templates["ReturnCarrier"].clone();
         template.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
         template.contain_module.slots = Some(3);
         logic.templates.insert("ReturnCarrier".into(), template);

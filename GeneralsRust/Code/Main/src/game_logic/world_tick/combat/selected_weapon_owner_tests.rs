@@ -24,10 +24,17 @@ fn world_with_prefire(damage: f32, damage_type: &str, delay: u32, prefire: &str)
         ),
         1
     );
-    let mut source = ThingTemplate::new("ReceivingOrdinaryShooter");
-    source
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Attackable);
+    // The shooter is placed in AI_ATTACK states, so it owns an authored
+    // AIUpdateInterface like retail infantry (AIStates.cpp attack machine).
+    world
+        .admit_object_ini_sources([(
+            "receiving-ordinary-shooter.ini".to_string(),
+            "Object ReceivingOrdinaryShooter\nKindOf = INFANTRY\nBody = ActiveBody ModuleTag_Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = AIUpdateInterface ModuleTag_AI\nEnd\nEnd\n"
+                .to_string(),
+        )])
+        .expect("authored shooter admits");
+    let mut source = world.templates["ReceivingOrdinaryShooter"].clone();
+    source.add_kind_of(KindOf::Attackable); // host-only targeting flag
     source.set_primary_weapon_name("RangerMachineGun");
     let mut target = ThingTemplate::new("ReceivingOrdinaryVictim");
     target.set_health(1000.0).add_kind_of(KindOf::Attackable);

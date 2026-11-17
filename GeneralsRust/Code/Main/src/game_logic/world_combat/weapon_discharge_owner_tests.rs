@@ -12,8 +12,18 @@ fn admitted_world(start_barrel: u8) -> GameLogic {
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "local", true));
     logic.add_player(Player::new(1, Team::China, "enemy", false));
-    let mut source_template = ThingTemplate::new("OwnedDischargeSource");
-    source_template.add_kind_of(KindOf::Attackable);
+    // The firing source runs AIAttackFireWeaponState, so it owns an authored
+    // AIUpdateInterface like any retail shooter (AIStates.cpp); the victim is
+    // a plain attackable body.
+    logic
+        .admit_object_ini_sources([(
+            "owned-discharge.ini".to_string(),
+            "Object OwnedDischargeSource\nBody = ActiveBody ModuleTag_Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = AIUpdateInterface ModuleTag_AI\nEnd\nEnd\n"
+                .to_string(),
+        )])
+        .expect("authored discharge source admits");
+    let mut source_template = logic.templates["OwnedDischargeSource"].clone();
+    source_template.add_kind_of(KindOf::Attackable); // host-only targeting flag
     let mut source = Object::new(source_template, SOURCE, Team::USA);
     source.owner_player_id = Some(0);
     source.set_position(Vec3::ZERO);

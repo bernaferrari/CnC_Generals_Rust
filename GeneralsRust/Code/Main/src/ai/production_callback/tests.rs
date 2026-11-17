@@ -13,23 +13,33 @@ fn production_world_with_exit(
     let mut player = Player::new(1, Team::USA, "Production AI", false);
     player.resources.supplies = 10_000;
     world.add_player(player);
+    // The produced unit owns an authored AI module like every retail
+    // infantry/dozer (AIUpdate.cpp; DozerAIUpdate.cpp), so its base-AI
+    // control snapshots against admitted module data.
+    let (kind, ai) = if dozer {
+        ("DOZER", "DozerAIUpdate ModuleTag_AI\nRepairHealthPercentPerSecond = 2")
+    } else {
+        ("INFANTRY", "AIUpdateInterface ModuleTag_AI")
+    };
+    world
+        .admit_object_ini_sources([(
+            format!("production-callback-{unit_name}.ini"),
+            format!(
+                "Object {unit_name}\nKindOf = SELECTABLE {kind}\nBody = ActiveBody ModuleTag_Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = {ai}\nEnd\nEnd\n"
+            ),
+        )])
+        .expect("authored production output admits");
+    let mut unit = world.templates[unit_name].clone();
+    unit.add_kind_of(KindOf::Attackable); // host-only targeting flag, no INI token
+    unit.lock_weapon_slot = Some(0);
+    unit.locomotor_name = Some("BasicHumanLocomotor".into());
+    world.templates.insert(unit.name.clone(), unit);
     let mut factory = ThingTemplate::new("DeliveryFactory");
     factory
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSBarracks);
     factory.production_exit_metadata = exit;
     world.templates.insert(factory.name.clone(), factory);
-    let mut unit = ThingTemplate::new(unit_name);
-    unit.add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable);
-    unit.add_kind_of(if dozer {
-        KindOf::Dozer
-    } else {
-        KindOf::Infantry
-    });
-    unit.lock_weapon_slot = Some(0);
-    unit.locomotor_name = Some("BasicHumanLocomotor".into());
-    world.templates.insert(unit.name.clone(), unit);
     let factory = world
         .create_object_for_player("DeliveryFactory", 1, Vec3::ZERO)
         .unwrap();
