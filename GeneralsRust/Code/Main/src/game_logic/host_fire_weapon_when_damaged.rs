@@ -347,6 +347,16 @@ pub fn fire_when_damaged_weapon_splash(name: &str) -> (f32, f32, f32, f32) {
 
 /// Template peel: attach residual config for known FireWeaponWhenDamaged users.
 pub fn fire_when_damaged_config_for_template(name: &str) -> Option<HostFireWeaponWhenDamagedData> {
+    // Every accepting branch needs "battleship", "toxi" or "poison"; this runs
+    // per object per frame, so reject the rest without allocating.
+    let bytes = name.as_bytes();
+    if ![b"battleship".as_slice(), b"toxi".as_slice(), b"poison".as_slice()].iter().any(|needle| {
+        bytes
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle))
+    }) {
+        return None;
+    }
     let n = name.to_ascii_lowercase();
     if n.contains("battleshiptarget") || n.contains("battleship_target") {
         return Some(HostFireWeaponWhenDamagedData::battleship_target_residual());
@@ -368,6 +378,17 @@ pub fn fire_when_damaged_config_for_template(name: &str) -> Option<HostFireWeapo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fire_when_damaged_prefilter_keeps_authored_owners() {
+        for name in [
+            "BattleshipTarget", "Battleship_Target", "GLAToxicBunker", "ToxinBunker",
+            "Bunker_Toxin", "DemoTrapToxin", "PoisonFieldGenerator",
+        ] {
+            assert!(fire_when_damaged_config_for_template(name).is_some(), "{name}");
+        }
+        assert!(fire_when_damaged_config_for_template("AmericaTankCrusader").is_none());
+    }
 
     #[test]
     fn reaction_fires_on_threshold_damage() {
