@@ -419,9 +419,15 @@ impl WeaponSet {
 
     /// Serialize WeaponSet state for save/load parity with C++ WeaponSet::xfer.
     pub fn xfer_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_state_at_frame(xfer, crate::helpers::TheGameLogic::get_frame())
+    }
+
+    /// Same record with the driving logic's frame supplied by the caller, so a
+    /// save that already holds TheGameLogic never re-enters it for the clock.
+    pub fn xfer_state_at_frame(&mut self, xfer: &mut dyn Xfer, frame: u32) -> Result<(), String> {
         self.xfer_with_definitions(
             xfer,
-            crate::helpers::TheGameLogic::get_frame(),
+            frame,
             &mut |name| crate::helpers::TheThingFactory::find_template(name).is_some(),
             &mut |name| {
                 super::store::with_weapon_store(|store| store.find_weapon_template(name).cloned())

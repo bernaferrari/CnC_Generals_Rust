@@ -72,6 +72,8 @@ struct SavedObjectPrefix {
     version: u8,
     mode: game_engine::system::XferMode,
     team_id: crate::team::TeamID,
+    /// The driving GameLogic frame, when the caller owns that logic.
+    frame: Option<UnsignedInt>,
 }
 
 fn weapon_set_flags_to_bits(flags: WeaponSetFlags) -> u32 {
@@ -553,7 +555,7 @@ impl Object {
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
     ) -> Result<(), ObjectXferError> {
-        let prefix = self.xfer_prefix(xfer, &mut |object, change| match change {
+        let mut prefix = self.xfer_prefix(xfer, &mut |object, change| match change {
             SavedTransformChange::Matrix(matrix) => {
                 object.set_transform_matrix_with_trigger_context(&matrix, frame, changed);
                 Ok(())
@@ -561,6 +563,7 @@ impl Object {
             SavedTransformChange::Position(position) => object.set_position(&position),
             SavedTransformChange::Orientation(angle) => object.set_orientation(angle),
         })?;
+        prefix.frame = frame;
         let is_loading = prefix.mode == game_engine::system::XferMode::Load;
         if is_loading {
             // CPP Object.cpp4104-4113 rejects an unresolved team. Release the
@@ -661,6 +664,7 @@ impl Object {
             version,
             mode: xfer_mode,
             team_id,
+            frame: None,
         })
     }
 
@@ -959,8 +963,12 @@ impl Object {
                 }
                 let template_name = self.get_template_name().to_string();
                 self.weapon_set.remember_thing_template_name(&template_name);
-                self.weapon_set
-                    .xfer_state(xfer)
+                // WeaponSet::xfer reads TheGameLogic->getFrame(); a caller that
+                // holds that logic (the GameLogic snapshot block) passes it in.
+                match prefix.frame {
+                    Some(frame) => self.weapon_set.xfer_state_at_frame(xfer, frame),
+                    None => self.weapon_set.xfer_state(xfer),
+                }
                     .map_err(|error| ObjectXferError::new(self.id, None, "weapons", error))?;
             }
 
