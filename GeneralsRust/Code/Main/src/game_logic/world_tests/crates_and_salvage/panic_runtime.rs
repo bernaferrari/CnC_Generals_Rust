@@ -110,12 +110,18 @@ fn panic_logic() -> GameLogic {
     // Object is admitted content carrying it, not a hand-built template.
     admit_panic_content(&mut logic);
     install_panic_waypoint_path(&logic);
-    let template = logic.templates["PanicRuntimeInfantry"].clone();
-    let mut unit = Object::new(template, PANIC_UNIT, Team::GLA);
-    unit.set_position(Vec3::new(0.0, 0.0, 100.0));
+    // The unit is created through the factory so it owns the module roster the
+    // snapshot records and a receiving world re-admits (ThingFactory::newObject).
+    let next = logic.next_object_id_for_snapshot();
+    logic.set_next_object_id_for_restore(PANIC_UNIT);
+    let id = logic
+        .create_object("PanicRuntimeInfantry", Team::GLA, Vec3::new(0.0, 0.0, 100.0))
+        .expect("admitted panic infantry");
+    assert_eq!(id, PANIC_UNIT);
+    logic.set_next_object_id_for_restore(next);
+    let unit = logic.objects.get_mut(&PANIC_UNIT).unwrap();
     unit.movement.max_speed = 20.0;
     unit.vision_range = 200.0;
-    logic.objects.insert(PANIC_UNIT, unit);
     logic
 }
 
