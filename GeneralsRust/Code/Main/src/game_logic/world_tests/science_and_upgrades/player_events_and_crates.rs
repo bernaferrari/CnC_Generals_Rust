@@ -57,7 +57,12 @@ fn skill_awards_read_each_worlds_authored_rank_catalog() {
     assert!(!second.add_player_skill_points(0, 150));
     assert_eq!(first.get_player(0).unwrap().rank_level, 2);
     assert_eq!(second.get_player(0).unwrap().rank_level, 1);
-    assert_eq!(second.get_player(0).unwrap().skill_points, 150);
+    // Player.cpp:2439 REAL_TO_INT_CEIL(1.0 * 150): fast_float_ceil adds
+    // almost1 before truncating (BaseType.h:204-210), so 150 lands as 151.
+    assert_eq!(
+        second.get_player(0).unwrap().skill_points,
+        game_engine::base_type::real_to_int_ceil(150.0)
+    );
 
     // Cap at the top authored rank's SkillPointsNeeded (Player.cpp:2444-2445).
     assert!(first.add_player_skill_points(0, 999_999));
