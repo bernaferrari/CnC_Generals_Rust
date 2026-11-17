@@ -268,6 +268,11 @@ fn same_display_labels_keep_player_census_and_script_names_distinct() {
     assert!(!census.contains_key("USA"));
     assert!(!census.contains_key("America"));
     assert!(!census.contains_key("PlyrAmerica"));
+
+    // The single-player census used by script conditions matches the full one.
+    assert_eq!(world.owned_host_player_census_for(1).unwrap().money, 0);
+    assert_eq!(world.owned_host_player_census_for(2).unwrap().money, 1_000);
+    assert!(world.owned_host_player_census_for(99).is_none());
 }
 
 #[test]

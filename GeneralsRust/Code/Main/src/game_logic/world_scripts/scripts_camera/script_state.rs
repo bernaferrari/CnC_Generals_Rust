@@ -644,6 +644,25 @@ impl GameLogic {
     pub(super) fn owned_host_player_census(
         &self,
     ) -> std::collections::HashMap<String, gamelogic::scripting::HostScriptPlayerCensus> {
+        self.owned_host_player_census_filtered(None)
+    }
+
+    /// One player's census. C++ answers each script condition from that
+    /// Player's own counters (Player::getMoney / countObjectsByThingTemplate),
+    /// so do not build and discard every other player's tallies per query.
+    pub(super) fn owned_host_player_census_for(
+        &self,
+        player_id: u32,
+    ) -> Option<gamelogic::scripting::HostScriptPlayerCensus> {
+        let name = &self.players.get(&player_id)?.map_side.map_player_name;
+        self.owned_host_player_census_filtered(Some(player_id))
+            .remove(name)
+    }
+
+    fn owned_host_player_census_filtered(
+        &self,
+        only_player: Option<u32>,
+    ) -> std::collections::HashMap<String, gamelogic::scripting::HostScriptPlayerCensus> {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::HostScriptPlayerCensus;
 
@@ -654,6 +673,9 @@ impl GameLogic {
         let mut by_player_id: std::collections::HashMap<u32, HostScriptPlayerCensus> =
             std::collections::HashMap::new();
         for player in self.players.values() {
+            if only_player.is_some_and(|only| only != player.id) {
+                continue;
+            }
             by_player_id.insert(
                 player.id,
                 HostScriptPlayerCensus {

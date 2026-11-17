@@ -2883,11 +2883,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let Some(player) = self.world.players.get(&id) else {
             return ScriptOwnerQuery::Missing;
         };
-        match self
-            .world
-            .owned_host_player_census()
-            .remove(&player.map_side.map_player_name)
-        {
+        match self.world.owned_host_player_census_for(player.id) {
             Some(census) => ScriptOwnerQuery::Present((id as i32, census)),
             None => ScriptOwnerQuery::Missing,
         }
