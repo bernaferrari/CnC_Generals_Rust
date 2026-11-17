@@ -1204,8 +1204,11 @@ pub fn is_mine_clearer(is_worker: bool, template_name: &str) -> bool {
     if is_worker {
         return true;
     }
-    let n = template_name.to_ascii_lowercase();
-    n.contains("dozer") || n.contains("worker")
+    let name_bytes = template_name.as_bytes();
+    let has = |needle: &[u8]| {
+        name_bytes.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle))
+    };
+    has(b"dozer".as_slice()) || has(b"worker".as_slice())
 }
 
 /// C++ DemoTrapUpdate.cpp:181-191: skip KINDOF_DOZER only when current weapon

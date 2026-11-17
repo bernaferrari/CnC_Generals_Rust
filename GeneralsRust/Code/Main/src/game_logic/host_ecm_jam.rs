@@ -174,6 +174,15 @@ pub fn is_ecm_jam_projectile_flags(
 }
 
 pub fn is_ecm_jammer(template_name: &str) -> bool {
+    // Every accepting form contains "ecm" or "jammer"; skip the per-frame
+    // allocation otherwise.
+    let name_bytes = template_name.as_bytes();
+    let has = |needle: &[u8]| {
+        name_bytes.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle))
+    };
+    if !has(b"ecm".as_slice()) && !has(b"jammer".as_slice()) {
+        return false;
+    }
     let n = template_name.to_ascii_lowercase();
     // ChinaTankECM, Tank_ChinaTankECM, Nuke_ChinaTankECM, Infa_ChinaTankECM, …
     if n.contains("tankecm") || n.contains("ecmtank") {

@@ -222,8 +222,34 @@ fn alnum_lower(s: &str) -> String {
         .collect()
 }
 
+/// `alnum_lower(s).contains(needle)` for any needle, without allocating for
+/// ordinary template-name lengths.
+fn alnum_lower_contains_any(s: &str, needles: &[&[u8]]) -> bool {
+    let mut buf = [0u8; 128];
+    let mut len = 0;
+    for b in s.bytes().filter(u8::is_ascii_alphanumeric) {
+        if len == buf.len() {
+            let folded = alnum_lower(s);
+            return needles
+                .iter()
+                .any(|needle| folded.as_bytes().windows(needle.len()).any(|w| w == *needle));
+        }
+        buf[len] = b.to_ascii_lowercase();
+        len += 1;
+    }
+    let folded = &buf[..len];
+    needles
+        .iter()
+        .any(|needle| folded.windows(needle.len()).any(|w| w == *needle))
+}
+
 /// C++ `IsLocomotive = Yes` name residual (no KINDOF_TRAIN in retail).
 pub fn is_railroad_locomotive_template(template_name: &str) -> bool {
+    // Accepting names contain "trainengine" or "locomotive" once folded;
+    // these run per object per frame, so reject the rest without allocating.
+    if !alnum_lower_contains_any(template_name, &[b"train", b"locomotive"]) {
+        return false;
+    }
     let n = alnum_lower(template_name);
     if n.is_empty() {
         return false;
@@ -236,6 +262,10 @@ pub fn is_railroad_locomotive_template(template_name: &str) -> bool {
 
 /// Map-placed / INI carriage residual.
 pub fn is_railroad_carriage_template(template_name: &str) -> bool {
+    // Every accepting form contains "train" or "carriage" once folded.
+    if !alnum_lower_contains_any(template_name, &[b"train", b"carriage"]) {
+        return false;
+    }
     let n = alnum_lower(template_name);
     if n.is_empty() || is_railroad_locomotive_template(template_name) {
         return false;

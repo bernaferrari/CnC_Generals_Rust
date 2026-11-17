@@ -32,6 +32,10 @@ pub fn is_dam_template(name: &str) -> bool {
 
 /// Template / kind peel for waveguide objects.
 pub fn is_wave_guide_template(name: &str) -> bool {
+    // All three accepted tokens contain "wave"; skip the allocation otherwise.
+    if !name.as_bytes().windows(4).any(|w| w.eq_ignore_ascii_case(b"wave")) {
+        return false;
+    }
     let n = name.to_ascii_lowercase();
     n.contains("waveguide") || n.contains("waterwave") || n.contains("floodwave")
 }

@@ -220,6 +220,14 @@ impl HostTroopCrawlerRegistry {
 /// Fail-closed: name residual (not full AssaultTransportAIUpdate / KindOf matrix).
 /// Excludes weapons / debris / command tokens.
 pub fn is_troop_crawler_template(template_name: &str) -> bool {
+    // Every accepting form contains "troop"; skip the per-frame allocation.
+    if !template_name
+        .as_bytes()
+        .windows(5)
+        .any(|w| w.eq_ignore_ascii_case(b"troop"))
+    {
+        return false;
+    }
     let n = template_name.to_ascii_lowercase();
     if n.is_empty() {
         return false;
