@@ -128,11 +128,11 @@ impl MultiInstanceReport {
         let n = self.instances.len().max(1) as u64;
         let mb = |b: u64| b as f64 / (1024.0 * 1024.0);
         out.push_str(&format!(
-            "RSS: before boot {:.0} MiB, after boot {:.0} MiB, peak {:.0} MiB, ~{:.0} MiB per instance\n",
+            "RSS: before boot {:.0} MiB, after boot {:.0} MiB, peak {:.0} MiB, ~{:.0} MiB peak per instance\n",
             mb(self.rss_before_boot_bytes),
             mb(self.rss_after_boot_bytes),
             mb(self.rss_peak_bytes),
-            mb(self.rss_after_boot_bytes.saturating_sub(self.rss_before_boot_bytes) / n),
+            mb(self.rss_peak_bytes.saturating_sub(self.rss_before_boot_bytes) / n),
         ));
         for shot in &self.shots {
             out.push_str(&format!("shot: {}\n", shot.display()));

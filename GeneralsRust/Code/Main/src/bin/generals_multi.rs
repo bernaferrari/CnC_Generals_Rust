@@ -53,7 +53,7 @@ fn parse() -> MultiInstanceOptions {
             }
             "--columns" => options.columns = Some(value().parse().unwrap_or_else(|_| usage())),
             "--headless" => options.windowed = false,
-            "--shots" => options.shots_dir = Some(PathBuf::from(value())),
+            "--shots" => options.shots_dir = Some(absolute(value())),
             "--shot-frame" => {
                 options.shot_logic_frame = value().parse().unwrap_or_else(|_| usage())
             }
@@ -72,7 +72,7 @@ fn parse() -> MultiInstanceOptions {
             }
             "--instance-size" => options.instance_size = size(&value()),
             "--cell-size" => cell_size = Some(size(&value())),
-            "--userdata" => options.userdata_root = PathBuf::from(value()),
+            "--userdata" => options.userdata_root = absolute(value()),
             "--audio" => audio = true,
             "--" => {
                 options.extra_args.extend(args.by_ref());
@@ -101,6 +101,11 @@ fn parse() -> MultiInstanceOptions {
     options
 }
 
+/// Resolve against the launch directory: the process later moves to the exe dir.
+fn absolute(path: String) -> PathBuf {
+    std::path::absolute(&path).unwrap_or_else(|_| PathBuf::from(path))
+}
+
 trait HeadlessCheck {
     fn headless_without_shots(&self) -> bool;
 }
@@ -120,6 +125,19 @@ async fn main() {
         )
         .filter_module("wgpu_core", log::LevelFilter::Error)
         .filter_module("wgpu_hal", log::LevelFilter::Error)
+        // Instance threads are named `generals-instance-N`: tag every line.
+        .format(|buf, record| {
+            use std::io::Write;
+            let thread = std::thread::current();
+            writeln!(
+                buf,
+                "[{} {} {}] {}",
+                thread.name().unwrap_or("?"),
+                record.level(),
+                record.target(),
+                record.args()
+            )
+        })
         .init();
     let options = parse();
     // Same working directory `generals` normalizes to (WinMain parity).
