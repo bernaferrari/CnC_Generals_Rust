@@ -114,6 +114,18 @@ fn locomotor_fixture_child(name: &str) -> bool {
     }
 }
 
+/// C++ AIUpdate.cpp:481/514/538/562 test `m_pathTimestamp > getFrame()-3`
+/// in UnsignedInt, so at frame 0..2 the subtraction wraps and a fresh path
+/// never waits. A child test starts at frame 0; run it on a later frame, as
+/// a real match is.
+fn frame_past_unsigned_path_window() -> UnsignedInt {
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .expect("game logic")
+        .set_current_frame(u64::from(LOGICFRAMES_PER_SECOND * 10));
+    TheGameLogic::get_frame()
+}
+
 fn unit_ai_update_without_unit() -> UnitAIUpdate {
     UnitAIUpdate::new(
         INVALID_ID,
@@ -1213,7 +1225,7 @@ fn request_attack_path_enters_wait_state_before_repath_delay_like_cpp() {
         None,
     );
     configure_ai_locomotor(&mut ai, loco_template);
-    let now = TheGameLogic::get_frame();
+    let now = frame_past_unsigned_path_window();
     ai.runtime.data.path_timestamp = now.saturating_add(1);
     let destination = Coord3D::new(12.0, 4.0, 0.0);
 
@@ -1431,7 +1443,7 @@ fn request_approach_path_enters_wait_state_before_repath_delay_like_cpp() {
         None,
     );
     configure_ai_locomotor(&mut ai, loco_template);
-    let now = TheGameLogic::get_frame();
+    let now = frame_past_unsigned_path_window();
     ai.runtime.data.path_timestamp = now.saturating_add(1);
     let destination = Coord3D::new(18.0, 6.0, 0.0);
 
@@ -1517,11 +1529,17 @@ fn request_approach_path_defers_closest_path_until_queued_update_like_cpp() {
 
 #[test]
 fn request_safe_path_enters_wait_state_before_repath_delay_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::request_safe_path_enters_wait_state_before_repath_delay_like_cpp"
+    )) {
+        return;
+    }
     let mut ai = unit_ai_update_without_unit();
     let previous_repulsor = 71;
     let next_repulsor = 72;
     ai.runtime.data.repulsor1 = previous_repulsor;
-    let now = TheGameLogic::get_frame();
+    let now = frame_past_unsigned_path_window();
     ai.runtime.data.path_timestamp = now.saturating_add(1);
 
     assert!(!ai.request_safe_path(next_repulsor).unwrap());
