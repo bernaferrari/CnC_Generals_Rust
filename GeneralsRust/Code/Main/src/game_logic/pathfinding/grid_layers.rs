@@ -1432,7 +1432,11 @@ impl PathfindingGrid {
         let mover = seeker.filter(|id| id.0 != 0).and_then(|id| objects.lookup(&id));
         self.query_occupants_seeker = mover.map_or(0, |mover| mover.id.0);
         self.query_seeker_infantry = mover.is_some_and(|mover| mover.is_kind_of(KindOf::Infantry));
-        let ids: HashSet<u32> = self
+        // A unit's footprint covers runs of adjacent cells; skip repeats of
+        // the previous id before hashing, and resolve each id once.
+        let mut resolved: HashMap<u32, Option<OccupantFacts>> = HashMap::new();
+        let mut previous = 0u32;
+        for id in self
             .occ_pos_unit
             .iter()
             .chain(self.occ_goal_unit.iter())
@@ -1443,13 +1447,19 @@ impl PathfindingGrid {
                     .chain(occ.occ_goal_unit.values())
                     .copied()
             }))
-            .filter(|&id| id != 0)
-            .collect();
-        let facts: HashMap<u32, OccupantFacts> = ids
+        {
+            if id == 0 || id == previous {
+                continue;
+            }
+            previous = id;
+            resolved
+                .entry(id)
+                .or_insert_with(|| self.resolve_occupant(objects, mover, id));
+        }
+        self.query_occupants = resolved
             .into_iter()
-            .filter_map(|id| Some((id, self.resolve_occupant(objects, mover, id)?)))
+            .filter_map(|(id, facts)| Some((id, facts?)))
             .collect();
-        self.query_occupants = facts;
     }
 
     /// Relationship for an object view without its world's player/team tables
