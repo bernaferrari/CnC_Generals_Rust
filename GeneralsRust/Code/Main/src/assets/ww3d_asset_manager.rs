@@ -45,15 +45,62 @@ impl ObjectCatalog {
 /// application channels; a lone `generals` gets a private one). Content is
 /// keyed by a fingerprint of the exact source files, so an engine whose
 /// archives differ never adopts another engine's catalogue.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct SharedRetailContent {
     object_catalog: Arc<Mutex<Option<(u64, Arc<ObjectCatalog>)>>>,
+    /// Boot Object projections (rows are `Arc<ObjectDefinition>`; per-game
+    /// map overrides replace rows in the engine's own copy).
+    object_projections:
+        Arc<Mutex<Option<(u64, crate::assets::ReceivingObjectDefinitions)>>>,
     /// Held while one engine builds the catalogue, so engines booting in
     /// parallel wait and adopt it instead of each parsing a private copy.
     catalog_build: Arc<Mutex<()>>,
 }
 
+impl std::fmt::Debug for SharedRetailContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedRetailContent").finish_non_exhaustive()
+    }
+}
+
+/// Fingerprint of an ordered source stream (names and exact bytes).
+pub(crate) fn retail_sources_fingerprint<'a>(
+    sources: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for (name, content) in sources {
+        name.hash(&mut hasher);
+        content.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 impl SharedRetailContent {
+    /// The boot Object projections for this exact source stream, built once
+    /// per host while engines booting in parallel wait for it.
+    pub(crate) fn object_projections_or_build(
+        &self,
+        fingerprint: u64,
+        build: impl FnOnce() -> Result<crate::assets::ReceivingObjectDefinitions, String>,
+    ) -> Result<crate::assets::ReceivingObjectDefinitions, String> {
+        let mut slot = self
+            .object_projections
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some((key, projections)) = slot.as_ref() {
+            if *key == fingerprint {
+                info!("✅ Receiving Object projections adopted from the host's shared content");
+                return Ok(projections.clone());
+            }
+        }
+        let projections = build()?;
+        if slot.is_none() {
+            *slot = Some((fingerprint, projections.clone()));
+        }
+        Ok(projections)
+    }
+
     /// This application's handle (installed by the host, else private).
     pub fn for_current_application() -> Option<Self> {
         game_engine::common::common_services::try_common_services()
@@ -138,15 +185,11 @@ impl WW3DAssetManager {
                 }
             }
         }
-        let fingerprint = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            for (name, content) in &sources {
-                name.hash(&mut hasher);
-                content.hash(&mut hasher);
-            }
-            hasher.finish()
-        };
+        let fingerprint = retail_sources_fingerprint(
+            sources
+                .iter()
+                .map(|(name, content)| (name.as_str(), content.as_str())),
+        );
         let shared = SharedRetailContent::for_current_application();
         let _building = shared.as_ref().map(SharedRetailContent::begin_catalog_build);
         if let Some(catalog) = shared.as_ref().and_then(|s| s.catalog_for(fingerprint)) {

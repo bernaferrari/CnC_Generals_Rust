@@ -90,7 +90,17 @@ impl ReceivingObjectContent {
                     .map_err(|error| error.context(format!("Receiving Object source '{path}'")))?;
             }
             modules.validate_production_prerequisites()?;
-            let projections = ReceivingObjectDefinitions::from_boot_sources(&sources)?;
+            // Boot projections depend only on the source bytes: engines of
+            // one host share them read-only (map overrides copy on write).
+            let projections = match crate::assets::ww3d_asset_manager::SharedRetailContent::for_current_application() {
+                Some(shared) => shared.object_projections_or_build(
+                    crate::assets::ww3d_asset_manager::retail_sources_fingerprint(
+                        sources.iter().map(|(path, text)| (path.as_str(), text.as_str())),
+                    ),
+                    || ReceivingObjectDefinitions::from_boot_sources(&sources),
+                ),
+                None => ReceivingObjectDefinitions::from_boot_sources(&sources),
+            }?;
             Ok(Self {
                 modules,
                 projections,
