@@ -84,7 +84,7 @@ fn fixed_tick_scaffold_admission_follows_numeric_ai_slots() {
         &mut world,
         &[
             FixtureObject::new("SlotDozer")
-                .kind_of("VEHICLE WORKER DOZER")
+                .kind_of("VEHICLE DOZER")
                 .walker()
                 .dozer(),
             FixtureObject::new("SlotPlan")

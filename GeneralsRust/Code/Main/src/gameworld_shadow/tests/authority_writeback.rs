@@ -2252,7 +2252,7 @@ fn canonical_attack_receipts_keep_owner_fifo_across_same_id_peer_lifecycle() {
         admit_fixture_content(
             &mut logic,
             &[FixtureObject::new("OwnedAttackReceiptInfantry")
-                .kind_of("INFANTRY ATTACKABLE")
+                .kind_of("INFANTRY")
                 .health(100.0)
                 .walker()
                 .armed("OwnedAttackReceiptRifle")],

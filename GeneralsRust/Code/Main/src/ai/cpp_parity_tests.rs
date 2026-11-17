@@ -964,7 +964,7 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
             &mut logic,
             &[
                 FixtureObject::new("TestDozer")
-                    .kind_of("VEHICLE WORKER DOZER")
+                    .kind_of("VEHICLE DOZER")
                     .walker()
                     .dozer(),
                 FixtureObject::new("TestFirstStructure")
@@ -2662,7 +2662,7 @@ fn obstructed_pad_wiggles_to_first_legal_spiral_spot() {
             &mut logic,
             &[
                 FixtureObject::new("WiggleDozer")
-                    .kind_of("VEHICLE WORKER DOZER")
+                    .kind_of("VEHICLE DOZER")
                     .walker()
                     .dozer(),
                 FixtureObject::new("WiggleStructure")
@@ -3000,7 +3000,7 @@ fn process_building_queue_skips_automatic_layout_pads() {
             &mut logic,
             &[
                 FixtureObject::new("TestDozer")
-                    .kind_of("VEHICLE WORKER DOZER")
+                    .kind_of("VEHICLE DOZER")
                     .walker()
                     .dozer(),
                 FixtureObject::new("TestStrategyCenter")
