@@ -55,6 +55,10 @@ fn fixture() -> (GameLogic, ObjectId) {
             },
         )
         .unwrap().expect("ObjectId");
+    // newTask stamps m_taskOrderFrame = TheGameLogic->getFrame(), and
+    // getMostRecentCommand (DozerAIUpdate.cpp:2256) admits only an order
+    // frame > 0: the command is issued after the first logic frame.
+    world.update();
     // DozerAIUpdate::privateResumeConstruction -> newTask(DOZER_TASK_BUILD):
     // records the request and claims the scaffold (setBuilder).
     assert!(world.resume_construction(&[builder], id).expect("resume"));
@@ -152,8 +156,9 @@ fn admitted_native_step_keeps_ui_loan_through_ordinary_construction_phase() {
     let mut ui = Ui::default();
     world.tick_logic_frame_with_script_ui(0., None, Some(1), Some(&mut ui), |_| {}, |_| {});
     assert!(ui.events.is_empty());
-    // Pick -> Move -> DoAction (DozerAIUpdate.cpp:318-348) before the build frame.
-    for _ in 0..60 {
+    // Pick -> Move -> DoAction (DozerAIUpdate.cpp:318-348) before the build
+    // frame; the authored locomotor accelerates from rest to the dock.
+    for _ in 0..600 {
         world.tick_logic_frame_with_script_ui(
             1. / 30.,
             None,

@@ -66,6 +66,7 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
 }
 #[test]
 fn resume_construction_assigns_dozer_and_model_bits() {
+    use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
     use crate::game_logic::host_enum_table_residual::{
         actively_being_constructed_model_bit, actively_constructing_model_bit,
         host_model_condition_has, partially_constructed_model_bit,
@@ -100,7 +101,13 @@ fn resume_construction_assigns_dozer_and_model_bits() {
         }
     }
     let d = logic.host_object(did).expect("d");
-    assert_eq!(d.target, Some(sid));
+    // The Dozer action machine owns the site (DozerAIUpdate.cpp:208
+    // machine->setGoalObject); the AI itself only moved to the dock
+    // position (:211/:487 aiMoveToPosition), so it has no goal object.
+    assert_eq!(
+        d.dozer_tasks.primary.actions[DozerTask::Build as usize].control.goal_object,
+        sid.0
+    );
     assert!(
         host_model_condition_has(d.model_condition_bits, actively_constructing_model_bit()),
         "state={:?} current={:?} sub={:?}",
