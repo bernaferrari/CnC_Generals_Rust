@@ -234,8 +234,32 @@ mod tests {
         }
     }
 
+    /// Each engine's ThingFactory holds only the Object INI it loaded (C++
+    /// ThingFactory per GameEngine), so this world authors the infantry
+    /// definition it creates: an infantry Ranger header with an ActiveBody.
+    fn author_ranger_in_live_factory() {
+        use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
+        assert!(ensure_thing_factory_exists());
+        if game_engine::common::thing::module_factory::get_module_factory()
+            .unwrap()
+            .is_none()
+        {
+            game_engine::common::thing::module_factory::init_module_factory().unwrap();
+        }
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        if LiveThingFactoryContext.find_template("AmericaInfantryRanger").is_none() {
+            assert_eq!(
+                get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
+                    "Object AmericaInfantryRanger\n KindOf = PRELOAD SELECTABLE CAN_ATTACK ATTACK_NEEDS_LINE_OF_SIGHT INFANTRY SCORE CAN_CAST_REFLECTIONS\n Body = ActiveBody ModuleTag_02\n  MaxHealth = 180.0\n  InitialHealth = 180.0\n End\nEnd\n"
+                ),
+                1
+            );
+        }
+    }
+
     fn exercise_retirement(unwind: bool) {
         let _guard = crate::test_sync::lock();
+        author_ranger_in_live_factory();
         let id = 0x0C1E_0001;
         let available = get_game_logic()
             .lock()
