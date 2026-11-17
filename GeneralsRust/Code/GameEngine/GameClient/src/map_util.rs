@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use crate::display::image::{Image, get_mapped_image_collection};
 use crate::game_text::GameText;
@@ -24,7 +24,7 @@ use game_engine::common::system::file_system::{FileInfo, FilenameList, get_file_
 use game_engine::common::system::quoted_printable::ascii_string_to_quoted_printable;
 
 use game_network::gamespy::ladder_defs::{
-    LadderMapMeta, LadderMapProvider, set_ladder_map_provider,
+    LadderMapMeta, LadderMapProvider,
 };
 use gamelogic::system::map_loader::MapLoader;
 
@@ -433,8 +433,6 @@ impl MapCache {
     }
 }
 
-static LADDER_PROVIDER_SET: OnceLock<()> = OnceLock::new();
-
 pub fn get_map_cache_manager() -> Arc<Mutex<MapCache>> {
     #[cfg(test)]
     let cache = TEST_MAP_CACHE.with(|slot| {
@@ -444,7 +442,6 @@ pub fn get_map_cache_manager() -> Arc<Mutex<MapCache>> {
     });
     #[cfg(not(test))]
     let cache = Arc::new(Mutex::new(MapCache::new()));
-    register_ladder_map_provider();
     cache
 }
 
@@ -468,13 +465,10 @@ impl LadderMapProvider for MapCacheLadderProvider {
     }
 }
 
-fn register_ladder_map_provider() {
-    if LADDER_PROVIDER_SET.get().is_some() {
-        return;
-    }
-    let provider: Arc<dyn LadderMapProvider> = Arc::new(MapCacheLadderProvider);
-    set_ladder_map_provider(provider);
-    let _ = LADDER_PROVIDER_SET.set(());
+/// The map catalogue a ladder list filters its maps through; the caller that
+/// builds the list owns it (no process-wide registration).
+pub fn ladder_map_provider() -> impl LadderMapProvider {
+    MapCacheLadderProvider
 }
 
 pub fn populate_map_listbox(

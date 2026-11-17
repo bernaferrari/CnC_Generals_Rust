@@ -489,7 +489,6 @@ pub mod gamespy {
 
         pub fn init_ladder_list() {}
 
-        pub fn set_ladder_map_provider(_provider: Arc<dyn LadderMapProvider>) {}
     }
 
     pub mod peer_defs {

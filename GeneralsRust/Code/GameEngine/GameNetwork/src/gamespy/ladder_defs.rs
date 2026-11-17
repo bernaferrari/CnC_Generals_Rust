@@ -69,14 +69,14 @@ pub trait LadderMapProvider: Send + Sync {
     fn find_map(&self, map_path: &str) -> Option<LadderMapMeta>;
 }
 
-static MAP_PROVIDER: OnceLock<Arc<dyn LadderMapProvider>> = OnceLock::new();
-
-pub fn set_ladder_map_provider(provider: Arc<dyn LadderMapProvider>) {
-    let _ = MAP_PROVIDER.set(provider);
-}
-
-fn map_provider() -> Option<Arc<dyn LadderMapProvider>> {
-    MAP_PROVIDER.get().cloned()
+/// Quick-match map names plus the caller's map catalogue. The catalogue is
+/// owned by the caller (C++ `TheMapCache` is reached through the engine that
+/// builds the list), not a process-wide slot; without one every quick-match map
+/// is accepted unfiltered.
+#[derive(Clone, Copy)]
+pub struct LadderMaps<'a> {
+    pub qm_maps: &'a [String],
+    pub provider: Option<&'a dyn LadderMapProvider>,
 }
 
 #[derive(Default)]
@@ -87,16 +87,20 @@ pub struct LadderList {
 }
 
 impl LadderList {
-    pub fn new(config: &GameSpyConfig) -> Self {
+    pub fn new(config: &GameSpyConfig, provider: Option<&dyn LadderMapProvider>) -> Self {
+        let maps = LadderMaps {
+            qm_maps: config.get_qm_maps(),
+            provider,
+        };
         let mut list = LadderList::default();
-        list.parse_ladders(config.leftover_config(), config.get_qm_maps());
-        list.load_local_ladders(config.get_qm_maps());
+        list.parse_ladders(config.leftover_config(), &maps);
+        list.load_local_ladders(&maps);
         list
     }
 
-    pub fn new_from_config_file() -> Self {
+    pub fn new_from_config_file(provider: Option<&dyn LadderMapProvider>) -> Self {
         let config = GameSpyConfig::new_sync();
-        Self::new(&config)
+        Self::new(&config, provider)
     }
 
     pub fn get_local_ladders(&self) -> &[LadderInfo] {
@@ -130,7 +134,7 @@ impl LadderList {
             .find(|lad| lad.index == index)
     }
 
-    fn parse_ladders(&mut self, raw: &str, qm_maps: &[String]) {
+    fn parse_ladders(&mut self, raw: &str, maps: &LadderMaps<'_>) {
         let mut in_ladders = false;
         let mut in_special_ladders = false;
         let mut in_ladder = false;
@@ -172,7 +176,7 @@ impl LadderList {
                     in_ladder = false;
                     raw_ladder.push_str(line);
                     raw_ladder.push('\n');
-                    if let Some(mut lad) = parse_ladder(&raw_ladder, qm_maps) {
+                    if let Some(mut lad) = parse_ladder(&raw_ladder, maps) {
                         lad.index = index;
                         index += 1;
                         if in_ladders {
@@ -190,7 +194,7 @@ impl LadderList {
         }
     }
 
-    fn load_local_ladders(&mut self, qm_maps: &[String]) {
+    fn load_local_ladders(&mut self, maps: &LadderMaps<'_>) {
         let Some(base_dir) = user_data_dir() else {
             return;
         };
@@ -206,7 +210,7 @@ impl LadderList {
                 continue;
             }
             if let Ok(raw) = fs::read_to_string(&path) {
-                if let Some(mut lad) = parse_ladder(&raw, qm_maps) {
+                if let Some(mut lad) = parse_ladder(&raw, maps) {
                     if lad.address.is_empty() || lad.port == 0 || lad.valid_maps.is_empty() {
                         continue;
                     }
@@ -229,9 +233,12 @@ type SharedLadderList = Arc<RwLock<LadderList>>;
 
 static THE_LADDER_LIST: OnceLock<SharedLadderList> = OnceLock::new();
 
-pub fn init_ladder_list(config: &GameSpyConfig) -> SharedLadderList {
+pub fn init_ladder_list(
+    config: &GameSpyConfig,
+    provider: Option<&dyn LadderMapProvider>,
+) -> SharedLadderList {
     THE_LADDER_LIST
-        .get_or_init(|| Arc::new(RwLock::new(LadderList::new(config))))
+        .get_or_init(|| Arc::new(RwLock::new(LadderList::new(config, provider))))
         .clone()
 }
 
@@ -239,7 +246,7 @@ pub fn get_ladder_list() -> Option<SharedLadderList> {
     THE_LADDER_LIST.get().cloned()
 }
 
-fn parse_ladder(raw: &str, qm_maps: &[String]) -> Option<LadderInfo> {
+fn parse_ladder(raw: &str, maps: &LadderMaps<'_>) -> Option<LadderInfo> {
     let mut ladder = None::<LadderInfo>;
 
     for line in raw.lines() {
@@ -269,7 +276,7 @@ fn parse_ladder(raw: &str, qm_maps: &[String]) -> Option<LadderInfo> {
                 return None;
             }
             ensure_valid_factions(info);
-            ensure_valid_maps(info, qm_maps);
+            ensure_valid_maps(info, maps);
             return Some(info.clone());
         }
 
@@ -297,7 +304,7 @@ fn parse_ladder(raw: &str, qm_maps: &[String]) -> Option<LadderInfo> {
         } else if let Some(value) = line.strip_prefix("CryptedPass ") {
             info.crypted_password = AsciiString::from(value.trim());
         } else if let Some(value) = line.strip_prefix("Map ") {
-            add_map(info, value.trim(), qm_maps);
+            add_map(info, value.trim(), maps);
         } else {
             return None;
         }
@@ -357,15 +364,14 @@ fn ensure_valid_factions(info: &mut LadderInfo) {
     }
 }
 
-fn ensure_valid_maps(info: &mut LadderInfo, qm_maps: &[String]) {
+fn ensure_valid_maps(info: &mut LadderInfo, maps: &LadderMaps<'_>) {
     if !info.valid_maps.is_empty() {
         return;
     }
-    let map_provider = map_provider();
     let min_players = info.players_per_team * 2;
-    for map in qm_maps {
+    for map in maps.qm_maps {
         let normalized = normalize_map_path(map);
-        if let Some(provider) = map_provider.as_ref() {
+        if let Some(provider) = maps.provider {
             if let Some(meta) = provider.find_map(&normalized) {
                 if meta.num_players >= min_players {
                     info.valid_maps.push(AsciiString::from(normalized.as_str()));
@@ -377,25 +383,24 @@ fn ensure_valid_maps(info: &mut LadderInfo, qm_maps: &[String]) {
     }
 }
 
-fn add_map(info: &mut LadderInfo, map_name: &str, qm_maps: &[String]) {
+fn add_map(info: &mut LadderInfo, map_name: &str, maps: &LadderMaps<'_>) {
     if map_name.is_empty() {
         return;
     }
 
-    let map_provider = map_provider();
     let mut path = map_name.to_string();
     if !map_name.ends_with(".map") {
-        if let Some(provider) = map_provider.as_ref() {
+        if let Some(provider) = maps.provider {
             path = format!("{}\\{}\\{}.map", provider.map_dir(), map_name, map_name);
         }
     }
     let normalized = normalize_map_path(&path);
-    let qm_normalized: Vec<String> = qm_maps.iter().map(|m| normalize_map_path(m)).collect();
+    let qm_normalized: Vec<String> = maps.qm_maps.iter().map(|m| normalize_map_path(m)).collect();
     if !qm_normalized.iter().any(|m| m == &normalized) {
         return;
     }
 
-    if let Some(provider) = map_provider.as_ref() {
+    if let Some(provider) = maps.provider {
         if let Some(meta) = provider.find_map(&normalized) {
             if meta.num_players >= info.players_per_team * 2 {
                 info.valid_maps.push(AsciiString::from(normalized.as_str()));

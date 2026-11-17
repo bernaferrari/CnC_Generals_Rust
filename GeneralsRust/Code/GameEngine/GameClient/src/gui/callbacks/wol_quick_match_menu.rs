@@ -745,7 +745,7 @@ fn update_local_player_stats() {
 
 fn ladder_list_is_empty() -> bool {
     let config = GameSpyConfig::new_sync();
-    let list = init_ladder_list(&config);
+    let list = init_ladder_list(&config, Some(&crate::map_util::ladder_map_provider()));
     let Ok(list) = list.read() else {
         return true;
     };
