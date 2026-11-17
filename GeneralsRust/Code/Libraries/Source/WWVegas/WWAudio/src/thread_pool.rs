@@ -313,17 +313,26 @@ impl Drop for AudioThreadPool {
     }
 }
 
-// Convenience functions for sharing a global thread pool
-use std::sync::OnceLock;
-static GLOBAL_POOL: OnceLock<AudioThreadPool> = OnceLock::new();
+/// Delayed-release worker owned by one audio object.
+///
+/// C++ `WWAudioThreadsClass` runs one delayed-release thread fed by
+/// `Add_Delayed_Release_Object` (Threads.cpp:90). Each owner here keeps its
+/// own pool, started on first use, instead of a process-wide static; pending
+/// releases are dropped with their owner.
+#[derive(Default)]
+pub(crate) struct DelayedReleasePool(std::sync::OnceLock<AudioThreadPool>);
 
-pub(crate) fn global_thread_pool() -> &'static AudioThreadPool {
-    GLOBAL_POOL.get_or_init(|| AudioThreadPool::new(ThreadPoolConfig::default()))
-}
+impl DelayedReleasePool {
+    /// Start the worker now (WWAudioClass::Initialize warms it up front).
+    pub(crate) fn start(&self) -> &AudioThreadPool {
+        self.0
+            .get_or_init(|| AudioThreadPool::new(ThreadPoolConfig::default()))
+    }
 
-pub(crate) fn queue_delayed_release<F>(delay_ms: u64, task: F)
-where
-    F: FnOnce() + Send + 'static,
-{
-    global_thread_pool().submit_delay(delay_ms, task);
+    pub(crate) fn submit<F>(&self, delay_ms: u64, task: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.start().submit_delay(delay_ms, task);
+    }
 }

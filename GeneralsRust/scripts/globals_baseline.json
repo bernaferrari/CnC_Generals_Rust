@@ -2,9 +2,9 @@
   "Common": 0,
   "EngineCrates": 0,
   "GameClient": 0,
-  "GameEngineDevice": 1,
+  "GameEngineDevice": 0,
   "GameLogic": 0,
   "GameNetwork": 25,
   "Main": 0,
-  "WWVegas": 1
+  "WWVegas": 0
 }

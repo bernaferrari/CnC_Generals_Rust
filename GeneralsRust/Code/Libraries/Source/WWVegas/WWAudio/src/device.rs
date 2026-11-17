@@ -34,7 +34,7 @@ use crate::{
     sound_scene::{LogicalTrigger, SceneSound},
     sound_scene_obj::SoundObjectId,
     sound3d::Sound3D,
-    thread_pool::queue_delayed_release,
+    thread_pool::DelayedReleasePool,
     wwaudio::DriverType3D,
     wwaudio_handles::{WWHandle, make_2d_handle, make_3d_handle, make_stream_handle},
 };
@@ -228,6 +228,7 @@ pub struct AudioSystem {
 
     // File factory hook
     file_factory: Option<Arc<dyn AudioFileFactory>>,
+    delayed_release: DelayedReleasePool,
     static_save: StaticAudioSaveLoad,
     dynamic_save: DynamicAudioSaveLoad,
     pending_mixer_events: VecDeque<MixerEvent>,
@@ -453,6 +454,7 @@ impl AudioSystem {
             pending_scene_time_ms: 0.0,
             cpal_output: None,
             file_factory: None,
+            delayed_release: DelayedReleasePool::default(),
             static_save: StaticAudioSaveLoad::default(),
             dynamic_save: DynamicAudioSaveLoad::default(),
             pending_mixer_events: VecDeque::new(),
@@ -1820,7 +1822,7 @@ impl AudioSystem {
     where
         T: Send + 'static,
     {
-        queue_delayed_release(delay_ms, move || drop(object));
+        self.delayed_release.submit(delay_ms, move || drop(object));
     }
 
     pub fn logical_type_definition(&self, id: i32) -> Option<&LogicalTypeDefinition> {

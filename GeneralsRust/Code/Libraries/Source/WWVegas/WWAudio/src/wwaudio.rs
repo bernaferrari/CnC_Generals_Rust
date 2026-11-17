@@ -18,7 +18,7 @@ use crate::{
     save_load::{DynamicAudioSaveLoad, StaticAudioSaveLoad},
     sound_scene::SoundScene,
     sound_scene_obj::SoundObjectId,
-    thread_pool::{global_thread_pool, queue_delayed_release},
+    thread_pool::DelayedReleasePool,
     wwaudio_handles::WWHandle,
 };
 
@@ -118,6 +118,7 @@ pub struct WWAudioClass {
     logical_registry: LogicalSoundRegistry,
     registered_eos_callbacks: Vec<(EndOfStreamCallback, u32)>,
     registered_text_callbacks: Vec<TextEventCallback>,
+    delayed_release: DelayedReleasePool,
 }
 
 impl Default for WWAudioClass {
@@ -141,13 +142,14 @@ impl Default for WWAudioClass {
             logical_registry: LogicalSoundRegistry::new(),
             registered_eos_callbacks: Vec::new(),
             registered_text_callbacks: Vec::new(),
+            delayed_release: DelayedReleasePool::default(),
         }
     }
 }
 
 impl WWAudioClass {
-    fn queue_handle_release(handle: WWHandle) {
-        queue_delayed_release(PLAYLIST_RELEASE_DELAY_MS, move || {
+    fn queue_handle_release(delayed_release: &DelayedReleasePool, handle: WWHandle) {
+        delayed_release.submit(PLAYLIST_RELEASE_DELAY_MS, move || {
             drop(handle);
         });
     }
@@ -193,7 +195,7 @@ impl WWAudioClass {
         config.default_reverb_room_type = self.reverb_room_type;
 
         let mut system = AudioSystem::new_with_config(config).await?;
-        let _ = global_thread_pool();
+        let _ = self.delayed_release.start();
         let default_format = system.configuration().default_format;
         system.open_2d_device_with_format(&default_format)?;
         self.driver_2d = Some(Driver2DKind::Unknown);
@@ -510,10 +512,10 @@ impl WWAudioClass {
                 {
                     self.completed_playlist.push(handle);
                 } else {
-                    Self::queue_handle_release(handle);
+                    Self::queue_handle_release(&self.delayed_release, handle);
                 }
             } else {
-                Self::queue_handle_release(handle);
+                Self::queue_handle_release(&self.delayed_release, handle);
             }
             true
         } else {
@@ -872,10 +874,10 @@ impl WWAudioClass {
 
     pub fn Flush_Playlist(&mut self) {
         for entry in self.playlist.drain(..) {
-            Self::queue_handle_release(entry.handle);
+            Self::queue_handle_release(&self.delayed_release, entry.handle);
         }
         for handle in self.completed_playlist.drain(..) {
-            Self::queue_handle_release(handle);
+            Self::queue_handle_release(&self.delayed_release, handle);
         }
         if let Some(system) = self.audio_system.as_mut() {
             system.free_completed_sounds();
@@ -953,11 +955,11 @@ impl WWAudioClass {
                         .position(|entry| entry.handle.id() == Some(id))
                     {
                         let entry = self.playlist.remove(index);
-                        Self::queue_handle_release(entry.handle);
+                        Self::queue_handle_release(&self.delayed_release, entry.handle);
                     }
                 }
 
-                Self::queue_handle_release(completed);
+                Self::queue_handle_release(&self.delayed_release, completed);
             }
             self.update_playlist_priorities();
         }
@@ -1144,7 +1146,7 @@ impl WWAudioClass {
         }
 
         handle.stop();
-        queue_delayed_release(PLAYLIST_RELEASE_DELAY_MS, move || {
+        self.delayed_release.submit(PLAYLIST_RELEASE_DELAY_MS, move || {
             drop(handle);
         });
     }
@@ -1179,7 +1181,7 @@ impl WWAudioClass {
     where
         F: FnOnce() + Send + 'static,
     {
-        queue_delayed_release(delay_ms, task);
+        self.delayed_release.submit(delay_ms, task);
     }
 }
 
