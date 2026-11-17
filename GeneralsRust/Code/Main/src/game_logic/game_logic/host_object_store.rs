@@ -9,7 +9,7 @@ mod registered_order;
 
 #[derive(Debug, Default)]
 pub struct HostObjectStore {
-    map: HashMap<ObjectId, Object>,
+    map: game_engine::common::fast_hash::FxHashMap<ObjectId, Object>,
     registration_order: Vec<ObjectId>,
     // Namespace is a weak loan of the EXISTING GameLogic identity. Raw standalone
     // stores remain usable for registered fixtures, but cannot admit constructors.

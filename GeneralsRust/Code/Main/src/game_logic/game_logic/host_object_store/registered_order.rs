@@ -1,11 +1,12 @@
 //! Place registered map entries in the owning world's object-list order.
-use std::{collections::HashMap, hash::Hash};
+use game_engine::common::fast_hash::FxHashMap;
+use std::{collections::HashMap, hash::{BuildHasher, Hash}};
 
-pub(super) fn registered_mut<'a, K: Copy + Eq + Hash, V>(
-    map: &'a mut HashMap<K, V>,
+pub(super) fn registered_mut<'a, K: Copy + Eq + Hash, V, S: BuildHasher>(
+    map: &'a mut HashMap<K, V, S>,
     registration_order: &[K],
 ) -> impl Iterator<Item = (&'a K, &'a mut V)> {
-    let order: HashMap<_, _> = registration_order
+    let order: FxHashMap<_, _> = registration_order
         .iter()
         .enumerate()
         .map(|(index, id)| (*id, index))

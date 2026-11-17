@@ -11,6 +11,7 @@ pub mod thing;
 
 // Root level modules
 pub mod bit_flags;
+pub mod fast_hash;
 pub mod command_line;
 pub mod crc;
 pub mod common_services;
