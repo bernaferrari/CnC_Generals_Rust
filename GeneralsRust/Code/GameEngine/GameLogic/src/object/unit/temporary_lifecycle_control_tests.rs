@@ -337,8 +337,10 @@ fn temporary_timeout_is_strict_capped_and_resumes_ordinary_same_step() {
     )) {
         return;
     }
-    let _frame = super::super::RestoreAmbientFrame::set(10);
     fixture(|_, handle| {
+        // C++ AIStates.cpp:944-946 reads this match's frame. The fixture
+        // publishes its own GameLogic, so set its clock after entering it.
+        let _frame = super::super::RestoreAmbientFrame::set(10);
         let mut ai = handle.lock().unwrap();
         ai.do_quick_exit(&path());
         ai.set_temporary_state(AIStateType::FollowExitProductionPath, u32::MAX);
