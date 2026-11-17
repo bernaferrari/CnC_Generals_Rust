@@ -169,9 +169,12 @@ mod tests {
             cells.contains(&CellCoord { x: 1, y: 0 }),
             "C++ samples the 80wu half-extent box at x=60 (cell1)"
         );
-        // C++ doRectFill uses ix < numStepsX (no +1 fudge). The
-        // positive X boundary is deliberately not an extra sample.
-        assert!(!cells.contains(&CellCoord { x: 2, y: 0 }));
+        // C++ doRectFill uses ix < numStepsX with numStepsX =
+        // REAL_TO_INT_CEIL(80 * 0.1) (PartitionManager.cpp:1769). Under
+        // fast_float_ceil (BaseType.h:204-210) ceil(8.0) is 9, so the ninth
+        // sample lands on the x=+80 boundary, which is cell 2.
+        assert!(cells.contains(&CellCoord { x: 2, y: 0 }));
+        assert!(!cells.contains(&CellCoord { x: 3, y: 0 }));
         assert!(cells.contains(&CellCoord { x: -2, y: 0 }));
         assert!(cells.contains(&CellCoord { x: 0, y: 0 }));
     }

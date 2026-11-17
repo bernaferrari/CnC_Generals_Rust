@@ -1882,11 +1882,18 @@ mod tests {
         let touching = center.cells_in_radius(0.0);
         assert_eq!(touching.len(), 9);
         assert!(touching.contains(&CellCoord { x: -1, y: 1 }));
-        let one = center.cells_in_radius(PARTITION_CELL_SIZE);
+        // Half a cell: worldToCellDist = REAL_TO_INT_CEIL(0.5) = 1.
+        let one = center.cells_in_radius(PARTITION_CELL_SIZE * 0.5);
         assert!(one.contains(&CellCoord { x: 2, y: 0 }));
         assert!(one.contains(&CellCoord { x: -2, y: 1 }));
         assert!(!one.contains(&CellCoord { x: 2, y: 2 }));
         assert!(!one.contains(&CellCoord { x: 3, y: 0 }));
+        // Exactly one cell: C++ fast_float_ceil adds almost-one before
+        // truncating (BaseType.h:204-210), so REAL_TO_INT_CEIL(1.0) = 2.
+        let exact = center.cells_in_radius(PARTITION_CELL_SIZE);
+        assert!(exact.contains(&CellCoord { x: 2, y: 2 }));
+        assert!(exact.contains(&CellCoord { x: 3, y: 0 }));
+        assert!(!exact.contains(&CellCoord { x: 3, y: 2 }));
     }
 
     #[test]
@@ -2052,8 +2059,9 @@ mod tests {
     #[test]
     fn value_affect_uses_discrete_circle_cell_index_falloff() {
         let mut pm = PartitionManager::new();
-        // world (0,0) → cell (0,0); radius 80 → cellRadius 2, influence 3.
-        pm.do_value_affect(0.0, 0.0, 80.0, 0, 100);
+        // world (0,0) → cell (0,0); radius 60 → REAL_TO_INT_CEIL(1.5) =
+        // cellRadius 2, influence 3 (PartitionManager.cpp doValueAffect).
+        pm.do_value_affect(0.0, 0.0, 60.0, 0, 100);
         let cash_at = |pm: &PartitionManager, x, y| {
             pm.cells
                 .get(&CellCoord { x, y })
@@ -2072,7 +2080,7 @@ mod tests {
             0,
             "square corner is outside DiscreteCircle r=2"
         );
-        pm.remove_value_affect(0.0, 0.0, 80.0, 0, 100);
+        pm.remove_value_affect(0.0, 0.0, 60.0, 0, 100);
         assert_eq!(cash_at(&pm, 0, 0), 0);
         assert_eq!(cash_at(&pm, 1, 0), 0);
     }
@@ -2080,7 +2088,8 @@ mod tests {
     #[test]
     fn threat_affect_undo_matches_add() {
         let mut pm = PartitionManager::new();
-        pm.do_threat_affect(0.0, 0.0, 80.0, 1, 90);
+        // radius 60 → cellRadius 2, influence 3.
+        pm.do_threat_affect(0.0, 0.0, 60.0, 1, 90);
         let threat_at = |pm: &PartitionManager, x, y| {
             pm.cells
                 .get(&CellCoord { x, y })
@@ -2090,9 +2099,32 @@ mod tests {
         assert_eq!(threat_at(&pm, 0, 0), 90);
         // C++ float mulVal = 1 - 1/3; 90 * mulVal truncates to 59.
         assert_eq!(threat_at(&pm, 1, 0), 59);
-        pm.remove_threat_affect(0.0, 0.0, 80.0, 1, 90);
+        pm.remove_threat_affect(0.0, 0.0, 60.0, 1, 90);
         assert_eq!(threat_at(&pm, 0, 0), 0);
         assert_eq!(threat_at(&pm, 1, 0), 0);
+    }
+
+    #[test]
+    fn value_affect_exact_cell_multiple_radius_uses_cpp_ceil() {
+        let mut pm = PartitionManager::new();
+        // radius 80 is exactly 2 cells; C++ REAL_TO_INT_CEIL(2.0) = 3
+        // (BaseType.h:204-210), so influence is 4 and the axis neighbor
+        // gets 1 - 1/4.
+        pm.do_value_affect(0.0, 0.0, 80.0, 0, 100);
+        let cash = pm
+            .cells
+            .get(&CellCoord { x: 1, y: 0 })
+            .map(|c| c.get_cash_value(0))
+            .unwrap_or(0);
+        assert_eq!(cash, 75);
+        pm.remove_value_affect(0.0, 0.0, 80.0, 0, 100);
+        assert_eq!(
+            pm.cells
+                .get(&CellCoord { x: 1, y: 0 })
+                .map(|c| c.get_cash_value(0))
+                .unwrap_or(0),
+            0
+        );
     }
 
     #[test]
