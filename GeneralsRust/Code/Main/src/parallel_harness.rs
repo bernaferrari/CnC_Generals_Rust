@@ -170,6 +170,13 @@ impl SharedSkirmishAssets {
         // GENERALS_ASSETS_DIR or a known windows_game install, so the probe
         // also runs from worktrees without a local windows_game.
         let _ = crate::map_frame_scenario::ensure_assets_env_for_tests();
+        // GameEngine::init mounts TheFileSystem (local + BIG) before INI and
+        // GameLogic (GameEngine.cpp:281-329). SidesList::prepareForMP_or_Skirmish
+        // opens Data\\Scripts\\SkirmishScripts.scb through it (SidesList.cpp:487);
+        // without the mount the skirmish AI has no scripts and never builds.
+        let _ = crate::subsystem_manager::SubsystemInterface::init(
+            &mut crate::subsystem_manager::FileSystemSubsystem::new(),
+        );
         let map_path = crate::map_frame_scenario::lone_eagle_map_path()
             .map(PathBuf::from)
             .ok_or_else(|| HarnessAssetError::Missing(format!("{HARNESS_MAP}.map")))?;
