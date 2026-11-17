@@ -962,11 +962,21 @@ fn cached_native_enter_installed_path_save_load_continues_on_its_factory() {
         .unwrap()
         .get_ai_update_interface()
         .unwrap();
+    // C++ LocomotorSet::xfer resolves names through the receiving engine's
+    // TheLocomotorStore; this owned fixture authored its Locomotor there.
+    let mut receiving_locomotors = |name: &str| {
+        Ok(crate::system::engine_stores::active_services()
+            .locomotor_store()
+            .get_template(name))
+    };
     assert!(
         restored_ai
             .lock()
             .unwrap()
-            .xfer_ai_update_state(&mut XferLoad::new(Cursor::new(bytes), 1))
+            .xfer_ai_update_state_with_locomotors(
+                &mut XferLoad::new(Cursor::new(bytes), 1),
+                &mut receiving_locomotors,
+            )
             .unwrap()
     );
     // Hold the peer's same-ID objects inaccessible while the restored owner
