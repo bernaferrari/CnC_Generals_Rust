@@ -657,25 +657,50 @@ pub struct RenderStats {
     pub render_time_ms: f32,
 }
 
+/// Read-only font face database shared by every engine of one application
+/// (the multi-instance host): scanning system fonts and parsing the game's
+/// font files once instead of once per instance. Each renderer still owns its
+/// own `FontSystem` (shaping/match caches) over a clone of the database.
+#[derive(Default)]
+struct SharedUiFontDatabase(std::sync::OnceLock<(String, cosmic_text::fontdb::Database)>);
+
+/// System fonts plus the game's font files, as the UI renderer has always loaded them.
+fn load_ui_font_system() -> FontSystem {
+    let mut font_system = FontSystem::new();
+    // C++ GDI resolved font families by name (render2dsentence.cpp:1477
+    // `Create_GDI_Font(font_name)`). cosmic-text defaults `Family::SansSerif`
+    // to "Fira Sans" (cosmic-text-0.10.0/src/font/system.rs:64), which is not
+    // installed on typical systems — glyphs then come from an arbitrary
+    // fallback face with wrong advances (the Arial-10 glyph corruption).
+    // Register the game's font files so `Family::Name("Arial")` resolves to
+    // real Arial (the same files the measuring side prefers).
+    for path in super::font::font_atlas_files() {
+        if let Ok(bytes) = std::fs::read(&path) {
+            let source: Arc<dyn AsRef<[u8]> + Send + Sync> = Arc::new(bytes);
+            font_system
+                .db_mut()
+                .load_font_source(cosmic_text::fontdb::Source::Binary(source));
+        }
+    }
+    font_system
+}
+
+fn ui_font_system() -> FontSystem {
+    let Some(services) = game_engine::common::common_services::try_common_services() else {
+        return load_ui_font_system();
+    };
+    let shared = services.application.extension(SharedUiFontDatabase::default);
+    let (locale, database) = shared.0.get_or_init(|| {
+        let font_system = load_ui_font_system();
+        (font_system.locale().to_string(), font_system.db().clone())
+    });
+    FontSystem::new_with_locale_and_db(locale.clone(), database.clone())
+}
+
 impl UIRenderer {
     /// Create a new UI renderer
     pub fn new(device: Arc<Device>, queue: Arc<Queue>, format: TextureFormat) -> Result<Self> {
-        let mut font_system = FontSystem::new();
-        // C++ GDI resolved font families by name (render2dsentence.cpp:1477
-        // `Create_GDI_Font(font_name)`). cosmic-text defaults `Family::SansSerif`
-        // to "Fira Sans" (cosmic-text-0.10.0/src/font/system.rs:64), which is not
-        // installed on typical systems — glyphs then come from an arbitrary
-        // fallback face with wrong advances (the Arial-10 glyph corruption).
-        // Register the game's font files so `Family::Name("Arial")` resolves to
-        // real Arial (the same files the measuring side prefers).
-        for path in super::font::font_atlas_files() {
-            if let Ok(bytes) = std::fs::read(&path) {
-                let source: Arc<dyn AsRef<[u8]> + Send + Sync> = Arc::new(bytes);
-                font_system
-                    .db_mut()
-                    .load_font_source(cosmic_text::fontdb::Source::Binary(source));
-            }
-        }
+        let font_system = ui_font_system();
         let text_buffer = initialize_font_text_buffer();
 
         // Create shader modules

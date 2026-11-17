@@ -36,7 +36,25 @@ pub(super) fn resolved_font_family(name: &str) -> &str {
     }
 }
 
-fn load_fontdue_font(desc: &FontDesc) -> Option<fontdue::Font> {
+/// Parsed fontdue faces shared by every engine of one application (the
+/// multi-instance host), keyed by authored family and weight: each face file
+/// is read and parsed once instead of once per font size per instance.
+#[derive(Default)]
+struct SharedFontdueFaces(std::sync::Mutex<HashMap<(String, bool), Option<Arc<fontdue::Font>>>>);
+
+fn load_fontdue_font(desc: &FontDesc) -> Option<Arc<fontdue::Font>> {
+    let Some(services) = game_engine::common::common_services::try_common_services() else {
+        return read_fontdue_font(desc).map(Arc::new);
+    };
+    let shared = services.application.extension(SharedFontdueFaces::default);
+    let mut faces = shared.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    faces
+        .entry((desc.name.clone(), desc.bold))
+        .or_insert_with(|| read_fontdue_font(desc).map(Arc::new))
+        .clone()
+}
+
+fn read_fontdue_font(desc: &FontDesc) -> Option<fontdue::Font> {
     for path in candidate_font_paths(&desc.name, desc.bold) {
         if let Ok(bytes) = std::fs::read(&path) {
             if let Ok(font) = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()) {
@@ -274,12 +292,12 @@ pub struct DefaultFontData {
     desc: FontDesc,
     font: Option<Arc<fontdue::Font>>,
     /// C++ AlternateUnicodeFont — loaded once per font-data instance.
-    alternate_unicode: std::sync::OnceLock<Option<fontdue::Font>>,
+    alternate_unicode: std::sync::OnceLock<Option<Arc<fontdue::Font>>>,
 }
 
 impl DefaultFontData {
     pub fn new(desc: FontDesc) -> Self {
-        let font = load_fontdue_font(&desc).map(Arc::new);
+        let font = load_fontdue_font(&desc);
         Self::with_font(desc, font)
     }
 
@@ -325,7 +343,7 @@ impl DefaultFontData {
     fn alternate_unicode_font(&self) -> Option<&fontdue::Font> {
         self.alternate_unicode
             .get_or_init(load_alternate_unicode_font)
-            .as_ref()
+            .as_deref()
     }
 }
 impl FontData for DefaultFontData {
@@ -376,7 +394,7 @@ impl FontData for DefaultFontData {
 /// `FontCharsClass::AlternateUnicodeFont` concept: loaded from the
 /// language's `UnicodeFontName` (defaulting toward broad-coverage faces),
 /// same point size as the primary (W3DGameFont.cpp:73-88).
-fn load_alternate_unicode_font() -> Option<fontdue::Font> {
+fn load_alternate_unicode_font() -> Option<Arc<fontdue::Font>> {
     let mut names: Vec<String> = Vec::new();
     let __lang = crate::global_language::get_global_language_data();
     if let Ok(language) = __lang.read() {
