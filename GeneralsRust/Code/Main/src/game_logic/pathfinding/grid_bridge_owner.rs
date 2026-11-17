@@ -83,6 +83,18 @@ impl PathfindingGrid {
             .map(|b| b.id)
     }
 
+    /// Same rule as `refresh_grid_bridge_states`: a layer is restamped only
+    /// while unclassified or when its destroyed state changes. C++ calls
+    /// TerrainLogic::changeBridgeState on BridgeBehavior state transitions,
+    /// not every frame; restamping an already-live layer only invalidated the
+    /// pathfinder (terrain_gen) and forced a full A* grid rebuild.
+    pub(crate) fn bridge_layer_needs_restamp(&self, layer: u8, destroyed: bool) -> bool {
+        self.bridge_layers
+            .iter()
+            .find(|b| b.id == layer)
+            .is_none_or(|b| b.cells.is_empty() || b.destroyed != destroyed)
+    }
+
     pub(crate) fn admitted_bridge_states(&self) -> Vec<(u8, u32, bool, bool)> {
         self.bridge_layers
             .iter()
@@ -135,6 +147,25 @@ mod tests {
         assert_eq!(wall_world.reserve_bridge_layer(a, b, c, d), 1);
         assert_eq!(bridge_world.reserve_bridge_layer(a, b, c, d), 15);
         assert_eq!(wall_world.layer_cell_type(15, GridPos::new(10, 10)), Some(PathfindCellType::Clear));
+    }
+
+    #[test]
+    fn live_classified_bridge_layer_needs_no_restamp() {
+        let mut grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+        let layer = grid.reserve_bridge_layer(
+            Vec3::new(20.0, 21.0, 20.0),
+            Vec3::new(40.0, 21.0, 20.0),
+            Vec3::new(20.0, 21.0, 80.0),
+            Vec3::new(40.0, 21.0, 80.0),
+        );
+        assert!(grid.bridge_layer_needs_restamp(layer, false));
+        grid.stamp_reserved_bridge_layer(layer, false, &PathfindingGround::Flat(0.0));
+        assert!(!grid.bridge_layers.iter().find(|b| b.id == layer).unwrap().cells.is_empty());
+        assert!(!grid.bridge_layer_needs_restamp(layer, false));
+        assert!(grid.bridge_layer_needs_restamp(layer, true));
+        grid.stamp_reserved_bridge_layer(layer, true, &PathfindingGround::Flat(0.0));
+        assert!(!grid.bridge_layer_needs_restamp(layer, true));
+        assert!(grid.bridge_layer_needs_restamp(layer, false));
     }
 
     #[test]

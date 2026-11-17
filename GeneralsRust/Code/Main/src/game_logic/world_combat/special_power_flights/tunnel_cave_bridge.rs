@@ -761,7 +761,10 @@ impl GameLogic {
             } else {
                 self.bridge_behavior.on_leave_rubble(id);
                 if !self.bridge_behavior.is_scaffold_present(id) {
-                    if let Some(layer) = self.pathfinding_system.grid.bridge_layer_for_object(id.0)
+                    let grid = &self.pathfinding_system.grid;
+                    if let Some(layer) = grid
+                        .bridge_layer_for_object(id.0)
+                        .filter(|&layer| grid.bridge_layer_needs_restamp(layer, false))
                     {
                         ({
                             let ground_owner = self.world_services.terrain();
