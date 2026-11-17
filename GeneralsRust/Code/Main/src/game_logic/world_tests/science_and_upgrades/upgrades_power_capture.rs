@@ -2489,7 +2489,8 @@ fn eva_gps_and_sneak_launched_own_enemy() {
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
-    logic.try_eva_special_launched_misc(Team::USA, "gps");
+    // C++ passes the controlling Player, never a bare side.
+    logic.try_eva_special_launched_misc_owned(Some(0), Team::USA, "gps");
     assert!(logic.honesty_eva_special_launched_misc_ok());
     let events = logic.take_eva_requests();
     assert!(
@@ -2615,7 +2616,8 @@ fn eva_superweapon_launched_own_particle_and_enemy_scud() {
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
-    logic.try_eva_superweapon_launched(Team::USA, HostSuperweaponKind::ParticleCannon);
+    // C++ passes the controlling Player, never a bare side.
+    logic.try_eva_superweapon_launched_owned(Some(0), Team::USA, HostSuperweaponKind::ParticleCannon);
     assert!(logic.honesty_eva_superweapon_launched_ok());
     let events = logic.take_eva_requests();
     assert!(
@@ -2660,7 +2662,7 @@ fn eva_superweapon_detected_enemy_nuke() {
     );
     // Own particle
     let _ = logic.take_eva_requests();
-    logic.try_eva_superweapon_detected(Team::USA, "AmericaParticleUplinkCannon");
+    logic.try_eva_superweapon_detected_for_player(0, "AmericaParticleUplinkCannon");
     let events2 = logic.take_eva_requests();
     assert!(
         events2
@@ -2676,7 +2678,7 @@ fn eva_superweapon_ready_own_particle_cannon() {
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
-    logic.try_eva_superweapon_ready(ObjectId(1), Team::USA, "AmericaParticleUplinkCannon");
+    logic.try_eva_superweapon_ready_for_player(0, "AmericaParticleUplinkCannon");
     assert!(logic.honesty_eva_superweapon_ready_ok());
     let events = logic.take_eva_requests();
     assert!(

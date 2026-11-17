@@ -605,6 +605,19 @@ impl GameLogic {
         self.try_eva_superweapon_detected_kind(None, owner_team, kind);
     }
 
+    /// C++ SpecialPowerModule detection names the controlling Player.
+    pub fn try_eva_superweapon_detected_for_player(&mut self, owner_player_id: u32, template_name: &str) {
+        let Some(kind) = Self::classify_superweapon_eva_kind(template_name) else {
+            return;
+        };
+        let owner_team = self
+            .players
+            .get(&owner_player_id)
+            .map(|player| player.team)
+            .unwrap_or(Team::Neutral);
+        self.try_eva_superweapon_detected_kind(Some(owner_player_id), owner_team, kind);
+    }
+
     /// Live construction path: exact parsed module authority, never a
     /// superweapon-shaped object name.
     pub fn try_eva_superweapon_detected_for_source(&mut self, source_id: ObjectId) {
