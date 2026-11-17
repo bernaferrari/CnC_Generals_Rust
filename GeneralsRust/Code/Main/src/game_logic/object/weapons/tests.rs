@@ -195,11 +195,13 @@ fn share_weapon_reload_time_copies_firing_slot_next_shot() {
 
 #[test]
 fn auto_choose_none_secondary_is_not_picked_while_primary_reloads() {
-    let mut attacker = Object::new(
-        ThingTemplate::new("GLAInfantryJarmenKell"),
-        ObjectId(1),
-        Team::GLA,
-    );
+    // Retail GLAInfantry.ini Jarmen Kell WeaponSet: AutoChooseSources = SECONDARY NONE.
+    let mut jarmen = ThingTemplate::new("GLAInfantryJarmenKell");
+    let mut set = crate::assets::WeaponSetDefinition::default();
+    set.attributes
+        .insert("AutoChooseSources".to_string(), "SECONDARY NONE".to_string());
+    jarmen.apply_weapon_set_definition(&set);
+    let mut attacker = Object::new(jarmen, ObjectId(1), Team::GLA);
     assert!(
         !attacker.thing.template.slot_allows_auto_choose(1),
         "Jarmen secondary is AutoChooseSources NONE"
