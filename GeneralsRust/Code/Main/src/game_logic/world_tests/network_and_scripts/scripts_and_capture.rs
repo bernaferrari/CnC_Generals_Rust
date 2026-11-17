@@ -738,6 +738,17 @@ fn propaganda_tower_residual_recovers_hp_and_sets_enthusiastic() {
     let unit_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(30.0, 0.0, 0.0))
         .expect("unit");
+    // PropagandaTowerBehavior.cpp:280 grants ENTHUSIASTIC only when the
+    // Object's WeaponSet has a damage weapon (hasAnyDamageWeapon); the
+    // TestInfantry template authors none, so the fixture arms it.
+    crate::fixture_content::arm_with_stats(
+        game_logic.host_object_mut(unit_id).expect("unit"),
+        crate::game_logic::Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Default::default()
+        },
+    );
 
     {
         let (unit, health_events) = game_logic
@@ -882,6 +893,17 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
     let unit_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(250.0, 0.0, 0.0))
         .expect("unit");
+    // PropagandaTowerBehavior.cpp:280 grants ENTHUSIASTIC only when the
+    // Object's WeaponSet has a damage weapon (hasAnyDamageWeapon); the
+    // TestInfantry template authors none, so the fixture arms it.
+    crate::fixture_content::arm_with_stats(
+        game_logic.host_object_mut(unit_id).expect("unit"),
+        crate::game_logic::Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Default::default()
+        },
+    );
     {
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
@@ -1061,6 +1083,17 @@ fn propaganda_tower_residual_subliminal_upgrade_buff_and_faster_heal() {
     let unit_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(20.0, 0.0, 0.0))
         .expect("unit");
+    // PropagandaTowerBehavior.cpp:280 grants ENTHUSIASTIC only when the
+    // Object's WeaponSet has a damage weapon (hasAnyDamageWeapon); the
+    // TestInfantry template authors none, so the fixture arms it.
+    crate::fixture_content::arm_with_stats(
+        game_logic.host_object_mut(unit_id).expect("unit"),
+        crate::game_logic::Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Default::default()
+        },
+    );
     {
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
@@ -1123,6 +1156,17 @@ fn propaganda_tower_name_residual_helix_propaganda_heals() {
     let unit_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(25.0, 0.0, 0.0))
         .expect("unit");
+    // PropagandaTowerBehavior.cpp:280 grants ENTHUSIASTIC only when the
+    // Object's WeaponSet has a damage weapon (hasAnyDamageWeapon); the
+    // TestInfantry template authors none, so the fixture arms it.
+    crate::fixture_content::arm_with_stats(
+        game_logic.host_object_mut(unit_id).expect("unit"),
+        crate::game_logic::Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Default::default()
+        },
+    );
     {
         let (unit, health_events) = game_logic
             .host_object_and_health_events_mut(unit_id)
