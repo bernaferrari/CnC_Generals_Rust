@@ -15,8 +15,9 @@ mod continuation_tests {
     //! `update_game_logic`'s own `get_frame() -> update()` pattern).
     //! Both branches therefore run on local instances; the singleton is
     //! touched only as the container the GameState snapshot blocks serialize
-    //! (`GameLogicSnapshotBridge` binds `GAME_LOGIC`, snapshot.rs), via the
-    //! two transplant helpers below.
+    //! (`GameLogicSnapshotBridge` binds `GAME_LOGIC`, snapshot.rs) on save,
+    //! via `transplant_to_singleton`. Load lends branch B's local instance as
+    //! the `CampaignGameLogicSnapshot` operation owner.
     //!
     //! Known save-format gap pinned here: save files do NOT carry the game-logic
     //! RNG seed words (`xfer_game_logic_state` has no seed xfer; mission loads
@@ -137,6 +138,30 @@ mod continuation_tests {
         }
     }
 
+    fn continuation_logic() -> GameLogic {
+        GameLogic::new_with_engine_stores(Arc::new(
+            crate::system::engine_stores::EngineStores::new_for_world(),
+        ))
+    }
+
+    /// Object.cpp:4101-4111 restores an Object only onto a team the
+    /// TeamFactory already admitted (SC_INVALID_DATA otherwise), so every
+    /// continuation object belongs to one admitted team with a stable id.
+    fn continuation_team() -> std::sync::Arc<std::sync::RwLock<crate::team::Team>> {
+        const CONTINUATION_TEAM_ID: crate::team::TeamID = 91_401;
+        let factory = crate::team::get_team_factory();
+        let mut teams = factory.lock().unwrap();
+        if let Some(team) = teams.find_team_by_id(CONTINUATION_TEAM_ID) {
+            return team;
+        }
+        let prototype = teams
+            .init_team_owned("ContinuationTeam".into(), "".into(), false, None, None)
+            .unwrap();
+        teams
+            .create_team_on_prototype_with_id(&prototype, CONTINUATION_TEAM_ID)
+            .unwrap()
+    }
+
     /// Snapshot of the xfer-visible state a transplant copied, for assertions.
     #[derive(Debug)]
     struct TransplantSummary {
@@ -168,23 +193,6 @@ mod continuation_tests {
             frame: single.frame,
             object_count: single.all_objects.len(),
         }
-    }
-
-    /// Load-direction mirror of `transplant_to_singleton`: after
-    /// `load_game` rebuilt the world inside the singleton, copy the
-    /// xfer-visible state into a fresh LOCAL instance and release the
-    /// singleton. `next_object_id` is again not copied — the fresh
-    /// instance's counter matches branch A's (registration of explicit ids
-    /// never bumps it), and nothing in this harness allocates new ids.
-    fn transplant_from_singleton() -> GameLogic {
-        let mut local = GameLogic::new();
-        let single = lock_game_logic().expect("game logic lock");
-        local.frame = single.frame;
-        local.game_time = single.game_time;
-        local.random_seed = single.random_seed;
-        local.objects = single.objects.clone();
-        local.all_objects = single.all_objects.clone();
-        local
     }
 
     /// Advance one frame, consume one logic-RNG draw from the harness, fold
@@ -275,7 +283,7 @@ mod continuation_tests {
         let template = crate::helpers::TheThingFactory::find_template("TestObject").unwrap();
         let mut objects_to_register = Vec::new();
         for &(id, x, y) in TEST_OBJECTS {
-            let arc = Object::new_with_id(template.clone(), id, ObjectStatusMaskType::none(), None)
+            let arc = Object::new_with_id(template.clone(), id, ObjectStatusMaskType::none(), Some(continuation_team()))
                 .expect("construct authored continuation object");
             // DEADLOCK NOTE: set_position drives the area tracker
             // synchronously (object_triggers.rs:255-268) which can re-enter
@@ -291,7 +299,10 @@ mod continuation_tests {
         // save/load container (transplant helpers). Registration happens on
         // the local instance, which also mirrors the objects into the shared
         // OBJECT_REGISTRY both branches' partition updates sync from.
-        let mut a = GameLogic::new();
+        // GameLogic::xfer also snapshots its world's TheCaveSystem
+        // (GameLogic.cpp xferSnapshot(TheCaveSystem)), so each branch owns
+        // receiving engine stores.
+        let mut a = continuation_logic();
         for (idx, arc) in objects_to_register.into_iter().enumerate() {
             let id = TEST_OBJECTS[idx].0;
             a.objects.insert(id, arc);
@@ -362,20 +373,32 @@ mod continuation_tests {
 
         // --- restore ---
         reset_game_logic().expect("reset_game_logic before load");
+        // The GameLogic block loads only into an operation owner that also
+        // receives the Campaign chunk (GameState.cpp loadGame -> xferSnapshot
+        // of TheGameLogic after TheCampaignManager). Lend a fresh LOCAL
+        // instance as that owner; the restored world lands directly in it.
+        let mut b = continuation_logic();
         {
+            let mut campaign = game_engine::System::CampaignManagerXferState::default();
+            let mut owner = CampaignGameLogicSnapshot {
+                logic: &mut b,
+                campaign: &mut campaign,
+            };
             let mut state = game_engine::System::get_game_state();
             let code = state
-                .load_game(AvailableGameInfo {
-                    filename: save_filename.clone(),
-                    save_game_info: SaveGameInfo::default(),
-                })
+                .load_game_with_snapshots(
+                    AvailableGameInfo {
+                        filename: save_filename.clone(),
+                        save_game_info: SaveGameInfo::default(),
+                    },
+                    &mut [game_engine::System::SaveGame::BorrowedSnapshotBlock {
+                        block_name: "CHUNK_GameLogic",
+                        snapshot: &mut owner,
+                    }],
+                )
                 .expect("load_game xfer must not fail");
             assert_eq!(code, SaveCode::Ok, "load_game must report SaveCode::Ok");
         }
-        // Pull the restored world back out of the singleton container into a
-        // fresh local instance, then verify the save point survived the
-        // round-trip before any branch-B stepping.
-        let mut b = transplant_from_singleton();
         assert_eq!(
             b.get_frame(),
             SETUP_FRAMES as UnsignedInt,
@@ -574,7 +597,7 @@ mod continuation_tests {
         let template = crate::helpers::TheThingFactory::find_template("TestObject").unwrap();
         let mut logic = GameLogic::new();
         for &(id, _x, _y) in TEST_OBJECTS {
-            let arc = Object::new_with_id(template.clone(), id, ObjectStatusMaskType::none(), None)
+            let arc = Object::new_with_id(template.clone(), id, ObjectStatusMaskType::none(), Some(continuation_team()))
                 .expect("create");
             logic.objects.insert(id, arc.clone());
             logic.all_objects.push(id);
