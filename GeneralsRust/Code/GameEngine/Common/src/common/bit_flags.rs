@@ -457,6 +457,11 @@ impl BitFlags {
 
     /// Clear bits that are set in the clr BitFlags
     pub fn clear_bits(&mut self, clr: &Self) {
+        if clr.bits.len() == self.bits.len() {
+            // Same bit table: clear whole storage blocks at once.
+            self.bits.difference(&clr.bits);
+            return;
+        }
         for (i, bit) in clr.bits.iter().enumerate() {
             if bit && i < self.bits.len() {
                 self.bits.set(i, false);
@@ -466,6 +471,10 @@ impl BitFlags {
 
     /// Set bits that are set in the set BitFlags
     pub fn set_bits(&mut self, set: &Self) {
+        if set.bits.len() == self.bits.len() {
+            self.bits.or(&set.bits);
+            return;
+        }
         for (i, bit) in set.bits.iter().enumerate() {
             if bit && i < self.bits.len() {
                 self.bits.set(i, true);
@@ -477,6 +486,26 @@ impl BitFlags {
     pub fn clear_and_set(&mut self, clr: &Self, set: &Self) {
         self.clear_bits(clr);
         self.set_bits(set);
+    }
+
+    /// [`Self::clear_and_set`], reporting whether any bit changed.
+    pub fn clear_and_set_changed(&mut self, clr: &Self, set: &Self) -> bool {
+        if clr.bits.len() == self.bits.len() && set.bits.len() == self.bits.len() {
+            let changed = self
+                .bits
+                .blocks()
+                .zip(clr.bits.blocks())
+                .zip(set.bits.blocks())
+                .any(|((a, c), s)| ((a & !c) | s) != a);
+            if changed {
+                self.bits.difference(&clr.bits);
+                self.bits.or(&set.bits);
+            }
+            return changed;
+        }
+        let before = self.bits.clone();
+        self.clear_and_set(clr, set);
+        self.bits != before
     }
 
     /// Test that specified bits are set and others are clear
@@ -580,6 +609,23 @@ pub fn create_weapon_set_flags() -> WeaponSetBitFlags {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clear_and_set_changed_reports_net_change_only() {
+        let names = ModelConditionFlags::BIT_NAMES;
+        let mut flags = BitFlags::with_bits(names, &[1, 100]);
+        let both = BitFlags::with_bits(names, &[1]);
+        // Clearing and re-setting the same bit is no net change.
+        assert!(!flags.clear_and_set_changed(&both, &both));
+        assert!(flags.test(1) && flags.test(100));
+        let clr = BitFlags::with_bits(names, &[100]);
+        let set = BitFlags::with_bits(names, &[5]);
+        assert!(flags.clear_and_set_changed(&clr, &set));
+        assert!(flags.test(1) && flags.test(5) && !flags.test(100));
+        let mut word_path = BitFlags::with_bits(names, &[1, 100]);
+        word_path.clear_and_set(&clr, &set);
+        assert_eq!(word_path, flags);
+    }
 
     #[test]
     fn model_condition_constants_match_bit_name_list() {

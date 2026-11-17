@@ -16,9 +16,7 @@ impl BasicDrawable {
         clr: &ModelConditionBitFlags,
         set: &ModelConditionBitFlags,
     ) {
-        let old = self.model_condition_flags.clone();
-        self.model_condition_flags.clear_and_set(clr, set);
-        if self.model_condition_flags != old {
+        if self.model_condition_flags.clear_and_set_changed(clr, set) {
             self.is_model_dirty = true;
         }
     }
