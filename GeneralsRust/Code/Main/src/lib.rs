@@ -1,3 +1,6 @@
+// Auto-trait (Send/Sync) proofs for the async engine traits walk the shared
+// retail texture cache (wgpu handles) deeper than the default 128 levels.
+#![recursion_limit = "256"]
 #![allow(clippy::pedantic)]
 #![allow(clippy::nursery)]
 #![allow(clippy::cargo)]

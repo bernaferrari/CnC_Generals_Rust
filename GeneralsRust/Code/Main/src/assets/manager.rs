@@ -1367,6 +1367,14 @@ impl AssetManager {
         self.texture_manager.get_raw_texture(texture_name)
     }
 
+    /// The cached raw texture handle (shared across engines when adopted).
+    pub fn get_raw_texture_shared(
+        &self,
+        texture_name: &str,
+    ) -> Option<std::sync::Arc<RawTexture>> {
+        self.texture_manager.get_raw_texture_shared(texture_name)
+    }
+
     /// Upload an already cached raw texture through this manager's GPU cache.
     /// Unlike the general loader this never substitutes a missing texture.
     pub fn gpu_texture_for_cached_raw(

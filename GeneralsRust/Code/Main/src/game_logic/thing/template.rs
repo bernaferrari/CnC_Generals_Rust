@@ -81,6 +81,12 @@ impl ReceivingDrawModels {
         crate::assets::ObjectDefinition::select_first_object_draw_from_modules(&self.modules, bits)
     }
 
+    /// First model key of `select`, without cloning the selected states.
+    pub(crate) fn first_model_key(&self, bits: u128) -> String {
+        crate::assets::ObjectDefinition::first_selected_model_key_from_modules(&self.modules, bits)
+            .unwrap_or_else(|| self.base_model.clone().unwrap_or_default())
+    }
+
     pub(crate) fn select(&self, bits: u128) -> Vec<crate::assets::AuthoredDrawModel> {
         crate::assets::ObjectDefinition::select_draw_models_from_modules(&self.modules, bits)
             .unwrap_or_else(|| {
@@ -2153,12 +2159,8 @@ impl ThingTemplate {
     /// First actual model in original Draw-module order for this Object's
     /// current condition bank. An authored empty selection never guesses.
     pub(crate) fn model_name_for_conditions(&self, bits: u128) -> String {
-        match self.authored_draw_models_for_conditions(bits) {
-            Some(models) => models
-                .into_iter()
-                .next()
-                .map(|model| model.model_key)
-                .unwrap_or_default(),
+        match self.authored_draw_modules.as_deref() {
+            Some(models) => models.first_model_key(bits),
             None => self.get_model_name().to_owned(),
         }
     }

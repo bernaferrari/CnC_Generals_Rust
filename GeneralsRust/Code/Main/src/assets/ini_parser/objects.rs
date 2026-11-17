@@ -356,8 +356,50 @@ impl ObjectDefinition {
         modules: &[DrawModuleDefinition],
         condition_bits: u128,
     ) -> Option<Vec<AuthoredDrawModel>> {
-        let mut found_selectable_module = false;
         let mut selected = Vec::new();
+        let found = Self::visit_selected_named_draw_states(
+            modules,
+            condition_bits,
+            |module_index, condition_state_index, module, state| {
+                selected.push(module.authored_draw_model(module_index, condition_state_index, state));
+            },
+        )?;
+        Some(if found { selected } else { Vec::new() })
+    }
+
+    /// First model key of `select_draw_models_from_modules` without cloning
+    /// the selected draw states. `None` = no selectable module; `Some("")` =
+    /// an authored empty (or fail-closed) selection.
+    pub(crate) fn first_selected_model_key_from_modules(
+        modules: &[DrawModuleDefinition],
+        condition_bits: u128,
+    ) -> Option<String> {
+        let mut first: Option<&str> = None;
+        let found = Self::visit_selected_named_draw_states(
+            modules,
+            condition_bits,
+            |_, _, _, state| {
+                if first.is_none() {
+                    if let AuthoredConditionModel::Named(name) = &state.model {
+                        first = Some(name.as_str());
+                    }
+                }
+            },
+        )?;
+        Some(if found { first.unwrap_or_default().to_owned() } else { String::new() })
+    }
+
+    /// Walk the selected Named condition state of every selectable module in
+    /// source order. `None` = no selectable module; `Some(false)` = a module
+    /// cannot be faithfully selected, so the whole selection fails closed.
+    fn visit_selected_named_draw_states<'m>(
+        modules: &'m [DrawModuleDefinition],
+        condition_bits: u128,
+        mut visit: impl FnMut(u32, u32, &'m DrawModuleDefinition, &'m DrawConditionStateDefinition),
+    ) -> Option<bool> {
+        let mut found_selectable_module = false;
+        let mut picks: Vec<(u32, u32, &'m DrawModuleDefinition, &'m DrawConditionStateDefinition)> =
+            Vec::new();
 
         for (module_index, module) in modules.iter().enumerate() {
             if !module.has_selectable_condition_states() {
@@ -369,28 +411,34 @@ impl ObjectDefinition {
                 // An Object with more than u32::MAX Draw modules cannot be
                 // represented in a snapshot without truncation. It is not
                 // valid retail data; fail closed instead of wrapping/aliasing.
-                Err(_) => return Some(Vec::new()),
+                Err(_) => return Some(false),
             };
             let (condition_state_index, state) =
                 match module.selected_condition_state_for_conditions(condition_bits) {
                     Ok(Some(selected)) => selected,
                     // A source module exists but Main cannot faithfully select it.
                     // Do not partially render its siblings as a substitute state.
-                    Ok(None) | Err(()) => return Some(Vec::new()),
+                    Ok(None) | Err(()) => return Some(false),
                 };
             let condition_state_index = match u32::try_from(condition_state_index) {
                 Ok(index) => index,
                 // State identity crosses the presentation/save boundary; do
                 // not wrap a malformed count into a different state.
-                Err(_) => return Some(Vec::new()),
+                Err(_) => return Some(false),
             };
             let AuthoredConditionModel::Named(_) = &state.model else {
                 continue;
             };
-            selected.push(module.authored_draw_model(module_index, condition_state_index, state));
+            picks.push((module_index, condition_state_index, module, state));
         }
 
-        found_selectable_module.then_some(selected)
+        if !found_selectable_module {
+            return None;
+        }
+        for (module_index, condition_state_index, module, state) in picks {
+            visit(module_index, condition_state_index, module, state);
+        }
+        Some(true)
     }
 
     /// Constructor/condition ownership for the same selectable render modules

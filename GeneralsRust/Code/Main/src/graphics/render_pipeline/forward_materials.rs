@@ -847,14 +847,21 @@ impl ForwardPass {
         let texture_key = texture_name.to_lowercase();
 
         let raw = asset_manager
-            .get_raw_texture(&texture_key)
+            .get_raw_texture_shared(&texture_key)
             .ok_or_else(|| anyhow::anyhow!("Texture '{}' not cached", texture_name))?;
         if raw.dds_compression.is_some() {
             let gpu = asset_manager.gpu_texture_for_cached_raw(&self.device, &self.queue, &texture_key)?;
             return Ok(Arc::new(TextureClass::from_gpu_texture(texture_name, gpu.view.clone())
                 .map_err(|e| anyhow::anyhow!("Invalid GPU texture '{}': {e}", texture_name))?));
         }
-        Self::build_texture(texture_name, raw)
+        drop(asset_manager);
+        // One CPU TextureClass per exact archive payload for the whole host.
+        match self.shared_retail.as_ref() {
+            Some(shared) => shared.retail_texture_class_or_build(&texture_key, &raw, || {
+                Self::build_texture(texture_name, &raw)
+            }),
+            None => Self::build_texture(texture_name, &raw),
+        }
     }
 
     pub(super) fn is_known_missing_texture(&self, texture_name: &str) -> bool {

@@ -55,6 +55,32 @@ pub struct SharedRetailContent {
     /// Held while one engine builds the catalogue, so engines booting in
     /// parallel wait and adopt it instead of each parsing a private copy.
     catalog_build: Arc<Mutex<()>>,
+    /// Decoded archive textures (and their upload on the shared device),
+    /// keyed by the exact BIG file + entry + requested name. Archive entries
+    /// are immutable, so every engine reading the same entry adopts one copy
+    /// (C++ WW3DAssetManager keeps one TextureClass per name per process).
+    retail_textures: Arc<Mutex<HashMap<String, SharedRetailTexture>>>,
+    /// Uncompressed W3D TextureClasses built from a shared raw payload, keyed
+    /// by lowercase name; valid only for that exact payload (pointer-equal).
+    retail_texture_classes: Arc<
+        Mutex<
+            HashMap<
+                String,
+                (
+                    Arc<crate::assets::textures::RawTexture>,
+                    Arc<ww3d_renderer_3d::texture_system::TextureClass>,
+                ),
+            >,
+        >,
+    >,
+}
+
+/// One shared archive texture: CPU payload plus, once uploaded, the GPU
+/// texture on the device that created it.
+#[derive(Clone)]
+pub(crate) struct SharedRetailTexture {
+    pub(crate) raw: Arc<crate::assets::textures::RawTexture>,
+    pub(crate) gpu: Option<(wgpu::Device, crate::assets::textures::GPUTexture)>,
 }
 
 impl std::fmt::Debug for SharedRetailContent {
@@ -105,6 +131,87 @@ impl SharedRetailContent {
     pub fn for_current_application() -> Option<Self> {
         game_engine::common::common_services::try_common_services()
             .map(|services| (*services.application.extension(Self::default)).clone())
+    }
+
+    /// The shared decoded payload for an archive texture entry.
+    pub(crate) fn retail_texture_raw(
+        &self,
+        key: &str,
+    ) -> Option<Arc<crate::assets::textures::RawTexture>> {
+        let textures = self.retail_textures.lock().unwrap_or_else(|e| e.into_inner());
+        textures.get(key).map(|texture| Arc::clone(&texture.raw))
+    }
+
+    /// Publish a decoded archive texture; an engine that raced another keeps
+    /// the first published copy.
+    pub(crate) fn publish_retail_texture_raw(
+        &self,
+        key: &str,
+        raw: Arc<crate::assets::textures::RawTexture>,
+    ) -> Arc<crate::assets::textures::RawTexture> {
+        let mut textures = self.retail_textures.lock().unwrap_or_else(|e| e.into_inner());
+        Arc::clone(
+            &textures
+                .entry(key.to_string())
+                .or_insert(SharedRetailTexture { raw, gpu: None })
+                .raw,
+        )
+    }
+
+    /// The upload of a shared archive texture on exactly `device`, if any.
+    pub(crate) fn retail_texture_gpu(
+        &self,
+        key: &str,
+        device: &wgpu::Device,
+    ) -> Option<crate::assets::textures::GPUTexture> {
+        let textures = self.retail_textures.lock().unwrap_or_else(|e| e.into_inner());
+        textures
+            .get(key)
+            .and_then(|texture| texture.gpu.as_ref())
+            .filter(|(owner, _)| owner == device)
+            .map(|(_, gpu)| gpu.clone())
+    }
+
+    /// Publish the upload of a shared archive texture (first upload wins).
+    pub(crate) fn publish_retail_texture_gpu(
+        &self,
+        key: &str,
+        device: &wgpu::Device,
+        gpu: &crate::assets::textures::GPUTexture,
+    ) {
+        let mut textures = self.retail_textures.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(texture) = textures.get_mut(key) {
+            if texture.gpu.is_none() {
+                texture.gpu = Some((device.clone(), gpu.clone()));
+            }
+        }
+    }
+
+    /// The TextureClass built from exactly `raw`, or build and publish one.
+    pub(crate) fn retail_texture_class_or_build<E>(
+        &self,
+        key: &str,
+        raw: &Arc<crate::assets::textures::RawTexture>,
+        build: impl FnOnce() -> std::result::Result<Arc<ww3d_renderer_3d::texture_system::TextureClass>, E>,
+    ) -> std::result::Result<Arc<ww3d_renderer_3d::texture_system::TextureClass>, E> {
+        {
+            let classes = self.retail_texture_classes.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((owner, class)) = classes.get(key) {
+                if Arc::ptr_eq(owner, raw) {
+                    return Ok(Arc::clone(class));
+                }
+            }
+        }
+        let class = build()?;
+        let mut classes = self.retail_texture_classes.lock().unwrap_or_else(|e| e.into_inner());
+        match classes.get(key) {
+            Some((owner, existing)) if Arc::ptr_eq(owner, raw) => Ok(Arc::clone(existing)),
+            Some(_) => Ok(class),
+            None => {
+                classes.insert(key.to_string(), (Arc::clone(raw), Arc::clone(&class)));
+                Ok(class)
+            }
+        }
     }
 
     fn begin_catalog_build(&self) -> std::sync::MutexGuard<'_, ()> {

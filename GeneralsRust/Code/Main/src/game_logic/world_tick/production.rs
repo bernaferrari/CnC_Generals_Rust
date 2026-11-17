@@ -341,7 +341,9 @@ impl GameLogic {
                 let pf = power_factor;
                 // C++ ProductionUpdate checks an exit door only for completed
                 // unit entries; upgrades complete independently of the door.
-                let doors = crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
+                // Resolved only when a ready unit asks for an exit door: the
+                // template door INI lookup locks the asset manager.
+                let doors = || crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
                     &producer_template,
                 );
                 let airfield_holds_parking = is_airfield
@@ -397,7 +399,7 @@ impl GameLogic {
                         && head_is_unit
                         && head_exit_available
                         && !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
-                            doors,
+                            doors(),
                             door_spawn_phase,
                         )
                     {

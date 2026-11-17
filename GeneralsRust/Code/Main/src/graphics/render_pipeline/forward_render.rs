@@ -171,6 +171,7 @@ impl ForwardPass {
             application_assets: None,
             mesh_cache: HashMap::new(),
             texture_cache: HashMap::new(),
+            shared_retail: crate::assets::ww3d_asset_manager::SharedRetailContent::for_current_application(),
             pending_texture_stream: VecDeque::new(),
             queued_texture_stream: HashSet::new(),
             fallback_texture: None,

@@ -10,6 +10,7 @@ use crate::assets::archive::ArchiveFileSystem;
 use anyhow::{Result, anyhow};
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use ww3d_assets::image::dds::{
     DdsCompression, DdsTextureType, decode_dxt1, decode_dxt3, decode_dxt5, load_dds_from_memory,
 };
@@ -154,7 +155,8 @@ impl RawTexture {
     }
 }
 
-/// GPU texture resource
+/// GPU texture resource (wgpu handles: clones share one GPU resource)
+#[derive(Clone)]
 pub struct GPUTexture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
@@ -166,7 +168,11 @@ pub struct GPUTexture {
 /// Texture manager for loading and caching textures
 pub struct TextureManager {
     /// Cache of loaded raw textures
-    raw_cache: HashMap<String, RawTexture>,
+    raw_cache: HashMap<String, Arc<RawTexture>>,
+    /// Host-shared archive textures; None when no host channel is installed.
+    shared: Option<crate::assets::ww3d_asset_manager::SharedRetailContent>,
+    /// texture key -> shared archive-entry key for textures adopted/published.
+    shared_keys: HashMap<String, String>,
     /// Cache of GPU textures
     gpu_cache: HashMap<String, GPUTexture>,
     /// Default white texture for fallback
@@ -269,6 +275,8 @@ impl TextureManager {
     pub fn new() -> Self {
         Self {
             raw_cache: HashMap::new(),
+            shared: crate::assets::ww3d_asset_manager::SharedRetailContent::for_current_application(),
+            shared_keys: HashMap::new(),
             gpu_cache: HashMap::new(),
             default_texture_name: "default_white".to_string(),
             missing_assets: Default::default(),
@@ -300,7 +308,7 @@ impl TextureManager {
         let gpu_texture = self.create_gpu_texture(device, queue, &missing_texture)?;
 
         self.raw_cache
-            .insert(self.default_texture_name.clone(), missing_texture);
+            .insert(self.default_texture_name.clone(), Arc::new(missing_texture));
         self.gpu_cache
             .insert(self.default_texture_name.clone(), gpu_texture);
 
@@ -309,7 +317,7 @@ impl TextureManager {
             RawTexture::solid_color("default_green".to_string(), 64, 64, [100, 150, 50, 255]);
         let gpu_green = self.create_gpu_texture(device, queue, &green_texture)?;
         self.raw_cache
-            .insert("default_green".to_string(), green_texture);
+            .insert("default_green".to_string(), Arc::new(green_texture));
         self.gpu_cache
             .insert("default_green".to_string(), gpu_green);
 
@@ -322,7 +330,7 @@ impl TextureManager {
         );
         let gpu_check = self.create_gpu_texture(device, queue, &checkerboard)?;
         self.raw_cache
-            .insert("default_checkerboard".to_string(), checkerboard);
+            .insert("default_checkerboard".to_string(), Arc::new(checkerboard));
         self.gpu_cache
             .insert("default_checkerboard".to_string(), gpu_check);
 
@@ -383,11 +391,26 @@ impl TextureManager {
                 .expect("gpu_cache key existed but value disappeared"));
         }
 
-        let raw_texture = self
-            .raw_cache
-            .get(&texture_key)
-            .ok_or_else(|| anyhow!("Raw texture '{}' not cached after load", texture_key))?;
-        let gpu_texture = self.create_gpu_texture(device, queue, raw_texture)?;
+        let shared_gpu = self
+            .shared
+            .as_ref()
+            .zip(self.shared_keys.get(&texture_key))
+            .and_then(|(shared, key)| shared.retail_texture_gpu(key, device));
+        let gpu_texture = match shared_gpu {
+            Some(gpu) => gpu,
+            None => {
+                let raw_texture = self.raw_cache.get(&texture_key).ok_or_else(|| {
+                    anyhow!("Raw texture '{}' not cached after load", texture_key)
+                })?;
+                let gpu = self.create_gpu_texture(device, queue, raw_texture)?;
+                if let (Some(shared), Some(key)) =
+                    (self.shared.as_ref(), self.shared_keys.get(&texture_key))
+                {
+                    shared.publish_retail_texture_gpu(key, device, &gpu);
+                }
+                gpu
+            }
+        };
         self.gpu_cache.insert(texture_key.clone(), gpu_texture);
 
         // Safe unwrap since we just inserted it
@@ -435,6 +458,19 @@ impl TextureManager {
         debug!("Loading raw texture from archive: {}", requested_name);
         let mut last_error = None;
         for candidate in Self::build_texture_candidates(requested_name) {
+            let shared_key = self.shared.as_ref().and_then(|_| {
+                archive_system
+                    .get_archive_filename_for_file(&candidate)
+                    .map(|archive| format!("{archive}\u{0}{candidate}\u{0}{requested_name}"))
+            });
+            if let (Some(shared), Some(key)) = (self.shared.as_ref(), shared_key.as_ref()) {
+                if let Some(raw) = shared.retail_texture_raw(key) {
+                    self.raw_cache.insert(texture_key.clone(), raw);
+                    self.shared_keys.insert(texture_key.clone(), key.clone());
+                    self.known_missing_textures.remove(&texture_key);
+                    return Ok(texture_key);
+                }
+            }
             let texture_data = match archive_system.open_file_sync(&candidate) {
                 Ok(data) => data,
                 Err(err) => {
@@ -460,6 +496,11 @@ impl TextureManager {
 
             match parse_result {
                 Ok(raw_texture) => {
+                    let mut raw_texture = Arc::new(raw_texture);
+                    if let (Some(shared), Some(key)) = (self.shared.as_ref(), shared_key) {
+                        raw_texture = shared.publish_retail_texture_raw(&key, raw_texture);
+                        self.shared_keys.insert(texture_key.clone(), key);
+                    }
                     self.raw_cache.insert(texture_key.clone(), raw_texture);
                     self.known_missing_textures.remove(&texture_key);
                     return Ok(texture_key);
@@ -636,7 +677,7 @@ impl TextureManager {
     /// Get cached raw texture data if available.
     pub fn get_raw_texture(&self, texture_name: &str) -> Option<&RawTexture> {
         let texture_key = self.resolved_cache_key_for_lookup(texture_name);
-        self.raw_cache.get(&texture_key)
+        self.raw_cache.get(&texture_key).map(|raw| &**raw)
     }
 
     pub async fn load_water_texture_assets(
@@ -658,6 +699,12 @@ impl TextureManager {
             normal_map: self.clone_water_texture_asset_payload(&normal_map_name)?,
             caustics: self.clone_water_texture_asset_payload(&caustics_name)?,
         })
+    }
+
+    /// The cached raw texture handle (shared across engines when adopted).
+    pub fn get_raw_texture_shared(&self, texture_name: &str) -> Option<Arc<RawTexture>> {
+        let texture_key = self.resolved_cache_key_for_lookup(texture_name);
+        self.raw_cache.get(&texture_key).cloned()
     }
 
     pub fn is_known_missing_texture(&self, texture_name: &str) -> bool {
@@ -1373,7 +1420,7 @@ mod tests {
         raw.data = vec![0; 40];
         raw.dds_levels = vec![(0, 32), (32, 8)];
         let blocks = raw.data.as_ptr();
-        manager.raw_cache.insert("skin.dds".into(), raw);
+        manager.raw_cache.insert("skin.dds".into(), Arc::new(raw));
         let first = manager.gpu_texture_for_cached_raw(&device, &queue, "skin.dds").unwrap().texture.clone();
         let second = &manager.gpu_texture_for_cached_raw(&device, &queue, "SKIN.DDS").unwrap().texture;
         assert_eq!(&first, second);

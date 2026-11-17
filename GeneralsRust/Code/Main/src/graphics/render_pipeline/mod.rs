@@ -906,6 +906,8 @@ pub struct ForwardPass {
     application_assets: Option<Arc<Mutex<crate::assets::AssetManager>>>,
     mesh_cache: HashMap<String, Arc<MeshModelClass>>,
     texture_cache: HashMap<String, Arc<TextureClass>>,
+    /// Host-shared retail content (texture payloads/classes across engines).
+    shared_retail: Option<crate::assets::ww3d_asset_manager::SharedRetailContent>,
     pending_texture_stream: VecDeque<String>,
     queued_texture_stream: HashSet<String>,
     fallback_texture: Option<Arc<TextureClass>>,
