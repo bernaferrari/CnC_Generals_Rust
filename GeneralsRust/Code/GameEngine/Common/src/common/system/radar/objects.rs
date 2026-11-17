@@ -118,8 +118,13 @@ impl RadarSystem {
         spec.object.color = resolve_radar_object_color(&spec);
         spec.object.is_disguised = spec.disguised;
         let object_id = spec.object.object_id;
-        self.remove_object(object_id);
-        self.add_object(spec.object);
+        // C++ Radar keeps one RadarObject per Object and updates it in place
+        // (Radar.cpp addObject runs on registration, not every frame). Re-list
+        // only when its list or priority section changes.
+        if !self.update_object_in_place(&spec.object) {
+            self.remove_object(object_id);
+            self.add_object(spec.object);
+        }
         if let Some(sink) = data_sink() {
             sink.set_radar_data(object_id, true);
         }

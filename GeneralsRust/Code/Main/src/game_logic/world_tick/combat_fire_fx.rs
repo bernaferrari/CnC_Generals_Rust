@@ -243,8 +243,17 @@ impl GameLogic {
                 )
             })
             .collect();
+        let mut bone_systems = self.combat_particles.active_bone_systems_by_owner();
+        let mut body_poses: std::collections::HashMap<ObjectId, (glam::Vec3, f32)> =
+            std::collections::HashMap::with_capacity(snapshots.len());
         for (id, pos, template, model, scale, yaw, bits) in snapshots {
+            body_poses.insert(id, (pos, yaw));
             let bones = self.receiving_particle_sys_bones(&template, bits);
+            let owned = bone_systems.remove(&id).unwrap_or_default();
+            if bones.is_empty() && owned.is_empty() {
+                // Nothing authored and nothing live to retire.
+                continue;
+            }
             let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
                 &model,
                 scale,
@@ -266,7 +275,7 @@ impl GameLogic {
                         }
                     },
                 );
-            self.combat_particles.sync_particle_sys_bones(
+            self.combat_particles.sync_particle_sys_bones_with_owned(
                 frame,
                 id,
                 pos,
@@ -274,12 +283,13 @@ impl GameLogic {
                 pose,
                 source.as_ref(),
                 particle_owner,
+                owned,
             );
-            // ActiveBody replaces its auto particles at its own visual and
-            // AFLAME callbacks, not by reconciling Body state each frame.
-            self.combat_particles
-                .follow_attached_body_particles(id, pos, yaw);
         }
+        // ActiveBody replaces its auto particles at its own visual and
+        // AFLAME callbacks, not by reconciling Body state each frame.
+        self.combat_particles
+            .follow_attached_body_particles_for(&body_poses);
     }
 }
 

@@ -357,12 +357,38 @@ impl GameLogic {
                     .push(id.0);
             }
         }
+        // `host_script_team_census_member_ids` for every prototype/player
+        // team, from one Object pass (ASCII-case-insensitive like that census)
+        // instead of one full Object scan per Team name.
+        let mut census: std::collections::HashMap<String, Vec<u32>> =
+            std::collections::HashMap::new();
+        for obj in self.host_objects().registered_values() {
+            let team_name = if obj.team_instance_name.is_empty() {
+                self.default_host_team_instance_name(obj.owner_player_id, obj.team)
+            } else {
+                obj.team_instance_name.clone()
+            };
+            census
+                .entry(team_name.to_ascii_lowercase())
+                .or_default()
+                .push(obj.id.0);
+        }
+        let census_ids = |name: &str| -> Vec<u32> {
+            let needle = name.trim();
+            if needle.is_empty() {
+                return Vec::new();
+            }
+            census
+                .get(&needle.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or_default()
+        };
         if let Ok(factory) = self.team_factory.lock() {
             for name in factory.prototype_names() {
                 if snap.team_instance_ids.contains_key(&name) {
                     continue;
                 }
-                let ids = self.host_script_team_census_member_ids(&name);
+                let ids = census_ids(&name);
                 if !ids.is_empty() {
                     snap.team_instance_ids.insert(name, ids);
                 }
@@ -373,7 +399,7 @@ impl GameLogic {
             if name == "team" || snap.team_instance_ids.contains_key(&name) {
                 continue;
             }
-            let ids = self.host_script_team_census_member_ids(&name);
+            let ids = census_ids(&name);
             if !ids.is_empty() {
                 snap.team_instance_ids.insert(name, ids);
             }

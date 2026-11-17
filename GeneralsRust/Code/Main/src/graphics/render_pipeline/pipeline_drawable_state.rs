@@ -298,7 +298,7 @@ fn restored_recoil_slots_for_topology(
 /// an asset/topology becomes available later; Main must similarly advance the
 /// per-module observation watermark while deliberately retaining bind/idle.
 fn retain_fire_starts_from_plans(
-    drawable_visual_states: &mut HashMap<(NativeDrawOwnerId, u32), ObjectVisualState>,
+    drawable_visual_states: &mut native_draw_world::DrawableVisualStates,
     plans: &[crate::presentation_frame::FrozenWeaponVisualDispatchPlan],
 ) {
     for plan in plans {
@@ -1060,7 +1060,7 @@ mod tests {
             impulse: crate::presentation_frame::FrozenWeaponVisualImpulse::default(),
         };
         assert!(plan.is_valid());
-        let mut states = HashMap::new();
+        let mut states = std::collections::BTreeMap::new();
         retain_fire_starts_from_plans(&mut states, &[plan]);
         let state = states.get(&(crate::assets::NativeDrawOwnerId::Actor(41), 2)).expect("retained visual state");
         assert_eq!(state.last_seen_weapon_discharge_sequence, 4);

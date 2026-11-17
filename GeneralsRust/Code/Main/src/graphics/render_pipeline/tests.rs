@@ -21,7 +21,7 @@ fn visual_world_state_reset_clears_object_timeline_components() {
     use std::collections::HashMap;
     use crate::assets::NativeDrawOwnerId;
 
-    let mut animation_states = HashMap::from([(
+    let mut animation_states = std::collections::BTreeMap::from([(
         (NativeDrawOwnerId::Actor(1), 2_u32),
         ObjectVisualState {
             animation: Some(ObjectAnimationState {

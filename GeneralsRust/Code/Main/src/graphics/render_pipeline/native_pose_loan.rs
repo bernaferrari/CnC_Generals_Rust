@@ -10,7 +10,7 @@ pub struct NativeInstalledPoseLoan<'a> {
         &'a mut HashMap<NativeDrawOwnerId, native_draw_world::NativeDrawableLifetime>,
     pub(super) live_draw_playback:
         &'a mut HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
-    pub(super) drawable_visual_states: &'a mut HashMap<(NativeDrawOwnerId, u32), ObjectVisualState>,
+    pub(super) drawable_visual_states: &'a mut native_draw_world::DrawableVisualStates,
     pub(super) failed_model_resolutions: &'a mut pipeline_collect::FailedModelResolutions,
     pub(super) application_assets: Option<Arc<Mutex<crate::assets::AssetManager>>>,
     pub(super) pending_client_drawable_restore:
@@ -32,9 +32,8 @@ impl RenderPipeline {
     }
 
     /// Admit every post-sync Client binding of one presentation update.
-    /// Same per-binding validation as `admit_native_drawable_binding`, but the
-    /// owner -> Draw-module index is built once instead of rescanning every
-    /// module state per Drawable (C++ reaches a Drawable's modules directly).
+    /// Same per-binding validation as `admit_native_drawable_binding`, through
+    /// one loan; each binding touches only its owner's module range.
     #[cfg(feature = "game_client")]
     pub(crate) fn admit_native_drawable_bindings<'i>(
         &mut self,
@@ -46,16 +45,8 @@ impl RenderPipeline {
         >,
     ) -> Result<(), &'static str> {
         let mut loan = self.borrow_native_installed_poses();
-        let mut modules_by_owner: HashMap<NativeDrawOwnerId, Vec<u32>> = HashMap::new();
-        for (owner, module) in loan.drawable_visual_states.keys() {
-            modules_by_owner.entry(*owner).or_default().push(*module);
-        }
         for (identity, key) in bindings {
-            let modules = modules_by_owner
-                .get(&NativeDrawOwnerId::Actor(identity.object_id()))
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
-            loan.admit_binding_for_modules(identity, key, modules)?;
+            loan.admit_binding(identity, key)?;
         }
         Ok(())
     }
@@ -104,9 +95,8 @@ impl NativeInstalledPoseLoan<'_> {
         let owner = NativeDrawOwnerId::Actor(identity.object_id());
         let modules: Vec<u32> = self
             .drawable_visual_states
-            .keys()
-            .filter(|(id, _)| *id == owner)
-            .map(|(_, module)| *module)
+            .range(native_draw_world::owner_module_keys(owner))
+            .map(|((_, module), _)| *module)
             .collect();
         self.admit_binding_for_modules(identity, key, &modules)
     }
@@ -174,7 +164,9 @@ impl NativeInstalledPoseLoan<'_> {
         }
         if self
             .drawable_visual_states
-            .iter()
+            .range(native_draw_world::owner_module_keys(NativeDrawOwnerId::Actor(
+                identity.object_id(),
+            )))
             .any(|((object, _), state)| {
                 *object == NativeDrawOwnerId::Actor(identity.object_id())
                     && (state.native_host_identity.as_ref() != Some(identity)
@@ -260,7 +252,7 @@ impl NativeInstalledPoseLoan<'_> {
         if state.native_host_identity.as_ref() != Some(identity)
             || self
                 .drawable_visual_states
-                .iter()
+                .range(native_draw_world::owner_module_keys(NativeDrawOwnerId::Actor(id)))
                 .any(|((object, _), state)| {
                     *object == NativeDrawOwnerId::Actor(id)
                         && state.native_host_identity.as_ref() != Some(identity)
@@ -318,7 +310,9 @@ impl NativeInstalledPoseLoan<'_> {
             ))
         }) || self
             .drawable_visual_states
-            .iter()
+            .range(native_draw_world::owner_module_keys(NativeDrawOwnerId::Actor(
+                identity.object_id(),
+            )))
             .any(|((object, _), state)| {
                 *object == NativeDrawOwnerId::Actor(identity.object_id())
                     && state.native_source_template != source.template_name

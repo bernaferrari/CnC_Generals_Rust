@@ -87,10 +87,21 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         self.pending_client_drawable_imports.clear();
         Ok(())
     }
+    /// Drop one owner's module states (its contiguous key range only).
+    fn forget_owner_module_states(&mut self, owner: NativeDrawOwnerId) {
+        let keys: Vec<_> = self
+            .drawable_visual_states
+            .range(native_draw_world::owner_module_keys(owner))
+            .map(|(key, _)| *key)
+            .collect();
+        for key in keys {
+            self.drawable_visual_states.remove(&key);
+        }
+    }
+
     fn retire_native_owner(&mut self, owner: NativeDrawOwnerId) {
         self.native_drawable_lifetimes.remove(&owner);
-        self.drawable_visual_states
-            .retain(|(object, _), _| *object != owner);
+        self.forget_owner_module_states(owner);
         self.live_draw_playback
             .retain(|key, _| key.owner_id() != owner);
     }
@@ -144,7 +155,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         if let Some(expected) = expected {
             let actual = self
                 .drawable_visual_states
-                .iter()
+                .range(native_draw_world::owner_module_keys(NativeDrawOwnerId::Actor(id)))
                 .filter(|((object, _), _)| *object == NativeDrawOwnerId::Actor(id))
                 .collect::<Vec<_>>();
             if actual.len() != expected.len()
@@ -307,7 +318,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                     .is_some_and(|lifetime| lifetime.identity != *identity)
                     || self
                         .drawable_visual_states
-                        .iter()
+                        .range(native_draw_world::owner_module_keys(owner))
                         .any(|((object, _), state)| {
                             *object == owner
                                 && state.native_host_identity.as_ref() != Some(identity)
@@ -346,8 +357,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                         },
                     );
                 }
-                self.drawable_visual_states
-                    .retain(|(object, _), _| *object != owner);
+                self.forget_owner_module_states(owner);
                 let Some(source) = source else { return };
                 let Some(receiving) = source.receiving else {
                     return;
@@ -380,7 +390,10 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             }
             NativeDrawMutation::TransformInstalled { transform, .. } => {
                 let Some(source) = source else { return };
-                for ((object, _), state) in &mut *self.drawable_visual_states {
+                for ((object, _), state) in self
+                    .drawable_visual_states
+                    .range_mut(native_draw_world::owner_module_keys(owner))
+                {
                     if *object == owner {
                         source.install_observed_transform(state, transform);
                     }
@@ -394,7 +407,10 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 let Ok(models) = receiving.native_render_draws(bits) else {
                     // A malformed sibling cannot leave an earlier module's
                     // previous condition looking like a successful admission.
-                    for ((object, _), state) in &mut *self.drawable_visual_states {
+                    for ((object, _), state) in self
+                    .drawable_visual_states
+                    .range_mut(native_draw_world::owner_module_keys(owner))
+                {
                         if *object == owner {
                             state.native_condition_supported = false;
                             state.native_pending_condition = None;
@@ -423,7 +439,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
     ) {
         let modules: Vec<_> = self
             .drawable_visual_states
-            .iter()
+            .range(native_draw_world::owner_module_keys(NativeDrawOwnerId::Actor(id.0)))
             .filter_map(|((object, index), state)| {
                 (*object == NativeDrawOwnerId::Actor(id.0)
                     && state.native_pending_condition.is_some())

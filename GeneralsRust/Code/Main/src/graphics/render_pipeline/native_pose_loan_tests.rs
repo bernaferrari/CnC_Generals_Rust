@@ -34,7 +34,7 @@ fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() 
     let peer = identity(&Arc::new(()), &Arc::new(()), 9);
     let replacement = identity(&world, &Arc::new(()), 10);
     let reset = identity(&Arc::new(()), &object, 9);
-    let mut states = HashMap::from([((NativeDrawOwnerId::Actor(42), 2), admitted(actual.clone()))]);
+    let mut states = std::collections::BTreeMap::from([((NativeDrawOwnerId::Actor(42), 2), admitted(actual.clone()))]);
     let before = states.clone();
     let mut failed = pipeline_collect::FailedModelResolutions::default();
     let mut pending = None;
@@ -94,7 +94,7 @@ fn residual_same_id_sibling_from_prior_generation_rejects_whole_source_query() {
     let object = Arc::new(());
     let actual = identity(&world, &object, 9);
     let stale = identity(&world, &Arc::new(()), 8);
-    let mut states = HashMap::from([
+    let mut states = std::collections::BTreeMap::from([
         ((NativeDrawOwnerId::Actor(42), 2), admitted(actual.clone())),
         ((NativeDrawOwnerId::Actor(42), 5), admitted(stale)),
     ]);
@@ -166,7 +166,7 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
     let world = Arc::new(());
     let object = Arc::new(());
     let actual = identity(&world, &object, 9);
-    let mut states = HashMap::from([((NativeDrawOwnerId::Actor(42), 2), admitted(actual.clone()))]);
+    let mut states = std::collections::BTreeMap::from([((NativeDrawOwnerId::Actor(42), 2), admitted(actual.clone()))]);
     let before = states.clone();
     let mut failed = pipeline_collect::FailedModelResolutions::default();
     let mut pending = None;
@@ -238,7 +238,7 @@ fn native_destroy_loan_retires_only_its_actual_render_and_playback_owner() {
     let peer_identity = identity(&Arc::new(()), &Arc::new(()), 9);
     let sibling = LiveDrawPlaybackIdentity::new(Arc::new(()), Arc::new(()), 7, 43, 1);
     let mut world = NativeDrawWorld::default();
-    world.drawable_visual_states = HashMap::from([
+    world.drawable_visual_states = std::collections::BTreeMap::from([
         ((NativeDrawOwnerId::Actor(42), 2), admitted(actual.clone())),
         ((NativeDrawOwnerId::Actor(43), 2), admitted(sibling.clone())),
     ]);

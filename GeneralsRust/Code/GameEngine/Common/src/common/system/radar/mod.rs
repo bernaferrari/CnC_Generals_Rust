@@ -1198,6 +1198,35 @@ impl RadarSystem {
         list.insert(insert_pos, radar_obj.clone());
     }
 
+    /// Replace an already-listed object's data when it stays in the same list
+    /// and priority section; returns false when it must be re-listed.
+    pub fn update_object_in_place(&mut self, radar_obj: &RadarObject) -> bool {
+        // Same visibility and position conversion as `add_object`.
+        if !radar_obj.priority.is_visible() {
+            return false;
+        }
+        let mut updated = radar_obj.clone();
+        if let Some(radar_pos) = self.world_to_radar(&updated.world_pos) {
+            updated.radar_pos = radar_pos;
+        }
+        let list = if radar_obj.is_local {
+            &mut self.local_object_list
+        } else {
+            &mut self.object_list
+        };
+        let Some(index) = list
+            .iter()
+            .position(|obj| obj.object_id == radar_obj.object_id)
+        else {
+            return false;
+        };
+        if list[index].priority != radar_obj.priority {
+            return false;
+        }
+        list[index] = updated;
+        true
+    }
+
     /// Remove object from radar (matches C++ Radar::removeObject)
     pub fn remove_object(&mut self, object_id: u32) -> bool {
         if let Some(index) = self

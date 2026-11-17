@@ -14,7 +14,7 @@ pub(crate) struct LiveDrawPlayback {
 }
 
 /// Native render namespace. An auxiliary Drawable is never a gameplay Object.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum NativeDrawOwnerId {
     Actor(u32),
     #[cfg(feature = "game_client")]

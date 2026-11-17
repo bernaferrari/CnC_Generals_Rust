@@ -1100,6 +1100,56 @@ impl CombatParticleRegistry {
         source: Option<&crate::game_logic::NativeSlaveSource>,
         particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
     ) {
+        let owned = self
+            .active_bone_systems_by_owner()
+            .remove(&owner)
+            .unwrap_or_default();
+        self.sync_particle_sys_bones_with_owned(
+            frame,
+            owner,
+            position,
+            bones,
+            pose,
+            source,
+            particle_owner,
+            owned,
+        );
+    }
+
+    /// Active ParticleSysBone systems per source Object, (id, template) in id
+    /// order. One registry pass serves a whole live-state sync.
+    pub(crate) fn active_bone_systems_by_owner(&self) -> HashMap<ObjectId, Vec<(u32, String)>> {
+        let mut by_owner: HashMap<ObjectId, Vec<(u32, String)>> = HashMap::new();
+        for entry in self.systems.values() {
+            if entry.active && entry.kind == CombatParticleKind::ParticleSysBone {
+                if let Some(owner) = entry.source_object {
+                    by_owner
+                        .entry(owner)
+                        .or_default()
+                        .push((entry.id, entry.template_name.clone()));
+                }
+            }
+        }
+        for owned in by_owner.values_mut() {
+            owned.sort_unstable_by_key(|(id, _)| *id);
+        }
+        by_owner
+    }
+
+    /// `sync_particle_sys_bones` with this owner's active bone systems
+    /// (from `active_bone_systems_by_owner`) supplied.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sync_particle_sys_bones_with_owned(
+        &mut self,
+        frame: u32,
+        owner: ObjectId,
+        position: Vec3,
+        bones: &[(String, String)],
+        pose: BodyAutoParticlePose<'_>,
+        source: Option<&crate::game_logic::NativeSlaveSource>,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
+        mut owned: Vec<(u32, String)>,
+    ) {
         let wanted: Vec<(String, String)> = bones
             .iter()
             .filter_map(|(bone, system)| {
@@ -1107,19 +1157,12 @@ impl CombatParticleRegistry {
                     .map(|system| (bone.clone(), system.to_string()))
             })
             .collect();
-        let wanted_templates: HashSet<String> =
-            wanted.iter().map(|(_, system)| system.clone()).collect();
-        let stale: Vec<u32> = self
-            .systems
-            .values()
-            .filter(|entry| {
-                entry.active
-                    && entry.kind == CombatParticleKind::ParticleSysBone
-                    && entry.source_object == Some(owner)
-                    && !wanted_templates.contains(&entry.template_name)
-            })
-            .map(|entry| entry.id)
+        let stale: Vec<u32> = owned
+            .iter()
+            .filter(|(_, template)| !wanted.iter().any(|(_, system)| system == template))
+            .map(|(id, _)| *id)
             .collect();
+        owned.retain(|(id, _)| !stale.contains(id));
         for id in stale {
             self.deactivate(id, particle_owner);
         }
@@ -1158,13 +1201,13 @@ impl CombatParticleRegistry {
                 }
             };
             let world = rotate_yaw_host(position, pose.yaw, local);
-            let existing = self.systems.values().find_map(|entry| {
-                (entry.active
-                    && entry.kind == CombatParticleKind::ParticleSysBone
-                    && entry.source_object == Some(owner)
-                    && entry.template_name == system)
-                    .then_some(entry.id)
-            });
+            let existing = owned
+                .iter()
+                .find(|(id, template)| {
+                    *template == system
+                        && self.systems.get(id).is_some_and(|entry| entry.active)
+                })
+                .map(|(id, _)| *id);
             if let Some(id) = existing {
                 if let Some(entry) = self.systems.get_mut(&id) {
                     entry.attach_offset = local;
@@ -1174,7 +1217,7 @@ impl CombatParticleRegistry {
                 // at spawn only — re-applying every sync_live_state_particles tick
                 // would spin exhaust/stacks.
             } else {
-                let _ = spawn_attached_system(
+                let spawned = spawn_attached_system(
                     self,
                     CombatParticleKind::ParticleSysBone,
                     &system,
@@ -1188,6 +1231,7 @@ impl CombatParticleRegistry {
                     pose.is_shrouded.unwrap_or(true),
                     particle_owner,
                 );
+                owned.push((spawned, system));
             }
         }
     }
@@ -1352,6 +1396,32 @@ impl CombatParticleRegistry {
                 // world into leftover `setPosition` (that field is local).
                 entry.position = rotate_yaw_host(position, yaw, entry.attach_offset);
             }
+        }
+    }
+
+    /// `follow_attached_body_particles` for many owners in one registry pass.
+    /// Body fire/smoke/disable systems are independent of ParticleSysBone
+    /// reconciliation, so following them after that loop is the same result.
+    pub(crate) fn follow_attached_body_particles_for(
+        &mut self,
+        poses: &HashMap<ObjectId, (Vec3, f32)>,
+    ) {
+        for entry in self.systems.values_mut() {
+            if !entry.active
+                || !matches!(
+                    entry.kind,
+                    CombatParticleKind::BodyFire
+                        | CombatParticleKind::BodySmoke
+                        | CombatParticleKind::DisableFx
+                )
+            {
+                continue;
+            }
+            let Some((position, yaw)) = entry.source_object.and_then(|owner| poses.get(&owner))
+            else {
+                continue;
+            };
+            entry.position = rotate_yaw_host(*position, *yaw, entry.attach_offset);
         }
     }
 

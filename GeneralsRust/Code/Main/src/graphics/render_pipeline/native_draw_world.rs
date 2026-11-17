@@ -3,6 +3,19 @@
 //! A failed map candidate can drop this value without changing the live world.
 use super::*;
 
+/// Per-Draw-module state keyed by (owner, module index). Ordered so one
+/// Drawable's modules are a contiguous range: C++ reaches a Drawable's own
+/// module list directly instead of scanning every Drawable.
+pub(crate) type DrawableVisualStates =
+    std::collections::BTreeMap<(NativeDrawOwnerId, u32), installed_draw_pose::ObjectVisualState>;
+
+/// Every module key of one Draw owner within `DrawableVisualStates`.
+pub(crate) fn owner_module_keys(
+    owner: NativeDrawOwnerId,
+) -> std::ops::RangeInclusive<(NativeDrawOwnerId, u32)> {
+    (owner, 0)..=(owner, u32::MAX)
+}
+
 /// Device-adjacent services borrowed independently of either live or candidate
 /// world. The animation clock remains the driving renderer's one clock.
 pub(crate) struct NativeDrawServices<'a> {
@@ -89,7 +102,7 @@ pub(crate) struct NativeDrawWorld {
     pub(super) pending_native_props: game_client::terrain::terrain_visual::TerrainPropQueue,
     pub(super) native_drawable_lifetimes: HashMap<NativeDrawOwnerId, NativeDrawableLifetime>,
     /// Runtime identity and current state for each original Draw module.
-    pub(super) drawable_visual_states: HashMap<(NativeDrawOwnerId, u32), ObjectVisualState>,
+    pub(super) drawable_visual_states: DrawableVisualStates,
     pub(super) live_draw_playback:
         HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
     /// Validated payload awaiting actual receiving topology, consumed once.

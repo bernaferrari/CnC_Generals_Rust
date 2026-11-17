@@ -889,7 +889,7 @@ use installed_draw_pose::ObjectVisualState;
 /// `T` keeps the pure state transition independently testable without making
 /// a WGPU-backed [`RenderPipeline`] fixture just to exercise this lifecycle.
 fn clear_visual_world_state_components<T>(
-    drawable_visual_states: &mut HashMap<(NativeDrawOwnerId, u32), ObjectVisualState>,
+    drawable_visual_states: &mut native_draw_world::DrawableVisualStates,
     render_items: &mut Vec<T>,
     current_pass: &mut Option<RenderPass>,
     last_frame_time: &mut f32,
