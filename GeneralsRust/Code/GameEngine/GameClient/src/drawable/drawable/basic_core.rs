@@ -14,7 +14,7 @@ use game_engine::common::audio::audio_event_rts::{
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::audio::game_audio::get_global_audio_manager;
 use game_engine::common::bit_flags::{
-    ModelConditionBitFlags, ModelConditionFlags, create_model_condition_flags,
+    ModelConditionBitFlags, ModelConditionFlags,
 };
 use game_engine::common::ini::{TimeOfDay as IniTimeOfDay, get_anim2d_collection, get_global_data};
 use game_engine::common::system::game_common::WhichTurretType;
@@ -608,20 +608,17 @@ impl BasicDrawable {
     ) {
         use gamelogic::common::types::BodyDamageType;
 
-        let mut clear = create_model_condition_flags();
-        clear.set(ModelConditionFlags::DAMAGED, true);
-        clear.set(ModelConditionFlags::REALLYDAMAGED, true);
-        clear.set(ModelConditionFlags::RUBBLE, true);
-
-        let mut set = create_model_condition_flags();
-        match new_state {
-            BodyDamageType::Pristine => {}
-            BodyDamageType::Damaged => set.set(ModelConditionFlags::DAMAGED, true),
-            BodyDamageType::ReallyDamaged => set.set(ModelConditionFlags::REALLYDAMAGED, true),
-            BodyDamageType::Rubble => set.set(ModelConditionFlags::RUBBLE, true),
-        }
-
-        self.clear_and_set_model_condition_flags(&clear, &set);
+        let bit = |index: usize| 1u128 << index;
+        let clear = bit(ModelConditionFlags::DAMAGED)
+            | bit(ModelConditionFlags::REALLYDAMAGED)
+            | bit(ModelConditionFlags::RUBBLE);
+        let set = match new_state {
+            BodyDamageType::Pristine => 0,
+            BodyDamageType::Damaged => bit(ModelConditionFlags::DAMAGED),
+            BodyDamageType::ReallyDamaged => bit(ModelConditionFlags::REALLYDAMAGED),
+            BodyDamageType::Rubble => bit(ModelConditionFlags::RUBBLE),
+        };
+        self.assign_model_condition_bits(clear, set);
     }
 
     /// C++ parity: `Drawable::getShadowsEnabled()`.
