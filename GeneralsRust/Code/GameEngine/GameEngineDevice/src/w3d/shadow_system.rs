@@ -333,9 +333,10 @@ impl Default for ShadowBase {
 // W3D Shadow Manager - Matching C++ W3DShadowManager
 // ============================================================================
 
-/// Light position in world space (matches C++ LightPosWorld global)
-pub static LIGHT_POS_WORLD: Mutex<[Vec3; MAX_SHADOW_LIGHTS]> =
-    Mutex::new([Vec3::new(94.0161, 50.499, 200.0); MAX_SHADOW_LIGHTS]);
+/// C++ `LightPosWorld` initial value (W3DShadow.cpp). The live positions are
+/// owned by each game's `W3DShadowManager`, not process state.
+const DEFAULT_LIGHT_POS_WORLD: [Vec3; MAX_SHADOW_LIGHTS] =
+    [Vec3::new(94.0161, 50.499, 200.0); MAX_SHADOW_LIGHTS];
 
 /// W3D Shadow Manager matching C++ W3DShadowManager
 /// Manages both volumetric and projected shadow systems
@@ -355,6 +356,8 @@ pub struct W3DShadowManager {
     volumetric_manager: Option<W3DVolumetricShadowManager>,
     /// Projected shadow manager
     projected_manager: Option<W3DProjectedShadowManager>,
+    /// C++ `LightPosWorld`: per-game light positions read by both managers.
+    light_pos_world: [Vec3; MAX_SHADOW_LIGHTS],
 }
 
 impl W3DShadowManager {
@@ -368,6 +371,7 @@ impl W3DShadowManager {
             stencil_shadow_mask: 0,
             volumetric_manager: None,
             projected_manager: None,
+            light_pos_world: DEFAULT_LIGHT_POS_WORLD,
         }
     }
 
@@ -531,8 +535,7 @@ impl W3DShadowManager {
         if light_index >= MAX_SHADOW_LIGHTS {
             return;
         }
-        let mut light_pos = LIGHT_POS_WORLD.lock();
-        light_pos[light_index] = Vec3::new(x, y, z);
+        self.light_pos_world[light_index] = Vec3::new(x, y, z);
     }
 
     /// Get light position in world space (C++: getLightPosWorld)
@@ -540,7 +543,7 @@ impl W3DShadowManager {
         if light_index >= MAX_SHADOW_LIGHTS {
             return Vec3::ZERO;
         }
-        LIGHT_POS_WORLD.lock()[light_index]
+        self.light_pos_world[light_index]
     }
 
     /// Set time of day lighting (C++: setTimeOfDay)
@@ -589,7 +592,7 @@ impl W3DShadowManager {
         if !stencil_pass {
             if self.is_shadow_scene {
                 if let Some(ref mut proj) = self.projected_manager {
-                    projection_count = proj.render_shadows(render_info);
+                    projection_count = proj.render_shadows(render_info, self.light_pos_world[0]);
                 }
             }
         }
@@ -598,7 +601,11 @@ impl W3DShadowManager {
         if stencil_pass && self.can_render_volumetric_shadows() {
             if self.is_shadow_scene {
                 if let Some(ref mut vol) = self.volumetric_manager {
-                    vol.render_shadows(projection_count, self.stencil_shadow_mask == 0);
+                    vol.render_shadows(
+                        projection_count,
+                        self.stencil_shadow_mask == 0,
+                        self.light_pos_world[0],
+                    );
                 }
             }
             // Reset so no more shadow processing this frame
@@ -875,7 +882,12 @@ impl W3DVolumetricShadowManager {
     ///           decrements on depth fail.
     /// Pixels inside a shadow volume end up with non-zero stencil.
     /// Pass 3 – Shadow overlay: draw a full-screen quad darkened where stencil != 0.
-    pub fn render_shadows(&mut self, _projection_count: i32, force_stencil_fill: bool) {
+    pub fn render_shadows(
+        &mut self,
+        _projection_count: i32,
+        force_stencil_fill: bool,
+        light_pos: Vec3,
+    ) {
         if self.shadow_list.is_empty() && !force_stencil_fill {
             return;
         }
@@ -889,8 +901,6 @@ impl W3DVolumetricShadowManager {
             {
                 continue;
             }
-
-            let light_pos = LIGHT_POS_WORLD.lock()[0];
 
             // Update shadow volume geometry if light position has changed.
             for mesh_idx in 0..MAX_SHADOW_CASTER_MESHES {
@@ -1326,7 +1336,7 @@ impl W3DProjectedShadowManager {
     /// Iterates all projection and decal shadows, builds a projective texture
     /// matrix from the light direction and shadow position, and submits a
     /// texture-projected draw for each visible entry.
-    pub fn render_shadows(&mut self, _render_info: &mut RenderInfo) -> i32 {
+    pub fn render_shadows(&mut self, _render_info: &mut RenderInfo, light_pos: Vec3) -> i32 {
         let mut count = 0i32;
 
         // Pass 1: Projection shadows (attached to render objects).
@@ -1335,7 +1345,6 @@ impl W3DProjectedShadowManager {
                 continue;
             }
 
-            let light_pos = LIGHT_POS_WORLD.lock()[0];
             let shadow_pos = Vec3::new(shadow.base.x, shadow.base.y, shadow.base.z);
 
             // Compute the projective texture matrix from light → shadow.

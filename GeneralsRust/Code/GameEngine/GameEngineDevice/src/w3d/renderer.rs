@@ -18,7 +18,7 @@ use super::{
 use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[cfg(feature = "w3d")]
 use wgpu::{
@@ -76,45 +76,39 @@ pub struct StagedUpDraw {
     pub render_states: Vec<(u32, u32)>,
 }
 
-static UP_STAGING: Mutex<Vec<StagedUpDraw>> = Mutex::new(Vec::new());
-static RENDER_STATE_LOG: Mutex<Vec<(u32, u32)>> = Mutex::new(Vec::new());
+/// Record-time DX8 UP draws and the deferred `SetRenderState` log, owned by
+/// the renderer that records them (C++ DX8Wrapper keeps these per device).
+#[derive(Debug, Default)]
+pub struct UpDrawStaging {
+    draws: Vec<StagedUpDraw>,
+    render_states: Vec<(u32, u32)>,
+}
 
-/// Queue a UP/transient draw for the next `end_frame` record (no GPU wait).
-pub fn stage_up_draw(draw: StagedUpDraw) {
-    if let Ok(mut staged) = UP_STAGING.lock() {
-        staged.push(draw);
+impl UpDrawStaging {
+    /// Queue a UP/transient draw for the next `end_frame` record (no GPU wait).
+    pub fn stage_up_draw(&mut self, draw: StagedUpDraw) {
+        self.draws.push(draw);
     }
-}
 
-/// Snapshot of deferred `SetRenderState` calls in application order.
-pub fn record_deferred_render_state(state: u32, value: u32) {
-    if let Ok(mut log) = RENDER_STATE_LOG.lock() {
-        log.push((state, value));
+    /// Record a deferred `SetRenderState` call in application order.
+    pub fn record_deferred_render_state(&mut self, state: u32, value: u32) {
+        self.render_states.push((state, value));
     }
-}
 
-/// Copy of the deferred render-state log (applied at the next recorded draw).
-pub fn deferred_render_state_snapshot() -> Vec<(u32, u32)> {
-    RENDER_STATE_LOG
-        .lock()
-        .map(|log| log.clone())
-        .unwrap_or_default()
-}
+    /// Copy of the deferred render-state log (applied at the next recorded draw).
+    pub fn deferred_render_state_snapshot(&self) -> Vec<(u32, u32)> {
+        self.render_states.clone()
+    }
 
-/// Drain staged UP draws (frame record / tests).
-pub fn drain_staged_up_draws() -> Vec<StagedUpDraw> {
-    UP_STAGING
-        .lock()
-        .map(|mut staged| std::mem::take(&mut *staged))
-        .unwrap_or_default()
-}
+    /// Drain staged UP draws (frame record / tests).
+    pub fn drain_staged_up_draws(&mut self) -> Vec<StagedUpDraw> {
+        std::mem::take(&mut self.draws)
+    }
 
-/// Drain the render-state log (tests).
-pub fn drain_deferred_render_states() -> Vec<(u32, u32)> {
-    RENDER_STATE_LOG
-        .lock()
-        .map(|mut log| std::mem::take(&mut *log))
-        .unwrap_or_default()
+    /// Drain the render-state log.
+    pub fn drain_deferred_render_states(&mut self) -> Vec<(u32, u32)> {
+        std::mem::take(&mut self.render_states)
+    }
 }
 
 /// Advanced render batch for efficient GPU rendering
@@ -226,6 +220,8 @@ impl Default for RenderState {
 
 /// Advanced W3D Renderer with complete wgpu backend
 pub struct W3DRenderer {
+    /// Record-time UP draws and deferred render states for this renderer.
+    pub up_staging: UpDrawStaging,
     /// WGPU device reference
     device: Arc<Device>,
     /// WGPU command queue
@@ -401,6 +397,7 @@ impl W3DRenderer {
         });
 
         Ok(Self {
+            up_staging: UpDrawStaging::default(),
             device: Arc::new(device.clone()),
             queue: Arc::new(queue.clone()),
             surface_format: *surface_format,
@@ -764,7 +761,7 @@ impl W3DRenderer {
     }
 
     fn absorb_staged_up_draws(&mut self) {
-        for staged in drain_staged_up_draws() {
+        for staged in self.up_staging.drain_staged_up_draws() {
             let mesh = Mesh {
                 id: staged.mesh_id.clone(),
                 name: format!("Temporary Draw Call {}", staged.mesh_id),
@@ -2094,10 +2091,10 @@ mod tests {
 
     #[test]
     fn up_path_golden_vertex_index_data_matches_eager_bytes() {
-        let _ = drain_staged_up_draws();
+        let mut staging = UpDrawStaging::default();
         let vertices = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
         let indices = vec![0u32, 1, 2];
-        stage_up_draw(StagedUpDraw {
+        staging.stage_up_draw(StagedUpDraw {
             mesh_id: "up_golden".to_string(),
             vertices: vertices.clone(),
             indices: indices.clone(),
@@ -2107,7 +2104,7 @@ mod tests {
             alpha_blend_enabled: false,
             render_states: Vec::new(),
         });
-        let drained = drain_staged_up_draws();
+        let drained = staging.drain_staged_up_draws();
         assert_eq!(drained.len(), 1);
         assert_eq!(drained[0].vertices, vertices);
         assert_eq!(drained[0].indices, indices);
@@ -2115,10 +2112,9 @@ mod tests {
 
     #[test]
     fn two_set_render_state_calls_between_draws_apply_in_order() {
-        let _ = drain_deferred_render_states();
-        let _ = drain_staged_up_draws();
-        record_deferred_render_state(1, 0);
-        stage_up_draw(StagedUpDraw {
+        let mut staging = UpDrawStaging::default();
+        staging.record_deferred_render_state(1, 0);
+        staging.stage_up_draw(StagedUpDraw {
             mesh_id: "draw_a".to_string(),
             vertices: vec![0; 12],
             indices: vec![0, 1, 2],
@@ -2126,11 +2122,11 @@ mod tests {
             world_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
             material_id: None,
             alpha_blend_enabled: false,
-            render_states: deferred_render_state_snapshot(),
+            render_states: staging.deferred_render_state_snapshot(),
         });
-        record_deferred_render_state(14, 1);
-        record_deferred_render_state(1, 1);
-        stage_up_draw(StagedUpDraw {
+        staging.record_deferred_render_state(14, 1);
+        staging.record_deferred_render_state(1, 1);
+        staging.stage_up_draw(StagedUpDraw {
             mesh_id: "draw_b".to_string(),
             vertices: vec![0; 12],
             indices: vec![0, 1, 2],
@@ -2138,9 +2134,9 @@ mod tests {
             world_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
             material_id: None,
             alpha_blend_enabled: true,
-            render_states: deferred_render_state_snapshot(),
+            render_states: staging.deferred_render_state_snapshot(),
         });
-        let draws = drain_staged_up_draws();
+        let draws = staging.drain_staged_up_draws();
         assert_eq!(draws.len(), 2);
         assert_eq!(draws[0].render_states, vec![(1, 0)]);
         assert_eq!(draws[1].render_states, vec![(1, 0), (14, 1), (1, 1)]);
