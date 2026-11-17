@@ -311,7 +311,7 @@ mod tests {
         admit_fixture_content(
             &mut game,
             &[
-                FixtureObject::new("SameMissile").kind_of(kind).module(format!(
+                FixtureObject::new("SameMissile").kind_of(kind).missile_flight().module(format!(
                     "Behavior = MissileAIUpdate Profile\n IgnitionDelay = {delay}\n FuelLifetime = {fuel}\n TryToFollowTarget = Yes\nEnd"
                 )),
                 FixtureObject::new("ProfileSource")

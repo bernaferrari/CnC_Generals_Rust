@@ -598,6 +598,10 @@ End
             r#"
 Object MissileDefenderMissile
  KindOf = PROJECTILE SMALL_MISSILE
+ Locomotor = SET_NORMAL MissileDefenderMissileLocomotor
+ Behavior = PhysicsBehavior FixtureMissilePhysics
+  Mass = 1
+ End
  Behavior = MissileAIUpdate FixtureMissile
   TryToFollowTarget = Yes
   FuelLifetime = 3000
@@ -656,6 +660,10 @@ Object TestInfantry
 End
 Object MissileDefenderMissile
  KindOf = PROJECTILE SMALL_MISSILE
+ Locomotor = SET_NORMAL MissileDefenderMissileLocomotor
+ Behavior = PhysicsBehavior FixtureMissilePhysics
+  Mass = 1
+ End
  Behavior = MissileAIUpdate FixtureMissile
   TryToFollowTarget = Yes
   FuelLifetime = 3000

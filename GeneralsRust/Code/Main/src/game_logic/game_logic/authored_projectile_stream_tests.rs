@@ -78,7 +78,7 @@ fn stream_world(missing_projectile: bool) -> GameLogic {
     }
     let mut parser = crate::assets::ini_parser::IniParser::new();
     parser.parse_ini_content(
-        "Object AuthoredStreamLiveProjectile\n Behavior = MissileAIUpdate ModuleTag_Flight\n IgnitionDelay = 0\n TryToFollowTarget = Yes\n End\nEnd",
+        "Object AuthoredStreamLiveProjectile\n Locomotor = SET_NORMAL MissileDefenderMissileLocomotor\n Behavior = PhysicsBehavior ModuleTag_Physics\n Mass = 1\n End\n Behavior = MissileAIUpdate ModuleTag_Flight\n IgnitionDelay = 0\n TryToFollowTarget = Yes\n End\nEnd",
         "authored-stream-content.ini",
     ).unwrap();
     let objects: Vec<_> = parser

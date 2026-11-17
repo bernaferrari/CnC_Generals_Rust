@@ -34,6 +34,10 @@ pub(crate) const FIXTURE_RADAR_UPGRADE: &str = "Upgrade_FixtureRadar";
 /// Two-legged ground locomotor shared by fixture walkers.
 pub(crate) const FIXTURE_WALK_LOCOMOTOR: &str = "FixtureWalk";
 
+/// Thrust flight shared by fixture missiles: the retail
+/// MissileDefenderMissileLocomotor rows (Locomotor.ini).
+pub(crate) const FIXTURE_MISSILE_LOCOMOTOR: &str = "FixtureMissileFlight";
+
 /// One authored fixture Object definition.
 #[derive(Clone, Debug)]
 pub(crate) struct FixtureObject {
@@ -42,6 +46,7 @@ pub(crate) struct FixtureObject {
     health: Option<f32>,
     fields: Vec<String>,
     walker: bool,
+    missile: bool,
     modules: Vec<String>,
     weapon_slots: Vec<(String, String)>,
 }
@@ -54,6 +59,7 @@ impl FixtureObject {
             health: None,
             fields: Vec::new(),
             walker: false,
+            missile: false,
             modules: Vec::new(),
             weapon_slots: Vec::new(),
         }
@@ -95,6 +101,16 @@ impl FixtureObject {
     /// AIUpdateInterface plus the shared fixture walking locomotor.
     pub(crate) fn walker(mut self) -> Self {
         self.walker = true;
+        self
+    }
+
+    /// The flight body every retail MissileAIUpdate projectile authors
+    /// (WeaponObjects.ini MissileDefenderMissile): a SET_NORMAL thrust
+    /// Locomotor and a PhysicsBehavior. MissileAIUpdate::projectileFireAtObjectOrPosition
+    /// (MissileAIUpdate.cpp:191-245) applies its launch force through the
+    /// PhysicsBehavior and flies on the current Locomotor.
+    pub(crate) fn missile_flight(mut self) -> Self {
+        self.missile = true;
         self
     }
 
@@ -155,6 +171,11 @@ impl FixtureObject {
                 " Locomotor = SET_NORMAL {FIXTURE_WALK_LOCOMOTOR}\n"
             ));
         }
+        if self.missile {
+            text.push_str(&format!(
+                " Locomotor = SET_NORMAL {FIXTURE_MISSILE_LOCOMOTOR}\n Behavior = PhysicsBehavior FixtureMissilePhysics\n  Mass = 1\n End\n"
+            ));
+        }
         if let Some(health) = self.health {
             text.push_str(&format!(
                 " Body = ActiveBody FixtureBody\n  MaxHealth = {health}\n  InitialHealth = {health}\n End\n"
@@ -208,12 +229,23 @@ pub(crate) fn admit_fixture_content_with_actions(
     weapons: &[FixtureWeapon],
     actions: &str,
 ) {
-    if objects.iter().any(|object| object.walker) {
+    let walks = objects.iter().any(|object| object.walker);
+    let flies = objects.iter().any(|object| object.missile);
+    if walks || flies {
         let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
-        locomotors
-            .apply_source(&format!(
+        let mut source = String::new();
+        if walks {
+            source.push_str(&format!(
                 "Locomotor {FIXTURE_WALK_LOCOMOTOR}\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n"
-            ))
+            ));
+        }
+        if flies {
+            source.push_str(&format!(
+                "Locomotor {FIXTURE_MISSILE_LOCOMOTOR}\n Surfaces = AIR\n Speed = 225\n MinSpeed = 120\n Acceleration = 675\n Braking = 0\n TurnRate = 100\n MaxThrustAngle = 45\n AllowAirborneMotiveForce = Yes\n Appearance = THRUST\nEnd\n"
+            ));
+        }
+        locomotors
+            .apply_source(&source)
             .expect("fixture locomotor");
         world
             .admit_locomotor_definitions(locomotors)
