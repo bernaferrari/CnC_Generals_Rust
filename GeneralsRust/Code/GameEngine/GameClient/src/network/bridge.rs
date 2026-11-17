@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -7,7 +7,6 @@ use game_network::{
 };
 use log::{debug, warn};
 
-use crate::gui::callbacks::ingame_callbacks::push_network_chat_message;
 use crate::gui::load_screen::{
     clear_map_transfer_liteupdate_hook, register_map_transfer_liteupdate_hook,
 };
@@ -22,6 +21,22 @@ pub struct NetworkProgressState {
     pub percentage: u8,
     pub last_command: NetCommandType,
 }
+
+/// One chat line received from the network, queued for the GUI thread (the
+/// in-game chat lives on the window manager owner, which the network frame
+/// listener cannot reach from its own thread).
+#[derive(Debug, Clone)]
+pub struct IncomingChat {
+    pub sender_id: u8,
+    pub message: String,
+    pub target_mask: i32,
+    pub is_disconnect: bool,
+}
+
+/// Bound on undelivered chat lines (oldest dropped first).
+const MAX_PENDING_CHAT: usize = 256;
+
+type ChatInbox = Arc<Mutex<VecDeque<IncomingChat>>>;
 
 /// Progress map owned by the installed bridge (shared with the frame listener).
 fn empty_progress() -> Arc<Mutex<HashMap<u8, NetworkProgressState>>> {
@@ -60,9 +75,19 @@ pub struct NetworkBridgeHandle {
     network: Arc<game_network::NetworkInterface>,
     listener_id: game_network::FrameListenerId,
     progress: Arc<Mutex<HashMap<u8, NetworkProgressState>>>,
+    chat: ChatInbox,
 }
 
 impl NetworkBridgeHandle {
+    /// Chat lines received since the last call, oldest first. The GUI thread
+    /// owns delivery into the in-game chat.
+    pub fn take_incoming_chat(&self) -> Vec<IncomingChat> {
+        self.chat
+            .lock()
+            .map(|mut inbox| inbox.drain(..).collect())
+            .unwrap_or_default()
+    }
+
     /// Attempt to install the bridge. Returns `None` when the networking layer
     /// has not been initialised (e.g. single-player or early startup).
     pub fn install(runtime: &mut crate::gui::load_screen::LoadScreenRuntime) -> Option<Self> {
@@ -70,9 +95,11 @@ impl NetworkBridgeHandle {
         let progress = empty_progress();
         publish_progress_for_get(&progress);
         let progress_for_listener = Arc::clone(&progress);
+        let chat = ChatInbox::default();
+        let chat_for_listener = Arc::clone(&chat);
 
         let listener: FrameListener = Arc::new(move |frame: &ExecutedFrame| {
-            handle_executed_frame(frame, &progress_for_listener);
+            handle_executed_frame(frame, &progress_for_listener, &chat_for_listener);
         });
 
         let listener_id = network.register_frame_listener(listener);
@@ -90,6 +117,7 @@ impl NetworkBridgeHandle {
             network,
             listener_id,
             progress,
+            chat,
         })
     }
 
@@ -119,6 +147,7 @@ impl Drop for NetworkBridgeHandle {
 fn handle_executed_frame(
     frame: &ExecutedFrame,
     progress_map: &Arc<Mutex<HashMap<u8, NetworkProgressState>>>,
+    chat_inbox: &ChatInbox,
 ) {
     for command in &frame.commands {
         match command.command_type {
@@ -132,12 +161,17 @@ fn handle_executed_frame(
             }
             NetCommandType::Chat | NetCommandType::DisconnectChat => {
                 if let CommandPayload::Chat(chat) = &command.payload {
-                    push_network_chat_message(
-                        command.player_id,
-                        chat.message.clone(),
-                        chat.target_mask,
-                        command.command_type == NetCommandType::DisconnectChat,
-                    );
+                    if let Ok(mut inbox) = chat_inbox.lock() {
+                        if inbox.len() >= MAX_PENDING_CHAT {
+                            inbox.pop_front();
+                        }
+                        inbox.push_back(IncomingChat {
+                            sender_id: command.player_id,
+                            message: chat.message.clone(),
+                            target_mask: chat.target_mask,
+                            is_disconnect: command.command_type == NetCommandType::DisconnectChat,
+                        });
+                    }
                 }
             }
             NetCommandType::Progress

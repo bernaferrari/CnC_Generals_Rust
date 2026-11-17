@@ -462,10 +462,9 @@ pub struct MainMenu {
     first_time_running_game: bool,
 }
 
-#[cfg(not(feature = "network"))]
 fn network_compat<'a>(
     effects: &crate::gui::game_window::WindowEventEffects<'a>,
-) -> &'a crate::game_network_compat::NetworkCompatState {
+) -> &'a crate::NetworkState {
     effects
         .window_manager_owner
         .expect("main menu network stub requires WindowManagerOwner")
@@ -880,7 +879,11 @@ impl MainMenu {
             }
         });
 
-        if get_peer_message_queue(network_compat(effects))
+        #[cfg(not(feature = "network"))]
+        let peer_queue = get_peer_message_queue(network_compat(effects));
+        #[cfg(feature = "network")]
+        let peer_queue = get_peer_message_queue();
+        if peer_queue
             .and_then(|queue| queue.lock().ok().map(|queue| !queue.is_connected()))
             .unwrap_or(false)
         {

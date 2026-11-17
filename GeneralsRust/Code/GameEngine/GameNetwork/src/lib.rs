@@ -167,7 +167,7 @@ pub use download_manager::{
     DOWNLOADSTATUS_DISCONNECTING, DOWNLOADSTATUS_DONE, DOWNLOADSTATUS_DOWNLOADING,
     DOWNLOADSTATUS_FINDINGFILE, DOWNLOADSTATUS_FINISHING, DOWNLOADSTATUS_GO,
     DOWNLOADSTATUS_LOGGINGIN, DOWNLOADSTATUS_NONE, DOWNLOADSTATUS_QUERYINGRESUME, DownloadEvent,
-    DownloadManager, DownloadProgress, QueuedDownload,
+    DownloadManager, DownloadProgress, NetworkServices, QueuedDownload,
 };
 pub use error::{NetworkError, NetworkResult};
 pub use file_transfer::FileMetadata;

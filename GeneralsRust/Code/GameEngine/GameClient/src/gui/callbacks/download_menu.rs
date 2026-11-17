@@ -53,7 +53,7 @@ thread_local! {
 
 fn network_compat<'a>(
     effects: &crate::gui::game_window::WindowEventEffects<'a>,
-) -> &'a crate::game_network_compat::NetworkCompatState {
+) -> &'a crate::NetworkState {
     effects
         .window_manager_owner
         .expect("download menu requires WindowManagerOwner")
@@ -505,7 +505,7 @@ mod tests {
 
 pub fn queue_download(
     download: QueuedDownload,
-    state: &crate::game_network_compat::NetworkCompatState,
+    state: &crate::NetworkState,
 ) {
     let download_slot = download_manager(state);
     let mut guard = download_slot
@@ -516,7 +516,7 @@ pub fn queue_download(
     }
 }
 
-pub fn start_next_download(state: &crate::game_network_compat::NetworkCompatState) {
+pub fn start_next_download(state: &crate::NetworkState) {
     let download_slot = download_manager(state);
     let mut guard = download_slot
         .lock()

@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::Instant;
 
 use futures_util::StreamExt;
@@ -219,18 +219,30 @@ impl DownloadManager {
     }
 }
 
-/// THREAD: C++-parity global slot. GameClient UI code (download menu, main
-/// menu) locks it on the GUI thread to install, poll, and clear the manager;
-/// the manager's own tokio download task never touches this mutex — it
-/// reports back through the `DownloadEvent` channel instead.
-static THE_DOWNLOAD_MANAGER: OnceLock<Mutex<Option<DownloadManager>>> = OnceLock::new();
-
-pub fn download_manager() -> &'static Mutex<Option<DownloadManager>> {
-    THE_DOWNLOAD_MANAGER.get_or_init(|| Mutex::new(None))
+/// Network services owned by the client (C++ keeps `TheDownloadManager` and
+/// friends as process globals; the port hangs them off the GUI owner so each
+/// client instance has its own).
+///
+/// THREAD: the download slot is locked on the GUI thread to install, poll, and
+/// clear the manager; the manager's own tokio download task never touches
+/// this mutex — it reports back through the `DownloadEvent` channel instead.
+#[derive(Default)]
+pub struct NetworkServices {
+    download_manager: Mutex<Option<DownloadManager>>,
 }
 
-pub fn set_download_manager(manager: Option<DownloadManager>) {
-    let mut guard = download_manager()
+impl NetworkServices {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+pub fn download_manager(services: &NetworkServices) -> &Mutex<Option<DownloadManager>> {
+    &services.download_manager
+}
+
+pub fn set_download_manager(services: &NetworkServices, manager: Option<DownloadManager>) {
+    let mut guard = download_manager(services)
         .lock()
         .expect("DownloadManager mutex poisoned");
     *guard = manager;

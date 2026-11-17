@@ -109,9 +109,8 @@ struct WindowManagerOwnerState {
     lan_events: std::sync::Arc<
         std::sync::Mutex<std::collections::VecDeque<game_network::lan_api::LanEvent>>,
     >,
-    /// Offline network stub queues / facade (not(feature = "network")).
-    #[cfg(not(feature = "network"))]
-    network_compat: crate::game_network_compat::NetworkCompatState,
+    /// Client-owned network state (offline stub queues, or the real crate's services).
+    network_compat: crate::NetworkState,
     /// Push-button audio hook (was process TLS BUTTON_AUDIO).
     button_audio: RefCell<Option<crate::gui::gadgets::ButtonAudioHook>>,
     /// DisplayStringManager (was process TLS DISPLAY_STRING_MANAGER).
@@ -316,8 +315,7 @@ impl WindowManagerOwner {
                 lan_events: std::sync::Arc::new(std::sync::Mutex::new(
                     std::collections::VecDeque::new(),
                 )),
-                #[cfg(not(feature = "network"))]
-                network_compat: crate::game_network_compat::NetworkCompatState::new(),
+                network_compat: crate::NetworkState::new(),
                 button_audio: RefCell::new(None),
                 display_string_manager: RefCell::new(crate::gui::display_string::DisplayStringManager::new()),
                 #[cfg(feature = "online_ui")]
@@ -772,9 +770,8 @@ impl WindowManagerOwner {
         std::sync::Arc::clone(&self.state.lan_events)
     }
 
-    /// Offline network stub state for this client (`not(feature = "network")`).
-    #[cfg(not(feature = "network"))]
-    pub fn network_compat(&self) -> &crate::game_network_compat::NetworkCompatState {
+    /// Network state owned by this client.
+    pub fn network_compat(&self) -> &crate::NetworkState {
         &self.state.network_compat
     }
 

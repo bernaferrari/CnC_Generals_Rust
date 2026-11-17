@@ -166,6 +166,12 @@ pub fn get_favorite_side(
 #[cfg(not(feature = "network"))]
 #[path = "game_network.rs"]
 mod game_network_compat;
+/// Client-owned network state hung off the window manager owner: the compat
+/// stubs offline, the real crate's services under `network`.
+#[cfg(not(feature = "network"))]
+pub(crate) use game_network_compat::NetworkCompatState as NetworkState;
+#[cfg(feature = "network")]
+pub(crate) use game_network_crate::download_manager::NetworkServices as NetworkState;
 #[cfg(not(feature = "network"))]
 pub use game_network_compat::*;
 extern crate self as game_network;
