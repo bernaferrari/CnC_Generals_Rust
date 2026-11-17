@@ -79,6 +79,10 @@ pub struct InstanceStatus {
     pub sim_rate: f32,
     /// Mean host frame cost (update + render) in ms over the last window.
     pub frame_ms: f32,
+    /// Mean CPU time of the instance thread per host frame in ms over the last
+    /// window. Unlike `frame_ms` it does not grow when other processes take
+    /// the cores, so it is the figure to compare builds on a busy machine.
+    pub cpu_ms: f32,
     pub boot_secs: f32,
     /// Runtime-host commands applied for the scenario.
     pub commands: Vec<String>,
@@ -99,6 +103,7 @@ impl InstanceStatus {
             render_fps: 0.0,
             sim_rate: 0.0,
             frame_ms: 0.0,
+            cpu_ms: 0.0,
             boot_secs: 0.0,
             commands: Vec::new(),
             verdict: Verdict::Pending,
@@ -117,13 +122,14 @@ impl InstanceStatus {
 
     pub fn one_line(&self) -> String {
         let mut line = format!(
-            "{} state={} frame={} present={:.1}fps sim={:.1}f/s cost={:.1}ms boot={:.1}s presents={}",
+            "{} state={} frame={} present={:.1}fps sim={:.1}f/s cost={:.1}ms cpu={:.1}ms boot={:.1}s presents={}",
             self.phase_name(),
             self.state,
             self.logic_frame,
             self.render_fps,
             self.sim_rate,
             self.frame_ms,
+            self.cpu_ms,
             self.boot_secs,
             self.rendered_frames
         );
@@ -507,9 +513,11 @@ fn drive_instance(
     let mut window_presents = 0u32;
     let mut window_frames = 0u32;
     let mut window_cost = Duration::ZERO;
+    let mut window_cpu = Duration::ZERO;
 
     while !shared.stop.load(Ordering::Relaxed) {
         let tick_started = Instant::now();
+        let tick_cpu_started = thread_cpu_time();
         if !commands_sent && matches!(engine.get_state(), GameState::Menu) {
             commands_sent = true;
             let commands = spawn.scenario.menu_commands(assets.as_deref());
@@ -557,6 +565,7 @@ fn drive_instance(
         }
         window_frames += 1;
         window_cost += tick_started.elapsed();
+        window_cpu += thread_cpu_time().saturating_sub(tick_cpu_started);
         if engine.is_quitting() {
             break;
         }
@@ -569,6 +578,7 @@ fn drive_instance(
             let sim = logic.saturating_sub(window_logic_start) as f32 / secs;
             let fps = window_presents as f32 / secs;
             let cost = window_cost.as_secs_f32() * 1000.0 / window_frames.max(1) as f32;
+            let cpu = window_cpu.as_secs_f32() * 1000.0 / window_frames.max(1) as f32;
             shared.update(|s| {
                 s.state = state;
                 s.logic_frame = logic;
@@ -576,12 +586,14 @@ fn drive_instance(
                 s.render_fps = fps;
                 s.sim_rate = sim;
                 s.frame_ms = cost;
+                s.cpu_ms = cpu;
             });
             window_started = Instant::now();
             window_logic_start = logic;
             window_presents = 0;
             window_frames = 0;
             window_cost = Duration::ZERO;
+            window_cpu = Duration::ZERO;
         }
 
         // Host cadence: one update per interval (MultiInstanceOptions::update_hz).
@@ -593,6 +605,17 @@ fn drive_instance(
         }
     }
     Ok(())
+}
+
+/// CPU time consumed so far by the calling thread.
+fn thread_cpu_time() -> Duration {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid out-pointer for the duration of the call.
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    if rc != 0 {
+        return Duration::ZERO;
+    }
+    Duration::new(ts.tv_sec.max(0) as u64, ts.tv_nsec.clamp(0, 999_999_999) as u32)
 }
 
 /// Copy the engine's finished off-screen frame into its grid tile. Both live
