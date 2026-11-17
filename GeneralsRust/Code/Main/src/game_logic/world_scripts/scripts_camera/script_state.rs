@@ -347,9 +347,11 @@ impl GameLogic {
                     .insert(team as u32, ids.iter().map(|id| id.0).collect());
             }
         }
+        let shroud_manager = self.world_services.shroud();
+        let shroud = shroud_manager.lock().ok();
         for (id, obj) in self.host_objects().registered() {
             snap.objects
-                .push(self.receiving_script_query_object(*id, obj));
+                .push(self.receiving_script_query_object_with_shroud(*id, obj, shroud.as_deref()));
             if !obj.team_instance_name.is_empty() {
                 snap.team_instance_ids
                     .entry(obj.team_instance_name.clone())
@@ -408,10 +410,37 @@ impl GameLogic {
     }
 
     /// One immutable observation of the canonical receiving Object and services.
+    /// Debug KindOf names shared per KindOf set (built once per distinct set).
+    fn script_kind_names(&self, kinds: &crate::game_logic::KindOfSet) -> std::sync::Arc<Vec<String>> {
+        let key = kinds.bits();
+        let build = || std::sync::Arc::new(kinds.iter().map(|k| format!("{k:?}")).collect::<Vec<_>>());
+        if let Some(hit) = self.script_kind_names_cache.borrow().get(&key) {
+            return std::sync::Arc::clone(hit);
+        }
+        let names = build();
+        self.script_kind_names_cache
+            .borrow_mut()
+            .insert(key, std::sync::Arc::clone(&names));
+        names
+    }
+
     pub(super) fn receiving_script_query_object(
         &self,
         id: ObjectId,
         obj: &Object,
+    ) -> gamelogic::scripting::HostScriptQueryObject {
+        let shroud_manager = self.world_services.shroud();
+        let shroud = shroud_manager.lock().ok();
+        self.receiving_script_query_object_with_shroud(id, obj, shroud.as_deref())
+    }
+
+    /// `receiving_script_query_object` with the shroud manager already locked
+    /// (the per-frame snapshot locks it once for every object).
+    pub(super) fn receiving_script_query_object_with_shroud(
+        &self,
+        id: ObjectId,
+        obj: &Object,
+        shroud: Option<&gamelogic::system::shroud_manager::ShroudManager>,
     ) -> gamelogic::scripting::HostScriptQueryObject {
         use gamelogic::scripting::HostScriptQueryObject;
         HostScriptQueryObject {
@@ -467,20 +496,14 @@ impl GameLogic {
             kind_mine: obj.is_kind_of(crate::game_logic::KindOf::Mine),
             held: obj.status.disabled_held,
             stealthed_hidden: obj.is_effectively_stealthed(),
-            discovered_by: host_discovered_by_player_names(self, id.0, obj),
+            discovered_by: host_discovered_by_player_names(self, shroud, id.0, obj),
             waypoint_labels: obj.completed_waypoint_labels.clone(),
             selected: obj.selected,
             idle: matches!(obj.ai_state(), crate::game_logic::AIState::Idle)
                 && !obj.status.moving
                 && !obj.status.attacking,
             vision_range: obj.vision_range,
-            kind_names: obj
-                .thing()
-                .template
-                .kind_of
-                .iter()
-                .map(|k| format!("{k:?}"))
-                .collect(),
+            kind_names: self.script_kind_names(&obj.thing().template.kind_of),
             special_power_ready: obj.special_power_ready
                 && obj.is_alive()
                 && !obj.is_disabled()
@@ -648,6 +671,16 @@ impl GameLogic {
             );
         }
 
+        #[derive(Default)]
+        struct TemplateTally {
+            count: i32,
+            alive: i32,
+            any_not_destroyed: bool,
+        }
+        let mut template_tallies: std::collections::HashMap<
+            u32,
+            std::collections::HashMap<&str, TemplateTally>,
+        > = std::collections::HashMap::new();
         for obj in self.host_objects().registered_values() {
             // Resolve ownership once (same rules as object_owned_by_player).
             let owner_id = match obj.owner_player_id {
@@ -683,24 +716,39 @@ impl GameLogic {
                     census.faction_building_count += 1;
                 }
             }
-            let template_key = if obj.template_name.is_empty() {
-                None
-            } else {
-                Some(obj.template_name.to_ascii_lowercase())
-            };
-            if !obj.status.destroyed
-                && template_key
-                    .as_ref()
-                    .is_some_and(|key| build_facilities.contains(key))
-            {
-                census.has_any_build_facility = true;
+            if obj.template_name.is_empty() {
+                continue;
             }
+            // Tally by the object's own template name (no per-object
+            // lowercase allocation); keys are folded once per template below.
+            let tally = template_tallies
+                .entry(owner_id)
+                .or_default()
+                .entry(obj.template_name.as_str())
+                .or_default();
+            tally.any_not_destroyed |= !obj.status.destroyed;
             if !obj.status.under_construction {
-                if let Some(key) = template_key {
-                    *census.template_counts.entry(key.clone()).or_insert(0) += 1;
-                    if !dead {
-                        *census.template_counts_ignore_dead.entry(key).or_insert(0) += 1;
-                    }
+                tally.count += 1;
+                if !dead {
+                    tally.alive += 1;
+                }
+            }
+        }
+
+        for (owner_id, tallies) in template_tallies {
+            let Some(census) = by_player_id.get_mut(&owner_id) else {
+                continue;
+            };
+            for (name, tally) in tallies {
+                let key = name.to_ascii_lowercase();
+                if tally.any_not_destroyed && build_facilities.contains(&key) {
+                    census.has_any_build_facility = true;
+                }
+                if tally.alive > 0 {
+                    *census.template_counts_ignore_dead.entry(key.clone()).or_insert(0) += tally.alive;
+                }
+                if tally.count > 0 {
+                    *census.template_counts.entry(key).or_insert(0) += tally.count;
                 }
             }
         }

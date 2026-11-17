@@ -124,6 +124,8 @@ impl BigFileReader {
 
     /// Read directory entries from BIG file
     fn read_directory(file: &mut File, header: &BigHeader) -> Result<HashMap<String, BigEntry>, String> {
+        // Buffered: the walk reads filenames byte by byte.
+        let mut file = BufReader::with_capacity(1 << 16, &mut *file);
         let mut entries = HashMap::new();
         
         // Each directory entry is 8 bytes (offset + size) followed by null-terminated filename

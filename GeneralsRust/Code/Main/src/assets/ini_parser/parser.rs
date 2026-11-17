@@ -1528,7 +1528,7 @@ impl IniParser {
             state.weapon_bone_bindings.source_fields_valid = false;
             return;
         };
-        let Some(bindings) = state.weapon_bone_bindings.slots.get_mut(slot) else {
+        let Some(bindings) = std::sync::Arc::make_mut(&mut state.weapon_bone_bindings.slots).get_mut(slot) else {
             // The parser only accepts the three C++ WeaponSlotType names, but
             // preserve fail-closed behavior if this record is ever widened.
             state.weapon_bone_bindings.source_fields_valid = false;

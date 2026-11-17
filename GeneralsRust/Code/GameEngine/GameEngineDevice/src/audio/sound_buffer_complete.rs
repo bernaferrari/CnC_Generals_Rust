@@ -642,53 +642,6 @@ impl SoundBufferPool {
     }
 }
 
-/// Global buffer pool instance
-static BUFFER_POOL: std::sync::OnceLock<SoundBufferPool> = std::sync::OnceLock::new();
-
-/// Get the global buffer pool
-pub fn get_global_buffer_pool() -> &'static SoundBufferPool {
-    BUFFER_POOL.get_or_init(|| SoundBufferPool::new(32)) // Max 32 pooled buffers
-}
-
-/// RAII wrapper for pooled sound buffer
-pub struct PooledSoundBuffer {
-    buffer: Option<SoundBuffer>,
-    pool: &'static SoundBufferPool,
-}
-
-impl PooledSoundBuffer {
-    /// Acquire a pooled buffer
-    pub fn acquire(format: AudioFormat, buffer_format: BufferFormat) -> Self {
-        let pool = get_global_buffer_pool();
-        let buffer = pool.acquire(format, buffer_format);
-        Self {
-            buffer: Some(buffer),
-            pool,
-        }
-    }
-
-    /// Get reference to the inner buffer
-    pub fn buffer(&self) -> &SoundBuffer {
-        self.buffer.as_ref().expect("Buffer should be present")
-    }
-}
-
-impl Drop for PooledSoundBuffer {
-    fn drop(&mut self) {
-        if let Some(buffer) = self.buffer.take() {
-            self.pool.release(buffer);
-        }
-    }
-}
-
-impl std::ops::Deref for PooledSoundBuffer {
-    type Target = SoundBuffer;
-    
-    fn deref(&self) -> &Self::Target {
-        self.buffer()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

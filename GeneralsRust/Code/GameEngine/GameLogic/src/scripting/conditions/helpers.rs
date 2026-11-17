@@ -89,7 +89,8 @@ pub struct HostScriptQueryObject {
     /// C++ Object::getVisionRange for ENEMY/TYPE_SIGHTED.
     pub vision_range: f32,
     /// Host KindOf Debug names (Infantry, Vehicle, Structure, …).
-    pub kind_names: Vec<String>,
+    /// Shared per KindOf set (the host snapshot rebuilds every object each frame).
+    pub kind_names: std::sync::Arc<Vec<String>>,
     /// C++ SpecialPowerModule::getPercentReady() == 1 for host isReady.
     pub special_power_ready: bool,
     /// Canonical SpecialPowerTemplate names this object owns.

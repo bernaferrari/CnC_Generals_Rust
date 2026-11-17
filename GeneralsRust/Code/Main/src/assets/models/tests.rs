@@ -1690,7 +1690,7 @@ fn w3d_hlod_weapon_barrel_topology_uses_all_four_bases_and_cxx_numbered_order() 
     }
 
     let bindings = AuthoredDrawWeaponBoneBindings {
-        slots: [
+        slots: std::sync::Arc::new([
             AuthoredDrawWeaponBoneSlot {
                 fire_fx_bone_base: Some("fx".to_string()),
                 recoil_bone_base: Some("recoil".to_string()),
@@ -1700,7 +1700,7 @@ fn w3d_hlod_weapon_barrel_topology_uses_all_four_bases_and_cxx_numbered_order() 
             },
             AuthoredDrawWeaponBoneSlot::default(),
             AuthoredDrawWeaponBoneSlot::default(),
-        ],
+        ]),
         source_fields_valid: true,
     };
     let topology = model
@@ -1738,7 +1738,7 @@ fn w3d_hlod_weapon_barrel_topology_uses_all_four_bases_and_cxx_numbered_order() 
         hierarchy.pivots.truncate(5);
     }
     let bare_bindings = AuthoredDrawWeaponBoneBindings {
-        slots: [
+        slots: std::sync::Arc::new([
             AuthoredDrawWeaponBoneSlot {
                 fire_fx_bone_base: Some("barefx".to_string()),
                 recoil_bone_base: Some("barerecoil".to_string()),
@@ -1748,7 +1748,7 @@ fn w3d_hlod_weapon_barrel_topology_uses_all_four_bases_and_cxx_numbered_order() 
             },
             AuthoredDrawWeaponBoneSlot::default(),
             AuthoredDrawWeaponBoneSlot::default(),
-        ],
+        ]),
         source_fields_valid: true,
     };
     let bare = model

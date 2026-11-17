@@ -3011,14 +3011,14 @@ mod tests {
         AuthoredDrawModel {
             model_key: model_key.to_string(),
             weapon_bone_bindings: AuthoredDrawWeaponBoneBindings {
-                slots: [
+                slots: std::sync::Arc::new([
                     AuthoredDrawWeaponBoneSlot {
                         recoil_bone_base: recoil_base.map(str::to_string),
                         ..Default::default()
                     },
                     AuthoredDrawWeaponBoneSlot::default(),
                     AuthoredDrawWeaponBoneSlot::default(),
-                ],
+                ]),
                 source_fields_valid,
             },
             ..Default::default()

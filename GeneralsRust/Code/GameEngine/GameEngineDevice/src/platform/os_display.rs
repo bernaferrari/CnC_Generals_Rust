@@ -1,5 +1,6 @@
 //! C++ `OSDisplayWarningBox` — blocking native dialog, not auto-OK.
 
+#[cfg(test)]
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,9 +73,11 @@ pub trait GameTextProvider: Send + Sync {
     fn fetch(&self, key: &str) -> String;
 }
 
+#[cfg(test)]
 static TEST_DIALOG_HOOK: Mutex<Option<fn(&str, &str, &DialogConfig) -> OSDisplayButtonType>> =
     Mutex::new(None);
 
+#[cfg(test)]
 pub fn set_os_display_test_hook(
     hook: Option<fn(&str, &str, &DialogConfig) -> OSDisplayButtonType>,
 ) {
@@ -108,6 +111,7 @@ pub fn os_display_warning_box_direct(
     other_flags: u32,
 ) -> OSDisplayButtonType {
     let config = DialogConfig::from_flags(button_flags, other_flags);
+    #[cfg(test)]
     if let Ok(guard) = TEST_DIALOG_HOOK.lock() {
         if let Some(hook) = *guard {
             return hook(prompt, message, &config);

@@ -580,6 +580,7 @@ impl GameLogic {
             templates: HashMap::new(),
             build_facility_template_names_cache: std::cell::RefCell::new(None),
             fx_template_drawings_cache: std::cell::RefCell::new(None),
+            script_kind_names_cache: std::cell::RefCell::new(std::collections::HashMap::new()),
             known_template_names_cache: std::cell::RefCell::new(None),
             unresolved_spawn_templates: HashSet::new(),
 

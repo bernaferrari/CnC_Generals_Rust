@@ -143,7 +143,8 @@ pub struct AuthoredDrawWeaponBoneSlot {
 /// bones simply has no visual recoil topology.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuthoredDrawWeaponBoneBindings {
-    pub slots: [AuthoredDrawWeaponBoneSlot; 3],
+    /// Shared: every selected draw model clones its state's bindings per frame.
+    pub slots: std::sync::Arc<[AuthoredDrawWeaponBoneSlot; 3]>,
     #[serde(default = "authored_draw_weapon_bone_bindings_valid_default")]
     pub source_fields_valid: bool,
 }
@@ -155,7 +156,7 @@ const fn authored_draw_weapon_bone_bindings_valid_default() -> bool {
 impl Default for AuthoredDrawWeaponBoneBindings {
     fn default() -> Self {
         Self {
-            slots: std::array::from_fn(|_| AuthoredDrawWeaponBoneSlot::default()),
+            slots: std::sync::Arc::new(std::array::from_fn(|_| AuthoredDrawWeaponBoneSlot::default())),
             source_fields_valid: true,
         }
     }

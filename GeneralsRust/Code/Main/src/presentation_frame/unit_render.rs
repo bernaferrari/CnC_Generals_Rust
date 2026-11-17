@@ -1101,9 +1101,9 @@ mod tests {
     #[test]
     fn projectile_clip_visibility_uses_cxx_slot_order_override_and_last_write_order() {
         let mut bindings = crate::assets::AuthoredDrawWeaponBoneBindings::default();
-        bindings.slots[0].launch_bone_base = Some("unusedlaunch".to_string());
-        bindings.slots[0].projectile_hide_show_bone = Some("missile".to_string());
-        bindings.slots[1].launch_bone_base = Some("rack".to_string());
+        std::sync::Arc::make_mut(&mut bindings.slots)[0].launch_bone_base = Some("unusedlaunch".to_string());
+        std::sync::Arc::make_mut(&mut bindings.slots)[0].projectile_hide_show_bone = Some("missile".to_string());
+        std::sync::Arc::make_mut(&mut bindings.slots)[1].launch_bone_base = Some("rack".to_string());
         let draw_model = crate::assets::AuthoredDrawModel {
             subobject_visibility: vec![crate::assets::AuthoredDrawSubobjectVisibility {
                 name: "missile".to_string(),
@@ -1173,7 +1173,7 @@ mod tests {
     #[test]
     fn projectile_clip_visibility_handles_invalid_counts_and_exact_generated_names() {
         let mut bindings = crate::assets::AuthoredDrawWeaponBoneBindings::default();
-        bindings.slots[0].launch_bone_base = Some("rack".to_string());
+        std::sync::Arc::make_mut(&mut bindings.slots)[0].launch_bone_base = Some("rack".to_string());
         let valid_draw = crate::assets::AuthoredDrawModel {
             weapon_bone_bindings: bindings.clone(),
             projectile_bone_feedback: crate::assets::AuthoredDrawProjectileBoneFeedback {
@@ -1249,14 +1249,14 @@ mod tests {
 
         let direct_override = crate::assets::AuthoredDrawModel {
             weapon_bone_bindings: crate::assets::AuthoredDrawWeaponBoneBindings {
-                slots: [
+                slots: std::sync::Arc::new([
                     crate::assets::AuthoredDrawWeaponBoneSlot {
                         projectile_hide_show_bone: Some("missile".to_string()),
                         ..Default::default()
                     },
                     crate::assets::AuthoredDrawWeaponBoneSlot::default(),
                     crate::assets::AuthoredDrawWeaponBoneSlot::default(),
-                ],
+                ]),
                 source_fields_valid: true,
             },
             projectile_bone_feedback: crate::assets::AuthoredDrawProjectileBoneFeedback {

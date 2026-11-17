@@ -276,6 +276,10 @@ impl BigFile {
     fn parse_entries(&mut self, file: &mut File, header: &BigFileHeader) -> Result<(), io::Error> {
         // Seek to directory start (after header)
         file.seek(SeekFrom::Start(0x10))?;
+        // The directory is read field by field (and filenames byte by byte):
+        // buffer it so each archive costs a few reads instead of one syscall
+        // per byte. Later reads always seek explicitly.
+        let mut file = io::BufReader::with_capacity(1 << 16, &mut *file);
 
         self.entries.clear();
 

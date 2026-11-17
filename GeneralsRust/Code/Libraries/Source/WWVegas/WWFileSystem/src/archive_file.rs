@@ -295,7 +295,11 @@ pub fn open_big_archive<P: AsRef<Path>>(path: P) -> io::Result<ArchiveFile> {
 
     let archive_filename = path_ref.to_str().unwrap_or("unknown").to_lowercase();
 
-    let file_infos = BigFileParser::parse_big_file(&mut file, &archive_filename)?;
+    // Buffered: the directory walk reads filenames byte by byte.
+    let file_infos = BigFileParser::parse_big_file(
+        &mut io::BufReader::with_capacity(1 << 16, &mut file),
+        &archive_filename,
+    )?;
 
     let mut archive = ArchiveFile::new();
 

@@ -59,7 +59,7 @@ fn live_host_area_unit(
         initial_health: 100.0,
         owner_player: owner.into(),
         template_name: template_name.into(),
-        kind_names: kind_names.iter().map(|n| (*n).to_string()).collect(),
+        kind_names: std::sync::Arc::new(kind_names.iter().map(|n| (*n).to_string()).collect()),
         ..Default::default()
     }
 }

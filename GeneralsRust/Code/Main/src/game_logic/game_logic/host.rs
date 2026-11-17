@@ -1184,6 +1184,9 @@ pub struct GameLogic {
     /// Template-name -> receiving Draw definitions for FX operations.
     pub(crate) fx_template_drawings_cache:
         std::cell::RefCell<Option<crate::game_logic::FxTemplateDrawings>>,
+    /// KindOf bitmask -> Debug KindOf names for the script query snapshot.
+    pub(crate) script_kind_names_cache:
+        std::cell::RefCell<std::collections::HashMap<u128, std::sync::Arc<Vec<String>>>>,
     /// (template count, sorted names) for `presentation_known_template_names`.
     pub(crate) known_template_names_cache:
         std::cell::RefCell<Option<(usize, std::sync::Arc<Vec<String>>)>>,

@@ -161,6 +161,9 @@ impl BIGFile {
 
         // Skip to directory listing at offset 0x10 (as per C++ code)
         file.seek(SeekFrom::Start(0x10))?;
+        // Buffered directory walk (one syscall per 64 KiB, not per filename byte);
+        // data reads seek explicitly afterwards.
+        let mut directory = std::io::BufReader::with_capacity(1 << 16, &mut file);
 
         // Parse directory entries
         //
@@ -174,19 +177,19 @@ impl BIGFile {
 
             // Read file offset (4 bytes, BIG ENDIAN)
             let mut offset_bytes = [0u8; 4];
-            file.read_exact(&mut offset_bytes)?;
+            directory.read_exact(&mut offset_bytes)?;
             file_info.offset = u32::from_be_bytes(offset_bytes); // ntohl equivalent
 
             // Read file size (4 bytes, BIG ENDIAN)
             let mut size_bytes = [0u8; 4];
-            file.read_exact(&mut size_bytes)?;
+            directory.read_exact(&mut size_bytes)?;
             file_info.size = u32::from_be_bytes(size_bytes); // ntohl equivalent
 
             // Read null-terminated filename
             let mut filename_bytes = Vec::new();
             loop {
                 let mut byte = [0u8; 1];
-                file.read_exact(&mut byte)?;
+                directory.read_exact(&mut byte)?;
                 if byte[0] == 0 {
                     break;
                 }
@@ -219,6 +222,7 @@ impl BIGFile {
             self.add_file_to_directory(&directory_path, file_info);
         }
 
+        drop(directory);
         // Keep file handle open for reading data (as per C++ code)
         self.file = Some(file);
 

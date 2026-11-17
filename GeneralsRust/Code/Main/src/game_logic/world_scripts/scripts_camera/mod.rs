@@ -61,6 +61,7 @@ fn host_script_object_type_names(
 /// C++ Object::getShroudedStatus CLEAR|PARTIAL_CLEAR per player (no stealth filter).
 fn host_discovered_by_player_names(
     logic: &crate::game_logic::GameLogic,
+    shroud: Option<&gamelogic::system::shroud_manager::ShroudManager>,
     object_id: u32,
     obj: &crate::game_logic::object::Object,
 ) -> Vec<String> {
@@ -69,12 +70,9 @@ fn host_discovered_by_player_names(
         return Vec::new();
     }
     let mut names = Vec::new();
-    let shroud_manager = logic.world_services.shroud();
-    let shroud = shroud_manager.lock().ok();
     for player in logic.players.values() {
-        let status = shroud
-            .as_ref()
-            .and_then(|mgr| mgr.get_host_object_shroud_status(player.id, object_id));
+        let status =
+            shroud.and_then(|mgr| mgr.get_host_object_shroud_status(player.id, object_id));
         let visible = match status {
             Some(ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear) => true,
             Some(_) => false,

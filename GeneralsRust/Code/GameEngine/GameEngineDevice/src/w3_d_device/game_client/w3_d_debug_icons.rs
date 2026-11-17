@@ -6,7 +6,6 @@
 //! port preserves the static queue and CPU geometry construction so a renderer can
 //! submit the same batches without coupling tests to a graphics device.
 
-use std::sync::{Mutex, MutexGuard};
 
 use game_engine::map_object::{Coord3D, MAP_XY_FACTOR};
 
@@ -112,27 +111,21 @@ struct DebugIconStore {
     max_icons_seen: usize,
 }
 
-impl DebugIconStore {
-    const fn new() -> Self {
-        Self {
-            icons: Vec::new(),
-            max_icons_seen: 0,
-        }
-    }
-}
 
-static DEBUG_ICONS: Mutex<DebugIconStore> = Mutex::new(DebugIconStore::new());
-
-/// W3D debug icon render object compatibility adapter.
+/// W3D debug icon render object. C++ keeps the icon array in a class static;
+/// here the render object owns it so each engine instance has its own.
 #[derive(Debug, Default)]
-pub struct W3DDebugIcons;
+pub struct W3DDebugIcons {
+    store: DebugIconStore,
+}
 
 impl W3DDebugIcons {
     /// Construct the debug icon render object and allocate the C++ static icon array.
     #[must_use]
     pub fn new() -> Self {
-        allocate_icons_array();
-        Self
+        let mut icons = Self::default();
+        icons.allocate_icons_array();
+        icons
     }
 
     /// C++ `Class_ID`.
@@ -182,80 +175,60 @@ impl W3DDebugIcons {
         }
     }
 
-    /// Static C++ `addIcon`, with the current logic frame supplied by the caller.
+    /// C++ `addIcon`, with the current logic frame supplied by the caller.
     pub fn add_icon(
+        &mut self,
         pos: Option<&Coord3D>,
         width: f32,
         num_frames_duration: i32,
         color: RGBColor,
         current_frame: i32,
     ) {
-        add_icon(pos, width, num_frames_duration, color, current_frame);
+        let store = &mut self.store;
+        if let Some(pos) = pos {
+            if store.icons.len() >= MAX_ICONS {
+                return;
+            }
+            store.icons.push(DebugIcon {
+                position: pos.clone(),
+                width,
+                color,
+                end_frame: current_frame + num_frames_duration,
+            });
+        } else {
+            if store.icons.len() > store.max_icons_seen {
+                store.max_icons_seen = store.icons.len();
+            }
+            store.icons.clear();
+        }
+    }
+
+    /// Clear and reallocate the icon array.
+    pub fn allocate_icons_array(&mut self) {
+        self.store.icons = Vec::with_capacity(MAX_ICONS);
+        self.store.max_icons_seen = 0;
+    }
+
+    /// Return the number of currently queued icons.
+    #[must_use]
+    pub fn debug_icon_count(&self) -> usize {
+        self.store.icons.len()
+    }
+
+    /// Return the maximum count observed during null-position clears.
+    #[must_use]
+    pub fn max_icons_seen(&self) -> usize {
+        self.store.max_icons_seen
     }
 
     /// Build the CPU geometry that C++ `Render` writes into dynamic buffers.
     #[must_use]
-    pub fn render_batches(&self, current_frame: i32) -> Vec<DebugIconBatch> {
-        render_batches(current_frame)
+    pub fn render_batches(&mut self, current_frame: i32) -> Vec<DebugIconBatch> {
+        render_batches(&mut self.store, current_frame)
     }
 }
 
-impl Drop for W3DDebugIcons {
-    fn drop(&mut self) {
-        let mut store = lock_store();
-        store.icons.clear();
-        store.max_icons_seen = 0;
-    }
-}
-
-/// Free function matching the C++ global `addIcon` helper.
-pub fn add_icon(
-    pos: Option<&Coord3D>,
-    width: f32,
-    num_frames_duration: i32,
-    color: RGBColor,
-    current_frame: i32,
-) {
-    let mut store = lock_store();
-    if let Some(pos) = pos {
-        if store.icons.len() >= MAX_ICONS {
-            return;
-        }
-        store.icons.push(DebugIcon {
-            position: pos.clone(),
-            width,
-            color,
-            end_frame: current_frame + num_frames_duration,
-        });
-    } else {
-        if store.icons.len() > store.max_icons_seen {
-            store.max_icons_seen = store.icons.len();
-        }
-        store.icons.clear();
-    }
-}
-
-/// Clear and reallocate the static icon array.
-pub fn allocate_icons_array() {
-    let mut store = lock_store();
-    store.icons = Vec::with_capacity(MAX_ICONS);
-    store.max_icons_seen = 0;
-}
-
-/// Return the number of currently queued icons.
-#[must_use]
-pub fn debug_icon_count() -> usize {
-    lock_store().icons.len()
-}
-
-/// Return the maximum count observed during null-position clears.
-#[must_use]
-pub fn max_icons_seen() -> usize {
-    lock_store().max_icons_seen
-}
-
-fn render_batches(current_frame: i32) -> Vec<DebugIconBatch> {
-    let mut store = lock_store();
+fn render_batches(store: &mut DebugIconStore, current_frame: i32) -> Vec<DebugIconBatch> {
     if store.icons.is_empty() {
         return Vec::new();
     }
@@ -291,7 +264,7 @@ fn render_batches(current_frame: i32) -> Vec<DebugIconBatch> {
     }
 
     if any_vanished {
-        compress_icons_array(&mut store, current_frame);
+        compress_icons_array(store, current_frame);
     }
 
     batches
@@ -364,12 +337,6 @@ fn compress_icons_array(store: &mut DebugIconStore, current_frame: i32) {
     store.icons.truncate(new_num);
 }
 
-fn lock_store() -> MutexGuard<'static, DebugIconStore> {
-    DEBUG_ICONS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,60 +351,60 @@ mod tests {
 
     #[test]
     fn add_icon_none_clears_buffer_and_tracks_max() {
-        allocate_icons_array();
-        add_icon(Some(&coord(1.0, 2.0, 3.0)), 4.0, 10, red(), 20);
-        add_icon(Some(&coord(2.0, 3.0, 4.0)), 4.0, 10, red(), 20);
+        let mut icons = W3DDebugIcons::new();
+        icons.add_icon(Some(&coord(1.0, 2.0, 3.0)), 4.0, 10, red(), 20);
+        icons.add_icon(Some(&coord(2.0, 3.0, 4.0)), 4.0, 10, red(), 20);
 
-        add_icon(None, 0.0, 0, red(), 20);
+        icons.add_icon(None, 0.0, 0, red(), 20);
 
-        assert_eq!(debug_icon_count(), 0);
-        assert_eq!(max_icons_seen(), 2);
+        assert_eq!(icons.debug_icon_count(), 0);
+        assert_eq!(icons.max_icons_seen(), 2);
     }
 
     #[test]
     fn add_icon_sets_end_frame_from_current_logic_frame() {
-        allocate_icons_array();
-        add_icon(Some(&coord(1.0, 2.0, 3.0)), 4.0, 200, red(), 30);
+        let mut icons = W3DDebugIcons::new();
+        icons.add_icon(Some(&coord(1.0, 2.0, 3.0)), 4.0, 200, red(), 30);
 
-        let batches = render_batches(31);
+        let batches = icons.render_batches(31);
 
-        assert_eq!(debug_icon_count(), 1);
+        assert_eq!(icons.debug_icon_count(), 1);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].vertices[0].diffuse >> 24, u32::from(BASE_ALPHA));
     }
 
     #[test]
     fn expired_icons_at_front_are_removed_after_render_geometry_build() {
-        allocate_icons_array();
-        add_icon(Some(&coord(0.0, 0.0, 0.0)), 2.0, 1, red(), 10);
-        add_icon(Some(&coord(4.0, 4.0, 1.0)), 2.0, 100, red(), 10);
+        let mut icons = W3DDebugIcons::new();
+        icons.add_icon(Some(&coord(0.0, 0.0, 0.0)), 2.0, 1, red(), 10);
+        icons.add_icon(Some(&coord(4.0, 4.0, 1.0)), 2.0, 100, red(), 10);
 
-        let batches = render_batches(12);
+        let batches = icons.render_batches(12);
 
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].vertices.len(), 4);
-        assert_eq!(debug_icon_count(), 1);
+        assert_eq!(icons.debug_icon_count(), 1);
     }
 
     #[test]
     fn add_icon_ignores_entries_after_max_icons() {
-        allocate_icons_array();
+        let mut icons = W3DDebugIcons::new();
         for i in 0..MAX_ICONS {
-            add_icon(Some(&coord(i as f32, 0.0, 0.0)), 2.0, 10, red(), 0);
+            icons.add_icon(Some(&coord(i as f32, 0.0, 0.0)), 2.0, 10, red(), 0);
         }
 
-        add_icon(Some(&coord(999_999.0, 0.0, 0.0)), 2.0, 10, red(), 0);
+        icons.add_icon(Some(&coord(999_999.0, 0.0, 0.0)), 2.0, 10, red(), 0);
 
-        assert_eq!(debug_icon_count(), MAX_ICONS);
+        assert_eq!(icons.debug_icon_count(), MAX_ICONS);
     }
 
     #[test]
     fn alpha_is_64_until_fade_window_then_scales_by_frames_left() {
-        allocate_icons_array();
-        add_icon(Some(&coord(0.0, 0.0, 0.0)), 2.0, 200, red(), 0);
-        add_icon(Some(&coord(4.0, 4.0, 0.0)), 2.0, 50, red(), 0);
+        let mut icons = W3DDebugIcons::new();
+        icons.add_icon(Some(&coord(0.0, 0.0, 0.0)), 2.0, 200, red(), 0);
+        icons.add_icon(Some(&coord(4.0, 4.0, 0.0)), 2.0, 50, red(), 0);
 
-        let batches = render_batches(0);
+        let batches = icons.render_batches(0);
         let first_alpha = batches[0].vertices[0].diffuse >> 24;
         let second_alpha = batches[0].vertices[4].diffuse >> 24;
 
@@ -447,10 +414,10 @@ mod tests {
 
     #[test]
     fn quad_vertices_match_centered_square_xy_with_original_z() {
-        allocate_icons_array();
-        add_icon(Some(&coord(10.0, 20.0, 5.0)), 4.0, 200, red(), 0);
+        let mut icons = W3DDebugIcons::new();
+        icons.add_icon(Some(&coord(10.0, 20.0, 5.0)), 4.0, 200, red(), 0);
 
-        let batches = render_batches(0);
+        let batches = icons.render_batches(0);
         let vertices = &batches[0].vertices;
 
         assert_eq!(
@@ -494,23 +461,23 @@ mod tests {
 
     #[test]
     fn indices_are_two_triangles_per_icon() {
-        allocate_icons_array();
-        add_icon(Some(&coord(0.0, 0.0, 0.0)), 2.0, 10, red(), 0);
-        add_icon(Some(&coord(4.0, 4.0, 0.0)), 2.0, 10, red(), 0);
+        let mut icons = W3DDebugIcons::new();
+        icons.add_icon(Some(&coord(0.0, 0.0, 0.0)), 2.0, 10, red(), 0);
+        icons.add_icon(Some(&coord(4.0, 4.0, 0.0)), 2.0, 10, red(), 0);
 
-        let batches = render_batches(0);
+        let batches = icons.render_batches(0);
 
         assert_eq!(batches[0].indices, vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
     }
 
     #[test]
     fn render_batching_caps_each_batch_at_5000_icons() {
-        allocate_icons_array();
+        let mut icons = W3DDebugIcons::new();
         for i in 0..(MAX_RECT + 3) {
-            add_icon(Some(&coord(i as f32, 0.0, 0.0)), 2.0, 10, red(), 0);
+            icons.add_icon(Some(&coord(i as f32, 0.0, 0.0)), 2.0, 10, red(), 0);
         }
 
-        let batches = render_batches(0);
+        let batches = icons.render_batches(0);
 
         assert_eq!(batches.len(), 2);
         assert_eq!(batches[0].vertices.len(), MAX_RECT * 4);
