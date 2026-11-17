@@ -264,8 +264,9 @@ mod audio_tests {
 
     #[test]
     fn test_audio_handle() {
-        let handle1 = AudioHandle::new();
-        let handle2 = AudioHandle::new();
+        let handles = AudioHandleAllocator::default();
+        let handle1 = handles.allocate();
+        let handle2 = handles.allocate();
 
         assert_ne!(handle1, handle2, "Handles should be unique");
         assert!(handle1.is_valid(), "Handle should be valid");

@@ -80,10 +80,11 @@ fn benchmark_audio_format_operations(c: &mut Criterion) {
 
 #[cfg(feature = "audio")]
 fn benchmark_audio_handle_generation(c: &mut Criterion) {
+    let handles = AudioHandleAllocator::default();
     c.bench_function("audio_handle_generation", |b| {
         b.iter(|| {
             for _ in 0..1000 {
-                black_box(AudioHandle::new());
+                black_box(handles.allocate());
             }
         });
     });

@@ -5,7 +5,7 @@
 
 use super::DeviceCapabilities as AudioDeviceCapabilities;
 use super::{
-    AudioDeviceError, AudioFormat, AudioFormatType, AudioHandle, AudioListener, AudioSource,
+    AudioDeviceError, AudioFormat, AudioFormatType, AudioHandle, AudioHandleAllocator, AudioListener, AudioSource,
     AudioStatistics, PlaybackState, Position3D, Priority, Result, SampleFormat, Volume,
 };
 use crate::{DeviceCapabilities, DeviceStatus, DeviceType, PerformanceMetrics};
@@ -237,6 +237,8 @@ pub struct MilesAudioDevice {
     shutdown_flag: Arc<parking_lot::Mutex<bool>>,
     /// C++ `MilesAudioManager::m_binkHandle`.
     bink_handle: parking_lot::Mutex<Option<AudioHandle>>,
+    /// Per-device `allocateNewHandle` pool.
+    handles: AudioHandleAllocator,
 }
 impl MilesAudioDevice {
     /// Create a new MilesAudioDevice with default configuration
@@ -287,6 +289,7 @@ impl MilesAudioDevice {
             processing_handles: Vec::new(),
             shutdown_flag: Arc::new(parking_lot::Mutex::new(false)),
             bink_handle: parking_lot::Mutex::new(None),
+            handles: AudioHandleAllocator::default(),
         };
 
         Ok(device)
@@ -341,7 +344,7 @@ impl MilesAudioDevice {
     pub fn get_handle_for_bink(&self) -> Option<AudioHandle> {
         let mut slot = self.bink_handle.lock();
         if slot.is_none() {
-            *slot = Some(AudioHandle::new());
+            *slot = Some(self.handles.allocate());
         }
         *slot
     }
@@ -362,7 +365,7 @@ impl MilesAudioDevice {
         file_path: &str,
         source_config: AudioSource,
     ) -> Result<AudioHandle> {
-        let handle = AudioHandle::new();
+        let handle = self.handles.allocate();
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
 
         let command = AudioCommand::Play {

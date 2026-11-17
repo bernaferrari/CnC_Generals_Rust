@@ -204,11 +204,9 @@ impl AudioHandle {
     /// Invalid audio handle constant
     pub const INVALID: Self = Self(0);
 
-    /// Create a new audio handle
-    pub fn new() -> Self {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(1);
-        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
+    /// Wrap a raw handle value (`0` is [`Self::INVALID`]).
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
     }
 
     /// Check if handle is valid
@@ -220,6 +218,28 @@ impl AudioHandle {
 impl Default for AudioHandle {
     fn default() -> Self {
         Self::INVALID
+    }
+}
+
+/// Handle source owned by one audio manager.
+///
+/// C++ `AudioManager::allocateNewHandle` post-increments `theAudioHandlePool`
+/// (GameAudio.cpp:1054-1058), which the manager constructor resets
+/// (GameAudio.cpp:143). Handles only need to be unique within their manager,
+/// so each device owns its counter instead of a process-wide static.
+#[derive(Debug)]
+pub struct AudioHandleAllocator(std::sync::atomic::AtomicU64);
+
+impl Default for AudioHandleAllocator {
+    fn default() -> Self {
+        Self(std::sync::atomic::AtomicU64::new(1))
+    }
+}
+
+impl AudioHandleAllocator {
+    /// Next unused handle for this manager.
+    pub fn allocate(&self) -> AudioHandle {
+        AudioHandle(self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
     }
 }
 
