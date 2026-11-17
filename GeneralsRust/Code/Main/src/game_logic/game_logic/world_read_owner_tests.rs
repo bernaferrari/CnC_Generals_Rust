@@ -5,11 +5,9 @@ use super::*;
 use crate::gameworld_shadow::GameWorldShadow;
 
 fn fixture(health: f32, cash: u32, x: f32) -> (GameLogic, ObjectId, ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    assert_eq!(
-        parser
-            .parse_ini_content(
-                r#"
+    // C++ ThingFactory builds Objects only from INI it parsed into module
+    // data (ThingFactory.cpp parseObjectDefinition); admit the source as content.
+    let source = r#"
 Object WorldReadOwnerProbe
   Draw = W3DModelDraw ModuleTag_Draw
     DefaultConditionState
@@ -21,24 +19,13 @@ Object WorldReadOwnerProbe
     MaxHealth = 100
   End
 End
-"#,
-                "world_read_owner.ini"
-            )
-            .unwrap(),
-        1
-    );
+"#;
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::USA, "OwnerUSA", true));
     world.add_player(Player::new(1, Team::China, "OwnerChina", false));
-    assert_eq!(
-        world.seed_asset_definition_templates_from_snapshot(
-            parser
-                .get_all_definitions()
-                .iter()
-                .map(|(n, d)| (n.clone(), d.clone()))
-        ),
-        1
-    );
+    world
+        .admit_object_ini_sources([("world_read_owner.ini".to_string(), source.to_string())])
+        .expect("fixture Object content admitted before NewGame");
     let source = world
         .create_object("WorldReadOwnerProbe", Team::USA, Vec3::new(x, 0.0, 2.0))
         .unwrap();

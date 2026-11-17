@@ -68,9 +68,11 @@ impl crate::game_logic::NativeViewEffects for Receiving {
     }
 }
 fn fixture() -> (GameLogic, ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
+    // C++ ThingFactory creates Objects only from parsed INI module data.
+    let mut world = GameLogic::new();
+    world
+        .admit_object_ini_sources([(
+            "float-instance.ini".to_string(),
             "Object OwnedFloat
  Type = Vehicle
  Draw = W3DModelDraw ModuleTag_Draw
@@ -79,17 +81,10 @@ fn fixture() -> (GameLogic, ObjectId) {
   End
  End
 End
-",
-            "float-instance.ini",
-        )
-        .unwrap();
-    let mut world = GameLogic::new();
-    let template = GameLogic::build_template_from_object_definition(
-        "OwnedFloat",
-        parser.get_definition("OwnedFloat").unwrap(),
-        None,
-    );
-    world.templates.insert("OwnedFloat".into(), template);
+"
+            .to_string(),
+        )])
+        .expect("fixture Object content admitted before NewGame");
     let id = world
         .create_object("OwnedFloat", Team::USA, Vec3::new(3., 4., 5.))
         .unwrap();
@@ -184,19 +179,19 @@ fn water_map(root: &std::path::Path, name: &str, water_y: i32) -> std::path::Pat
 }
 
 fn water_fixture(path: &std::path::Path) -> (GameLogic, ObjectId) {
-    use crate::game_logic::ThingTemplate;
-
     let mut world = GameLogic::new();
-    world.admit_object_ini_sources(std::iter::empty()).unwrap();
+    // The ferry is authored content like every C++ Object (ThingFactory).
+    world
+        .admit_object_ini_sources([(
+            "float-ferry.ini".to_string(),
+            "Object CivilianVehicleFerry\n KindOf = VEHICLE\nEnd\n".to_string(),
+        )])
+        .unwrap();
     world.start_new_game(crate::game_logic::GameMode::SinglePlayer).unwrap();
     assert!(world.load_map(path.to_str().unwrap()));
     assert!(
         world.terrain.is_none(),
         "fixture must use the Core fallback"
-    );
-    world.templates.insert(
-        "CivilianVehicleFerry".into(),
-        ThingTemplate::new("CivilianVehicleFerry"),
     );
     let id = world
         .create_object(

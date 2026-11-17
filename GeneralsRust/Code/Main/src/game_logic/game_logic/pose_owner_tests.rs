@@ -18,11 +18,9 @@ fn trigger(id: i32, name: &str) -> PolygonTrigger {
 }
 
 fn fixture(area: &PolygonTrigger) -> (GameLogic, ObjectId) {
-    let mut parser = crate::assets::IniParser::new();
-    assert_eq!(
-        parser
-            .parse_ini_content(
-                r#"
+    // C++ ThingFactory builds Objects only from INI it parsed into module
+    // data (ThingFactory.cpp parseObjectDefinition); admit the source as content.
+    let source = r#"
 Object PoseOwnerProbe
   Draw = W3DModelDraw ModuleTag_Draw
     DefaultConditionState
@@ -34,22 +32,11 @@ Object PoseOwnerProbe
     MaxHealth = 100
   End
 End
-"#,
-                "pose_owner.ini"
-            )
-            .unwrap(),
-        1
-    );
+"#;
     let mut logic = GameLogic::new();
-    assert_eq!(
-        logic.seed_asset_definition_templates_from_snapshot(
-            parser
-                .get_all_definitions()
-                .iter()
-                .map(|(n, d)| (n.clone(), d.clone()))
-        ),
-        1
-    );
+    logic
+        .admit_object_ini_sources([("pose_owner.ini".to_string(), source.to_string())])
+        .expect("fixture Object content admitted before NewGame");
     logic
         .host_trigger_world
         .lock()

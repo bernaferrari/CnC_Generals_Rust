@@ -3,7 +3,7 @@
 use super::*;
 use crate::game_logic::GameLogic;
 
-fn parsed_ranger(name: &str, weapon_set: &str) -> ThingTemplate {
+fn parsed_ranger(name: &str, weapon_set: &str) -> (ThingTemplate, String) {
     let source = format!(
         "Object {name}\n  Type = Infantry\n  KindOf = INFANTRY SELECTABLE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n  End\n{weapon_set}End\n"
     );
@@ -19,13 +19,21 @@ fn parsed_ranger(name: &str, weapon_set: &str) -> ThingTemplate {
     assert!(template.is_kind_of(KindOf::Infantry));
     assert!(template.is_kind_of(KindOf::Attackable));
     assert_eq!(template.max_health, 100.0);
-    template
+    (template, source)
 }
 
-fn ordinary_create(template: ThingTemplate) -> (GameLogic, crate::game_logic::ObjectId) {
+/// C++ ThingFactory creates Objects only from the INI it parsed into module
+/// data (ThingFactory.cpp parseObjectDefinition), so the same authored source
+/// is admitted as this world's Object content before creation.
+fn ordinary_create(
+    template: ThingTemplate,
+    source: &str,
+) -> (GameLogic, crate::game_logic::ObjectId) {
     let name = template.name.clone();
     let mut world = GameLogic::new();
-    world.templates.insert(name.clone(), template);
+    world
+        .admit_object_ini_sources([("ranger_primary_admission.ini".to_string(), source.to_string())])
+        .expect("fixture Object content admitted before NewGame");
     let id = world
         .create_object(&name, Team::USA, Vec3::ZERO)
         .expect("ordinary Main creation of actual projected definition");
@@ -39,7 +47,7 @@ fn ranger_primary_admission_authored_none_stays_unarmed() {
         "ranger_primary_admission_tests::ranger_primary_admission_authored_none_stays_unarmed",
         || {
             let _restore = RestoreStore::install();
-            let template = parsed_ranger(
+            let (template, source) = parsed_ranger(
                 "AuthoredPrimaryNoneRanger",
                 "  WeaponSet\n    Conditions = None\n    Weapon = PRIMARY None\n  End\n",
             );
@@ -57,7 +65,7 @@ fn ranger_primary_admission_authored_none_stays_unarmed() {
                 template.resolve_primary_weapon(0).is_none(),
                 "resolution is already correctly unarmed"
             );
-            let (world, id) = ordinary_create(template);
+            let (world, id) = ordinary_create(template, &source);
             let object = world.host_object(id).unwrap();
             assert!(object.thing().template.primary_weapon_explicitly_none);
             assert!(object.thing().template.primary_weapon_name.is_none());
@@ -86,7 +94,7 @@ fn ranger_primary_admission_named_auto_choose_none_keeps_real_weapon() {
                 ),
                 1
             );
-            let template = parsed_ranger(
+            let (template, source) = parsed_ranger(
                 "AuthoredPrimaryNamedRanger",
                 "  WeaponSet\n    Conditions = None\n    Weapon = PRIMARY AuthoredPrimaryRangerRule\n    AutoChooseSources = PRIMARY NONE\n  End\n",
             );
@@ -102,7 +110,7 @@ fn ranger_primary_admission_named_auto_choose_none_keeps_real_weapon() {
                 .expect("real named rule resolves before auto-choose suppression");
             assert_eq!(resolved.damage, 37.0);
             assert_eq!(resolved.range, 123.0);
-            let (world, id) = ordinary_create(template);
+            let (world, id) = ordinary_create(template, &source);
             let object = world.host_object(id).unwrap();
             assert!(object.thing().template.primary_auto_choose_none);
             assert_eq!(
@@ -127,12 +135,12 @@ fn ranger_primary_admission_missing_rule_keeps_existing_fallback() {
         "ranger_primary_admission_tests::ranger_primary_admission_missing_rule_keeps_existing_fallback",
         || {
             let _restore = RestoreStore::install();
-            let template = parsed_ranger("MissingPrimaryRanger", "");
+            let (template, source) = parsed_ranger("MissingPrimaryRanger", "");
             assert!(!template.primary_weapon_explicitly_none);
             assert!(!template.primary_auto_choose_none);
             assert!(template.primary_weapon_name.is_none());
             assert!(template.primary_weapon.is_none());
-            let (world, id) = ordinary_create(template);
+            let (world, id) = ordinary_create(template, &source);
             let object = world.host_object(id).unwrap();
             let weapon = object
                 .weapon
