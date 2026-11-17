@@ -1711,6 +1711,16 @@ impl CnCGameEngine {
     }
 
     pub(super) fn apply_script_frame_limit(&mut self) {
+        // A multi-instance host steps exactly one fixed logic frame per update
+        // and paces every instance with its own update cadence
+        // (`MultiInstanceOptions::update_hz`); the wall-clock Sleep loop below
+        // would cap each instance at the C++ 30 fps limit (~31 f/s) whatever
+        // cadence the grid asked for. The limiter state itself is untouched
+        // (scripts still read and save it); only the sleeping is host-owned.
+        if self.fixed_logic_step.is_some() {
+            self.fps_limiter_last_tick = None;
+            return;
+        }
         // Wave 550: presentation freeze owns FPS-limit visual_speed residual when
         // installed (no host visual_speed_multiplier dual-read).
         // Wave 557: presentation freeze owns replay-mode residual when installed.
