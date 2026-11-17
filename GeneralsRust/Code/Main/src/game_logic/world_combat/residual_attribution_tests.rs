@@ -399,9 +399,9 @@ fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals_body() {
         for repeat in 0..2 {
             assert_eq!(world.players[&0].statistics.units_destroyed(), 2);
             assert_eq!(world.players[&2].statistics.units_lost(), 2);
-            assert_eq!(world.players[&0].statistics.money_earned(), 200);
-            assert_eq!(world.players[&0].resources.supplies, 1200);
-            assert_eq!(world.players[&0].skill_points, 50);
+            assert_eq!(world.players[&0].statistics.money_earned(), 2 * BOUNTY);
+            assert_eq!(world.players[&0].resources.supplies, 1000 + 2 * BOUNTY);
+            assert_eq!(world.players[&0].skill_points, 2 * SKILL_POINTS);
             assert_eq!(world.objects[&source].experience.current, 25.);
             assert_eq!(
                 world.objects[&victim].kill_score_phase,
@@ -418,7 +418,7 @@ fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals_body() {
         assert!(world.objects.get(&victim).is_none());
         assert!(world.objects.get(&source).is_some());
         assert_eq!(world.players[&0].statistics.units_destroyed(), 2);
-        assert_eq!(world.players[&0].statistics.money_earned(), 200);
+        assert_eq!(world.players[&0].statistics.money_earned(), 2 * BOUNTY);
         assert_eq!(world.objects[&source].experience.current, 25.);
     }
     uncredited(&peer);
