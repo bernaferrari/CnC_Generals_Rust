@@ -296,14 +296,21 @@ impl MeshResolveResult {
 
 /// Canonical W3D key from a presentation/template model string.
 pub fn canonical_model_key(model_name: &str) -> String {
-    model_name
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(model_name)
-        .trim()
-        .trim_end_matches(".w3d")
-        .trim_end_matches(".W3D")
-        .to_string()
+    canonical_model_key_str(model_name).to_string()
+}
+
+/// Borrowed form of [`canonical_model_key`]: basename after the last `/` or
+/// backslash, trimmed, without a trailing `.w3d` / `.W3D`.
+pub fn canonical_model_key_str(model_name: &str) -> &str {
+    let base = match model_name
+        .as_bytes()
+        .iter()
+        .rposition(|&b| b == b'/' || b == b'\\')
+    {
+        Some(i) => &model_name[i + 1..],
+        None => model_name,
+    };
+    base.trim().trim_end_matches(".w3d").trim_end_matches(".W3D")
 }
 
 /// Exact compatibility aliases for historical Rust template names.
@@ -313,102 +320,117 @@ pub fn canonical_model_key(model_name: &str) -> String {
 /// fallback table: a missing model must stay missing instead of borrowing a
 /// different unit's chassis, faction, damage, construction, or snow mesh.
 pub fn remap_model_key_alias(model_key: &str) -> String {
-    let key = canonical_model_key(model_key);
-    let lower = key.to_ascii_lowercase();
-    match lower.as_str() {
+    // Per-object per-frame caller (shadow refresh, presentation build): fold
+    // case on the stack instead of allocating twice per lookup.
+    let key = canonical_model_key_str(model_key);
+    let mut folded = [0u8; 48];
+    let alias = match folded.get_mut(..key.len()) {
+        Some(buf) => {
+            buf.copy_from_slice(key.as_bytes());
+            buf.make_ascii_lowercase();
+            std::str::from_utf8(buf).ok().and_then(model_key_alias_for_lower)
+        }
+        None => model_key_alias_for_lower(&key.to_ascii_lowercase()),
+    };
+    alias.map_or_else(|| key.to_string(), str::to_string)
+}
+
+/// Alias table keyed by the lowercase canonical model key.
+fn model_key_alias_for_lower(lower: &str) -> Option<&'static str> {
+    match lower {
         // AmericaInfantry.ini.
         "airanger" | "usa_infantry_ranger" | "usa_ranger" | "americainfantryranger" => {
-            "airngr_skn".to_string()
+            Some("airngr_skn")
         }
-        "usa_missiledefender" | "americainfantrymissiledefender" => "nithnt_skn".to_string(),
-        "usa_pathfinder" | "americainfantrypathfinder" => "aipfdr_skn".to_string(),
-        "usa_colonelburton" | "americainfantrycolonelburton" => "aihero_skn".to_string(),
+        "usa_missiledefender" | "americainfantrymissiledefender" => Some("nithnt_skn"),
+        "usa_pathfinder" | "americainfantrypathfinder" => Some("aipfdr_skn"),
+        "usa_colonelburton" | "americainfantrycolonelburton" => Some("aihero_skn"),
         // AmericaVehicle.ini / AmericaAir.ini.
-        "usa_humvee" | "americavehiclehumvee" => "avhummer".to_string(),
-        "usa_dozer" | "americavehicledozer" => "avconstdoz_a".to_string(),
-        "usa_tomahawk" | "americavehicletomahawk" => "avtomahawk".to_string(),
-        "usa_crusader" | "usa_crusadertank" | "americatankcrusader" => "avleopard".to_string(),
-        "usa_paladin" | "usa_paladintank" | "americatankpaladin" => "avpaladin".to_string(),
-        "usa_raptor" | "americajetraptor" => "avraptor".to_string(),
-        "usa_comanche" | "americavehiclecomanche" => "avcomanche".to_string(),
-        "usa_chinook" | "americavehiclechinook" => "avchinook".to_string(),
-        "usa_sentrydrone" | "americavehiclesentrydrone" => "avsentry".to_string(),
-        "usa_ambulance" | "americavehiclemedic" => "avambulance".to_string(),
-        "usa_stealthfighter" | "americajetstealthfighter" => "avstealth".to_string(),
-        "usa_aurora" | "americajetaurora" => "avaurora".to_string(),
-        "usa_spectregunship" | "americajetspectregunship" => "avsgunship".to_string(),
-        "usa_avenger" | "americatankavenger" => "avavnger".to_string(),
-        "usa_microwave" | "americatankmicrowave" => "avthundrblt".to_string(),
-        "usa_patriot" | "americapatriotbattery" => "abpatriot".to_string(),
+        "usa_humvee" | "americavehiclehumvee" => Some("avhummer"),
+        "usa_dozer" | "americavehicledozer" => Some("avconstdoz_a"),
+        "usa_tomahawk" | "americavehicletomahawk" => Some("avtomahawk"),
+        "usa_crusader" | "usa_crusadertank" | "americatankcrusader" => Some("avleopard"),
+        "usa_paladin" | "usa_paladintank" | "americatankpaladin" => Some("avpaladin"),
+        "usa_raptor" | "americajetraptor" => Some("avraptor"),
+        "usa_comanche" | "americavehiclecomanche" => Some("avcomanche"),
+        "usa_chinook" | "americavehiclechinook" => Some("avchinook"),
+        "usa_sentrydrone" | "americavehiclesentrydrone" => Some("avsentry"),
+        "usa_ambulance" | "americavehiclemedic" => Some("avambulance"),
+        "usa_stealthfighter" | "americajetstealthfighter" => Some("avstealth"),
+        "usa_aurora" | "americajetaurora" => Some("avaurora"),
+        "usa_spectregunship" | "americajetspectregunship" => Some("avsgunship"),
+        "usa_avenger" | "americatankavenger" => Some("avavnger"),
+        "usa_microwave" | "americatankmicrowave" => Some("avthundrblt"),
+        "usa_patriot" | "americapatriotbattery" => Some("abpatriot"),
         // ChinaInfantry.ini / ChinaVehicle.ini / ChinaAir.ini.
-        "china_soldier" | "china_redguard" | "chinainfantryredguard" => "nicnsc_skn".to_string(),
-        "china_dozer" | "chinavehicledozer" => "nvconstdoz_a".to_string(),
-        "china_battlemastertank" | "chinatankbattlemaster" => "nvbtmstr".to_string(),
-        "china_battletank" => "nvbtmstr".to_string(),
-        "china_dragontank" | "chinatankdragon" => "nvdragon".to_string(),
-        "china_gattlingtank" | "chinatankgattling" => "nvgatttank".to_string(),
-        "china_tankhunter" | "chinainfantrytankhunter" => "nimsst_skn".to_string(),
-        "china_overlordtank" | "chinatankoverlord" => "nvovrlrd".to_string(),
-        "china_infernocannon" | "chinavehicleinfernocannon" => "nvinferno".to_string(),
-        "china_mig" | "chinajetmig" => "nvmig".to_string(),
-        "china_helix" | "chinavehiclehelix" => "nvhelix".to_string(),
-        "china_nukecannon" | "chinavehiclenukelauncher" => "nvnukecn".to_string(),
-        "china_troopcrawler" | "chinavehicletroopcrawler" => "nvtcrawler".to_string(),
-        "china_listeningoutpost" | "chinavehiclelisteningoutpost" => "nvloutpost".to_string(),
-        "china_ecmtank" | "chinatankecm" => "nvbanshee".to_string(),
+        "china_soldier" | "china_redguard" | "chinainfantryredguard" => Some("nicnsc_skn"),
+        "china_dozer" | "chinavehicledozer" => Some("nvconstdoz_a"),
+        "china_battlemastertank" | "chinatankbattlemaster" => Some("nvbtmstr"),
+        "china_battletank" => Some("nvbtmstr"),
+        "china_dragontank" | "chinatankdragon" => Some("nvdragon"),
+        "china_gattlingtank" | "chinatankgattling" => Some("nvgatttank"),
+        "china_tankhunter" | "chinainfantrytankhunter" => Some("nimsst_skn"),
+        "china_overlordtank" | "chinatankoverlord" => Some("nvovrlrd"),
+        "china_infernocannon" | "chinavehicleinfernocannon" => Some("nvinferno"),
+        "china_mig" | "chinajetmig" => Some("nvmig"),
+        "china_helix" | "chinavehiclehelix" => Some("nvhelix"),
+        "china_nukecannon" | "chinavehiclenukelauncher" => Some("nvnukecn"),
+        "china_troopcrawler" | "chinavehicletroopcrawler" => Some("nvtcrawler"),
+        "china_listeningoutpost" | "chinavehiclelisteningoutpost" => Some("nvloutpost"),
+        "china_ecmtank" | "chinatankecm" => Some("nvbanshee"),
         // GLAInfantry.ini / GLAVehicle.ini.
-        "gla_soldier" | "glainfantryrebel" => "uirgrd_skn".to_string(),
-        "gla_worker" | "glainfantryworker" => "uiwrkr_skn".to_string(),
-        "gla_technical" | "glavehicletechnical" => "uvtechtrck".to_string(),
+        "gla_soldier" | "glainfantryrebel" => Some("uirgrd_skn"),
+        "gla_worker" | "glainfantryworker" => Some("uiwrkr_skn"),
+        "gla_technical" | "glavehicletechnical" => Some("uvtechtrck"),
         "gla_scorpion" | "gla_scorpiontank" | "glatankscorpion" | "glavehiclescorpion" => {
-            "uvlitetank".to_string()
+            Some("uvlitetank")
         }
-        "gla_rpgtrooper" | "glainfantryrpgtrooper" => "uitunf_skn".to_string(),
-        "gla_maraudertank" | "glatankmarauder" => "uvmarauder".to_string(),
-        "gla_scudlauncher" | "glavehiclescudlauncher" => "uvscudlchr".to_string(),
-        "gla_bombtruck" | "glavehiclebombtruck" => "uvbmbtruk".to_string(),
-        "gla_quadcannon" | "glavehiclequadcannon" => "uvquadcann".to_string(),
-        "gla_rocketbuggy" | "glavehiclerocketbuggy" => "uvrockbug".to_string(),
-        "gla_battlebus" | "glavehiclebattlebus" => "uvbattbus".to_string(),
-        "gla_stingersite" | "glastingersite" => "ubstingers".to_string(),
-        "gla_jarmenkell" | "glainfantryjarmenkell" => "uihero_skn".to_string(),
+        "gla_rpgtrooper" | "glainfantryrpgtrooper" => Some("uitunf_skn"),
+        "gla_maraudertank" | "glatankmarauder" => Some("uvmarauder"),
+        "gla_scudlauncher" | "glavehiclescudlauncher" => Some("uvscudlchr"),
+        "gla_bombtruck" | "glavehiclebombtruck" => Some("uvbmbtruk"),
+        "gla_quadcannon" | "glavehiclequadcannon" => Some("uvquadcann"),
+        "gla_rocketbuggy" | "glavehiclerocketbuggy" => Some("uvrockbug"),
+        "gla_battlebus" | "glavehiclebattlebus" => Some("uvbattbus"),
+        "gla_stingersite" | "glastingersite" => Some("ubstingers"),
+        "gla_jarmenkell" | "glainfantryjarmenkell" => Some("uihero_skn"),
         // USA structures — FactionBuilding.ini Model + host buildings.rs set_model.
-        "usa_commandcenter" | "americacommandcenter" => "abbtcmdhq".to_string(),
-        "usa_powerplant" | "americapowerplant" => "abpwrplant".to_string(),
-        "usa_supplycenter" | "americasupplycenter" => "absupplyct".to_string(),
-        "usa_barracks" | "americabarracks" => "abbarracks".to_string(),
-        "usa_warfactory" | "americawarfactory" => "abwarfact".to_string(),
+        "usa_commandcenter" | "americacommandcenter" => Some("abbtcmdhq"),
+        "usa_powerplant" | "americapowerplant" => Some("abpwrplant"),
+        "usa_supplycenter" | "americasupplycenter" => Some("absupplyct"),
+        "usa_barracks" | "americabarracks" => Some("abbarracks"),
+        "usa_warfactory" | "americawarfactory" => Some("abwarfact"),
         // China structures — FactionBuilding.ini Model + host buildings.rs set_model.
-        "china_commandcenter" | "chinacommandcenter" => "nbconyard".to_string(),
-        "china_powerplant" | "chinapowerplant" => "nbpwrplant".to_string(),
-        "china_barracks" | "chinabarracks" => "nbbarracks".to_string(),
-        "china_warfactory" | "chinawarfactory" => "nbwarfact".to_string(),
-        "china_supplycenter" | "chinasupplycenter" => "nbsupcent".to_string(),
+        "china_commandcenter" | "chinacommandcenter" => Some("nbconyard"),
+        "china_powerplant" | "chinapowerplant" => Some("nbpwrplant"),
+        "china_barracks" | "chinabarracks" => Some("nbbarracks"),
+        "china_warfactory" | "chinawarfactory" => Some("nbwarfact"),
+        "china_supplycenter" | "chinasupplycenter" => Some("nbsupcent"),
         // GLA structures — FactionBuilding.ini Model + host buildings.rs set_model.
-        "gla_commandcenter" | "glacommandcenter" | "gla_command" => "ubcmdhq".to_string(),
-        "gla_supplystash" | "glasupplystash" => "ubsupply".to_string(),
-        "gla_barracks" | "glabarracks" => "ubbarracks".to_string(),
-        "gla_tunnelnetwork" | "glatunnelnetwork" => "ubundtunn".to_string(),
+        "gla_commandcenter" | "glacommandcenter" | "gla_command" => Some("ubcmdhq"),
+        "gla_supplystash" | "glasupplystash" => Some("ubsupply"),
+        "gla_barracks" | "glabarracks" => Some("ubbarracks"),
+        "gla_tunnelnetwork" | "glatunnelnetwork" => Some("ubundtunn"),
         // NatureProp.ini trees / rocks (W3DTreeDraw ModelName, never Object name).
-        "generictree" | "genericopttree" | "treedogwood1" => "ptdogwod01".to_string(),
-        "treedogwood1snow" => "ptdogwod01_s".to_string(),
-        "bush01" => "ptbush01".to_string(),
-        "treefir01b" => "ptfir01".to_string(),
-        "treecherryblossom01" => "ptblossom01".to_string(),
-        "treecherryblossom02" => "ptblossom02".to_string(),
-        "treeoak1" => "ptoak01".to_string(),
-        "treemaple2" => "ptmaple02".to_string(),
-        "treepine" => "ptpine01".to_string(),
-        "treespruce" => "ptspruce01".to_string(),
-        "treespruce2" => "ptspruce01_hi".to_string(),
-        "treespruce03" => "ptxpine03".to_string(),
-        "treespruce03snow" => "ptxpine06".to_string(),
-        "rocks1" => "pmrocks01".to_string(),
-        "rocks2" => "pmrocks02".to_string(),
+        "generictree" | "genericopttree" | "treedogwood1" => Some("ptdogwod01"),
+        "treedogwood1snow" => Some("ptdogwod01_s"),
+        "bush01" => Some("ptbush01"),
+        "treefir01b" => Some("ptfir01"),
+        "treecherryblossom01" => Some("ptblossom01"),
+        "treecherryblossom02" => Some("ptblossom02"),
+        "treeoak1" => Some("ptoak01"),
+        "treemaple2" => Some("ptmaple02"),
+        "treepine" => Some("ptpine01"),
+        "treespruce" => Some("ptspruce01"),
+        "treespruce2" => Some("ptspruce01_hi"),
+        "treespruce03" => Some("ptxpine03"),
+        "treespruce03snow" => Some("ptxpine06"),
+        "rocks1" => Some("pmrocks01"),
+        "rocks2" => Some("pmrocks02"),
         // Preserve a concrete requested model exactly. It may be a valid
         // ConditionState model that is not represented by a legacy template
         // alias above.
-        _ => key,
+        _ => None,
     }
 }
 
