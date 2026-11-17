@@ -25,7 +25,7 @@ fn production_world_with_exit(
         .admit_object_ini_sources([(
             format!("production-callback-{unit_name}.ini"),
             format!(
-                "Object {unit_name}\nKindOf = SELECTABLE {kind}\nBody = ActiveBody ModuleTag_Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = {ai}\nEnd\nEnd\n"
+                "Object {unit_name}\nKindOf = SELECTABLE {kind}\nBody = ActiveBody ModuleTag_Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = {ai}\nEnd\nEnd\nObject DeliveryFactory\nKindOf = STRUCTURE FS_BARRACKS\nEnd\n"
             ),
         )])
         .expect("authored production output admits");
@@ -34,7 +34,7 @@ fn production_world_with_exit(
     unit.lock_weapon_slot = Some(0);
     unit.locomotor_name = Some("BasicHumanLocomotor".into());
     world.templates.insert(unit.name.clone(), unit);
-    let mut factory = ThingTemplate::new("DeliveryFactory");
+    let mut factory = world.templates["DeliveryFactory"].clone();
     factory
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSBarracks);
