@@ -398,10 +398,27 @@ impl Object {
         }
     }
 
-    /// C++ xfer only copies the set name and sets the post-process flag.
-    /// `chooseLocomotorSet` runs after `xferSelfAndCurLocoPtr`, not here.
+    /// C++ AIUpdateInterface::xfer (AIUpdate.cpp:5134-5146) restores the
+    /// current set's members through `xferSelfAndCurLocoPtr` and then
+    /// `m_curLocomotorSet`; it does not rerun `chooseLocomotorSet`. The members
+    /// are the template's authored row for the saved set.
     pub fn restore_saved_locomotor(&mut self, upgrade: bool, set: Option<String>) {
         self.locomotor_upgrade = upgrade;
+        let members = set
+            .as_deref()
+            .and_then(crate::game_logic::host_upgrade_module_residuals::locomotor_set_kind_from_token)
+            .and_then(|kind| {
+                self.thing()
+                    .template
+                    .authored_locomotor_sets
+                    .as_ref()?
+                    .iter()
+                    .find(|row| row.kind == kind)
+                    .map(|row| row.members.clone())
+            });
+        if let Some(members) = members {
+            self.locomotor_set_names = members;
+        }
         self.jet_ai.cur_locomotor_set = set;
     }
 

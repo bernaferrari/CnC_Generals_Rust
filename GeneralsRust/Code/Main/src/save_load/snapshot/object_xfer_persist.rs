@@ -156,6 +156,10 @@ struct ObjectXferPersist {
     locomotor_upgrade: bool,
     /// C++ `m_curLocomotorSet` token (`SET_NORMAL`, `SET_TAXIING`, ...).
     cur_locomotor_set: Option<String>,
+    /// C++ Drawable::xfer `m_conditionState` MODELCONDITION_PANICKING
+    /// (Drawable.cpp:4927), set by AIPanicState/chooseLocomotorSet(PANIC).
+    #[serde(default)]
+    is_panicking: bool,
     /// Main's effective braking in host sec²; preserve explicit saved values.
     braking: f32,
     /// C++ `Locomotor::m_maxLift`.
@@ -531,6 +535,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             last_command_source: object.last_command_source,
             locomotor_upgrade: object.locomotor_upgrade,
             cur_locomotor_set: object.jet_ai.cur_locomotor_set.clone(),
+            is_panicking: object.is_panicking,
             braking: object.braking,
             max_lift: object.max_lift,
             braking_factor: object.braking_factor,
@@ -801,6 +806,7 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.last_command_source = HUNT_CMD_FROM_AI;
         object.locomotor_upgrade = false;
         object.jet_ai.cur_locomotor_set = None;
+        object.is_panicking = false;
     }
 }
 
@@ -954,6 +960,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
                 }
             }
             object.restore_saved_locomotor(entry.locomotor_upgrade, entry.cur_locomotor_set);
+            object.is_panicking = entry.is_panicking;
             object.braking = entry.braking;
             object.max_lift = entry.max_lift;
             object.braking_factor = entry.braking_factor;
