@@ -1637,6 +1637,15 @@ fn guard_state_engages_nearby_enemy() {
         let guard = game_logic
             .host_object_mut(guard_id)
             .expect("guard should exist");
+        // A guard only engages with a weapon its WeaponSet authors.
+        crate::fixture_content::arm_with_stats(
+            guard,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 100.0,
+                ..crate::game_logic::Weapon::default()
+            },
+        );
         guard.set_ai_state(
             AIState::GuardingArea,
             ai_entry_frame,

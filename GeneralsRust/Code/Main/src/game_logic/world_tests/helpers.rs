@@ -49,6 +49,8 @@ pub(super) fn ensure_test_tank_template(game_logic: &mut GameLogic) {
     // Explicit C++ TransportSlotCount test fixture; tanks consume three
     // passenger slots but are not containers themselves.
     test_tank.transport_slot_count = Some(3);
+    game_logic.admit_default_locomotors_if_unadmitted();
+    test_tank.set_locomotor_name(crate::game_logic::locomotor_bootstrap::CRUSADER_LOCOMOTOR);
     game_logic
         .templates
         .insert("TestTank".to_string(), test_tank);
@@ -68,6 +70,8 @@ pub(super) fn ensure_test_dozer_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Score)
         .set_health(300.0)
         .set_cost(1000, 0);
+    game_logic.admit_default_locomotors_if_unadmitted();
+    test_dozer.set_locomotor_name(crate::game_logic::locomotor_bootstrap::AMERICA_DOZER_LOCOMOTOR);
     game_logic
         .templates
         .insert("TestDozer".to_string(), test_dozer);
@@ -91,6 +95,10 @@ pub(super) fn ensure_test_infantry_template(game_logic: &mut GameLogic) {
     // relying on the `TestInfantry` basename.  Individual tests can pause
     // this power to exercise upgrade/readiness behavior.
     test_infantry.capture_power = CapturePowerKind::Ranger;
+    // A mobile Object authors its Locomotor (Object.ini `Locomotor = SET_NORMAL`);
+    // without one the pathfinder refuses every move/approach order.
+    game_logic.admit_default_locomotors_if_unadmitted();
+    test_infantry.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     test_infantry.capture_start_ability_range = Some(5.0);
     test_infantry.capture_unpack_time_ms = Some(3_000);
     test_infantry.capture_preparation_time_ms = Some(20_000);

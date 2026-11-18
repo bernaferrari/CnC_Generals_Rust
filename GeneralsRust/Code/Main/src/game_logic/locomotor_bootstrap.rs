@@ -715,6 +715,21 @@ impl crate::game_logic::GameLogic {
         self.locomotor_definitions.store()
     }
 
+    /// Fixtures whose Objects author a retail Locomotor name rely on the
+    /// application Locomotor catalog being loaded before any Object content
+    /// (GameEngine.cpp:428-458). Admit the retail catalog once, and only while
+    /// the world is still empty, so a later explicit admission is unchanged.
+    #[cfg(test)]
+    pub(crate) fn admit_default_locomotors_if_unadmitted(&mut self) {
+        if self.locomotor_definition_base.is_none()
+            && self.receiving_module_content.is_none()
+            && self.objects.registered_is_empty()
+            && !self.has_unregistered_host_objects()
+        {
+            let _ = self.admit_locomotor_definitions(default_host_locomotor_store());
+        }
+    }
+
     /// Admit an application-owned immutable baseline before constructing units.
     pub fn admit_locomotor_definitions(
         &mut self,
