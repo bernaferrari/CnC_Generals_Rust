@@ -1436,18 +1436,7 @@ impl PathfindingGrid {
         // the previous id before hashing, and resolve each id once.
         let mut resolved: HashMap<u32, Option<OccupantFacts>> = HashMap::new();
         let mut previous = 0u32;
-        for id in self
-            .occ_pos_unit
-            .iter()
-            .chain(self.occ_goal_unit.iter())
-            .copied()
-            .chain(self.layer_occ.values().flat_map(|occ| {
-                occ.occ_pos_unit
-                    .values()
-                    .chain(occ.occ_goal_unit.values())
-                    .copied()
-            }))
-        {
+        for id in self.occ_pos_ids.iter().chain(self.occ_goal_ids.iter()).copied() {
             if id == 0 || id == previous {
                 continue;
             }
@@ -1455,6 +1444,13 @@ impl PathfindingGrid {
             resolved
                 .entry(id)
                 .or_insert_with(|| self.resolve_occupant(objects, mover, id));
+        }
+        // Re-stamps append repeats; keep the lists bounded by distinct ids.
+        for ids in [&mut self.occ_pos_ids, &mut self.occ_goal_ids] {
+            if ids.len() > 64 {
+                ids.sort_unstable();
+                ids.dedup();
+            }
         }
         self.query_occupants = resolved
             .into_iter()
@@ -1666,6 +1662,10 @@ impl PathfindingGrid {
         unit_id: u32,
         layer: PathfindLayerEnum,
     ) {
+        let ids = if goal { &mut self.occ_goal_ids } else { &mut self.occ_pos_ids };
+        if unit_id != 0 && ids.last() != Some(&unit_id) {
+            ids.push(unit_id);
+        }
         if (layer as u8) > PathfindLayerEnum::Ground as u8
             && self.layer_cell_type(layer as u8, pos).is_some()
         {

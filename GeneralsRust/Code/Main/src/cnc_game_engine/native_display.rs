@@ -312,8 +312,13 @@ impl CnCGameEngine {
         decision: DisplayAdmission,
         camera_scroll: f32,
     ) -> Result<(), String> {
+        // A deferred (unseen) update built no new presentation frame: the
+        // direct sync would re-stamp the previous frame's rows unchanged, so
+        // the next presented frame's logic-frame delta covers it instead.
         #[cfg(feature = "game_client")]
-        if self.native_display.pending.is_none() {
+        let deferred = self.presentation_defer.take_skipped_update();
+        #[cfg(feature = "game_client")]
+        if self.native_display.pending.is_none() && !deferred {
             self.host_sync_presentation_direct_drawables(
                 self.presentation_or_boot_time_frozen() || self.game_paused,
             )?;

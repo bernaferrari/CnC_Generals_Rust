@@ -1433,6 +1433,8 @@ pub(crate) struct PresentationDefer {
     /// The caller will not render the frame produced by the next update.
     pub(crate) next_frame_unseen: bool,
     skipped_in_a_row: u8,
+    /// This update's decision was a skip (consumed by the display step).
+    skipped_this_update: bool,
 }
 
 impl PresentationDefer {
@@ -1447,11 +1449,19 @@ impl PresentationDefer {
             && self.skipped_in_a_row < Self::MAX_CONSECUTIVE_SKIPS
         {
             self.skipped_in_a_row += 1;
+            self.skipped_this_update = true;
             true
         } else {
             self.skipped_in_a_row = 0;
+            self.skipped_this_update = false;
             false
         }
+    }
+
+    /// Whether the update's presentation was skipped; clears the mark so a
+    /// later display step without a decision (menus) is never affected.
+    pub(crate) fn take_skipped_update(&mut self) -> bool {
+        std::mem::take(&mut self.skipped_this_update)
     }
 }
 
@@ -1471,5 +1481,9 @@ mod presentation_defer_tests {
         assert!(!defer.skip_this_frame(true, true), "golden capture is exact");
         defer.next_frame_unseen = false;
         assert!(!defer.skip_this_frame(true, false), "rendered frame builds");
+        defer.next_frame_unseen = true;
+        assert!(defer.skip_this_frame(true, false));
+        assert!(defer.take_skipped_update(), "display step sees the skip once");
+        assert!(!defer.take_skipped_update(), "and only once");
     }
 }

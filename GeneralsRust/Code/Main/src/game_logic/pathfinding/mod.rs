@@ -673,6 +673,12 @@ pub struct PathfindingGrid {
     terrain_zones: Vec<u16>,
     /// C++ `PathfindCellInfo::m_posUnitID` single-occupant identity. 0 = none.
     occ_pos_unit: Vec<u32>,
+    /// Superset of the ids stamped into `occ_pos_unit` (and layer position
+    /// maps) since the position cells were last cleared, so a query binds
+    /// occupants without scanning every cell. Stale entries are harmless.
+    occ_pos_ids: Vec<u32>,
+    /// Same for `occ_goal_unit` (and layer goal maps).
+    occ_goal_ids: Vec<u32>,
     /// C++ PathfindCellInfo::m_obstacleIsFence.
     fence_bits: Vec<u64>,
     /// C++ PathfindCellInfo::m_obstacleIsTransparent (KINDOF_CAN_SEE_THROUGH).
