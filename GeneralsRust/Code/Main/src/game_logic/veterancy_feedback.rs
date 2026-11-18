@@ -13,6 +13,8 @@ pub struct VeterancyFeedback<'a> {
     draw_icon_ui: bool,
     definitions: Option<&'a super::promotion_definitions::PromotionDefinitions>,
     animations: Option<&'a mut WorldAnimations>,
+    /// The session's GameClientRandomValue stream (Anim2D randomized start frame).
+    client_random: Option<&'a mut game_engine::common::random_value::RandomState>,
 }
 impl<'a> VeterancyFeedback<'a> {
     pub(crate) fn logic_frame(&self) -> u32 {
@@ -28,6 +30,7 @@ impl<'a> VeterancyFeedback<'a> {
             draw_icon_ui: true,
             definitions: None,
             animations: None,
+            client_random: None,
         }
     }
     pub(crate) fn new(
@@ -36,6 +39,7 @@ impl<'a> VeterancyFeedback<'a> {
         draw_icon_ui: bool,
         definitions: &'a super::promotion_definitions::PromotionDefinitions,
         animations: &'a mut WorldAnimations,
+        client_random: &'a mut game_engine::common::random_value::RandomState,
     ) -> Self {
         Self {
             frame,
@@ -43,6 +47,7 @@ impl<'a> VeterancyFeedback<'a> {
             draw_icon_ui,
             definitions: Some(definitions),
             animations: Some(animations),
+            client_random: Some(client_random),
         }
     }
     pub(crate) fn body_sound(
@@ -98,9 +103,10 @@ impl<'a> VeterancyFeedback<'a> {
         let Some(definitions) = self.definitions else {
             return;
         };
-        if let (Some(template), Some(animations)) = (
+        if let (Some(template), Some(animations), Some(client_random)) = (
             definitions.level_gain_template(),
             self.animations.as_deref_mut(),
+            self.client_random.as_deref_mut(),
         ) {
             animations.admit(
                 crate::presentation_frame::PresentationWorldAnim {
@@ -116,6 +122,7 @@ impl<'a> VeterancyFeedback<'a> {
                     picker_id: object.id,
                 },
                 template,
+                client_random,
             );
         }
         // Object.cpp: missing animation does not suppress MiscAudio.
@@ -157,6 +164,7 @@ impl super::GameLogic {
             draw_icon_ui,
             &self.promotion_definitions,
             &mut self.session_view.world_animations,
+            &mut self.session_view.client_random,
         );
         let mut audio = ObjectAudio::queue(&mut self.queued_audio_events);
         action(
@@ -225,6 +233,7 @@ impl super::GameLogic {
             draw_icon_ui,
             &self.promotion_definitions,
             &mut self.session_view.world_animations,
+            &mut self.session_view.client_random,
         );
         let mut audio = ObjectAudio::queue(&mut self.queued_audio_events);
         Some(action(
@@ -452,6 +461,7 @@ impl super::GameLogic {
             draw_icon_ui,
             &self.promotion_definitions,
             &mut self.session_view.world_animations,
+            &mut self.session_view.client_random,
         );
         let mut audio = ObjectAudio::queue(&mut self.queued_audio_events);
         Some(action(
