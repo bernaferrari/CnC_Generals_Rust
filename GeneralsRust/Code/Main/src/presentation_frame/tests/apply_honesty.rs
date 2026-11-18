@@ -986,12 +986,8 @@ fn presentation_feeds_control_bar_garrison_inventory() {
                     names
                         .iter()
                         .any(|n| n.eq_ignore_ascii_case("Command_StructureExit")),
-                    "expected StructureExit, got {:?} strip={:?} ctx={:?} selected={:?} objs={:?}",
-                    names,
-                    frame.unit_command_buttons().iter().map(|c| c.command_name.clone()).collect::<Vec<_>>(),
-                    (guard.available_commands.len(), frame.control_bar_selection_panel().primary_object_id),
-                    frame.selected,
-                    frame.objects.iter().map(|o| (o.id, o.command_set_name.clone(), o.selected, o.destroyed, o.unselectable, o.masked)).collect::<Vec<_>>()
+                    "expected StructureExit, got {:?}",
+                    names
                 );
                 assert!(
                     names
@@ -1716,12 +1712,10 @@ fn burton_detonate_button_gray_without_remote_charges() {
     });
     assert!(
         detonate.is_some_and(|c| !c.enabled),
-        "zero charges must gray ColonelBurtonDetonateCharges: {:?} selected={:?} objs={:?}",
+        "zero charges must gray ColonelBurtonDetonateCharges: {:?}",
         cmds.iter()
             .map(|c| (c.command_name.as_str(), c.enabled))
-            .collect::<Vec<_>>(),
-        frame.selected,
-        frame.objects.iter().map(|o| (o.id, o.command_set_name.clone(), o.selected, o.destroyed, o.unselectable, o.masked)).collect::<Vec<_>>()
+            .collect::<Vec<_>>()
     );
 
     let charge = logic

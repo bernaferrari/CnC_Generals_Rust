@@ -121,7 +121,7 @@ fn shipped_hud_consumer_uses_snapshot_owned_fields() {
     crate::fixture_content::admit_fixture_objects(
         &mut logic,
         &[
-            crate::fixture_content::FixtureObject::new("HudUnit").kind_of("INFANTRY").health(75.0).walker().model("HudUnitModel"),
+            crate::fixture_content::FixtureObject::new("HudUnit").kind_of("INFANTRY").health(75.0).model("HudUnitModel"),
             victory_keep_alive(),
         ],
     );
@@ -145,7 +145,7 @@ fn shipped_hud_consumer_uses_snapshot_owned_fields() {
         .find(|o| o.id == id)
         .expect("object in snapshot");
     assert!((obj.position.x - 9.0).abs() < 0.01);
-    assert!((obj.position.z - 4.0).abs() < 0.01, "pos={:?} all={:?}", obj.position, snap.objects.iter().map(|o| (o.id, o.position)).collect::<Vec<_>>());
+    assert!((obj.position.z - 4.0).abs() < 0.01);
     assert_eq!(obj.health_current, 75.0);
     assert_eq!(obj.health_max, 75.0);
     assert_eq!(obj.team, Team::USA);
