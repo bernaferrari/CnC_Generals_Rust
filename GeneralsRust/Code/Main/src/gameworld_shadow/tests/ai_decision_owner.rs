@@ -299,6 +299,8 @@ mod ai_move_owner_tests {
             object_id: source,
             position: destination,
         });
+        // aiMoveTo queues the search; Pathfinder::processPathfindQueue installs it.
+        a.process_pathfind_queue().unwrap();
         let unit = a.host_object(source).unwrap();
         assert_eq!(unit.ai_state(), AIState::Moving);
         assert_eq!(unit.path_goal_position, Some(destination));

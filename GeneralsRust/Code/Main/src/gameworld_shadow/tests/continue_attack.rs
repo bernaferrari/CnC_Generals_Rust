@@ -196,6 +196,22 @@ fn continue_attack_after_kill_decision_authority() {
     let next = logic
         .create_object("CaN", Team::GLA, glam::Vec3::new(8.0, 0.0, 0.0))
         .expect("n");
+    // No vision pass runs in this raw fixture; the next victim is in front of
+    // the attacker, i.e. shroud-clear for its owning player (canAttack gate).
+    if let Some(pid) = logic.player_id_for_team(Team::USA) {
+        let mut shroud = logic
+            .world_services
+            .shroud()
+            .lock()
+            .expect("fixture world shroud must be available");
+        for victim in [dead, next] {
+            shroud.set_host_object_shroud_status(
+                pid,
+                victim.0,
+                gamelogic::common::ObjectShroudStatus::Clear,
+            );
+        }
+    }
     let dead_pos = glam::Vec3::new(5.0, 0.0, 0.0);
     let ok =
         logic.try_continue_attack_after_kill_for_test(attacker, dead, dead_pos, 50.0, Team::GLA);
@@ -659,20 +675,30 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         return;
     }
 
-    let mut logic = GameLogic::new();
+    // C++ loads Object and Weapon INI before NewGame, with the PlayerTemplate
+    // catalog the skirmish slots resolve against.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects_and_weapons(
+        &[
+            // Retail infantry author VisionRange (AmericaInfantry.ini Ranger 150);
+            // the mood scan fails closed on vision <= 0.
+            crate::fixture_content::FixtureObject::new("MaU")
+                .kind_of("INFANTRY")
+                .health(100.0)
+                .field("VisionRange = 150.0")
+                .walker()
+                .armed("MoodFixtureGun"),
+        ],
+        &[crate::fixture_content::FixtureWeapon::new("MoodFixtureGun").damage(10.0).range(100.0)],
+    );
     logic.set_ai_definition_base(game_engine::common::ini::AIData {
         guard_outer_modifier_human: 1.333,
         guard_outer_modifier_ai: 2.2,
         aggressive_range_modifier: 1.5,
         ..Default::default()
     });
-
-    let cfg = golden_skirmish_config("MoodAcq");
-    crate::fixture_content::admit_fixture_objects(
-        &mut logic,
-        &[
-            crate::fixture_content::FixtureObject::new("MaU").kind_of("INFANTRY").health(100.0).walker(),
-        ],
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("MoodAcq"),
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let oid = logic
@@ -713,27 +739,6 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         // called_during_idle on AUTO_ACQUIRE_IDLE, not the legacy bool.
         o.auto_acquire_idle_bits |=
             gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
-        // Retail infantry author VisionRange (AmericaInfantry.ini Ranger 150);
-        // the mood scan fails closed on vision <= 0
-        // (mood.rs adjusted_vision_range_for_mood gate).
-        o.vision_range = 150.0;
-        // Give a weapon so can_attack is true.
-        // C++ WeaponSet::chooseBestWeaponForTarget (PreferMostDamage) only
-        // considers a slot whose weapon is past its reload clock; a fresh
-        // fixture at frame 0 with last_fire_time 0 / reload 1 has no ready
-        // slot and AIAttackState::chooseWeapon refuses the enter (the
-        // try_mood_auto_acquire_enters_attack precedent authors
-        // last_fire_time -10 for the same reason).
-        crate::fixture_content::arm_slot_with_stats(
-            o,
-            0,
-            crate::game_logic::Weapon {
-                damage: 10.0,
-                range: 100.0,
-                last_fire_time: -10.0,
-                ..crate::game_logic::Weapon::default()
-            },
-        );
     }
     // Drive one mood tick.
     logic.tick_mood_auto_acquire_for_test(&[oid]);
