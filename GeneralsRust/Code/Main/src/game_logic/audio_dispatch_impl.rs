@@ -128,13 +128,33 @@ struct AudioDispatchOverrides {
     initiate_sound: std::sync::Mutex<HashMap<String, String>>,
 }
 
+/// Fixture overrides are per test thread. Cargo runs each test on its own
+/// thread and a fixture's logic runs synchronously on it, so one test's
+/// `clear_test_template_voices` can never erase another test's authored cue
+/// (a process-wide map raced under the parallel runner).
 #[cfg(test)]
-static AUDIO_DISPATCH_OVERRIDES: std::sync::LazyLock<AudioDispatchOverrides> =
-    std::sync::LazyLock::new(|| AudioDispatchOverrides {
-        template_voice: std::sync::Mutex::new(HashMap::new()),
-        per_unit_sound: std::sync::Mutex::new(HashMap::new()),
-        initiate_sound: std::sync::Mutex::new(HashMap::new()),
-    });
+struct ThreadAudioDispatchOverrides;
+
+#[cfg(test)]
+impl std::ops::Deref for ThreadAudioDispatchOverrides {
+    type Target = AudioDispatchOverrides;
+
+    fn deref(&self) -> &AudioDispatchOverrides {
+        #[cfg(test)]
+        thread_local! {
+            static OVERRIDES: &'static AudioDispatchOverrides =
+                Box::leak(Box::new(AudioDispatchOverrides {
+                    template_voice: std::sync::Mutex::new(HashMap::new()),
+                    per_unit_sound: std::sync::Mutex::new(HashMap::new()),
+                    initiate_sound: std::sync::Mutex::new(HashMap::new()),
+                }));
+        }
+        OVERRIDES.with(|overrides| *overrides)
+    }
+}
+
+#[cfg(test)]
+static AUDIO_DISPATCH_OVERRIDES: ThreadAudioDispatchOverrides = ThreadAudioDispatchOverrides;
 
 fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Option<String> {
     let name = event.get_event_name();
