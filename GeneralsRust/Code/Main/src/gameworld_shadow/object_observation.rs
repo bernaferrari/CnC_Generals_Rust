@@ -1053,13 +1053,9 @@ impl GameWorldShadow {
             || (!obj.occupants.is_empty() && obj.passengers_allowed_to_fire);
         e.armor_crate_upgrade = obj.armor_crate_upgrade;
         e.selection_flash_remaining = obj.selection_flash_remaining;
-        e.path_waypoints = obj
-            .movement
-            .path
-            .iter()
-            .take(16)
-            .map(|p| [p.x, p.y, p.z])
-            .collect();
+        e.path_waypoints.clear();
+        e.path_waypoints
+            .extend(obj.movement.path.iter().take(16).map(|p| [p.x, p.y, p.z]));
         e.secondary_weapon_range = obj
             .secondary_weapon
             .as_ref()
@@ -1070,7 +1066,7 @@ impl GameWorldShadow {
             .as_ref()
             .map(|w| w.damage)
             .unwrap_or(0.0);
-        e.display_name = obj.name.clone();
+        e.display_name.clone_from(&obj.name);
         e.model_key =
             crate::assets::mesh_asset_resolve::model_key_from_template(logic.application_assets().as_deref(), obj.get_template());
         e.model_condition_bits = obj.model_condition_bits;
@@ -1148,7 +1144,8 @@ impl GameWorldShadow {
         e.contained_by_host = obj.contained_by.map(|id| id.0).unwrap_or(0);
         {
             const MAX_GARRISON_IDS: usize = 16;
-            let mut ids: Vec<u32> = Vec::new();
+            let ids = &mut e.garrisoned_host_ids;
+            ids.clear();
             if let Some(bd) = obj.building_data.as_ref() {
                 for oid in bd.garrisoned_units.iter().take(MAX_GARRISON_IDS) {
                     ids.push(oid.0);
@@ -1159,7 +1156,6 @@ impl GameWorldShadow {
                     ids.push(oid.0);
                 }
             }
-            e.garrisoned_host_ids = ids;
         }
         e.kind_of_bits = Self::host_kind_of_bits(obj);
         e.cheer_timer = obj.cheer_timer;

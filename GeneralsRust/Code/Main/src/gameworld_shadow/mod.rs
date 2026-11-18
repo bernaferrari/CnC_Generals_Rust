@@ -33,8 +33,10 @@ pub struct GameWorldShadow {
     /// Tint owner when a presentation has no authoritative Main world.
     pub(crate) drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes,
     world: GameWorld,
-    host_to_entity: HashMap<u32, EntityId>,
-    entity_to_host: HashMap<u32, u32>,
+    // Id-keyed lookup tables: iteration order never feeds sim decisions
+    // (stale removal / metrics are order-independent), so use the Fx hasher.
+    host_to_entity: game_engine::common::fast_hash::FxHashMap<u32, EntityId>,
+    entity_to_host: game_engine::common::fast_hash::FxHashMap<u32, u32>,
     max_entities: usize,
     /// Host player id → dense GameWorld PlayerId
     host_player_to_gw: HashMap<u32, PlayerId>,

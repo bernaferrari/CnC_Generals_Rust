@@ -44,8 +44,8 @@ impl GameWorldShadow {
         Self {
             world: GameWorld::new(8),
             drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
-            host_to_entity: HashMap::new(),
-            entity_to_host: HashMap::new(),
+            host_to_entity: Default::default(),
+            entity_to_host: Default::default(),
             max_entities: max_entities.max(1),
             host_player_to_gw: HashMap::new(),
             horde_player_rel: HashMap::new(),
@@ -272,13 +272,12 @@ impl GameWorldShadow {
         if obj_ids.len() > self.max_entities {
             self.max_entities = obj_ids.len();
         }
-        let host_set: HashSet<u32> = obj_ids.iter().map(|id| id.0).collect();
 
-        // Remove shadow entities whose host object is gone.
+        // Remove shadow entities whose host object is gone (obj_ids is sorted).
         let stale: Vec<(u32, EntityId)> = self
             .host_to_entity
             .iter()
-            .filter(|(hid, _)| !host_set.contains(hid))
+            .filter(|(hid, _)| obj_ids.binary_search_by_key(*hid, |id| id.0).is_err())
             .map(|(&hid, &eid)| (hid, eid))
             .collect();
         for (hid, eid) in stale {
