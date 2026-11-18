@@ -50,20 +50,45 @@ fn admit(world: &mut GameLogic, name: &str, team: Team, pos: Vec3, kind: KindOf)
 fn aurora_world(frame: u32) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     world.frame = frame;
-    let source = admit(
-        &mut world,
-        "HqVcv4eShooter",
-        Team::China,
-        Vec3::ZERO,
-        KindOf::Infantry,
-    );
-    let target = admit(
-        &mut world,
-        "AmericaJetAurora",
-        Team::USA,
-        Vec3::new(120.0, 50.0, 0.0),
-        KindOf::Aircraft,
-    );
+    // Weapon.cpp:804-817 reads the victim's authored JetAIUpdate sneaky data
+    // (SneakyOffsetWhenAttacking, AttackersMissPersistTime); author the module.
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "materialization-aurora.ini".into(),
+                "Object HqVcv4eShooter
+KindOf = INFANTRY SELECTABLE CAN_ATTACK
+Body = ActiveBody Body
+MaxHealth = 100
+InitialHealth = 100
+End
+End
+Object AmericaJetAurora
+KindOf = AIRCRAFT SELECTABLE CAN_ATTACK
+Body = ActiveBody Body
+MaxHealth = 100
+InitialHealth = 100
+End
+Behavior = JetAIUpdate JetAI
+    SneakyOffsetWhenAttacking = -20.0
+    AttackersMissPersistTime = 2000
+End
+Locomotor = SET_NORMAL RaptorJetLocomotor
+End
+"
+                .into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(world.ensure_host_spawn_template("HqVcv4eShooter"));
+    assert!(world.ensure_host_spawn_template("AmericaJetAurora"));
+    let source = world
+        .create_object("HqVcv4eShooter", Team::China, Vec3::ZERO)
+        .expect("admit into driving game");
+    let target = world
+        .create_object("AmericaJetAurora", Team::USA, Vec3::new(120.0, 50.0, 0.0))
+        .expect("admit into driving game");
     let aurora = world.objects.get_mut(&target).unwrap();
     aurora.set_ai_state(
         AIState::Idle,

@@ -6,14 +6,39 @@ fn receiving_world(frame: u32) -> (GameLogic, ObjectId, ObjectId) {
     world.frame = frame;
     world.add_player(Player::new(1, Team::USA, "Shooter", true));
     world.add_player(Player::new(2, Team::GLA, "Blocker", false));
-    for (name, kind) in [
-        ("ClockShooter", KindOf::Infantry),
-        ("AmericaJetAurora", KindOf::Structure),
-    ] {
-        let mut template = ThingTemplate::new(name);
-        template.set_health(100.0).add_kind_of(kind);
-        world.templates.insert(name.into(), template);
-    }
+    // Weapon.cpp:705 reads the structure's authored JetAIUpdate sneaky data
+    // (SneakyOffsetWhenAttacking, AttackersMissPersistTime): author the module.
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "clock-blocker.ini".into(),
+                "Object AmericaJetAurora
+KindOf = STRUCTURE SELECTABLE
+Body = ActiveBody Body
+MaxHealth = 100
+InitialHealth = 100
+End
+Behavior = JetAIUpdate JetAI
+    SneakyOffsetWhenAttacking = -20.0
+    AttackersMissPersistTime = 2000
+End
+Locomotor = SET_NORMAL RaptorJetLocomotor
+End
+Object ClockShooter
+KindOf = INFANTRY SELECTABLE
+Body = ActiveBody Body
+MaxHealth = 100
+InitialHealth = 100
+End
+End
+"
+                .into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(world.ensure_host_spawn_template("AmericaJetAurora"));
+    assert!(world.ensure_host_spawn_template("ClockShooter"));
     let shooter = world
         .create_object_for_player("ClockShooter", 1, Vec3::new(-100.0, 0.0, 0.0))
         .unwrap();
@@ -118,7 +143,10 @@ fn factory_installs_active_three_slot_deadlines_and_restores_saved_frames() {
         template.set_health(100.0).add_kind_of(KindOf::Vehicle);
         let name = crate::game_logic::weapon_bootstrap::RANGER_PRIMARY_WEAPON;
         template.set_primary_weapon_name(name);
-        template.set_secondary_weapon_name(name);
+        // The Ranger rifle owns a flashbang SECONDARY residual at creation
+        // (factory_init, WeaponSet-keyed); the other slots author a different gun.
+        let other = crate::game_logic::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON;
+        template.set_secondary_weapon_name(other);
         template.set_tertiary_weapon_name(name);
         template.set_mine_clearing_primary_weapon_name(name);
         world.with_own_services(|| {
