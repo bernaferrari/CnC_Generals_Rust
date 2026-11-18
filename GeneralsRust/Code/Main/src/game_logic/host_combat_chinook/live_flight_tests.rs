@@ -392,7 +392,8 @@ fn authored_explicit_vertical_goal_does_not_add_maintain_height_force() {
     );
 }
 
-/// hq-0xpfm: actual authored aircraft publish separate occupied landing goals.
+/// ChinookTakeoffOrLandingState::onEnter: findPositionAround clears the landing
+/// spot of other objects, so two Chinooks at one spot land apart.
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn live_host_chinooks_unstack_landing_dest() {
@@ -407,6 +408,11 @@ fn live_host_chinooks_unstack_landing_dest() {
             assert!(object.cur_locomotor_name.is_some());
             object.pending_evacuate_on_stop = true;
         }
+        // PartitionManager::update fills the cells that findPositionAround's
+        // collision query reads (ChinookAIUpdate.cpp:236 picks a clear spot).
+        logic
+            .update_owned_partition_with_effects(&mut Default::default())
+            .unwrap();
         logic
             .tick_chinook_ai(1.0 / 30.0)
             .expect("receiving AI operation succeeds");

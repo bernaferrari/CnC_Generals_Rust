@@ -85,12 +85,36 @@ impl GameLogic {
         &self,
         center: Vec3,
     ) -> gamelogic::GameLogicResult<Vec3> {
+        Ok(self
+            .find_owned_unfiltered_position_around(center, 100.)?
+            .unwrap_or(center))
+    }
+
+    /// ChinookTakeoffOrLandingState::onEnter (ChinookAIUpdate.cpp:233-240):
+    /// `options.maxRadius = boundingCircleRadius * 100`, FPF_NONE, then
+    /// `adjustToLandingDestination` only when a position was found.
+    pub(crate) fn find_owned_chinook_landing_position(
+        &self,
+        center: Vec3,
+        bounding_circle_radius: f32,
+    ) -> gamelogic::GameLogicResult<Option<Vec3>> {
+        self.find_owned_unfiltered_position_around(center, bounding_circle_radius * 100.0)
+    }
+
+    /// `PartitionManager::findPositionAround` with min radius 0, no ignore /
+    /// relationship / path source, and the random start angle. An off-map
+    /// center is a scripted setup and returns itself (PartitionManager.cpp:3862).
+    fn find_owned_unfiltered_position_around(
+        &self,
+        center: Vec3,
+        max_radius: f32,
+    ) -> gamelogic::GameLogicResult<Option<Vec3>> {
         if center.x < self.world_min.x
             || center.x > self.world_max.x
             || center.z < self.world_min.z
             || center.z > self.world_max.z
         {
-            return Ok(center);
+            return Ok(Some(center));
         }
         {
             let terrain = self
@@ -110,12 +134,9 @@ impl GameLogic {
         }
         // Source draws after its scripted off-map escape, including the radius-zero attempt.
         let start = std::f32::consts::TAU * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
-        Ok(
-            find_position_around(center, 0., 100., start, |candidate, angle| {
-                self.try_owned_ground_position(candidate, center.y, angle, None, None)
-            })
-            .unwrap_or(center),
-        )
+        Ok(find_position_around(center, 0., max_radius, start, |candidate, angle| {
+            self.try_owned_ground_position(candidate, center.y, angle, None, None)
+        }))
     }
     fn try_owned_ground_position(
         &self,

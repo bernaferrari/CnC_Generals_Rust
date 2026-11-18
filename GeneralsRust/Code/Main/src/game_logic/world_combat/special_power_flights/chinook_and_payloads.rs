@@ -238,7 +238,18 @@ impl GameLogic {
             drop(obj);
             self.resolve_installed_path_layers(id);
             if apply_landing_dest {
-                let adj = ({
+                // C++ ChinookTakeoffOrLandingState::onEnter: findPositionAround
+                // (max radius = bounding circle * 100) picks a spot clear of other
+                // objects, then adjustToLandingDestination runs only when it found one.
+                let bounding_radius = self
+                    .objects
+                    .get(&id)
+                    .map_or(0.0, |o| o.geometry_info().bounding_circle_radius());
+                let found = self.find_owned_chinook_landing_position(landing_dest, bounding_radius)?;
+                let landing_dest = found.unwrap_or(landing_dest);
+                let adj = if found.is_none() {
+                    landing_dest
+                } else {
                     let ground_owner = self.world_services.terrain();
                     let ground_loan = ground_owner
                         .read()
@@ -258,7 +269,7 @@ impl GameLogic {
                         landing_dest,
                         &ground_source,
                     )
-                });
+                };
                 if let Some(obj) = self.objects.get_mut(&id) {
                     if let Some(ai) = obj.chinook_ai.as_mut() {
                         ai.dest = [adj.x, adj.z, adj.y];

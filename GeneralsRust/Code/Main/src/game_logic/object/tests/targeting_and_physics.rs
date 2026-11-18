@@ -2070,9 +2070,14 @@ End
     aurora.status.attacking = true;
     let _ = aurora.tick_jet_ai_update(50);
 
-    let mut sf_t = ThingTemplate::new("AmericaJetStealthFighter");
-    sf_t.add_kind_of(KindOf::Aircraft);
-    let mut sf = Object::new(sf_t, ObjectId(2), Team::USA);
+    // JetAIUpdateModuleData::m_lockonTime defaults to 0 (JetAIUpdate.cpp:1640);
+    // only an authored `LockonTime` arms addTargeter, so the Stealth Fighter is
+    // INI-admitted like every C++ object.
+    let mut sf = Object::new(
+        authored_lockon_stealth_fighter_template(),
+        ObjectId(2),
+        Team::USA,
+    );
     sf.set_position(Vec3::new(10.0, 40.0, 0.0));
     sf.add_jet_targeter(ObjectId(9), true, 100);
     assert!(sf.is_temporarily_preventing_aim_success(100));

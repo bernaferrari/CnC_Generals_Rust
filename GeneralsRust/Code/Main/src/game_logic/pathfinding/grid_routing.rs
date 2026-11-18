@@ -714,11 +714,10 @@ impl PathfindingGrid {
             }
             _ => {}
         }
-        if self.has_other_aircraft_goal(cell) {
-            return false;
-        }
         // C++ checkDestination(NULL, cell, layer, iRadius, center): footprint
         // refuses CELL_OBSTACLE / IS_IMPASSABLE / any UNIT_GOAL / off-map.
+        // `obj == NULL` leaves checkForAircraft false, so aircraft goal claims
+        // never block a landing cell (AIPathfind.cpp:4905-4913).
         self.check_destination_null(cell, layer, radius, center_in_cell)
     }
 
@@ -746,9 +745,6 @@ impl PathfindingGrid {
                         return false;
                     }
                     _ => {}
-                }
-                if self.has_other_aircraft_goal(p) {
-                    return false;
                 }
                 if self.has_allied_goal_on(p, None, layer) {
                     return false;
