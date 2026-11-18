@@ -1,22 +1,24 @@
 //! Executable command and lifecycle regressions.
 
 fn gameworld_entity_view_deepen() -> bool {
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     use crate::gameworld_shadow::{GameWorldShadow, presentation_view_from_shadow};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("GwEntityView191");
+    // C++ loads Object INI before NewGame; units are authored content.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("ViewDeep191")
+            .kind_of("VEHICLE SELECTABLE")
+            .health(180.0)
+            .walker(),
+    ]);
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("GwEntityView191"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    if !logic.templates.contains_key("ViewDeep191") {
-        let mut t = ThingTemplate::new("ViewDeep191");
-        t.set_health(180.0);
-        t.add_kind_of(KindOf::Selectable);
-        t.add_kind_of(KindOf::Vehicle);
-        logic.templates.insert("ViewDeep191".into(), t);
     }
     let Some(oid) = logic.create_object("ViewDeep191", Team::USA, Vec3::new(14.0, 0.0, 15.0))
     else {

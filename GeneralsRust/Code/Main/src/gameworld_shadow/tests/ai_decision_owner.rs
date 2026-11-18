@@ -265,16 +265,20 @@ mod ai_fire_owner_tests {
 mod ai_move_owner_tests {
     use super::*;
 
-    use crate::game_logic::{AICommand, AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{AICommand, AIState, GameLogic, ObjectId, Team};
     use glam::Vec3;
 
     fn moving_world() -> (GameLogic, ObjectId) {
         let mut logic = GameLogic::new();
-        let mut template = ThingTemplate::new("DecisionMoveSource");
-        template.add_kind_of(KindOf::Aircraft).set_health(100.0);
-        logic
-            .templates
-            .insert("DecisionMoveSource".into(), template);
+        // C++ loads Object and Locomotor INI before NewGame: the mover authors
+        // an AIUpdateInterface and a Locomotor, or no move order reaches it.
+        crate::fixture_content::admit_fixture_objects(
+            &mut logic,
+            &[crate::fixture_content::FixtureObject::new("DecisionMoveSource")
+                .kind_of("AIRCRAFT")
+                .health(100.0)
+                .walker()],
+        );
         let source = logic
             .create_object("DecisionMoveSource", Team::USA, Vec3::ZERO)
             .unwrap();

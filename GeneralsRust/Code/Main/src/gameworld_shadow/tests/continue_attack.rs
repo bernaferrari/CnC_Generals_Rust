@@ -163,7 +163,7 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
 
 #[test]
 fn continue_attack_after_kill_decision_authority() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     if super::harness::isolated_shadow_case(
         module_path!(),
         "continue_attack_after_kill_decision_authority",
@@ -172,17 +172,19 @@ fn continue_attack_after_kill_decision_authority() {
         return;
     }
 
-    let mut logic = GameLogic::new();
-
-    let cfg = golden_skirmish_config("ContAtk");
-    crate::fixture_content::admit_fixture_content(
-        &mut logic,
+    // C++ loads Object and Weapon INI before NewGame, with the PlayerTemplate
+    // catalog the skirmish slots resolve against.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects_and_weapons(
         &[
             crate::fixture_content::FixtureObject::new("CaA").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
             crate::fixture_content::FixtureObject::new("CaD").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
             crate::fixture_content::FixtureObject::new("CaN").kind_of("INFANTRY").health(100.0).walker().armed("ShadowFixtureGun"),
         ],
         &[crate::fixture_content::FixtureWeapon::new("ShadowFixtureGun").damage(10.0).range(100.0)],
+    );
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("ContAtk"),
     );
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let attacker = logic

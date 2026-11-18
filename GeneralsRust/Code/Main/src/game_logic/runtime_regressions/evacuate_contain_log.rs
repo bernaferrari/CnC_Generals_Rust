@@ -1,27 +1,28 @@
 //! Executable command and lifecycle regressions.
 
 fn evacuate_contain_log() -> bool {
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("EvacContain201");
+    // C++ loads Object INI before NewGame: the bunker authors its garrison
+    // contain module and the rider is an infantry Object.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("EvacBunker201")
+            .kind_of("STRUCTURE")
+            .health(500.0)
+            .module("Behavior = GarrisonContain FixtureContain\n ContainMax = 5\n EnterSound = None\nEnd"),
+        crate::fixture_content::FixtureObject::new("EvacInf201")
+            .kind_of("INFANTRY SELECTABLE")
+            .health(100.0)
+            .walker(),
+    ]);
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("EvacContain201"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    if !logic.templates.contains_key("EvacBunker201") {
-        let mut t = ThingTemplate::new("EvacBunker201");
-        t.set_health(500.0);
-        t.add_kind_of(KindOf::Structure);
-        logic.templates.insert("EvacBunker201".into(), t);
-    }
-    if !logic.templates.contains_key("EvacInf201") {
-        let mut t = ThingTemplate::new("EvacInf201");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("EvacInf201".into(), t);
     }
     let Some(bunker) = logic.create_object("EvacBunker201", Team::USA, Vec3::new(10.0, 0.0, 10.0))
     else {

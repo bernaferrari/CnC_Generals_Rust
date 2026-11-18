@@ -1,27 +1,26 @@
 //! Executable command and lifecycle regressions.
 
 fn command_order_target_log() -> bool {
-    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{AIState, Team};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("OrderTgt205");
+    // C++ loads Object INI before NewGame; units are authored content.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("OrderUnit205")
+            .kind_of("INFANTRY SELECTABLE")
+            .health(100.0)
+            .walker(),
+        crate::fixture_content::FixtureObject::new("OrderBldg205")
+            .kind_of("STRUCTURE")
+            .health(500.0),
+    ]);
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("OrderTgt205"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    if !logic.templates.contains_key("OrderUnit205") {
-        let mut t = ThingTemplate::new("OrderUnit205");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("OrderUnit205".into(), t);
-    }
-    if !logic.templates.contains_key("OrderBldg205") {
-        let mut t = ThingTemplate::new("OrderBldg205");
-        t.set_health(500.0);
-        t.add_kind_of(KindOf::Structure);
-        logic.templates.insert("OrderBldg205".into(), t);
     }
     let Some(u) = logic.create_object("OrderUnit205", Team::USA, Vec3::new(0.0, 0.0, 0.0)) else {
         return false;

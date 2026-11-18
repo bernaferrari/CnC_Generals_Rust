@@ -5,10 +5,15 @@ use crate::presentation_frame::{PresentationEvent, PresentationFrame};
 
 fn admitted_world() -> (GameLogic, ObjectId) {
     let mut logic = GameLogic::new();
+    // C++ loads Object INI before NewGame; the unit is authored content.
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("MovementBoundaryUnit")
+            .kind_of("INFANTRY")
+            .health(100.0)
+            .walker()],
+    );
     logic.add_player(Player::new(0, Team::USA, "MovementOwner", true));
-    let mut template = ThingTemplate::new("MovementBoundaryUnit");
-    template.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic.templates.insert(template.name.clone(), template);
     let id = logic
         .create_object("MovementBoundaryUnit", Team::USA, Vec3::ZERO)
         .unwrap();

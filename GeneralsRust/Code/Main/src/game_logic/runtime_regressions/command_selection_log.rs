@@ -1,21 +1,23 @@
 //! Executable command and lifecycle regressions.
 
 fn command_selection_log() -> bool {
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("Select206");
+    // C++ loads Object INI before NewGame; units are authored content.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("SelectUnit206")
+            .kind_of("INFANTRY SELECTABLE")
+            .health(100.0)
+            .walker(),
+    ]);
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("Select206"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    if !logic.templates.contains_key("SelectUnit206") {
-        let mut t = ThingTemplate::new("SelectUnit206");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("SelectUnit206".into(), t);
     }
     let Some(a) = logic.create_object("SelectUnit206", Team::USA, Vec3::new(0.0, 0.0, 0.0)) else {
         return false;

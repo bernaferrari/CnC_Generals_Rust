@@ -1,20 +1,36 @@
 //! Executable command and lifecycle regressions.
 
 fn command_production_construction_log() -> bool {
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
 
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("ProdConstr199");
+    // C++ loads Object INI before NewGame: the building under construction, the
+    // trained unit and a producer with a ProductionUpdate are all authored.
+    let mut logic = crate::skirmish_config::lobby_definition_tests::slot_world_with_objects(&[
+        crate::fixture_content::FixtureObject::new("ConstrBldg199")
+            .kind_of("STRUCTURE")
+            .health(400.0),
+        crate::fixture_content::FixtureObject::new("CancelUnit199")
+            .kind_of("INFANTRY")
+            .health(100.0)
+            .walker(),
+        crate::fixture_content::FixtureObject::new("CancelFactory199")
+            .kind_of("STRUCTURE FS_BARRACKS")
+            .module(
+                "Body = StructureBody FixtureBody\n MaxHealth = 400.0\n InitialHealth = 400.0\nEnd",
+            )
+            .module("Behavior = ProductionUpdate FixtureProduction\nEnd")
+            .module(
+                "Behavior = DefaultProductionExitUpdate FixtureExit\n UnitCreatePoint = X: 0.0 Y: 0.0 Z: 0.0\n NaturalRallyPoint = X: 55.0 Y: 0.0 Z: 0.0\nEnd",
+            ),
+    ]);
+    let cfg = crate::skirmish_config::lobby_definition_tests::slot_config(
+        &logic,
+        &golden_skirmish_config("ProdConstr199"),
+    );
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;
-    }
-    if !logic.templates.contains_key("ConstrBldg199") {
-        let mut t = ThingTemplate::new("ConstrBldg199");
-        t.set_health(400.0);
-        t.add_kind_of(KindOf::Structure);
-        logic.templates.insert("ConstrBldg199".into(), t);
     }
 
     let Ok(Some(bid)) = logic.create_object_under_construction(
@@ -42,18 +58,6 @@ fn command_production_construction_log() -> bool {
         .expect("selected player")
         .resources
         .supplies = 1000;
-    let mut unit_template = ThingTemplate::new("CancelUnit199");
-    unit_template.set_health(100.0);
-    unit_template.add_kind_of(KindOf::Infantry);
-    logic
-        .templates
-        .insert("CancelUnit199".into(), unit_template);
-    let mut factory_template = ThingTemplate::new("CancelFactory199");
-    factory_template.add_kind_of(KindOf::Structure);
-    factory_template.add_kind_of(KindOf::FSBarracks);
-    logic
-        .templates
-        .insert("CancelFactory199".into(), factory_template);
     let Some(factory) =
         logic.create_object_for_player("CancelFactory199", player, Vec3::new(70.0, 0.0, 50.0))
     else {
