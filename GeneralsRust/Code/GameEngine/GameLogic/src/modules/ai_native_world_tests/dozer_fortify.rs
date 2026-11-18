@@ -805,6 +805,15 @@ fn unmanned_dozer_save_load_retains_frozen_fortify_task_without_peer_change() {
     // CPP Object.cpp:4104 resolves the saved team in the receiving
     // TeamFactory; lend the restored match's teams to the ambient factory.
     let _lock = crate::test_sync::lock();
+    // The saved LocomotorSet names resolve in the receiving world's own
+    // LocomotorStore (C++ TheLocomotorStore::findLocomotorTemplate).
+    let receiving = crate::system::engine_stores::active_services();
+    receiving.locomotor_store().register_template(ground());
+    restored
+        .source
+        .write()
+        .unwrap()
+        .bind_owner_world_for_test(&receiving);
     let lent = std::mem::replace(
         &mut *crate::team::get_team_factory().lock().unwrap(),
         std::mem::replace(&mut restored.teams, crate::team::TeamFactory::new()),

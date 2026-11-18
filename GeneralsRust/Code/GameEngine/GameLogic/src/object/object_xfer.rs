@@ -201,20 +201,21 @@ fn xfer_installed_module(
         ) {
             return dozer.xfer_with_locomotors(xfer, &mut |name| Ok(definitions.locomotor(name)));
         }
-    } else if let Some(store) = owner_locomotors {
+    } else {
         // The caller holds this Object exclusively (`&mut self`). An AI module
         // that discovered its Locomotor store through the owning handle would
         // re-lock that same Object and never return, so the Object lends the
-        // store its own world owns (C++ TheLocomotorStore is one process
-        // table; this world's table is the receiving equivalent).
-        let mut lookup = |name: &str| Ok(store.get_template(name));
+        // store its own world owns (none when it has no world: names then
+        // resolve to nothing, as an absent store always did).
+        let mut lookup = |name: &str| Ok(owner_locomotors.and_then(|store| store.get_template(name)));
         if let Some(ai) = module
             .as_any_mut()
             .downcast_mut::<crate::object::update::AIUpdateInterfaceModule>()
         {
-            return ai.xfer_with_locomotors(xfer, &mut lookup);
-        }
-        if let Some(dozer) = module
+            if ai.runtime_ai_owned().is_some() {
+                return ai.xfer_with_locomotors(xfer, &mut lookup);
+            }
+        } else if let Some(dozer) = module
             .as_any_mut()
             .downcast_mut::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModule>(
         ) {
