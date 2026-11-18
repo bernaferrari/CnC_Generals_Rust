@@ -126,14 +126,16 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
     // C++ assigns to Int after each modifier: 9 * 0.95 = 8, then
     // 8 * 0.95 = 7. One actual Main construction frame is therefore 1/7.
     // The builder walks to its dock, then its Dozer machine runs one BUILD frame.
-    let builder = dock_builder_for_site(&mut logic, sid);
-    let mut progress = logic.host_object(sid).expect("site").construction_percent;
-    for _ in 0..5 {
+    // The builder walks to its dock; its Dozer machine runs the first BUILD
+    // frame there, which is the first non-zero progress.
+    let builder = logic.host_object(sid).and_then(|o| o.builder_id).expect("builder");
+    let mut progress = 0.0;
+    for _ in 0..300 {
+        advance_logic_frames(&mut logic, 1);
+        progress = logic.host_object(sid).expect("site").construction_percent;
         if progress > 0.0 {
             break;
         }
-        drive_dozer_frame(&mut logic, &[builder, sid]);
-        progress = logic.host_object(sid).expect("site").construction_percent;
     }
     assert!(
         (progress - (1.0 / 7.0)).abs() < 1e-5,

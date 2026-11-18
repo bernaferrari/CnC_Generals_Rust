@@ -38,13 +38,13 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
                     .field("Locomotor = SET_NORMAL AmericaVehicleDozerLocomotor")
                     .dozer(),
                 FixtureObject::new("OwnerScopedSupplyCenter")
-                    .kind_of("STRUCTURE SUPPLY_CENTER")
+                    .kind_of("STRUCTURE FS_SUPPLY_CENTER")
                     .health(1_000.0),
                 // Explicitly ready map objects, not construction-phase
                 // placeholders, so the power assertion stays independent of
                 // the construction test below.
                 FixtureObject::new("OwnerScopedReadySupplyCenter")
-                    .kind_of("STRUCTURE SUPPLY_CENTER")
+                    .kind_of("STRUCTURE FS_SUPPLY_CENTER")
                     .health(1_000.0),
             ],
         );
@@ -157,9 +157,16 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
 
     // Both builders walk to their docks; only the owner's grid may scale each
     // build (C++ DozerAIUpdate derives the per-frame rate from its own player).
-    use super::super::helpers::{advance_logic_frames, dock_builder_for_site};
-    dock_builder_for_site(&mut logic, p0_building);
-    dock_builder_for_site(&mut logic, p1_building);
+    use super::super::helpers::advance_logic_frames;
+    for _ in 0..300 {
+        if [p0_building, p1_building]
+            .iter()
+            .all(|id| logic.host_object(*id).unwrap().construction_percent > 0.0)
+        {
+            break;
+        }
+        advance_logic_frames(&mut logic, 1);
+    }
     let before = [p0_building, p1_building]
         .map(|id| logic.host_object(id).unwrap().construction_percent);
     advance_logic_frames(&mut logic, 20);
@@ -2004,6 +2011,8 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     admit_retail_production_energy_rules(&mut logic);
+    // Every Object is born controlled by a Player.
+    ensure_test_player_for_team(&mut logic, Team::USA);
     // C++ ActionManager.cpp:439-441 canResumeConstructionOf requires
     // KINDOF_DOZER and a DozerAIUpdate, whose machine alone stamps
     // ACTIVELY_CONSTRUCTING (DozerAIUpdate.cpp:511).
@@ -2089,7 +2098,17 @@ fn actively_constructing_bit_on_dozer_and_factory() {
         logic.host_object(sid).map(|o| o.owner_player_id),
         super::super::helpers::dozer_site_state(&logic, did, sid)
     );
-    super::super::helpers::dock_builder_for_site(&mut logic, sid);
+    // The builder walks to its dock; its Dozer machine stamps ACTIVELY_CONSTRUCTING there.
+    for _ in 0..300 {
+        if logic
+            .host_object(did)
+            .is_some_and(|o| o.dozer_tasks.build_sub_task
+                == gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask::DoBuildAtDock)
+        {
+            break;
+        }
+        super::super::helpers::advance_logic_frames(&mut logic, 1);
+    }
     logic.update_actively_constructing_model_conditions();
     let d = logic.host_object(did).expect("d");
     assert!(host_model_condition_has(
