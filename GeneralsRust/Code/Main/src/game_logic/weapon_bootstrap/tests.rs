@@ -170,30 +170,28 @@ fn primary_weapon_name_covers_china_gla_usa_residual_gaps() {
 }
 
 #[test]
-fn create_object_technical_and_battlemaster_bind_residual_not_default() {
-    ensure_host_weapon_store();
+fn create_object_technical_and_battlemaster_bind_authored_weapon_set() {
+    // C++ binds a weapon only from the Object's authored WeaponSet
+    // (WeaponSet.cpp); a unit's kind or name never implies a gun.
+    use crate::fixture_content::{admit_fixture_content, FixtureObject, FixtureWeapon};
     let mut logic = crate::game_logic::GameLogic::new();
-
-    let mut technical = ThingTemplate::new("GLA_Technical");
-    technical
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(200.0);
-    // No primary_weapon_name — residual create path + name map must bind.
-    logic
-        .templates
-        .insert("GLA_Technical".to_string(), technical);
-
-    let mut battle = ThingTemplate::new("China_BattleTank");
-    battle
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(500.0);
-    logic
-        .templates
-        .insert("China_BattleTank".to_string(), battle);
+    admit_fixture_content(
+        &mut logic,
+        &[
+            FixtureObject::new("GLA_Technical")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(200.0)
+                .armed("TechnicalMachineGunWeapon"),
+            FixtureObject::new("China_BattleTank")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(500.0)
+                .armed("BattleMasterTankGun"),
+        ],
+        &[
+            FixtureWeapon::new("TechnicalMachineGunWeapon").damage(10.0).range(150.0),
+            FixtureWeapon::new("BattleMasterTankGun").damage(60.0).range(150.0),
+        ],
+    );
 
     let tid = logic
         .create_object("GLA_Technical", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -205,13 +203,8 @@ fn create_object_technical_and_battlemaster_bind_residual_not_default() {
         .weapon
         .as_ref()
         .expect("technical weapon");
-    assert!(
-        (tw.damage - Weapon::default().damage).abs() > 0.01,
-        "Technical must not use Weapon::default (got {})",
-        tw.damage
-    );
-    assert!((tw.damage - 10.0).abs() < 0.01);
-    assert!((tw.range - 150.0).abs() < 0.01);
+    assert!((tw.damage - 10.0).abs() < 0.01, "technical damage {}", tw.damage);
+    assert!((tw.range - 150.0).abs() < 0.01, "technical range {}", tw.range);
 
     let bid = logic
         .create_object("China_BattleTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
@@ -223,13 +216,8 @@ fn create_object_technical_and_battlemaster_bind_residual_not_default() {
         .weapon
         .as_ref()
         .expect("battle weapon");
-    assert!(
-        (bw.damage - Weapon::default().damage).abs() > 0.01,
-        "Battlemaster must not use Weapon::default (got {})",
-        bw.damage
-    );
-    assert!((bw.damage - 60.0).abs() < 0.01);
-    assert!((bw.range - 150.0).abs() < 0.01);
+    assert!((bw.damage - 60.0).abs() < 0.01, "battlemaster damage {}", bw.damage);
+    assert!((bw.range - 150.0).abs() < 0.01, "battlemaster range {}", bw.range);
 }
 
 /// The ranger FlashBang grenade resolves through the shared weapon path; no
@@ -443,7 +431,8 @@ fn update_combat_prefers_secondary_damage_vs_infantry() {
         .unwrap_or(0.0);
     assert!(
         sec_last > 0.0,
-        "secondary last_fire_time must advance vs infantry PreferredAgainst"
+        "secondary last_fire_time must advance vs infantry PreferredAgainst: dealt={dealt} pri_last={pri_last} sec_last={sec_last} primary_dmg={primary_dmg} secondary_dmg={secondary_dmg} ranger_target_health={:?}",
+        logic.objects.get(&target_id).map(|t| t.health.current)
     );
     assert!(
         (pri_last - 0.0).abs() < f32::EPSILON,
@@ -514,7 +503,10 @@ fn update_combat_uses_secondary_when_primary_reloading() {
     let dealt = fire_until_flashbang_lands(&mut logic, attacker_id, target_id, false);
     assert!(
         dealt > 0.0,
-        "secondary must fire while primary reloads; dealt={dealt}"
+        "secondary must fire while primary reloads; dealt={dealt} secondary_dmg={secondary_dmg} primary(last,reload)={:?} secondary(last,reload,ammo)={:?} dist={:?}",
+        logic.objects.get(&attacker_id).and_then(|a| a.weapon.as_ref()).map(|w| (w.last_fire_time, w.reload_time)),
+        logic.objects.get(&attacker_id).and_then(|a| a.secondary_weapon.as_ref()).map(|w| (w.last_fire_time, w.reload_time, w.ammo)),
+        logic.objects.get(&attacker_id).map(|a| a.get_position().distance(Vec3::new(30.0, 0.0, 0.0)))
     );
 
     let atk = logic.objects.get(&attacker_id).expect("attacker");

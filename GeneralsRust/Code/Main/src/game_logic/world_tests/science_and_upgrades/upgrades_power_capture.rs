@@ -243,7 +243,19 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         .host_paradrops
         .get(paradrop_id)
         .expect("completed paradrop");
-    assert!(!mission.spawned_unit_ids.is_empty());
+    assert!(
+        !mission.spawned_unit_ids.is_empty(),
+        "paradrop spawned nothing: plan_template_in_store={} direct_create={:?} frame={}",
+        logic.templates.contains_key(crate::game_logic::host_paradrop::AMERICA_RANGER_TEMPLATE),
+        logic
+            .create_object_for_player(
+                crate::game_logic::host_paradrop::AMERICA_RANGER_TEMPLATE,
+                0,
+                Vec3::new(200.0, 120.0, 0.0)
+            )
+            .is_some(),
+        logic.frame
+    );
     assert!(mission.spawned_unit_ids.iter().all(|id| {
         logic
             .host_object(*id)
@@ -2014,6 +2026,8 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    // A live session runs past frame 0 (the Dozer machine picks its request next update).
+    logic.frame = 10;
     admit_retail_production_energy_rules(&mut logic);
     // Every Object is born controlled by a Player.
     ensure_test_player_for_team(&mut logic, Team::USA);

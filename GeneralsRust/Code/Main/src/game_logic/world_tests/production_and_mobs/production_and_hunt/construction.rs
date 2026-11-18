@@ -234,13 +234,16 @@ fn dozer_construction_rate_applies_handicap_buildtime() {
     logic.frame = 10;
     // Authored dozer content (DozerAIUpdate is the only builder) and the
     // authored TestBuilding (BuildTime = 10 seconds).
+    super::super::super::helpers::admit_retail_production_energy_rules(&mut logic);
     ensure_admitted_dozer_content(&mut logic).expect("authored dozer content admits");
-    {
-        let player = logic.players.get_mut(&0).expect("player");
-        player.map_side.handicap_build_time_buildings = 2.0;
-        player.power_produced = 10;
-        player.power_consumed = 0;
-    }
+    // A powered grid, so the Min/MaxLowEnergyProductionSpeed rules do not apply.
+    super::super::super::helpers::add_completed_power_plant(&mut logic, 0);
+    logic
+        .players
+        .get_mut(&0)
+        .expect("player")
+        .map_side
+        .handicap_build_time_buildings = 2.0;
     let pad_id = logic
         .create_object_for_player("TestBuilding", 0, Vec3::ZERO)
         .expect("pad");
@@ -412,7 +415,9 @@ fn run_authored_short_build() -> (GameLogic, ObjectId, ObjectId, Vec3, Vec3, Opt
     let mut logic = GameLogic::new();
     // A live session runs past frame 0 (the Dozer machine picks its request next update).
     logic.frame = 10;
+    super::super::super::helpers::admit_retail_production_energy_rules(&mut logic);
     ensure_admitted_dozer_content(&mut logic).expect("authored dozer content admits");
+    super::super::super::helpers::add_completed_power_plant(&mut logic, 0);
     let pad_id = logic
         .create_object_for_player("TestBuilding", 0, Vec3::ZERO)
         .expect("pad");

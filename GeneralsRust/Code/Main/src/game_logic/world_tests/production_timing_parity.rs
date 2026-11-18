@@ -95,6 +95,7 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
     let mut logic = GameLogic::new();
     // A live session runs past frame 0 (the Dozer machine picks its request next update).
     logic.frame = 10;
+    admit_retail_production_energy_rules(&mut logic);
     logic.admit_player_template_definitions(definitions).unwrap();
     // Authored dozer content: the Dozer machine is the only builder.
     ensure_admitted_dozer_content(&mut logic).expect("authored dozer content admits");
@@ -104,7 +105,7 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
         .expect("player")
         .map_side
         .handicap_build_time_buildings = 0.95;
-    logic.players.get_mut(&0).expect("player").power_produced = 10;
+    super::helpers::add_completed_power_plant(&mut logic, 0);
     let selected = logic
         .player_template_identity_from_name("TimingRegressionGeneral")
         .expect("exact timing test PlayerTemplate");

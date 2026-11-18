@@ -1224,7 +1224,7 @@ pub(super) fn step_test_point_defense(world: &mut GameLogic) {
 /// dozer machine picks it on its next update, DozerAIUpdate.cpp:1948-2008).
 /// Clock starts past frame 0 like a live session (Object.cpp:1905 sole
 /// benefactor gate compares `now > expirationFrame`).
-pub(super) const ADMITTED_DOZER_INI: &str = "Object TestDozer\nKindOf = VEHICLE DOZER SELECTABLE\nLocomotor = SET_NORMAL AmericaVehicleDozerLocomotor\nBody = ActiveBody Body\nMaxHealth = 300\nInitialHealth = 300\nEnd\nBehavior = DozerAIUpdate DozerAI\nRepairHealthPercentPerSecond = 2\nEnd\nEnd\nObject TestDozerTank\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 300\nInitialHealth = 300\nEnd\nEnd\nObject TestBuilding\nKindOf = STRUCTURE SELECTABLE\nBuildCost = 0\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nUnitSpecificSounds\nUnderConstruction = BuildingConstructionLoop\nEnd\nEnd\nObject USA_WarFactory\nKindOf = STRUCTURE SELECTABLE FS_WARFACTORY\nBuildCost = 2000\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1500\nInitialHealth = 1500\nEnd\nEnd\n";
+pub(super) const ADMITTED_DOZER_INI: &str = "Object TestDozer\nKindOf = VEHICLE DOZER SELECTABLE\nLocomotor = SET_NORMAL AmericaVehicleDozerLocomotor\nBody = ActiveBody Body\nMaxHealth = 300\nInitialHealth = 300\nEnd\nBehavior = DozerAIUpdate DozerAI\nRepairHealthPercentPerSecond = 2\nEnd\nEnd\nObject TestDozerTank\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 300\nInitialHealth = 300\nEnd\nEnd\nObject TestBuilding\nKindOf = STRUCTURE SELECTABLE\nBuildCost = 0\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nUnitSpecificSounds\nUnderConstruction = BuildingConstructionLoop\nEnd\nEnd\nObject TestPowerPlant\nKindOf = STRUCTURE SELECTABLE\nEnergyProduction = 10\nBody = ActiveBody Body\nMaxHealth = 500\nInitialHealth = 500\nEnd\nEnd\nObject USA_WarFactory\nKindOf = STRUCTURE SELECTABLE FS_WARFACTORY\nBuildCost = 2000\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1500\nInitialHealth = 1500\nEnd\nEnd\n";
 
 /// Admits the authored dozer content (and the locomotor baseline it walks on) into a
 /// still-empty world.
@@ -1238,6 +1238,19 @@ pub(super) fn ensure_admitted_dozer_content(logic: &mut GameLogic) -> Result<(),
             ADMITTED_DOZER_INI.to_string(),
         )])
         .map_err(|error| format!("{error:?}"))
+}
+
+/// A completed authored power plant for `player`, so the builder's grid is
+/// not the empty (half speed) one: Energy consumption 0 returns production
+/// (Energy.cpp getEnergySupplyRatio), so produced > 0 means full speed.
+pub(super) fn add_completed_power_plant(logic: &mut GameLogic, player: u32) -> ObjectId {
+    let id = logic
+        .create_object_for_player("TestPowerPlant", player, glam::Vec3::new(-300.0, 0.0, -300.0))
+        .expect("authored power plant");
+    let plant = logic.host_object_mut(id).expect("plant");
+    plant.set_status_under_construction(false);
+    plant.construction_percent = 1.0;
+    id
 }
 
 pub(super) fn admitted_dozer_world() -> GameLogic {
