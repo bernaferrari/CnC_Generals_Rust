@@ -59,6 +59,10 @@ impl Default for WorldLogicManagers {
         let stealth = Arc::new(Mutex::new(StealthManager::new()));
         let detection = Arc::new(Mutex::new(DetectionManager::new()));
         let disguise = Arc::new(Mutex::new(DisguiseManager::new()));
+        // C++ `ThePartitionManager`: one manager, shared by the collision system.
+        let partition = Arc::new(RwLock::new(
+            crate::object::collide::partition_manager::PartitionManager::new(),
+        ));
         Self {
             stealth: Arc::clone(&stealth),
             detection: Arc::clone(&detection),
@@ -88,11 +92,11 @@ impl Default for WorldLogicManagers {
                 crate::object::production::construction::ConstructionManager::new(),
             ),
             crates: Arc::new(RwLock::new(crate::object::crate_system::CrateSystem::new())),
-            collision: Arc::new(RwLock::new(crate::object::collide::CollisionSystem::new())),
-            ai_integration: Arc::new(RwLock::new(None)),
-            partition: Arc::new(RwLock::new(
-                crate::object::collide::partition_manager::PartitionManager::new(),
+            collision: Arc::new(RwLock::new(
+                crate::object::collide::CollisionSystem::with_partition(Arc::clone(&partition)),
             )),
+            ai_integration: Arc::new(RwLock::new(None)),
+            partition,
             collision_manager: Arc::new(crate::object::collide::CollisionManager::new()),
         }
     }

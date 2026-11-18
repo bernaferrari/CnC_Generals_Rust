@@ -123,7 +123,7 @@ impl BorrowedAiWorld<'_> {
                 .map_or(-1, |id| id as Int);
             if target.get_shrouded_status_with_native_partition(
                 index,
-                self.services.collision.partition_manager(),
+                &self.services.collision.partition_manager(),
                 self.players,
             ) != crate::common::ObjectShroudStatus::Clear
             {

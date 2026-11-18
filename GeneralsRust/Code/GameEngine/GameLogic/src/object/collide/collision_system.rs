@@ -63,8 +63,9 @@ fn dual_world_registry_unavailable() -> bool {
 
 /// Main collision system coordinating all collision subsystems
 pub struct CollisionSystem {
-    /// Spatial partition manager
-    partition_manager: PartitionManager,
+    /// C++ `ThePartitionManager`: the world's single manager, shared with
+    /// `WorldLogicManagers::partition` (never a private copy).
+    partition: Arc<RwLock<PartitionManager>>,
     /// Collision response handler
     response_handler: CollisionResponseHandler,
     /// Per-object collision configuration
@@ -102,13 +103,30 @@ struct AiCollisionInfo {
 impl CollisionSystem {
     /// Create a new collision system
     pub fn new() -> Self {
+        Self::with_partition(Arc::new(RwLock::new(PartitionManager::new())))
+    }
+
+    /// Build over the world's partition manager.
+    pub fn with_partition(partition: Arc<RwLock<PartitionManager>>) -> Self {
         Self {
-            partition_manager: PartitionManager::new(),
+            partition,
             response_handler: CollisionResponseHandler::new(),
             object_configs: HashMap::new(),
             collision_count: 0,
             frame_number: 0,
         }
+    }
+
+    fn pm(&self) -> std::sync::RwLockReadGuard<'_, PartitionManager> {
+        self.partition
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn pm_mut(&self) -> std::sync::RwLockWriteGuard<'_, PartitionManager> {
+        self.partition
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Register an object with the collision system
@@ -125,8 +143,7 @@ impl CollisionSystem {
         geometry: GeometryInfo,
         config: Option<CollisionResponseConfig>,
     ) -> Result<(), CollisionError> {
-        self.partition_manager
-            .register_object(id, position, geometry)?;
+        self.pm_mut().register_object(id, position, geometry)?;
 
         if let Some(cfg) = config {
             self.object_configs.insert(id, cfg);
@@ -137,7 +154,7 @@ impl CollisionSystem {
 
     /// Unregister an object from the collision system
     pub fn unregister_object(&mut self, id: ObjectId) -> Result<(), CollisionError> {
-        self.partition_manager.unregister_object(id)?;
+        self.pm_mut().unregister_object(id)?;
         self.object_configs.remove(&id);
         Ok(())
     }
@@ -148,8 +165,7 @@ impl CollisionSystem {
         id: ObjectId,
         new_position: Coord3D,
     ) -> Result<(), CollisionError> {
-        self.partition_manager
-            .update_object_position(id, new_position)
+        self.pm_mut().update_object_position(id, new_position)
     }
 
     pub fn update_object_pose(
@@ -158,8 +174,7 @@ impl CollisionSystem {
         new_position: Coord3D,
         angle: f32,
     ) -> Result<(), CollisionError> {
-        self.partition_manager
-            .update_object_pose(id, new_position, angle)
+        self.pm_mut().update_object_pose(id, new_position, angle)
     }
 
     /// Set collision response configuration for an object
@@ -178,8 +193,8 @@ impl CollisionSystem {
         self.collision_count = 0;
 
         // Build list of potentially colliding object pairs
-        self.partition_manager.build_contact_list();
-        let contacts = self.partition_manager.get_contact_list().to_vec();
+        self.pm_mut().build_contact_list();
+        let contacts = self.pm().get_contact_list().to_vec();
 
         // Test each pair and apply responses
         for (id_a, id_b) in contacts {
@@ -202,10 +217,10 @@ impl CollisionSystem {
             return Ok(false);
         }
 
-        let Some((pos_a, geom_a, angle_a)) = self.partition_manager.get_object_pose(id_a) else {
+        let Some((pos_a, geom_a, angle_a)) = self.pm().get_object_pose(id_a) else {
             return Ok(false);
         };
-        let Some((pos_b, geom_b, angle_b)) = self.partition_manager.get_object_pose(id_b) else {
+        let Some((pos_b, geom_b, angle_b)) = self.pm().get_object_pose(id_b) else {
             return Ok(false);
         };
         // C++ PartitionData::collidesWith (PartitionManager.cpp:1932-1933).
@@ -810,8 +825,7 @@ impl CollisionSystem {
 
     /// Find all objects within a radius of a position
     pub fn query_objects_in_radius(&self, center: &Coord3D, radius: f32) -> Vec<ObjectId> {
-        self.partition_manager
-            .find_objects_in_radius(center, radius, &[])
+        self.pm().find_objects_in_radius(center, radius, &[])
     }
 
     /// Find closest N objects to a position
@@ -821,21 +835,18 @@ impl CollisionSystem {
         max_count: usize,
         max_radius: f32,
     ) -> Vec<(ObjectId, f32)> {
-        self.partition_manager
-            .find_closest_objects(center, max_count, max_radius, &[])
+        self.pm().find_closest_objects(center, max_count, max_radius, &[])
     }
 
     /// Check if a specific position would collide with anything
     pub fn test_position(&self, position: &Coord3D, test_radius: f32) -> bool {
-        let nearby = self
-            .partition_manager
-            .find_objects_in_radius(position, test_radius, &[]);
+        let nearby = self.pm().find_objects_in_radius(position, test_radius, &[]);
         !nearby.is_empty()
     }
 
     /// Get collision statistics
     pub fn get_statistics(&self) -> CollisionSystemStatistics {
-        let partition_stats = self.partition_manager.get_statistics();
+        let partition_stats = self.pm().get_statistics();
 
         CollisionSystemStatistics {
             frame_number: self.frame_number,
@@ -849,19 +860,19 @@ impl CollisionSystem {
 
     /// Clear all collision data (useful for map transitions)
     pub fn clear(&mut self) {
-        self.partition_manager.clear();
+        self.pm_mut().clear();
         self.object_configs.clear();
         self.collision_count = 0;
     }
 
     /// Get the partition manager (for advanced queries)
-    pub fn partition_manager(&self) -> &PartitionManager {
-        &self.partition_manager
+    pub fn partition_manager(&self) -> std::sync::RwLockReadGuard<'_, PartitionManager> {
+        self.pm()
     }
 
     /// Mutably get the partition manager (cell-change event drain).
-    pub fn partition_manager_mut(&mut self) -> &mut PartitionManager {
-        &mut self.partition_manager
+    pub fn partition_manager_mut(&self) -> std::sync::RwLockWriteGuard<'_, PartitionManager> {
+        self.pm_mut()
     }
 
     /// Get the response handler (for custom responses)
@@ -1146,10 +1157,10 @@ mod tests {
         let pos = Coord3D::new(100.0, 100.0, 0.0);
 
         system.register_object(1, pos, geom, None).unwrap();
-        assert_eq!(system.partition_manager.object_count(), 1);
+        assert_eq!(system.pm().object_count(), 1);
 
         system.unregister_object(1).unwrap();
-        assert_eq!(system.partition_manager.object_count(), 0);
+        assert_eq!(system.pm().object_count(), 0);
     }
 
     #[test]
@@ -1164,7 +1175,7 @@ mod tests {
         system.update_object_position(1, pos2).unwrap();
 
         // Position should be updated in partition manager
-        assert_eq!(system.partition_manager.object_count(), 1);
+        assert_eq!(system.pm().object_count(), 1);
     }
 
     #[test]
@@ -1391,11 +1402,11 @@ mod tests {
             .register_object(1, Coord3D::new(0.0, 0.0, 0.0), geom, None)
             .unwrap();
 
-        assert_eq!(system.partition_manager.object_count(), 1);
+        assert_eq!(system.pm().object_count(), 1);
 
         system.clear();
 
-        assert_eq!(system.partition_manager.object_count(), 0);
+        assert_eq!(system.pm().object_count(), 0);
         assert_eq!(system.collision_count, 0);
     }
 }

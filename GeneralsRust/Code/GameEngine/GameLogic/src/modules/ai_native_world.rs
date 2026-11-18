@@ -285,8 +285,9 @@ impl<'a> BorrowedAiWorld<'a> {
         let controller_guard = controller
             .as_ref()
             .map(|player| player.read().expect("admitted native player poisoned"));
+        let mut partition = self.services.collision.partition_manager_mut();
         let mut services = ObjectPartitionServices::new(
-            self.services.collision.partition_manager_mut(),
+            &mut partition,
             self.services.shroud,
             self.services.spatial_objects,
             self.players,
@@ -852,7 +853,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
                     && command != crate::ai::CommandSourceType::FromScript
                     && target.get_shrouded_status_with_native_partition(
                         index,
-                        self.services.collision.partition_manager(),
+                        &self.services.collision.partition_manager(),
                         self.players,
                     ) as u8
                         >= crate::common::ObjectShroudStatus::Fogged as u8
