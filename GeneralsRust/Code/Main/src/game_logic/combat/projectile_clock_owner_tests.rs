@@ -141,12 +141,11 @@ fn factory_installs_active_three_slot_deadlines_and_restores_saved_frames() {
         world.frame = frame;
         let mut template = ThingTemplate::new("OwnedClockFourSlots");
         template.set_health(100.0).add_kind_of(KindOf::Vehicle);
-        let name = crate::game_logic::weapon_bootstrap::RANGER_PRIMARY_WEAPON;
-        template.set_primary_weapon_name(name);
         // The Ranger rifle owns a flashbang SECONDARY residual at creation
-        // (factory_init, WeaponSet-keyed); the other slots author a different gun.
-        let other = crate::game_logic::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON;
-        template.set_secondary_weapon_name(other);
+        // (factory_init, keyed on the authored PRIMARY): author a different gun.
+        let name = crate::game_logic::weapon_bootstrap::HUMVEE_PRIMARY_WEAPON;
+        template.set_primary_weapon_name(name);
+        template.set_secondary_weapon_name(name);
         template.set_tertiary_weapon_name(name);
         template.set_mine_clearing_primary_weapon_name(name);
         world.with_own_services(|| {

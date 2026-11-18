@@ -170,6 +170,18 @@ fn positive_healing_above_max_clamps_down_without_on_healing_poison_clear() {
 fn receiving_world_healing_keeps_same_id_peer_body_and_callbacks_unchanged() {
     let mut world = crate::game_logic::GameLogic::new();
     let mut peer = crate::game_logic::GameLogic::new();
+    // Admit the retail GameData thresholds (0.7/0.35) as this world's Body
+    // baseline: the unconfigured C++ defaults (0.5/0.1) call the 20% body
+    // Damaged, so healing it to 50% would never cross a state.
+    let retail = crate::game_logic::body_damage_rules::BodyDamagePolicy::Receiving(
+        crate::game_logic::body_damage_rules::BodyDamageRules::default()
+            .overlay_ini_text(
+                "GameData\nUnitDamagedThreshold = 0.7\nUnitReallyDamagedThreshold = 0.35\nEnd",
+            )
+            .unwrap(),
+    );
+    world.admit_body_damage_baseline(retail);
+    peer.admit_body_damage_baseline(retail);
     let object = body();
     let id = object.id;
     world.objects.insert(id, object);
@@ -192,7 +204,9 @@ fn receiving_world_healing_keeps_same_id_peer_body_and_callbacks_unchanged() {
     assert_eq!(object.last_damage_info_type, Some(DamageType::Healing));
     assert_eq!(object.last_healing_timestamp, Some(123));
     assert_eq!(object.bone_fx_damage.as_ref().unwrap().transitions, 1);
-    assert_eq!(object.bone_fx_damage.as_ref().unwrap().pending.len(), 1);
+    // Source callbacks never populate the legacy pending receipts (see
+    // update_owned_bone_fx_with_effects); the owned tick fires from the state.
+    assert!(object.bone_fx_damage.as_ref().unwrap().pending.is_empty());
     let foreign = &peer.objects[&id];
     assert_eq!(foreign.health.current, 20.0);
     assert_eq!(foreign.last_damage_info_type, Some(DamageType::Bullet));

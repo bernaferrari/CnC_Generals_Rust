@@ -2010,6 +2010,9 @@ fn hijack_transfers_vehicle_and_updates_team_color() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    game_logic.admit_default_locomotors_if_unadmitted();
+    hijacker_tpl
+        .set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     game_logic
         .templates
         .insert("TestHijacker".to_string(), hijacker_tpl);

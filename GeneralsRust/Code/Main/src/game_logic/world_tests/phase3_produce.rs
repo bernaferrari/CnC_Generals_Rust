@@ -200,11 +200,10 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
     assert!((cpp_construction_percent_to_host_fraction(-1) - 1.0).abs() < 1e-6);
     assert!((cpp_construction_percent_to_host_fraction(25) - 0.25).abs() < 1e-6);
 
-    let mut logic = GameLogic::new();
+    // Authored DozerAIUpdate builder: only an INI-admitted Dozer machine owns
+    // the BUILD task (a programmatic template carries no DozerAIUpdate).
+    let mut logic = admitted_dozer_world();
     admit_retail_production_energy_rules(&mut logic);
-    ensure_test_structure_template(&mut logic);
-    ensure_test_dozer_template(&mut logic);
-    ensure_test_player_for_team(&mut logic, Team::USA);
     let sid = logic
         .create_object("TestBuilding", Team::USA, glam::Vec3::ZERO)
         .expect("bldg");
@@ -232,7 +231,10 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
         .expect("dozer");
     // C++ DozerAIUpdate::resumeConstruction assigns the builder (aiResumeConstruction).
     assert!(logic.resume_construction(&[did], sid).expect("result"));
-    let _ = logic.update_with_dt(1.0);
+    // Construction contributions belong to the Dozer machine's own frames.
+    for _ in 0..60 {
+        drive_dozer_frame(&mut logic, &[did]);
+    }
     let after_dock = logic
         .host_object(sid)
         .map(|o| o.construction_percent)
@@ -278,6 +280,11 @@ fn exclusive_dozer_does_not_stack_build_rate() {
         .create_object("TestDozer", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
         .expect("dozer2");
     assert_eq!(logic.resume_construction(&[d1], sid).expect("result"), true);
+    // ActionManager.cpp:458-485 refuses only while the recorded builder is in
+    // DOZER_TASK_BUILD on this structure: let d1's machine enter that task.
+    for _ in 0..3 {
+        drive_dozer_frame(&mut logic, &[d1]);
+    }
     let frame = logic.frame;
     if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(d2) {
         d.set_target(
@@ -298,7 +305,9 @@ fn exclusive_dozer_does_not_stack_build_rate() {
         "structure must keep the first exclusive builder"
     );
     assert!(!logic.can_resume_construction_of(d2, sid));
-    logic.update_construction(&[sid], 1.0);
+    for _ in 0..30 {
+        drive_dozer_frame(&mut logic, &[d1, d2]);
+    }
     let after = logic
         .host_object(sid)
         .map(|o| o.construction_percent)
@@ -316,11 +325,10 @@ fn exclusive_dozer_does_not_stack_build_rate() {
 #[test]
 fn under_construction_starts_at_one_hp_and_gains_linearly() {
     // C++ DozerAIUpdate.cpp:1708 start 1 HP; :526 +maxHealth/framesToBuild per frame.
-    let mut logic = GameLogic::new();
+    // Authored DozerAIUpdate builder: only an INI-admitted Dozer machine owns
+    // the BUILD task (a programmatic template carries no DozerAIUpdate).
+    let mut logic = admitted_dozer_world();
     admit_retail_production_energy_rules(&mut logic);
-    ensure_test_structure_template(&mut logic);
-    ensure_test_dozer_template(&mut logic);
-    ensure_test_player_for_team(&mut logic, Team::USA);
     // C++ Energy::getEnergySupplyRatio uses production/consumption, not the
     // compatibility power_available/resources fields authored by the helper.
     logic.get_player_mut(0).unwrap().power_produced = 100;
@@ -351,12 +359,26 @@ fn under_construction_starts_at_one_hp_and_gains_linearly() {
         .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("dozer");
     assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
-    logic.update_construction(&[sid], 1.0);
+    // Construction contributions belong to the Dozer machine's own frames; the
+    // builder spends its first frames entering the BUILD task, so the number of
+    // building frames is read back from the percent (1/300 per frame).
+    for _ in 0..30 {
+        drive_dozer_frame(&mut logic, &[did]);
+    }
     let after = logic
         .host_object(sid)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    let expected = 1.0 + max_hp / 300.0 * 30.0;
+    let built_frames = logic
+        .host_object(sid)
+        .map(|o| o.construction_percent * 300.0)
+        .unwrap_or(0.0);
+    assert!(built_frames >= 1.0, "builder must contribute at least one frame");
+    assert!(
+        (built_frames - built_frames.round()).abs() < 0.01,
+        "whole building frames, got {built_frames}"
+    );
+    let expected = 1.0 + max_hp / 300.0 * built_frames.round();
     assert!(
         (after - expected).abs() < 0.05,
         "linear per-frame HP gain expected ~{expected}, got {after}"

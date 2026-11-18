@@ -22,23 +22,42 @@ fn catalog_builder(name: &str, kinds: &str) -> crate::fixture_content::FixtureOb
         .dozer()
 }
 
-fn world(team: Team) -> GameLogic {
+fn standard_objects() -> Vec<crate::fixture_content::FixtureObject> {
+    standard_objects_without("")
+}
+
+fn standard_objects_without(skip: &str) -> Vec<crate::fixture_content::FixtureObject> {
     use crate::fixture_content::FixtureObject;
+    let mut objects = vec![FixtureObject::new("CatalogScaffold")
+        .kind_of("STRUCTURE IMMOBILE SELECTABLE ALWAYS_VISIBLE")
+        .health(1000.0)
+        .build_cost(300)
+        .build_time(0.1)];
+    for (name, kinds) in [
+        ("USA_Dozer", "VEHICLE DOZER SELECTABLE"),
+        ("AmericaVehicleDozer", "VEHICLE DOZER SELECTABLE"),
+        ("China_Dozer", "VEHICLE DOZER SELECTABLE"),
+        ("GLA_Worker", "INFANTRY DOZER SELECTABLE"),
+        ("GLAInfantryWorker", "INFANTRY DOZER SELECTABLE"),
+    ] {
+        if name != skip {
+            objects.push(catalog_builder(name, kinds));
+        }
+    }
+    objects
+}
+
+fn world(team: Team) -> GameLogic {
+    world_from(team, standard_objects())
+}
+
+/// Content admission runs once per world and precedes every Object, so a test
+/// that needs a different authored roster builds its world from that roster.
+fn world_from(team: Team, objects: Vec<crate::fixture_content::FixtureObject>) -> GameLogic {
     let mut world = GameLogic::new();
     crate::fixture_content::admit_fixture_content_with_actions(
         &mut world,
-        &[
-            FixtureObject::new("CatalogScaffold")
-                .kind_of("STRUCTURE IMMOBILE SELECTABLE ALWAYS_VISIBLE")
-                .health(1000.0)
-                .build_cost(300)
-                .build_time(0.1),
-            catalog_builder("USA_Dozer", "VEHICLE DOZER SELECTABLE"),
-            catalog_builder("AmericaVehicleDozer", "VEHICLE DOZER SELECTABLE"),
-            catalog_builder("China_Dozer", "VEHICLE DOZER SELECTABLE"),
-            catalog_builder("GLA_Worker", "INFANTRY DOZER SELECTABLE"),
-            catalog_builder("GLAInfantryWorker", "INFANTRY DOZER SELECTABLE"),
-        ],
+        &objects,
         &[],
         CATALOG_ACTIONS,
     );
@@ -129,18 +148,20 @@ fn ensured_faction_catalog_builders_admit_actual_construction() {
 
 #[test]
 fn constructor_admission_does_not_promote_worker_harvester_or_names() {
-    for (name, kind) in [
-        ("DozerWorkerNamedOnly", KindOf::Worker),
-        ("DozerHarvesterNamedOnly", KindOf::Harvester),
+    // C++ ActionManager.cpp:439 needs a DozerAIUpdate builder: neither a name
+    // containing Dozer/Worker nor a HARVESTER kind promotes a mobile vehicle.
+    for (name, kinds) in [
+        ("DozerWorkerNamedOnly", "VEHICLE SELECTABLE"),
+        ("DozerHarvesterNamedOnly", "VEHICLE HARVESTER SELECTABLE"),
     ] {
-        let mut owner = world(Team::USA);
-        let mut template = ThingTemplate::new(name);
-        template
-            .add_kind_of(KindOf::Vehicle)
-            .add_kind_of(kind)
-            .add_kind_of(KindOf::Selectable)
-            .set_health(200.0);
-        owner.templates.insert(name.into(), template);
+        let mut objects = standard_objects();
+        objects.push(
+            crate::fixture_content::FixtureObject::new(name)
+                .kind_of(kinds)
+                .health(200.0)
+                .walker(),
+        );
+        let mut owner = world_from(Team::USA, objects);
         let id = owner
             .create_object_for_player(name, 0, Vec3::new(55.0, 0.0, 55.0))
             .unwrap();
@@ -188,10 +209,14 @@ fn same_id_constructor_admission_preserves_peer_cash_and_task() {
 
 #[test]
 fn ensured_faction_catalog_does_not_reclassify_existing_authored_definition() {
-    let mut owner = world(Team::USA);
-    let mut template = ThingTemplate::new("AmericaVehicleDozer");
-    template.add_kind_of(KindOf::Vehicle).set_health(200.0);
-    owner.templates.insert(template.name.clone(), template);
+    let mut objects = standard_objects_without("AmericaVehicleDozer");
+    objects.push(
+        crate::fixture_content::FixtureObject::new("AmericaVehicleDozer")
+            .kind_of("VEHICLE SELECTABLE")
+            .health(200.0)
+            .walker(),
+    );
+    let mut owner = world_from(Team::USA, objects);
     owner.ensure_ai_faction_templates(Team::USA);
     let object = owner
         .create_object_for_player("AmericaVehicleDozer", 0, Vec3::ZERO)
