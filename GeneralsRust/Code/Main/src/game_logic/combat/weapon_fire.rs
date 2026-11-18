@@ -591,6 +591,23 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
     for p in pending {
         let profile = definitions.get(&p.projectile_object_name);
         let geometry = definitions.geometry(&p.projectile_object_name);
+        // This low-level adapter has no receiving world to create the real
+        // missile Object, so it reserves the next live Object id for a missile
+        // shot exactly as the world's admission would (MissileAIUpdate flights
+        // are Objects; only the arena record exists here).
+        let is_missile = profile.is_some_and(|profile| {
+            matches!(
+                profile.flight,
+                crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)
+            )
+        }) || matches!(
+            p.projectile_lifecycle
+                .or_else(|| profile.map(|profile| profile.lifecycle)),
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
+        );
+        let missile_actor_id = is_missile.then(|| {
+            crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
+        });
         if let Some(immediate) = materialize_accepted_projectile(
             combat,
             objects,
@@ -601,7 +618,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
             geometry,
             partition,
             next_object_id,
-            None,
+            missile_actor_id,
             random,
         ) {
             combat.projectileless_delayed.push(immediate);
