@@ -72,7 +72,9 @@ fn passive_exact_slot_returns_only_its_shot_and_preserves_contained_ai_and_peer(
     assert_eq!(shot.shooter_pos, origin);
     assert_eq!(shot.target_id, Some(ObjectId(7)));
     assert_eq!(shot.damage, 37.0);
-    assert_eq!(shot.speed, 9.0);
+    // WeaponSpeed 9 is authored per second; the shot carries the C++ per-logic-frame
+    // velocity (INI::parseVelocityReal divides by LOGICFRAMES_PER_SECOND).
+    assert!((shot.speed - 9.0 / 30.0).abs() < 1.0e-6, "shot.speed {}", shot.speed);
     assert_eq!(source.secondary_weapon.as_ref().unwrap().ammo, Some(1));
     assert_eq!(source.weapon.as_ref().unwrap().last_fire_time, -10.0);
     assert_eq!(source.ai_state(), AIState::Idle);

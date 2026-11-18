@@ -4,10 +4,15 @@ fn make_test_object() -> Object {
     let mut template = ThingTemplate::new("TestUnit");
     template.is_trainable = true;
     let mut object = Object::new(template, ObjectId(1), Team::USA);
-    object.weapon = Some(Weapon {
-        damage: 100.0,
-        ..Weapon::default()
-    });
+    // A WeaponSet names Weapon.ini templates (WeaponSet.cpp); a nameless host
+    // Weapon has no definition to fire, so the unit's primary is authored.
+    crate::fixture_content::arm_with_stats(
+        &mut object,
+        Weapon {
+            damage: 100.0,
+            ..Weapon::default()
+        },
+    );
     object
 }
 

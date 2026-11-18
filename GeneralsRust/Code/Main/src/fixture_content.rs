@@ -506,6 +506,16 @@ pub(crate) fn arm_with_slot_stats(
     object: &mut crate::game_logic::Object,
     slots: [Option<crate::game_logic::Weapon>; 3],
 ) {
+    arm_with_slot_stats_and_fields(object, slots, [&[], &[], &[]]);
+}
+
+/// [`arm_with_slot_stats`] with extra Weapon.ini lines per slot, for rules
+/// the stat struct does not carry (`PreAttackType = PER_CLIP`, ...).
+pub(crate) fn arm_with_slot_stats_and_fields(
+    object: &mut crate::game_logic::Object,
+    slots: [Option<crate::game_logic::Weapon>; 3],
+    fields: [&[&str]; 3],
+) {
     let template = &object.thing().template;
     let authored = [
         template.primary_weapon_name.clone(),
@@ -517,8 +527,15 @@ pub(crate) fn arm_with_slot_stats(
         let name = authored[slot]
             .clone()
             .unwrap_or_else(|| format!("FixtureWeapon{slot}"));
+        let extra = fields[slot];
         slot += 1;
-        stats.as_ref().map(|stats| FixtureWeapon::from_stats(name, stats))
+        stats.as_ref().map(|stats| {
+            extra
+                .iter()
+                .fold(FixtureWeapon::from_stats(name, stats), |weapon, line| {
+                    weapon.field(*line)
+                })
+        })
     });
     arm_slots(object, weapons);
     // Fire state the test states is instance state, not authored content.

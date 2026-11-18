@@ -311,10 +311,9 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
     tmpl.add_kind_of(KindOf::Attackable);
     let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
     atk.set_position(Vec3::ZERO);
-    crate::fixture_content::arm_slot_with_stats(
+    crate::fixture_content::arm_with_slot_stats_and_fields(
         &mut atk,
-        0,
-        Weapon {
+        [Some(Weapon {
             damage: 5.0,
             range: 100.0,
             reload_time: 0.0,
@@ -323,7 +322,8 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
             ammo: Some(5),
             clip_size: 5,
             ..Weapon::default()
-        },
+        }), None, None],
+        [&["PreAttackType = PER_ATTACK"], &[], &[]],
     );
     let tgt = ObjectId(9);
     assert!(!atk.fire_at(
@@ -386,10 +386,9 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
     tmpl.add_kind_of(KindOf::Attackable);
     let mut atk = Object::new(tmpl, ObjectId(1), Team::GLA);
     atk.set_position(Vec3::ZERO);
-    crate::fixture_content::arm_slot_with_stats(
+    crate::fixture_content::arm_with_slot_stats_and_fields(
         &mut atk,
-        0,
-        Weapon {
+        [Some(Weapon {
             damage: 50.0,
             range: 300.0,
             reload_time: 0.0,
@@ -403,7 +402,8 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
             // completes only after it elapses, so ammo reads 0 on the same tick.
             clip_reload_time: 10.0,
             ..Weapon::default()
-        },
+        }), None, None],
+        [&["PreAttackType = PER_CLIP"], &[], &[]],
     );
     let tgt = ObjectId(9);
     // Full clip → delay
