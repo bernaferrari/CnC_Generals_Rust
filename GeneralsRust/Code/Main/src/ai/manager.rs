@@ -1369,7 +1369,18 @@ mod aidata_owner_tests {
 
         let _common = game_engine::common::common_services::CommonServicesScope::new();
         let process_store = ini_ai_data::process_lifetime_ai_data_store();
+        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &process_store));
         let mut first = crate::game_logic::GameLogic::new();
+        // The test thread's first world resolves its engine publication (the
+        // lazily published test engine, C++ TheAI of this process): publishing
+        // an engine installs that engine's own AIData store as the Common
+        // parser target (005e250b9). That store, not the engine-lifetime one, is
+        // the selector the rest of the test must see unchanged.
+        let selector = ini_ai_data::get_ai_data_store();
+        assert!(
+            !Arc::ptr_eq(&selector, &process_store),
+            "a published engine owns its AIData snapshot"
+        );
         let mut second = crate::game_logic::GameLogic::new();
 
         fn write_catalog(
@@ -1433,11 +1444,12 @@ mod aidata_owner_tests {
             (23.0, 29.0),
         );
 
-        // Construction is inert; neither newly constructed world becomes the
-        // Common AI parser target; definitions stay explicitly owned.
+        // Construction is inert; a newly constructed world never becomes the
+        // Common AI parser target (the engine's selector is unchanged);
+        // definitions stay explicitly owned by each world.
         assert!(Arc::ptr_eq(
             &ini_ai_data::get_ai_data_store(),
-            &process_store
+            &selector
         ));
         assert_catalog(&first, 81.0, 0.61, false, "FirstWarFactory", (13.0, 17.0));
         assert_catalog(&second, 147.0, 0.83, true, "SecondWarFactory", (23.0, 29.0));
@@ -1445,12 +1457,12 @@ mod aidata_owner_tests {
         second.reset();
         assert!(Arc::ptr_eq(
             &ini_ai_data::get_ai_data_store(),
-            &process_store
+            &selector
         ));
         first.reset();
         assert!(Arc::ptr_eq(
             &ini_ai_data::get_ai_data_store(),
-            &process_store
+            &selector
         ));
         // Reset clears simulation state but retains both worlds' definition data.
         assert_catalog(&first, 81.0, 0.61, false, "FirstWarFactory", (13.0, 17.0));
@@ -1459,12 +1471,12 @@ mod aidata_owner_tests {
         drop(second); // buried active entry is removed; first remains the head
         assert!(Arc::ptr_eq(
             &ini_ai_data::get_ai_data_store(),
-            &process_store
+            &selector
         ));
         drop(first); // Main never changed the parser target
         assert!(Arc::ptr_eq(
             &ini_ai_data::get_ai_data_store(),
-            &process_store
+            &selector
         ));
     }
 
