@@ -442,7 +442,11 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
-    assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(0));
+    // Weapon::reloadWithBonus refills the emptied AutoReloadsClip clip at once
+    // and ClipReloadTime only gates the next shot (Weapon.cpp:1893).
+    let weapon = atk.weapon.as_ref().unwrap();
+    assert_eq!(weapon.ammo, Some(3));
+    assert!(weapon.reloading_clip, "the refilled clip is still reloading");
 }
 
 #[test]
