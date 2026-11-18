@@ -32,6 +32,8 @@ fn dock_helipad_comanche(logic: &mut GameLogic) -> (ObjectId, ObjectId) {
     heli_tmpl
         .add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Vehicle)
+        // Retail Comanche: KindOf = ... PRODUCED_AT_HELIPAD (helipad landing/auto-takeoff).
+        .add_kind_of(KindOf::ProducedAtHelipad)
         .set_health(220.0);
     logic
         .templates

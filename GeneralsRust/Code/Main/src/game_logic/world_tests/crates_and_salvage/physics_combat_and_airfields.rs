@@ -2519,6 +2519,7 @@ fn helipad_landing_uses_two_point_descent_not_pad_snap() {
     heli_tmpl
         .add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::ProducedAtHelipad)
         .set_health(220.0);
     // C++ JetAIUpdate RTB rearm requires a ReturnToBase reload-type weapon
     // (WeaponTemplate::m_reloadType; retail jet missiles set ReloadType).
