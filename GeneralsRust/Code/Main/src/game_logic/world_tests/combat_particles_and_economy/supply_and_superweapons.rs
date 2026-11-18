@@ -3048,6 +3048,24 @@ fn angry_mob_projectile_flies_and_impacts() {
     let _ = (ANGRY_MOB_ROCK_DAMAGE, ANGRY_MOB_ROCK_PROJECTILE);
 }
 
+/// One original frame of the nexus' authored module order: SpawnBehavior and
+/// QueueProductionExitUpdate each count update visits, so both must be driven
+/// every frame (C++ visits them in module order).
+fn tick_nexus_spawn_modules(logic: &mut GameLogic, nid: ObjectId) {
+    let parent = logic.host_object(nid).unwrap();
+    let metadata = parent.get_template().production_exit_metadata.unwrap();
+    let before_spawn = parent.get_template().queue_exit_precedes_spawn_behavior();
+    if before_spawn {
+        logic.objects.get_mut(&nid).unwrap().tick_queue_exit(&metadata);
+    }
+    logic
+        .update_spawn_behavior_with_effects(&mut Default::default())
+        .unwrap();
+    if !before_spawn {
+        logic.objects.get_mut(&nid).unwrap().tick_queue_exit(&metadata);
+    }
+}
+
 #[test]
 fn angry_mob_damages_nearby_enemies_over_frames() {
     use crate::game_logic::host_angry_mob::{
@@ -3066,7 +3084,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
 
     // The enemies are Objects of the same admitted content as the mob
     // (ThingFactory definitions load before any Object exists).
-    let source = "Object TestTank\nKindOf = VEHICLE SELECTABLE SCORE\nTransportSlotCount = 3\nBuildCost = 600\nBody = ActiveBody Body\nMaxHealth = 250\nInitialHealth = 250\nEnd\nEnd\nObject GLAInfantryAngryMobNexus\nKindOf = INFANTRY SELECTABLE\nBody = ImmortalBody NexusBody\nMaxHealth = 99999\nInitialHealth = 99999\nEnd\nBehavior = SpawnBehavior Spawn\nSpawnNumber = 10\nSpawnReplaceDelay = 30000\nSpawnTemplateName = CombatMobMember\nInitialBurst = 5\nAggregateHealth = Yes\nExitByBudding = Yes\nEnd\nBehavior = QueueProductionExitUpdate Exit\nUnitCreatePoint = X:0 Y:0 Z:0\nNaturalRallyPoint = X:0 Y:0 Z:0\nExitDelay = 5000\nInitialBurst = 5\nEnd\nEnd\nObject CombatMobMember\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody Body\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = MobMemberSlavedUpdate Slave\nEnd\nEnd\n";
+    let source = "Object TestTank\nKindOf = VEHICLE SELECTABLE SCORE\nTransportSlotCount = 3\nBuildCost = 600\nBody = ActiveBody Body\nMaxHealth = 250\nInitialHealth = 250\nEnd\nEnd\nObject GLAInfantryAngryMobNexus\nKindOf = INFANTRY SELECTABLE\nBody = ImmortalBody NexusBody\nMaxHealth = 99999\nInitialHealth = 99999\nEnd\nBehavior = AIUpdateInterface NexusAI\nEnd\nBehavior = SpawnBehavior Spawn\nSpawnNumber = 10\nSpawnReplaceDelay = 30000\nSpawnTemplateName = CombatMobMember\nInitialBurst = 5\nAggregateHealth = Yes\nExitByBudding = Yes\nEnd\nBehavior = QueueProductionExitUpdate Exit\nUnitCreatePoint = X:0 Y:0 Z:0\nNaturalRallyPoint = X:0 Y:0 Z:0\nExitDelay = 5000\nInitialBurst = 5\nEnd\nEnd\nObject CombatMobMember\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody Body\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = MobMemberSlavedUpdate Slave\nEnd\nEnd\n";
     let content = crate::assets::ReceivingObjectContent::from_sources([
         ("combat-mob.ini".into(), source.into())
     ]).unwrap();
@@ -3206,9 +3224,10 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
     // By the retail replace cadence (InitialBurst 5 now, then one member per
     // ExitDelay 5000ms = 150 frames) all SpawnNumber=10 members are out by
     // frame 900.
-    for frame in [152, 303, 454, 605, 756] {
+    // SpawnBehavior is sparsely solved: one update call per frame.
+    for frame in 2..=900u32 {
         game_logic.frame = frame;
-        game_logic.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+        tick_nexus_spawn_modules(&mut game_logic, mob_id);
     }
     game_logic.update_angry_mobs();
     assert_eq!(game_logic.host_object(mob_id).unwrap().spawn_behavior_children().len(), ANGRY_MOB_MAX_MEMBERS as usize);

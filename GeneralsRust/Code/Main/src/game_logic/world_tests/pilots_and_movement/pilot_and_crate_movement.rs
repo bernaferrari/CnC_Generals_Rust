@@ -737,20 +737,46 @@ fn avenger_air_laser_spawns_laser_beam_object() {
     );
 }
 
+/// One original frame of the nexus' authored module order: SpawnBehavior and
+/// QueueProductionExitUpdate each count update visits, so both must be driven
+/// every frame (C++ visits them in module order).
+fn tick_nexus_spawn_modules(logic: &mut GameLogic, nid: ObjectId) {
+    let parent = logic.host_object(nid).unwrap();
+    let metadata = parent.get_template().production_exit_metadata.unwrap();
+    let before_spawn = parent.get_template().queue_exit_precedes_spawn_behavior();
+    if before_spawn {
+        logic.objects.get_mut(&nid).unwrap().tick_queue_exit(&metadata);
+    }
+    logic
+        .update_spawn_behavior_with_effects(&mut Default::default())
+        .unwrap();
+    if !before_spawn {
+        logic.objects.get_mut(&nid).unwrap().tick_queue_exit(&metadata);
+    }
+}
+
 #[test]
 fn angry_mob_spawns_member_objects_on_nexus() {
     use crate::game_logic::host_angry_mob::{
-        ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_INITIAL_MEMBERS, ANGRY_MOB_MAX_MEMBERS,
-        ANGRY_MOB_MEMBER_TEMPLATES,
+        ANGRY_MOB_INITIAL_MEMBERS, ANGRY_MOB_MAX_MEMBERS,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
-    let mut nexus = ThingTemplate::new("GLAInfantryAngryMobNexus");
-    nexus.add_kind_of(KindOf::Infantry).set_health(99999.0);
+    // Retail WeaponObjects.ini nexus: SpawnBehavior (SpawnNumber 10,
+    // InitialBurst 5, ExitDelay 5000ms). Members exist only through that
+    // authored module; a hand-built template has none to spawn from.
+    let source = "Object GLAInfantryAngryMobNexus\nKindOf = INFANTRY SELECTABLE\nBody = ImmortalBody NexusBody\nMaxHealth = 99999\nInitialHealth = 99999\nEnd\nBehavior = AIUpdateInterface NexusAI\nEnd\nBehavior = SpawnBehavior Spawn\nSpawnNumber = 10\nSpawnReplaceDelay = 30000\nSpawnTemplateName = CombatMobMember\nInitialBurst = 5\nAggregateHealth = Yes\nExitByBudding = Yes\nEnd\nBehavior = QueueProductionExitUpdate Exit\nUnitCreatePoint = X:0 Y:0 Z:0\nNaturalRallyPoint = X:0 Y:0 Z:0\nExitDelay = 5000\nInitialBurst = 5\nEnd\nEnd\nObject CombatMobMember\nKindOf = INFANTRY SELECTABLE IGNORED_IN_GUI\nBody = ActiveBody Body\nMaxHealth = 50\nInitialHealth = 50\nEnd\nBehavior = MobMemberSlavedUpdate Slave\nEnd\nEnd\n";
     logic
-        .templates
-        .insert("GLAInfantryAngryMobNexus".into(), nexus);
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "angry-mob-nexus.ini".into(),
+                source.into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(logic.ensure_host_spawn_template("GLAInfantryAngryMobNexus"));
     let nid = logic
         .create_object(
             "GLAInfantryAngryMobNexus",
@@ -763,6 +789,8 @@ fn angry_mob_spawns_member_objects_on_nexus() {
         o.construction_percent = 1.0;
         o.status.under_construction = false;
     }
+    logic.set_current_frame(1);
+    tick_nexus_spawn_modules(&mut logic, nid);
     logic.update_angry_mobs();
     assert!(logic.honesty_angry_mob_member_spawn_ok());
     // C++ SpawnBehavior.cpp:221-243 replacement-times drain: the first
@@ -778,22 +806,16 @@ fn angry_mob_spawns_member_objects_on_nexus() {
         ANGRY_MOB_INITIAL_MEMBERS,
         "initial fill spawns the immediate-due members"
     );
-    assert!(members.iter().all(|m| {
-        ANGRY_MOB_MEMBER_TEMPLATES
-            .iter()
-            .any(|t| *t == m.template_name.as_str())
-    }));
-    for _ in 0..(ANGRY_MOB_MAX_MEMBERS * 4) {
-        logic.frame = logic.frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
-        logic.update_angry_mobs();
-        let count = logic
-            .host_objects()
-            .registered_values()
-            .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
-            .count() as u32;
-        if count >= ANGRY_MOB_MAX_MEMBERS {
-            break;
-        }
+    assert!(
+        members.iter().all(|m| m.template_name == "CombatMobMember"),
+        "members are the authored SpawnTemplateName objects"
+    );
+    // ExitDelay 5000ms = 150 frames per replacement; all SpawnNumber members
+    // are out by frame 900 (same cadence as the combat Angry Mob fixture).
+    // SpawnBehavior is sparsely solved: one update call per frame.
+    for frame in 2..=900 {
+        logic.frame = frame;
+        tick_nexus_spawn_modules(&mut logic, nid);
     }
     logic.update_angry_mobs();
     let members: Vec<_> = logic
@@ -806,14 +828,14 @@ fn angry_mob_spawns_member_objects_on_nexus() {
         ANGRY_MOB_MAX_MEMBERS,
         "replacement dues complete the SpawnNumber fill"
     );
-    assert!(members.iter().all(|m| {
-        ANGRY_MOB_MEMBER_TEMPLATES
-            .iter()
-            .any(|t| *t == m.template_name.as_str())
-    }));
+    assert!(
+        members.iter().all(|m| m.template_name == "CombatMobMember"),
+        "members are the authored SpawnTemplateName objects"
+    );
 
     // Rapid spawn already at SpawnNumber; replace-delay does not add more.
-    logic.frame = logic.frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
+    logic.frame = 901;
+    tick_nexus_spawn_modules(&mut logic, nid);
     logic.update_angry_mobs();
     let members2 = logic
         .host_objects()
@@ -1258,15 +1280,58 @@ fn sticky_bomb_destroyed_when_target_dies() {
 #[test]
 fn plant_timed_demo_charge_command_plants_after_reach() {
     let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
+    admit_retail_remote_c4(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     ensure_test_structure_template(&mut game_logic);
+    // SpecialAbilityUpdate needs both its authored timing and the matching
+    // SpecialAbility power module. A bare TestTank is not Colonel Burton.
+    let mut burton = game_logic.templates["AmericaInfantryColonelBurton"].clone();
+    burton.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::Hero)
+        .set_health(200.0);
+    burton.charge_plant_abilities.push(crate::game_logic::ChargePlantAbilityMetadata {
+        special_power_template: "SpecialAbilityColonelBurtonTimedCharges".into(),
+        unpack_time_ms: 5_500,
+        pack_time_ms: 0,
+        pack_unpack_variation_factor: 0.0,
+        flee_range_after_completion: 100.0,
+        flip_object_after_unpacking: true,
+        flip_object_after_packing: false,
+    });
+    burton.special_power_modules.push(crate::game_logic::SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some("TimedCharges".into()),
+        module_kind: crate::game_logic::SpecialPowerModuleKind::SpecialAbility,
+        special_power_template: "SpecialAbilityColonelBurtonTimedCharges".into(),
+        special_power_template_id: 1,
+        command_power: Some(crate::command_system::SpecialPowerType::BurtonTimedCharges),
+        reload_time_frames: 0,
+        required_science: None,
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: true,
+        starts_paused: false,
+        scripted_special_power_only: false,
+        cash_bounty: None,
+    });
+    game_logic.templates.insert("AmericaInfantryColonelBurton".into(), burton);
 
     let burton_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(180.0, 0.0, 0.0))
+        .create_object("AmericaInfantryColonelBurton", Team::USA, Vec3::new(180.0, 0.0, 0.0))
         .expect("burton should be created");
     let target_id = game_logic
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("building should be created");
+    // NeedToFace schedules a locomotor goal; AI updates alone cannot rotate
+    // an object. Supply a real ground locomotor and tick the movement owner.
+    crate::fixture_content::locomote(
+        game_logic.host_object_mut(burton_id).unwrap(),
+        &["Surfaces = GROUND", "Speed = 30", "Acceleration = 100", "TurnRate = 180"],
+    );
 
     game_logic.queue_command(crate::command_system::GameCommand {
         command_type: crate::command_system::CommandType::PlantTimedDemoCharge { target_id },
@@ -1307,6 +1372,7 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
         game_logic
             .update_ai(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP)
             .expect("receiving AI operation succeeds");
+        game_logic.update_movement_for_test(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP);
         if game_logic.mine_residual_places() >= 1 {
             break;
         }
@@ -2001,7 +2067,13 @@ fn oil_derrick_residual_deposits_cash_on_interval() {
     if let Some((obj, ownership_events, fixture_partition_obj)) =
         game_logic.host_object_ownership_partition_mut(derrick_id)
     {
-        obj.set_team_with_partition_owner(Team::USA, ownership_events, fixture_partition_obj);
+        // C++ capture changes the controlling Player (Player id 0 is USA here).
+        obj.set_team_and_owner_with_partition_owner(
+            Team::USA,
+            Some(0),
+            ownership_events,
+            fixture_partition_obj,
+        );
     }
     game_logic.frame = 0;
     game_logic.update_oil_derrick_deposits();
