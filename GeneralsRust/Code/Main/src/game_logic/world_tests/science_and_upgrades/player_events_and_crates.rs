@@ -2009,6 +2009,7 @@ fn shroud_crate_reveals_map_for_picker_player() {
     let uid = ObjectId(5201);
     logic.objects.insert(uid, {
         let mut o = Object::new(t, uid, Team::USA);
+        o.owner_player_id = Some(0);
         o.set_position(glam::Vec3::ZERO);
         o
     });
@@ -2048,6 +2049,7 @@ fn shroud_crate_collide_path() {
     let uid = ObjectId(5210);
     logic.objects.insert(uid, {
         let mut o = Object::new(ut, uid, Team::GLA);
+        o.owner_player_id = Some(2);
         o.set_position(glam::Vec3::ZERO);
         o
     });
@@ -2083,11 +2085,13 @@ fn heal_crate_heals_all_team_objects() {
     let mut logic = GameLogic::new();
     // C++ heal scope is the picker's controlling player; give USA one slot.
     logic.add_player(Player::new(0, Team::USA, "U", true));
+    logic.add_player(Player::new(1, Team::GLA, "E", false));
     let mut t = ThingTemplate::new("H1");
     t.add_kind_of(KindOf::Infantry);
     let a = ObjectId(5101);
     logic.objects.insert(a, {
         let mut o = Object::new(t.clone(), a, Team::USA);
+        o.owner_player_id = Some(0);
         o.health.current = 10.0;
         o.health.maximum = 100.0;
         o
@@ -2095,6 +2099,7 @@ fn heal_crate_heals_all_team_objects() {
     let b = ObjectId(5102);
     logic.objects.insert(b, {
         let mut o = Object::new(t, b, Team::USA);
+        o.owner_player_id = Some(0);
         o.health.current = 50.0;
         o.health.maximum = 100.0;
         o
@@ -2105,6 +2110,7 @@ fn heal_crate_heals_all_team_objects() {
     let e = ObjectId(5103);
     logic.objects.insert(e, {
         let mut o = Object::new(et, e, Team::GLA);
+        o.owner_player_id = Some(1);
         o.health.current = 5.0;
         o.health.maximum = 100.0;
         o
@@ -2158,6 +2164,7 @@ fn heal_crate_collide_path() {
     let uid = ObjectId(5120);
     logic.objects.insert(uid, {
         let mut o = Object::new(ut, uid, Team::USA);
+        o.owner_player_id = Some(0);
         o.set_position(glam::Vec3::ZERO);
         o.health.current = 1.0;
         o.health.maximum = 80.0;
@@ -2482,6 +2489,7 @@ fn salvage_crate_only_salvager_picks_up() {
     let sid = ObjectId(4801);
     logic.objects.insert(sid, {
         let mut o = Object::new(st, sid, Team::GLA);
+        o.owner_player_id = Some(0);
         o.set_position(glam::Vec3::ZERO);
         crate::fixture_content::arm_with_stats(
             &mut o,
