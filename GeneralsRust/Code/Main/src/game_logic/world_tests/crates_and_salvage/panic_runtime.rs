@@ -94,11 +94,25 @@ fn install_panic_fork_path(logic: &GameLogic) {
 /// The authored Object a panic world runs. A world restoring a snapshot of it
 /// must admit the same content (its module roster is checked on restore).
 fn admit_panic_content(logic: &mut GameLogic) {
+    // C++ chooseLocomotorSet(SET_PANIC) needs the Object's authored LocomotorSet
+    // to carry that row; Locomotor.ini is admitted before Object content.
+    let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+    locomotors
+        .apply_source(
+            "Locomotor FixturePanicWalk\n Surfaces = GROUND\n Speed = 20\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n\
+             Locomotor FixturePanicRun\n Surfaces = GROUND\n Speed = 20\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n",
+        )
+        .expect("panic locomotors");
+    logic
+        .admit_locomotor_definitions(locomotors)
+        .expect("locomotors admitted before Object content");
     crate::fixture_content::admit_fixture_objects(
         logic,
         &[crate::fixture_content::FixtureObject::new("PanicRuntimeInfantry")
             .kind_of("INFANTRY CAN_BE_REPULSED")
             .health(100.0)
+            .field("Locomotor = SET_NORMAL FixturePanicWalk")
+            .field("Locomotor = SET_PANIC FixturePanicRun")
             .module("Behavior = AIUpdateInterface PanicRuntimeAI\nEnd")],
     );
 }
