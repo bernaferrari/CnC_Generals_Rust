@@ -73,8 +73,8 @@ fn temporary_tertiary_lock_releases_after_its_auto_clip_reloads() {
             .tertiary_weapon
             .as_ref()
             .and_then(|weapon| weapon.ammo),
-        Some(0),
-        "the host keeps an auto-reloading clip empty until its reload window finishes"
+        Some(1),
+        "Weapon::reloadWithBonus refills the auto-reloading clip at once; ClipReloadTime holds the next shot"
     );
     assert_eq!(object.weapon_lock_type, WeaponLockType::NotLocked);
     assert_eq!(
