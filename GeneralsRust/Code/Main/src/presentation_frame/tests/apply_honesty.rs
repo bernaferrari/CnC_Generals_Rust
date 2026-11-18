@@ -919,7 +919,7 @@ fn presentation_feeds_control_bar_garrison_inventory() {
     // except beacons / neutral garrison peek; the local player owns this bunker.
     // The bunker is garrisonable because it authors a GarrisonContain module
     // (ControlBar.cpp:1850-1865 reads getContain()->isGarrisonable()).
-    crate::fixture_content::admit_fixture_objects(
+    crate::fixture_content::admit_fixture_content_with_actions(
         &mut logic,
         &[
             crate::fixture_content::FixtureObject::new("GarrisonBunker")
@@ -930,6 +930,10 @@ fn presentation_feeds_control_bar_garrison_inventory() {
                 .kind_of("INFANTRY SELECTABLE")
                 .health(100.0),
         ],
+        &[],
+        // CommandButton.ini rows the StructureInventory context resolves
+        // (ControlBar.cpp populateStructureInventory findCommandButton).
+        "CommandButton Command_StructureExit\n Command = EXIT_CONTAINER\nEnd\nCommandButton Command_Evacuate\n Command = EVACUATE\nEnd\nCommandButton Command_Stop\n Command = STOP\nEnd\n",
     );
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     let bunker = logic
@@ -962,6 +966,15 @@ fn presentation_feeds_control_bar_garrison_inventory() {
         game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             owner.with_manager(|manager| {
                 let mut bar = game_client::gui::control_bar::ControlBar::new();
+                // As the engine does each frame (control_bar_viewport.rs): the bar
+                // resolves CommandButtons from the driving world's admitted catalog.
+                bar.set_receiving_upgrade_definitions(
+                    &logic.upgrade_definitions,
+                    logic
+                        .receiving_module_content
+                        .as_ref()
+                        .map(|content| content.action_definitions_shared()),
+                );
                 frame.apply_to_control_bar(&mut bar, manager, effects);
                 let guard = bar.get_context();
                 let names: Vec<_> = guard
@@ -973,8 +986,12 @@ fn presentation_feeds_control_bar_garrison_inventory() {
                     names
                         .iter()
                         .any(|n| n.eq_ignore_ascii_case("Command_StructureExit")),
-                    "expected StructureExit, got {:?}",
-                    names
+                    "expected StructureExit, got {:?} strip={:?} ctx={:?} selected={:?} objs={:?}",
+                    names,
+                    frame.unit_command_buttons().iter().map(|c| c.command_name.clone()).collect::<Vec<_>>(),
+                    (guard.available_commands.len(), frame.control_bar_selection_panel().primary_object_id),
+                    frame.selected,
+                    frame.objects.iter().map(|o| (o.id, o.command_set_name.clone(), o.selected, o.destroyed, o.unselectable, o.masked)).collect::<Vec<_>>()
                 );
                 assert!(
                     names
@@ -1662,21 +1679,17 @@ fn weapon_laser_presentation_freezes_laser_name() {
 /// C++ isPowerCurrentlyInUse inverts remote detonate when charge count is 0.
 #[test]
 fn burton_detonate_button_gray_without_remote_charges() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     use crate::presentation_frame::PresentationFrame;
 
     let mut logic = crate::game_logic::GameLogic::new();
-    crate::fixture_content::admit_retail_remote_c4(&mut logic);
+    // CommandButton.ini / SpecialPower.ini / CommandSet.ini rows, admitted with the
+    // world's startup content (GameEngine.cpp:428-458).
+    crate::fixture_content::admit_retail_remote_c4_with_actions(
+        &mut logic,
+        "SpecialPower SpecialAbilityColonelBurtonRemoteCharges\n Enum = SPECIAL_REMOTE_CHARGES\n ReloadTime = 0\n PublicTimer = No\nEnd\nCommandButton Command_ColonelBurtonDetonateCharges\n Command = SPECIAL_POWER\n SpecialPower = SpecialAbilityColonelBurtonRemoteCharges\n Options = NEED_SPECIAL_POWER_SCIENCE OK_FOR_MULTI_SELECT\nEnd\nCommandButton Command_Stop\n Command = STOP\nEnd\nCommandSet AmericaInfantryColonelBurtonCommandSet\n 6 = Command_ColonelBurtonDetonateCharges\n 14 = Command_Stop\nEnd\n",
+    );
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
-    let mut burton = logic.templates["AmericaInfantryColonelBurton"].clone();
-    author_retail_command_set(&logic, &mut burton);
-    burton
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
-    logic
-        .templates
-        .insert("AmericaInfantryColonelBurton".into(), burton);
     let burton_id = logic
         .create_object(
             "AmericaInfantryColonelBurton",
@@ -1703,10 +1716,12 @@ fn burton_detonate_button_gray_without_remote_charges() {
     });
     assert!(
         detonate.is_some_and(|c| !c.enabled),
-        "zero charges must gray ColonelBurtonDetonateCharges: {:?}",
+        "zero charges must gray ColonelBurtonDetonateCharges: {:?} selected={:?} objs={:?}",
         cmds.iter()
             .map(|c| (c.command_name.as_str(), c.enabled))
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
+        frame.selected,
+        frame.objects.iter().map(|o| (o.id, o.command_set_name.clone(), o.selected, o.destroyed, o.unselectable, o.masked)).collect::<Vec<_>>()
     );
 
     let charge = logic

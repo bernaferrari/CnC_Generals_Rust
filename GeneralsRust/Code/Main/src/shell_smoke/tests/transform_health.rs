@@ -16,13 +16,15 @@ fn presentation_carries_transform_health_team_model() {
         &[
             crate::fixture_content::FixtureObject::new("SmokeUnit")
                 .kind_of("INFANTRY")
-                .health(50.0),
+                .health(50.0)
+                .model("SmokeUnit"),
             crate::fixture_content::FixtureObject::new("SmokeHQ")
                 .kind_of("STRUCTURE MP_COUNT_FOR_VICTORY")
                 .health(100.0),
         ],
     );
-    assert!(apply_skirmish_config(&mut logic, &cfg).is_ok());
+    let applied = apply_skirmish_config(&mut logic, &cfg);
+    assert!(applied.is_ok(), "{applied:?}");
     let id = logic
         .create_object("SmokeUnit", Team::USA, Vec3::new(3.0, 0.0, 4.0))
         .expect("unit");
