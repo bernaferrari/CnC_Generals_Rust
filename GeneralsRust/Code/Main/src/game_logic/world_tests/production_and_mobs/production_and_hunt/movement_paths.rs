@@ -219,8 +219,11 @@ fn full_truck_returns_to_the_supply_center_approach() {
         .copied()
         .expect("installed return path");
     let approach = Vec3::new(180.0, 0.0, 0.0);
+    // The real Pathfinder quantizes its goal to a passable cell (C++
+    // Pathfinder::adjustDestination), so the route ends within a cell of the
+    // dock approach rather than at the structure's center 20 units further.
     assert!(
-        end.distance(approach) < 1.0,
+        end.distance(approach) < 10.0,
         "path must end at the dock approach {approach:?}, end={end:?} path={:?}",
         unit.movement.path
     );

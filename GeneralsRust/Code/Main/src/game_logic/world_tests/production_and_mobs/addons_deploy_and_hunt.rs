@@ -1186,12 +1186,24 @@ fn battle_bus_residual_load_two_unload_both_free() {
     // ExitDelay). Advance frames so the exit door cycles both riders out and
     // their exit walks settle, matching the C++ stream and the Combat Chinook
     // residual twin below.
+    // Each freed rider is observed walking its exit path; with a real
+    // Locomotor the short walk then completes and the rider returns to Idle.
+    let mut walked: Vec<ObjectId> = Vec::new();
     for _ in 0..60 {
         game_logic.frame += 1;
         game_logic.update_movement_for_test(&[bus_id, unit_a, unit_b], 1.0 / 30.0);
         game_logic
             .update_ai(&[bus_id, unit_a, unit_b], 1.0 / 30.0)
             .expect("receiving AI operation succeeds");
+        for rider in [unit_a, unit_b] {
+            let unit = game_logic.host_object(rider).expect("rider");
+            if unit.contained_by.is_none()
+                && unit.ai_state() == AIState::Moving
+                && !walked.contains(&rider)
+            {
+                walked.push(rider);
+            }
+        }
     }
     let bus = game_logic.host_object(bus_id).expect("bus empty");
     assert!(
@@ -1209,9 +1221,8 @@ fn battle_bus_residual_load_two_unload_both_free() {
         // C++ OpenContain::exitObjectViaDoor places the rider at ExitStart and
         // issues aiFollowPath to ExitEnd (OpenContain.cpp:915-1020); the freed
         // rider walks its exit path instead of Idling in place.
-        assert_eq!(
-            unit.ai_state(),
-            AIState::Moving,
+        assert!(
+            walked.contains(&unit_id),
             "unloaded unit must walk its exit path (C++ aiFollowPath)"
         );
         assert!(unit.can_move(), "unloaded unit must be free to move");

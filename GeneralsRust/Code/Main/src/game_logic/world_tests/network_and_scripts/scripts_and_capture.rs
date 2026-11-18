@@ -2030,9 +2030,21 @@ fn hijack_transfers_vehicle_and_updates_team_color() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic
-        .update_ai(&[hijacker_id, target_id], 1.0 / 60.0)
-        .expect("receiving AI operation succeeds");
+    // The hijacker walks its Locomotor to the vehicle before C++ HijackerUpdate
+    // can take it, so advance real frames until the hijack lands.
+    for _ in 0..180 {
+        game_logic.frame += 1;
+        game_logic.update_movement_for_test(&[hijacker_id, target_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[hijacker_id, target_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
+        if game_logic
+            .host_object(target_id)
+            .is_some_and(|target| target.status.hijacked)
+        {
+            break;
+        }
+    }
 
     let target = game_logic
         .host_object(target_id)
