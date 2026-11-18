@@ -3146,6 +3146,20 @@ mod tests {
         });
         data.waypoint_links.push((1, 2));
         let mut logic = GameLogic::new();
+        // C++ loads Locomotor.ini before Object INI: a missile follows a
+        // waypoint path only through its authored Locomotor.
+        {
+            let mut locomotors =
+                game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+            locomotors
+                .apply_source(
+                    "Locomotor Scr2MissileFlight\n Surfaces = AIR\n Speed = 225\n MinSpeed = 120\n Acceleration = 675\n Braking = 0\n TurnRate = 100\n MaxThrustAngle = 45\n AllowAirborneMotiveForce = Yes\n Appearance = THRUST\nEnd\n",
+                )
+                .expect("authored missile locomotor");
+            logic
+                .admit_locomotor_definitions(locomotors)
+                .expect("locomotor admitted before Object content");
+        }
         logic
             .world_services
             .terrain()
@@ -3174,7 +3188,7 @@ mod tests {
             let mut parser = crate::assets::ini_parser::IniParser::new();
             parser
                 .parse_ini_content(
-                    "Object Scr2ScudMissile\n KindOf = PROJECTILE BALLISTIC_MISSILE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = PhysicsBehavior PhysicsTag\n  Mass = 1\n End\n Behavior = MissileAIUpdate FlightTag\n  TryToFollowTarget = No\n  FuelLifetime = 5000\n  IgnitionDelay = 0\n End\nEnd",
+                    "Object Scr2ScudMissile\n KindOf = PROJECTILE BALLISTIC_MISSILE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = PhysicsBehavior PhysicsTag\n  Mass = 1\n End\n Locomotor = SET_NORMAL Scr2MissileFlight\n Behavior = MissileAIUpdate FlightTag\n  TryToFollowTarget = No\n  FuelLifetime = 5000\n  IgnitionDelay = 0\n End\nEnd",
                     "scr2-scud-missile.ini",
                 )
                 .unwrap();
@@ -3196,7 +3210,7 @@ mod tests {
         logic
             .admit_object_ini_sources([(
                 "scr2-scud-objects.ini".to_owned(),
-                "Object Scr2ScudMissile\n KindOf = PROJECTILE BALLISTIC_MISSILE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = PhysicsBehavior PhysicsTag\n  Mass = 1\n End\n Behavior = MissileAIUpdate FlightTag\n  TryToFollowTarget = No\n  FuelLifetime = 5000\n  IgnitionDelay = 0\n End\nEnd\nObject Scr2ScudLauncher\n KindOf = VEHICLE\n WeaponSet\n  Conditions = None\n  Weapon = PRIMARY ScudStormWeapon\n End\n Body = ActiveBody BodyTag\n  MaxHealth = 400\n  InitialHealth = 400\n End\nEnd\n".to_owned(),
+                "Object Scr2ScudMissile\n KindOf = PROJECTILE BALLISTIC_MISSILE\n Body = ActiveBody BodyTag\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = PhysicsBehavior PhysicsTag\n  Mass = 1\n End\n Locomotor = SET_NORMAL Scr2MissileFlight\n Behavior = MissileAIUpdate FlightTag\n  TryToFollowTarget = No\n  FuelLifetime = 5000\n  IgnitionDelay = 0\n End\nEnd\nObject Scr2ScudLauncher\n KindOf = VEHICLE\n WeaponSet\n  Conditions = None\n  Weapon = PRIMARY ScudStormWeapon\n End\n Body = ActiveBody BodyTag\n  MaxHealth = 400\n  InitialHealth = 400\n End\nEnd\n".to_owned(),
             )])
             .expect("admit authored Scr2Scud objects");
         assert!(logic

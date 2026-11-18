@@ -324,7 +324,7 @@ mod tests {
     use super::*;
 #[test]
 fn cave_saved_world_continues_in_receiving_capacity_without_touching_same_id_peer() {
-    use crate::game_logic::{AIState, ContainModuleKind, GameLogic, KindOf, ObjectAudio, Player, ThingTemplate};
+    use crate::game_logic::{AIState, GameLogic, ObjectAudio, Player};
     use crate::save_load::snapshot::{ClientDrawableWorldSnapshot, SnapshotBuilder, WorldSnapshot};
     use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo, Snapshot, Xfer, XferLoad, XferSave};
     use std::io::Cursor;
@@ -337,14 +337,21 @@ fn cave_saved_world_continues_in_receiving_capacity_without_touching_same_id_pee
         for (id, team, name) in [(0, Team::USA, "CaveUSA"), (3, Team::Neutral, "CaveNeutral")] {
             logic.add_player(Player::new(id, team, name, true).with_script_identity(name));
         }
-        let mut cave = ThingTemplate::new("SavedCaveEntrance");
-        cave.add_kind_of(KindOf::Structure).add_kind_of(KindOf::Selectable).set_health(500.0);
-        cave.contain_module.kind = ContainModuleKind::Cave;
-        cave.contain_module.cave_index = 5;
-        logic.templates.insert("SavedCaveEntrance".into(), cave);
-        let mut infantry = ThingTemplate::new("SavedCaveInfantry");
-        infantry.add_kind_of(KindOf::Infantry).add_kind_of(KindOf::Selectable).set_health(100.0);
-        logic.templates.insert("SavedCaveInfantry".into(), infantry);
+        // C++ loads Object INI before NewGame: the entrance authors CaveContain
+        // and the rider an AIUpdateInterface and Locomotor.
+        crate::fixture_content::admit_fixture_objects(
+            &mut logic,
+            &[
+                crate::fixture_content::FixtureObject::new("SavedCaveEntrance")
+                    .kind_of("STRUCTURE SELECTABLE")
+                    .health(500.0)
+                    .module("Behavior = CaveContain CaveTag\n CaveIndex = 5\nEnd"),
+                crate::fixture_content::FixtureObject::new("SavedCaveInfantry")
+                    .kind_of("INFANTRY SELECTABLE")
+                    .health(100.0)
+                    .walker(),
+            ],
+        );
         let first = logic.create_object("SavedCaveEntrance", Team::Neutral, Vec3::ZERO).unwrap();
         let second = logic.create_object("SavedCaveEntrance", Team::Neutral, Vec3::new(40.0, 0.0, 0.0)).unwrap();
         let neutral = logic.host_default_team_id(3).unwrap();
