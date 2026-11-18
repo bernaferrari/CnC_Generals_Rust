@@ -36,6 +36,13 @@ impl GameLogic {
                     obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                         &mut self.queued_audio_events,
                     ));
+                    // A SpecialAbility state whose module is no longer
+                    // active has nothing left to run: the unit idles.
+                    obj.set_ai_state(
+                        AIState::Idle,
+                        self.frame,
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    );
                 }
             }
             return Ok(());

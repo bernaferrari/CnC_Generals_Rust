@@ -1613,10 +1613,12 @@ fn unauthored_tree_named_template_does_not_install_highlander_body() {
 #[test]
 fn authored_highlander_body_installs_without_template_name_peel() {
     let mut game_logic = GameLogic::new();
-    let mut tpl = ThingTemplate::new("PlainAuthoredRock");
-    tpl.add_kind_of(KindOf::Structure).set_health(50.0);
-    tpl.highlander_body = true;
-    game_logic.templates.insert("PlainAuthoredRock".into(), tpl);
+    crate::fixture_content::admit_fixture_objects(
+        &mut game_logic,
+        &[crate::fixture_content::FixtureObject::new("PlainAuthoredRock")
+            .kind_of("STRUCTURE")
+            .module("Body = HighlanderBody RockBody\n MaxHealth = 50\n InitialHealth = 50\nEnd")],
+    );
     let id = game_logic
         .create_object("PlainAuthoredRock", Team::Neutral, Vec3::ZERO)
         .expect("rock");
@@ -1627,15 +1629,12 @@ fn authored_highlander_body_installs_without_template_name_peel() {
 fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
     let mut game_logic = GameLogic::new();
     // Ensure template + highlander install.
-    let mut tpl = ThingTemplate::new("TreeHighlanderTest");
-    tpl.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Immobile)
-        .set_health(50.0);
-    // Fixture stands in for authored `Body = HighlanderBody`.
-    tpl.highlander_body = true;
-    game_logic
-        .templates
-        .insert("TreeHighlanderTest".into(), tpl);
+    crate::fixture_content::admit_fixture_objects(
+        &mut game_logic,
+        &[crate::fixture_content::FixtureObject::new("TreeHighlanderTest")
+            .kind_of("STRUCTURE IMMOBILE")
+            .module("Body = HighlanderBody TreeBody\n MaxHealth = 50\n InitialHealth = 50\nEnd")],
+    );
     let id = game_logic
         .create_object("TreeHighlanderTest", Team::Neutral, Vec3::ZERO)
         .expect("tree");

@@ -1,24 +1,32 @@
 //! Behavior suite extracted from `projectiles_air`.
 use super::*;
 
+/// The authored Ranger capture modules (SpecialAbility StartsPaused, its
+/// SpecialAbilityUpdate and the UnpauseSpecialPowerUpgrade), admitted as
+/// content; C++ pauses a power only through the authored module.
+fn admit_authored_ranger_capture(logic: &mut GameLogic, starts_paused_modules: usize) {
+    let mut ranger = crate::fixture_content::FixtureObject::new("AmericaInfantryRanger")
+        .kind_of("INFANTRY SELECTABLE")
+        .health(100.0);
+    for index in 0..starts_paused_modules {
+        ranger = ranger.module(format!(
+            "Behavior = SpecialAbility CaptureTag{index}\n SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n UpdateModuleStartsAttack = Yes\n StartsPaused = Yes\nEnd"
+        ));
+    }
+    ranger = ranger
+        .module("Behavior = SpecialAbilityUpdate CaptureUpdateTag\n SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n StartAbilityRange = 5\n UnpackTime = 3000\n PreparationTime = 20000\n PackTime = 2000\nEnd")
+        .module("Behavior = UnpauseSpecialPowerUpgrade CaptureUnpauseTag\n SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n TriggeredBy = Upgrade_InfantryCaptureBuilding\nEnd");
+    crate::fixture_content::admit_fixture_objects(logic, &[ranger]);
+}
+
 #[test]
 fn unpause_special_power_upgrade_enables_capture() {
     use crate::command_system::SpecialPowerType;
-    use crate::game_logic::{CapturePowerKind, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("AmericaInfantryRanger");
-    t.set_health(100.0);
-    t.add_kind_of(KindOf::Infantry);
-    t.capture_power = CapturePowerKind::Ranger;
-    t.capture_start_ability_range = Some(5.0);
-    t.capture_unpack_time_ms = Some(3_000);
-    t.capture_preparation_time_ms = Some(20_000);
-    t.capture_pack_time_ms = Some(2_000);
-    t.capture_starts_paused = true;
-    t.capture_upgrade_trigger = Some("Upgrade_InfantryCaptureBuilding".to_string());
-    logic.templates.insert("AmericaInfantryRanger".into(), t);
+    admit_authored_ranger_capture(&mut logic, 1);
+    ensure_test_player_for_team(&mut logic, Team::USA);
     let id = logic
-        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player("AmericaInfantryRanger", 0, glam::Vec3::ZERO)
         .unwrap();
     assert!(
         !logic.is_special_power_ready_for(id, &SpecialPowerType::RangerCaptureBuilding),
@@ -27,11 +35,7 @@ fn unpause_special_power_upgrade_enables_capture() {
     logic.apply_upgrade_to_object(id, "Upgrade_InfantryCaptureBuilding");
     let obj = logic.objects.get(&id).unwrap();
     assert!(!obj.is_special_power_countdown_paused(&SpecialPowerType::RangerCaptureBuilding));
-    let rem = obj
-        .special_power_cooldowns
-        .get(&SpecialPowerType::RangerCaptureBuilding)
-        .copied()
-        .unwrap_or(0.0);
+    let rem = obj.special_power_countdown_seconds(&SpecialPowerType::RangerCaptureBuilding);
     assert!(
         (rem - 15.0).abs() < 0.01,
         "C++ unpause keeps ctor ReloadTime (15000ms), rem={rem}"
@@ -93,47 +97,15 @@ fn helix_nuke_unpause_hits_helix_nuke_bomb_not_nuclear_missile() {
 #[test]
 fn starts_paused_module_and_capture_flag_do_not_double_pause() {
     use crate::command_system::SpecialPowerType;
-    use crate::game_logic::{
-        CapturePowerKind, KindOf, SpecialPowerModuleKind, SpecialPowerModuleMetadata, Team,
-        ThingTemplate,
-    };
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("AmericaInfantryRanger");
-    t.set_health(100.0);
-    t.add_kind_of(KindOf::Infantry);
-    t.capture_power = CapturePowerKind::Ranger;
-    t.capture_starts_paused = true;
-    t.capture_upgrade_trigger = Some("Upgrade_InfantryCaptureBuilding".to_string());
-    t.special_power_modules.push(SpecialPowerModuleMetadata {
-        source_index: 0,
-        module_tag: Some("ModuleTag_Capture".into()),
-        module_kind: SpecialPowerModuleKind::SpecialAbility,
-        special_power_template: "SpecialAbilityRangerCaptureBuilding".into(),
-        special_power_template_id: 1,
-        command_power: Some(SpecialPowerType::RangerCaptureBuilding),
-        reload_time_frames: 450,
-        required_science: None,
-        public_timer: false,
-        shared_n_sync: false,
-        shortcut_power: false,
-        update_module_starts_attack: true,
-        starts_paused: true,
-        scripted_special_power_only: false,
-        cash_bounty: None,
-    });
-    logic.templates.insert("AmericaInfantryRanger".into(), t);
+    admit_authored_ranger_capture(&mut logic, 1);
+    ensure_test_player_for_team(&mut logic, Team::USA);
     let id = logic
-        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player("AmericaInfantryRanger", 0, glam::Vec3::ZERO)
         .unwrap();
     let obj = logic.objects.get(&id).unwrap();
-    assert_eq!(
-        obj.special_power_paused
-            .get(&SpecialPowerType::RangerCaptureBuilding)
-            .copied()
-            .unwrap_or(0),
-        1,
-        "ctor + SpecialPowerCreate must not stack StartsPaused"
-    );
+    let pauses: u32 = obj.authored_special_power_timers.values().map(|state| state.1).sum();
+    assert_eq!(pauses, 1, "ctor + SpecialPowerCreate must not stack StartsPaused");
     logic.apply_upgrade_to_object(id, "Upgrade_InfantryCaptureBuilding");
     let obj = logic.objects.get(&id).unwrap();
     assert!(!obj.is_special_power_countdown_paused(&SpecialPowerType::RangerCaptureBuilding));

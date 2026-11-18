@@ -79,23 +79,21 @@ fn unmapped_dozer_hp_gain_uses_energy_adjusted_build_time_frames() {
 
 #[test]
 fn dozer_tick_truncates_handicap_before_player_template_modifier() {
-    use crate::game_logic::game_logic::PlayerTemplateIdentity;
-    use game_engine::common::rts::player_template::{
-        PlayerTemplate, get_player_template_store_mut,
-    };
+    use game_engine::common::rts::player_template::{PlayerTemplate, PlayerTemplateStore};
 
-    // Give the real Main PlayerTemplate lookup an exact test template; Main's
-    // production construction call reads this and the Player's handicap.
-    game_engine::common::ini::ensure_player_templates_loaded();
+    // The world owns its PlayerTemplate catalog (GameEngine.cpp:428 loads it
+    // before NewGame); the exact test template is an admitted definition.
     let mut player_template = PlayerTemplate::new("TimingRegressionGeneral".to_string());
     player_template.side = "America".into();
     player_template.base_side = "America".into();
     player_template
         .production_time_changes
         .insert("TestBuilding".into(), -0.05);
-    get_player_template_store_mut().add_template(player_template);
+    let mut definitions = PlayerTemplateStore::new_owned();
+    definitions.add_template(player_template);
 
     let mut logic = GameLogic::new();
+    logic.admit_player_template_definitions(definitions).unwrap();
     ensure_test_structure_template(&mut logic);
     ensure_test_dozer_template(&mut logic);
     ensure_test_player_for_team(&mut logic, Team::USA);
@@ -106,13 +104,10 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
         .map_side
         .handicap_build_time_buildings = 0.95;
     logic.players.get_mut(&0).expect("player").power_produced = 10;
-    assert!(
-        logic.bind_player_template_identity(
-            0,
-            PlayerTemplateIdentity::from_exact_name("TimingRegressionGeneral")
-                .expect("exact timing test PlayerTemplate"),
-        )
-    );
+    let selected = logic
+        .player_template_identity_from_name("TimingRegressionGeneral")
+        .expect("exact timing test PlayerTemplate");
+    assert!(logic.bind_player_template_identity(0, selected));
 
     let sid = logic
         .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
@@ -122,13 +117,14 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
         site.construction_percent = 0.0;
     }
     let did = logic
-        .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
+        .create_object_for_player("TestDozer", 0, glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("dozer");
     assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
 
     // C++ assigns to Int after each modifier: 9 * 0.95 = 8, then
     // 8 * 0.95 = 7. One actual Main construction frame is therefore 1/7.
-    logic.update_construction(&[sid], 1.0 / 30.0);
+    // The builder walks to its dock, then its Dozer machine runs one BUILD frame.
+    dock_builder_for_site(&mut logic, sid);
     let progress = logic.host_object(sid).expect("site").construction_percent;
     assert!(
         (progress - (1.0 / 7.0)).abs() < 1e-5,

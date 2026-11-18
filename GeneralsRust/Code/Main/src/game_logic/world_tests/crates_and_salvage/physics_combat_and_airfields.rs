@@ -814,6 +814,7 @@ fn collide_immobile_is_kindof_immobile_not_can_move() {
     let mut m = Object::new(vt.clone(), mid, Team::USA);
     m.set_position(Vec3::new(0.0, 1.0, 0.0));
     m.movement.velocity = Vec3::new(8.0, 0.0, 0.0);
+    authored_bounce_geometry(&mut m, crate::game_logic::thing::HostGeometryType::Cylinder, 4.0, 4.0, 4.0);
     logic.objects.insert(mid, m);
 
     let spawn_other = |logic: &mut GameLogic, id: u32, name: &str, tweak: fn(&mut Object)| {
@@ -822,6 +823,7 @@ fn collide_immobile_is_kindof_immobile_not_can_move() {
         let oid = ObjectId(id);
         let mut o = Object::new(t, oid, Team::China);
         o.set_position(Vec3::new(5.0, 1.0, 0.0));
+        authored_bounce_geometry(&mut o, crate::game_logic::thing::HostGeometryType::Cylinder, 4.0, 4.0, 4.0);
         tweak(&mut o);
         assert!(
             !o.can_move(),
@@ -870,6 +872,7 @@ fn collide_immobile_is_kindof_immobile_not_can_move() {
     let tid = ObjectId(96);
     let mut tree = Object::new(tree_t, tid, Team::Neutral);
     tree.set_position(Vec3::new(5.0, 1.0, 0.0));
+    authored_bounce_geometry(&mut tree, crate::game_logic::thing::HostGeometryType::Cylinder, 4.0, 4.0, 4.0);
     logic.objects.insert(tid, tree);
     assert!(logic.apply_immobile_collide_bounce(mid, tid, 10.0).unwrap());
 

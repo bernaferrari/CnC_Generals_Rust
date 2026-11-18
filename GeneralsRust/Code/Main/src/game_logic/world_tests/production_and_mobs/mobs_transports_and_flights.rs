@@ -283,11 +283,8 @@ fn special_power_create_starts_unit_recharge() {
         !o.is_special_power_ready(&SpecialPowerType::BurtonTimedCharges),
         "SpecialPowerCreate must start ReloadTime, not spawn ready"
     );
-    let remaining = o
-        .special_power_cooldowns
-        .get(&SpecialPowerType::BurtonTimedCharges)
-        .copied()
-        .unwrap_or(0.0);
+    // The authored SpecialPowerModule owns this timer (module source_index 0).
+    let remaining = o.special_power_countdown_seconds(&SpecialPowerType::BurtonTimedCharges);
     assert!(
         (remaining - 10.0).abs() < 0.01,
         "ReloadTime 300 frames / 30 = 10s, got {remaining}"

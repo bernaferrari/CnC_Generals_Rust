@@ -1801,17 +1801,18 @@ fn radar_van_residual_enables_player_has_radar() {
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
 
-    if !game_logic.templates.contains_key("TestRadarVan") {
-        let mut t = ThingTemplate::new("TestRadarVan");
-        t.add_kind_of(KindOf::Vehicle)
-            .add_kind_of(KindOf::Selectable)
-            .set_health(300.0)
-            .set_cost(500, 0);
-        game_logic.templates.insert("TestRadarVan".to_string(), t);
-    }
+    // C++ radar comes only from an authored RadarUpgrade (RadarUpgrade.cpp).
+    crate::fixture_content::admit_fixture_objects(
+        &mut game_logic,
+        &[crate::fixture_content::FixtureObject::new("TestRadarVan")
+            .kind_of("VEHICLE SELECTABLE")
+            .health(300.0)
+            .build_cost(500)
+            .radar_provider()],
+    );
 
     let van_id = game_logic
-        .create_object("TestRadarVan", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+        .create_object_for_player("TestRadarVan", 2, Vec3::new(10.0, 0.0, 0.0))
         .expect("radar van");
     if let Some(obj) = game_logic.host_object_mut(van_id) {
         obj.set_status_under_construction(false);

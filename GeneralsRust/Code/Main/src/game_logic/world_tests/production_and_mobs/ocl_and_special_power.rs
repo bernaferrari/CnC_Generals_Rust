@@ -1166,15 +1166,11 @@ fn special_power_create_expresses_shared_n_sync_ready_now() {
 
     let mut logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
-    player.reset_shared_special_power_timer(&SpecialPowerType::SpyDrone, 60.0);
-    assert!(
-        player
-            .shared_special_power_cooldowns
-            .get(&SpecialPowerType::SpyDrone)
-            .copied()
-            .unwrap_or(0.0)
-            > 0.0
-    );
+    // The SharedNSync timer is the Player's authored timer keyed by the
+    // SpecialPower template name (SpecialPowerModule::isSharedNSync).
+    player
+        .authored_special_power_timers
+        .insert("specialpowerspydrone".into(), 60.0);
     logic.players.insert(0, player);
 
     let mut tpl = ThingTemplate::new("AmericaCommandCenter");
@@ -1222,18 +1218,16 @@ fn special_power_create_expresses_shared_n_sync_ready_now() {
         .create_object_for_player("AmericaCommandCenter", 0, Vec3::ZERO)
         .expect("cc");
     let player = logic.players.get(&0).expect("player");
-    assert!(
-        !player
-            .shared_special_power_cooldowns
-            .contains_key(&SpecialPowerType::SpyDrone),
+    assert_eq!(
+        player
+            .authored_special_power_timers
+            .get("specialpowerspydrone")
+            .copied(),
+        Some(0.0),
         "SharedNSync must express ready-now on Command Center build complete"
     );
     let obj = logic.host_object(id).expect("cc obj");
-    let remaining = obj
-        .special_power_cooldowns
-        .get(&SpecialPowerType::Paradrop)
-        .copied()
-        .unwrap_or(0.0);
+    let remaining = obj.special_power_countdown_seconds(&SpecialPowerType::Paradrop);
     assert!(
         remaining > 0.0,
         "scripted SpecialPowerCreate modules must start ReloadTime recharge"

@@ -15,6 +15,12 @@ fn starting_unit_fixtures() -> Vec<crate::fixture_content::FixtureObject> {
             .build_cost(2000)
             .field("VisionRange = 300")
             .field("ShroudClearingRange = 300")
+            // A retail Command Center authors a large footprint; the start
+            // yard search (GameLogic.cpp:578) rings 0.7-1.3x its radius.
+            .field("Geometry = BOX")
+            .field("GeometryMajorRadius = 40")
+            .field("GeometryMinorRadius = 40")
+            .field("GeometryHeight = 30")
             .health(2000.0)
     };
     vec![

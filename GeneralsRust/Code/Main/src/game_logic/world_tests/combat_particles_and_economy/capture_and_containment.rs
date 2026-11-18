@@ -45,7 +45,12 @@ fn admit_ranger_capture_fixture(
         target,
     ];
     objects.append(&mut extra);
-    crate::fixture_content::admit_fixture_objects(world, &objects);
+    // C++ ProductionUpdate::queueUpgrade refuses an upgrade the producer's
+    // CommandSet does not offer (Object::canProduceUpgrade).
+    let actions = format!(
+        "CommandButton FixtureCaptureUpgrade\n Command = PLAYER_UPGRADE\n Upgrade = {UPGRADE_INFANTRY_CAPTURE}\nEnd\nCommandSet FixtureCaptureSet\n 1 = FixtureCaptureUpgrade\nEnd\n"
+    );
+    crate::fixture_content::admit_fixture_content_with_actions(world, &objects, &[], &actions);
 }
 
 const CAPTOR: &str = "AuthoredRangerCaptor";
@@ -82,6 +87,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         vec![
             crate::fixture_content::FixtureObject::new("AmericaBarracks")
                 .kind_of("STRUCTURE FS_BARRACKS SELECTABLE CAPTURABLE")
+                .field("CommandSet = FixtureCaptureSet")
                 .health(1000.0)
                 .build_cost(600)
                 .module("Behavior = ProductionUpdate ProductionTag\nEnd"),
@@ -89,7 +95,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     );
 
     let barracks_id = game_logic
-        .create_object("AmericaBarracks", Team::USA, Vec3::new(-50.0, 0.0, 0.0))
+        .create_object_for_player("AmericaBarracks", 0, Vec3::new(-50.0, 0.0, 0.0))
         .expect("barracks");
     assert!(
         game_logic
@@ -100,10 +106,10 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     );
 
     let captor_id = game_logic
-        .create_object(CAPTOR, Team::USA, Vec3::new(12.0, 0.0, 0.0))
+        .create_object_for_player(CAPTOR, 0, Vec3::new(12.0, 0.0, 0.0))
         .expect("captor");
     let building_id = game_logic
-        .create_object(CAPTURE_TARGET, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object_for_player(CAPTURE_TARGET, 2, Vec3::new(0.0, 0.0, 0.0))
         .expect("building");
 
     // C++ ActionManager::canCaptureBuilding runs isObjectShroudedForAction
@@ -433,10 +439,10 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
     // Outside capture range (edge 55 - 1 - 1 = 53 > 5; neither authors
     // Geometry, so both keep the C++ radius-1 sphere) so Capturing must walk in.
     let captor_id = game_logic
-        .create_object(CAPTOR, Team::USA, Vec3::new(55.0, 0.0, 0.0))
+        .create_object_for_player(CAPTOR, 0, Vec3::new(55.0, 0.0, 0.0))
         .expect("captor");
     let building_id = game_logic
-        .create_object(CAPTURE_TARGET, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object_for_player(CAPTURE_TARGET, 2, Vec3::new(0.0, 0.0, 0.0))
         .expect("building");
 
     // Unlock the capture ability without research frames: the C++

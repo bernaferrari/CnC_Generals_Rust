@@ -2341,27 +2341,31 @@ fn private_face_turns_toward_target() {
     use crate::game_logic::{KindOf, LocoGoalType, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
     let mut logic = GameLogic::new();
-    let mut at = ThingTemplate::new("FcA");
-    at.add_kind_of(KindOf::Vehicle);
-    let aid = ObjectId(1321);
-    logic.objects.insert(aid, {
-        let mut o = Object::new(at, aid, Team::USA);
-        // C++ movement and facing run only through the AI's current Locomotor.
-        crate::fixture_content::locomote(&mut o, &["Surfaces = GROUND", "Speed = 30", "Acceleration = 100", "TurnRate = 180"]);
+    // C++ movement and facing run only through an authored AI's Locomotor.
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("FcA")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(100.0)
+                .walker(),
+            crate::fixture_content::FixtureObject::new("FcV")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0),
+        ],
+    );
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    let aid = logic
+        .create_object_for_player("FcA", 0, Vec3::ZERO)
+        .expect("facing unit");
+    {
+        let o = logic.objects.get_mut(&aid).unwrap();
         o.set_orientation(0.0);
-        o.movement.turn_rate = std::f32::consts::PI * 30.0;
-        o.min_speed = 0.0;
-        o.set_position(Vec3::ZERO);
-        o
-    });
-    let mut vt = ThingTemplate::new("FcV");
-    vt.add_kind_of(KindOf::Infantry);
-    let vid = ObjectId(1322);
-    logic.objects.insert(vid, {
-        let mut o = Object::new(vt, vid, Team::GLA);
-        o.set_position(Vec3::new(0.0, 0.0, 10.0));
-        o
-    });
+    }
+    let vid = logic
+        .create_object_for_player("FcV", 2, Vec3::new(0.0, 0.0, 10.0))
+        .expect("facing goal");
     let yaw0 = logic.objects.get(&aid).unwrap().get_orientation();
     // C++ AIFaceState::onEnter/update fail if the goal object does not exist.
     assert!(!logic.private_face_object(aid, ObjectId(u32::MAX)));
@@ -2379,9 +2383,8 @@ fn private_face_turns_toward_target() {
     assert!(after_cmd.face_can_turn_in_place());
     assert_eq!(after_cmd.locomotor_goal_type, LocoGoalType::Angle);
     assert_eq!(after_cmd.get_orientation(), yaw0);
-    logic
-        .update_ai(&[aid, vid], 1.0 / 30.0)
-        .expect("receiving AI operation succeeds");
+    // AI chooses the Angle goal; the Locomotor turns the body on the logic frame.
+    let _ = logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
     let after_tick = logic.objects.get(&aid).unwrap();
     let yaw1 = after_tick.get_orientation();
     assert!((yaw1 - yaw0).abs() > 1e-4);
@@ -3014,7 +3017,13 @@ fn thrust_moves_toward_goal() {
     o.movement.acceleration = 100.0;
     o.min_speed = 5.0;
     o.move_towards_thrust(Vec3::new(100.0, 20.0, 0.0), 100.0, 40.0, 1.0 / 30.0, 0);
-    assert!(o.get_position().length() > 1e-3 || o.movement.velocity.length() > 1e-3);
+    // C++ Locomotor::moveTowardsPosition (Thrust) only applyForce()s; the
+    // PhysicsUpdate of the next frame integrates it into velocity/position.
+    assert!(
+        o.physics_accel.length() > 1e-3,
+        "thrust must apply a motive force toward the goal, accel={:?}",
+        o.physics_accel
+    );
 }
 
 #[test]
@@ -3376,7 +3385,13 @@ fn tick_physics_motion_step_clamps_ground() {
         bounced,
         "expected bounce force when crossing ground with ALLOW_BOUNCE"
     );
-    assert!(o.movement.velocity.y >= -1e-3);
+    // C++ PhysicsBehavior::handleBounce applies an upward force; the next
+    // PhysicsUpdate integrates it into velocity.
+    assert!(
+        o.physics_accel.y > 0.0,
+        "ground bounce must push the body back up, accel={:?}",
+        o.physics_accel
+    );
 }
 
 #[test]
