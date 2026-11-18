@@ -456,12 +456,17 @@ fn overlord_gattling_independent_acquire_not_stacked_primary() {
     {
         let o = logic.host_object_mut(turret).unwrap();
         o.set_ai_state(AIState::Idle, frame, &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
-        let mut weapon = crate::game_logic::Weapon::default();
-        weapon.last_fire_time = -10.0;
-        weapon.reload_time = 0.1;
-        weapon.range = 150.0;
-        weapon.damage = 10.0;
-        o.weapon = Some(weapon);
+        crate::fixture_content::arm_with_stats(
+            o,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 150.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
+                ..crate::game_logic::Weapon::default()
+            },
+        );
     }
     let victim = logic
         .create_object("UsaRanger", Team::USA, Vec3::new(20.0, 0.0, 0.0))
