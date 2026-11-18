@@ -161,6 +161,7 @@ fn xfer_installed_module(
     module: &mut dyn engine_module::Module,
     xfer: &mut dyn Xfer,
     definitions: Option<&native::ObjectXferDefinitions<'_>>,
+    owner_locomotors: Option<&crate::locomotor::LocomotorStore>,
 ) -> Result<(), String> {
     if let Some(definitions) = definitions {
         if let Some(result) = crate::contain_module_overrides::xfer_active_body_with_templates(
@@ -199,6 +200,25 @@ fn xfer_installed_module(
             .downcast_mut::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModule>(
         ) {
             return dozer.xfer_with_locomotors(xfer, &mut |name| Ok(definitions.locomotor(name)));
+        }
+    } else if let Some(store) = owner_locomotors {
+        // The caller holds this Object exclusively (`&mut self`). An AI module
+        // that discovered its Locomotor store through the owning handle would
+        // re-lock that same Object and never return, so the Object lends the
+        // store its own world owns (C++ TheLocomotorStore is one process
+        // table; this world's table is the receiving equivalent).
+        let mut lookup = |name: &str| Ok(store.get_template(name));
+        if let Some(ai) = module
+            .as_any_mut()
+            .downcast_mut::<crate::object::update::AIUpdateInterfaceModule>()
+        {
+            return ai.xfer_with_locomotors(xfer, &mut lookup);
+        }
+        if let Some(dozer) = module
+            .as_any_mut()
+            .downcast_mut::<crate::object::update::ai_update::dozer_ai_update::DozerAIUpdateModule>(
+        ) {
+            return dozer.xfer_with_locomotors(xfer, &mut lookup);
         }
     }
     module.xfer(xfer)
@@ -306,6 +326,7 @@ impl Object {
         definitions: Option<&native::ObjectXferDefinitions<'_>>,
     ) -> Result<(), ObjectXferError> {
         let object_id = self.id;
+        let owner_locomotors = self.owning_locomotor_store();
         let mut module_count = self.behavior_module_xfer_count();
         xfer.xfer_unsigned_short(&mut module_count)
             .map_err(|err| ObjectXferError::new(object_id, None, "module_count", err))?;
@@ -378,7 +399,7 @@ impl Object {
                 xfer.begin_block()
                     .map_err(|err| module_error("begin_block", err))?;
                 entry
-                    .with_module(|module| xfer_installed_module(module, xfer, definitions))
+                    .with_module(|module| xfer_installed_module(module, xfer, definitions, owner_locomotors.as_deref()))
                     .map_err(|err| {
                         ObjectXferError::new(
                             object_id,
@@ -419,7 +440,7 @@ impl Object {
                 if let Some(index) = module_index {
                     let entry = &self.modules[index];
                     entry
-                        .with_module(|module| xfer_installed_module(module, xfer, definitions))
+                        .with_module(|module| xfer_installed_module(module, xfer, definitions, owner_locomotors.as_deref()))
                         .map_err(|err| {
                             ObjectXferError::new(
                                 object_id,
