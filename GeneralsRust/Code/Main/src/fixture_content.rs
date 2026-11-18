@@ -553,6 +553,11 @@ pub(crate) fn arm_with_slot_stats_and_fields(
             if stats.next_fire_frame != 0 {
                 weapon.next_fire_frame = stats.next_fire_frame;
             }
+            // Weapon::getStatus before the deadline reports the status the
+            // last shot left (BetweenFiringShots / ReloadingClip).
+            if stats.frame_clock_status != Default::default() {
+                weapon.frame_clock_status = stats.frame_clock_status;
+            }
         }
     }
 }

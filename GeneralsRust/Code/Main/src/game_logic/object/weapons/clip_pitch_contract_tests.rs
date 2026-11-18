@@ -24,6 +24,7 @@ fn waiting_clip(clip: f32, between: f32) -> Object {
             // The authored frame scheduler owns readiness: the clip deadline
             // is the fire frame (30) plus ClipReloadTime floored to frames.
             next_fire_frame: 30 + (clip * 30.0).floor() as u32,
+            frame_clock_status: WeaponFireStatus::ReloadingClip,
             ..Weapon::default()
         },
     );
