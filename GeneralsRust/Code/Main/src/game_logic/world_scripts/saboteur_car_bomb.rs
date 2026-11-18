@@ -924,9 +924,14 @@ impl GameLogic {
         };
         let orientation = building.get_orientation();
         let p = exit.unit_create_point;
-        let mut create = building
-            .get_transform_matrix()
-            .transform_point3(glam::Vec3::new(p[0], p[2], p[1]));
+        // Same exit-offset frame as every other factory exit (production.rs,
+        // spawn_scheduler.rs): INI local X forward, Y left of facing, Z up.
+        let mut create =
+            crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                building.get_position(),
+                building.thing().get_direction_vector(),
+                (p[0], p[1], p[2]),
+            );
         let ground = crate::game_logic::game_logic::FlightTerrainView {
             grid: &self.pathfinding_system.grid,
             logical: Some(self.world_services.terrain().as_ref()),
@@ -956,9 +961,12 @@ impl GameLogic {
         let p = exit.natural_rally_point_with_path_offset(
             crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
         );
-        let natural = building
-            .get_transform_matrix()
-            .transform_point3(glam::Vec3::new(p[0], p[2], p[1]));
+        let natural =
+            crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                building.get_position(),
+                building.thing().get_direction_vector(),
+                (p[0], p[1], p[2]),
+            );
         let custom = building
             .building_data
             .as_ref()

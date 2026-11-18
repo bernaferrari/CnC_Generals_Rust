@@ -2918,9 +2918,12 @@ fn superweapon_grid_ties_follow_each_source_scan_direction() {
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     let mut seen = [false; 4];
     for seed in 1..=100 {
-        world.logic_random.seed_random(seed);
+        // `seedRandom(s)`'s first ADC draw is linear in `s` and reaches only two
+        // residues mod 4; vary a raw state word so every direction is drawn.
+        let words = [seed, 1, 2, 3, 4, 5];
+        world.logic_random.set_seed_words(words);
         let expected = SessionRandom::default();
-        expected.seed_random(seed);
+        expected.set_seed_words(words);
         let direction = expected.next_int(1, 4);
         seen[(direction - 1) as usize] = true;
         let position = ai.compute_superweapon_target(&world, 2, 50.0, true).unwrap();

@@ -8,6 +8,51 @@ pub(super) fn admit_retail_production_energy_rules(logic: &mut GameLogic) {
     crate::fixture_content::admit_retail_production_energy_rules(logic);
 }
 
+/// Retail GLAInfantryHijacker HijackerUpdate + AmericaParachute ParachuteContain
+/// (Data/INI/Object/GLAInfantry.ini, AmericaMiscUnit.ini), minus art and the
+/// locomotor sets. C++ reads HijackerUpdate's ParachuteName from this module
+/// data; a hand-built template has none, so the receiving world rejects it.
+pub(super) fn admit_authored_hijacker_content(logic: &mut GameLogic) {
+    let source = r#"
+Object GLAInfantryHijacker
+ KindOf = INFANTRY SELECTABLE
+ Body = ActiveBody ModuleTag_Body
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = HijackerUpdate ModuleTag_Hijack
+  ParachuteName = AmericaParachute
+ End
+End
+Object AmericaParachute
+ KindOf = PRELOAD PARACHUTE UNATTACKABLE
+ Body = ActiveBody ModuleTag_03
+  MaxHealth = 100000.0
+  InitialHealth = 100000.0
+ End
+ Behavior = ParachuteContain ModuleTag_05
+  PitchRateMax = 60
+  RollRateMax = 60
+  LowAltitudeDamping = 0.2
+  ParachuteOpenDist = 25.0
+  AllowInsideKindOf = INFANTRY PARACHUTABLE
+ End
+ Geometry = CYLINDER
+ GeometryMajorRadius = 15.0
+ GeometryHeight = 10.0
+ GeometryIsSmall = Yes
+End
+"#;
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "authored-hijacker-parachute.ini".into(),
+        source.to_owned(),
+    )])
+    .expect("authored hijacker content parses");
+    logic
+        .admit_receiving_module_content(content)
+        .expect("authored hijacker content admitted");
+}
+
 // Child module of game_logic.rs via `#[path]`.
 
 pub(super) fn host_state_residual_test_env_lock() -> parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()> {

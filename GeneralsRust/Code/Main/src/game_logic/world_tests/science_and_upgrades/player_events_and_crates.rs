@@ -1410,10 +1410,10 @@ fn america_parachute_land_releases_hijacker() {
     use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    let mut ht = ThingTemplate::new("GLAInfantryHijacker");
-    ht.add_kind_of(KindOf::Infantry);
-    let hid = ObjectId(5531);
-    logic.objects.insert(hid, Object::new(ht, hid, Team::GLA));
+    admit_authored_hijacker_content(&mut logic);
+    let hid = logic
+        .create_object("GLAInfantryHijacker", Team::GLA, glam::Vec3::ZERO)
+        .expect("authored hijacker");
     let mut vt = ThingTemplate::new("AmericaTankCrusader");
     vt.add_kind_of(KindOf::Vehicle);
     vt.add_kind_of(KindOf::Attackable);
@@ -1439,11 +1439,13 @@ fn america_parachute_land_releases_hijacker() {
         );
     }
     {
-        let h = logic.objects.get_mut(&hid).unwrap();
-        h.begin_hijacker_in_vehicle(
+        let frame = logic.frame;
+        let (h, partition) = logic.host_object_and_partition_mut(hid).unwrap();
+        h.begin_hijacker_in_vehicle_with_partition_owner(
             vid,
-            logic.frame,
+            frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            partition,
         );
     }
     logic.tick_hijacker_updates();

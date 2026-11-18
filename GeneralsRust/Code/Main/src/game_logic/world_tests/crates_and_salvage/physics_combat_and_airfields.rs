@@ -646,6 +646,26 @@ fn allied_player_tank_does_not_crush_friends() {
     );
 }
 
+/// C++ loads Geometry from the Object INI; hand-built fixtures state the
+/// authored shape that `PhysicsBehavior::onCollide` reads (an unauthored
+/// template has no collision extent, so the pair would never overlap).
+fn authored_bounce_geometry(
+    object: &mut crate::game_logic::Object,
+    geom_type: crate::game_logic::thing::HostGeometryType,
+    major: f32,
+    minor: f32,
+    height: f32,
+) {
+    object.set_geometry_shape(crate::game_logic::HostGeometryInfo {
+        geom_type,
+        is_small: false,
+        height,
+        major_radius: major,
+        minor_radius: minor,
+        authored: true,
+    });
+}
+
 #[test]
 fn apply_immobile_collide_bounce_scrubs_and_pushes() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
@@ -657,6 +677,7 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
     let mut m = Object::new(vt, mid, Team::USA);
     m.set_position(Vec3::new(0.0, 1.0, 0.0));
     m.movement.velocity = Vec3::new(8.0, 0.0, 0.0);
+    authored_bounce_geometry(&mut m, crate::game_logic::thing::HostGeometryType::Cylinder, 4.0, 4.0, 4.0);
     logic.objects.insert(mid, m);
 
     let mut st = ThingTemplate::new("BounceImm");
@@ -665,6 +686,7 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
     let iid = ObjectId(82);
     let mut s = Object::new(st, iid, Team::China);
     s.set_position(Vec3::new(5.0, 1.0, 0.0));
+    authored_bounce_geometry(&mut s, crate::game_logic::thing::HostGeometryType::Box, 10.0, 10.0, 10.0);
     logic.objects.insert(iid, s);
 
     assert!(logic.apply_immobile_collide_bounce(mid, iid, 10.0).unwrap());
@@ -684,6 +706,7 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
     p.set_position(Vec3::new(0.0, 10.0, 0.0));
     p.movement.velocity = Vec3::new(3.0, -1.0, 0.0);
     p.set_status_parachuting(true);
+    authored_bounce_geometry(&mut p, crate::game_logic::thing::HostGeometryType::Cylinder, 4.0, 4.0, 4.0);
     logic.objects.insert(pid, p);
     assert!(logic.apply_immobile_collide_bounce(pid, iid, 20.0).unwrap());
     let p = logic.objects.get(&pid).unwrap();
@@ -700,6 +723,7 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
     w.movement.velocity = Vec3::new(6.0, 0.0, 0.0);
     w.status.destroyed = true;
     w.health.current = 0.0;
+    authored_bounce_geometry(&mut w, crate::game_logic::thing::HostGeometryType::Cylinder, 4.0, 4.0, 4.0);
     logic.objects.insert(wid, w);
     assert!(logic.apply_immobile_collide_bounce(wid, iid, 10.0).unwrap());
     let w = logic.objects.get(&wid).unwrap();
@@ -724,6 +748,7 @@ fn apply_immobile_collide_bounce_parachute_walks_contain_chain() {
     let iid = ObjectId(182);
     let mut s = Object::new(st, iid, Team::China);
     s.set_position(Vec3::new(5.0, 1.0, 0.0));
+    authored_bounce_geometry(&mut s, crate::game_logic::thing::HostGeometryType::Box, 10.0, 10.0, 10.0);
     logic.objects.insert(iid, s);
 
     let mut ct = ThingTemplate::new("AmericaParachute");
@@ -732,6 +757,7 @@ fn apply_immobile_collide_bounce_parachute_walks_contain_chain() {
     let mut chute = Object::new(ct, cid, Team::USA);
     chute.set_position(Vec3::new(0.0, 12.0, 0.0));
     chute.movement.velocity = Vec3::new(3.0, -1.0, 0.5);
+    authored_bounce_geometry(&mut chute, crate::game_logic::thing::HostGeometryType::Cylinder, 4.0, 4.0, 4.0);
     logic.objects.insert(cid, chute);
 
     let mut pt = ThingTemplate::new("ParaRider");
@@ -742,6 +768,7 @@ fn apply_immobile_collide_bounce_parachute_walks_contain_chain() {
     rider.movement.velocity = Vec3::new(3.0, -1.0, 0.5);
     rider.set_status_parachuting(true);
     rider.set_contained_by_enclosing(Some(cid), false);
+    authored_bounce_geometry(&mut rider, crate::game_logic::thing::HostGeometryType::Cylinder, 4.0, 4.0, 4.0);
     logic.objects.insert(pid, rider);
 
     let rider_before = logic.objects.get(&pid).unwrap().get_position();
