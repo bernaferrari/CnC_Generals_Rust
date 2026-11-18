@@ -691,6 +691,8 @@ pub(super) fn ensure_test_saboteur_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(120.0)
         .set_cost(800, 0);
+    game_logic.admit_default_locomotors_if_unadmitted();
+    t.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     game_logic
         .templates
         .insert("GLAInfantrySaboteur".to_string(), t);
@@ -779,6 +781,8 @@ pub(super) fn ensure_test_black_lotus_template(game_logic: &mut GameLogic) {
             cash_bounty: None,
         });
     }
+    game_logic.admit_default_locomotors_if_unadmitted();
+    t.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     game_logic
         .templates
         .insert("ChinaInfantryBlackLotus".to_string(), t);
