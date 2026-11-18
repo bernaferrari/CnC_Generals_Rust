@@ -46,17 +46,18 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
         actively_constructing_model_bit(),
         d.dozer_tasks.current,
     );
-    // Full health: the next action update posts DOZER:RepairComplete and
-    // internalTaskComplete clears the animation and the REPAIR request.
+    // Full health: DozerAIUpdate::update (cpp:1585-1596) validates the active REPAIR
+    // task with ActionManager::canRepairObject first, which refuses a building at
+    // full health (ActionManager.cpp:409), so cancelTask clears the request and the
+    // animation before the action state could post DOZER:RepairComplete.
     let max = logic.host_object(sid).unwrap().health.maximum;
     logic.host_object_mut(sid).unwrap().health.current = max;
-    for _ in 0..5 {
-        drive_dozer_frame(&mut logic, &[did, sid]);
-        if logic.honesty_repair_complete_ok() {
-            break;
-        }
-    }
-    assert!(logic.honesty_repair_complete_ok());
+    drive_dozer_frame(&mut logic, &[did, sid]);
+    assert!(
+        !logic.honesty_repair_complete_ok(),
+        "the validation cancel precedes the action state's full-health branch"
+    );
+    assert_eq!(logic.host_object(did).unwrap().dozer_tasks.current, DozerTask::Invalid);
     let d = logic.host_object(did).expect("d");
     assert_eq!(d.dozer_tasks.requests[1].target, None);
     assert!(!host_model_condition_has(

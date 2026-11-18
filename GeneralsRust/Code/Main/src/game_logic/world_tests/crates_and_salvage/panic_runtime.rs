@@ -91,11 +91,8 @@ fn install_panic_fork_path(logic: &GameLogic) {
     drop(terrain);
 }
 
-/// The authored Object a panic world runs. A world restoring a snapshot of it
-/// must admit the same content (its module roster is checked on restore).
-fn admit_panic_content(logic: &mut GameLogic) {
-    // C++ chooseLocomotorSet(SET_PANIC) needs the Object's authored LocomotorSet
-    // to carry that row; Locomotor.ini is admitted before Object content.
+/// Locomotor.ini rows this fixture's Object authors (one admitted catalog).
+fn panic_locomotor_store() -> game_engine::common::ini::ini_locomotor::LocomotorStore {
     let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
     locomotors
         .apply_source(
@@ -103,6 +100,15 @@ fn admit_panic_content(logic: &mut GameLogic) {
              Locomotor FixturePanicRun\n Surfaces = GROUND\n Speed = 20\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n",
         )
         .expect("panic locomotors");
+    locomotors
+}
+
+/// The authored Object a panic world runs. A world restoring a snapshot of it
+/// must admit the same content (its module roster is checked on restore).
+fn admit_panic_content(logic: &mut GameLogic) {
+    // C++ chooseLocomotorSet(SET_PANIC) needs the Object's authored LocomotorSet
+    // to carry that row; Locomotor.ini is admitted before Object content.
+    let locomotors = panic_locomotor_store();
     logic
         .admit_locomotor_definitions(locomotors)
         .expect("locomotors admitted before Object content");
@@ -162,8 +168,14 @@ fn assert_panic_arrival_preconditions(unit: &Object) {
         .cur_locomotor_name
         .as_deref()
         .expect("active panic locomotor");
-    let binding = crate::game_logic::locomotor_bootstrap::fixture_locomotor_binding(name)
-        .expect("resolved panic locomotor");
+    // Resolve from the catalog this world admitted (the authored rows), never
+    // from a process-default catalog that cannot know fixture locomotors.
+    let binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_from_store(
+        &panic_locomotor_store(),
+        name,
+    )
+    .or_else(|| crate::game_logic::locomotor_bootstrap::fixture_locomotor_binding(name))
+    .expect("resolved panic locomotor");
     let last = *unit.movement.path.last().expect("completed panic path");
     let distance = unit.host_locomotor_distance_to_goal(unit.get_position(), last);
     let threshold = unit

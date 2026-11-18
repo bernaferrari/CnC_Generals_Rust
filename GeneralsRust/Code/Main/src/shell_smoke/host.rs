@@ -30,22 +30,17 @@ pub(super) struct HostSession {
 
 pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSession> {
     let mut logic = GameLogic::new();
-    let sources = pollster::block_on(
-        crate::cnc_game_engine::CnCGameEngine::load_startup_game_data_texts(None),
-    )
-    .map_err(gamelogic::GameLogicError::Configuration)?;
-    if sources.is_empty() {
-        return Err(gamelogic::GameLogicError::Configuration(
-            "authored startup GameData is unavailable".into(),
-        ));
-    }
-    let mut movement = game_engine::common::ini::ini_game_data::CameraMovementRules::default();
-    for (path, text) in sources {
-        movement = movement.overlay_ini_text(&text).map_err(|error| {
-            gamelogic::GameLogicError::Configuration(format!("{path}: {error}"))
-        })?;
-    }
-    logic.admit_camera_application_movement(movement);
+    // GameEngine::init brings up TheFileSystem, then loads GameData, Locomotor,
+    // PlayerTemplate, Multiplayer and Object INI before any NewGame
+    // (GameEngine.cpp:281-329, 428-458); NewGame requires that admitted content.
+    let _ = crate::subsystem_manager::SubsystemInterface::init(
+        &mut crate::subsystem_manager::FileSystemSubsystem::new(),
+    );
+    let definitions = crate::parallel_harness::RetailWorldDefinitions::load()
+        .map_err(|error| gamelogic::GameLogicError::Configuration(error.to_string()))?;
+    logic
+        .with_own_services_mut(|logic| definitions.admit(logic))
+        .map_err(gamelogic::GameLogicError::Configuration)?;
 
     let resolved = super::maps::resolve_host_map();
     let map_resolved = resolved.is_some();
@@ -167,10 +162,18 @@ pub(super) fn run_host_session(frames: u32) -> gamelogic::GameLogicResult<HostSe
     let presentation_ok = seed_ok
         && pres.frame.0 == logic.get_frame()
         && (pres.alive_object_count() > 0 || !map_loaded)
-        && !pres
-            .objects
-            .iter()
-            .any(|o| o.model_key.is_none() && !o.destroyed);
+        && !pres.objects.iter().any(|o| {
+            // Map-authored audio emitters (`Amb_*`: `Draw = W3DDefaultDraw`, no
+            // model) are drawn as nothing by design; any other object without a
+            // model is a presentation gap.
+            let authored_model_less = logic.host_object(o.id).is_some_and(|object| {
+                object
+                    .get_template()
+                    .authored_draw_models_for_conditions(0)
+                    .is_some_and(|models| models.is_empty())
+            });
+            o.model_key.is_none() && !o.destroyed && !authored_model_less
+        });
 
     // Dual-tick residual honesty: seed frame applied, then post-update presentation
     // matches authority frame (start_game_from_ui / engine dual-tick order).

@@ -443,11 +443,17 @@ fn parsed_bridge_debris_is_owned_per_world_and_uses_receiving_lod_mask() {
     );
     assert_eq!(left_chunk.physics_mass, 5.0);
     assert_eq!(right_chunk.physics_mass, 5.0);
-    let expected_offset =
-        glam::Mat3::from_rotation_z(std::f32::consts::FRAC_PI_2) * Vec3::new(1.0, 2.0, 3.0);
+    // Offset (x=1 forward, y=2 left, z=3 up) through the source's model frame.
+    // The Thing yaw convention maps orientation pi/2 to host forward -Z (the
+    // open pose-convention bead owns the mirror); left = Y x forward = -X.
+    let forward = Vec3::new(0.0, 0.0, -1.0);
+    let model_left = Vec3::Y.cross(forward);
+    let expected_offset = forward * 1.0 + model_left * 2.0 + Vec3::Y * 3.0;
     assert!(
         (left_chunk.get_position() - (Vec3::new(20.0, 0.0, 30.0) + expected_offset)).length()
-            < 1e-4
+            < 1e-4,
+        "debris at {:?}",
+        left_chunk.get_position()
     );
     assert_eq!(
         left.live_drawable_model_names(),

@@ -788,12 +788,12 @@ impl GameLogic {
             );
             return OclExecutionOutcome::success(Vec::new());
         }
-        let Some((owner_player_id, source_layer, source_matrix, source_orientation)) =
+        let Some((owner_player_id, source_layer, source_forward, source_orientation)) =
             self.objects.get(&source_id).map(|source| {
                 (
                     source.owner_player_id,
                     source.pathfind_layer,
-                    source.get_transform_matrix(),
+                    source.thing().get_direction_vector(),
                     source.get_orientation(),
                 )
             })
@@ -827,12 +827,18 @@ impl GameLogic {
                 log::warn!("receiving CreateDebris selected an empty model name; item skipped");
                 continue;
             }
-            // C++ ObjectCreationList.cpp:953-960 transforms its Z-up Coord3D
-            // Offset through the primary Object matrix before translating.
-            // Thing's receiving transform matrix is in that same source basis;
-            // transform the vector without applying the matrix translation.
-            let local_offset = Vec3::new(generic.offset.x, generic.offset.y, generic.offset.z);
-            let position = origin + source_matrix.transform_vector3(local_offset);
+            // C++ ObjectCreationList.cpp:953-960 `adjustVector(&offset, mtx)`
+            // rotates the authored Z-up Offset (x forward, y left, z up) through
+            // the primary Object's matrix, then adds it to the origin. The host
+            // is Y-up, so the offset is applied in the object's model frame the
+            // same way every other authored model-space offset is (INI X =
+            // forward, INI Y = left, INI Z = up); feeding (x, y, z) straight
+            // into the host matrix would rotate "y" as if it were height.
+            let position = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                origin,
+                source_forward,
+                (generic.offset.x, generic.offset.y, generic.offset.z),
+            );
             let creation = self.create_object_for_owner_or_team_with_birth_checked(
                 "GenericDebris",
                 team,
