@@ -143,15 +143,17 @@ fn overlord_bunker_infantry_residual_fire_without_helix_flag() {
             0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        if r.weapon.is_none() {
-            r.weapon = Some(crate::game_logic::Weapon::default());
-        }
-        if let Some(w) = r.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.reload_time = 0.1;
-            w.range = 150.0;
-            w.damage = 10.0;
-        }
+        crate::fixture_content::arm_with_stats(
+            r,
+            crate::game_logic::Weapon {
+                damage: 10.0,
+                range: 150.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
+                ..crate::game_logic::Weapon::default()
+            },
+        );
     }
     let victim = logic
         .create_object("UsaRanger", Team::USA, Vec3::new(20.0, 0.0, 0.0))
@@ -2624,7 +2626,6 @@ fn occupant_death_recalcs_hide_garrisoned_state() {
 fn player_who_entered_pulses_one_frame() {
     // hq-5yuxu: C++ OpenContain::update zeros the mask; BUILDING_ENTERED is not sticky.
 
-    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
     let mut logic = GameLogic::new();
     logic
         .players
@@ -2660,7 +2661,7 @@ fn player_who_entered_pulses_one_frame() {
     logic.stamp_player_who_entered(bunker, ranger_id);
     logic.inject_host_script_query_snapshot();
     assert_eq!(
-        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_building_entered_by_player("NamedBunker", "PlyrAmerica"),
+        gamelogic::scripting::HostScriptQuery::of(&logic.world_services).host_building_entered_by_player("NamedBunker", "PlyrAmerica"),
         Some(true),
         "enter frame must pulse BUILDING_ENTERED"
     );
@@ -2668,9 +2669,8 @@ fn player_who_entered_pulses_one_frame() {
     logic.update_support_states(&[bunker, ranger_id], 1.0 / 30.0);
     logic.inject_host_script_query_snapshot();
     assert_eq!(
-        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_building_entered_by_player("NamedBunker", "PlyrAmerica"),
+        gamelogic::scripting::HostScriptQuery::of(&logic.world_services).host_building_entered_by_player("NamedBunker", "PlyrAmerica"),
         Some(false),
         "next OpenContain::update must clear the pulse even while occupied"
     );
-    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 }
