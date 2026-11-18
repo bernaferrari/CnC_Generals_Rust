@@ -398,18 +398,24 @@ fn authored_explicit_vertical_goal_does_not_add_maintain_height_force() {
 }
 
 /// ChinookTakeoffOrLandingState::onEnter: findPositionAround clears the landing
-/// spot of other objects, so two Chinooks at one spot land apart.
+/// spot of other objects. PartitionFilterWouldCollide gates on the vertical
+/// interval, so only a Chinook already sitting on the ground blocks the spot
+/// (airborne ones at another height do not, same as C++): the second Chinook
+/// lands beside the first, not on it.
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn live_host_chinooks_unstack_landing_dest() {
     isolated("live_host_chinooks_unstack_landing_dest", || {
-        let (mut logic, a, _) = authored_match();
-        let position = logic.host_object(a).unwrap().get_position();
-        let b = logic
-            .create_object("Hq46k12CombatChinook", Team::USA, position)
+        let (mut logic, landed, _) = authored_match();
+        let air = logic.host_object(landed).unwrap().get_position();
+        let ground = Vec3::new(air.x, 0.0, air.z);
+        let (object, partition) = logic.host_object_and_partition_mut(landed).unwrap();
+        object.set_position_with_partition_owner(ground, 0, &mut Default::default(), partition);
+        let arriving = logic
+            .create_object("Hq46k12CombatChinook", Team::USA, air)
             .expect("second authored Chinook");
-        for id in [a, b] {
-            let object = logic.host_object_mut(id).unwrap();
+        {
+            let object = logic.host_object_mut(arriving).unwrap();
             assert!(object.cur_locomotor_name.is_some());
             object.pending_evacuate_on_stop = true;
         }
@@ -421,23 +427,36 @@ fn live_host_chinooks_unstack_landing_dest() {
         logic
             .tick_chinook_ai(1.0 / 30.0)
             .expect("receiving AI operation succeeds");
-        let destinations = [a, b].map(|id| {
-            let object = logic.host_object(id).unwrap();
-            let ai = object.chinook_ai.as_ref().unwrap();
-            assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
-            assert_eq!(object.locomotor_goal_type, LocoGoalType::PositionExplicit);
-            assert!(object.precise_z_pos && object.ultra_accurate);
-            assert_eq!(
-                object.movement.target_position,
-                Some(Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]))
-            );
-            ai.dest
-        });
-        let [da, db] = destinations;
-        let stacked = (da[0] - db[0]).abs() < 1.0 && (da[1] - db[1]).abs() < 1.0;
+        let object = logic.host_object(arriving).unwrap();
+        let ai = object.chinook_ai.as_ref().unwrap();
+        assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
+        assert_eq!(object.locomotor_goal_type, LocoGoalType::PositionExplicit);
+        assert!(object.precise_z_pos && object.ultra_accurate);
+        assert_eq!(
+            object.movement.target_position,
+            Some(Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]))
+        );
+        let dest = Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]);
+        let blocker = logic.host_object(landed).unwrap();
+        let probe = crate::game_logic::HostGeometryInfo {
+            geom_type: crate::game_logic::HostGeometryType::Sphere,
+            is_small: true,
+            height: 5.0,
+            major_radius: 5.0,
+            minor_radius: 5.0,
+            authored: true,
+        };
         assert!(
-            !stacked,
-            "chinooks must not share one LZ da={da:?} db={db:?}"
+            !crate::game_logic::partition_geometry::object_would_collide_2d(
+                dest,
+                &probe,
+                0.0,
+                blocker.get_position(),
+                &blocker.geometry_info(),
+                blocker.get_orientation(),
+            ),
+            "landing spot {dest:?} must clear the landed Chinook at {:?}",
+            blocker.get_position()
         );
     });
 }
