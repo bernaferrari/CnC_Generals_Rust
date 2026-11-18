@@ -95,7 +95,6 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
     let mut logic = GameLogic::new();
     // A live session runs past frame 0 (the Dozer machine picks its request next update).
     logic.frame = 10;
-    admit_retail_production_energy_rules(&mut logic);
     logic.admit_player_template_definitions(definitions).unwrap();
     // Authored dozer content: the Dozer machine is the only builder.
     ensure_admitted_dozer_content(&mut logic).expect("authored dozer content admits");

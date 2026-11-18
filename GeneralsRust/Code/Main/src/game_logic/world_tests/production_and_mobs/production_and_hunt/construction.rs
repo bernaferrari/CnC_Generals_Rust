@@ -226,66 +226,45 @@ fn exact_player_template_production_maps_keep_cpp_name_semantics() {
 #[test]
 fn dozer_construction_rate_applies_handicap_buildtime() {
     // hq-mzfv5: C++ calcTimeToBuild multiplies Handicap::BUILDTIME before power.
-    use crate::game_logic::{KindOf, Player, ThingTemplate};
+    use super::super::super::helpers::{
+        advance_logic_frames, ensure_admitted_dozer_content,
+    };
     let mut logic = GameLogic::new();
-    admit_retail_production_energy_rules(&mut logic);
-    let mut player = Player::new(0, Team::USA, "P0", true);
-    player.map_side.handicap_build_time_buildings = 2.0;
-    player.power_produced = 10;
-    player.power_consumed = 0;
-    logic.add_player(player);
-
-    let mut pad = ThingTemplate::new("HandicapPad");
-    pad.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(1_000.0);
-    pad.build_time = 10.0;
-    logic.templates.insert("HandicapPad".into(), pad);
-
-    let mut dozer_tpl = ThingTemplate::new("HandicapDozer");
-    dozer_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .set_health(200.0);
-    logic.templates.insert("HandicapDozer".into(), dozer_tpl);
-
+    // A live session runs past frame 0 (the Dozer machine picks its request next update).
+    logic.frame = 10;
+    // Authored dozer content (DozerAIUpdate is the only builder) and the
+    // authored TestBuilding (BuildTime = 10 seconds).
+    ensure_admitted_dozer_content(&mut logic).expect("authored dozer content admits");
+    {
+        let player = logic.players.get_mut(&0).expect("player");
+        player.map_side.handicap_build_time_buildings = 2.0;
+        player.power_produced = 10;
+        player.power_consumed = 0;
+    }
     let pad_id = logic
-        .create_object_for_player("HandicapPad", 0, Vec3::ZERO)
+        .create_object_for_player("TestBuilding", 0, Vec3::ZERO)
         .expect("pad");
     let dozer = logic
-        .create_object_for_player("HandicapDozer", 0, Vec3::new(5.0, 0.0, 0.0))
+        .create_object_for_player("TestDozer", 0, Vec3::new(5.0, 0.0, 0.0))
         .expect("dozer");
     {
         let obj = logic.host_object_mut(pad_id).expect("pad");
         obj.set_status_under_construction(true);
         obj.construction_percent = 0.0;
-        obj.builder_id = Some(dozer);
     }
-    {
-        let ai_entry_frame = logic.frame;
-        let (obj, attack_events) = logic
-            .host_object_and_attack_events_mut(dozer)
-            .expect("dozer");
-        obj.set_target(
-            Some(pad_id),
-            ai_entry_frame,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        obj.set_ai_state(
-            AIState::Constructing,
-            ai_entry_frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        obj.status.moving = false;
-        obj.set_dozer_dock_action(Some(obj.get_position()));
+    assert!(logic.resume_construction(&[dozer], pad_id).expect("resume"));
+    // The builder walks to its dock; the first BUILD frame is the first progress.
+    let mut progress = 0.0;
+    for _ in 0..300 {
+        advance_logic_frames(&mut logic, 1);
+        progress = logic.host_object(pad_id).unwrap().construction_percent;
+        if progress > 0.0 {
+            break;
+        }
     }
-
-    logic.update_construction(&[pad_id], 1.0);
-    let progress = logic.host_object(pad_id).unwrap().construction_percent;
-    // 10s * 30 = 300 frames * 2.0 handicap = 600 frames → 30/600 = 0.05 / sec.
+    // 10s * 30 = 300 frames * 2.0 handicap = 600 frames per full build.
     assert!(
-        (progress - 0.05).abs() < 0.001,
+        (progress - 1.0 / 600.0).abs() < 1e-6,
         "hq-mzfv5: handicap BUILDTIME must scale dozer construction, got {progress}"
     );
 }
@@ -424,79 +403,56 @@ fn simulation_step_builds_when_dozer_is_at_the_pad() {
     );
 }
 
-#[test]
-fn simulation_step_finishes_a_short_build() {
-    use crate::game_logic::{KindOf, Player, ThingTemplate};
+/// A real short build: the authored Dozer resumes a TestBuilding scaffold, walks
+/// to its dock and builds it in a few frames. Returns the world, the pad, the
+/// dozer, its action dock and its end dock, plus the dozer's path end and
+/// ignored obstacle observed on the frame the build completed.
+fn run_authored_short_build() -> (GameLogic, ObjectId, ObjectId, Vec3, Vec3, Option<Vec3>, Option<ObjectId>) {
+    use super::super::super::helpers::{advance_logic_frames, ensure_admitted_dozer_content};
     let mut logic = GameLogic::new();
-    admit_retail_production_energy_rules(&mut logic);
-    logic.add_player(Player::new(0, Team::USA, "P0", true));
-    let mut pad = ThingTemplate::new("FinishPad");
-    pad.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(1_000.0);
-    pad.build_time = 0.1;
-    logic.templates.insert("FinishPad".into(), pad);
-    let mut dozer_tpl = ThingTemplate::new("FinishDozer");
-    dozer_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .set_health(200.0);
-    logic.templates.insert("FinishDozer".into(), dozer_tpl);
+    // A live session runs past frame 0 (the Dozer machine picks its request next update).
+    logic.frame = 10;
+    ensure_admitted_dozer_content(&mut logic).expect("authored dozer content admits");
     let pad_id = logic
-        .create_object_for_player("FinishPad", 0, Vec3::ZERO)
+        .create_object_for_player("TestBuilding", 0, Vec3::ZERO)
         .expect("pad");
     let dozer = logic
-        .create_object_for_player("FinishDozer", 0, Vec3::ZERO)
+        .create_object_for_player("TestDozer", 0, Vec3::new(5.0, 0.0, 0.0))
         .expect("dozer");
-    logic.dozer_new_task_build(dozer, pad_id);
+    {
+        let obj = logic.host_object_mut(pad_id).expect("pad");
+        obj.template_mut().build_time = 0.1; // 3 frames
+        obj.set_status_under_construction(true);
+        obj.construction_percent = 0.0;
+    }
+    assert!(logic.resume_construction(&[dozer], pad_id).expect("resume"));
     let action = logic
         .host_object(dozer)
         .and_then(|d| d.dozer_dock_action())
-        .expect("dozer_new_task_build stores the action dock");
+        .expect("resume stores the action dock");
     let building_pos = logic.host_object(pad_id).expect("pad").get_position();
     let end_dock = crate::game_logic::host_repair::dozer_end_dock_position(action, building_pos);
-    {
-        let obj = logic.host_object_mut(pad_id).expect("pad");
-        obj.set_status_under_construction(true);
-        obj.builder_id = Some(dozer);
-    }
-    {
-        let ai_entry_frame = logic.frame;
-        let (obj, attack_events, _fixture_audio_obj, fixture_partition_obj) = logic
-            .host_object_attack_audio_partition_mut(dozer)
-            .expect("dozer");
-        obj.set_position_with_partition_owner(
-            action,
-            0,
-            &mut Default::default(),
-            fixture_partition_obj,
-        );
-        obj.set_target(
-            Some(pad_id),
-            ai_entry_frame,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        obj.set_ai_state(
-            AIState::Constructing,
-            ai_entry_frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        obj.movement.clear_path();
-        obj.waiting_for_path = false;
-    }
-    let mut at_finish: Option<Vec3> = None;
-    for _ in 0..30 {
-        logic.update();
+    let mut path_end = None;
+    let mut ignored = None;
+    for _ in 0..300 {
+        advance_logic_frames(&mut logic, 1);
         let done = logic
             .host_object(pad_id)
             .is_some_and(|pad| !pad.status.under_construction && pad.construction_percent >= 1.0);
-        if done && at_finish.is_none() {
-            at_finish = logic
-                .host_object(dozer)
-                .and_then(|dozer_obj| dozer_obj.movement.path.last().copied());
+        if done {
+            let unit = logic.host_object(dozer).expect("dozer");
+            path_end = unit.movement.path.last().copied();
+            ignored = unit.ignored_obstacle_id;
+            break;
         }
     }
+    advance_logic_frames(&mut logic, 40);
+    (logic, pad_id, dozer, action, end_dock, path_end, ignored)
+}
+
+#[test]
+fn simulation_step_finishes_a_short_build() {
+    let (logic, pad_id, dozer, action, end_dock, path_end, _) = run_authored_short_build();
     let pad = logic.host_object(pad_id).unwrap();
     assert!(
         !pad.status.under_construction && pad.construction_percent >= 1.0,
@@ -504,7 +460,7 @@ fn simulation_step_finishes_a_short_build() {
         pad.construction_percent,
         pad.status.under_construction
     );
-    let path_end = at_finish.expect("completion-frame path to the end dock");
+    let path_end = path_end.expect("completion-frame path to the end dock");
     assert!(
         path_end.distance(end_dock) < 15.0,
         "completion-frame path must end at the end dock, path_end={path_end:?} end_dock={end_dock:?}"
@@ -528,88 +484,20 @@ fn simulation_step_finishes_a_short_build() {
 
 #[test]
 fn owned_construction_completion_walks_the_dozer_off_the_pad() {
-    use crate::game_logic::{KindOf, Player, ThingTemplate};
-    let mut logic = GameLogic::new();
-    admit_retail_production_energy_rules(&mut logic);
-    logic.add_player(Player::new(0, Team::USA, "P0", true));
-
-    let mut pad = ThingTemplate::new("SolePad");
-    pad.add_kind_of(KindOf::Structure).set_health(1_000.0);
-    logic.templates.insert("SolePad".into(), pad);
-    let mut dozer_tpl = ThingTemplate::new("SoleDozer");
-    dozer_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .set_health(200.0);
-    logic.templates.insert("SoleDozer".into(), dozer_tpl);
-    let pad_id = logic
-        .create_object_for_player("SolePad", 0, Vec3::ZERO)
-        .expect("pad");
-    let dozer = logic
-        .create_object_for_player("SoleDozer", 0, Vec3::ZERO)
-        .expect("dozer");
-    logic.dozer_new_task_build(dozer, pad_id);
-    let action = logic
-        .host_object(dozer)
-        .and_then(|d| d.dozer_dock_action())
-        .expect("dozer_new_task_build stores the action dock");
-    {
-        let obj = logic.host_object_mut(pad_id).expect("pad");
-        obj.set_status_under_construction(true);
-        obj.construction_percent = 1.0;
-        obj.builder_id = Some(dozer);
-    }
-    {
-        let ai_entry_frame = logic.frame;
-        let (obj, attack_events, _fixture_audio_obj, fixture_partition_obj) = logic
-            .host_object_attack_audio_partition_mut(dozer)
-            .expect("dozer");
-        obj.set_position_with_partition_owner(
-            action,
-            0,
-            &mut Default::default(),
-            fixture_partition_obj,
-        );
-        obj.set_target(
-            Some(pad_id),
-            ai_entry_frame,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        obj.set_ai_state(
-            AIState::Constructing,
-            ai_entry_frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        obj.movement.clear_path();
-        obj.waiting_for_path = false;
-    }
-
-    logic.update_construction(&[pad_id, dozer], 1.0 / 30.0);
-
-    let building_pos = logic.host_object(pad_id).expect("pad").get_position();
-    let end_dock = crate::game_logic::host_repair::dozer_end_dock_position(action, building_pos);
-    {
-        let unit = logic.host_object(dozer).expect("dozer");
-        let path_end = unit.movement.path.last().copied();
-        assert_eq!(
-            unit.ignored_obstacle_id,
-            Some(pad_id),
-            "sole-tick exit must ignore the finished building"
-        );
-        assert!(
-            path_end.is_some_and(|p| p.distance(end_dock) < 15.0),
-            "sole-tick exit must aim at the end dock, path={:?} end={end_dock:?}",
-            unit.movement.path
-        );
-    }
-    for _ in 0..40 {
-        logic.update();
-    }
+    let (logic, pad_id, dozer, action, end_dock, path_end, ignored) = run_authored_short_build();
+    assert_eq!(
+        ignored,
+        Some(pad_id),
+        "completion exit must ignore the finished building"
+    );
+    assert!(
+        path_end.is_some_and(|p| p.distance(end_dock) < 15.0),
+        "completion exit must aim at the end dock, path_end={path_end:?} end={end_dock:?}"
+    );
     let unit = logic.host_object(dozer).expect("dozer");
     assert!(
         unit.get_position().distance(action) > 1.0,
-        "sole-tick dozer must leave the pad, pos={:?} ai={:?} vel={:?} ignore={:?} target={:?} path={:?}",
+        "dozer must leave the pad, pos={:?} ai={:?} vel={:?} ignore={:?} target={:?} path={:?}",
         unit.get_position(),
         unit.ai_state(),
         unit.movement.velocity,

@@ -46,6 +46,10 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
                 FixtureObject::new("OwnerScopedReadySupplyCenter")
                     .kind_of("STRUCTURE FS_SUPPLY_CENTER")
                     .health(1_000.0),
+                // The paradrop's authored passenger (the Ranger template it drops).
+                FixtureObject::new(crate::game_logic::host_paradrop::AMERICA_RANGER_TEMPLATE)
+                    .kind_of("INFANTRY SELECTABLE")
+                    .health(120.0),
             ],
         );
     }
@@ -2109,12 +2113,14 @@ fn actively_constructing_bit_on_dozer_and_factory() {
         }
         super::super::helpers::advance_logic_frames(&mut logic, 1);
     }
+    super::super::helpers::advance_logic_frames(&mut logic, 1);
     logic.update_actively_constructing_model_conditions();
     let d = logic.host_object(did).expect("d");
-    assert!(host_model_condition_has(
-        d.model_condition_bits,
-        actively_constructing_model_bit()
-    ));
+    assert!(
+        host_model_condition_has(d.model_condition_bits, actively_constructing_model_bit()),
+        "dozer at its dock must be ACTIVELY_CONSTRUCTING: {}",
+        super::super::helpers::dozer_site_state(&logic, did, sid)
+    );
     let b = logic.host_object(bid).expect("b");
     assert!(
         host_model_condition_has(b.model_condition_bits, actively_constructing_model_bit()),
