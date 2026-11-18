@@ -1258,17 +1258,17 @@ fn point_defense_zero_delay_rescan_tracks_before_a_new_target_arrives() {
         let (object, partition) = world.host_object_and_partition_mut(first).unwrap();
         object.set_position_with_partition_owner(Vec3::new(100.0, 0.0, 0.0), 2, &mut Default::default(), partition);
     }
-    let reference = game_engine::common::random_value::SessionRandom::default();
-    // The ADC stream's first draw from `seedRandom(s)` is linear in `s`, so
-    // set the six C++ state words directly to reach the zero branch.
-    let words = (0..10_000u32).map(|w| [w, 1, 2, 3, 4, 5]).find(|words| {
-        reference.set_seed_words(*words);
-        reference.next_int(0, 3) == 0
-    }).unwrap();
-    world.logic_random.set_seed_words(words);
+    // Script the zero branch of GameLogicRandomValue(0, 3); the generator itself
+    // must not move, so exactly one scripted draw is consumed per update.
+    let untouched = world.logic_random.seed_words();
+    let assert_only_scripted_draw = |world: &GameLogic| {
+        assert_eq!(world.logic_random.script_remaining(), 0, "the update consumed the scripted draw");
+        assert_eq!(world.logic_random.seed_words(), untouched, "and drew nothing beyond it");
+    };
+    world.logic_random.script_int(0, 3, 0);
     world.frame = 2;
     step_test_point_defense(&mut world);
-    assert_eq!(world.logic_random.seed_words(), reference.seed_words());
+    assert_only_scripted_draw(&world);
     assert_eq!(world.host_object(tracked).unwrap().health.current, 300.0,
         "an immediate rescan must not fire recursively");
 
@@ -1282,10 +1282,10 @@ fn point_defense_zero_delay_rescan_tracks_before_a_new_target_arrives() {
     // An already-dead tracked target takes the same zero-delay path, even
     // though no weapon fires on this update.
     world.host_object_mut(tracked).unwrap().status.effectively_dead = true;
-    world.logic_random.set_seed_words(words);
+    world.logic_random.script_int(0, 3, 0);
     world.frame = 4;
     step_test_point_defense(&mut world);
-    assert_eq!(world.logic_random.seed_words(), reference.seed_words());
+    assert_only_scripted_draw(&world);
     assert_eq!(world.host_object(newcomer).unwrap().health.current, 300.0);
     let later = world.create_object("RescanMissile", Team::GLA, Vec3::new(5.0, 0.0, 0.0)).unwrap();
     world.frame = 5;
@@ -1304,15 +1304,15 @@ fn point_defense_zero_delay_rescan_tracks_before_a_new_target_arrives() {
         object.set_position_with_partition_owner(Vec3::new(20.0, 0.0, 0.0), 6, &mut Default::default(), partition);
     }
     world.host_object_mut(newcomer).unwrap().status.effectively_dead = true;
-    world.logic_random.set_seed_words(words);
+    world.logic_random.script_int(0, 3, 0);
     world.frame = 6;
     step_test_point_defense(&mut world);
-    assert_eq!(world.logic_random.seed_words(), reference.seed_words());
+    assert_only_scripted_draw(&world);
     assert_eq!(world.host_object(later).unwrap().health.current, 300.0);
-    world.logic_random.set_seed_words(words);
+    world.logic_random.script_int(0, 3, 0);
     world.frame = 7;
     step_test_point_defense(&mut world);
-    assert_eq!(world.logic_random.seed_words(), reference.seed_words());
+    assert_only_scripted_draw(&world);
     assert_eq!(world.host_object(later).unwrap().health.current, 300.0,
         "zero-delay rescans retain the closest registered corpse without firing");
 

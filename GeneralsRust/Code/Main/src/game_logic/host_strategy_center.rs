@@ -2132,32 +2132,22 @@ mod tests {
             STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES as i32,
         ) as u32;
         assert_eq!(idle_scan_interval_frames(&random), expected_iv);
-        // TurretAI.cpp:1264 GameLogicRandomValue(min, max): the draw spans the
-        // authored interval for any seed (it must not collapse to the old
-        // index-0 min mix). Generator-independent, so scan a seed range.
-        let mut seen = std::collections::BTreeSet::new();
-        for seed in 0..256u32 {
-            random.seed_random(seed);
-            expected_random.seed_random(seed);
-            let iv = idle_scan_interval_frames(&random);
-            assert_eq!(
-                iv,
-                expected_random.next_int(
-                    STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES as i32,
-                    STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES as i32,
-                ) as u32
+        // TurretAI.cpp:1264 GameLogicRandomValue(min, max): the interval is the
+        // draw itself, across the whole authored range.
+        for want in [
+            STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES,
+            (STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES
+                + STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES)
+                / 2,
+            STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES,
+        ] {
+            random.script_int(
+                STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES as i32,
+                STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES as i32,
+                want as i32,
             );
-            assert!(
-                (STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES
-                    ..=STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES)
-                    .contains(&iv)
-            );
-            seen.insert(iv);
+            assert_eq!(idle_scan_interval_frames(&random), want);
         }
-        assert!(
-            seen.len() > 1 && seen.iter().any(|iv| *iv != STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES),
-            "idle scan interval draws vary across the authored range: {seen:?}"
-        );
         random.seed_random(0xC0FFEE);
         expected_random.seed_random(0xC0FFEE);
         random.seed_random(0xBEEF);

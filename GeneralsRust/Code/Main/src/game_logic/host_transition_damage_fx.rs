@@ -1128,14 +1128,12 @@ pub const YELLOW_DAMAGE_PERCENT: f32 = 0.25;
 #[cfg(test)]
 struct TransitionDamageFxState {
     dispatched_armor_damage_fx: std::sync::Mutex<Vec<String>>,
-    voice_fear_roll: std::sync::Mutex<Option<i32>>,
 }
 
 #[cfg(test)]
 static TRANSITION_DAMAGE_FX_STATE: std::sync::LazyLock<TransitionDamageFxState> =
     std::sync::LazyLock::new(|| TransitionDamageFxState {
         dispatched_armor_damage_fx: std::sync::Mutex::new(Vec::new()),
-        voice_fear_roll: std::sync::Mutex::new(None),
     });
 
 /// C++ `ActiveBody.cpp:625-631` yellow-health VoiceFear gate + 25% roll.
@@ -1153,30 +1151,17 @@ pub fn voice_fear_should_play(
     prev_ratio > YELLOW_DAMAGE_PERCENT && cur_ratio < YELLOW_DAMAGE_PERCENT && roll_0_99 < 25
 }
 
-#[cfg(test)]
-pub fn set_test_voice_fear_roll(roll: Option<i32>) {
-    *TRANSITION_DAMAGE_FX_STATE.voice_fear_roll.lock().unwrap_or_else(|p| p.into_inner()) = roll;
-}
-
 /// Draw the ActiveBody fear chance from the session that owns the damage
-/// continuation. The test override keeps the boundary cases deterministic.
+/// continuation.
 pub fn take_voice_fear_roll_from_session(
     random: &game_engine::common::random_value::SessionRandom,
 ) -> i32 {
-    #[cfg(test)]
-    if let Some(roll) = TRANSITION_DAMAGE_FX_STATE.voice_fear_roll.lock().unwrap_or_else(|p| p.into_inner()).clone() {
-        return roll;
-    }
     random.next_int(0, 99)
 }
 
 /// Detached Object adapters have no session owner; retain their compatibility
 /// draw separately from the receiving GameLogic path.
 pub(crate) fn take_detached_voice_fear_roll() -> i32 {
-    #[cfg(test)]
-    if let Some(roll) = TRANSITION_DAMAGE_FX_STATE.voice_fear_roll.lock().unwrap_or_else(|p| p.into_inner()).clone() {
-        return roll;
-    }
     game_engine::common::random_value::get_game_logic_random_value(0, 99)
 }
 

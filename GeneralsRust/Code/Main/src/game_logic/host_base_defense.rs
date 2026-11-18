@@ -2691,21 +2691,20 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= PATRIOT_SCATTER_RADIUS_VS_INFANTRY + 0.01);
-        // Tight hit radius can miss; large hit radius hits. The draw is
-        // GameLogicRandomValueReal(0, radius) (Weapon.cpp:980), so which seed
-        // lands inside a tight radius depends on the generator; the contract is
-        // asserted over a seed range, not one generator-specific seed. Seeds are
-        // spread by a golden-ratio multiplier because the first draw after
-        // seedRandom(s) is linear in s (RandomValue.cpp add-with-carry), so
-        // consecutive small seeds all land on nearly the same real.
-        let tight_misses = (0..64u32)
-            .map(|s| s.wrapping_mul(0x9E37_79B9))
-            .filter(|seed| patriot_scatter_misses_infantry(true, *seed, 0.5))
-            .count();
-        assert!(
-            tight_misses > 0 && tight_misses < 64,
-            "a tight hit radius misses on some draws and hits on others: {tight_misses}/64"
-        );
+        // The miss predicate is exactly "the scattered aim leaves the hit radius"
+        // for the seed's draw, whichever draw that is.
+        for seed in 0..64u32 {
+            let offset = crate::game_logic::weapon_bootstrap::scatter_aim_offset(
+                seed,
+                PATRIOT_SCATTER_RADIUS_VS_INFANTRY,
+            );
+            let distance = (offset.x * offset.x + offset.z * offset.z).sqrt();
+            assert_eq!(
+                patriot_scatter_misses_infantry(true, seed, 0.5),
+                distance > 1.0,
+                "seed {seed}: scatter distance {distance}"
+            );
+        }
         for seed in 0..64 {
             assert!(!patriot_scatter_misses_infantry(true, seed, 100.0));
             assert!(!patriot_scatter_misses_infantry(false, seed, 0.5));
@@ -2724,7 +2723,12 @@ mod tests {
         assert!(applied);
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= STINGER_SCATTER_RADIUS_VS_INFANTRY + 0.01);
-        assert!(stinger_scatter_misses_infantry(true, 17, 0.5));
+        let offset = crate::game_logic::weapon_bootstrap::scatter_aim_offset(
+            17,
+            STINGER_SCATTER_RADIUS_VS_INFANTRY,
+        );
+        let distance = (offset.x * offset.x + offset.z * offset.z).sqrt();
+        assert_eq!(stinger_scatter_misses_infantry(true, 17, 0.5), distance > 1.0);
         assert!(!stinger_scatter_misses_infantry(true, 17, 100.0));
         assert!(!stinger_scatter_misses_infantry(false, 17, 0.5));
     }

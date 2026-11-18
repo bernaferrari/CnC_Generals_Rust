@@ -44,6 +44,14 @@ fn adc(a: u32, b: u32, c: u32) -> (u32, u32) {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RandomState {
     seed: [u32; 6],
+    /// Test-only scripted `randomValue` outputs, consumed before the generator
+    /// (see [`RandomState::script_raw`]). Never part of the C++ seed words.
+    #[cfg(any(test, feature = "test-ambient-services"))]
+    script: std::collections::VecDeque<u32>,
+    /// Test-only constant draw served after the script is empty
+    /// (see [`RandomState::fix_int`]).
+    #[cfg(any(test, feature = "test-ambient-services"))]
+    fixed: Option<u32>,
 }
 
 impl Default for RandomState {
@@ -54,11 +62,25 @@ impl Default for RandomState {
 
 impl RandomState {
     const fn new() -> Self {
-        Self { seed: INITIAL_SEED }
+        Self {
+            seed: INITIAL_SEED,
+            #[cfg(any(test, feature = "test-ambient-services"))]
+            script: std::collections::VecDeque::new(),
+            #[cfg(any(test, feature = "test-ambient-services"))]
+            fixed: None,
+        }
     }
 
     /// C++ `randomValue(UnsignedInt *seed)`: step the stream, return `ax`.
     pub fn next_u32(&mut self) -> u32 {
+        #[cfg(any(test, feature = "test-ambient-services"))]
+        if let Some(scripted) = self.script.pop_front() {
+            return scripted;
+        }
+        #[cfg(any(test, feature = "test-ambient-services"))]
+        if let Some(fixed) = self.fixed {
+            return fixed;
+        }
         let seed = &mut self.seed;
         let (mut ax, mut c) = adc(seed[5], seed[4], 0);
         seed[4] = ax;
@@ -150,6 +172,59 @@ impl RandomState {
     }
 }
 
+/// The one scripted-draw test source. Behavior tests that need a particular
+/// outcome (a roll that passes, the first of N choices, ...) script the raw
+/// `randomValue` outputs of the world's own stream instead of searching for a
+/// seed, so replacing the generator changes only the generator's known-sequence
+/// tests. Scripted outputs are consumed one per `next_u32` before the real
+/// generator, which stays untouched: after the script is drained the stream
+/// continues from the exact state it had.
+#[cfg(any(test, feature = "test-ambient-services"))]
+impl RandomState {
+    /// Queue raw `randomValue` outputs, consumed first-in-first-out.
+    pub fn script_raw(&mut self, raws: impl IntoIterator<Item = u32>) {
+        self.script.extend(raws);
+    }
+
+    /// Queue the raw output for which `next_int(lo, hi)` returns `want`.
+    pub fn script_int(&mut self, lo: i32, hi: i32, want: i32) {
+        let delta = hi.wrapping_sub(lo).wrapping_add(1) as u32;
+        let offset = want.wrapping_sub(lo) as u32;
+        assert!(
+            delta != 0 && lo <= want && want <= hi && offset < delta,
+            "scripted {want} is outside [{lo}, {hi}] or the range draws nothing"
+        );
+        self.script.push_back(offset);
+    }
+
+    /// Queue the raw output for which `next_real(lo, hi)` lands `fraction`
+    /// (0.0..=1.0) of the way from `lo` to `hi`.
+    pub fn script_unit_real(&mut self, fraction: f32) {
+        assert!((0.0..=1.0).contains(&fraction), "fraction {fraction} outside 0..=1");
+        self.script.push_back((f64::from(fraction) * f64::from(u32::MAX)).round() as u32);
+    }
+
+    /// Scripted outputs not yet consumed.
+    pub fn script_remaining(&self) -> usize {
+        self.script.len()
+    }
+
+    /// Every later draw (after the queued script) returns the raw output for
+    /// which `next_int(lo, hi)` yields `want`, until [`Self::clear_fixed`].
+    /// For tests whose behavior needs "the roll always passes/fails" rather
+    /// than one particular draw. The generator itself does not move.
+    pub fn fix_int(&mut self, lo: i32, hi: i32, want: i32) {
+        let mut probe = Self::default();
+        probe.script_int(lo, hi, want);
+        self.fixed = probe.script.pop_front();
+    }
+
+    /// Stop serving the fixed draw.
+    pub fn clear_fixed(&mut self) {
+        self.fixed = None;
+    }
+}
+
 /// Process random streams live on [`crate::common::common_services::CommonServices::random`].
 
 /// A session's sole logic stream, used by synchronous callbacks.
@@ -201,6 +276,30 @@ impl SessionRandom {
     /// One `randomValue` step on the shared stream.
     pub fn next_u32(&self) -> u32 {
         self.state.lock().next_u32()
+    }
+}
+
+/// Scripted-draw test source for the session's shared stream; see
+/// [`RandomState::script_raw`].
+#[cfg(any(test, feature = "test-ambient-services"))]
+impl SessionRandom {
+    pub fn script_raw(&self, raws: impl IntoIterator<Item = u32>) {
+        self.state.lock().script_raw(raws);
+    }
+    pub fn script_int(&self, lo: i32, hi: i32, want: i32) {
+        self.state.lock().script_int(lo, hi, want);
+    }
+    pub fn script_unit_real(&self, fraction: f32) {
+        self.state.lock().script_unit_real(fraction);
+    }
+    pub fn script_remaining(&self) -> usize {
+        self.state.lock().script_remaining()
+    }
+    pub fn fix_int(&self, lo: i32, hi: i32, want: i32) {
+        self.state.lock().fix_int(lo, hi, want);
+    }
+    pub fn clear_fixed(&self) {
+        self.state.lock().clear_fixed();
     }
 }
 

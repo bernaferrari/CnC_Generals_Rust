@@ -1998,7 +1998,6 @@ mod tests {
 
     #[test]
     fn take_damage_emits_template_voice_fear_to_supplied_receiver() {
-        use crate::game_logic::host_transition_damage_fx::set_test_voice_fear_roll;
         let mut health_events = crate::game_logic::HostHealthEvents::default();
         let mut template = ThingTemplate::new("FearRanger");
         template.set_health(100.0).add_kind_of(KindOf::Infantry);
@@ -2007,8 +2006,11 @@ mod tests {
         ranger.health.current = 40.0;
         ranger.owner_player_id = Some(1);
         ranger.set_position(glam::Vec3::new(120.0, 4.0, 80.0));
-        set_test_voice_fear_roll(Some(0));
         let mut audio = Vec::new();
+        // The detached Object draws its fear chance from the scoped logic stream.
+        let stream = game_engine::common::random_value::SessionRandom::default();
+        stream.fix_int(0, 99, 0);
+        game_engine::common::random_value::with_session_random(&stream, || {
         let mut receiver = |object: &mut Object,
                             effect,
                             source: Option<
@@ -2038,7 +2040,7 @@ mod tests {
             &false,
             &mut receiver
         ));
-        set_test_voice_fear_roll(None);
+        });
         assert_eq!(ranger.health.current, 20.0);
         assert_eq!(audio.len(), 1);
         assert_eq!(audio[0].event_type, "RangerVoiceFear");

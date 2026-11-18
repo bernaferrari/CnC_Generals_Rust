@@ -10,21 +10,11 @@ fn isolated(name: &str, run: impl FnOnce()) {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(module_path!(), name, run);
 }
 
-struct Roll;
-impl Roll {
-    fn new(value: i32) -> Self {
-        crate::game_logic::host_transition_damage_fx::set_test_voice_fear_roll(Some(value));
-        Self
-    }
-}
-impl Drop for Roll {
-    fn drop(&mut self) {
-        crate::game_logic::host_transition_damage_fx::set_test_voice_fear_roll(None);
-    }
-}
-
-fn receiving(voice: &str, owner: u32) -> (GameLogic, ObjectId) {
+/// A world whose own logic stream answers every ActiveBody fear chance with `roll`
+/// (GameLogicRandomValue(0, 99)); the generator itself is not involved.
+fn receiving(voice: &str, owner: u32, roll: i32) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
+    world.logic_random.fix_int(0, 99, roll);
     let ini = format!(
         "Object OwnedFearInfantry\n KindOf = INFANTRY\n VoiceFear = {voice}\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
     );
@@ -56,17 +46,6 @@ fn hit(world: &mut GameLogic, id: ObjectId, amount: f32) {
         .unwrap();
 }
 
-fn seed_with_successful_fear_roll() -> (u32, i32, [u32; 6]) {
-    for seed in 1..=1000 {
-        let random = game_engine::common::random_value::SessionRandom::default();
-        random.seed_random(seed);
-        let roll = random.next_int(0, 99);
-        if roll < 25 {
-            return (seed, roll, random.seed_words());
-        }
-    }
-    unreachable!("a successful fear roll exists in the seed space")
-}
 fn assert_fear(requests: &[AudioEventRequest], name: &str, position: Vec3, owner: u32) {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].event_type, name);
@@ -83,9 +62,8 @@ fn receiving_damage_emits_once_with_owned_definition_position_and_player() {
     isolated(
         "receiving_damage_emits_once_with_owned_definition_position_and_player",
         || {
-            let _roll = Roll::new(0);
-            let (mut a, aid) = receiving("OwnerAFear", 1);
-            let (mut b, bid) = receiving("OwnerBFear", 2);
+                        let (mut a, aid) = receiving("OwnerAFear", 1, 0);
+            let (mut b, bid) = receiving("OwnerBFear", 2, 0);
             assert_eq!(aid, bid);
             b.set_fixture_object_position(bid, Vec3::new(-30., 9., 75.));
             hit(&mut a, aid, 20.);
@@ -163,51 +141,31 @@ fn receiving_voice_fear_draw_uses_the_interleaved_world_rng() {
     isolated(
         "receiving_voice_fear_draw_uses_the_interleaved_world_rng",
         || {
-            let (seed_a, expected_roll, expected_words) = seed_with_successful_fear_roll();
-            let (mut control_a, control_id) = receiving("OwnerAFear", 1);
-            let (mut a, a_id) = receiving("OwnerAFear", 1);
-            let (mut b, b_id) = receiving("OwnerBFear", 2);
-            assert_eq!(control_id, a_id);
+            // Each world answers from its own stream: A's scripted chance passes,
+            // the same-ID peer B's fails, whatever order they are damaged in.
+            let (mut a, a_id) = receiving("OwnerAFear", 1, 99);
+            let (mut b, b_id) = receiving("OwnerBFear", 2, 99);
+            a.logic_random.clear_fixed();
+            b.logic_random.clear_fixed();
             assert_eq!(a_id, b_id, "test worlds reuse the same object id");
-            for world in [&mut control_a, &mut a] {
-                world.set_logic_random_seed(seed_a);
-            }
-            b.set_logic_random_seed(0xB22D_F002);
+            a.logic_random.script_int(0, 99, 7);
+            b.logic_random.script_int(0, 99, 90);
+            let (a_words, b_words) = (a.logic_random.seed_words(), b.logic_random.seed_words());
 
-            hit(&mut control_a, control_id, 20.);
-            assert_fear(
-                &control_a.queued_audio_events,
-                "OwnerAFear",
-                Vec3::new(120., 4., 80.),
-                1,
-            );
-            assert_eq!(
-                control_a.logic_random.seed_words(),
-                expected_words,
-                "eligible fear crossing consumes exactly one receiving draw"
-            );
-
-            // Exercise the same production damage boundary in a peer first, with
-            // additional peer-only draws around it. A's chance and continuation
-            // must still match its isolated control stream.
-            for _ in 0..17 {
-                b.logic_random.next_int(0, 999);
-            }
             hit(&mut b, b_id, 20.);
-            b.logic_random.next_int(0, 999);
+            assert!(b.queued_audio_events.is_empty(), "B's own chance of 90 fails");
+            assert_eq!(a.logic_random.script_remaining(), 1, "B's hit left A's stream alone");
             hit(&mut a, a_id, 20.);
-            assert!(expected_roll < 25);
             assert_fear(
                 &a.queued_audio_events,
                 "OwnerAFear",
                 Vec3::new(120., 4., 80.),
                 1,
             );
-            assert_eq!(a.logic_random.seed_words(), expected_words);
-            assert_eq!(
-                a.logic_random.seed_words(),
-                control_a.logic_random.seed_words()
-            );
+            for (world, words) in [(&a, a_words), (&b, b_words)] {
+                assert_eq!(world.logic_random.script_remaining(), 0, "exactly one chance draw each");
+                assert_eq!(world.logic_random.seed_words(), words);
+            }
         },
     );
 }
@@ -273,8 +231,7 @@ fn residual_body_route_uses_the_same_receiving_audio_owner() {
     isolated(
         "residual_body_route_uses_the_same_receiving_audio_owner",
         || {
-            let _roll = Roll::new(24);
-            let (mut world, id) = receiving("ResidualFear", 3);
+                        let (mut world, id) = receiving("ResidualFear", 3, 24);
             assert!(!world.apply_residual_damage_owned(
                 id,
                 20.,
@@ -298,7 +255,9 @@ fn callback_completion_rereads_late_values_and_is_consumed_once_before_damage_fx
     isolated(
         "callback_completion_rereads_late_values_and_is_consumed_once_before_damage_fx",
         || {
-            let _roll = Roll::new(0);
+                        let stream = game_engine::common::random_value::SessionRandom::default();
+            stream.fix_int(0, 99, 0);
+            game_engine::common::random_value::with_session_random(&stream, || {
             let mut template = ThingTemplate::new("BeforeCallback");
             template
                 .set_health(100.)
@@ -355,6 +314,7 @@ fn callback_completion_rereads_late_values_and_is_consumed_once_before_damage_fx
             );
             application.finish_standalone_with_body_fx(&mut object, None, &false, &mut receiver);
             assert_fear(&audio, "BeforeCallbackFear", Vec3::new(81., 2., -33.), 11);
+            });
         },
     );
 }
@@ -364,9 +324,8 @@ fn actual_radiation_producers_deliver_fear_to_their_receiving_world() {
     isolated(
         "actual_radiation_producers_deliver_fear_to_their_receiving_world",
         || {
-            let _roll = Roll::new(0);
-            for mode in 0..3 {
-                let (mut world, victim) = receiving("RadiationFear", 1);
+                        for mode in 0..3 {
+                let (mut world, victim) = receiving("RadiationFear", 1, 0);
                 let position = Vec3::ZERO;
                 world.set_fixture_object_position(victim, position);
                 world.host_object_mut(victim).unwrap().health.current =
@@ -431,14 +390,13 @@ fn encoded_restore_rebinds_fear_definition_and_discards_outgoing_audio() {
     isolated(
         "encoded_restore_rebinds_fear_definition_and_discards_outgoing_audio",
         || {
-            let _roll = Roll::new(0);
-            let (source, id) = receiving("SavedFear", 1);
+                        let (source, id) = receiving("SavedFear", 1, 0);
             let builder = crate::save_load::SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&source).unwrap();
             let bytes = bincode_legacy::serialize(&snapshot).unwrap();
             let decoded =
                 crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
-            let (mut receiver, rid) = receiving("SavedFear", 1);
+            let (mut receiver, rid) = receiving("SavedFear", 1, 0);
             assert_eq!(id, rid);
             receiver
                 .queued_audio_events
@@ -459,6 +417,7 @@ fn encoded_restore_rebinds_fear_definition_and_discards_outgoing_audio() {
             builder
                 .restore_from_snapshot(&decoded, &mut receiver)
                 .unwrap();
+            receiver.logic_random.fix_int(0, 99, 0);
             assert!(receiver.queued_audio_events.is_empty());
             hit(&mut receiver, id, 20.);
             assert_fear(
@@ -484,8 +443,7 @@ fn receiving_negative_health_chance_and_nosound_cases_stay_silent() {
                 ("NegativeFear", 40., 40., 0),
                 ("NoSound", 40., 20., 0),
             ] {
-                let _roll = Roll::new(roll);
-                let (mut world, id) = receiving(voice, 1);
+                                let (mut world, id) = receiving(voice, 1, roll);
                 world.host_object_mut(id).unwrap().health.current = health;
                 hit(&mut world, id, damage);
                 assert!(
@@ -502,8 +460,7 @@ fn fear_is_already_admitted_when_the_original_post_damage_fx_point_is_observed()
     isolated(
         "fear_is_already_admitted_when_the_original_post_damage_fx_point_is_observed",
         || {
-            let _roll = Roll::new(0);
-            let (mut world, id) = receiving("BeforeArmorObserverFear", 1);
+                        let (mut world, id) = receiving("BeforeArmorObserverFear", 1, 0);
             let mut observed = false;
             world
                 .apply_owned_damage_with_killer_team_and_after_fx(

@@ -2863,7 +2863,6 @@ fn superweapon_grid_uses_source_ceil_and_receiving_logic_random() {
     // AIPlayer.cpp:1147-1218 and BaseType.h:204-210: width/radius
     // is exactly 1, so fast_float_ceil gives 2 and the grid has 3 columns.
     use crate::game_logic::{GameLogic, KindOf, Player, ThingTemplate};
-    use game_engine::common::random_value::SessionRandom;
 
     let mut world = GameLogic::new();
     world.add_player(Player::new(1, Team::USA, "AI", false));
@@ -2882,18 +2881,18 @@ fn superweapon_grid_uses_source_ceil_and_receiving_logic_random() {
     }
     world.create_object_for_player("SwTarget", 2, glam::Vec3::new(80.0, 0.0, 20.0)).unwrap();
     let peer = GameLogic::new();
-    world.logic_random.seed_random(0x51A7);
+    // Scripted GameLogicRandomValue(1, 4) = 4: the fourth scan direction.
+    world.logic_random.script_int(1, 4, 4);
     peer.logic_random.seed_random(0xBEEF);
     let peer_before = peer.logic_random.seed_words();
-    let expected = SessionRandom::default();
-    expected.seed_random(0x51A7);
-    expected.next_int(1, 4);
+    let untouched = world.logic_random.seed_words();
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     let position = ai.compute_superweapon_target(&world, 2, 50.0, true).unwrap();
     assert!((position.x - 83.333_336).abs() < 0.001, "{position:?}");
     assert!((position.z - 20.0).abs() < 0.001, "{position:?}");
-    assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+    assert_eq!(world.logic_random.script_remaining(), 0, "one receiving-world draw");
+    assert_eq!(world.logic_random.seed_words(), untouched);
     assert_eq!(peer.logic_random.seed_words(), peer_before);
 }
 
@@ -2902,7 +2901,6 @@ fn superweapon_grid_ties_follow_each_source_scan_direction() {
     // AIPlayer.cpp:1176-1218 starts reverse scans at count, not count-1,
     // and keeps the first equal-scoring coarse sample.
     use crate::game_logic::{GameLogic, KindOf, Player, ThingTemplate};
-    use game_engine::common::random_value::SessionRandom;
 
     let mut world = GameLogic::new();
     world.add_player(Player::new(1, Team::USA, "AI", false));
@@ -2916,24 +2914,17 @@ fn superweapon_grid_ties_follow_each_source_scan_direction() {
         world.create_object_for_player("SwTieBounds", 2, glam::Vec3::new(x, 0.0, z)).unwrap();
     }
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-    let mut seen = [false; 4];
-    for seed in 1..=100 {
-        // `seedRandom(s)`'s first ADC draw is linear in `s` and reaches only two
-        // residues mod 4; vary a raw state word so every direction is drawn.
-        let words = [seed, 1, 2, 3, 4, 5];
-        world.logic_random.set_seed_words(words);
-        let expected = SessionRandom::default();
-        expected.set_seed_words(words);
-        let direction = expected.next_int(1, 4);
-        seen[(direction - 1) as usize] = true;
+    let untouched = world.logic_random.seed_words();
+    for direction in 1..=4 {
+        world.logic_random.script_int(1, 4, direction);
         let position = ai.compute_superweapon_target(&world, 2, 50.0, true).unwrap();
         let x = if direction == 1 || direction == 3 { 50.0 } else { 100.0 };
         let z = if direction <= 2 { 20.0 } else { 120.0 };
         assert!((position.x - x).abs() < 0.001, "direction {direction}: {position:?}");
         assert!((position.z - z).abs() < 0.001, "direction {direction}: {position:?}");
-        assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+        assert_eq!(world.logic_random.script_remaining(), 0, "direction {direction} draw consumed");
+        assert_eq!(world.logic_random.seed_words(), untouched);
     }
-    assert!(seen.into_iter().all(|direction| direction));
 }
 
 #[test]

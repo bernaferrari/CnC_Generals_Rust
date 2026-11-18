@@ -1336,3 +1336,47 @@ fn raw_cpp_words_round_trip_and_retired_capsule_reseeds_deterministically() {
     a.set_seed_words(capsule);
     assert_eq!(a, stream(0x1234));
 }
+
+#[test]
+fn scripted_draws_precede_an_untouched_generator() {
+    let mut scripted = RandomState::default();
+    scripted.seed_random(77);
+    let mut plain = scripted.clone();
+    scripted.script_int(10, 20, 13);
+    scripted.script_unit_real(0.25);
+    scripted.script_raw([5]);
+    assert_eq!(scripted.script_remaining(), 3);
+    assert_eq!(scripted.next_int(10, 20), 13);
+    let quarter = scripted.next_real(0.0, 8.0);
+    assert!((quarter - 2.0).abs() < 1e-3, "{quarter}");
+    assert_eq!(scripted.next_u32(), 5);
+    assert_eq!(scripted.script_remaining(), 0);
+    // The generator itself never moved while the script was served.
+    assert_eq!(scripted.seed_words(), plain.seed_words());
+    assert_eq!(scripted.next_u32(), plain.next_u32());
+}
+
+#[test]
+fn scripted_int_covers_every_value_of_a_range() {
+    let mut rng = RandomState::default();
+    for want in -3..=4 {
+        rng.script_int(-3, 4, want);
+        assert_eq!(rng.next_int(-3, 4), want);
+    }
+}
+
+#[test]
+fn fixed_draw_repeats_after_the_script_without_moving_the_generator() {
+    let mut rng = RandomState::default();
+    let words = rng.seed_words();
+    rng.fix_int(0, 99, 24);
+    rng.script_int(0, 99, 3);
+    assert_eq!(rng.next_int(0, 99), 3);
+    for _ in 0..5 {
+        assert_eq!(rng.next_int(0, 99), 24);
+    }
+    assert_eq!(rng.seed_words(), words);
+    rng.clear_fixed();
+    let mut plain = RandomState::default();
+    assert_eq!(rng.next_u32(), plain.next_u32());
+}

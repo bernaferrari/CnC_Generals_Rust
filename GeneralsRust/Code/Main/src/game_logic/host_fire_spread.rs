@@ -686,21 +686,24 @@ mod tests {
     }
 
     #[test]
-    fn spread_delay_is_random_in_authored_range() {
+    fn spread_delay_follows_the_logic_draw_across_the_authored_range() {
+        // FireSpreadUpdate: GameLogicRandomValue(MinSpreadDelay, MaxSpreadDelay).
         let d = HostFireSpreadData::tree_default();
-        let mut seen = std::collections::BTreeSet::new();
-        for salt in 0..32 {
-            let delay = d.calc_next_spread_delay(salt);
-            assert!(
-                (TREE_MIN_SPREAD_DELAY_FRAMES..=TREE_MAX_SPREAD_DELAY_FRAMES).contains(&delay),
-                "delay {delay} outside 30..=60"
+        let random = game_engine::common::random_value::SessionRandom::default();
+        let untouched = random.seed_words();
+        for want in [
+            TREE_MIN_SPREAD_DELAY_FRAMES,
+            (TREE_MIN_SPREAD_DELAY_FRAMES + TREE_MAX_SPREAD_DELAY_FRAMES) / 2,
+            TREE_MAX_SPREAD_DELAY_FRAMES,
+        ] {
+            random.script_int(
+                TREE_MIN_SPREAD_DELAY_FRAMES as i32,
+                TREE_MAX_SPREAD_DELAY_FRAMES as i32,
+                want as i32,
             );
-            seen.insert(delay);
+            assert_eq!(d.calc_next_spread_delay_with_random(&random), want);
         }
-        assert!(
-            seen.len() > 1,
-            "GameLogicRandomValue must not collapse to a fixed midpoint"
-        );
+        assert_eq!(random.seed_words(), untouched, "one draw per delay, nothing else");
     }
 
     #[test]
