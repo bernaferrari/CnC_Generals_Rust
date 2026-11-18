@@ -1176,13 +1176,24 @@ fn direct_hit_applies_dual_radius_splash_to_neighbors() {
     );
 }
 
+/// Two playable Players whose map relationship is ENEMIES (Player::getRelationship
+/// reads the map-side relationship), so splash filters and Object::scoreTheKill
+/// see an enemy.
+fn enemy_players(logic: &mut GameLogic) {
+    use crate::game_logic::Player;
+    for (id, team, name, other) in [(0, Team::USA, "SplashUSA", 1), (1, Team::China, "SplashChina", 0)] {
+        let mut player = Player::new(id, team, name, true);
+        player.set_map_relationship(other, gamelogic::common::Relationship::Enemies);
+        logic.add_player(player);
+    }
+}
+
 #[test]
 fn splash_kill_awards_score_the_kill_experience() {
     let mut logic = GameLogic::new();
     // Object::scoreTheKill (Object.cpp:2898-2905) awards XP only across Players:
     // an enemy Relationship and a playable-side victim owner.
-    ensure_test_player_for_team(&mut logic, Team::USA);
-    ensure_test_player_for_team(&mut logic, Team::China);
+    enemy_players(&mut logic);
     {
         let mut t = ThingTemplate::new("SplashGun");
         t.primary_weapon_name = Some("FireBaseHowitzerGun".into());
@@ -1290,6 +1301,7 @@ End
     assert_ne!(omitted & WEAPON_AFFECTS_ALLIES, 0);
 
     let mut logic = GameLogic::new();
+    enemy_players(&mut logic);
     {
         let mut t = ThingTemplate::new("SplashSrc");
         t.primary_weapon_name = Some("TestNoAllySplashWeapon".into());
@@ -1405,6 +1417,7 @@ End
     assert_eq!(mask & WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_NEUTRALS);
 
     let mut logic = GameLogic::new();
+    enemy_players(&mut logic);
     {
         let mut t = ThingTemplate::new("NaSrc");
         t.primary_weapon_name = Some("TestNotAirborneSplashWeapon".into());
