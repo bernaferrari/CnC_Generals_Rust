@@ -1445,7 +1445,7 @@ impl NetworkInterface {
             }
         };
 
-        let command_id = crate::net_command_messages::generate_next_command_id();
+        let command_id = self.connection_manager.read().await.command_ids().next_id();
         let portable_name = {
             let game_state = get_game_state();
             game_state.real_map_path_to_portable_map_path(&path_ref.to_string_lossy())
@@ -1957,6 +1957,8 @@ impl NetworkInterface {
         if command.execution_frame == 0 {
             command.execution_frame = self.execution_frame();
         }
+        // The local FrameData copy and every remote copy carry the same id.
+        command.stamp_command_id(&self.connection_manager.read().await.command_ids());
         {
             let frame_manager = self.frame_manager.read().await;
             if let Err(err) = frame_manager.add_command(command.clone()).await {

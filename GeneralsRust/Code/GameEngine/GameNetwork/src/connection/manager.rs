@@ -575,7 +575,8 @@ impl EnhancedConnectionManager {
     }
 
     /// Send command to specific player
-    pub async fn send_command(&self, player_id: u8, command: NetCommand) -> NetworkResult<()> {
+    pub async fn send_command(&self, player_id: u8, mut command: NetCommand) -> NetworkResult<()> {
+        command.stamp_command_id(&self.config.command_ids);
         #[cfg(feature = "performance")]
         let connection = self.connections.get(&player_id);
         #[cfg(not(feature = "performance"))]
@@ -600,7 +601,8 @@ impl EnhancedConnectionManager {
     }
 
     /// Broadcast command to all players
-    pub async fn broadcast_command(&self, command: NetCommand) -> NetworkResult<()> {
+    pub async fn broadcast_command(&self, mut command: NetCommand) -> NetworkResult<()> {
+        command.stamp_command_id(&self.config.command_ids);
         let mut errors = Vec::new();
 
         #[cfg(feature = "performance")]
@@ -917,9 +919,10 @@ impl EnhancedConnectionManager {
     /// Matches C++ ConnectionManager::sendLocalCommand()
     pub async fn send_local_command(
         &self,
-        command: NetCommand,
+        mut command: NetCommand,
         relay_mask: u8,
     ) -> NetworkResult<()> {
+        command.stamp_command_id(&self.config.command_ids);
         // Send to all players in the relay mask
         for player_id in 0..8u8 {
             if (relay_mask & (1 << player_id)) != 0 {
@@ -1275,7 +1278,7 @@ impl EnhancedConnectionManager {
         use crate::commands::{CommandPayload, FileAnnouncementData};
         use crate::file_transfer::{FileMetadata, TransferType};
 
-        let command_id = crate::net_command_messages::generate_next_command_id();
+        let command_id = self.config.command_ids.next_id();
 
         let metadata = FileMetadata {
             filename: path.to_string(),

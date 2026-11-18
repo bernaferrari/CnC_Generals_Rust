@@ -97,13 +97,10 @@ impl NetCommand {
         execution_frame: u32,
         payload: CommandPayload,
     ) -> Self {
-        let command_id = if Self::requires_command_id(command_type) {
-            Uuid::from_u128(crate::net_command_messages::generate_next_command_id() as u128)
-        } else {
-            Uuid::nil()
-        };
+        // Like the C++ NetCommandMsg constructor the id starts unassigned; the
+        // sender stamps it when it queues the command (`stamp_command_id`).
         Self {
-            id: command_id,
+            id: Uuid::nil(),
             command_type,
             player_id,
             execution_frame,
@@ -353,6 +350,14 @@ impl NetCommand {
                 encrypted: false,
             },
             _ => CommandFlags::default(),
+        }
+    }
+
+    /// Assign this command's id from the sender's generator when its type
+    /// carries one and none was assigned yet (C++ `setID(GenerateNextCommandID())`).
+    pub fn stamp_command_id(&mut self, ids: &crate::net_command_messages::CommandIdGenerator) {
+        if self.id.is_nil() && Self::requires_command_id(self.command_type) {
+            self.id = Uuid::from_u128(ids.next_id() as u128);
         }
     }
 

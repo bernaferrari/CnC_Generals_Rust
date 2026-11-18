@@ -914,12 +914,38 @@ fn get_timestamp() -> u32 {
         .as_millis() as u32
 }
 
-/// Global command ID generator
-/// Matches C++ GenerateNextCommandID() function
-static NEXT_COMMAND_ID: AtomicU16 = AtomicU16::new(64000);
+/// Command ID generator, owned by the sender (one per `ConnectionManager`,
+/// shared with its connections through `ConnectionConfig`).
+///
+/// C++ `GenerateNextCommandID()` (NetworkUtil.cpp) keeps a function-static
+/// counter and every sender (ConnectionManager, DisconnectManager, NetPacket
+/// wrappers) calls `msg->setID(GenerateNextCommandID())` when it queues a
+/// message, not the message constructor; ids only have to be unique per
+/// sending player, which one generator per local node guarantees.
+#[derive(Debug)]
+pub struct CommandIdGenerator {
+    next: AtomicU16,
+}
 
-pub fn generate_next_command_id() -> u16 {
-    NEXT_COMMAND_ID.fetch_add(1, Ordering::SeqCst)
+impl CommandIdGenerator {
+    /// First id handed out, as in C++ (`static UnsignedShort commandID = 64000`).
+    pub const FIRST_ID: u16 = 64000;
+
+    pub fn new() -> Self {
+        Self {
+            next: AtomicU16::new(Self::FIRST_ID),
+        }
+    }
+
+    pub fn next_id(&self) -> u16 {
+        self.next.fetch_add(1, Ordering::SeqCst)
+    }
+}
+
+impl Default for CommandIdGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Check if command type requires a command ID
@@ -980,9 +1006,13 @@ mod tests {
 
     #[test]
     fn test_command_id_generation() {
-        let id1 = generate_next_command_id();
-        let id2 = generate_next_command_id();
+        let ids = CommandIdGenerator::new();
+        let id1 = ids.next_id();
+        let id2 = ids.next_id();
+        assert_eq!(id1, CommandIdGenerator::FIRST_ID);
         assert!(id2 > id1);
+        // Independent senders count independently.
+        assert_eq!(CommandIdGenerator::new().next_id(), CommandIdGenerator::FIRST_ID);
     }
 
     #[test]

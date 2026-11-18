@@ -656,6 +656,12 @@ pub struct ConnectionConfig {
     pub local_slot: usize,
     /// Whether this connection is the packet router
     pub is_packet_router: bool,
+    /// Command id source of the sending node. Clones of a config (one per
+    /// connection of a manager) share the generator, so ids stay unique per
+    /// sender across all of its connections; a deserialized config starts a
+    /// fresh one.
+    #[serde(skip)]
+    pub command_ids: Arc<crate::net_command_messages::CommandIdGenerator>,
 }
 
 impl Default for ConnectionConfig {
@@ -674,6 +680,7 @@ impl Default for ConnectionConfig {
             local_player_id: 0,
             local_slot: 0,
             is_packet_router: false,
+            command_ids: Arc::default(),
         }
     }
 }
@@ -872,10 +879,12 @@ impl Connection {
             let security = self.security.clone();
             let encryption_enabled = self.config.enable_encryption;
             let player_id = self.player_id;
+            let command_ids = self.config.command_ids.clone();
             let mut shutdown_rx_clone = shutdown_tx.subscribe();
 
             let handle = tokio::spawn(async move {
                 Self::message_processing_task(
+                    command_ids,
                     connection_id,
                     outbound,
                     transport,
@@ -959,6 +968,7 @@ impl Connection {
         if self.outbound.lock().is_quitting {
             return Ok(());
         }
+        command.stamp_command_id(&self.config.command_ids);
 
         let should_wrap = match pack_net_command(&command) {
             Ok(serialized) => {
@@ -1325,6 +1335,7 @@ impl Connection {
 
     /// Background task for processing outgoing messages with backpressure handling
     async fn message_processing_task(
+        command_ids: Arc<crate::net_command_messages::CommandIdGenerator>,
         connection_id: Uuid,
         outbound: Arc<SyncMutex<OutboundState>>,
         transport: Arc<Transport>,
@@ -1471,12 +1482,13 @@ impl Connection {
                                         ) {
                                             Ok(chunks) => {
                                                 for chunk in chunks {
-                                                    let wrapper_command = NetCommand::new(
+                                                    let mut wrapper_command = NetCommand::new(
                                                         NetCommandType::Wrapper,
                                                         command.player_id,
                                                         command.execution_frame,
                                                         CommandPayload::Wrapper(chunk),
                                                     );
+                                                    wrapper_command.stamp_command_id(&command_ids);
                                                     if let Some(layer) = &reliability {
                                                         if wrapper_command.needs_acknowledgment() {
                                                             if let Err(err) =
@@ -1854,6 +1866,11 @@ impl ConnectionManager {
         self.command_context = Some(context);
     }
 
+    /// The id source of this node's outbound commands.
+    pub fn command_ids(&self) -> Arc<crate::net_command_messages::CommandIdGenerator> {
+        self.config.command_ids.clone()
+    }
+
     pub fn attach_frame_manager(
         &mut self,
         frame_manager: Arc<RwLock<crate::frame_data::FrameDataManager>>,
@@ -2181,7 +2198,9 @@ impl ConnectionManager {
     }
 
     /// Broadcast a command to all active connections.
-    pub async fn broadcast_command(&self, command: NetCommand) -> NetworkResult<()> {
+    pub async fn broadcast_command(&self, mut command: NetCommand) -> NetworkResult<()> {
+        // One id for every copy, as C++ sends the same message object to all.
+        command.stamp_command_id(&self.config.command_ids);
         let connections: Vec<Arc<Connection>> = {
             let guard = self.connections.read().await;
             guard.values().cloned().collect()
@@ -2200,7 +2219,8 @@ impl ConnectionManager {
     }
 
     /// Send a command to players specified by a bitmask (bit n -> player n).
-    pub async fn send_command_to_mask(&self, command: NetCommand, mask: u32) -> NetworkResult<()> {
+    pub async fn send_command_to_mask(&self, mut command: NetCommand, mask: u32) -> NetworkResult<()> {
+        command.stamp_command_id(&self.config.command_ids);
         let targets: Vec<Arc<Connection>> = {
             let guard = self.connections.read().await;
             guard
