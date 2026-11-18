@@ -284,6 +284,7 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
             FixtureObject::new("OwnedFrameDozer").kind_of("VEHICLE DOZER").health(200.0).walker().dozer(),
         ],
     );
+    crate::fixture_content::admit_retail_production_energy_rules(&mut logic);
     // C++ Energy returns zero production for an unpowered player even when
     // consumption is zero. Supply a real plant for this full-frame witness.
     logic

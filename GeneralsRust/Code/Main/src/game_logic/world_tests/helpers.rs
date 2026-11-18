@@ -5,10 +5,7 @@ use super::super::*;
 /// Explicit authored retail content for timing fixtures; never an implicit
 /// constructor/player/template default (C++ GlobalData constructor stays zero).
 pub(super) fn admit_retail_production_energy_rules(logic: &mut GameLogic) {
-    let rules = game_engine::common::ini::ini_game_data::ProductionEnergyRules::default()
-        .overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd")
-        .expect("authored retail production energy fields");
-    logic.admit_production_energy_base(rules);
+    crate::fixture_content::admit_retail_production_energy_rules(logic);
 }
 
 // Child module of game_logic.rs via `#[path]`.

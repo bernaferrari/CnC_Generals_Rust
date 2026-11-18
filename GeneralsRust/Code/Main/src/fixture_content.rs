@@ -28,6 +28,16 @@ pub(crate) fn admit_retail_remote_c4(game: &mut GameLogic) {
     ).expect("admit retail remote C4 and weapon");
 }
 
+/// Retail GameData.ini production-energy fields. C++ GlobalData's constructor
+/// leaves these zero, so a world that never loads GameData builds at rate 0;
+/// timing fixtures state the authored retail values explicitly.
+pub(crate) fn admit_retail_production_energy_rules(logic: &mut GameLogic) {
+    let rules = game_engine::common::ini::ini_game_data::ProductionEnergyRules::default()
+        .overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd")
+        .expect("authored retail production energy fields");
+    logic.admit_production_energy_base(rules);
+}
+
 /// Upgrade granted at creation to fixture radar providers.
 pub(crate) const FIXTURE_RADAR_UPGRADE: &str = "Upgrade_FixtureRadar";
 

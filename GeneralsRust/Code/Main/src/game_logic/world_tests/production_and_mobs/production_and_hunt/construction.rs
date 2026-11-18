@@ -228,6 +228,7 @@ fn dozer_construction_rate_applies_handicap_buildtime() {
     // hq-mzfv5: C++ calcTimeToBuild multiplies Handicap::BUILDTIME before power.
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
+    admit_retail_production_energy_rules(&mut logic);
     let mut player = Player::new(0, Team::USA, "P0", true);
     player.map_side.handicap_build_time_buildings = 2.0;
     player.power_produced = 10;
@@ -427,6 +428,7 @@ fn simulation_step_builds_when_dozer_is_at_the_pad() {
 fn simulation_step_finishes_a_short_build() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
+    admit_retail_production_energy_rules(&mut logic);
     logic.add_player(Player::new(0, Team::USA, "P0", true));
     let mut pad = ThingTemplate::new("FinishPad");
     pad.add_kind_of(KindOf::Structure)
@@ -528,6 +530,7 @@ fn simulation_step_finishes_a_short_build() {
 fn owned_construction_completion_walks_the_dozer_off_the_pad() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
+    admit_retail_production_energy_rules(&mut logic);
     logic.add_player(Player::new(0, Team::USA, "P0", true));
 
     let mut pad = ThingTemplate::new("SolePad");

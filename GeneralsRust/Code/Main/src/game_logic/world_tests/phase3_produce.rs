@@ -201,6 +201,7 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
     assert!((cpp_construction_percent_to_host_fraction(25) - 0.25).abs() < 1e-6);
 
     let mut logic = GameLogic::new();
+    admit_retail_production_energy_rules(&mut logic);
     ensure_test_structure_template(&mut logic);
     ensure_test_dozer_template(&mut logic);
     ensure_test_player_for_team(&mut logic, Team::USA);
@@ -229,20 +230,8 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
     let did = logic
         .create_object("TestDozer", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
         .expect("dozer");
-    let frame = logic.frame;
-    if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(did) {
-        d.set_target(
-            Some(sid),
-            frame,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        d.set_ai_state(
-            AIState::Constructing,
-            frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-    }
+    // C++ DozerAIUpdate::resumeConstruction assigns the builder (aiResumeConstruction).
+    assert!(logic.resume_construction(&[did], sid).expect("result"));
     let _ = logic.update_with_dt(1.0);
     let after_dock = logic
         .host_object(sid)
@@ -266,10 +255,10 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
 #[test]
 fn exclusive_dozer_does_not_stack_build_rate() {
     // C++ DozerAIUpdate.cpp:305 — getBuilderID() != dozer refuses a second builder.
-    let mut logic = GameLogic::new();
-    ensure_test_structure_template(&mut logic);
-    ensure_test_dozer_template(&mut logic);
-    ensure_test_player_for_team(&mut logic, Team::USA);
+    // Authored DozerAIUpdate dozer: only an installed Dozer machine owns the
+    // BUILD task whose builder id the second dozer is refused against.
+    let mut logic = admitted_dozer_world();
+    admit_retail_production_energy_rules(&mut logic);
     // C++ ThingTemplate::calcTimeToBuild (ThingTemplate.cpp:1541-1558): a
     // 0/0 energy grid returns supply ratio 0 → build time ×2 (min 0.5
     // speed). The exclusivity contract asserts the 1× rate, so satisfy the
@@ -328,6 +317,7 @@ fn exclusive_dozer_does_not_stack_build_rate() {
 fn under_construction_starts_at_one_hp_and_gains_linearly() {
     // C++ DozerAIUpdate.cpp:1708 start 1 HP; :526 +maxHealth/framesToBuild per frame.
     let mut logic = GameLogic::new();
+    admit_retail_production_energy_rules(&mut logic);
     ensure_test_structure_template(&mut logic);
     ensure_test_dozer_template(&mut logic);
     ensure_test_player_for_team(&mut logic, Team::USA);

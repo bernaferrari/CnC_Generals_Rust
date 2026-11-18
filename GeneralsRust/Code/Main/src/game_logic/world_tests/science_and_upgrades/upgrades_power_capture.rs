@@ -2027,6 +2027,7 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    admit_retail_production_energy_rules(&mut logic);
     let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
     // C++ ActionManager.cpp:439-441 canResumeConstructionOf requires
     // KINDOF_DOZER; retail AmericaVehicleDozer authors KindOf = DOZER.

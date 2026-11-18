@@ -679,6 +679,7 @@ fn construction_complete_end_dock_uses_stored_action() {
     use crate::game_logic::host_repair::dozer_complete_end_dock;
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
+    admit_retail_production_energy_rules(&mut logic);
     logic.add_player(Player::new(0, Team::USA, "P0", true));
 
     let mut pad = ThingTemplate::new("EndDockPad");
