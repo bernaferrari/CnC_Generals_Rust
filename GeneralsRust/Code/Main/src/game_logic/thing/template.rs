@@ -46,6 +46,35 @@ pub(crate) struct ReceivingDrawModels {
     modules: Box<[crate::assets::DrawModuleDefinition]>,
     // Tokenized once during admission; native projection shares this exact list.
     module_class_names: std::sync::Arc<Vec<String>>,
+    /// `select` is a pure function of (immutable modules, bits); every object
+    /// of this template asks for the same few condition masks every frame.
+    select_cache: SelectCache,
+}
+
+/// Memo of `ReceivingDrawModels::select`. A copy starts empty and the cache is
+/// never part of the value's identity.
+#[derive(Debug, Default)]
+struct SelectCache(
+    std::sync::Mutex<
+        game_engine::common::fast_hash::FxHashMap<u128, Vec<crate::assets::AuthoredDrawModel>>,
+    >,
+);
+
+impl SelectCache {
+    /// Distinct condition masks per template are few; bound it regardless.
+    const MAX_ENTRIES: usize = 256;
+}
+
+impl Clone for SelectCache {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl PartialEq for SelectCache {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
 }
 
 impl ReceivingDrawModels {
@@ -88,6 +117,22 @@ impl ReceivingDrawModels {
     }
 
     pub(crate) fn select(&self, bits: u128) -> Vec<crate::assets::AuthoredDrawModel> {
+        if let Ok(cache) = self.select_cache.0.lock() {
+            if let Some(hit) = cache.get(&bits) {
+                return hit.clone();
+            }
+        }
+        let selected = self.select_uncached(bits);
+        if let Ok(mut cache) = self.select_cache.0.lock() {
+            if cache.len() >= SelectCache::MAX_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(bits, selected.clone());
+        }
+        selected
+    }
+
+    fn select_uncached(&self, bits: u128) -> Vec<crate::assets::AuthoredDrawModel> {
         crate::assets::ObjectDefinition::select_draw_models_from_modules(&self.modules, bits)
             .unwrap_or_else(|| {
                 self.base_model
@@ -2117,6 +2162,7 @@ impl ThingTemplate {
             };
         self.authored_draw_modules = Some(std::sync::Arc::new(ReceivingDrawModels {
             base_model: self.model_name.clone(),
+            select_cache: SelectCache::default(),
             modules: modules.to_vec().into_boxed_slice(),
             module_class_names: std::sync::Arc::new(
                 modules
