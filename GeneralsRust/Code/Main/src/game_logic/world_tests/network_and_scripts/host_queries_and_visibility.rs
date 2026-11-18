@@ -174,7 +174,6 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
     use std::sync::{Arc, RwLock};
 
     assert!(OBJECT_REGISTRY.is_empty());
-    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
     get_named_object_tracker().clear().unwrap();
 
     let mut logic = GameLogic::new();
@@ -248,7 +247,6 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
         ScriptConditionResult::True
     );
 
-    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
     get_named_object_tracker().clear().unwrap();
 }
 
@@ -302,7 +300,6 @@ fn host_player_census_injected_for_script_player_conditions() {
 
 
     assert!(OBJECT_REGISTRY.is_empty());
-    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 
     let mut logic = GameLogic::new();
     let mut player =
@@ -325,7 +322,7 @@ fn host_player_census_injected_for_script_player_conditions() {
     assert!(logic.host_object(id).is_some());
 
     logic.inject_host_script_query_snapshot();
-    let census = gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_player_census("PlyrAmerica").expect("host census");
+    let census = gamelogic::scripting::HostScriptQuery::of(&logic.world_services).host_query_player_census("PlyrAmerica").expect("host census");
     assert_eq!(census.money, 4_000);
     assert!(census.has_sufficient_power());
     assert!(census.has_any_objects);
@@ -355,20 +352,18 @@ fn host_player_census_injected_for_script_player_conditions() {
     player.power_consumed = 8;
     logic.add_player(player);
     logic.inject_host_script_query_snapshot();
-    let china = gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_player_census("PlyrChina").expect("china census");
+    let china = gamelogic::scripting::HostScriptQuery::of(&logic.world_services).host_query_player_census("PlyrChina").expect("china census");
     assert_eq!(china.money, 0);
     assert!(!china.has_sufficient_power());
     assert!(!china.has_any_objects);
     assert!(!china.has_any_build_facility);
     assert_eq!(china.building_count, 0);
 
-    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 }
 
 #[test]
 fn host_player_census_keeps_same_faction_players_distinct() {
 
-    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 
     let mut logic = GameLogic::new();
     logic.add_player(
@@ -406,8 +401,8 @@ fn host_player_census_keeps_same_faction_players_distinct() {
     }
 
     logic.inject_host_script_query_snapshot();
-    let a = gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_player_census("PlyrChinaA").expect("census A");
-    let b = gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_query_player_census("PlyrChinaB").expect("census B");
+    let a = gamelogic::scripting::HostScriptQuery::of(&logic.world_services).host_query_player_census("PlyrChinaA").expect("census A");
+    let b = gamelogic::scripting::HostScriptQuery::of(&logic.world_services).host_query_player_census("PlyrChinaB").expect("census B");
     assert!(a.has_any_objects);
     assert!(
         a.has_any_build_facility,
@@ -420,7 +415,6 @@ fn host_player_census_keeps_same_faction_players_distinct() {
     );
     assert!(!b.has_any_build_facility);
     assert_eq!(b.building_count, 0);
-    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 }
 
 #[test]

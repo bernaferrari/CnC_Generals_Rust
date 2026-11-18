@@ -2760,7 +2760,6 @@ fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
     use gamelogic::system::shroud_manager::get_shroud_manager;
 
     OBJECT_REGISTRY.clear();
-    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
@@ -2782,7 +2781,7 @@ fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
         shroud.set_host_object_shroud_status(2, id.0, ObjectShroudStatus::Clear);
     }
     logic.inject_host_script_query_snapshot();
-    let obj = gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_script_query_object("MapNamedScout").expect("snapshot");
+    let obj = gamelogic::scripting::HostScriptQuery::of(&logic.world_services).host_script_query_object("MapNamedScout").expect("snapshot");
     assert_eq!(obj.waypoint_labels, vec!["HeroPath".to_string()]);
     assert!(
         obj.discovered_by
@@ -2797,11 +2796,10 @@ fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
         "shrouded player must not discover"
     );
     assert_eq!(
-        gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).host_script_query_object_by_id(id.0).map(|o| o.id),
+        gamelogic::scripting::HostScriptQuery::of(&logic.world_services).host_script_query_object_by_id(id.0).map(|o| o.id),
         Some(id.0)
     );
     assert!(OBJECT_REGISTRY.is_empty());
-    gamelogic::scripting::HostScriptQuery::from_world(gamelogic::system::engine_stores::try_active_services()).clear_host_script_query_snapshot();
 }
 
 #[test]
