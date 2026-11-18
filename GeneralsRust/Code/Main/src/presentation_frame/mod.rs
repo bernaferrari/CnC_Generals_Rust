@@ -52,6 +52,7 @@ mod overlay;
 mod particles;
 mod projectile;
 mod queries;
+mod render_memo;
 mod restrict_a;
 #[cfg(feature = "game_client")]
 mod science_purchase;

@@ -1931,6 +1931,7 @@ impl PresentationFrame {
             .collect();
         let mut frame = Self {
             asset_owner: PresentationAssetOwner(application_assets),
+            render_memo: Default::default(),
             frame: LogicFrame(logic.get_frame()),
             money_audio_receipts: logic.economy_events.take_money_audio(),
             // C++ TheAudio->getMiscAudio() of the engine that owns this match.

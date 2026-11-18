@@ -1940,6 +1940,25 @@ impl CnCGameEngine {
     }
 
     pub fn render(&mut self) -> Result<()> {
+        // One render sees one frozen frame: its per-frame derivations are
+        // computed once for every consumer, never across renders.
+        if let Some(frame) = self.render_pipeline.presentation_frame() {
+            frame.arm_render_memo();
+        }
+        if let Some(frame) = self.last_presentation_frame.as_deref() {
+            frame.arm_render_memo();
+        }
+        let result = self.render_frozen_frame();
+        if let Some(frame) = self.render_pipeline.presentation_frame() {
+            frame.disarm_render_memo();
+        }
+        if let Some(frame) = self.last_presentation_frame.as_deref() {
+            frame.disarm_render_memo();
+        }
+        result
+    }
+
+    fn render_frozen_frame(&mut self) -> Result<()> {
         self.render_pipeline.reset_surface_presented();
         let render_started = Instant::now();
         #[cfg(feature = "game_client")]

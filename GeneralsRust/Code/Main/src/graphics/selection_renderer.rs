@@ -822,7 +822,7 @@ pub(crate) fn volume_shadow_caster_ids(
     frame: &crate::presentation_frame::PresentationFrame,
 ) -> std::collections::HashSet<crate::game_logic::ObjectId> {
     frame
-        .unit_render_inputs()
+        .unit_render_inputs_shared()
         .iter()
         .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
         .filter(|u| casts_volume(u))
@@ -844,7 +844,7 @@ pub fn collect_blob_shadows_from_presentation(
     }
     let volumes = game_engine::common::game_lod::use_shadow_volumes();
     frame
-        .unit_render_inputs()
+        .unit_render_inputs_shared()
         .iter()
         .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
         // SHADOW_VOLUME objects cast a stencil volume instead when 3D shadows are on.

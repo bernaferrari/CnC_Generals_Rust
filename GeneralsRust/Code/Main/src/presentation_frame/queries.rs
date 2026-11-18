@@ -245,6 +245,32 @@ impl PresentationFrame {
     /// bypasses bridge, containment, or stealth ownership gates.
     /// Includes local-player FOW alpha for skip/darkening without mid-render queries.
     pub fn unit_render_inputs(&self) -> Vec<UnitRenderInput> {
+        if self.render_memo.is_armed() {
+            return self.unit_render_inputs_shared().as_ref().clone();
+        }
+        self.compute_unit_render_inputs()
+    }
+
+    /// Read-only view of `unit_render_inputs()`; inside an armed render the
+    /// derivation runs once for every consumer of this frame.
+    pub fn unit_render_inputs_shared(&self) -> std::rc::Rc<Vec<UnitRenderInput>> {
+        if !self.render_memo.is_armed() {
+            return std::rc::Rc::new(self.compute_unit_render_inputs());
+        }
+        self.render_memo
+            .unit_inputs(|| self.compute_unit_render_inputs())
+    }
+
+    /// Start a render during which this frame is not mutated.
+    pub fn arm_render_memo(&self) {
+        self.render_memo.arm();
+    }
+
+    pub fn disarm_render_memo(&self) {
+        self.render_memo.disarm();
+    }
+
+    fn compute_unit_render_inputs(&self) -> Vec<UnitRenderInput> {
         // Wave 502: stealth mesh residual from frozen presentation only.
         // Wave 504: skip contained_by units; stamp garrisoned bits on structures.
         // C++ StealthUpdate computes a viewer-relative look. Invisible

@@ -26,8 +26,8 @@ impl RenderPipeline {
 
         let mut requests = Vec::<(String, String)>::new();
         let mut seen = HashSet::new();
-        for input in presentation.unit_render_inputs() {
-            for draw_model in input.draw_models {
+        for input in presentation.unit_render_inputs_shared().iter() {
+            for draw_model in &input.draw_models {
                 if draw_model.model_key.trim().is_empty()
                     || !matches!(
                         &draw_model.animation_mode,
@@ -56,7 +56,7 @@ impl RenderPipeline {
                     identity.to_ascii_lowercase()
                 );
                 if seen.insert(request_key) {
-                    requests.push((draw_model.model_key, identity.to_string()));
+                    requests.push((draw_model.model_key.clone(), identity.to_string()));
                 }
             }
         }

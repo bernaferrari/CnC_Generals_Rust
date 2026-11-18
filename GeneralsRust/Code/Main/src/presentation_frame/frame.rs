@@ -42,6 +42,9 @@ impl PartialEq for FrameControlBarBridge {
 pub struct PresentationFrame {
     #[serde(skip)]
     pub(crate) asset_owner: PresentationAssetOwner,
+    /// Render-scoped memo of pure per-frame derivations (see `RenderMemo`).
+    #[serde(skip)]
+    pub(crate) render_memo: super::render_memo::RenderMemo,
     /// Immutable receiving display scene; GPU submission never selects a live scene.
     #[cfg(feature = "game_client")]
     #[serde(skip)]
