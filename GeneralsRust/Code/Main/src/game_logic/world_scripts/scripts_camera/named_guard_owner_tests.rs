@@ -438,6 +438,9 @@ fn canonical_guard_command_movement_and_save_ignore_poisoned_shadow_and_same_id_
     let snapshot = builder.create_world_snapshot(&owner).unwrap();
     // Restore into the same authored map/player definitions, not a bare world.
     let (mut restored, _, _) = world();
+    // C++ loads AIData.ini before any load; the receiving world carries the
+    // same guard scan rates, which bound each drawn scan deadline.
+    super::guard_return_rate_control_tests::authored_rates(&mut restored, 60, 7);
     restored.templates = owner.templates.clone();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)

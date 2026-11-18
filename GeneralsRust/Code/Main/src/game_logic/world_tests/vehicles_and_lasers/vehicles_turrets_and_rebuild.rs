@@ -1827,7 +1827,7 @@ fn hijack_airborne_eject_puts_in_america_parachute() {
         );
     }
     // Sync airborne flag onto rider.
-    logic.tick_hijacker_updates();
+    tick_hijacker_updates_with_bones(&mut logic);
     assert!(logic.objects[&hid].hijacker_was_airborne);
 
     // Kill airborne vehicle → PutInContainer AmericaParachute.
@@ -1840,14 +1840,14 @@ fn hijack_airborne_eject_puts_in_america_parachute() {
         }
         v.status.destroyed = true;
     }
-    logic.tick_hijacker_updates();
+    tick_hijacker_updates_with_bones(&mut logic);
     assert!(
         logic.objects[&hid].hijacker_in_vehicle,
         "source follows a retained effectively-dead target"
     );
     logic.objects.remove(&vid);
     logic.partition_manager.unregister_object(vid.0);
-    logic.tick_hijacker_updates();
+    tick_hijacker_updates_with_bones(&mut logic);
 
     let h = &logic.objects[&hid];
     assert!(!h.hijacker_in_vehicle);
@@ -1958,6 +1958,9 @@ fn hijacker_hill_tank_uses_height_above_terrain_not_world_y() {
     );
 
     logic.objects.get_mut(&vid).unwrap().status.destroyed = true;
+    logic.tick_hijacker_updates();
+    // C++ HijackerUpdate follows a retained target; eject runs after removal.
+    logic.objects.remove(&vid);
     logic.tick_hijacker_updates();
     let rider = &logic.objects[&hid];
     assert!(!rider.hijacker_in_vehicle);

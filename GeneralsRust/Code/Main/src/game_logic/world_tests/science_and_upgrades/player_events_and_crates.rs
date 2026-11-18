@@ -1448,13 +1448,18 @@ fn america_parachute_land_releases_hijacker() {
             partition,
         );
     }
-    logic.tick_hijacker_updates();
+    tick_hijacker_updates_with_bones(&mut logic);
     {
         let v = logic.objects.get_mut(&vid).unwrap();
         v.status.destroyed = true;
         v.health.current = 0.0;
     }
-    logic.tick_hijacker_updates();
+    tick_hijacker_updates_with_bones(&mut logic);
+    // C++ HijackerUpdate follows a retained (even effectively dead) target;
+    // the eject happens once the destroy list removes it.
+    logic.objects.remove(&vid);
+    logic.partition_manager.unregister_object(vid.0);
+    tick_hijacker_updates_with_bones(&mut logic);
     let chute_id = logic.objects[&hid]
         .contained_by
         .expect("rider in AmericaParachute");

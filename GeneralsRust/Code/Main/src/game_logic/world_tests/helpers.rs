@@ -53,6 +53,31 @@ End
         .expect("authored hijacker content admitted");
 }
 
+/// ParachuteContain reads the PARACHUTE bone from the receiving model assets;
+/// fixtures with no art state "no bones" explicitly instead of a missing store.
+pub(super) struct NoPristineBones;
+impl crate::assets::pristine_bones::PristineBoneAssets for NoPristineBones {
+    fn pristine_bones_for_draws(
+        &self,
+        _: &crate::assets::pristine_bones::PristineBoneSource<'_>,
+        _: &str,
+        _: i32,
+        _: usize,
+    ) -> Result<Vec<glam::Mat4>, String> {
+        Ok(Vec::new())
+    }
+}
+
+/// `tick_hijacker_updates` with the receiving model assets published.
+pub(super) fn tick_hijacker_updates_with_bones(logic: &mut GameLogic) {
+    logic
+        .tick_hijacker_updates_with_effects(&mut crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(&NoPristineBones),
+            ..Default::default()
+        })
+        .expect("receiving HijackerUpdate");
+}
+
 // Child module of game_logic.rs via `#[path]`.
 
 pub(super) fn host_state_residual_test_env_lock() -> parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()> {
