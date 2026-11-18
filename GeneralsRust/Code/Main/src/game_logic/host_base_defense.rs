@@ -2694,8 +2694,12 @@ mod tests {
         // Tight hit radius can miss; large hit radius hits. The draw is
         // GameLogicRandomValueReal(0, radius) (Weapon.cpp:980), so which seed
         // lands inside a tight radius depends on the generator; the contract is
-        // asserted over a seed range, not one generator-specific seed.
-        let tight_misses = (0..64)
+        // asserted over a seed range, not one generator-specific seed. Seeds are
+        // spread by a golden-ratio multiplier because the first draw after
+        // seedRandom(s) is linear in s (RandomValue.cpp add-with-carry), so
+        // consecutive small seeds all land on nearly the same real.
+        let tight_misses = (0..64u32)
+            .map(|s| s.wrapping_mul(0x9E37_79B9))
             .filter(|seed| patriot_scatter_misses_infantry(true, *seed, 0.5))
             .count();
         assert!(
