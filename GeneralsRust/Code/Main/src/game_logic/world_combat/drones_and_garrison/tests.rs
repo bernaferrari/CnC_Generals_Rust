@@ -2666,6 +2666,9 @@ fn player_who_entered_pulses_one_frame() {
         "enter frame must pulse BUILDING_ENTERED"
     );
 
+    // OpenContain::update first runs on frame 1 (registerObject schedules a new
+    // module no earlier), so the clearing update is the one after frame 0.
+    logic.set_current_frame(1);
     logic.update_support_states(&[bunker, ranger_id], 1.0 / 30.0);
     logic.inject_host_script_query_snapshot();
     assert_eq!(
