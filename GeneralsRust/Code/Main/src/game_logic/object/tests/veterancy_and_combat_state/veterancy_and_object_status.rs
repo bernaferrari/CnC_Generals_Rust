@@ -58,7 +58,16 @@ fn level_up_sets_weaponset_and_weaponbonus_flags() {
 fn weaponset_flag_and_salvage_unlock_unless_shared_across_sets() {
     // C++ WeaponSet::updateWeaponSet: set-flag / crate swaps drop a permanent
     // lock unless the incoming set has WeaponLockSharedAcrossSets.
-    let mut object = make_test_object();
+    // The legacy (no receiving WeaponSet rows) swap path is what is asserted
+    // here: a template with authored rows swaps through updateWeaponSet's rows
+    // instead, so this object is deliberately not armed through a WeaponSet.
+    let mut template = ThingTemplate::new("TestUnit");
+    template.is_trainable = true;
+    let mut object = Object::new(template, ObjectId(1), Team::USA);
+    object.weapon = Some(Weapon {
+        damage: 100.0,
+        ..Weapon::default()
+    });
     object.secondary_weapon = Some(Weapon {
         damage: 30.0,
         ..Weapon::default()
