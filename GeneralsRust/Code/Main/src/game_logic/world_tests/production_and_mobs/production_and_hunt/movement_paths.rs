@@ -6,9 +6,13 @@ fn finished_move_clears_the_ignored_obstacle() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
-    let mut tpl = ThingTemplate::new("Mover");
-    tpl.add_kind_of(KindOf::Vehicle).set_health(100.0);
-    logic.templates.insert("Mover".into(), tpl);
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("Mover")
+            .kind_of("VEHICLE")
+            .health(100.0)
+            .walker()],
+    );
     let id = logic
         .create_object_for_player("Mover", 0, Vec3::ZERO)
         .expect("unit");
@@ -1246,9 +1250,13 @@ fn live_corner_refreshes_the_extra_distance() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
-    let mut inf_t = ThingTemplate::new("LiveExtraInf");
-    inf_t.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic.templates.insert("LiveExtraInf".into(), inf_t);
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("LiveExtraInf")
+            .kind_of("INFANTRY")
+            .health(100.0)
+            .walker()],
+    );
     let id = logic
         .create_object_for_player("LiveExtraInf", 0, Vec3::new(40.0, 0.0, 0.0))
         .expect("unit");
@@ -1404,9 +1412,13 @@ fn residual_path_installs_drop_the_exact_path_formula() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
-    let mut inf_t = ThingTemplate::new("ResidualExtraInf");
-    inf_t.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic.templates.insert("ResidualExtraInf".into(), inf_t);
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("ResidualExtraInf")
+            .kind_of("INFANTRY")
+            .health(100.0)
+            .walker()],
+    );
     let id = logic
         .create_object_for_player("ResidualExtraInf", 0, Vec3::ZERO)
         .expect("unit");
@@ -1584,9 +1596,13 @@ fn live_arrival_clears_the_ignored_obstacle() {
     use crate::game_logic::{KindOf, ObjectId, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
-    let mut inf_t = ThingTemplate::new("ArriveInf");
-    inf_t.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic.templates.insert("ArriveInf".into(), inf_t);
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("ArriveInf")
+            .kind_of("INFANTRY")
+            .health(100.0)
+            .walker()],
+    );
     let goal = Vec3::new(10.0, 0.0, 0.0);
     let id = logic
         .create_object_for_player("ArriveInf", 0, goal)
