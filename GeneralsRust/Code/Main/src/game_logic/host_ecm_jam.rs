@@ -124,13 +124,15 @@ pub fn ecm_ms_to_frames(ms: u32) -> u32 {
 ///
 /// Fail-closed: name-based residual (not full INI FireWeaponUpdate / WeaponSet matrix).
 
-/// Deterministic scatter offset residual for a jammed missile.
-pub fn ecm_missile_scatter_offset(seed: u32) -> (f32, f32) {
-    // Unit-circle sample from seed (no RNG stream required).
-    let a = ((seed.wrapping_mul(1103515245).wrapping_add(12345)) % 360) as f32;
-    let rad = a * std::f32::consts::PI / 180.0;
-    let r = ECM_MISSILE_JAM_SCATTER_RADIUS * (0.35 + 0.65 * (((seed >> 8) % 100) as f32 / 100.0));
-    (rad.cos() * r, rad.sin() * r)
+/// C++ `MissileAIUpdate::projectileNowJammed` (MissileAIUpdate.cpp:793-794):
+/// `targetPosition.x += GameLogicRandomValue(-scatter, scatter)` then the same
+/// for `.y` (host Z). Two integer logic draws, X first. `draw` is the world's
+/// logic stream `GameLogicRandomValue(lo, hi)`.
+pub fn ecm_missile_scatter_offset_with(mut draw: impl FnMut(i32, i32) -> i32) -> (f32, f32) {
+    let scatter = ECM_MISSILE_JAM_SCATTER_RADIUS as i32;
+    let x = draw(-scatter, scatter);
+    let z = draw(-scatter, scatter);
+    (x as f32, z as f32)
 }
 
 /// Whether template/name is residual jam-interceptable **guided** missile.
@@ -441,8 +443,14 @@ mod tests {
         assert!(!is_ecm_jam_missile_name("AmericaInfantryMissileDefender"));
         assert!(!is_ecm_jam_missile_name("CrusaderTankShell"));
         assert!(is_dumb_projectile_shell_name("TechnicalCannonShell"));
-        let (x, z) = ecm_missile_scatter_offset(7);
-        assert!((x * x + z * z).sqrt() <= ECM_MISSILE_JAM_SCATTER_RADIUS + 0.01);
+        // Two integer draws in [-75, 75], X first (MissileAIUpdate.cpp:793-794).
+        let mut calls = Vec::new();
+        let (x, z) = ecm_missile_scatter_offset_with(|lo, hi| {
+            calls.push((lo, hi));
+            if calls.len() == 1 { 12 } else { -34 }
+        });
+        assert_eq!(calls, vec![(-75, 75), (-75, 75)]);
+        assert_eq!((x, z), (12.0, -34.0));
         assert!(is_ecm_jam_projectile_flags(true, "TomahawkMissile", false));
         assert!(!is_ecm_jam_projectile_flags(true, "TankShell", false));
         assert!(!is_ecm_jam_projectile_flags(true, "foo", true));

@@ -198,7 +198,7 @@ impl GameLogic {
     pub fn update_ecm_missile_jam(&mut self) {
         use crate::game_logic::host_ecm_jam::{
             ECM_MISSILE_JAM_MAX_PER_PULSE, HOST_ECM_JAM_RADIUS, ecm_exclusive_weapon_delay_blocks,
-            ecm_missile_scatter_offset, in_ecm_jam_radius_2d, is_dumb_projectile_shell_name,
+            ecm_missile_scatter_offset_with, in_ecm_jam_radius_2d, is_dumb_projectile_shell_name,
             is_ecm_jam_projectile_flags, is_ecm_jammer,
         };
 
@@ -291,14 +291,16 @@ impl GameLogic {
             }
         }
 
-        for (mid, jammer_id, mx, mz) in jammed_ids {
-            let seed = mid.0.wrapping_add(jammer_id.0).wrapping_add(frame);
-            let (sx, sz) = ecm_missile_scatter_offset(seed);
+        for (mid, _jammer_id, mx, mz) in jammed_ids {
+            // C++ projectileNowJammed returns before any draw when already jammed.
+            if self.objects.get(&mid).is_some_and(|o| o.ecm_missile_jammed) {
+                continue;
+            }
+            let random = &self.logic_random;
+            let (sx, sz) =
+                ecm_missile_scatter_offset_with(|lo, hi| random.next_int(lo, hi));
             let new_aim = [mx + sx, 0.0, mz + sz];
             if let Some(o) = self.objects.get_mut(&mid) {
-                if o.ecm_missile_jammed {
-                    continue;
-                }
                 o.ecm_missile_jammed = true;
                 // C++ projectileNowJammed: scatter + lose lock. No Unresistable HP.
                 // Deflect aim residual (C++ projectile loses lock and scatters).

@@ -3,6 +3,33 @@
 use super::*;
 
 impl GameLogic {
+    /// C++ `BridgeBehavior::getRandomSurfacePosition` for a live span: the
+    /// `TransitionEffectsHeight` comes from the span's admitted road template
+    /// (found through the terrain bridge bound to `span_id`), the draws from
+    /// this world's logic stream.
+    pub(crate) fn bridge_random_surface_position(&self, span_id: ObjectId) -> Option<glam::Vec3> {
+        let span = self.bridge_behavior.span(span_id)?;
+        let mut template_name = None;
+        {
+            let owner = self.world_services.terrain();
+            let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
+            terrain.for_each_bridge(|bridge| {
+                if bridge.get_bridge_info().bridge_object_id == span_id.0 {
+                    template_name = Some(bridge.get_bridge_template_name().as_str().to_owned());
+                }
+            });
+        }
+        let height = template_name
+            .and_then(|name| {
+                self.terrain_road_definitions
+                    .effective
+                    .find_bridge(&name)
+                    .map(|template| template.transition_effects_height)
+            })
+            .unwrap_or(0.0);
+        Some(span.random_surface_position(&self.logic_random, height))
+    }
+
     /// Residual Tunnel Network honesty: enter count.
     pub fn tunnel_network_residual_enters(&self) -> u32 {
         self.tunnel_network.enters
@@ -448,9 +475,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let pos = self
-            .bridge_behavior
-            .span(span_id)
-            .map(|s| s.random_surface_position(self.frame))
+            .bridge_random_surface_position(span_id)
             .or_else(|| self.objects.get(&span_id).map(|o| o.get_position()))
             .unwrap_or(glam::Vec3::ZERO);
         let _ = self.dispatch_fx_list_at_host_position_with_effects(
@@ -473,9 +498,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let pos = self
-            .bridge_behavior
-            .span(span_id)
-            .map(|s| s.random_surface_position(self.frame.wrapping_add(31)))
+            .bridge_random_surface_position(span_id)
             .or_else(|| self.objects.get(&span_id).map(|o| o.get_position()))
             .unwrap_or(glam::Vec3::ZERO);
         self.execute_bridge_ocl_at_with_effects(
@@ -564,17 +587,13 @@ impl GameLogic {
         }
         for (i, fx) in cue.fx.iter().enumerate() {
             let pos = self
-                .bridge_behavior
-                .span(span_id)
-                .map(|s| s.random_surface_position(self.frame.wrapping_add(i as u32 * 7 + 1)))
+                .bridge_random_surface_position(span_id)
                 .unwrap_or(glam::Vec3::ZERO);
             let _ = self.dispatch_fx_list_at_host_position_with_effects(fx, pos, effects);
         }
         for (i, ocl) in cue.ocl.iter().enumerate() {
             let pos = self
-                .bridge_behavior
-                .span(span_id)
-                .map(|s| s.random_surface_position(self.frame.wrapping_add(i as u32 * 11 + 3)))
+                .bridge_random_surface_position(span_id)
                 .unwrap_or(glam::Vec3::ZERO);
             self.execute_bridge_ocl_at_with_effects(ocl, span_id, pos, effects)?;
         }

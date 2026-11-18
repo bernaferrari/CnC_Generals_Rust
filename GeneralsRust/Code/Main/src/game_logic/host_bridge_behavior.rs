@@ -249,13 +249,22 @@ impl HostBridgeSpan {
         )
     }
 
-    /// C++ `getRandomSurfacePosition` on the host XZ deck.
-    pub fn random_surface_position(&self, salt: u32) -> Vec3 {
-        let r1 = hash01(salt.wrapping_add(1));
-        let r2 = hash01(salt.wrapping_add(17));
-        let v1 = (self.to_left - self.from_left) * r1;
-        let v2 = (self.from_right - self.from_left) * r2;
-        self.from_left + v1 + v2
+    /// C++ `BridgeBehavior::getRandomSurfacePosition` (BridgeBehavior.cpp:492-536)
+    /// on the host deck (C++ Z is host Y). Draws, in order, from the world's
+    /// logic stream: `GameLogicRandomValueReal(0,1)` scale for the to-left edge,
+    /// the same for the from-right edge, then
+    /// `GameLogicRandomValueReal(0, TransitionEffectsHeight)` added to height
+    /// (a non-positive range returns `hi` without drawing).
+    pub fn random_surface_position(
+        &self,
+        random: &game_engine::common::random_value::SessionRandom,
+        transition_effects_height: f32,
+    ) -> Vec3 {
+        let v1 = (self.to_left - self.from_left) * random.next_real(0.0, 1.0);
+        let v2 = (self.from_right - self.from_left) * random.next_real(0.0, 1.0);
+        let mut pos = self.from_left + v1 + v2;
+        pos.y += random.next_real(0.0, transition_effects_height);
+        pos
     }
 
     fn members(&self) -> impl Iterator<Item = ObjectId> + '_ {
@@ -268,10 +277,6 @@ impl HostBridgeSpan {
     }
 }
 
-fn hash01(seed: u32) -> f32 {
-    let x = seed.wrapping_mul(1664525).wrapping_add(1013904223);
-    (x >> 8) as f32 / 16_777_216.0
-}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostBridgeBehaviorRegistry {
@@ -1046,5 +1051,39 @@ mod tests {
         restored.mark_death(id, 13);
         assert_eq!(restored.span(id).unwrap().death_frame, 13);
         assert_eq!(restored.take_due_die_fx(id, 13), 1);
+    }
+
+    #[test]
+    fn random_surface_position_draws_three_logic_reals_in_cpp_order() {
+        use game_engine::common::random_value::{RandomState, SessionRandom};
+        let mut registry = HostBridgeBehaviorRegistry::new();
+        let id = ObjectId(10);
+        let (fl, fr, tl, tr) = (
+            Vec3::new(0.0, 5.0, 0.0),
+            Vec3::new(40.0, 5.0, 0.0),
+            Vec3::new(0.0, 5.0, 100.0),
+            Vec3::new(40.0, 5.0, 100.0),
+        );
+        registry.register_span(id, fl, fr, tl, tr);
+        let mut seeded = RandomState::default();
+        seeded.seed_random(31);
+        let span = registry.span(id).unwrap();
+        let a = SessionRandom::from_state(seeded.clone());
+        let got = span.random_surface_position(&a, 11.0);
+        // BridgeBehavior.cpp:511-535: scale(to-left), scale(from-right), height.
+        let mut reference = seeded.clone();
+        let s1 = reference.next_real(0.0, 1.0);
+        let s2 = reference.next_real(0.0, 1.0);
+        let h = reference.next_real(0.0, 11.0);
+        assert_eq!(got, fl + (tl - fl) * s1 + (fr - fl) * s2 + Vec3::new(0.0, h, 0.0));
+        assert_eq!(a.snapshot().seed_words(), reference.seed_words());
+        // TransitionEffectsHeight 0 consumes no third draw (delta <= 0 returns hi).
+        let b = SessionRandom::from_state(seeded.clone());
+        let flat = span.random_surface_position(&b, 0.0);
+        assert_eq!(flat.y, 5.0);
+        let mut two = seeded;
+        two.next_real(0.0, 1.0);
+        two.next_real(0.0, 1.0);
+        assert_eq!(b.snapshot().seed_words(), two.seed_words());
     }
 }

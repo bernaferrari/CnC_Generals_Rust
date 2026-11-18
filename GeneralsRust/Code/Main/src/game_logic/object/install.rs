@@ -206,9 +206,9 @@ impl Object {
 
     /// C++ ActiveBody::onSubdualChange → ProjectileUpdateInterface::projectileNowJammed.
     /// DumbProjectileBehavior is empty; MissileAIUpdate scatters and loses lock.
-    pub(crate) fn projectile_now_jammed(&mut self, seed: u32) {
+    pub(crate) fn projectile_now_jammed(&mut self) {
         use crate::game_logic::host_ecm_jam::{
-            ecm_missile_scatter_offset, is_dumb_projectile_shell_name, is_ecm_jam_projectile_flags,
+            ecm_missile_scatter_offset_with, is_dumb_projectile_shell_name, is_ecm_jam_projectile_flags,
         };
         if self.ecm_missile_jammed {
             return;
@@ -224,7 +224,10 @@ impl Object {
             return;
         }
         let pos = self.get_position();
-        let (sx, sz) = ecm_missile_scatter_offset(seed);
+        // Draws come from the world's scoped logic stream (GameLogicRandomValue).
+        let (sx, sz) = ecm_missile_scatter_offset_with(
+            game_engine::common::random_value::get_game_logic_random_value,
+        );
         let new_aim = [pos.x + sx, 0.0, pos.z + sz];
         self.ecm_missile_jammed = true;
         if self.tomahawk_missile_aim.is_some() {
@@ -258,7 +261,7 @@ impl Object {
             // C++ ActiveBody::onSubdualChange: projectileNowJammed once on the
             // edge into subdued; non-projectile contain orderAllPassengersToIdle.
             if becoming && self.is_kind_of(KindOf::Projectile) {
-                self.projectile_now_jammed(self.id.0);
+                self.projectile_now_jammed();
             } else if becoming && !self.is_kind_of(KindOf::Projectile) {
                 self.status.pending_subdual_passenger_idle = true;
             }
