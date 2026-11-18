@@ -702,15 +702,11 @@ fn avenger_air_preference_keys_on_authored_secondary_not_template_name() {
     let mut tpl = ThingTemplate::new(name);
     tpl.set_secondary_weapon_name(AVENGER_AIR_LASER_DUMMY);
     let mut clone = Object::new(tpl, ObjectId(1), Team::USA);
-    crate::fixture_content::arm_slot_with_stats(
+    // Both slots in one WeaponSet: arming slot 0 alone would re-author the
+    // template's SECONDARY name away before slot 1 binds it.
+    crate::fixture_content::arm_with_slot_stats(
         &mut clone,
-        0,
-        air(50.0),
-    );
-    crate::fixture_content::arm_slot_with_stats(
-        &mut clone,
-        1,
-        air(5.0),
+        [Some(air(50.0)), Some(air(5.0)), None],
     );
     assert_eq!(
         clone.select_combat_weapon_slot(&aircraft, 1.0),
