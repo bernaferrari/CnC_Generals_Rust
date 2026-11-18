@@ -511,8 +511,11 @@ impl Object {
             }
         }
 
-        // C++ fixInvalidPosition residual when on invalid terrain.
-        if self.fix_invalid_position(frame) {
+        // C++ Locomotor::fixInvalidPosition runs only inside
+        // locoUpdate_moveTowardsPosition (Locomotor.cpp:968-977), i.e. with a
+        // move goal. Idle objects take maintainCurrentPosition instead and
+        // must not be nudged along their facing.
+        if self.movement.target_position.is_some() && self.fix_invalid_position(frame) {
             return;
         }
 

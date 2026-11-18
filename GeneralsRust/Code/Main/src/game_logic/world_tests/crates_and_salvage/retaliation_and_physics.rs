@@ -2975,6 +2975,30 @@ fn fix_invalid_position_pushes_off_cliff() {
     assert!(o.is_motive(0) || o.movement.velocity.x < 5.0);
 }
 
+/// C++ Locomotor::fixInvalidPosition is reached only from
+/// locoUpdate_moveTowardsPosition (Locomotor.cpp:968-977); an idle object on
+/// invalid terrain takes maintainCurrentPosition and is not nudged.
+#[test]
+fn idle_object_on_invalid_terrain_is_not_nudged_by_fix_invalid_position() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut t = ThingTemplate::new("IdleInvalid");
+    t.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(t, ObjectId(984), Team::USA);
+    o.on_invalid_movement_terrain = true;
+    o.set_position(Vec3::new(10.0, 0.0, 10.0));
+    o.set_orientation(0.0);
+    assert!(o.movement.target_position.is_none());
+    o.update_movement(
+        1.0 / 30.0,
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        0,
+    );
+    assert!(!o.is_motive(0));
+    assert!(o.movement.velocity.length() < 1e-6);
+    assert_eq!(o.get_position(), Vec3::new(10.0, 0.0, 10.0));
+}
+
 #[test]
 fn thrust_moves_toward_goal() {
     use crate::game_logic::{KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate};
