@@ -2314,14 +2314,18 @@ fn unique_building_max_simultaneous_from_ini_blocks_second() {
 
     let first =
         logic.create_object_under_construction("TestUniqueWarFactory", Team::USA, glam::Vec3::ZERO);
-    assert!(first.is_ok(), "first unique building must place");
+    assert!(
+        matches!(first, Ok(Some(_))),
+        "first unique building must place"
+    );
     let second = logic.create_object_under_construction(
         "TestUniqueWarFactory",
         Team::USA,
         glam::Vec3::new(80.0, 0.0, 0.0),
     );
+    // C++ construct refuses by returning NULL (no object), not an engine error.
     assert!(
-        second.is_err(),
+        matches!(second, Ok(None)),
         "hq-ss0x8: INI MaxSimultaneousOfType=1 must block a second copy"
     );
 }
@@ -2346,8 +2350,9 @@ fn max_simultaneous_link_key_counts_rebuild_hole() {
     hole.max_simultaneous_link_key = Some("Superweapon".into());
     logic.templates.insert("TestLinkedScudHole".into(), hole);
 
+    // The hole counts toward its owning Player's quota (Player::countExisting).
     let hole_id = logic
-        .create_object("TestLinkedScudHole", Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player("TestLinkedScudHole", 0, glam::Vec3::ZERO)
         .expect("hole");
     assert!(logic.host_object(hole_id).is_some());
     let blocked = logic.create_object_under_construction(
@@ -2356,7 +2361,7 @@ fn max_simultaneous_link_key_counts_rebuild_hole() {
         glam::Vec3::new(80.0, 0.0, 0.0),
     );
     assert!(
-        blocked.is_err(),
+        matches!(blocked, Ok(None)),
         "hq-ss0x8: rebuild hole must consume MaxSimultaneousLinkKey"
     );
 }

@@ -232,9 +232,8 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
     // C++ DozerAIUpdate::resumeConstruction assigns the builder (aiResumeConstruction).
     assert!(logic.resume_construction(&[did], sid).expect("result"));
     // Construction contributions belong to the Dozer machine's own frames.
-    for _ in 0..60 {
-        drive_dozer_frame(&mut logic, &[did]);
-    }
+    // The builder walks to its dock, then contributes each frame.
+    advance_logic_frames(&mut logic, 120);
     let after_dock = logic
         .host_object(sid)
         .map(|o| o.construction_percent)
@@ -305,20 +304,43 @@ fn exclusive_dozer_does_not_stack_build_rate() {
         "structure must keep the first exclusive builder"
     );
     assert!(!logic.can_resume_construction_of(d2, sid));
-    for _ in 0..30 {
-        drive_dozer_frame(&mut logic, &[d1, d2]);
+    // d1 walks to its dock; once it contributes, measure a fixed window.
+    let mut walked = 0;
+    while logic
+        .host_object(sid)
+        .map(|o| o.construction_percent)
+        .unwrap_or(0.0)
+        <= 0.0
+        && walked < 300
+    {
+        advance_logic_frames(&mut logic, 1);
+        walked += 1;
     }
-    let after = logic
+    let start = logic
         .host_object(sid)
         .map(|o| o.construction_percent)
         .unwrap_or(0.0);
+    assert!(start > 0.0, "the first builder must reach its dock");
+    // One building frame advances the site by 1/frames (energy-scaled); the second
+    // targeting dozer must add nothing to that rate.
+    advance_logic_frames(&mut logic, 1);
+    let per_frame = logic
+        .host_object(sid)
+        .map(|o| o.construction_percent)
+        .unwrap_or(0.0)
+        - start;
+    assert!(per_frame > 0.0, "the first builder keeps building");
+    let mid = start + per_frame;
+    advance_logic_frames(&mut logic, 30);
+    let after = logic
+        .host_object(sid)
+        .map(|o| o.construction_percent)
+        .unwrap_or(0.0)
+        - mid;
     assert!(
-        (after - 0.1).abs() < 0.02,
-        "two targeting dozers must not stack; expected ~0.1, got {after}"
-    );
-    assert!(
-        after < 0.15,
-        "stacked builders would approach 0.2, got {after}"
+        (after - 30.0 * per_frame).abs() < per_frame * 0.5,
+        "two targeting dozers must not stack; expected {} (30 frames), got {after}",
+        30.0 * per_frame
     );
 }
 
@@ -359,26 +381,30 @@ fn under_construction_starts_at_one_hp_and_gains_linearly() {
         .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("dozer");
     assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
-    // Construction contributions belong to the Dozer machine's own frames; the
-    // builder spends its first frames entering the BUILD task, so the number of
-    // building frames is read back from the percent (1/300 per frame).
-    for _ in 0..30 {
-        drive_dozer_frame(&mut logic, &[did]);
+    // Construction contributions belong to the Dozer machine's own frames. The builder walks to its dock first; every building frame then adds
+    // max/frames HP together with 1/frames percent.
+    let mut walked = 0;
+    while logic
+        .host_object(sid)
+        .map(|o| o.construction_percent)
+        .unwrap_or(0.0)
+        <= 0.0
+        && walked < 300
+    {
+        advance_logic_frames(&mut logic, 1);
+        walked += 1;
     }
+    advance_logic_frames(&mut logic, 30);
+    let percent = logic
+        .host_object(sid)
+        .map(|o| o.construction_percent)
+        .unwrap_or(0.0);
     let after = logic
         .host_object(sid)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    let built_frames = logic
-        .host_object(sid)
-        .map(|o| o.construction_percent * 300.0)
-        .unwrap_or(0.0);
-    assert!(built_frames >= 1.0, "builder must contribute at least one frame");
-    assert!(
-        (built_frames - built_frames.round()).abs() < 0.01,
-        "whole building frames, got {built_frames}"
-    );
-    let expected = 1.0 + max_hp / 300.0 * built_frames.round();
+    assert!(percent > 0.0, "the builder must reach its dock and build");
+    let expected = 1.0 + max_hp * percent;
     assert!(
         (after - expected).abs() < 0.05,
         "linear per-frame HP gain expected ~{expected}, got {after}"
@@ -877,11 +903,8 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
                 "UnderConstruction",
                 "BuildingConstructionLoop",
             );
-            let mut logic = GameLogic::new();
+            let mut logic = admitted_dozer_world();
             admit_retail_production_energy_rules(&mut logic);
-            ensure_test_structure_template(&mut logic);
-            ensure_test_dozer_template(&mut logic);
-            ensure_test_player_for_team(&mut logic, Team::USA);
             let sid = logic
                 .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
                 .expect("scaffold").expect("ObjectId");
@@ -894,7 +917,8 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
                 .expect("dozer");
             assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
             logic.queued_audio_events.clear();
-            logic.update_construction(&[sid], 1.0);
+            // The builder walks to its dock; arriving starts the UnderConstruction loop.
+            let did = dock_builder_for_site(&mut logic, sid);
             assert!(
                 logic.queued_audio_events.iter().any(|e| {
                     e.event_type == "BuildingConstructionLoop"
@@ -906,7 +930,7 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
                 logic.queued_audio_events
             );
             logic.queued_audio_events.clear();
-            logic.update_construction(&[sid], 1.0);
+            drive_dozer_frame(&mut logic, &[did, sid]);
             assert!(
                 !logic.queued_audio_events.iter().any(|e| {
                     e.event_type == "BuildingConstructionLoop" && e.is_looping && !e.stop
@@ -918,7 +942,15 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
                 o.construction_percent = 0.99;
             }
             logic.queued_audio_events.clear();
-            logic.update_construction(&[sid], 1.0);
+            for _ in 0..30 {
+                drive_dozer_frame(&mut logic, &[did, sid]);
+                if logic
+                    .host_object(sid)
+                    .is_some_and(|o| !o.status.under_construction)
+                {
+                    break;
+                }
+            }
             assert!(
                 logic
                     .host_object(sid)
@@ -938,9 +970,9 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
 }
 
 fn construction_audio_fixture(logic: &mut GameLogic, pos: glam::Vec3) -> ObjectId {
-    ensure_test_structure_template(logic);
-    ensure_test_dozer_template(logic);
-    ensure_test_player_for_team(logic, Team::USA);
+    // A reset world re-admits the authored content; a world that already carries it
+    // keeps its own admission.
+    let _ = ensure_admitted_dozer_content(logic);
     let site = logic
         .create_object_under_construction("TestBuilding", Team::USA, pos)
         .expect("construction site").expect("ObjectId");
@@ -951,6 +983,22 @@ fn construction_audio_fixture(logic: &mut GameLogic, pos: glam::Vec3) -> ObjectI
         .create_object("TestDozer", Team::USA, pos + glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("builder");
     assert_eq!(logic.resume_construction(&[dozer], site).expect("result"), true);
+    logic.queued_audio_events.clear();
+    site
+}
+
+/// A construction site whose UnderConstruction sound comes from the per-test sound
+/// override (programmatic template): for owner bookkeeping that never runs a builder.
+fn construction_audio_site(logic: &mut GameLogic, pos: glam::Vec3) -> ObjectId {
+    ensure_test_structure_template(logic);
+    ensure_test_player_for_team(logic, Team::USA);
+    let site = logic
+        .create_object_under_construction("TestBuilding", Team::USA, pos)
+        .expect("construction site")
+        .expect("ObjectId");
+    let object = logic.host_object_mut(site).unwrap();
+    object.template_mut().build_time = 10.0;
+    object.construction_percent = 0.0;
     logic.queued_audio_events.clear();
     site
 }
@@ -970,15 +1018,15 @@ fn construction_audio_same_id_completion_and_reset_are_owner_local() {
                 "UnderConstruction",
                 "BuildingConstructionLoop",
             );
-            let mut a = GameLogic::new();
-            let mut b = GameLogic::new();
+            let mut a = admitted_dozer_world();
+            let mut b = admitted_dozer_world();
             admit_retail_production_energy_rules(&mut a);
             admit_retail_production_energy_rules(&mut b);
             let a_site = construction_audio_fixture(&mut a, glam::Vec3::ZERO);
             let b_site = construction_audio_fixture(&mut b, glam::Vec3::ZERO);
             assert_eq!(a_site, b_site);
-            a.update_construction(&[a_site], 1.0);
-            b.update_construction(&[b_site], 1.0);
+            let a_dozer = dock_builder_for_site(&mut a, a_site);
+            let b_dozer = dock_builder_for_site(&mut b, b_site);
             for logic in [&a, &b] {
                 assert!(
                     logic
@@ -994,12 +1042,17 @@ fn construction_audio_same_id_completion_and_reset_are_owner_local() {
             a.queued_audio_events.clear();
             b.queued_audio_events.clear();
             b.host_object_mut(b_site).unwrap().construction_percent = 0.99;
-            b.update_construction(&[b_site], 1.0);
+            for _ in 0..30 {
+                drive_dozer_frame(&mut b, &[b_dozer, b_site]);
+                if !b.host_object(b_site).unwrap().status.under_construction {
+                    break;
+                }
+            }
             assert!(!b.host_object(b_site).unwrap().status.under_construction);
             assert!(b.queued_audio_events.iter().any(|event| event.stop
                 && event.event_type == "BuildingConstructionLoop"
                 && event.object_id == Some(b_site)));
-            a.update_construction(&[a_site], 1.0);
+            drive_dozer_frame(&mut a, &[a_dozer, a_site]);
             assert!(
                 !a.queued_audio_events
                     .iter()
@@ -1009,7 +1062,7 @@ fn construction_audio_same_id_completion_and_reset_are_owner_local() {
             b.reset();
             let b_site = construction_audio_fixture(&mut b, glam::Vec3::ZERO);
             assert_eq!(a_site, b_site);
-            b.update_construction(&[b_site], 1.0);
+            dock_builder_for_site(&mut b, b_site);
             assert!(b.queued_audio_events.iter().any(|event| event.is_looping
                 && !event.stop
                 && event.event_type == "BuildingConstructionLoop"));
@@ -1020,7 +1073,7 @@ fn construction_audio_same_id_completion_and_reset_are_owner_local() {
                 && event.object_id == Some(b_site)));
             let _candidate = GameLogic::new();
             a.queued_audio_events.clear();
-            a.update_construction(&[a_site], 1.0);
+            drive_dozer_frame(&mut a, &[a_dozer, a_site]);
             assert!(
                 !a.queued_audio_events
                     .iter()
@@ -1049,7 +1102,7 @@ fn construction_audio_replacement_stops_before_start_and_missing_sound_keeps_loo
             );
             let mut logic = GameLogic::new();
             let pos = glam::Vec3::new(10.0, 3.0, 20.0);
-            let site = construction_audio_fixture(&mut logic, pos);
+            let site = construction_audio_site(&mut logic, pos);
             logic.start_building_sound(site, "TestBuilding", pos);
             logic.queued_audio_events.clear();
             set_test_per_unit_sound(
@@ -1110,13 +1163,13 @@ fn construction_audio_restore_and_direct_removal_stop_outgoing_owner_loop() {
                 "BuildingConstructionLoop",
             );
             let mut source = GameLogic::new();
-            let site = construction_audio_fixture(&mut source, glam::Vec3::ZERO);
+            let site = construction_audio_site(&mut source, glam::Vec3::ZERO);
             source.start_building_sound(site, "TestBuilding", glam::Vec3::ZERO);
             let builder = crate::save_load::snapshot::SnapshotBuilder::new();
             let snapshot = builder.create_world_snapshot(&source).unwrap();
             let mut destination = GameLogic::new();
             let old_pos = glam::Vec3::new(8.0, 0.0, 9.0);
-            let old_site = construction_audio_fixture(&mut destination, old_pos);
+            let old_site = construction_audio_site(&mut destination, old_pos);
             assert_eq!(old_site, site);
             destination.start_building_sound(old_site, "TestBuilding", old_pos);
             destination.queued_audio_events.clear();

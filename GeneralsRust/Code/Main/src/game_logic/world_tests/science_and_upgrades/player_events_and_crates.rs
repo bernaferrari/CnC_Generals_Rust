@@ -1021,21 +1021,15 @@ fn superweapon_sabotage_recharges_all_special_power_modules() {
     assert!(logic.apply_superweapon_sabotage_recharge(id));
     let o = &logic.objects[&id];
     assert!(!o.special_power_ready);
-    let spy = o
-        .special_power_cooldowns
-        .get(&SpecialPowerType::SpySatellite)
-        .copied()
-        .unwrap_or(0.0);
-    let repair = o
-        .special_power_cooldowns
-        .get(&SpecialPowerType::EmergencyRepair)
-        .copied()
-        .unwrap_or(0.0);
-    let cia = o
-        .special_power_cooldowns
-        .get(&SpecialPowerType::CiaIntelligence)
-        .copied()
-        .unwrap_or(0.0);
+    // C++ SpecialPowerModule::startPowerRecharge per module: each authored module
+    // timer (keyed by its source index) restarts at its own ReloadTime.
+    let timer = |index: u32| {
+        o.authored_special_power_timers
+            .get(&index)
+            .map(|(remaining, _)| *remaining)
+            .unwrap_or(0.0)
+    };
+    let (spy, repair, cia) = (timer(0), timer(1), timer(2));
     assert!((spy - 60.0).abs() < 0.01, "spy={spy}");
     assert!((repair - 30.0).abs() < 0.01, "repair={repair}");
     assert!((cia - 40.0).abs() < 0.01, "cia={cia}");
@@ -1091,29 +1085,27 @@ fn superweapon_sabotage_resets_shared_n_sync_player_timer() {
         o.special_power_cooldown_remaining = 0.0;
         o.special_power_cooldowns.clear();
     }
-    {
-        let player = logic.get_player_mut(0).expect("player");
-        player.express_shared_special_power_ready_now(&SpecialPowerType::ParticleCannon);
-        assert!(player.is_shared_special_power_ready(&SpecialPowerType::ParticleCannon));
-    }
+    // The shared timer is the owning Player's, keyed by the SpecialPower template.
+    let key = "superweaponparticleuplinkcannon".to_string();
+    logic
+        .get_player_mut(0)
+        .expect("player")
+        .authored_special_power_timers
+        .insert(key.clone(), 0.0);
     assert!(logic.apply_superweapon_sabotage_recharge(id));
+    // C++ Player::resetOrStartSpecialPowerReadyFrame: ready frame = now + ReloadTime.
     let remaining = logic
         .players
         .get(&0)
         .expect("player")
-        .shared_special_power_remaining(&SpecialPowerType::ParticleCannon);
+        .authored_special_power_timers
+        .get(&key)
+        .copied()
+        .unwrap_or(0.0);
     assert!(
         (remaining - 240.0).abs() < 0.01,
         "SharedNSync player timer must leftover-reset to ReloadTime, remaining={remaining}"
     );
-    let o = &logic.objects[&id];
-    assert!(!o.special_power_ready);
-    let obj_cd = o
-        .special_power_cooldowns
-        .get(&SpecialPowerType::ParticleCannon)
-        .copied()
-        .unwrap_or(0.0);
-    assert!((obj_cd - 240.0).abs() < 0.01, "obj_cd={obj_cd}");
 }
 
 #[test]

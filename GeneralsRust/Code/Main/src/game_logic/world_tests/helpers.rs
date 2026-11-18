@@ -1143,18 +1143,26 @@ pub(super) fn step_test_point_defense(world: &mut GameLogic) {
 /// dozer machine picks it on its next update, DozerAIUpdate.cpp:1948-2008).
 /// Clock starts past frame 0 like a live session (Object.cpp:1905 sole
 /// benefactor gate compares `now > expirationFrame`).
-pub(super) const ADMITTED_DOZER_INI: &str = "Object TestDozer\nKindOf = VEHICLE DOZER SELECTABLE\nLocomotor = SET_NORMAL AmericaVehicleDozerLocomotor\nBody = ActiveBody Body\nMaxHealth = 300\nInitialHealth = 300\nEnd\nBehavior = DozerAIUpdate DozerAI\nRepairHealthPercentPerSecond = 2\nEnd\nEnd\nObject TestDozerTank\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 300\nInitialHealth = 300\nEnd\nEnd\nObject TestBuilding\nKindOf = STRUCTURE SELECTABLE\nBuildCost = 0\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\nObject USA_WarFactory\nKindOf = STRUCTURE SELECTABLE FS_WARFACTORY\nBuildCost = 2000\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1500\nInitialHealth = 1500\nEnd\nEnd\n";
+pub(super) const ADMITTED_DOZER_INI: &str = "Object TestDozer\nKindOf = VEHICLE DOZER SELECTABLE\nLocomotor = SET_NORMAL AmericaVehicleDozerLocomotor\nBody = ActiveBody Body\nMaxHealth = 300\nInitialHealth = 300\nEnd\nBehavior = DozerAIUpdate DozerAI\nRepairHealthPercentPerSecond = 2\nEnd\nEnd\nObject TestDozerTank\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 300\nInitialHealth = 300\nEnd\nEnd\nObject TestBuilding\nKindOf = STRUCTURE SELECTABLE\nBuildCost = 0\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nUnitSpecificSounds\nUnderConstruction = BuildingConstructionLoop\nEnd\nEnd\nObject USA_WarFactory\nKindOf = STRUCTURE SELECTABLE FS_WARFACTORY\nBuildCost = 2000\nBuildTime = 10\nBody = ActiveBody Body\nMaxHealth = 1500\nInitialHealth = 1500\nEnd\nEnd\n";
 
-pub(super) fn admitted_dozer_world() -> GameLogic {
-    let mut logic = GameLogic::new();
-    logic.frame = 10;
-    ensure_test_player_for_team(&mut logic, Team::USA);
+/// Admits the authored dozer content (and the locomotor baseline it walks on) into a
+/// still-empty world.
+pub(super) fn ensure_admitted_dozer_content(logic: &mut GameLogic) -> Result<(), String> {
+    // The dozer walks its authored Locomotor: baseline definitions precede content.
+    logic.admit_default_locomotors_if_unadmitted();
+    ensure_test_player_for_team(logic, Team::USA);
     logic
         .admit_object_ini_sources([(
             "admitted-dozer-world.ini".to_string(),
             ADMITTED_DOZER_INI.to_string(),
         )])
-        .expect("authored dozer content admits");
+        .map_err(|error| format!("{error:?}"))
+}
+
+pub(super) fn admitted_dozer_world() -> GameLogic {
+    let mut logic = GameLogic::new();
+    logic.frame = 10;
+    ensure_admitted_dozer_content(&mut logic).expect("authored dozer content admits");
     logic
 }
 
@@ -1165,4 +1173,34 @@ pub(super) fn drive_dozer_frame(logic: &mut GameLogic, ids: &[ObjectId]) {
     logic
         .update_ai(ids, 1.0 / 30.0)
         .expect("receiving AI operation succeeds");
+}
+
+/// Whole logic frames (AI, movement, construction) at the original 30 Hz step.
+pub(super) fn advance_logic_frames(logic: &mut GameLogic, frames: u32) {
+    for _ in 0..frames {
+        let _ = logic.update_with_dt(1.0 / 30.0);
+    }
+}
+
+/// Walks a resumed builder (full logic frames) to the frame its Dozer machine picks the
+/// dock, then runs that one AI frame alone so the BUILD action's own audio and state
+/// are observed before the session drains its audio queue.
+pub(super) fn dock_builder_for_site(logic: &mut GameLogic, site: ObjectId) -> ObjectId {
+    use gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
+    let builder = logic
+        .host_object(site)
+        .and_then(|o| o.builder_id)
+        .expect("resumed construction records its builder");
+    for _ in 0..300 {
+        let arrived = logic.host_object(builder).is_some_and(|o| {
+            o.ai_state() == AIState::Idle
+                && o.dozer_tasks.build_sub_task == DozerBuildSubTask::MovingToBuildDockLocation
+        });
+        if arrived {
+            break;
+        }
+        advance_logic_frames(logic, 1);
+    }
+    drive_dozer_frame(logic, &[builder, site]);
+    builder
 }

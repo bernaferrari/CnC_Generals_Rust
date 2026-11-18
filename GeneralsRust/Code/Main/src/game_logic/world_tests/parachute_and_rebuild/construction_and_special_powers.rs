@@ -1120,7 +1120,9 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
                 Team::USA,
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
-            .is_err()
+            .ok()
+            .flatten()
+            .is_none()
     );
     let _ = logic
         .create_object(
@@ -1137,7 +1139,9 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
                 Team::USA,
                 glam::Vec3::new(100.0, 0.0, 0.0),
             )
-            .is_ok()
+            .ok()
+            .flatten()
+            .is_some()
     );
     let _ = logic
         .create_object(
@@ -1155,7 +1159,9 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
                 Team::USA,
                 glam::Vec3::new(300.0, 0.0, 0.0),
             )
-            .is_ok()
+            .ok()
+            .flatten()
+            .is_some()
     );
     let _ = logic
         .create_object(
@@ -1173,7 +1179,9 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
                 Team::USA,
                 glam::Vec3::new(500.0, 0.0, 0.0),
             )
-            .is_ok()
+            .ok()
+            .flatten()
+            .is_some()
     );
     let _ = logic
         .create_object(
@@ -1191,7 +1199,9 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
                 Team::USA,
                 glam::Vec3::new(700.0, 0.0, 0.0),
             )
-            .is_ok(),
+            .ok()
+            .flatten()
+            .is_some(),
         "full USA SW tech climb residual"
     );
 }
@@ -1232,7 +1242,9 @@ fn superweapon_structure_requires_tech_building_prereq() {
                 Team::USA,
                 glam::Vec3::ZERO,
             )
-            .is_err(),
+            .ok()
+            .flatten()
+            .is_none(),
         "PUC needs AmericaStrategyCenter"
     );
     // Place Strategy Center (fully built residual).
@@ -1251,7 +1263,9 @@ fn superweapon_structure_requires_tech_building_prereq() {
                 Team::USA,
                 glam::Vec3::new(200.0, 0.0, 0.0),
             )
-            .is_ok(),
+            .ok()
+            .flatten()
+            .is_some(),
         "PUC allowed with Strategy Center"
     );
 
@@ -1263,7 +1277,9 @@ fn superweapon_structure_requires_tech_building_prereq() {
                 Team::USA,
                 glam::Vec3::new(300.0, 0.0, 0.0),
             )
-            .is_err()
+            .ok()
+            .flatten()
+            .is_none()
     );
     let palace = logic
         .create_object("GLAPalace", Team::USA, glam::Vec3::new(400.0, 0.0, 0.0))
@@ -1276,7 +1292,9 @@ fn superweapon_structure_requires_tech_building_prereq() {
                 Team::USA,
                 glam::Vec3::new(500.0, 0.0, 0.0),
             )
-            .is_ok()
+            .ok()
+            .flatten()
+            .is_some()
     );
 }
 
@@ -1763,37 +1781,39 @@ fn superweapon_max_simultaneous_blocks_second_when_limited() {
         .expect("first SW").expect("ObjectId");
     assert!(logic.host_object(first).is_some());
     // Second SW of any Superweapon link key blocked.
+    // C++ construct refuses by returning NULL, not an engine error.
     assert!(
-        logic
-            .create_object_under_construction(
+        matches!(
+            logic.create_object_under_construction(
                 AMERICA_PARTICLE_CANNON_UPLINK,
                 Team::USA,
                 glam::Vec3::new(450.0, 0.0, 0.0),
-            )
-            .is_err(),
+            ),
+            Ok(None)
+        ),
         "second PUC blocked"
     );
     assert!(
-        logic
-            .create_object_under_construction(
+        matches!(
+            logic.create_object_under_construction(
                 GLA_SCUD_STORM,
                 Team::USA,
                 glam::Vec3::new(300.0, 0.0, 0.0),
-            )
-            .is_err(),
+            ),
+            Ok(None)
+        ),
         "Scud also counts as Superweapon link key residual"
     );
     // Unlimited when rule off.
     logic.set_skirmish_rules(false, true, false, true, 1.0);
-    assert!(
-        logic
-            .create_object_under_construction(
-                AMERICA_PARTICLE_CANNON_UPLINK,
-                Team::USA,
-                glam::Vec3::new(150.0, 0.0, 0.0),
-            )
-            .is_ok()
-    );
+    assert!(matches!(
+        logic.create_object_under_construction(
+            AMERICA_PARTICLE_CANNON_UPLINK,
+            Team::USA,
+            glam::Vec3::new(150.0, 0.0, 0.0),
+        ),
+        Ok(Some(_))
+    ));
     // Other team still free under limit.
     logic.set_skirmish_rules(false, true, true, true, 1.0);
     ensure_test_player_for_team(&mut logic, Team::China);

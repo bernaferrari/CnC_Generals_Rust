@@ -2446,20 +2446,8 @@ fn rebuild_hole_transfers_attackers_and_cancel_skips_refund() {
 #[test]
 fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
-    let mut st = ThingTemplate::new("GLATunnelNetwork");
-    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
-    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
-    st.add_kind_of(KindOf::Structure).set_health(1000.0);
-    st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
-    logic.templates.insert("GLATunnelNetwork".into(), st);
-    // Authored hole INI HP must not be overwritten by constructor 500.
-    let mut hole_tpl = ThingTemplate::new("GLAHoleTunnelNetwork");
-    hole_tpl.add_kind_of(KindOf::Structure).set_health(200.0);
-    logic
-        .templates
-        .insert("GLAHoleTunnelNetwork".into(), hole_tpl);
+    let mut logic = rebuild_hole_world(200);
+    // Authored hole INI HP (200) must not be overwritten by constructor 500.
     let sid = logic
         .create_object(
             "GLATunnelNetwork",
@@ -2593,12 +2581,7 @@ fn rebuild_hole_transfers_script_name_and_skips_defeated_player() {
 fn rebuild_hole_worker_death_resumes_existing_scaffold() {
     // C++ RebuildHoleBehavior.cpp:241 aiResumeConstruction when worker dies.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
-    let mut st = ThingTemplate::new("GLABarracks");
-    st.add_kind_of(KindOf::Structure).set_health(800.0);
-    st.set_rebuild_hole_expose("GLAHole", 0.0);
-    logic.templates.insert("GLABarracks".into(), st);
+    let mut logic = rebuild_hole_world(1000);
     let sid = logic
         .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("b");
@@ -2641,7 +2624,12 @@ fn rebuild_hole_worker_death_resumes_existing_scaffold() {
     let wid2 = h.rebuild_worker_id.expect("replacement worker");
     assert_ne!(wid2, wid);
     assert_eq!(h.rebuild_reconstructing_id, Some(rid));
-    assert_eq!(logic.host_object(wid2).unwrap().target, Some(rid));
+    // C++ aiResumeConstruction: the replacement worker's Dozer machine owns the BUILD
+    // request on the standing scaffold.
+    assert_eq!(
+        logic.host_object(wid2).unwrap().dozer_tasks.requests[0].target,
+        Some(rid)
+    );
     assert!(logic.host_object(wid2).unwrap().status.unselectable);
     assert!(h.status.masked);
 }
@@ -2679,14 +2667,7 @@ fn rebuild_hole_copies_dying_building_geometry() {
 fn rebuild_hole_complete_transfers_script_name() {
     // C++ RebuildHoleBehavior.cpp:302 transferObjectName(hole, reconstructing).
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
-    let mut st = ThingTemplate::new("GLATunnelNetwork");
-    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
-    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
-    st.add_kind_of(KindOf::Structure).set_health(1000.0);
-    st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
-    logic.templates.insert("GLATunnelNetwork".into(), st);
+    let mut logic = rebuild_hole_world(1000);
     let sid = logic
         .create_object(
             "GLATunnelNetwork",
@@ -2786,12 +2767,7 @@ fn usa_china_command_center_does_not_expose_gla_rebuild_hole() {
 fn rebuild_hole_and_scaffold_death_destroys_worker() {
     // C++ onDie / newWorkerRespawnProcess destroy the generated worker.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
-    let mut st = ThingTemplate::new("GLABarracks");
-    st.add_kind_of(KindOf::Structure).set_health(800.0);
-    st.set_rebuild_hole_expose("GLAHole", 0.0);
-    logic.templates.insert("GLABarracks".into(), st);
+    let mut logic = rebuild_hole_world(1000);
     let sid = logic
         .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("b");
@@ -3002,12 +2978,7 @@ fn rebuild_hole_uses_dying_owner_not_faction_team() {
 #[test]
 fn finished_rebuild_hole_goes_through_destroy_object() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
-    let mut st = ThingTemplate::new("GLABarracks");
-    st.add_kind_of(KindOf::Structure).set_health(800.0);
-    st.set_rebuild_hole_expose("GLAHole", 0.0);
-    logic.templates.insert("GLABarracks".into(), st);
+    let mut logic = rebuild_hole_world(1000);
     let sid = logic
         .create_object("GLABarracks", Team::GLA, glam::Vec3::ZERO)
         .expect("b");
@@ -3090,4 +3061,29 @@ fn production_door_hold_open_blocks_close_until_released() {
         assert!(o.tick_production_door(release.saturating_add(close).saturating_add(1)));
         assert_eq!(o.production_door_phase, 0);
     }
+}
+
+/// Authored GLA rebuild content: the structures that expose a hole, the holes, and the
+/// Worker the hole's RebuildHoleBehavior creates. Only INI-admitted modules can run the
+/// worker/scaffold factory (a programmatic template carries no WorkerAIUpdate).
+fn rebuild_hole_ini(tunnel_hole_hp: u32) -> String {
+    format!(
+        "Object GLATunnelNetwork\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = TunnelContain Tunnel\n End\n Behavior = RebuildHoleExposeDie Expose\n HoleName = GLAHoleTunnelNetwork\n End\nEnd\n\
+Object GLAHoleTunnelNetwork\n KindOf = STRUCTURE SELECTABLE IMMOBILE REBUILD_HOLE\n Body = StructureBody Body\n MaxHealth = {tunnel_hole_hp}\n InitialHealth = {tunnel_hole_hp}\n End\n Behavior = RebuildHoleBehavior Rebuild\n WorkerObjectName = GLAInfantryWorker\n WorkerRespawnDelay = 20000\n End\nEnd\n\
+Object GLABarracks\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 800\n InitialHealth = 800\n End\n Behavior = RebuildHoleExposeDie Expose\n HoleName = GLAHole\n End\nEnd\n\
+Object GLAHole\n KindOf = STRUCTURE SELECTABLE IMMOBILE REBUILD_HOLE\n Body = StructureBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = RebuildHoleBehavior Rebuild\n WorkerObjectName = GLAInfantryWorker\n WorkerRespawnDelay = 20000\n End\nEnd\n\
+Object GLAInfantryWorker\n KindOf = INFANTRY SELECTABLE SALVAGER DOZER HARVESTER SCORE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = WorkerAIUpdate WorkerAI\n End\nEnd\n"
+    )
+}
+
+fn rebuild_hole_world(tunnel_hole_hp: u32) -> GameLogic {
+    let mut logic = GameLogic::new();
+    logic
+        .admit_object_ini_sources([(
+            "rebuild-hole-world.ini".to_string(),
+            rebuild_hole_ini(tunnel_hole_hp),
+        )])
+        .expect("authored rebuild hole content admits");
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+    logic
 }
