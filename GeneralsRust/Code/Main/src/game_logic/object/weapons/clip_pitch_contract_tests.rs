@@ -17,7 +17,8 @@ fn waiting_clip(clip: f32, between: f32) -> Object {
             range: 200.0,
             last_fire_time: 1.0,
             clip_size: 2,
-            ammo: Some(0),
+            // reloadWithBonus refilled the clip when the reload began.
+            ammo: Some(2),
             clip_reload_time: clip,
             reloading_clip: true,
             reload_time: between,
@@ -62,7 +63,7 @@ fn shorter_clip_deadline_stays_ready_across_refresh_and_actual_object_acceptance
     let mut attacker = waiting_clip(0.25, 1.0);
     attacker.refresh_weapon_fire_status(1.2);
     assert_eq!(attacker.weapon_fire_status, WeaponFireStatus::ReloadingClip);
-    assert_eq!(attacker.weapon.as_ref().unwrap().ammo, Some(0));
+    assert_eq!(attacker.weapon.as_ref().unwrap().ammo, Some(2));
     assert!(!attacker.can_fire_slot(0, 1.2));
 
     attacker.refresh_weapon_fire_status(1.25);
