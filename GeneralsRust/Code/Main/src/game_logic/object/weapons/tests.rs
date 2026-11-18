@@ -506,6 +506,8 @@ fn leftover_choose_best_backup_picks_unready_valid_slot() {
         Weapon {
             last_fire_time: 1.0,
             reload_time: 1.0,
+            // Fired at frame 30; the authored 30-frame delay reopens at 60.
+            next_fire_frame: 60,
             ..weapon(10.0)
         },
     );
@@ -515,6 +517,8 @@ fn leftover_choose_best_backup_picks_unready_valid_slot() {
         Weapon {
             last_fire_time: 1.0,
             reload_time: 1.0,
+            // Fired at frame 30; the authored 30-frame delay reopens at 60.
+            next_fire_frame: 60,
             ..weapon(40.0)
         },
     );

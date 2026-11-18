@@ -311,10 +311,12 @@ fn most_percent_ready_between_shots_progresses() {
         },
     );
     assert_eq!(o.get_most_percent_ready_to_fire_any_weapon(0.0), 100);
+    // Accepted at logic frame 30 (= 1.0s): the authored 30-frame delay
+    // reopens at frame 60 (2.0s), so 1.5s is half way.
     assert!(o.fire_at(
         tgt.id,
         1.0,
-        0,
+        30,
         &mut shot_combat,
         &mut _attack_output,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())

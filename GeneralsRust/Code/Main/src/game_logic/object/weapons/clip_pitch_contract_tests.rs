@@ -21,6 +21,9 @@ fn waiting_clip(clip: f32, between: f32) -> Object {
             clip_reload_time: clip,
             reloading_clip: true,
             reload_time: between,
+            // The authored frame scheduler owns readiness: the clip deadline
+            // is the fire frame (30) plus ClipReloadTime floored to frames.
+            next_fire_frame: 30 + (clip * 30.0).floor() as u32,
             ..Weapon::default()
         },
     );
@@ -95,7 +98,9 @@ fn shorter_clip_deadline_stays_ready_across_refresh_and_actual_object_acceptance
         WeaponFireStatus::BetweenFiringShots
     );
     assert!(!attacker.can_fire_slot(0, 1.4));
-    attacker.refresh_weapon_fire_status(2.3);
+    // The accepted shot was frame 88; its 1.0s DelayBetweenShots is 30 frames,
+    // so the frame scheduler reopens at frame 118 (3.93s on the seconds clock).
+    attacker.refresh_weapon_fire_status(118.0 / 30.0);
     assert_eq!(attacker.weapon_fire_status, WeaponFireStatus::ReadyToFire);
     assert_eq!(attacker.weapon.as_ref().unwrap().ammo, Some(1));
 }
