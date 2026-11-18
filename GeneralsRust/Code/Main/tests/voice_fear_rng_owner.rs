@@ -5,30 +5,17 @@ use glam::Vec3;
 
 const OBJECT: &str = "ReceivingVoiceFearUnit";
 
-fn seed_with_successful_roll() -> (u32, [u32; 6]) {
-    for seed in 1..=1000 {
-        let random = SessionRandom::default();
-        random.seed_random(seed);
-        if random.next_int(0, 99) < 25 {
-            return (seed, random.seed_words());
-        }
-    }
-    unreachable!("a successful fear roll exists in the seed space")
-}
+/// Seed whose first `next_int(0, 99)` is below VoiceFear's 25 chance. Fixed
+/// from RandomValue's own known sequence (no search over seeds).
+const SUCCESSFUL_FEAR_ROLL_SEED: u32 = 4;
+/// Seed whose first two `next_int(0, 99)` draws are a success (< 25) then a
+/// failure (>= 25), used as the shared global stream's distractor state.
+const SUCCESS_THEN_FAILURE_SEED: u32 = 5;
 
-fn global_state_with_success_then_failure() -> [u32; 6] {
-    for seed in 1..=1000 {
-        let random = SessionRandom::default();
-        random.seed_random(seed);
-        let words = random.seed_words();
-        game_engine::common::random_value::set_game_logic_random_seed_state(words);
-        let first = game_engine::common::random_value::get_game_logic_random_value(0, 99);
-        let second = game_engine::common::random_value::get_game_logic_random_value(0, 99);
-        if first < 25 && second >= 25 {
-            return words;
-        }
-    }
-    unreachable!("the global stream has a success then failure sequence")
+fn seed_words_for(seed: u32) -> [u32; 6] {
+    let random = SessionRandom::default();
+    random.seed_random(seed);
+    random.seed_words()
 }
 
 fn receiving_world(seed: u32) -> (GameLogic, ObjectId) {
@@ -75,8 +62,8 @@ fn fear_events(game: &mut GameLogic) -> Vec<String> {
 
 #[test]
 fn interleaved_world_damage_uses_receiving_voice_fear_rng() {
-    let (seed_a, _) = seed_with_successful_roll();
-    let global_words = global_state_with_success_then_failure();
+    let seed_a = SUCCESSFUL_FEAR_ROLL_SEED;
+    let global_words = seed_words_for(SUCCESS_THEN_FAILURE_SEED);
     let (mut control_a, control_id) = receiving_world(seed_a);
     let (mut a, a_id) = receiving_world(seed_a);
     let (mut b, b_id) = receiving_world(0xB22D_F002);

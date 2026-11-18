@@ -81,7 +81,6 @@ zip = {workspace = true, features = ["deflate"]}
 tar = {workspace = true}
 
 # 2025 Performance optimizations
-fastrand = {workspace = true}  # Modern, fast random number generation
 num_cpus = {workspace = true}  # CPU core detection
 
 # Logging and profiling

@@ -145,7 +145,7 @@ impl AABTreeNode {
     }
 
     /// Partition this node based on contained objects
-    fn partition(&mut self) {
+    fn partition(&mut self, holdrand: &mut u32) {
         if self.object_count() <= 2 {
             return;
         }
@@ -154,7 +154,7 @@ impl AABTreeNode {
         let boxes: Vec<AABox> = self.objects.iter().map(|obj| obj.get_cull_box()).collect();
 
         // Select splitting plane
-        let split_choice = self.select_splitting_plane(&boxes);
+        let split_choice = self.select_splitting_plane(&boxes, holdrand);
 
         if split_choice.cost == f32::MAX {
             return; // No good split found
@@ -172,18 +172,18 @@ impl AABTreeNode {
             front_node.bbox = AABox::from(split_choice.front_box);
             let front_rc = Rc::new(RefCell::new(front_node));
             self.front = Some(front_rc.clone());
-            front_rc.borrow_mut().partition();
+            front_rc.borrow_mut().partition(holdrand);
         }
 
         if back_node.object_count() > 0 {
             back_node.bbox = AABox::from(split_choice.back_box);
             let back_rc = Rc::new(RefCell::new(back_node));
             self.back = Some(back_rc.clone());
-            back_rc.borrow_mut().partition();
+            back_rc.borrow_mut().partition(holdrand);
         }
     }
 
-    fn select_splitting_plane(&self, boxes: &[AABox]) -> SplitChoice {
+    fn select_splitting_plane(&self, boxes: &[AABox], holdrand: &mut u32) -> SplitChoice {
         const MAX_TRIES: usize = 300;
         let mut best_choice = SplitChoice::new();
 
@@ -191,7 +191,7 @@ impl AABTreeNode {
         let tries = std::cmp::min(MAX_TRIES, obj_count);
 
         for _ in 0..tries {
-            let obj_index = fastrand::usize(..obj_count);
+            let obj_index = c_runtime_rand(holdrand) as usize % obj_count; // aabtreecull.cpp:1305
             let bbox = boxes[obj_index];
 
             // Try each face of the bounding box
@@ -331,7 +331,8 @@ impl AABTreeCullSystem {
         self.root_node = Rc::new(RefCell::new(dummy_node));
 
         // Partition the objects
-        self.root_node.borrow_mut().partition();
+        let mut holdrand = 1;
+        self.root_node.borrow_mut().partition(&mut holdrand);
 
         // Re-index nodes
         self.re_index_nodes();
@@ -989,4 +990,12 @@ mod tests {
         assert!(depth > 0);
         assert!(node_count > 0);
     }
+}
+
+/// MSVC CRT `rand()` (the source C++ `AABTreeCullSystemClass::Select_Splitting_Plane` uses) over an explicit
+/// `holdrand` stream that starts at 1 for each build: `holdrand = holdrand * 214013
+/// + 2531011`, result bits 16..30.
+fn c_runtime_rand(holdrand: &mut u32) -> u32 {
+    *holdrand = holdrand.wrapping_mul(214_013).wrapping_add(2_531_011);
+    (*holdrand >> 16) & 0x7fff
 }

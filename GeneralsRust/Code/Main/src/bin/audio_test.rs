@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("• Music state management (isMusicAlreadyLoaded, setMusicLoaded)");
     info!("• Multi-channel audio support");
     info!("• Proper audio sample conversion to prevent noise");
-    info!("• Safe random number generation using fastrand");
+    info!("• Deterministic random number generation");
 
     Ok(())
 }

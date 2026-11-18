@@ -7,7 +7,6 @@ description = "WWVegas Wwutil — cMathUtil / cMiscUtil port"
 license = "GPL-3.0-or-later"
 
 [dependencies]
-fastrand = { workspace = true }
 chrono = { workspace = true }
 
 [dev-dependencies]

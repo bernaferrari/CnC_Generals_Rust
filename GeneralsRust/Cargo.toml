@@ -163,7 +163,6 @@ scoped-tls = "1.0.1"
 # Math & random
 rand = { version = "0.10.2", features = ["std", "std_rng"] }
 rand_distr = "0.6.0"
-fastrand = "2.5.0"
 glam = { version = "0.33.7", features = ["serde", "bytemuck"] }
 cgmath = "0.18.0"
 ultraviolet = { version = "0.10.0", features = ["serde", "bytemuck"] }

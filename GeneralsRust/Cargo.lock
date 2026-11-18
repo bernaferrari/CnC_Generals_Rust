@@ -4289,7 +4289,6 @@ dependencies = [
  "crossbeam-channel",
  "dashmap",
  "device_query",
- "fastrand 2.5.0",
  "flate2",
  "futures",
  "game-client-rust",
@@ -7061,7 +7060,6 @@ name = "math_utilities"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "fastrand 2.5.0",
  "glam 0.33.7",
  "lazy_static",
  "rand 0.10.2",
@@ -15353,7 +15351,6 @@ version = "0.1.0"
 dependencies = [
  "approx 0.5.1",
  "bitflags 2.13.2",
- "fastrand 2.5.0",
  "glam 0.33.7",
  "ww3d-core",
 ]
@@ -15641,7 +15638,6 @@ name = "wwutil"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "fastrand 2.5.0",
 ]
 
 [[package]]

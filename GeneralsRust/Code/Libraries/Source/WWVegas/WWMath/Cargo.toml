@@ -6,7 +6,6 @@ rust-version.workspace = true
 
 [dependencies]
 rand = {workspace = true}
-fastrand = {workspace = true}
 lazy_static = {workspace = true}
 thiserror = {workspace = true}
 anyhow = {workspace = true}

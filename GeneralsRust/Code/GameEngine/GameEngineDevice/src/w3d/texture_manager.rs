@@ -1252,11 +1252,15 @@ impl W3DTextureManager {
                 }
             }
             ProceduralType::WhiteNoise => {
-                // Use fastrand for 2025 performance optimization
-                let mut rng = fastrand::Rng::new();
+                // Procedural white noise has no C++ counterpart; use a fixed
+                // xorshift32 stream so generated textures are reproducible.
+                let mut state: u32 = 0x9E37_79B9;
 
                 for pixel in image.pixels_mut() {
-                    let value = rng.u8(..);
+                    state ^= state << 13;
+                    state ^= state >> 17;
+                    state ^= state << 5;
+                    let value = (state >> 24) as u8;
                     *pixel = image::Rgba([value, value, value, 255]);
                 }
             }

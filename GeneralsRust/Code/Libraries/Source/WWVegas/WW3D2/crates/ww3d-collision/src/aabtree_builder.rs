@@ -168,7 +168,8 @@ impl AABTreeBuilder {
 
         // Build tree (take root temporarily to avoid borrow issues)
         if let Some(mut root) = self.root.take() {
-            Self::build_tree_internal(&mut root, poly_indices, &self.polys, &self.verts);
+            let mut holdrand = 1;
+            Self::build_tree_internal(&mut root, poly_indices, &self.polys, &self.verts, &mut holdrand);
             self.root = Some(root);
         }
 
@@ -193,6 +194,7 @@ impl AABTreeBuilder {
         poly_indices: Vec<usize>,
         polys: &[TriIndex],
         verts: &[Vec3],
+        holdrand: &mut u32,
     ) {
         // Terminate if few enough polygons
         if poly_indices.len() <= MIN_POLYS_PER_NODE {
@@ -201,7 +203,7 @@ impl AABTreeBuilder {
         }
 
         // Try to find a suitable partitioning plane
-        let split_choice = Self::select_splitting_plane_static(&poly_indices, polys, verts);
+        let split_choice = Self::select_splitting_plane_static(&poly_indices, polys, verts, holdrand);
 
         // If we couldn't separate any polys, just store them here
         if split_choice.front_count + split_choice.back_count != poly_indices.len() {
@@ -215,14 +217,14 @@ impl AABTreeBuilder {
         // Build front tree if necessary
         if !split_arrays.front_polys.is_empty() {
             let mut front_node = Box::new(BuilderNode::new());
-            Self::build_tree_internal(&mut front_node, split_arrays.front_polys, polys, verts);
+            Self::build_tree_internal(&mut front_node, split_arrays.front_polys, polys, verts, holdrand);
             node.front = Some(front_node);
         }
 
         // Build back tree if necessary
         if !split_arrays.back_polys.is_empty() {
             let mut back_node = Box::new(BuilderNode::new());
-            Self::build_tree_internal(&mut back_node, split_arrays.back_polys, polys, verts);
+            Self::build_tree_internal(&mut back_node, split_arrays.back_polys, polys, verts, holdrand);
             node.back = Some(back_node);
         }
     }
@@ -230,7 +232,8 @@ impl AABTreeBuilder {
     /// Wrapper to call build_tree_internal
     #[allow(dead_code)] // Tree building not yet integrated
     fn build_tree(&mut self, node: &mut BuilderNode, poly_indices: Vec<usize>) {
-        Self::build_tree_internal(node, poly_indices, &self.polys, &self.verts);
+        let mut holdrand = 1;
+        Self::build_tree_internal(node, poly_indices, &self.polys, &self.verts, &mut holdrand);
     }
 
     /// Select best splitting plane using SAH
@@ -238,6 +241,7 @@ impl AABTreeBuilder {
         poly_indices: &[usize],
         polys: &[TriIndex],
         verts: &[Vec3],
+        holdrand: &mut u32,
     ) -> SplitChoice {
         let mut best_split = SplitChoice::new();
 
@@ -245,8 +249,8 @@ impl AABTreeBuilder {
 
         for _ in 0..num_tries {
             // Select random polygon and vertex
-            let poly_idx = poly_indices[fastrand::usize(..poly_indices.len())];
-            let vert_idx = fastrand::usize(0..3);
+            let poly_idx = poly_indices[c_runtime_rand(holdrand) as usize % poly_indices.len()];
+            let vert_idx = c_runtime_rand(holdrand) as usize % 3;
             let poly = &polys[poly_idx];
             let vert = verts[poly.get(vert_idx) as usize];
 
@@ -622,4 +626,12 @@ mod tests {
         let side2 = builder.which_side(&plane2, 0);
         assert_eq!(side2, OverlapType::Both);
     }
+}
+
+/// MSVC CRT `rand()` (the source C++ `AABTreeBuilderClass::Select_Splitting_Plane` uses) over an explicit
+/// `holdrand` stream that starts at 1 for each build: `holdrand = holdrand * 214013
+/// + 2531011`, result bits 16..30.
+fn c_runtime_rand(holdrand: &mut u32) -> u32 {
+    *holdrand = holdrand.wrapping_mul(214_013).wrapping_add(2_531_011);
+    (*holdrand >> 16) & 0x7fff
 }

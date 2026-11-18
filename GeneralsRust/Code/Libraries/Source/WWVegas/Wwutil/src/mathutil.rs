@@ -27,12 +27,41 @@ pub trait PdfRng {
     fn next_u32(&mut self) -> u32;
 }
 
-impl PdfRng for fastrand::Rng {
+/// MSVC CRT `rand()` stream (`srand(seed)`; `RAND_MAX` = 32767), the source
+/// `cMathUtil::Get_Uniform_PDF` draws from.
+#[derive(Debug, Clone)]
+pub struct CRand {
+    holdrand: u32,
+}
+
+impl CRand {
+    pub const RAND_MAX: u32 = 0x7fff;
+
+    /// CRT `srand(seed)`.
+    pub fn new(seed: u32) -> Self {
+        Self { holdrand: seed }
+    }
+
+    /// CRT `rand()`.
+    pub fn rand(&mut self) -> u32 {
+        self.holdrand = self.holdrand.wrapping_mul(214_013).wrapping_add(2_531_011);
+        (self.holdrand >> 16) & Self::RAND_MAX
+    }
+}
+
+impl Default for CRand {
+    /// A fresh thread's CRT state is `srand(1)`.
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
+
+impl PdfRng for CRand {
     fn next_unit_f64(&mut self) -> f64 {
-        self.f64()
+        f64::from(self.rand()) / f64::from(Self::RAND_MAX)
     }
     fn next_u32(&mut self) -> u32 {
-        self.u32(..)
+        self.rand()
     }
 }
 
@@ -212,8 +241,15 @@ mod tests {
     }
 
     #[test]
+    fn c_rand_matches_the_crt_sequence_after_srand_one() {
+        // The documented MSVC CRT `rand()` outputs after `srand(1)`.
+        let mut rng = CRand::default();
+        assert_eq!([rng.rand(), rng.rand(), rng.rand()], [41, 18467, 6334]);
+    }
+
+    #[test]
     fn uniform_pdf_stays_in_range() {
-        let mut rng = fastrand::Rng::with_seed(1);
+        let mut rng = CRand::new(1);
         for _ in 0..100 {
             let x = MathUtil::get_uniform_pdf_double(2.0, 5.0, &mut rng);
             assert!((2.0..=5.0).contains(&x));
