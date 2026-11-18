@@ -8,7 +8,7 @@ fn admit_test_sticky_bomb_charge(game: &mut GameLogic) {
     game.admit_receiving_module_content(
         crate::assets::ReceivingObjectContent::from_sources([(
             "booby-trap-charge.ini".into(),
-            "Object BoobyTrap\nKindOf = IMMOBILE BOOBY_TRAP\nBody = ActiveBody BodyTag\nMaxHealth = 1\nInitialHealth = 1\nEnd\nBehavior = StickyBombUpdate Sticky\nEnd\nEnd\n".into(),
+            "Object BoobyTrap\nKindOf = IMMOBILE BOOBY_TRAP\nBody = ActiveBody BodyTag\nMaxHealth = 1\nInitialHealth = 1\nEnd\nBehavior = StickyBombUpdate Sticky\nEnd\nEnd\nObject GLAInfantryRebel\nKindOf = INFANTRY\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject AmericaWarFactory\nKindOf = STRUCTURE IMMOBILE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\nObject TrapPlanter\nKindOf = INFANTRY\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject TrapTarget\nKindOf = STRUCTURE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\nObject ReusedChargeIdDecoy\nKindOf = VEHICLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
         )])
         .expect("typed StickyBombUpdate charge content"),
     )
@@ -271,14 +271,6 @@ fn booby_trap_plant_spawns_special_object() {
     // Every Object is born controlled by a Player (the planter GLA, the target USA).
     logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     logic.add_player(Player::new(1, Team::USA, "USA", true));
-    let mut rebel = ThingTemplate::new("GLAInfantryRebel");
-    rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic.templates.insert("GLAInfantryRebel".into(), rebel);
-    let mut bld = ThingTemplate::new("AmericaWarFactory");
-    bld.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Immobile)
-        .set_health(1000.0);
-    logic.templates.insert("AmericaWarFactory".into(), bld);
 
     let planter = logic
         .create_object_for_player("GLAInfantryRebel", 0, Vec3::new(0.0, 0.0, 0.0))
@@ -491,21 +483,6 @@ fn booby_trap_registry_does_not_override_cpp_status_gate() {
     // Every Object is born controlled by a Player (the planter GLA, the target USA).
     logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     logic.add_player(Player::new(1, Team::USA, "USA", true));
-    let mut planter_template = ThingTemplate::new("TrapPlanter");
-    planter_template
-        .add_kind_of(KindOf::Infantry)
-        .set_health(100.0);
-    logic
-        .templates
-        .insert("TrapPlanter".to_string(), planter_template);
-    let mut target_template = ThingTemplate::new("TrapTarget");
-    target_template
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(1000.0);
-    logic
-        .templates
-        .insert("TrapTarget".to_string(), target_template);
 
     let planter = logic
         .create_object_for_player("TrapPlanter", 0, Vec3::ZERO)
@@ -566,29 +543,6 @@ fn booby_trap_detonation_rejects_missing_wrong_and_reused_charge_ids() {
     // Every Object is born controlled by a Player (the planter GLA, the target USA).
     logic.add_player(Player::new(0, Team::GLA, "GLA", true));
     logic.add_player(Player::new(1, Team::USA, "USA", true));
-        let mut planter_template = ThingTemplate::new("TrapPlanter");
-        planter_template
-            .add_kind_of(KindOf::Infantry)
-            .set_health(100.0);
-        logic
-            .templates
-            .insert("TrapPlanter".to_string(), planter_template);
-        let mut target_template = ThingTemplate::new("TrapTarget");
-        target_template
-            .add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::Attackable)
-            .set_health(1000.0);
-        logic
-            .templates
-            .insert("TrapTarget".to_string(), target_template);
-        let mut decoy_template = ThingTemplate::new("ReusedChargeIdDecoy");
-        decoy_template
-            .add_kind_of(KindOf::Vehicle)
-            .add_kind_of(KindOf::Attackable)
-            .set_health(100.0);
-        logic
-            .templates
-            .insert("ReusedChargeIdDecoy".to_string(), decoy_template);
 
         let planter = logic
             .create_object_for_player("TrapPlanter", 0, Vec3::ZERO)

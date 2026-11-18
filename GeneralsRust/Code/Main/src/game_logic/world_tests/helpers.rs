@@ -1285,3 +1285,21 @@ pub(super) fn dock_builder_for_site(logic: &mut GameLogic, site: ObjectId) -> Ob
     drive_dozer_frame(logic, &[builder, site]);
     builder
 }
+
+/// Diagnostic for a builder/site pair (assertion messages only).
+pub(super) fn dozer_site_state(logic: &GameLogic, builder: ObjectId, site: ObjectId) -> String {
+    let b = logic.host_object(builder);
+    let t = logic.host_object(site);
+    format!(
+        "builder(state={:?} sub={:?} owner={:?} pos={:?}) site(under_construction={:?} builder_id={:?} owner={:?} pct={:?} pos={:?})",
+        b.map(|o| o.ai_state()),
+        b.map(|o| o.dozer_tasks.build_sub_task),
+        b.map(|o| o.owner_player_id),
+        b.map(|o| o.get_position()),
+        t.map(|o| o.status.under_construction),
+        t.map(|o| o.builder_id),
+        t.map(|o| o.owner_player_id),
+        t.map(|o| o.construction_percent),
+        t.map(|o| o.get_position()),
+    )
+}

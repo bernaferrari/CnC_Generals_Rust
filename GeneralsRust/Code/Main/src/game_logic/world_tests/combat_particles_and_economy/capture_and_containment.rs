@@ -429,6 +429,14 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
     use crate::game_logic::host_upgrades::UPGRADE_INFANTRY_CAPTURE;
 
     let mut game_logic = GameLogic::new();
+    // Object::giveUpgrade does nothing for a missing UpgradeTemplate.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut game_logic,
+        UPGRADE_INFANTRY_CAPTURE,
+        "PLAYER",
+        1000,
+        30,
+    );
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 5000;
     game_logic.add_player(player);

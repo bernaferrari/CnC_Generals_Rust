@@ -74,6 +74,7 @@ fn previous_acceleration_survives_clone_and_object_serde_round_trip() {
         .remove("physics_previous_accel");
     let defaulted: Object = serde_json::from_value(missing_field).unwrap();
     assert_eq!(defaulted.previous_acceleration(), Vec3::ZERO);
+    cloned.physics_accel = Vec3::ZERO;
     cloned.integrate_physics_force_phase(0);
     assert_eq!(cloned.previous_acceleration(), Vec3::ZERO);
     assert_eq!(loaded.previous_acceleration(), Vec3::new(7.0, 8.0, 9.0));

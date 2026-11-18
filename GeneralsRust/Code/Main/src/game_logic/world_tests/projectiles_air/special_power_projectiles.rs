@@ -5,6 +5,14 @@ use super::*;
 /// SpecialAbilityUpdate and the UnpauseSpecialPowerUpgrade), admitted as
 /// content; C++ pauses a power only through the authored module.
 fn admit_authored_ranger_capture(logic: &mut GameLogic, starts_paused_modules: usize) {
+    // Object::giveUpgrade does nothing for a missing UpgradeTemplate.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        logic,
+        "Upgrade_InfantryCaptureBuilding",
+        "PLAYER",
+        1000,
+        30,
+    );
     let mut ranger = crate::fixture_content::FixtureObject::new("AmericaInfantryRanger")
         .kind_of("INFANTRY SELECTABLE")
         .health(100.0);

@@ -135,7 +135,8 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
     }
     assert!(
         (progress - (1.0 / 7.0)).abs() < 1e-5,
-        "Main dozer build tick must use C++ staged frame count 9 -> 8 -> 7; expected 1/7, got {progress}"
+        "Main dozer build tick must use C++ staged frame count 9 -> 8 -> 7; expected 1/7, got {progress}: {}",
+        super::helpers::dozer_site_state(&logic, builder, sid)
     );
 }
 

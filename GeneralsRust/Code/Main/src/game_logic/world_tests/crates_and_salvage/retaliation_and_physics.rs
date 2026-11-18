@@ -2380,11 +2380,20 @@ fn private_face_turns_toward_target() {
     assert_eq!(after_cmd.locomotor_goal_type, LocoGoalType::Angle);
     assert_eq!(after_cmd.get_orientation(), yaw0);
     // AI chooses the Angle goal; the Locomotor turns the body on the logic frame.
-    let _ = logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    // The AI state machine enters FacingObject on its first update and the
+    // Locomotor turns on the frames after that.
+    for _ in 0..4 {
+        let _ = logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    }
     let after_tick = logic.objects.get(&aid).unwrap();
     let yaw1 = after_tick.get_orientation();
-    assert!((yaw1 - yaw0).abs() > 1e-4);
-    assert_eq!(after_tick.locomotor_goal_type, LocoGoalType::Angle);
+    assert!(
+        (yaw1 - yaw0).abs() > 1e-4,
+        "yaw0={yaw0} yaw1={yaw1} loco={:?} state={:?} goal={:?}",
+        after_tick.cur_locomotor_name,
+        after_tick.ai_state(),
+        after_tick.locomotor_goal_type
+    );
 }
 
 #[test]

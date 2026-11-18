@@ -831,6 +831,7 @@ fn overlord_propaganda_addon_residual_heals_allies() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    ensure_test_overlord_template(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::China);
     game_logic.admit_object_ini_sources([(
         "TestPortablePropaganda.ini".into(),

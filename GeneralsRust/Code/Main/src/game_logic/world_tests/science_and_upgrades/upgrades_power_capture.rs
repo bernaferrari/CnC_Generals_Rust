@@ -185,7 +185,11 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
     advance_logic_frames(&mut logic, 20);
     let p0_gain = logic.host_object(p0_building).unwrap().construction_percent - before[0];
     let p1_gain = logic.host_object(p1_building).unwrap().construction_percent - before[1];
-    assert!(p0_gain > 0.0, "p0 must build, gain={p0_gain}");
+    assert!(
+        p0_gain > 0.0,
+        "p0 must build, gain={p0_gain}: {}",
+        super::super::helpers::dozer_site_state(&logic, p0_dozer, p0_building)
+    );
     // Brownout factor 0.6 -> Int(frames / 0.6) frames: 0.6 of p0's per-frame gain.
     assert!(
         (p1_gain / p0_gain - 0.6).abs() < 0.02,
@@ -2090,12 +2094,15 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     }
     // C++ sets ACTIVELY_CONSTRUCTING only inside the DOZER_DO_BUILD_AT_DOCK
     // sub-task: the builder resumes a scaffold, walks to its dock, then builds.
+    // (A scaffold is placed here as the map-placed unfinished building the
+    // dozer resumes; the retail Barracks prerequisites are not under test.)
     let sid = logic
-        .create_object_under_construction("AmericaBarracks", Team::USA, glam::Vec3::new(60.0, 0.0, 0.0))
-        .expect("scaffold")
-        .expect("ObjectId");
+        .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(60.0, 0.0, 0.0))
+        .expect("scaffold");
     if let Some(site) = logic.host_object_mut(sid) {
         site.template_mut().build_time = 10.0;
+        site.set_status_under_construction(true);
+        site.construction_percent = 0.0;
     }
     assert!(logic.resume_construction(&[did], sid).expect("resume"));
     super::super::helpers::dock_builder_for_site(&mut logic, sid);

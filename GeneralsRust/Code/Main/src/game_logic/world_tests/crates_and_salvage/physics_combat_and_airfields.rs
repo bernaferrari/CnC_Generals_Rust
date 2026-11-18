@@ -1332,39 +1332,34 @@ End
 
     let mut logic = GameLogic::new();
     enemy_players(&mut logic);
-    // The world's own Weapon catalog carries the authored splash rule.
-    crate::fixture_content::admit_fixture_content(
-        &mut logic,
-        &[],
-        &[crate::fixture_content::FixtureWeapon::new("TestNoAllySplashWeapon")
-            .field("RadiusDamageAffects = ENEMIES NEUTRALS")
-            .radius(30.0)
-            .damage(50.0)
-            .damage_type("EXPLOSION")
-            .field("DeathType = NORMAL")],
-    );
+    // The world's own Weapon catalog carries the authored splash rule and the
+    // Objects are admitted content (a template inserted after admission is
+    // not a ThingFactory template).
     {
-        let mut t = ThingTemplate::new("SplashSrc");
-        t.primary_weapon_name = Some("TestNoAllySplashWeapon".into());
-        t.add_kind_of(KindOf::Vehicle);
-        logic.templates.insert("SplashSrc".into(), t);
-        let mut ta = ThingTemplate::new("SplashAlly");
-        ta.add_kind_of(KindOf::Vehicle);
-        ta.add_kind_of(KindOf::Attackable);
-        logic.templates.insert("SplashAlly".into(), ta);
-        let mut te = ThingTemplate::new("SplashEnemy");
-        te.add_kind_of(KindOf::Vehicle);
-        te.add_kind_of(KindOf::Attackable);
-        logic.templates.insert("SplashEnemy".into(), te);
+        use crate::fixture_content::FixtureObject;
+        crate::fixture_content::admit_fixture_content(
+            &mut logic,
+            &[
+                FixtureObject::new("SplashSrc").kind_of("VEHICLE").health(100.0),
+                FixtureObject::new("SplashAlly").kind_of("VEHICLE").health(200.0),
+                FixtureObject::new("SplashEnemy").kind_of("VEHICLE").health(200.0),
+            ],
+            &[crate::fixture_content::FixtureWeapon::new("TestNoAllySplashWeapon")
+                .field("RadiusDamageAffects = ENEMIES NEUTRALS")
+                .radius(30.0)
+                .damage(50.0)
+                .damage_type("EXPLOSION")
+                .field("DeathType = NORMAL")],
+        );
     }
     let src = logic
-        .create_object("SplashSrc", Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player("SplashSrc", 0, glam::Vec3::ZERO)
         .unwrap();
     let ally = logic
-        .create_object("SplashAlly", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+        .create_object_for_player("SplashAlly", 0, glam::Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
     let enemy = logic
-        .create_object("SplashEnemy", Team::China, glam::Vec3::new(12.0, 0.0, 0.0))
+        .create_object_for_player("SplashEnemy", 1, glam::Vec3::new(12.0, 0.0, 0.0))
         .unwrap();
     for id in [ally, enemy] {
         if let Some(o) = logic.objects.get_mut(&id) {
@@ -1459,39 +1454,31 @@ End
 
     let mut logic = GameLogic::new();
     enemy_players(&mut logic);
-    // The world's own Weapon catalog carries the authored splash rule.
-    crate::fixture_content::admit_fixture_content(
-        &mut logic,
-        &[],
-        &[crate::fixture_content::FixtureWeapon::new("TestNotAirborneSplashWeapon")
-            .field("RadiusDamageAffects = ENEMIES NEUTRALS NOT_AIRBORNE")
-            .radius(30.0)
-            .damage(50.0)
-            .damage_type("EXPLOSION")
-            .field("DeathType = NORMAL")],
-    );
     {
-        let mut t = ThingTemplate::new("NaSrc");
-        t.primary_weapon_name = Some("TestNotAirborneSplashWeapon".into());
-        t.add_kind_of(KindOf::Vehicle);
-        logic.templates.insert("NaSrc".into(), t);
-        let mut te = ThingTemplate::new("NaGround");
-        te.add_kind_of(KindOf::Vehicle);
-        te.add_kind_of(KindOf::Attackable);
-        logic.templates.insert("NaGround".into(), te);
-        let mut th = ThingTemplate::new("NaHigh");
-        th.add_kind_of(KindOf::Vehicle);
-        th.add_kind_of(KindOf::Attackable);
-        logic.templates.insert("NaHigh".into(), th);
+        use crate::fixture_content::FixtureObject;
+        crate::fixture_content::admit_fixture_content(
+            &mut logic,
+            &[
+                FixtureObject::new("NaSrc").kind_of("VEHICLE").health(100.0),
+                FixtureObject::new("NaGround").kind_of("VEHICLE").health(200.0),
+                FixtureObject::new("NaHigh").kind_of("VEHICLE").health(200.0),
+            ],
+            &[crate::fixture_content::FixtureWeapon::new("TestNotAirborneSplashWeapon")
+                .field("RadiusDamageAffects = ENEMIES NEUTRALS NOT_AIRBORNE")
+                .radius(30.0)
+                .damage(50.0)
+                .damage_type("EXPLOSION")
+                .field("DeathType = NORMAL")],
+        );
     }
     let src = logic
-        .create_object("NaSrc", Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player("NaSrc", 0, glam::Vec3::ZERO)
         .unwrap();
     let ground = logic
-        .create_object("NaGround", Team::China, glam::Vec3::new(8.0, 0.0, 0.0))
+        .create_object_for_player("NaGround", 1, glam::Vec3::new(8.0, 0.0, 0.0))
         .unwrap();
     let high = logic
-        .create_object("NaHigh", Team::China, glam::Vec3::new(8.0, 12.0, 0.0))
+        .create_object_for_player("NaHigh", 1, glam::Vec3::new(8.0, 12.0, 0.0))
         .unwrap();
     if let Some(o) = logic.objects.get_mut(&ground) {
         o.health.current = 200.0;
@@ -1845,11 +1832,11 @@ fn minimum_attack_range_too_close_backs_away() {
         &mut logic,
         &[
             FixtureObject::new("Arty")
-                .kind_of("VEHICLE ATTACKABLE")
+                .kind_of("VEHICLE")
                 .health(300.0)
                 .armed("TestMinRangeHowitzer"),
             FixtureObject::new("CloseTgt")
-                .kind_of("VEHICLE ATTACKABLE")
+                .kind_of("VEHICLE")
                 .health(500.0),
         ],
         &[FixtureWeapon::new("TestMinRangeHowitzer")
