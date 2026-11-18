@@ -10,7 +10,7 @@
 //! - Sound effect categories and tagging
 
 use dashmap::DashMap;
-use rand::{RngExt, rng};
+use crate::common::random_value::RandomState;
 use smallvec::SmallVec;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -187,22 +187,24 @@ impl SoundEffectDescriptor {
         }
     }
 
-    /// Apply random variation to base parameters
-    pub fn apply_variation(&self, rng: &mut impl RngExt) -> (f32, f32, Duration) {
+    /// Apply random variation to base parameters. Draws come from the owning
+    /// audio stream (C++ `GameAudioRandomValue[Real]`, RandomValue.cpp), never
+    /// from a process-global generator.
+    pub fn apply_variation(&self, rng: &mut RandomState) -> (f32, f32, Duration) {
         let volume_factor = if self.variation.volume_variation > 0.0 {
-            1.0 + rng.random_range(-self.variation.volume_variation..self.variation.volume_variation)
+            1.0 + rng.next_real(-self.variation.volume_variation, self.variation.volume_variation)
         } else {
             1.0
         };
 
         let pitch_factor = if self.variation.pitch_variation > 0.0 {
-            1.0 + rng.random_range(-self.variation.pitch_variation..self.variation.pitch_variation)
+            1.0 + rng.next_real(-self.variation.pitch_variation, self.variation.pitch_variation)
         } else {
             1.0
         };
 
         let delay = if self.variation.delay_variation_ms > 0 {
-            Duration::from_millis(rng.random_range(0..self.variation.delay_variation_ms) as u64)
+            Duration::from_millis(rng.next_int(0, self.variation.delay_variation_ms as i32 - 1) as u64)
         } else {
             Duration::ZERO
         };
@@ -215,9 +217,9 @@ impl SoundEffectDescriptor {
     }
 
     /// Get random file variation
-    pub fn get_random_file(&self, rng: &mut impl RngExt) -> &String {
+    pub fn get_random_file(&self, rng: &mut RandomState) -> &String {
         if !self.variation.file_variations.is_empty() {
-            let index = rng.random_range(0..self.variation.file_variations.len());
+            let index = rng.next_int(0, self.variation.file_variations.len() as i32 - 1) as usize;
             &self.variation.file_variations[index]
         } else {
             &self.file_path
@@ -225,8 +227,8 @@ impl SoundEffectDescriptor {
     }
 
     /// Check if sound should play based on probability
-    pub fn should_play(&self, rng: &mut impl RngExt) -> bool {
-        rng.random::<f32>() < self.variation.play_probability
+    pub fn should_play(&self, rng: &mut RandomState) -> bool {
+        rng.next_real(0.0, 1.0) < self.variation.play_probability
     }
 }
 
@@ -398,6 +400,8 @@ pub struct SoundEffectManager {
     sounds_culled: Cell<usize>,
     /// Listener position for distance calculations
     listener_position: RefCell<Position3D>,
+    /// This manager's audio stream (C++ GameAudioRandomValue owner).
+    audio_random: RefCell<RandomState>,
 }
 
 impl SoundEffectManager {
@@ -436,6 +440,7 @@ impl SoundEffectManager {
             total_sounds_played: Cell::new(0),
             sounds_culled: Cell::new(0),
             listener_position: RefCell::new(Position3D::default()),
+            audio_random: RefCell::new(RandomState::default()),
         }
     }
 
@@ -481,7 +486,7 @@ impl SoundEffectManager {
         }
 
         // Check if should play based on probability
-        let mut rng = rng();
+        let mut rng = self.audio_random.borrow_mut();
         if !descriptor.should_play(&mut rng) {
             return Err("Sound probability check failed".into());
         }
@@ -990,7 +995,7 @@ mod tests {
         );
         descriptor.variation = variation;
 
-        let mut rng = rng();
+        let mut rng = RandomState::default();
         let (volume, pitch, _delay) = descriptor.apply_variation(&mut rng);
 
         assert!(volume >= 0.8 && volume <= 1.2); // Base 1.0 +/- 0.2

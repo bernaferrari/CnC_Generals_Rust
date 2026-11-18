@@ -14,19 +14,23 @@ struct WorldAnimation {
 pub(crate) struct WorldAnimations {
     entries: VecDeque<WorldAnimation>,
     next_identity: u64,
-    visual_random: fastrand::Rng,
 }
 impl Default for WorldAnimations {
     fn default() -> Self {
         Self {
             entries: VecDeque::new(),
             next_identity: 1,
-            visual_random: fastrand::Rng::with_seed(0),
         }
     }
 }
 impl WorldAnimations {
-    pub(crate) fn admit(&mut self, mut birth: PresentationWorldAnim, template: &Anim2DTemplate) {
+    /// `client_random` is the session's `GameClientRandomValue` stream.
+    pub(crate) fn admit(
+        &mut self,
+        mut birth: PresentationWorldAnim,
+        template: &Anim2DTemplate,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) {
         let Some(expire_frame) = game_engine::common::world_animation::expiry_frame(
             birth.spawn_frame,
             birth.display_time_seconds,
@@ -40,7 +44,8 @@ impl WorldAnimations {
         self.next_identity = next;
         let frames = template.get_num_frames();
         birth.initial_frame = if template.is_randomized_start_frame() && frames > 0 {
-            self.visual_random.u16(0..frames)
+            // C++ Anim2D::randomizeCurrentFrame: GameClientRandomValue(0, frames - 1).
+            client_random.next_int(0, i32::from(frames) - 1) as u16
         } else {
             match template.get_anim_mode() {
                 Anim2DMode::OnceBackwards
@@ -66,7 +71,6 @@ impl WorldAnimations {
     }
     pub(crate) fn clear(&mut self) {
         self.entries.clear();
-        self.visual_random = fastrand::Rng::with_seed(0);
         // Preserve identity across resets of this owner; the native epoch also
         // separates replacement sessions that start their own identity stream.
     }

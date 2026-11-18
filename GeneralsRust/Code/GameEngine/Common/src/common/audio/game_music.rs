@@ -283,13 +283,13 @@ impl MusicManagerImpl {
         }
     }
 
-    /// Shuffle the track list
-    pub fn shuffle_tracks(&mut self) {
-        use rand::seq::SliceRandom;
-        use rand::rng;
-
-        let mut rng = rng();
-        self.tracks.shuffle(&mut rng);
+    /// Shuffle the track list with Fisher-Yates over the owning audio stream
+    /// (`GameAudioRandomValue`); the stream is the caller's, not a global.
+    pub fn shuffle_tracks(&mut self, audio_random: &mut crate::common::random_value::RandomState) {
+        for i in (1..self.tracks.len()).rev() {
+            let j = audio_random.next_int(0, i as i32) as usize;
+            self.tracks.swap(i, j);
+        }
 
         // Reset to first track
         if !self.tracks.is_empty() {

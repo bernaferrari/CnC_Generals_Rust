@@ -106,7 +106,6 @@ ww3d_core = { package = "ww3d-core", path = "../Libraries/Source/WWVegas/WW3D2/c
 ww3d_animation = { package = "ww3d-animation", path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation" }
 pollster = {workspace = true}
 bytemuck = {workspace = true, features = ["derive"]}
-fastrand = {workspace = true}
 
 # BIG file and asset loading dependencies
 image = {workspace = true}

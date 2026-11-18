@@ -420,9 +420,11 @@ impl super::GameLogic {
             .animation_templates()
             .find(&animation.template)
         {
-            self.session_view.world_animations.admit(
+            let view = &mut self.session_view;
+            view.world_animations.admit(
                 crate::presentation_frame::PresentationWorldAnim::from_money_pickup(&animation),
                 template,
+                &mut view.client_random,
             );
         }
         self.host_money_crates.record_money_pickup_anim(animation);

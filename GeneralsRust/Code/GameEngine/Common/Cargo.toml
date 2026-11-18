@@ -33,10 +33,6 @@ tempfile = {workspace = true}
 directories = {workspace = true}
 serde_json = {workspace = true}
 
-# Random number generation
-rand = { workspace = true }
-fastrand = {workspace = true}
-
 # Async runtime and futures
 
 async-trait = { workspace = true, optional = true }

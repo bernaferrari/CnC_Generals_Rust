@@ -421,7 +421,7 @@ def build_dashboard(
         "differential_scope": {
             "level": "component",
             "authoritative_fields": ["common_crc_bytes"],
-            "approved_deviations": ["seeded_rust_rng"],
+            "approved_deviations": [],
             "fixture_only_fields": ["commands", "objects", "players"],
             "full_game_loop": False,
         },

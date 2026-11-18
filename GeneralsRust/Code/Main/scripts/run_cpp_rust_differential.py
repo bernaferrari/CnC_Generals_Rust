@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Compare executed original Common CRC fixtures and Rust public CRC behavior.
 
-RNG sequences intentionally differ under the user-approved seeded_rust_rng
-policy. This component gate establishes CRC arithmetic, not gameplay parity.
+The Rust RNG is the exact C++ RandomValue.cpp add-with-carry generator, so the
+RNG checkpoints in the pinned fixture are compared bit for bit. This component
+gate establishes CRC and RNG-state arithmetic, not gameplay parity.
 """
 from __future__ import annotations
 
@@ -40,7 +41,7 @@ def main() -> int:
     run(repo, ["cargo", "test", "--locked", "--manifest-path",
                str(repo / "GeneralsRust/Code/GameEngine/Common/Cargo.toml"),
                "--test", "crc_parity", "--", "--test-threads=1"])
-    print("Common CRC component passed; RNG sequence is an approved deviation.")
+    print("Common CRC component passed; RNG checkpoints match the original generator.")
     return 0
 
 

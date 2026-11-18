@@ -93,17 +93,6 @@ SCOPE_ROOTS: tuple[ScopeRoot, ...] = (
 
 ALLOWED_DEVIATIONS = (
     {
-        "id": "seeded_rust_rng",
-        "classification": "user_approved_behavior_deviation",
-        "constraint": (
-            "User approved standard seeded Rust RNG on 2026-10-09. Random sequences "
-            "may differ from C++; world isolation, range semantics and Rust save/load "
-            "continuation remain required. Old C++ RNG checkpoints are imported as seeds, "
-            "not continued with the original sequence."
-        ),
-        "behavior_verified": False,
-    },
-    {
         "id": "particle_key_bounds_safety",
         "classification": "memory_safety_deviation",
         "constraint": (
