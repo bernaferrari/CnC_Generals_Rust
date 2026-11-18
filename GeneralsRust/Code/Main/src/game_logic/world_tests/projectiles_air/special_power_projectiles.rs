@@ -2167,6 +2167,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
                 damage: 20.0,
                 range: 100.0,
                 reload_time: 0.1,
+                projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
                 ..Default::default()
             },
         );
@@ -2180,6 +2181,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
                 damage: 10.0,
                 range: 100.0,
                 reload_time: 0.1,
+                projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
                 ..Default::default()
             },
         );
@@ -2385,6 +2387,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
                 damage: 20.0,
                 range: 150.0,
                 reload_time: 0.1,
+                projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
                 ..Default::default()
             },
         );
@@ -2469,6 +2472,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
                 damage: 20.0,
                 range: 100.0,
                 reload_time: 0.1,
+                projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
                 ..Default::default()
             },
         );
