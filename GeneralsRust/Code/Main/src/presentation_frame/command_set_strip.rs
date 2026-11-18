@@ -250,7 +250,15 @@ impl PresentationFrame {
                 }
                 game_client::gui::control_bar::CommandAvailability::Available
                 | game_client::gui::control_bar::CommandAvailability::Active => {
-                    cmd.enabled = true;
+                    // C++ SpecialAbilityUpdate::isPowerCurrentlyInUse
+                    // (SpecialAbilityUpdate.cpp:546-558) inverts the non-context
+                    // SPECIAL_REMOTE_CHARGES button while no special object
+                    // exists. The evaluator has no host charge list, so the
+                    // host verdict from `command_set_slot_enabled` keeps that
+                    // button gray instead of being overwritten.
+                    if cmd.enabled || !host_remote_detonate_button(&cmd.command_name) {
+                        cmd.enabled = true;
+                    }
                 }
             }
         }
@@ -817,4 +825,11 @@ fn command_button_build_target(defs: Defs<'_>, name: &str) -> Option<String> {
     let button = defs?.find_command_button(name)?;
     matches!(button.command.as_str(), "UNIT_BUILD" | "DOZER_CONSTRUCT")
         .then(|| button.object.clone())
+}
+
+/// The authored remote-charge detonate buttons gated by
+/// [`PresentationFrame::command_set_slot_enabled`] on the host charge list.
+fn host_remote_detonate_button(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("detonate") && (n.contains("charge") || n.contains("demo"))
 }
