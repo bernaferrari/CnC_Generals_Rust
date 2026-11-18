@@ -123,7 +123,7 @@ pub fn decode_lifecycle_snapshot_block(
 mod tests {
     use super::super::entity_lifecycle_tags::{
         INVENTORY_TAGS, TAG_CAPTURE_CHANNEL, TAG_HACKER_DISABLE_CHANNEL, TAG_LIFETIME,
-        TAG_POISONED, TAG_SLOW_DEATH, TAG_TOPPLE,
+        TAG_PHYSICS_BEHAVIOR, TAG_POISONED, TAG_SLOW_DEATH, TAG_STATUS_BITS, TAG_TOPPLE,
     };
     use super::*;
     use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
@@ -208,12 +208,14 @@ mod tests {
         assert_eq!(
             tags,
             vec![
+                TAG_STATUS_BITS,
                 TAG_CAPTURE_CHANNEL,
                 TAG_HACKER_DISABLE_CHANNEL,
                 TAG_TOPPLE,
                 TAG_POISONED,
                 TAG_LIFETIME,
                 TAG_SLOW_DEATH,
+                TAG_PHYSICS_BEHAVIOR,
             ]
         );
 

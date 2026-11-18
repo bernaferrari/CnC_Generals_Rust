@@ -11,7 +11,7 @@ use gamelogic::world::entities::{
     TemplateRef, Transform,
 };
 
-const EXPECTED_INVENTORY_LEN: usize = 70;
+const EXPECTED_INVENTORY_LEN: usize = 74;
 
 pub(super) const EXPECTED_INVENTORY_TAGS: &[&str] = &[
     "StatusBits",
@@ -76,12 +76,16 @@ pub(super) const EXPECTED_INVENTORY_TAGS: &[&str] = &[
     "FireWeaponWhenDead",
     "CreateObjectDieTransfer",
     "SpecialPowerCooldown",
+    "AuthoredSpecialPowerTimers",
     "WeaponLock",
     "EmoticonSurrender",
     "ProjectileFlightResiduals",
+    "ProjectileFlightResiduals.v2",
+    "ParachuteContainAttachments",
     "ActiveBody",
     "PhysicsBehavior",
     "RailroadBehavior",
+    "RailedTransportDockUpdate",
     "PathExtraDistance",
     "OverlordAddon",
 ];

@@ -15,10 +15,10 @@ fn previous_acceleration_is_owned_even_when_object_ids_match() {
         Team::GLA,
     );
     first.physics_accel = Vec3::new(1.0, 2.0, 3.0);
-    first.integrate_physics_accel();
+    first.integrate_physics_force_phase(0);
     assert_eq!(second.previous_acceleration(), Vec3::ZERO);
     second.physics_accel = Vec3::new(4.0, 5.0, 6.0);
-    second.integrate_physics_accel();
+    second.integrate_physics_force_phase(0);
     assert_eq!(first.previous_acceleration(), Vec3::new(1.0, 2.0, 3.0));
     assert_eq!(second.previous_acceleration(), Vec3::new(4.0, 5.0, 6.0));
     let replacement = Object::new(
@@ -39,7 +39,7 @@ fn previous_acceleration_clears_with_cpp_dynamic_physics_reset() {
         Team::USA,
     );
     object.physics_accel = Vec3::ONE;
-    object.integrate_physics_accel();
+    object.integrate_physics_force_phase(0);
     assert_eq!(object.previous_acceleration(), Vec3::ONE);
     object.reset_dynamic_physics();
     assert_eq!(object.previous_acceleration(), Vec3::ZERO);
@@ -54,7 +54,7 @@ fn previous_acceleration_survives_clone_and_object_serde_round_trip() {
         Team::USA,
     );
     object.physics_accel = Vec3::new(7.0, 8.0, 9.0);
-    object.integrate_physics_accel();
+    object.integrate_physics_force_phase(0);
     let mut cloned = object.clone();
     let saved = serde_json::to_value(&object).unwrap();
     assert_eq!(
@@ -62,7 +62,7 @@ fn previous_acceleration_survives_clone_and_object_serde_round_trip() {
         serde_json::json!([7.0, 8.0, 9.0])
     );
     object.physics_accel = Vec3::ZERO;
-    object.integrate_physics_accel();
+    object.integrate_physics_force_phase(0);
     assert_eq!(object.previous_acceleration(), Vec3::ZERO);
     assert_eq!(cloned.previous_acceleration(), Vec3::new(7.0, 8.0, 9.0));
     let loaded: Object = serde_json::from_value(saved.clone()).unwrap();
@@ -74,7 +74,7 @@ fn previous_acceleration_survives_clone_and_object_serde_round_trip() {
         .remove("physics_previous_accel");
     let defaulted: Object = serde_json::from_value(missing_field).unwrap();
     assert_eq!(defaulted.previous_acceleration(), Vec3::ZERO);
-    cloned.integrate_physics_accel();
+    cloned.integrate_physics_force_phase(0);
     assert_eq!(cloned.previous_acceleration(), Vec3::ZERO);
     assert_eq!(loaded.previous_acceleration(), Vec3::new(7.0, 8.0, 9.0));
 }
