@@ -238,9 +238,11 @@ fn land_in_flight_projectiles(logic: &mut crate::game_logic::GameLogic) {
     logic.process_destroy_list();
 }
 
-/// C++ RangerFlashBangGrenadeWeapon also has ScatterRadius 4, so a single
-/// deterministic shot can scatter off-target and peel without splash damage.
-/// Fire successive ready frames (seed varies per frame) until one lands.
+/// C++ RangerFlashBangGrenadeWeapon also has ScatterRadius 4, so a shot can
+/// scatter off-target and peel without splash damage. fireWeaponTemplate rolls
+/// GameLogicRandomValueReal radius then angle; the test scripts both draws to
+/// the lower bound (radius 0) so the grenade lands on the aim point, instead of
+/// searching frames for a lucky stream position.
 fn fire_until_flashbang_lands(
     logic: &mut crate::game_logic::GameLogic,
     attacker_id: crate::game_logic::ObjectId,
@@ -263,6 +265,8 @@ fn fire_until_flashbang_lands(
             }
         }
         logic.set_current_frame(frame);
+        logic.logic_random.script_unit_real(0.0);
+        logic.logic_random.script_unit_real(0.0);
         let before = logic
             .objects
             .get(&target_id)
