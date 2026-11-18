@@ -186,17 +186,24 @@ fn restored_live_flight_survives_missing_launcher_and_keeps_allocation_cursor() 
         continue_flight(&mut restored, target),
         continue_flight(&mut original, target)
     );
+    let mut fresh_ids = Vec::new();
     for receiver in [&mut original, &mut restored] {
         let fresh = receiver
             .create_object_for_player("ProfileSource", 0, Vec3::ZERO)
             .unwrap();
+        fresh_ids.push(fresh);
         assert!(receiver.fire_owned_passive_weapon(fresh, target, 0, Vec3::ZERO));
     }
     let a = original.combat_system.projectiles_snapshot()[0].id;
     let b = restored.combat_system.projectiles_snapshot()[0].id;
     assert_eq!(a, b);
+    // Missiles are real Objects: the launch id follows the next Object id
+    // right after the freshly created launcher, so load neither replayed the
+    // launch nor reset the allocation cursor.
+    assert_eq!(fresh_ids[0], fresh_ids[1]);
     assert_eq!(
-        a.0, 100001,
+        a.0,
+        fresh_ids[0].0 + 1,
         "load must not replay launch or reset the allocation cursor"
     );
 }
@@ -225,10 +232,16 @@ fn encoded_empty_arena_keeps_the_next_launch_identity() {
         .restore_from_snapshot(&saved, &mut restored)
         .unwrap();
     assert_eq!(restored.combat_system.projectile_count(), 0);
+    // Missiles are real Objects: the next launch identity is the world's
+    // Object id cursor, which the save keeps (the retired missile's id is
+    // never reused) and which the unsaved original advances identically.
     assert!(restored.fire_owned_passive_weapon(source, target, 0, Vec3::ZERO));
-    assert_eq!(
-        restored.combat_system.projectiles_snapshot()[0].id.0,
-        100001
+    assert!(original.fire_owned_passive_weapon(source, target, 0, Vec3::ZERO));
+    let next = restored.combat_system.projectiles_snapshot()[0].id;
+    assert_eq!(next, original.combat_system.projectiles_snapshot()[0].id);
+    assert!(
+        next.0 > target.0 && restored.host_object(next).is_some(),
+        "the restored cursor continues past every earlier Object id"
     );
 }
 
@@ -280,10 +293,18 @@ fn encoded_missing_target_keeps_actual_missile_retirement_without_body_damage() 
 fn corrupt_present_projectile_frame_rejects_before_receiver_mutation() {
     let (original, _, _) = launch(0);
     let mut saved = encoded_snapshot(&original);
-    let prefix = crate::save_load::snapshot::encode_lifecycle_tail(
+    let mut prefix = crate::save_load::snapshot::encode_lifecycle_tail(
         &crate::save_load::snapshot::decode_lifecycle_tail(&saved.lifecycle_tail).unwrap(),
     )
     .len();
+    // A native save frames the camera continuation (CAMC) at the structural
+    // boundary, before the projectile capsule: step over exactly that record.
+    if &saved.lifecycle_tail[prefix..prefix + 4] == b"CAMC" {
+        let length = u32::from_le_bytes(
+            saved.lifecycle_tail[prefix + 8..prefix + 12].try_into().unwrap(),
+        ) as usize;
+        prefix += 12 + length;
+    }
     assert_eq!(&saved.lifecycle_tail[prefix..prefix + 4], b"CPRJ");
     saved.lifecycle_tail[prefix + 4..prefix + 8].copy_from_slice(&99_u32.to_le_bytes());
     let (mut receiver, _, target) = launch(1000);
