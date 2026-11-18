@@ -19,9 +19,20 @@ fn admit_supply_spawn_fixture_with(
     exit_module: &str,
     other_objects: &str,
 ) {
+    admit_supply_spawn_fixture_full(logic, center, child, exit_module, other_objects, "");
+}
+
+fn admit_supply_spawn_fixture_full(
+    logic: &mut GameLogic,
+    center: &str,
+    child: &str,
+    exit_module: &str,
+    other_objects: &str,
+    child_modules: &str,
+) {
     logic.admit_object_ini_sources([(
         "SupplySpawnFixture.ini".into(),
-        format!("Object {center}\n KindOf = STRUCTURE FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SupplyCenterCreate CenterCreate\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {child}\n End\n {exit_module}End\nObject {child}\n KindOf = VEHICLE HARVESTER SCORE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\nEnd\n{other_objects}"),
+        format!("Object {center}\n KindOf = STRUCTURE FS_SUPPLY_CENTER SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = SupplyCenterCreate CenterCreate\n End\n Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = {child}\n End\n {exit_module}End\nObject {child}\n KindOf = VEHICLE HARVESTER SCORE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate TruckAI\n End\n {child_modules}End\n{other_objects}"),
     )]).expect("authored supply fixture");
 }
 
@@ -149,12 +160,14 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
 
     let mut logic = GameLogic::new();
     // GrantTemporaryStealth is an INI duration: 20000 ms = 600 logic frames.
-    admit_supply_spawn_fixture_with(
+    // C++ receiveGrant needs the worker's own authored StealthUpdate.
+    admit_supply_spawn_fixture_full(
         &mut logic,
         "GLASupplyStash",
         "GLAInfantryWorker",
         "Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:12 Y:-8 Z:0\n NaturalRallyPoint = X:24 Y:0 Z:0\n GrantTemporaryStealth = 20000\n End\n",
         FINITE_WAREHOUSE,
+        "Behavior = StealthUpdate StealthTag\n StealthDelay = 2000\n InnateStealth = No\n End\n",
     );
     logic.add_player(Player::new(0, Team::GLA, "GLA", true));
 

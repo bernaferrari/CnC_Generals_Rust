@@ -16,7 +16,13 @@ fn admit_authored_ranger_capture(logic: &mut GameLogic, starts_paused_modules: u
     ranger = ranger
         .module("Behavior = SpecialAbilityUpdate CaptureUpdateTag\n SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n StartAbilityRange = 5\n UnpackTime = 3000\n PreparationTime = 20000\n PackTime = 2000\nEnd")
         .module("Behavior = UnpauseSpecialPowerUpgrade CaptureUnpauseTag\n SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n TriggeredBy = Upgrade_InfantryCaptureBuilding\nEnd");
-    crate::fixture_content::admit_fixture_objects(logic, &[ranger]);
+    // The authored SpecialPower row the SpecialAbility modules name.
+    crate::fixture_content::admit_fixture_content_with_actions(
+        logic,
+        &[ranger],
+        &[],
+        "SpecialPower SpecialAbilityRangerCaptureBuilding\n ReloadTime = 15000\nEnd\n",
+    );
 }
 
 #[test]

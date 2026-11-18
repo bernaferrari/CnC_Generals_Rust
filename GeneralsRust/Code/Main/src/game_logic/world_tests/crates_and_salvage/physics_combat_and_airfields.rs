@@ -1332,6 +1332,17 @@ End
 
     let mut logic = GameLogic::new();
     enemy_players(&mut logic);
+    // The world's own Weapon catalog carries the authored splash rule.
+    crate::fixture_content::admit_fixture_content(
+        &mut logic,
+        &[],
+        &[crate::fixture_content::FixtureWeapon::new("TestNoAllySplashWeapon")
+            .field("RadiusDamageAffects = ENEMIES NEUTRALS")
+            .radius(30.0)
+            .damage(50.0)
+            .damage_type("EXPLOSION")
+            .field("DeathType = NORMAL")],
+    );
     {
         let mut t = ThingTemplate::new("SplashSrc");
         t.primary_weapon_name = Some("TestNoAllySplashWeapon".into());
@@ -1448,6 +1459,17 @@ End
 
     let mut logic = GameLogic::new();
     enemy_players(&mut logic);
+    // The world's own Weapon catalog carries the authored splash rule.
+    crate::fixture_content::admit_fixture_content(
+        &mut logic,
+        &[],
+        &[crate::fixture_content::FixtureWeapon::new("TestNotAirborneSplashWeapon")
+            .field("RadiusDamageAffects = ENEMIES NEUTRALS NOT_AIRBORNE")
+            .radius(30.0)
+            .damage(50.0)
+            .damage_type("EXPLOSION")
+            .field("DeathType = NORMAL")],
+    );
     {
         let mut t = ThingTemplate::new("NaSrc");
         t.primary_weapon_name = Some("TestNotAirborneSplashWeapon".into());
@@ -1815,38 +1837,37 @@ fn minimum_attack_range_too_close_backs_away() {
     use crate::game_logic::weapon_bootstrap::{
         effective_minimum_attack_range, is_inside_minimum_attack_range,
     };
+    use crate::fixture_content::{FixtureObject, FixtureWeapon};
     let mut logic = GameLogic::new();
-    {
-        let mut t = ThingTemplate::new("Arty");
-        t.primary_weapon_name = Some("FireBaseHowitzerGun".into());
-        t.add_kind_of(KindOf::Vehicle);
-        t.add_kind_of(KindOf::Attackable);
-        logic.templates.insert("Arty".into(), t);
-        let mut tg = ThingTemplate::new("CloseTgt");
-        tg.add_kind_of(KindOf::Vehicle);
-        tg.add_kind_of(KindOf::Attackable);
-        logic.templates.insert("CloseTgt".into(), tg);
-    }
+    enemy_players(&mut logic);
+    // The howitzer's authored WeaponSet and the Weapon row it names.
+    crate::fixture_content::admit_fixture_content(
+        &mut logic,
+        &[
+            FixtureObject::new("Arty")
+                .kind_of("VEHICLE ATTACKABLE")
+                .health(300.0)
+                .armed("TestMinRangeHowitzer"),
+            FixtureObject::new("CloseTgt")
+                .kind_of("VEHICLE ATTACKABLE")
+                .health(500.0),
+        ],
+        &[FixtureWeapon::new("TestMinRangeHowitzer")
+            .damage(40.0)
+            .range(300.0)
+            .min_range(50.0)
+            .delay_ms(0)],
+    );
     let arty = logic
-        .create_object("Arty", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+        .create_object_for_player("Arty", 0, glam::Vec3::new(20.0, 0.0, 0.0))
         .unwrap();
     let tgt = logic
-        .create_object("CloseTgt", Team::China, glam::Vec3::new(0.0, 0.0, 0.0))
+        .create_object_for_player("CloseTgt", 1, glam::Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
     if let Some(o) = logic.objects.get_mut(&arty) {
-        crate::fixture_content::arm_with_stats(
-            o,
-            crate::game_logic::Weapon {
-                damage: 40.0,
-                range: 300.0,
-                min_range: 50.0,
-                reload_time: 0.0,
-                can_target_ground: true,
-                can_target_air: false,
-                ..Default::default()
-            },
-        );
-        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
+        if let Some(w) = o.weapon.as_mut() {
+            w.last_fire_time = -100.0;
+        }
         o.target = Some(tgt);
         o.set_ai_state(
             AIState::Attacking,

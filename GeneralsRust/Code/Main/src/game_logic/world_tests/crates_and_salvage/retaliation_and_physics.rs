@@ -2359,10 +2359,6 @@ fn private_face_turns_toward_target() {
     let aid = logic
         .create_object_for_player("FcA", 0, Vec3::ZERO)
         .expect("facing unit");
-    {
-        let o = logic.objects.get_mut(&aid).unwrap();
-        o.set_orientation(0.0);
-    }
     let vid = logic
         .create_object_for_player("FcV", 2, Vec3::new(0.0, 0.0, 10.0))
         .expect("facing goal");

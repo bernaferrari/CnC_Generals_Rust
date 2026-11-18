@@ -1244,7 +1244,8 @@ impl GameLogic {
             warehouse_scan_distance: module
                 .attribute("SupplyWarehouseScanDistance")
                 .and_then(finite)
-                .unwrap_or(0.0),
+                // SupplyTruckAIUpdateModuleData ctor: m_warehouseScanDistance = 100.
+                .unwrap_or(100.0),
             warehouse_delay_frames: module
                 .attribute("SupplyWarehouseActionDelay")
                 .and_then(duration_frames)

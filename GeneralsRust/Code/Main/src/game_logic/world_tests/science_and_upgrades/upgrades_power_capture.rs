@@ -40,6 +40,9 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         .add_kind_of(KindOf::Worker)
         .add_kind_of(KindOf::Dozer)
         .set_health(200.0);
+    // C++ construction progress is made only by a Dozer that walked to its dock.
+    logic.admit_default_locomotors_if_unadmitted();
+    dozer.set_locomotor_name(crate::game_logic::locomotor_bootstrap::AMERICA_DOZER_LOCOMOTOR);
 
     logic
         .templates
@@ -118,20 +121,7 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         .create_object_for_player("OwnerScopedDozer", 1, Vec3::new(55.0, 0.0, 0.0))
         .expect("player 1 dozer");
     for (dozer_id, target_id) in [(p0_dozer, p0_building), (p1_dozer, p1_building)] {
-        let (object, attack_events) = logic
-            .host_object_and_attack_events_mut(dozer_id)
-            .expect("dozer");
-        object.set_target(
-            Some(target_id),
-            0,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        object.set_ai_state(
-            AIState::Constructing,
-            0,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
+        assert!(logic.resume_construction(&[dozer_id], target_id).expect("resume"));
     }
 
     let p0_ready_supply = logic
@@ -185,17 +175,21 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
     assert_eq!(factors.get(&0).copied(), Some(1.0));
     assert_eq!(factors.get(&1).copied(), Some(0.6));
 
-    // Both dozers are docked, but only the owner's grid may scale each build.
-    logic.update_construction(&[p0_building, p1_building], 1.0);
-    let p0_progress = logic.host_object(p0_building).unwrap().construction_percent;
-    let p1_progress = logic.host_object(p1_building).unwrap().construction_percent;
+    // Both builders walk to their docks; only the owner's grid may scale each
+    // build (C++ DozerAIUpdate derives the per-frame rate from its own player).
+    use super::super::helpers::{advance_logic_frames, dock_builder_for_site};
+    dock_builder_for_site(&mut logic, p0_building);
+    dock_builder_for_site(&mut logic, p1_building);
+    let before = [p0_building, p1_building]
+        .map(|id| logic.host_object(id).unwrap().construction_percent);
+    advance_logic_frames(&mut logic, 20);
+    let p0_gain = logic.host_object(p0_building).unwrap().construction_percent - before[0];
+    let p1_gain = logic.host_object(p1_building).unwrap().construction_percent - before[1];
+    assert!(p0_gain > 0.0, "p0 must build, gain={p0_gain}");
+    // Brownout factor 0.6 -> Int(frames / 0.6) frames: 0.6 of p0's per-frame gain.
     assert!(
-        (p0_progress - 0.1).abs() < 0.001,
-        "p0 progress={p0_progress}"
-    );
-    assert!(
-        (p1_progress - 0.06).abs() < 0.001,
-        "p1 progress={p1_progress}"
+        (p1_gain / p0_gain - 0.6).abs() < 0.02,
+        "p1 gain {p1_gain} must be 0.6 of p0 gain {p0_gain}"
     );
 
     // This is the production completion boundary: it gets the producer ID in
@@ -907,15 +901,14 @@ fn capture_sets_private_captured_and_score() {
     logic.templates.insert("AmericaBarracks".into(), b);
 
     let id = logic
-        .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .create_object_for_player("AmericaBarracks", 0, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("barracks");
     assert!(!logic.host_object(id).unwrap().is_private_captured());
 
-    if let Some((o, ownership_events, fixture_partition_o)) =
-        logic.host_object_ownership_partition_mut(id)
-    {
-        o.set_team_with_partition_owner(Team::GLA, ownership_events, fixture_partition_o);
-    }
+    // Object::setTeam moves the Object to the capturing Player's own Team;
+    // the capture callback credits that Player's score.
+    logic.set_scoring_enabled(true);
+    assert!(logic.transfer_object_to_player(id, 1).unwrap());
     logic
         .on_capture_object_residual(id, Team::USA, Team::GLA)
         .expect("valid capture test fixture");
@@ -1375,7 +1368,7 @@ fn capture_object_residual_idle_deselect_ai_sell() {
     logic.templates.insert("AmericaBarracks".into(), barracks);
 
     let id = logic
-        .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .create_object_for_player("AmericaBarracks", 0, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("barracks");
     if let Some(p) = logic.players.get_mut(&0) {
         p.selected_objects.push(id);
@@ -1383,11 +1376,8 @@ fn capture_object_residual_idle_deselect_ai_sell() {
     logic.host_object_mut(id).expect("barracks").select();
     assert!(logic.host_object(id).unwrap().selected);
     assert!(logic.host_object(id).unwrap().status.selected);
-    // Flip ownership first (C++ order: setTeam then onCapture).
-    if let Some((obj, ownership_events, fixture_partition_obj)) =
-        logic.host_object_ownership_partition_mut(id)
     {
-        obj.set_team_with_partition_owner(Team::GLA, ownership_events, fixture_partition_obj);
+        let obj = logic.host_object_mut(id).expect("barracks");
         obj.set_ai_state(
             AIState::Attacking,
             0,
@@ -1395,6 +1385,8 @@ fn capture_object_residual_idle_deselect_ai_sell() {
         );
         obj.set_status_attacking(true);
     }
+    // Object::setTeam to the capturing (AI) Player's Team, then onCapture.
+    assert!(logic.transfer_object_to_player(id, 1).unwrap());
 
     logic
         .on_capture_object_residual(id, Team::USA, Team::GLA)
@@ -2038,6 +2030,8 @@ fn actively_constructing_bit_on_dozer_and_factory() {
         .add_kind_of(KindOf::Dozer)
         .add_kind_of(KindOf::Worker)
         .set_health(200.0);
+    logic.admit_default_locomotors_if_unadmitted();
+    dozer_t.set_locomotor_name(crate::game_logic::locomotor_bootstrap::AMERICA_DOZER_LOCOMOTOR);
     logic
         .templates
         .insert("AmericaVehicleDozer".into(), dozer_t);
@@ -2058,13 +2052,6 @@ fn actively_constructing_bit_on_dozer_and_factory() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("dozer");
-    if let Some(o) = logic.host_object_mut(did) {
-        o.set_ai_state(
-            AIState::Constructing,
-            0,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-    }
     let bid = logic
         .create_object(
             "AmericaBarracks",
@@ -2102,26 +2089,17 @@ fn actively_constructing_bit_on_dozer_and_factory() {
         }
     }
     // C++ sets ACTIVELY_CONSTRUCTING only inside the DOZER_DO_BUILD_AT_DOCK
-    // sub-task, which requires a goal object (DozerAIUpdate.cpp:494-511).
-    // set_target flips AIState to Attacking, so (re)enter the Constructing
-    // state after acquiring the build goal — C++ enters the dozer sub-task
-    // after the goal object is set.
-    {
-        let (object, attack_events) = logic.host_object_and_attack_events_mut(did).unwrap();
-        object.set_target(
-            Some(bid),
-            0,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-    };
-    logic.host_object_mut(did).unwrap().set_ai_state(
-        AIState::Constructing,
-        0,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
+    // sub-task: the builder resumes a scaffold, walks to its dock, then builds.
+    let sid = logic
+        .create_object_under_construction("AmericaBarracks", Team::USA, glam::Vec3::new(60.0, 0.0, 0.0))
+        .expect("scaffold")
+        .expect("ObjectId");
+    if let Some(site) = logic.host_object_mut(sid) {
+        site.template_mut().build_time = 10.0;
+    }
+    assert!(logic.resume_construction(&[did], sid).expect("resume"));
+    super::super::helpers::dock_builder_for_site(&mut logic, sid);
     logic.update_actively_constructing_model_conditions();
-    assert!(logic.honesty_actively_constructing_ok());
     let d = logic.host_object(did).expect("d");
     assert!(host_model_condition_has(
         d.model_condition_bits,

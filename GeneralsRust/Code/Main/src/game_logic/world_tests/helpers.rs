@@ -368,6 +368,8 @@ pub(super) fn create_test_overlord(
     bunker_slots: Option<usize>,
 ) -> ObjectId {
     ensure_test_overlord_template(game_logic);
+    // An Object is always born controlled by a Player.
+    ensure_test_player_for_team(game_logic, Team::China);
     let id = game_logic
         .create_object("TestOverlord", Team::China, pos)
         .expect("TestOverlord");

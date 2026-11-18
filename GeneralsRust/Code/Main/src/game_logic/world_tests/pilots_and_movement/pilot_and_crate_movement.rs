@@ -268,6 +268,9 @@ fn booby_trap_plant_spawns_special_object() {
 
     let mut logic = GameLogic::new();
     admit_test_sticky_bomb_charge(&mut logic);
+    // Every Object is born controlled by a Player (the planter GLA, the target USA).
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(1, Team::USA, "USA", true));
     let mut rebel = ThingTemplate::new("GLAInfantryRebel");
     rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic.templates.insert("GLAInfantryRebel".into(), rebel);
@@ -278,7 +281,7 @@ fn booby_trap_plant_spawns_special_object() {
     logic.templates.insert("AmericaWarFactory".into(), bld);
 
     let planter = logic
-        .create_object("GLAInfantryRebel", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object_for_player("GLAInfantryRebel", 0, Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
     {
         let o = logic.host_object_mut(planter).unwrap();
@@ -286,7 +289,7 @@ fn booby_trap_plant_spawns_special_object() {
             .insert(UPGRADE_GLA_REBEL_BOOBY_TRAP.to_string());
     }
     let structure = logic
-        .create_object("AmericaWarFactory", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .create_object_for_player("AmericaWarFactory", 1, Vec3::new(5.0, 0.0, 0.0))
         .unwrap();
 
     // Direct plant residual (special ability completion path).
@@ -485,6 +488,9 @@ fn booby_trap_registry_does_not_override_cpp_status_gate() {
 
     let mut logic = GameLogic::new();
     admit_test_sticky_bomb_charge(&mut logic);
+    // Every Object is born controlled by a Player (the planter GLA, the target USA).
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(1, Team::USA, "USA", true));
     let mut planter_template = ThingTemplate::new("TrapPlanter");
     planter_template
         .add_kind_of(KindOf::Infantry)
@@ -502,10 +508,10 @@ fn booby_trap_registry_does_not_override_cpp_status_gate() {
         .insert("TrapTarget".to_string(), target_template);
 
     let planter = logic
-        .create_object("TrapPlanter", Team::GLA, Vec3::ZERO)
+        .create_object_for_player("TrapPlanter", 0, Vec3::ZERO)
         .expect("planter");
     let target = logic
-        .create_object("TrapTarget", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .create_object_for_player("TrapTarget", 1, Vec3::new(2.0, 0.0, 0.0))
         .expect("target");
     logic
         .booby_trap
@@ -557,6 +563,9 @@ fn booby_trap_detonation_rejects_missing_wrong_and_reused_charge_ids() {
     for case in ["missing", "wrong-producer", "reused-id"] {
         let mut logic = GameLogic::new();
         admit_test_sticky_bomb_charge(&mut logic);
+    // Every Object is born controlled by a Player (the planter GLA, the target USA).
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+    logic.add_player(Player::new(1, Team::USA, "USA", true));
         let mut planter_template = ThingTemplate::new("TrapPlanter");
         planter_template
             .add_kind_of(KindOf::Infantry)
@@ -582,10 +591,10 @@ fn booby_trap_detonation_rejects_missing_wrong_and_reused_charge_ids() {
             .insert("ReusedChargeIdDecoy".to_string(), decoy_template);
 
         let planter = logic
-            .create_object("TrapPlanter", Team::GLA, Vec3::ZERO)
+            .create_object_for_player("TrapPlanter", 0, Vec3::ZERO)
             .expect("planter");
         let target = logic
-            .create_object("TrapTarget", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .create_object_for_player("TrapTarget", 1, Vec3::new(2.0, 0.0, 0.0))
             .expect("target");
         let charge = logic
             .spawn_booby_trap_special_object(planter, Team::GLA, target)
@@ -1772,15 +1781,9 @@ fn command_center_radar_residual_enables_player_has_radar() {
         "minimap/radar UI online when local player has CC radar"
     );
 
-    // Destroy CC → radar offline.
-    if let Some((obj, health_events)) = game_logic.host_object_and_health_events_mut(cc_id) {
-        // Wave 753: under damage authority, do not zero host HP mid-frame
-        // (dual with GW HP writeback). Project lethal via damage log + flags.
-        {
-            obj.health.current = 0.0;
-        }
-        obj.status.destroyed = true;
-    }
+    // Destroy CC → the Object leaves the world, so RadarUpgrade::onDelete
+    // removes its radar from the Player.
+    game_logic.destroy_object(cc_id).expect("destroy command center");
     game_logic.update_player_radar();
     let offline = game_logic
         .get_player_mut_by_team(Team::USA)

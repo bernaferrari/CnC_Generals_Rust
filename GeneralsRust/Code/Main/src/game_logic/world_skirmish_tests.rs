@@ -69,7 +69,7 @@ fn spawn_skirmish_starting_units_spawns_missing_builder() {
     let _ = logic.create_object(
         "ChinaCommandCenter",
         Team::China,
-        glam::Vec3::new(500.0, 0.0, 500.0),
+        glam::Vec3::new(180.0, 0.0, 180.0),
     );
     let before = logic
         .host_objects()
@@ -238,7 +238,7 @@ fn cached_player_start_waypoints_pairs_rally() {
         ),
         (
             "Player_1_Rally".into(),
-            gamelogic::scripting::core::Coord3D::new(321.0, 654.0, 12.0),
+            gamelogic::scripting::core::Coord3D::new(-120.0, 140.0, 12.0),
         ),
         (
             "Player_2_Start".into(),
@@ -253,7 +253,7 @@ fn cached_player_start_waypoints_pairs_rally() {
     assert_eq!(starts[0].0, 0);
     let rally = starts[0].2.expect("Player_1_Rally");
     assert!(
-        (rally.x - 321.0).abs() < 0.01 && (rally.y - 654.0).abs() < 0.01,
+        (rally.x - -120.0).abs() < 0.01 && (rally.y - 140.0).abs() < 0.01,
         "cached rally discarded: {rally:?}"
     );
     assert!(starts[1].2.is_none(), "Player_2 has no rally");
@@ -282,7 +282,7 @@ fn spawn_skirmish_starting_units_uses_player_rally() {
         .push(gamelogic::system::map_loader::MapWaypoint {
             id: 1,
             name: "Player_1_Rally".to_string(),
-            location: gamelogic::system::map_loader::Coord3D::new(321.0, 654.0, 12.0),
+            location: gamelogic::system::map_loader::Coord3D::new(-120.0, 140.0, 12.0),
             path_label1: String::new(),
             path_label2: String::new(),
             path_label3: String::new(),
@@ -302,13 +302,13 @@ fn spawn_skirmish_starting_units_uses_player_rally() {
         ),
         (
             "Player_1_Rally".into(),
-            gamelogic::scripting::core::Coord3D::new(321.0, 654.0, 12.0),
+            gamelogic::scripting::core::Coord3D::new(-120.0, 140.0, 12.0),
         ),
     ];
     logic.last_map_settings = Some(metadata);
     assert_eq!(
         logic.player_rally_spawn_pos(0),
-        Some(glam::Vec3::new(321.0, 0.0, 654.0))
+        Some(glam::Vec3::new(-120.0, 0.0, 140.0))
     );
 
     // Identical waypoint name on a peer is independent of the driving owner.
@@ -349,9 +349,19 @@ fn spawn_skirmish_starting_units_uses_player_rally() {
         .find(|o| o.team == Team::USA && o.is_alive() && o.is_mobile() && o.can_construct())
         .expect("starting builder");
     let pos = dozer.get_position();
+    // GameLogic.cpp:578 findPositionAround(rally, 0.7..1.3 x the starting
+    // building's bounding circle radius): the unit lands on that ring.
+    let radius = logic
+        .host_objects()
+        .registered_values()
+        .find(|o| o.team == Team::USA && o.template_name == "AmericaCommandCenter")
+        .expect("command center")
+        .geometry_info()
+        .bounding_circle_radius();
+    let dist = ((pos.x + 120.0).powi(2) + (pos.z - 140.0).powi(2)).sqrt();
     assert!(
-        (pos.x - 321.0).abs() < 0.5 && (pos.z - 654.0).abs() < 0.5,
-        "starting unit must spawn at Player_1_Rally, got {pos:?}"
+        dist >= radius * 0.7 - 1.0 && dist <= radius * 1.3 + 1.0,
+        "starting unit must spawn on the Player_1_Rally ring, got {pos:?} dist={dist} radius={radius}"
     );
     assert_eq!(
         peer.player_rally_spawn_pos(0),

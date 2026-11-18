@@ -48,7 +48,7 @@ fn admit_ranger_capture_fixture(
     // C++ ProductionUpdate::queueUpgrade refuses an upgrade the producer's
     // CommandSet does not offer (Object::canProduceUpgrade).
     let actions = format!(
-        "CommandButton FixtureCaptureUpgrade\n Command = PLAYER_UPGRADE\n Upgrade = {UPGRADE_INFANTRY_CAPTURE}\nEnd\nCommandSet FixtureCaptureSet\n 1 = FixtureCaptureUpgrade\nEnd\n"
+        "SpecialPower {CAPTURE}\n ReloadTime = 15000\nEnd\nCommandButton FixtureCaptureUpgrade\n Command = PLAYER_UPGRADE\n Upgrade = {UPGRADE_INFANTRY_CAPTURE}\nEnd\nCommandSet FixtureCaptureSet\n 1 = FixtureCaptureUpgrade\nEnd\n"
     );
     crate::fixture_content::admit_fixture_content_with_actions(world, &objects, &[], &actions);
 }
