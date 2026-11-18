@@ -20,25 +20,14 @@ fn admitted(name: &str, behaviors: &str) -> ReceivingClientTemplate {
         .expect("actual admitted template")
 }
 
+// ThingTemplate.cpp:583-588: a newly parsed AI module (`isAiModuleData`) first
+// runs `clearAiModuleInfo`, so the LAST authored AI module is the template's
+// only AI; an earlier Dozer/Worker/base AI is replaced, never kept first.
 #[test]
-fn admitted_dozer_first_keeps_full_ordinal_and_exact_tag() {
+fn admitted_later_worker_replaces_earlier_dozer_keeping_ordinal_and_exact_tag() {
     let source = admitted(
-        "DozerFirst",
-        "Behavior = DestroyDie Prefix\nEnd\nBehavior = DozerAIUpdate ExactDozerTag\nEnd\nBehavior = WorkerAIUpdate LaterWorker\nEnd\n",
-    );
-    assert_eq!(source.receiving_ai_module_name(), Some("DozerAIUpdate"));
-    assert_eq!(
-        source.dozer_ai_identity(),
-        Some((1, "ExactDozerTag".into()))
-    );
-    assert_eq!(source.dozer_ai_is_worker(), Some(false));
-}
-
-#[test]
-fn admitted_worker_first_keeps_worker_class_without_name_or_kind_inference() {
-    let source = admitted(
-        "NotAWorkerName",
-        "Behavior = DestroyDie Prefix\nEnd\nBehavior = WorkerAIUpdate ExactWorkerTag\nEnd\nBehavior = DozerAIUpdate LaterDozer\nEnd\n",
+        "DozerThenWorker",
+        "Behavior = DestroyDie Prefix\nEnd\nBehavior = DozerAIUpdate EarlierDozer\nEnd\nBehavior = WorkerAIUpdate ExactWorkerTag\nEnd\n",
     );
     assert_eq!(source.receiving_ai_module_name(), Some("WorkerAIUpdate"));
     assert_eq!(
@@ -49,14 +38,35 @@ fn admitted_worker_first_keeps_worker_class_without_name_or_kind_inference() {
 }
 
 #[test]
-fn admitted_base_ai_blocks_secondary_dozer_and_worker_despite_dozer_kind() {
+fn admitted_later_dozer_replaces_earlier_worker_without_name_or_kind_inference() {
     let source = admitted(
-        "SecondaryDozer",
-        "Behavior = DestroyDie Prefix\nEnd\nBehavior = AIUpdateInterface ActualFirstAI\nEnd\nBehavior = DozerAIUpdate LaterDozer\nEnd\nBehavior = WorkerAIUpdate LaterWorker\nEnd\n",
+        "NotADozerName",
+        "Behavior = DestroyDie Prefix\nEnd\nBehavior = WorkerAIUpdate EarlierWorker\nEnd\nBehavior = DozerAIUpdate ExactDozerTag\nEnd\n",
     );
-    assert_eq!(source.receiving_ai_module_name(), Some("AIUpdateInterface"));
-    assert_eq!(source.dozer_ai_identity(), None);
-    assert_eq!(source.dozer_ai_is_worker(), None);
+    assert_eq!(source.receiving_ai_module_name(), Some("DozerAIUpdate"));
+    assert_eq!(
+        source.dozer_ai_identity(),
+        Some((1, "ExactDozerTag".into()))
+    );
+    assert_eq!(source.dozer_ai_is_worker(), Some(false));
+}
+
+#[test]
+fn admitted_later_dozer_and_worker_replace_an_earlier_base_ai() {
+    let source = admitted(
+        "BaseThenSpecialized",
+        "Behavior = DestroyDie Prefix\nEnd\nBehavior = AIUpdateInterface EarlierBaseAI\nEnd\nBehavior = DozerAIUpdate EarlierDozer\nEnd\nBehavior = WorkerAIUpdate LastWorker\nEnd\n",
+    );
+    assert_eq!(source.receiving_ai_module_name(), Some("WorkerAIUpdate"));
+    assert_eq!(source.dozer_ai_identity(), Some((1, "LastWorker".into())));
+    assert_eq!(source.dozer_ai_is_worker(), Some(true));
+    let base_last = admitted(
+        "SpecializedThenBase",
+        "Behavior = DestroyDie Prefix\nEnd\nBehavior = DozerAIUpdate EarlierDozer\nEnd\nBehavior = AIUpdateInterface LastBaseAI\nEnd\n",
+    );
+    assert_eq!(base_last.receiving_ai_module_name(), Some("AIUpdateInterface"));
+    assert_eq!(base_last.dozer_ai_identity(), None);
+    assert_eq!(base_last.dozer_ai_is_worker(), None);
 }
 
 #[test]
@@ -68,7 +78,7 @@ fn admitted_without_ai_has_no_construct_capability_despite_dozer_kind() {
 }
 
 #[test]
-fn same_name_actual_factory_uses_first_owned_ai_policy_and_keeps_peer() {
+fn same_name_actual_factory_uses_last_authored_ai_policy_and_keeps_peer() {
     use crate::game_logic::{Player, Team};
     fn world(behaviors: &str) -> GameLogic {
         let mut world = GameLogic::new();
@@ -91,7 +101,7 @@ fn same_name_actual_factory_uses_first_owned_ai_policy_and_keeps_peer() {
         "Behavior = WorkerAIUpdate FirstWorker\nAutoAcquireEnemiesWhenIdle = YES\nForbidPlayerCommands = YES\nEnd\n",
     );
     let mut peer = world(
-        "Behavior = AIUpdateInterface FirstBase\nAutoAcquireEnemiesWhenIdle = NO\nForbidPlayerCommands = NO\nEnd\nBehavior = WorkerAIUpdate SecondaryWorker\nAutoAcquireEnemiesWhenIdle = YES\nForbidPlayerCommands = YES\nEnd\n",
+        "Behavior = WorkerAIUpdate EarlierWorker\nAutoAcquireEnemiesWhenIdle = YES\nForbidPlayerCommands = YES\nEnd\nBehavior = AIUpdateInterface LastBase\nAutoAcquireEnemiesWhenIdle = NO\nForbidPlayerCommands = NO\nEnd\n",
     );
     let a = owner
         .create_object_for_player("SharedAIActor", 0, glam::Vec3::ZERO)
