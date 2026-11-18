@@ -1827,6 +1827,9 @@ pub(in crate::game_logic) mod tests {
             false,
         );
         if let Some(p) = combat.projectile_mut(pid) {
+            // Weapon.cpp:1080 creates the projectile on the firing player's
+            // default team; the splash relationship reads that team.
+            p.source_team = Team::USA;
             p.explosion_radius = 20.0;
             p.radius_damage_affects =
                 crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
@@ -2124,6 +2127,9 @@ pub(in crate::game_logic) mod tests {
             false,
         );
         if let Some(p) = combat.projectile_mut(pid) {
+            // Weapon.cpp:1080 creates the projectile on the firing player's
+            // default team; the splash relationship reads that team.
+            p.source_team = Team::USA;
             p.explosion_radius = 20.0;
             p.radius_damage_affects =
                 crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
