@@ -245,7 +245,14 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         .expect("completed paradrop");
     assert!(
         !mission.spawned_unit_ids.is_empty(),
-        "paradrop spawned nothing: plan_template_in_store={} direct_create={:?} frame={}",
+        "paradrop spawned nothing: rangers_alive={:?} mission={:?} plan_template_in_store={} direct_create={:?} frame={}",
+        logic
+            .objects
+            .registered()
+            .filter(|(_, o)| o.template_name == crate::game_logic::host_paradrop::AMERICA_RANGER_TEMPLATE)
+            .map(|(id, o)| (*id, o.owner_player_id, o.get_position(), o.is_alive()))
+            .collect::<Vec<_>>(),
+        logic.host_paradrops.get(paradrop_id),
         logic.templates.contains_key(crate::game_logic::host_paradrop::AMERICA_RANGER_TEMPLATE),
         logic
             .create_object_for_player(
@@ -2140,14 +2147,11 @@ fn actively_constructing_bit_on_dozer_and_factory() {
         host_model_condition_has(b.model_condition_bits, actively_constructing_model_bit()),
         "factory with queue should be ACTIVELY_CONSTRUCTING"
     );
-    // Clear when idle / empty queue.
-    if let Some(o) = logic.host_object_mut(did) {
-        o.set_ai_state(
-            AIState::Idle,
-            0,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-    }
+    // Clear when the dozer's BUILD task ends (a player command cancels the
+    // entered task, DozerAIUpdate.cpp:2386) / the factory queue empties.
+    logic
+        .dozer_cancel_current_task_from_player(did)
+        .expect("cancel the entered BUILD task");
     if let Some(o) = logic.host_object_mut(bid) {
         if let Some(bd) = o.building_data.as_mut() {
             bd.production_queue.clear();

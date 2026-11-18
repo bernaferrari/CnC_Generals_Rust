@@ -451,7 +451,17 @@ fn run_authored_short_build() -> (GameLogic, ObjectId, ObjectId, Vec3, Vec3, Opt
             break;
         }
     }
-    advance_logic_frames(&mut logic, 40);
+    // The Dozer machine's exit order reaches the unit on the frames right
+    // after the construction update finishes the building; keep the first
+    // obstacle it was told to ignore.
+    for _ in 0..5 {
+        if ignored.is_some() {
+            break;
+        }
+        advance_logic_frames(&mut logic, 1);
+        ignored = logic.host_object(dozer).expect("dozer").ignored_obstacle_id;
+    }
+    advance_logic_frames(&mut logic, 35);
     (logic, pad_id, dozer, action, end_dock, path_end, ignored)
 }
 

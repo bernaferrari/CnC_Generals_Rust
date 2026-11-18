@@ -277,6 +277,24 @@ fn fire_until_flashbang_lands(
     dealt
 }
 
+
+/// Failure context for the chooser tests: what the real chooser sees.
+fn chooser_diag(
+    logic: &mut crate::game_logic::GameLogic,
+    attacker_id: crate::game_logic::ObjectId,
+    target_id: crate::game_logic::ObjectId,
+) -> String {
+    let chose = logic.choose_best_weapon_for_target(attacker_id, Some(target_id), 100.0);
+    let a = logic.objects.get(&attacker_id).expect("attacker");
+    format!(
+        "chose={chose} active_slot={} auto_choose_secondary={} secondary={:?} lock={:?}",
+        a.active_weapon_slot,
+        a.thing().template.slot_allows_auto_choose(1),
+        a.secondary_weapon.as_ref().map(|w| (w.damage, w.range, w.min_range, w.ammo, w.can_target_ground, w.can_target_air)),
+        a.weapon_lock_type,
+    )
+}
+
 /// C++ WeaponSet.cpp chooseBestWeaponForTarget compares estimateWeaponDamage
 /// (armor-adjusted), so vs a Structure the Ranger rifle (raw 5) can beat the
 /// flashbang grenade (35 raw, but armor-shredded vs structures). The chooser
@@ -431,8 +449,9 @@ fn update_combat_prefers_secondary_damage_vs_infantry() {
         .unwrap_or(0.0);
     assert!(
         sec_last > 0.0,
-        "secondary last_fire_time must advance vs infantry PreferredAgainst: dealt={dealt} pri_last={pri_last} sec_last={sec_last} primary_dmg={primary_dmg} secondary_dmg={secondary_dmg} ranger_target_health={:?}",
-        logic.objects.get(&target_id).map(|t| t.health.current)
+        "secondary last_fire_time must advance vs infantry PreferredAgainst: dealt={dealt} pri_last={pri_last} sec_last={sec_last} primary_dmg={primary_dmg} secondary_dmg={secondary_dmg} ranger_target_health={:?} {}",
+        logic.objects.get(&target_id).map(|t| t.health.current),
+        chooser_diag(&mut logic, attacker_id, target_id)
     );
     assert!(
         (pri_last - 0.0).abs() < f32::EPSILON,
@@ -503,10 +522,11 @@ fn update_combat_uses_secondary_when_primary_reloading() {
     let dealt = fire_until_flashbang_lands(&mut logic, attacker_id, target_id, false);
     assert!(
         dealt > 0.0,
-        "secondary must fire while primary reloads; dealt={dealt} secondary_dmg={secondary_dmg} primary(last,reload)={:?} secondary(last,reload,ammo)={:?} dist={:?}",
+        "secondary must fire while primary reloads; dealt={dealt} secondary_dmg={secondary_dmg} primary(last,reload)={:?} secondary(last,reload,ammo)={:?} dist={:?} {}",
         logic.objects.get(&attacker_id).and_then(|a| a.weapon.as_ref()).map(|w| (w.last_fire_time, w.reload_time)),
         logic.objects.get(&attacker_id).and_then(|a| a.secondary_weapon.as_ref()).map(|w| (w.last_fire_time, w.reload_time, w.ammo)),
-        logic.objects.get(&attacker_id).map(|a| a.get_position().distance(Vec3::new(30.0, 0.0, 0.0)))
+        logic.objects.get(&attacker_id).map(|a| a.get_position().distance(Vec3::new(30.0, 0.0, 0.0))),
+        chooser_diag(&mut logic, attacker_id, target_id)
     );
 
     let atk = logic.objects.get(&attacker_id).expect("attacker");
