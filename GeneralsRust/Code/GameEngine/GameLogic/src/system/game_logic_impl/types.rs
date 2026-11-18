@@ -293,7 +293,8 @@ pub struct GameLogic {
     // Actual player list is managed by player_list() singleton
 
     // Subsystems
-    partition_manager: PartitionManager,
+    /// C++ `ThePartitionManager` (shared with `WorldLogicManagers::partition`).
+    partition: Arc<RwLock<PartitionManager>>,
     physics_world: PhysicsWorld,
 
     // Event/Command queues
@@ -396,7 +397,7 @@ impl Default for GameLogic {
             objects: HashMap::new(),
             pathfinding_owner: None,
             world_services: None,
-            partition_manager: PartitionManager::new(),
+            partition: Arc::new(RwLock::new(PartitionManager::new())),
             physics_world: PhysicsWorld::new(),
             event_queue: Vec::new(),
             command_queue: VecDeque::new(),

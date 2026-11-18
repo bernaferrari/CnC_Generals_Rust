@@ -4,7 +4,6 @@
 //! SHROUDED / FOGGED / CLEAR into object shroud, including fogged-enemy,
 //! mine, neutral-mobile, and PARTIAL_CLEAR rules.
 
-use std::sync::MutexGuard;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::common::{Coord3D, KindOf, MAX_PLAYER_COUNT, ObjectShroudStatus, Relationship};
@@ -163,46 +162,18 @@ impl PartitionData {
     }
 }
 
-// Temporary adapter for the existing two partition representations. All guards
-// are local to a synchronous cell walk; no object/player callbacks run under them.
-// The fallback is attempted once, only when the primary cannot answer a query.
-enum LivePartitionRead {
-    Unqueried,
-    Unavailable,
-    Borrowed(MutexGuard<'static, crate::system::game_logic::GameLogic>),
-}
-
-impl LivePartitionRead {
-    fn partition(&mut self) -> Option<&crate::system::game_logic::PartitionManager> {
-        if matches!(self, Self::Unqueried) {
-            *self = match crate::system::game_logic::get_game_logic().try_lock() {
-                Ok(logic) => Self::Borrowed(logic),
-                Err(_) => Self::Unavailable,
-            };
-        }
-        match self {
-            Self::Borrowed(logic) => Some(logic.partition_manager()),
-            Self::Unqueried | Self::Unavailable => None,
-        }
-    }
-}
-
+// One world partition manager (C++ `ThePartitionManager`): the shroud grid,
+// COI registrations and `m_updatedSinceLastReset` all live in it, so a cell
+// walk takes a single read guard and consults nothing else. Cells the grid has
+// never seen are shrouded (C++ cells default to zero looker counts).
 fn sample_partition_cells(
     primary: Option<&PartitionManager>,
-    live: &mut LivePartitionRead,
     player_index: i32,
     cells: impl IntoIterator<Item = (i32, i32)>,
 ) -> PartitionCellShroudCounts {
-    let fallback = |x, y| {
-        live.partition()
-            .map(|pm| pm.get_shroud_status_for_player_cell(player_index, x, y))
-            .unwrap_or(CellShroudStatus::Shrouded)
-    };
     match primary {
-        Some(pm) => pm
-            .shroud
-            .count_cells_with_fallback(player_index, cells, fallback),
-        None => PartitionCellShroudCounts::sample(cells, fallback),
+        Some(pm) => pm.shroud.count_cells(player_index, cells),
+        None => PartitionCellShroudCounts::sample(cells, |_, _| CellShroudStatus::Shrouded),
     }
 }
 
@@ -212,13 +183,9 @@ fn object_cell_shroud_counts(
 ) -> Option<PartitionCellShroudCounts> {
     let partition = world_partition_manager();
     let primary = partition.read().ok();
-    let mut live = LivePartitionRead::Unqueried;
     if !primary
         .as_ref()
         .is_some_and(|pm| pm.updated_since_last_reset())
-        && !live
-            .partition()
-            .is_some_and(|pm| pm.updated_since_last_reset())
     {
         return None;
     }
@@ -236,7 +203,6 @@ fn object_cell_shroud_counts(
     };
     Some(sample_partition_cells(
         primary.as_deref(),
-        &mut live,
         player_index,
         cells.iter().map(|cell| (cell.x, cell.y)),
     ))
@@ -266,15 +232,7 @@ fn cell_shroud_status(player_index: i32, x: i32, y: i32) -> CellShroudStatus {
             return status;
         }
     }
-    crate::system::game_logic::get_game_logic()
-        .try_lock()
-        .ok()
-        .map(|logic| {
-            logic
-                .partition_manager()
-                .get_shroud_status_for_player_cell(player_index, x, y)
-        })
-        .unwrap_or(CellShroudStatus::Shrouded)
+    CellShroudStatus::Shrouded
 }
 
 /// Host FOW: cell shroud on the 40wu partition grid stamped by lookers.
@@ -293,7 +251,6 @@ pub fn partition_cell_shroud_counts(
     let primary = partition.read().ok();
     sample_partition_cells(
         primary.as_deref(),
-        &mut LivePartitionRead::Unqueried,
         player_index,
         cells.iter().copied(),
     )
@@ -310,7 +267,7 @@ fn viewer_relationship_to_object(player_index: i32, object: &Object) -> Option<R
     Some(player.get_relationship_with_team(&team))
 }
 
-/// Stamp looker circles onto both 40wu partition grids (leftover + live).
+/// Stamp looker circles onto the world's 40wu partition grid.
 pub fn stamp_partition_cell_lookers(center: &Coord3D, radius: f32, player_mask: u32, add: bool) {
     if let Ok(mut pm) = world_partition_manager().write() {
         if add {
@@ -319,31 +276,15 @@ pub fn stamp_partition_cell_lookers(center: &Coord3D, radius: f32, player_mask: 
             pm.undo_shroud_reveal_cells(center, radius, player_mask);
         }
     }
-    if let Ok(mut logic) = crate::system::game_logic::get_game_logic().try_lock() {
-        let pm = logic.partition_manager_mut();
-        if add {
-            pm.do_shroud_reveal(center, radius, player_mask);
-        } else {
-            pm.undo_shroud_reveal(center, radius, player_mask);
-        }
-    }
 }
 
-/// Stamp shroud-cover circles onto both 40wu partition grids.
+/// Stamp shroud-cover circles onto the world's 40wu partition grid.
 pub fn stamp_partition_cell_covers(center: &Coord3D, radius: f32, player_mask: u32, add: bool) {
     if let Ok(mut pm) = world_partition_manager().write() {
         if add {
             pm.do_shroud_cover_cells(center, radius, player_mask);
         } else {
             pm.undo_shroud_cover_cells(center, radius, player_mask);
-        }
-    }
-    if let Ok(mut logic) = crate::system::game_logic::get_game_logic().try_lock() {
-        let pm = logic.partition_manager_mut();
-        if add {
-            pm.do_shroud_cover(center, radius, player_mask);
-        } else {
-            pm.undo_shroud_cover(center, radius, player_mask);
         }
     }
 }

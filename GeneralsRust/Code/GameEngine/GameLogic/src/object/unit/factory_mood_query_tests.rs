@@ -111,7 +111,7 @@ impl MoodFixture {
             .lock()
             .unwrap()
             .partition_manager_mut()
-            .update()
+            .update_host_index()
             .unwrap();
         let candidates = crate::helpers::ThePartitionManager::get()
             .unwrap()

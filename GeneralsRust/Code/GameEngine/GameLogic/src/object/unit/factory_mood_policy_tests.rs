@@ -324,7 +324,7 @@ fn refresh_partition() {
         .lock()
         .unwrap()
         .partition_manager_mut()
-        .update()
+        .update_host_index()
         .unwrap();
 }
 

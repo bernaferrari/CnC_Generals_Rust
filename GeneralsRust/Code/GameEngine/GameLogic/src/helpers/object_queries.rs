@@ -84,7 +84,7 @@ impl ThePartitionManager {
         let candidate_ids = if let Ok(logic) = crate::system::game_logic::get_game_logic().lock() {
             logic
                 .partition_manager()
-                .find_objects_in_radius(*pos, radius)
+                .find_objects_in_radius_by_center(*pos, radius)
         } else {
             let manager_ref = crate::object_manager::get_object_manager();
             let Ok(manager) = manager_ref.read() else {

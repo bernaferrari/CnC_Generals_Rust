@@ -543,12 +543,14 @@ fn xfer_partition_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<()
     let shroud_manager = get_shroud_manager();
     let mut shroud = shroud_manager.lock().map_err(|_| XferStatus::InvalidData)?;
     let frame = logic.get_frame();
+    let mut partition = logic.partition_manager_mut();
     xfer_partition_state_with_owner(
         &mut shroud,
-        &mut logic.partition_manager.cell_size,
+        partition.host_cell_size_mut(),
         frame,
         xfer,
     )?;
+    drop(partition);
     if xfer.get_xfer_mode() == XferMode::Load {
         // Presentation is admitted only after the complete selected payload.
         shroud.refresh_shroud_for_local_player_at_frame(frame);

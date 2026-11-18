@@ -67,7 +67,7 @@ impl WorldFixture {
         assert!(owner.read().unwrap().is_kind_of(KindOf::Immobile));
         world.register_object_with_partition(id, &owner);
         assert!(Arc::ptr_eq(world.objects.get(&id).unwrap(), &owner));
-        assert!(world.partition_manager.ghost_link_scene_id(id).is_some());
+        assert!(world.partition_manager().ghost_link_scene_id(id).is_some());
         Self {
             world,
             _factory: factory,
@@ -123,41 +123,41 @@ fn live_ghost_same_id_queries_use_distinct_driving_grids_and_seen_history() {
     assert_eq!(first.id, second.id);
     assert!(!Arc::ptr_eq(&first.owner, &second.owner));
     assert_ne!(
-        first.world.partition_manager.ghost_link_scene_id(first.id),
+        first.world.partition_manager().ghost_link_scene_id(first.id),
         second
             .world
-            .partition_manager
+            .partition_manager()
             .ghost_link_scene_id(second.id)
     );
     let pos = Coord3D::new(20.0, 20.0, 0.0);
-    first.world.partition_manager.do_shroud_reveal(&pos, 1.0, 1);
-    second.world.partition_manager.do_shroud_cover(&pos, 1.0, 1);
+    first.world.partition_manager_mut().do_shroud_reveal_cells(&pos, 1.0, 1);
+    second.world.partition_manager_mut().do_shroud_cover_cells(&pos, 1.0, 1);
     let _primary = RestorePrimary::install(true, false);
     assert_eq!(first.query(), ObjectShroudStatus::Clear);
     assert_eq!(second.query(), ObjectShroudStatus::Shrouded);
     first
         .world
-        .partition_manager
-        .undo_shroud_reveal(&pos, 1.0, 1);
+        .partition_manager_mut()
+        .undo_shroud_reveal_cells(&pos, 1.0, 1);
     assert_eq!(first.query(), ObjectShroudStatus::Fogged);
     assert_eq!(second.query(), ObjectShroudStatus::Shrouded);
     second
         .world
-        .partition_manager
-        .do_shroud_reveal(&pos, 1.0, 1);
+        .partition_manager_mut()
+        .do_shroud_reveal_cells(&pos, 1.0, 1);
     assert_eq!(second.query(), ObjectShroudStatus::Clear);
     assert_eq!(first.query(), ObjectShroudStatus::Fogged);
-    first.world.partition_manager.do_shroud_cover(&pos, 1.0, 1);
+    first.world.partition_manager_mut().do_shroud_cover_cells(&pos, 1.0, 1);
     assert_eq!(first.query(), ObjectShroudStatus::Shrouded);
     first
         .world
-        .partition_manager
-        .undo_shroud_cover(&pos, 1.0, 1);
-    first.world.partition_manager.do_shroud_reveal(&pos, 1.0, 1);
+        .partition_manager_mut()
+        .undo_shroud_cover_cells(&pos, 1.0, 1);
+    first.world.partition_manager_mut().do_shroud_reveal_cells(&pos, 1.0, 1);
     first
         .world
-        .partition_manager
-        .undo_shroud_reveal(&pos, 1.0, 1);
+        .partition_manager_mut()
+        .undo_shroud_reveal_cells(&pos, 1.0, 1);
     assert_eq!(
         first.query(),
         ObjectShroudStatus::Shrouded,
@@ -191,16 +191,16 @@ fn live_ghost_query_can_borrow_grid_while_its_game_logic_mutex_is_held() {
     let born = factory.get_object(id).unwrap().get_base_object().unwrap();
     let mut driving = get_game_logic().lock().unwrap();
     assert!(
-        driving.partition_manager.ghost_link_scene_id(id).is_some(),
+        driving.partition_manager().ghost_link_scene_id(id).is_some(),
         "factory birth attaches the ghost"
     );
     assert!(Arc::ptr_eq(driving.objects.get(&id).unwrap(), &born));
     assert_eq!(driving.register_object(Arc::clone(&born)).unwrap(), id);
     assert!(Arc::ptr_eq(driving.objects.get(&id).unwrap(), &born));
-    assert!(driving.partition_manager.ghost_link_scene_id(id).is_some());
+    assert!(driving.partition_manager().ghost_link_scene_id(id).is_some());
     driving
-        .partition_manager
-        .do_shroud_reveal(&Coord3D::new(20.0, 20.0, 0.0), 1.0, 1);
+        .partition_manager_mut()
+        .do_shroud_reveal_cells(&Coord3D::new(20.0, 20.0, 0.0), 1.0, 1);
     assert_eq!(
         driving.ghost_shroud_status_for_link(id, 0),
         ObjectShroudStatus::Clear
@@ -218,7 +218,7 @@ fn foreign_updated_grid_cannot_make_cold_driving_grid_valid() {
     let _serial = crate::test_sync::lock();
     definitions();
     let fixture = WorldFixture::new();
-    assert!(!fixture.world.partition_manager.updated_since_last_reset());
+    assert!(!fixture.world.partition_manager().updated_since_last_reset());
     let _primary = RestorePrimary::install(true, true);
     assert_eq!(fixture.query(), ObjectShroudStatus::Invalid);
 }

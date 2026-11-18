@@ -56,7 +56,7 @@ fn contact_pair() -> (FactoryRuntime, Arc<RwLock<Object>>) {
         .lock()
         .unwrap()
         .partition_manager_mut()
-        .update()
+        .update_host_index()
         .unwrap();
     let owner = actual.owner.read().unwrap();
     let hits = crate::helpers::ThePartitionManager::get()

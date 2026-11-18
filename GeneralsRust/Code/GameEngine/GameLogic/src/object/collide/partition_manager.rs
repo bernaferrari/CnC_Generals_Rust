@@ -324,6 +324,9 @@ pub struct PartitionManager {
     /// (PartitionManager.cpp:2052-2062); here the caller drains and runs
     /// `handle_partition_cell_maintenance` without object guards held.
     cell_changed_events: Vec<ObjectId>,
+    /// Host-side centre-point object index and ghost (`PartitionData`) links
+    /// that used to live in a second per-`GameLogic` manager.
+    pub(crate) host: crate::system::game_logic::HostObjectIndex,
 }
 
 impl PartitionManager {
@@ -336,6 +339,7 @@ impl PartitionManager {
             shroud: super::partition_shroud::PartitionShroudGrid::new(),
             updated_since_last_reset: false,
             cell_changed_events: Vec::new(),
+            host: crate::system::game_logic::HostObjectIndex::new(),
         }
     }
 
@@ -345,6 +349,27 @@ impl PartitionManager {
 
     pub fn mark_updated_since_last_reset(&mut self) {
         self.updated_since_last_reset = true;
+    }
+
+    pub(crate) fn reset_updated_since_last_reset(&mut self) {
+        self.updated_since_last_reset = false;
+    }
+
+    /// Count an object's COI footprint from this world's shroud grid.
+    pub(crate) fn count_shroud_cells(
+        &self,
+        player_index: i32,
+        cells: impl IntoIterator<Item = (i32, i32)>,
+    ) -> super::partition_shroud::PartitionCellShroudCounts {
+        self.shroud.count_cells(player_index, cells)
+    }
+
+    pub fn add_looker(&mut self, player_index: i32, x: i32, y: i32) {
+        self.shroud.add_looker(player_index, x, y);
+    }
+
+    pub fn remove_looker(&mut self, player_index: i32, x: i32, y: i32) {
+        self.shroud.remove_looker(player_index, x, y);
     }
 
     pub fn object_coi_cells(&self, id: ObjectId) -> Option<&[CellCoord]> {

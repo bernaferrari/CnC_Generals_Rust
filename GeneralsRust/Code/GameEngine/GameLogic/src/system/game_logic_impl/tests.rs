@@ -663,11 +663,11 @@ mod tests {
 
         {
             let mut logic = get_game_logic().lock().unwrap_or_else(|e| e.into_inner());
-            logic.partition_manager.remove_object(obj_id);
+            logic.partition_manager_mut().remove_object(obj_id);
             assert!(
                 !logic
-                    .partition_manager
-                    .find_objects_in_radius(pos, 10.0)
+                    .partition_manager()
+                    .find_objects_in_radius_by_center(pos, 10.0)
                     .contains(&obj_id),
                 "precondition: object must be absent from partition before post-process"
             );
@@ -684,8 +684,8 @@ mod tests {
             let logic = get_game_logic().lock().unwrap_or_else(|e| e.into_inner());
             assert!(
                 logic
-                    .partition_manager
-                    .find_objects_in_radius(pos, 10.0)
+                    .partition_manager()
+                    .find_objects_in_radius_by_center(pos, 10.0)
                     .contains(&obj_id),
                 "production hook must call PartitionManager::update after all snapshots"
             );
@@ -694,7 +694,7 @@ mod tests {
 
         OBJECT_REGISTRY.clear();
         if let Ok(mut logic) = get_game_logic().lock() {
-            logic.partition_manager.remove_object(obj_id);
+            logic.partition_manager_mut().remove_object(obj_id);
         }
     }
 
@@ -1946,7 +1946,7 @@ mod tests {
     fn test_partition_manager_creation() {
         let _fixture = test_state_lock();
         let mut partition = PartitionManager::new();
-        let result = partition.update();
+        let result = partition.update_host_index();
         assert!(result.is_ok());
     }
 

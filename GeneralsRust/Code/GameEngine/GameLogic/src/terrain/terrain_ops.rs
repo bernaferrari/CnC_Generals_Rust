@@ -219,12 +219,12 @@ impl TerrainLogic {
             .ok()
             .map(|logic| {
                 Self::capture_shroud_status_store(
-                    logic.partition_manager(),
+                    &logic.partition_manager(),
                     &self.get_maximum_pathfind_extent(),
                 )
             });
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
-            let pm = logic.partition_manager_mut();
+            let mut pm = logic.partition_manager_mut();
             for player in 0..crate::common::MAX_PLAYER_COUNT {
                 pm.store_fogged_cells(player, true);
             }
@@ -254,12 +254,12 @@ impl TerrainLogic {
         // The typed store already captured both buckets; this second call
         // keeps the existing PartitionManager snapshot API in C++ order.
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
-            let pm = logic.partition_manager_mut();
+            let mut pm = logic.partition_manager_mut();
             for player in 0..crate::common::MAX_PLAYER_COUNT {
                 pm.store_fogged_cells(player, false);
             }
             // C++ ThePartitionManager->reset(); ThePartitionManager->init();
-            pm.clear();
+            pm.reset_host_state();
         }
 
         if let Some(radar) = crate::helpers::TheRadar::get() {
@@ -268,7 +268,7 @@ impl TerrainLogic {
 
         // Restore permanently revealed cells (C++ restoreFoggedCells(..., FALSE)).
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
-            let pm = logic.partition_manager_mut();
+            let mut pm = logic.partition_manager_mut();
             if let Some(store) = &fog_store {
                 for &(player, x, y) in &store.revealed {
                     pm.add_looker(player, x, y);
@@ -300,7 +300,7 @@ impl TerrainLogic {
 
         // Restore fogged cells (C++ restoreFoggedCells(..., TRUE)).
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
-            let pm = logic.partition_manager_mut();
+            let mut pm = logic.partition_manager_mut();
             if let Some(store) = &fog_store {
                 for &(player, x, y) in &store.fogged {
                     pm.add_looker(player, x, y);

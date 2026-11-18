@@ -120,10 +120,10 @@ impl GameLogic {
             // Remove from partition manager
             let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
             if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
-                self.partition_manager
+                self.partition_manager_mut()
                     .detach_object_ghost(obj_id, &mut ghost_manager);
             }
-            self.partition_manager.remove_object(obj_id);
+            self.partition_manager_mut().remove_object(obj_id);
 
             let _ = with_collision_system_mut(|system| {
                 let _ = system.unregister_object(obj_id);
@@ -246,12 +246,12 @@ impl GameLogic {
         object_id: ObjectID,
         object: &Arc<RwLock<Object>>,
     ) {
-        if self.partition_manager.contains_object(object_id) {
+        if self.partition_manager().contains_object(object_id) {
             return;
         }
         if let Ok(obj) = object.read() {
             let pos = obj.get_position();
-            self.partition_manager
+            self.partition_manager_mut()
                 .add_object(object_id, (pos.x, pos.y, pos.z));
             let ghost_eligible = obj.is_kind_of(KindOf::Immobile)
                 && !obj
@@ -261,7 +261,7 @@ impl GameLogic {
                     .any(|module| module.name.as_str().eq_ignore_ascii_case("W3DDefaultDraw"));
             let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
             if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
-                self.partition_manager.attach_object_ghost(
+                self.partition_manager_mut().attach_object_ghost(
                     object_id,
                     ghost_eligible,
                     &mut ghost_manager,
@@ -988,7 +988,7 @@ impl GameLogic {
         self.destroy_all_objects_immediate();
         let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
             if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
-            self.partition_manager
+            self.partition_manager_mut()
                 .clear_ghost_objects(&mut ghost_manager);
         }
         // Clear update module tracking first
@@ -1017,7 +1017,7 @@ impl GameLogic {
     /// Rebuild spatial partition index after loading
     /// Matches C++ GameLogic::rebuildPartitionManager
     pub fn rebuild_spatial_index(&mut self) {
-        self.partition_manager.rebuild();
+        self.partition_manager_mut().rebuild();
         log::debug!("Rebuilt spatial index");
     }
 
@@ -1076,8 +1076,8 @@ impl GameLogic {
         // Register with partition manager
         if let Ok(obj) = object_arc.read() {
             let pos = obj.get_position();
-            self.partition_manager
-                .register_object(object_id, pos.x, pos.y);
+            self.partition_manager_mut()
+                .register_object_at(object_id, pos.x, pos.y);
         }
 
         log::debug!("Added restored object with ID {}", object_id);

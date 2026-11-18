@@ -26,6 +26,8 @@ impl GameLogic {
         let mut logic = Self::new();
         logic.control_bar_overrides = Arc::clone(services.control_bar_overrides());
         logic.world_services = Some(Arc::downgrade(&services));
+        // C++ has one ThePartitionManager: this logic uses the world's.
+        logic.partition = Arc::clone(&services.logic_managers().partition);
         logic
     }
 
@@ -243,7 +245,7 @@ impl GameLogic {
         self.show_dynamic_lod = true;
         self.set_rank_level_limit(crate::player::DEFAULT_RANK_LEVEL_LIMIT);
         self.buildable_status_overrides.clear();
-        self.partition_manager = PartitionManager::new();
+        self.partition_manager_mut().reset_host_state();
         self.physics_world = PhysicsWorld::new();
         self.sleepy_updates.clear();
         self.normal_updates.clear();

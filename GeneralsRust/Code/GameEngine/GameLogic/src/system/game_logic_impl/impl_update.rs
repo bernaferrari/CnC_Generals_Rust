@@ -1241,15 +1241,18 @@ impl GameLogic {
 
     pub fn update_partition_manager(&mut self) -> Result<(), GameLogicError> {
         trace!("GameLogic::update_partition_manager()");
-        self.partition_manager.update()
+        self.partition_manager_mut().update_host_index()
     }
 
-    pub fn partition_manager(&self) -> &PartitionManager {
-        &self.partition_manager
+    /// C++ `ThePartitionManager`: this world's single partition manager
+    /// (shared with `WorldLogicManagers::partition` when the logic is built
+    /// against its `WorldServices`).
+    pub fn partition_manager(&self) -> std::sync::RwLockReadGuard<'_, PartitionManager> {
+        self.partition.read().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    pub fn partition_manager_mut(&mut self) -> &mut PartitionManager {
-        &mut self.partition_manager
+    pub fn partition_manager_mut(&mut self) -> std::sync::RwLockWriteGuard<'_, PartitionManager> {
+        self.partition.write().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Phase 7: Update vision and shroud (fog of war)
@@ -1302,12 +1305,12 @@ impl GameLogic {
             .ok()
             .map(|manager| manager.local_player_index())
             .unwrap_or(0);
-        let ghost_object_ids = self.partition_manager.ghost_link_object_ids();
+        let ghost_object_ids = self.partition_manager().ghost_link_object_ids();
         let mut transitions = Vec::with_capacity(ghost_object_ids.len());
         for object_id in ghost_object_ids {
             let status = self.ghost_shroud_status_for_link(object_id, local_player);
             let capture = self
-                .partition_manager
+                .partition_manager()
                 .object_ghost_needs_capture(object_id, local_player, status)
                 .then(|| crate::object::w3d_ghost_object::capture_w3d_ghost_snapshot(object_id))
                 .flatten();
@@ -1316,7 +1319,7 @@ impl GameLogic {
         let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
             if let Ok(mut manager) = __w3d_ghosts.write() {
             for (object_id, status, capture) in &transitions {
-                self.partition_manager.apply_object_ghost_shroud_status(
+                self.partition_manager_mut().apply_object_ghost_shroud_status(
                     *object_id,
                     local_player,
                     *status,
@@ -1347,20 +1350,20 @@ impl GameLogic {
             crate::object::w3d_ghost_object::W3DGhostSceneId,
             crate::common::ObjectShroudStatus,
         )> = self
-            .partition_manager
+            .partition_manager()
             .orphan_ghost_scene_ids()
             .into_iter()
             .map(|scene_id| {
                 (
                     scene_id,
                     Self::ghost_shroud_status_at(
-                        self.partition_manager.orphan_ghost_frozen_position(scene_id),
+                        self.partition_manager().orphan_ghost_frozen_position(scene_id),
                         local_player,
                     ),
                 )
             })
             .collect();
-        self.partition_manager.update_orphaned_ghosts(
+        self.partition_manager_mut().update_orphaned_ghosts(
             local_player,
             |scene_id| {
                 statuses
@@ -1382,12 +1385,12 @@ impl GameLogic {
             if let Ok(object) = object.read() {
                 return object.get_shrouded_status_with_partition(
                     player_index as i32,
-                    &self.partition_manager,
+                    &*self.partition_manager(),
                 );
             }
         }
         Self::ghost_shroud_status_at(
-            self.partition_manager.ghost_frozen_position(object_id),
+            self.partition_manager().ghost_frozen_position(object_id),
             player_index,
         )
     }
@@ -1594,7 +1597,7 @@ impl GameLogic {
 
         let mut marker = "MARKER:ThePartitionManager".to_string();
         let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);
-        self.partition_manager.crc_into(&mut xfer);
+        self.partition_manager().host_crc_into(&mut xfer);
 
         let mut marker = "MARKER:ThePlayerList".to_string();
         let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);

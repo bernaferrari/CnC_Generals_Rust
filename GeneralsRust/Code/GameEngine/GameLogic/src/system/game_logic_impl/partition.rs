@@ -9,8 +9,17 @@ struct PartitionGhostLink {
     frozen_position: Option<Coord3D>,
 }
 
+/// Host-side object index and ghost-link state of THE world partition manager.
+///
+/// C++ has exactly one `ThePartitionManager`; its object index, ghost
+/// (`PartitionData` fog memory) links, cell shroud and CRC all live in it. The
+/// Rust port used to keep this half in a second per-`GameLogic` manager. It is
+/// now a field (`PartitionManager::host`) of the single world manager, which also
+/// owns the shroud grid, fogged-cell snapshots and `m_updatedSinceLastReset`.
+/// The centre-point index below still feeds `get_objects_in_range`; it is
+/// replaced by the COI-cell index once that query migrates.
 #[derive(Debug)]
-pub struct PartitionManager {
+pub struct HostObjectIndex {
     grid: HashMap<(i32, i32), Vec<ObjectID>>,
     object_cells: HashMap<ObjectID, (i32, i32)>,
     object_positions: HashMap<ObjectID, Coord3D>,
@@ -20,17 +29,10 @@ pub struct PartitionManager {
     /// unregistered the module belongs to the ghost, not the object ID, so a
     /// later object reusing that ID gets its own link.
     orphan_links: HashMap<crate::object::w3d_ghost_object::W3DGhostSceneId, PartitionGhostLink>,
-    cell_size: Real,
-    /// C++ PartitionCell shroud levels (40wu).
-    shroud: crate::object::collide::partition_shroud::PartitionShroudGrid,
-    /// C++ `storeFoggedCells` / `restoreFoggedCells` snapshot, keyed by
-    /// `(player_index, store_to_fog)`.
-    fogged_cells: HashMap<(usize, bool), HashSet<(i32, i32)>>,
-    /// C++ `m_updatedSinceLastReset`.
-    updated_since_last_reset: bool,
+    pub(crate) cell_size: Real,
 }
 
-impl PartitionManager {
+impl HostObjectIndex {
     pub fn new() -> Self {
         Self {
             grid: HashMap::new(),
@@ -39,15 +41,12 @@ impl PartitionManager {
             ghost_links: HashMap::new(),
             orphan_links: HashMap::new(),
             cell_size: 40.0,
-            shroud: crate::object::collide::partition_shroud::PartitionShroudGrid::new(),
-            fogged_cells: HashMap::new(),
-            updated_since_last_reset: false,
         }
     }
 
     /// C++ PartitionManager::crc walks every cell. Host grid is sparse: dump
     /// cell size plus each occupied cell's sorted occupant IDs.
-    fn crc_into(&self, xfer: &mut dyn Xfer) {
+    pub(crate) fn crc_into(&self, xfer: &mut dyn Xfer) {
         let mut cell_size = self.cell_size;
         let _ = xfer.xfer_real(&mut cell_size);
         let mut total = self.object_cells.len() as i32;
@@ -96,8 +95,6 @@ impl PartitionManager {
     }
 
     pub fn update(&mut self) -> Result<(), GameLogicError> {
-        // C++ PartitionManager::update always sets m_updatedSinceLastReset.
-        self.updated_since_last_reset = true;
         // Host path: OBJECT_REGISTRY is empty; cells were filled via register_object.
         // Keep cached positions — C++ PartitionManager still tracks live objects.
         if dual_world_registry_unavailable() {
@@ -378,113 +375,6 @@ impl PartitionManager {
         self.cell_size
     }
 
-    /// C++ `getShroudStatusForPlayer` on the 40wu closest-object grid.
-    pub fn get_shroud_status_for_player(
-        &self,
-        player_index: i32,
-        loc: &Coord3D,
-    ) -> game_engine::common::system::radar::CellShroudStatus {
-        self.shroud.status_at_world(player_index, loc)
-    }
-
-    /// C++ `getShroudStatusForPlayer(player, x, y)`.
-    pub fn get_shroud_status_for_player_cell(
-        &self,
-        player_index: i32,
-        x: i32,
-        y: i32,
-    ) -> game_engine::common::system::radar::CellShroudStatus {
-        self.shroud.cell_status(player_index, x, y)
-    }
-
-    /// Count an object's COI footprint from this match's borrowed shroud grid.
-    /// No fallback to a process-wide partition representation is consulted.
-    pub(crate) fn count_shroud_cells(
-        &self,
-        player_index: i32,
-        cells: impl IntoIterator<Item = (i32, i32)>,
-    ) -> crate::object::collide::partition_shroud::PartitionCellShroudCounts {
-        self.shroud.count_cells(player_index, cells)
-    }
-
-    /// C++ `getPropShroudStatusForPlayer`.
-    pub fn get_prop_shroud_status_for_player(
-        &self,
-        player_index: i32,
-        loc: &Coord3D,
-    ) -> crate::common::ObjectShroudStatus {
-        self.shroud.prop_status(player_index, loc)
-    }
-
-    pub fn do_shroud_reveal(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
-        self.shroud.reveal_circle(center, radius, player_mask);
-        self.updated_since_last_reset = true;
-    }
-
-    pub fn undo_shroud_reveal(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
-        self.shroud.undo_reveal_circle(center, radius, player_mask);
-        self.updated_since_last_reset = true;
-    }
-
-    pub fn do_shroud_cover(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
-        self.shroud.cover_circle(center, radius, player_mask);
-        self.updated_since_last_reset = true;
-    }
-
-    pub fn undo_shroud_cover(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
-        self.shroud.uncover_circle(center, radius, player_mask);
-        self.updated_since_last_reset = true;
-    }
-
-    pub fn updated_since_last_reset(&self) -> bool {
-        self.updated_since_last_reset
-    }
-
-    pub fn add_looker(&mut self, player_index: i32, x: i32, y: i32) {
-        self.shroud.add_looker(player_index, x, y);
-    }
-
-    pub fn remove_looker(&mut self, player_index: i32, x: i32, y: i32) {
-        self.shroud.remove_looker(player_index, x, y);
-    }
-
-    /// C++ `PartitionManager::storeFoggedCells`.
-    pub fn store_fogged_cells(&mut self, player_index: usize, store_to_fog: bool) {
-        let player = player_index as i32;
-        let mut cells = HashSet::new();
-        for (x, y) in self.shroud.iter_known_cells() {
-            match self.shroud.cell_status(player, x, y) {
-                game_engine::common::system::radar::CellShroudStatus::Fogged if store_to_fog => {
-                    cells.insert((x, y));
-                }
-                game_engine::common::system::radar::CellShroudStatus::Clear if !store_to_fog => {
-                    cells.insert((x, y));
-                }
-                _ => {}
-            }
-        }
-        self.fogged_cells
-            .insert((player_index, store_to_fog), cells);
-    }
-
-    /// C++ `PartitionManager::restoreFoggedCells`.
-    pub fn restore_fogged_cells(&mut self, player_index: usize, restore_to_fog: bool) {
-        let Some(cells) = self
-            .fogged_cells
-            .get(&(player_index, restore_to_fog))
-            .cloned()
-        else {
-            return;
-        };
-        let player = player_index as i32;
-        for (x, y) in cells {
-            self.shroud.add_looker(player, x, y);
-            if restore_to_fog {
-                self.shroud.remove_looker(player, x, y);
-            }
-        }
-    }
-
     /// C++ `PartitionManager::clear` — drop all registered occupants so a
     /// map-boundary change can re-register objects on the new grid.
     pub fn clear(&mut self) {
@@ -493,8 +383,6 @@ impl PartitionManager {
         self.object_positions.clear();
         self.ghost_links.clear();
         self.orphan_links.clear();
-        self.shroud.clear();
-        self.updated_since_last_reset = false;
     }
 }
 
@@ -545,9 +433,101 @@ fn transition_ghost_link(
     }
 }
 
-impl Default for PartitionManager {
+impl Default for HostObjectIndex {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub use crate::object::collide::partition_manager::PartitionManager;
+
+macro_rules! forward_host {
+    (ref; $( fn $name:ident($($arg:ident: $ty:ty),*) $(-> $ret:ty)?; )*) => {
+        impl PartitionManager {
+            $(
+                pub fn $name(&self $(, $arg: $ty)*) $(-> $ret)? {
+                    self.host.$name($($arg),*)
+                }
+            )*
+        }
+    };
+    (mutable; $( fn $name:ident($($arg:ident: $ty:ty),*) $(-> $ret:ty)?; )*) => {
+        impl PartitionManager {
+            $(
+                pub fn $name(&mut self $(, $arg: $ty)*) $(-> $ret)? {
+                    self.host.$name($($arg),*)
+                }
+            )*
+        }
+    };
+}
+
+forward_host! { ref;
+    fn contains_object(object_id: ObjectID) -> bool;
+    fn cell_size() -> Real;
+    fn ghost_link_scene_id(object_id: ObjectID) -> Option<crate::object::w3d_ghost_object::W3DGhostSceneId>;
+    fn object_ghost_needs_capture(object_id: ObjectID, player_index: usize, current: crate::common::ObjectShroudStatus) -> bool;
+    fn ghost_link_object_ids() -> Vec<ObjectID>;
+    fn orphan_ghost_scene_ids() -> Vec<crate::object::w3d_ghost_object::W3DGhostSceneId>;
+    fn orphan_ghost_frozen_position(scene_id: crate::object::w3d_ghost_object::W3DGhostSceneId) -> Option<Coord3D>;
+    fn ghost_shroudedness_previous(object_id: ObjectID, player_index: usize) -> Option<crate::common::ObjectShroudStatus>;
+    fn ghost_frozen_position(object_id: ObjectID) -> Option<Coord3D>;
+}
+
+forward_host! { mutable;
+    fn add_object(object_id: ObjectID, position: (f32, f32, f32));
+    fn remove_object(object_id: ObjectID);
+    fn rebuild();
+    fn attach_object_ghost(object_id: ObjectID, eligible: bool, manager: &mut crate::object::W3DGhostObjectManager) -> Option<crate::object::w3d_ghost_object::W3DGhostSceneId>;
+    fn apply_object_ghost_shroud_status(object_id: ObjectID, player_index: usize, current: crate::common::ObjectShroudStatus, capture: Option<&crate::object::w3d_ghost_object::W3DGhostSnapshotCapture>, manager: &mut crate::object::W3DGhostObjectManager) -> bool;
+    fn detach_object_ghost(object_id: ObjectID, manager: &mut crate::object::W3DGhostObjectManager) -> bool;
+    fn clear_ghost_objects(manager: &mut crate::object::W3DGhostObjectManager);
+}
+
+impl PartitionManager {
+    /// Registers an object's position in the centre-point index
+    /// (save-game restore path; the COI registration is `register_object`).
+    pub fn register_object_at(&mut self, object_id: ObjectID, x: f32, y: f32) {
+        self.host.register_object(object_id, x, y);
+    }
+
+    /// Centre-point radius query that feeds `get_objects_in_range`.
+    pub fn find_objects_in_radius_by_center(&self, center: Coord3D, radius: Real) -> Vec<ObjectID> {
+        self.host.find_objects_in_radius(center, radius)
+    }
+
+    /// C++ `ThePartitionManager->update()`: always sets `m_updatedSinceLastReset`.
+    pub fn update_host_index(&mut self) -> Result<(), GameLogicError> {
+        self.mark_updated_since_last_reset();
+        self.host.update()
+    }
+
+    pub fn update_orphaned_ghosts(
+        &mut self,
+        player_index: usize,
+        current_status: impl Fn(crate::object::w3d_ghost_object::W3DGhostSceneId) -> crate::common::ObjectShroudStatus,
+        manager: &mut crate::object::W3DGhostObjectManager,
+    ) {
+        self.host.update_orphaned_ghosts(player_index, current_status, manager);
+    }
+
+    /// Host-state reset used by `GameLogic::reset` and the map-boundary
+    /// adjust: drops the centre index, ghost links and cell shroud and clears
+    /// `m_updatedSinceLastReset`, leaving the COI registrations untouched
+    /// (they are re-registered by their owners).
+    pub fn reset_host_state(&mut self) {
+        self.host.clear();
+        self.shroud.clear();
+        self.reset_updated_since_last_reset();
+    }
+
+    /// C++ `PartitionManager::crc` host-side dump.
+    pub(crate) fn host_crc_into(&self, xfer: &mut dyn Xfer) {
+        self.host.crc_into(xfer);
+    }
+
+    pub(crate) fn host_cell_size_mut(&mut self) -> &mut Real {
+        &mut self.host.cell_size
     }
 }
 
@@ -689,7 +669,7 @@ mod ghost_transition_tests {
 
 #[cfg(test)]
 mod world_to_cell_tests {
-    use super::PartitionManager;
+    use super::HostObjectIndex as PartitionManager;
 
     #[test]
     fn object_cells_use_cpp_real_to_int_floor_at_integral_boundaries() {
