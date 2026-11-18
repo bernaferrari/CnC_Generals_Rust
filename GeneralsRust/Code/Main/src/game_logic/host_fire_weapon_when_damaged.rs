@@ -221,7 +221,8 @@ impl HostFireWeaponWhenDamagedData {
             current_frame,
             &mut self.reaction_role_ready_frames[role],
             &mut self.reaction_role_clip_used[role],
-            0,
+            // DelayBetweenShots of a Weapon the store cannot resolve.
+            reload_frames(&name),
         ) {
             return None;
         }

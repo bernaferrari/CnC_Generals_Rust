@@ -1603,6 +1603,9 @@ mod tests {
         if let Some(obj) = logic.objects.get_mut(&id) {
             obj.name = "CivilianTrain".into();
         }
+        // Object::setName registers the name with the ScriptEngine's cache
+        // (C++ addObjectToCache); the SET_TRAIN_HELD action resolves through it.
+        assert!(logic.add_receiving_named_script_object(id));
         logic.inject_railroad_track(id, straight_track(80.0, Some(40.0)));
         logic.with_railroad_registry_mut(|reg| {
             let car = reg.ensure_car(id, true);

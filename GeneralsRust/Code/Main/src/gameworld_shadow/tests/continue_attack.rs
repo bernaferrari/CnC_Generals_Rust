@@ -744,6 +744,12 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         // called_during_idle on AUTO_ACQUIRE_IDLE, not the legacy bool.
         o.auto_acquire_idle_bits |=
             gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+        // AIIdleState::onEnter arms resetNextMoodCheckTime (now + forceIdleFrames),
+        // and getNextMoodTarget returns NULL until then (AIUpdate.cpp:4543). The
+        // victim arrives and the owner is nudged with
+        // AIUpdateInterface::wakeUpAndAttemptToTarget (AIUpdate.cpp:4428).
+        o.next_mood_check_time = 0;
+        o.randomly_offset_mood_check = true;
     }
     // PartitionManager::update runs each frame; the new Objects are in its
     // cells before the mood scan queries them.

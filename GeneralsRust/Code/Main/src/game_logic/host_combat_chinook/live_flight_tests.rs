@@ -380,6 +380,11 @@ fn authored_explicit_vertical_goal_does_not_add_maintain_height_force() {
             // step, so a later maintain-position call must not add another
             // height force targeting the just-captured maintain pose.
             logic.update_movement_for_test(&[transport], 1.0 / 30.0);
+            // The locomotor only applies force; PhysicsBehavior::update (the
+            // world's physics phase) integrates it and zeroes the accumulator.
+            logic
+                .integrate_owned_physics_motion_with_effects(&mut Default::default())
+                .unwrap();
             let object = logic.host_object(transport).unwrap();
             assert!(object.get_position().y > start.y);
             assert!(object.movement.velocity.y > 0.0);

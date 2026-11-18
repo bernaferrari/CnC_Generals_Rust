@@ -314,8 +314,17 @@ mod ai_move_owner_tests {
         }
         let unit = a.host_object(source).unwrap();
         assert_eq!(unit.ai_state(), AIState::Moving);
-        assert_eq!(unit.path_goal_position, Some(destination));
-        assert_eq!(unit.movement.path.last(), Some(&destination));
+        // AIInternalMoveToState::onEnter runs Pathfinder::adjustDestination
+        // (AIStates.cpp:1640) before requestPath, so the installed goal is the
+        // cell-aligned in-map spot nearest the order; computeQuickPath then
+        // builds the aircraft path to exactly that requested destination.
+        let installed = unit.requested_destination.expect("requestPath stores m_requestedDestination");
+        assert!(
+            (installed - destination).truncate().length() < 25.0,
+            "adjusted goal stays at the commanded spot: {installed:?} vs {destination:?}"
+        );
+        assert_eq!(unit.path_goal_position, Some(installed));
+        assert_eq!(unit.movement.path.last(), Some(&installed));
 
         {}
 

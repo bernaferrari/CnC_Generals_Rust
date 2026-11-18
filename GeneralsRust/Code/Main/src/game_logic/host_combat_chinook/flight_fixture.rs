@@ -49,6 +49,11 @@ Object Hq46k12CombatChinook
     MaxHealth = 350
     InitialHealth = 350
   End
+  Geometry = BOX
+  GeometryMajorRadius = 22.0
+  GeometryMinorRadius = 7.0
+  GeometryHeight = 10.0
+  GeometryIsSmall = No
   Behavior = ChinookAIUpdate ModuleTag_AI
     MaxBoxes = 8
     NumRopes = 4

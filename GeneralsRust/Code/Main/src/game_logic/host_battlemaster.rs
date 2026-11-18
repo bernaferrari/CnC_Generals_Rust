@@ -1187,7 +1187,9 @@ mod tests {
         let none = evaluate_leftover_horde_blob(&units, 5, 75.0, 20.0, |_, _, dist| dist <= 75.0);
         assert!(none.iter().all(|m| !m.in_horde && !m.true_member));
 
-        // Five clustered + one 15 units away (inside RubOff of a true member).
+        // HordeUpdate.cpp:259 counts neighbours inside the module `Radius` and
+        // needs `Count - 1` of them; the sixth unit (18 units out) sees only three
+        // inside a 15-unit Radius, yet sits inside RubOff of a true member.
         let blob = [
             (0.0, 0.0, true),
             (5.0, 0.0, true),
@@ -1196,7 +1198,7 @@ mod tests {
             (5.0, 5.0, true),
             (18.0, 0.0, true),
         ];
-        let mem = evaluate_leftover_horde_blob(&blob, 5, 75.0, 20.0, |_, _, dist| dist <= 75.0);
+        let mem = evaluate_leftover_horde_blob(&blob, 5, 15.0, 20.0, |_, _, dist| dist <= 15.0);
         assert!(mem[0].true_member);
         assert!(mem[5].in_horde && !mem[5].true_member);
 

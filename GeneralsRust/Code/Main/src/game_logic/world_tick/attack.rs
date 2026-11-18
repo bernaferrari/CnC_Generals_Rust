@@ -2809,7 +2809,11 @@ impl GameLogic {
             u.num_frames_blocked = 0;
             u.is_blocked_and_stuck = false;
         }
-        let ok = self.request_object_path(unit_id, goal);
+        // C++ AIUpdateInterface::requestPath: a unit that can fly and is not on
+        // the ground takes computeQuickPath (getAircraftPath) immediately and
+        // never queues a pathfind; everything else searches.
+        let ok = self.try_install_flying_quick_path(unit_id, goal)
+            || self.request_object_path(unit_id, goal);
         if ok {
             if let Some(u) = self.objects.get_mut(&unit_id) {
                 u.desired_speed = 999_999.0;
