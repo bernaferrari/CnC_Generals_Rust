@@ -198,7 +198,7 @@ pub(crate) struct ObjectFxServices<'a, 's> {
     pub audio_policy: game_engine::common::audio::script_policy::ScriptAudioPolicy,
     pub player: Option<u32>,
     pub shroud:
-        &'a std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        &'a std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
     pub effects: &'a mut crate::game_logic::ScriptPresentationEffects<'s>,
     pub environment: &'a ObjectFxEnvironment,
     pub terrain: &'a std::sync::Arc<std::sync::RwLock<gamelogic::terrain::TerrainLogic>>,
@@ -326,7 +326,7 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn observe_host_fx_projectile(
         projectile: &crate::game_logic::combat::Projectile,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
     ) -> gamelogic::helpers::HostFxObjectPose {
         use gamelogic::common::types::ObjectShroudStatus;
         let is_shrouded = match (player, shroud.lock()) {
@@ -362,7 +362,7 @@ impl BorrowedFxPrimary<'_> {
     fn observe(
         self,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
     ) -> gamelogic::helpers::HostFxObjectPose {
         match self {
             Self::Object(object) => {

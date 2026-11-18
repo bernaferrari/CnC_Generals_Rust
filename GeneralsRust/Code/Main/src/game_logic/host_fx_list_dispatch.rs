@@ -485,7 +485,7 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn with_host_fx_view_parts<R>(
         session_view: &mut crate::presentation_frame::SessionView,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
     ) -> R {
         // Standalone compatibility entrypoint; native production roots must
@@ -506,7 +506,7 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn with_host_fx_view_parts_and_terrain<R>(
         session_view: &mut crate::presentation_frame::SessionView,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         mut terrain: Option<&mut dyn crate::game_logic::NativeTerrainEffects>,
         run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
     ) -> R {
@@ -528,7 +528,7 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn with_host_fx_view_parts_with_scorch<R>(
         session_view: &mut crate::presentation_frame::SessionView,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         add_scorch: &mut dyn FnMut([f32; 3], f32, i32),
         run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
     ) -> R {
@@ -547,7 +547,7 @@ impl crate::game_logic::GameLogic {
     fn with_host_fx_view_parts_with_scorch_and_bones<R>(
         session_view: &mut crate::presentation_frame::SessionView,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         add_scorch: &mut dyn FnMut([f32; 3], f32, i32),
         bone_transforms: &mut dyn FnMut(u32, &str, i32, usize) -> Vec<glam::Mat4>,
         run: impl FnOnce(&mut game_client::fx_list::FxViewServices<'_>) -> R,
@@ -622,7 +622,7 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn observe_host_fx_object(
         object: &crate::game_logic::Object,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
     ) -> gamelogic::helpers::HostFxObjectPose {
         use gamelogic::common::types::ObjectShroudStatus;
         let is_shrouded = match (player, shroud.lock()) {
@@ -1009,7 +1009,7 @@ impl crate::game_logic::GameLogic {
         session: &mut crate::presentation_frame::SessionView,
         audio_policy: game_engine::common::audio::script_policy::ScriptAudioPolicy,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         environment: &ObjectFxEnvironment,
         terrain: &std::sync::Arc<std::sync::RwLock<gamelogic::terrain::TerrainLogic>>,

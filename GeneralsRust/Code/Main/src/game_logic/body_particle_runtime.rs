@@ -7,7 +7,7 @@ pub(crate) fn update_body_auto_particles(
     body_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
     frame: u32,
     player: Option<u32>,
-    shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+    shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
     particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
     random: &mut game_engine::common::random_value::RandomState,
     source: Option<&crate::game_logic::NativeSlaveSource>,
@@ -85,7 +85,7 @@ pub(crate) struct HeadlessBodyParticleUpdate<'a> {
     pub random: &'a mut game_engine::common::random_value::RandomState,
     pub player: Option<u32>,
     pub shroud:
-        &'a std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        &'a std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
     pub frame: u32,
     pub source: Option<crate::game_logic::NativeSlaveSource>,
     pub pristine_bones: Option<&'a dyn crate::assets::pristine_bones::PristineBoneAssets>,

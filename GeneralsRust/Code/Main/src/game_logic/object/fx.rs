@@ -174,7 +174,7 @@ impl crate::game_logic::GameLogic {
         object: &crate::game_logic::Object,
         at_object: bool,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         if at_object {
@@ -364,7 +364,7 @@ impl crate::game_logic::GameLogic {
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
         audio: &mut crate::game_logic::SessionAudio,
         frame: u32,
@@ -447,7 +447,7 @@ impl crate::game_logic::GameLogic {
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         damage_fx: &game_engine::common::ini::ini_damage_fx::DamageFXStore,
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
@@ -494,7 +494,7 @@ impl crate::game_logic::GameLogic {
         at_object: bool,
         secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) -> bool {
         if at_object {

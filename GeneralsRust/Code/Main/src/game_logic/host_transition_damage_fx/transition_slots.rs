@@ -479,7 +479,7 @@ impl crate::game_logic::GameLogic {
         particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
         frame: u32,
         player: Option<u32>,
-        shroud: &std::sync::Arc<std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>>,
+        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
     ) {
         // C++ destroys all old-state systems BEFORE testing/playing the worse state.
