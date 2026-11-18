@@ -33,11 +33,11 @@ fn world(team: Team) -> GameLogic {
                 .health(1000.0)
                 .build_cost(300)
                 .build_time(0.1),
-            catalog_builder("USA_Dozer", "VEHICLE WORKER DOZER SELECTABLE"),
-            catalog_builder("AmericaVehicleDozer", "VEHICLE WORKER DOZER SELECTABLE"),
-            catalog_builder("China_Dozer", "VEHICLE WORKER DOZER SELECTABLE"),
-            catalog_builder("GLA_Worker", "INFANTRY WORKER DOZER SELECTABLE"),
-            catalog_builder("GLAInfantryWorker", "INFANTRY WORKER DOZER SELECTABLE"),
+            catalog_builder("USA_Dozer", "VEHICLE DOZER SELECTABLE"),
+            catalog_builder("AmericaVehicleDozer", "VEHICLE DOZER SELECTABLE"),
+            catalog_builder("China_Dozer", "VEHICLE DOZER SELECTABLE"),
+            catalog_builder("GLA_Worker", "INFANTRY DOZER SELECTABLE"),
+            catalog_builder("GLAInfantryWorker", "INFANTRY DOZER SELECTABLE"),
         ],
         &[],
         CATALOG_ACTIONS,

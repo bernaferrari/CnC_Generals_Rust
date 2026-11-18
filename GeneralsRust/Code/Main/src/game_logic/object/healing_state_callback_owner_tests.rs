@@ -97,7 +97,9 @@ fn healing_commits_and_stamps_before_exactly_one_healing_filtered_state_callback
     let bone = object.bone_fx_damage.as_ref().unwrap();
     assert_eq!(bone.transitions, 1);
     assert_eq!(bone.pending.len(), 1);
-    assert_eq!(bone.pending[0].old_state, HostBodyDamageType::ReallyDamaged);
+    // BoneFXUpdate::changeBodyDamageState (BoneFXUpdate.cpp) fires the slots of
+    // the state it entered: the record carries that firing state in both fields.
+    assert_eq!(bone.pending[0].old_state, HostBodyDamageType::Damaged);
     assert_eq!(bone.pending[0].new_state, HostBodyDamageType::Damaged);
     assert_eq!(bone.pending[0].fx_list.as_deref(), Some("HealingState1"));
 }
@@ -118,7 +120,7 @@ fn healing_state_callback_observes_intervening_body_operation_and_ignores_return
             assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
             assert_eq!(bone.transitions, 1);
             assert_eq!(bone.pending.len(), 1);
-            assert_eq!(bone.pending[0].old_state, HostBodyDamageType::ReallyDamaged);
+            assert_eq!(bone.pending[0].old_state, HostBodyDamageType::Pristine);
             assert_eq!(bone.pending[0].new_state, HostBodyDamageType::Pristine);
             assert_eq!(bone.pending[0].fx_list.as_deref(), Some("HealingState0"));
         }
