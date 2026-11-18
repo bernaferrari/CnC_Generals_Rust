@@ -846,9 +846,9 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_detection() {
         let layer = ReliabilityLayer::new();
-        // keep_alive creates nil-UUID commands which bypass duplicate detection,
-        // so use game_command which always generates a real UUID
-        let command = NetCommand::game_command(
+        // Commands carry a nil id until their sender stamps one (C++ setID at
+        // the send site); nil ids bypass duplicate detection, so stamp it.
+        let mut command = NetCommand::game_command(
             0,
             1,
             GameCommandData {
@@ -859,6 +859,8 @@ mod tests {
                 checksum: 0,
             },
         );
+
+        command.stamp_command_id(&crate::net_command_messages::CommandIdGenerator::new());
 
         // Process message first time
         let result1 = layer.process_incoming(command.clone()).await.unwrap();
