@@ -367,7 +367,8 @@ End
         SPOOF_SOURCE.into(),
     )])
     .expect("standalone authored-absence projection");
-    let content = retail_receiving_fixture(&[("superweapon_name_spoof.ini", SPOOF_SOURCE)]);
+    let content =
+        retail_receiving_fixture_with_commands(&[("superweapon_name_spoof.ini", SPOOF_SOURCE)], true);
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(1, Team::USA, "USA", true));
@@ -381,9 +382,6 @@ End
             "AmericaParticleCannonUplinkNamedButNoModule",
         ],
     );
-    for source in retail_command_ini() {
-        logic.load_own_command_ini_for_test(&source);
-    }
 
     // Inspect the exact template produced by actual receiving admission,
     // including its immutable SpecialPower catalog and typed module roster.

@@ -830,12 +830,11 @@ fn selected_general_start_binds_exact_template_and_rejects_late_invalid_identity
 fn overlord_propaganda_addon_residual_heals_allies() {
 
     let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    ensure_test_overlord_template(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::China);
+    // The host hull, the ally and the portable tower are all admitted content.
     game_logic.admit_object_ini_sources([(
         "TestPortablePropaganda.ini".into(),
-        "Object TestPortablePropaganda\nKindOf = PORTABLE_STRUCTURE SCORE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = PropagandaTowerBehavior Tower\nRadius = 150\nDelayBetweenUpdates = 2000\nHealPercentEachSecond = 1%\nEnd\nEnd\n".into(),
+        "Object TestOverlord\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1100\nInitialHealth = 1100\nEnd\nBehavior = OverlordContain OverlordTag\n Slots = 1\n AllowInsideKindOf = PORTABLE_STRUCTURE\nEnd\nEnd\nObject TestTank\nKindOf = VEHICLE SELECTABLE SCORE\nBody = ActiveBody Body\nMaxHealth = 250\nInitialHealth = 250\nEnd\nEnd\nObject TestPortablePropaganda\nKindOf = PORTABLE_STRUCTURE SCORE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = PropagandaTowerBehavior Tower\nRadius = 150\nDelayBetweenUpdates = 2000\nHealPercentEachSecond = 1%\nEnd\nEnd\n".into(),
     )]).unwrap();
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::ZERO, None);
     let portable = game_logic

@@ -13,62 +13,40 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
     logic.add_player(Player::new(0, Team::USA, "USA one", true));
     logic.add_player(Player::new(1, Team::USA, "USA two", false));
 
-    let mut powered_building = ThingTemplate::new("OwnerScopedPoweredBuilding");
-    powered_building
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(1_000.0);
-    powered_building.build_time = 10.0;
-    logic
-        .templates
-        .insert("OwnerScopedPoweredBuilding".to_string(), powered_building);
-
-    let mut construction_building = ThingTemplate::new("OwnerScopedConstructionBuilding");
-    construction_building
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(1_000.0);
-    construction_building.build_time = 10.0;
-    logic.templates.insert(
-        "OwnerScopedConstructionBuilding".to_string(),
-        construction_building,
-    );
-
-    let mut dozer = ThingTemplate::new("OwnerScopedDozer");
-    dozer
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Worker)
-        .add_kind_of(KindOf::Dozer)
-        .set_health(200.0);
-    // C++ construction progress is made only by a Dozer that walked to its dock.
+    // Every Object is admitted content; the constructor authors a
+    // DozerAIUpdate and walks its authored Locomotor (C++ construction
+    // progress is made only by a Dozer that walked to its dock).
     logic.admit_default_locomotors_if_unadmitted();
-    dozer.set_locomotor_name(crate::game_logic::locomotor_bootstrap::AMERICA_DOZER_LOCOMOTOR);
-
-    logic
-        .templates
-        .insert("OwnerScopedDozer".to_string(), dozer);
-
-    let mut supply = ThingTemplate::new("OwnerScopedSupplyCenter");
-    supply
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::SupplyCenter)
-        .set_health(1_000.0);
-    logic
-        .templates
-        .insert("OwnerScopedSupplyCenter".to_string(), supply);
-
-    // These are explicitly ready map objects, not construction-phase
-    // placeholders.  This keeps the power assertion independent of the
-    // construction test below.
-    let mut supply_center_ready = ThingTemplate::new("OwnerScopedReadySupplyCenter");
-    supply_center_ready
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::SupplyCenter)
-        .set_health(1_000.0);
-    logic.templates.insert(
-        "OwnerScopedReadySupplyCenter".to_string(),
-        supply_center_ready,
-    );
+    {
+        use crate::fixture_content::FixtureObject;
+        crate::fixture_content::admit_fixture_objects(
+            &mut logic,
+            &[
+                FixtureObject::new("OwnerScopedPoweredBuilding")
+                    .kind_of("STRUCTURE SELECTABLE")
+                    .health(1_000.0)
+                    .build_time(10.0),
+                FixtureObject::new("OwnerScopedConstructionBuilding")
+                    .kind_of("STRUCTURE SELECTABLE")
+                    .health(1_000.0)
+                    .build_time(10.0),
+                FixtureObject::new("OwnerScopedDozer")
+                    .kind_of("VEHICLE DOZER SELECTABLE")
+                    .health(200.0)
+                    .field("Locomotor = SET_NORMAL AmericaVehicleDozerLocomotor")
+                    .dozer(),
+                FixtureObject::new("OwnerScopedSupplyCenter")
+                    .kind_of("STRUCTURE SUPPLY_CENTER")
+                    .health(1_000.0),
+                // Explicitly ready map objects, not construction-phase
+                // placeholders, so the power assertion stays independent of
+                // the construction test below.
+                FixtureObject::new("OwnerScopedReadySupplyCenter")
+                    .kind_of("STRUCTURE SUPPLY_CENTER")
+                    .health(1_000.0),
+            ],
+        );
+    }
 
     // Player 0 has a full grid; player 1 owns a separate, unpowered grid.
     let p0_plant = logic
@@ -2024,30 +2002,27 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     admit_retail_production_energy_rules(&mut logic);
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
     // C++ ActionManager.cpp:439-441 canResumeConstructionOf requires
-    // KINDOF_DOZER; retail AmericaVehicleDozer authors KindOf = DOZER.
-    // Vehicle+Worker alone is not a constructor, so DozerAIUpdate's
-    // ACTIVELY_CONSTRUCTING stamp (DozerAIUpdate.cpp:511) can never apply.
-    dozer_t
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Worker)
-        .set_health(200.0);
+    // KINDOF_DOZER and a DozerAIUpdate, whose machine alone stamps
+    // ACTIVELY_CONSTRUCTING (DozerAIUpdate.cpp:511).
     logic.admit_default_locomotors_if_unadmitted();
-    dozer_t.set_locomotor_name(crate::game_logic::locomotor_bootstrap::AMERICA_DOZER_LOCOMOTOR);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t);
-    let mut barracks = ThingTemplate::new("AmericaBarracks");
-    barracks
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSBarracks)
-        .set_health(1000.0);
-    logic.templates.insert("AmericaBarracks".into(), barracks);
-    let mut unit = ThingTemplate::new("AmericaInfantryRanger");
-    unit.add_kind_of(KindOf::Infantry).set_health(100.0);
-    logic.templates.insert("AmericaInfantryRanger".into(), unit);
+    crate::fixture_content::admit_fixture_objects(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("AmericaVehicleDozer")
+                .kind_of("VEHICLE DOZER SELECTABLE")
+                .health(200.0)
+                .field("Locomotor = SET_NORMAL AmericaVehicleDozerLocomotor")
+                .dozer(),
+            crate::fixture_content::FixtureObject::new("AmericaBarracks")
+                .kind_of("STRUCTURE FS_BARRACKS")
+                .health(1000.0)
+                .build_time(10.0),
+            crate::fixture_content::FixtureObject::new("AmericaInfantryRanger")
+                .kind_of("INFANTRY")
+                .health(100.0),
+        ],
+    );
 
     let did = logic
         .create_object(
@@ -2100,7 +2075,6 @@ fn actively_constructing_bit_on_dozer_and_factory() {
         .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(60.0, 0.0, 0.0))
         .expect("scaffold");
     if let Some(site) = logic.host_object_mut(sid) {
-        site.template_mut().build_time = 10.0;
         site.set_status_under_construction(true);
         site.construction_percent = 0.0;
     }

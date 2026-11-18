@@ -324,7 +324,12 @@ fn booby_trap_plant_spawns_special_object() {
     let cpos = logic.host_object(cid).unwrap().get_position();
     assert!((cpos.x - 40.0).abs() < 0.1 && (cpos.z - 20.0).abs() < 0.1);
 
-    // Detonate destroys special object.
+    // Detonate destroys special object. The charge scan is a PartitionManager
+    // query (Object::checkAndDetonateBoobyTrap), so the moved Objects enter it
+    // at the partition update first.
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     let hits = logic
         .detonate_booby_trap_at(structure, Vec3::new(40.0, 0.0, 20.0), None, false, true)
         .expect("booby trap detonation");
@@ -522,6 +527,9 @@ fn booby_trap_registry_does_not_override_cpp_status_gate() {
         .host_object_mut(target)
         .unwrap()
         .set_status_booby_trapped(true);
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     logic
         .detonate_booby_trap_at(target, Vec3::ZERO, None, false, true)
         .expect("booby trap detonation");

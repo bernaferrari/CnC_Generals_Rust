@@ -49,21 +49,17 @@ fn retail_archive() -> crate::assets::ArchiveFileSystem {
 /// ControlBar.cpp:1060-1120); presentation reads only that catalog.
 /// Retail CommandButton.ini then CommandSet.ini, one source per file as the
 /// shell loads them (buttons must exist before sets reference them).
-fn retail_command_ini() -> Vec<String> {
-    let mut files = retail_archive();
-    ["Data/INI/CommandButton.ini", "Data/INI/CommandSet.ini"]
-        .into_iter()
-        .map(|path| {
-            let bytes = files
-                .read_optional_definition_source(path)
-                .expect("retail command source read")
-                .unwrap_or_else(|| panic!("retail {path} exists"));
-            String::from_utf8(bytes).expect("retail command UTF-8")
-        })
-        .collect()
+fn retail_receiving_fixture(extra: &[(&str, &str)]) -> crate::assets::ReceivingObjectContent {
+    retail_receiving_fixture_with_commands(extra, false)
 }
 
-fn retail_receiving_fixture(extra: &[(&str, &str)]) -> crate::assets::ReceivingObjectContent {
+/// The retail receiving content; with `commands` the admitted action
+/// definitions also carry retail CommandButton.ini and CommandSet.ini (the
+/// admitted catalog is the one the world's ControlBar reads).
+fn retail_receiving_fixture_with_commands(
+    extra: &[(&str, &str)],
+    commands: bool,
+) -> crate::assets::ReceivingObjectContent {
     use std::collections::BTreeSet;
     use std::path::Path;
     use std::sync::Arc;
@@ -140,6 +136,17 @@ fn retail_receiving_fixture(extra: &[(&str, &str)]) -> crate::assets::ReceivingO
             &facts,
         )
         .expect("owned retail SpecialPower definitions with receiving Science facts");
+    if commands {
+        for path in ["Data/INI/CommandButton.ini", "Data/INI/CommandSet.ini"] {
+            let bytes = files
+                .read_optional_definition_source(path)
+                .expect("retail command source read")
+                .unwrap_or_else(|| panic!("retail {path} exists"));
+            actions
+                .apply_source(std::str::from_utf8(&bytes).expect("retail command UTF-8"), &facts)
+                .expect("retail command definitions");
+        }
+    }
     crate::assets::ReceivingObjectContent::from_sources_with_catalogs(
         sources,
         facts,

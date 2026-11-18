@@ -94,9 +94,8 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
 
     let mut logic = GameLogic::new();
     logic.admit_player_template_definitions(definitions).unwrap();
-    ensure_test_structure_template(&mut logic);
-    ensure_test_dozer_template(&mut logic);
-    ensure_test_player_for_team(&mut logic, Team::USA);
+    // Authored dozer content: the Dozer machine is the only builder.
+    ensure_admitted_dozer_content(&mut logic).expect("authored dozer content admits");
     logic
         .players
         .get_mut(&0)
