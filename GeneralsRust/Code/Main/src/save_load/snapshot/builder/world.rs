@@ -366,7 +366,7 @@ impl SnapshotBuilder {
             object_experience_trackers: self.snapshot_object_experience_trackers(game_logic),
             object_command_sets: self.snapshot_object_command_sets(game_logic),
             object_disguises: self.snapshot_object_disguises(game_logic),
-            // Driving instance's Rust RNG continuation. Restoring it after
+            // Driving instance's C++ ADC RNG continuation. Restoring it after
             // reconstruction preserves the source world's future draws.
             logic_rng_seed_words: game_logic.logic_random.seed_words(),
             // C++ GameStateMap::xfer moves the exact counter early in load.

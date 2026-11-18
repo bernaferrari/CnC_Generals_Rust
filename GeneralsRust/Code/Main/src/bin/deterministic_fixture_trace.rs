@@ -2,8 +2,8 @@
 //!
 //! This producer intentionally does not claim to run either full game loop.
 //! Object, player, and command records come from the shared fixture; the RNG
-//! state is produced by Rust's seeded generator. The RNG sequence is an approved
-//! deviation from C++; this fixture is not a gameplay parity test.
+//! state is produced by the C++-exact RandomValue port; this fixture is not a
+//! gameplay parity test.
 
 use anyhow::{Context, Result, bail};
 use generals_main::deterministic_trace::{

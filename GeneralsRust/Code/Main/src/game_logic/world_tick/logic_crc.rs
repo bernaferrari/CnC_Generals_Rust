@@ -3,7 +3,7 @@
 //! This is a deterministic Rust checksum, not a retail checksum implementation:
 //! object insertion order/full module fields, partition shroud cells, Player
 //! battle-plan bonuses and Pathfinder ring/wall/AIGroup fields are still missing.
-//! The approved Rust RNG also intentionally has a different state representation.
+//! The RNG component is the exact C++ six-word ADC state.
 use super::super::*;
 use game_engine::common::crc::Crc;
 

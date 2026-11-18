@@ -439,8 +439,8 @@ fn test_rng_init_game_logic_random() {
 }
 
 // ==================== Range and repeatability checks ====================
-// The user approved a Rust RNG sequence. Existing bounds and repeatability
-// checks remain useful; they do not establish original C++ sequence parity.
+// Bounds and repeatability checks. Exact C++ sequence parity is asserted by
+// the `cpp_known_sequence_*` tests below and by tests/crc_parity.rs.
 
 #[test]
 fn test_rng_cpp_seed_values_match() {
@@ -884,7 +884,7 @@ fn test_rng_cpp_delta_calculation_inclusive() {
 fn stepped_once(words: [u32; 6]) -> ([u32; 6], u32) {
     let mut replay = RandomState::default();
     replay.set_seed_words(words);
-    let draw = replay.next_value();
+    let draw = replay.next_u32();
     (replay.seed_words(), draw)
 }
 
@@ -954,7 +954,7 @@ fn logic_rng_final_addition_wraps_like_msvc_x86() {
     let draw = loop {
         let mut probe = RandomState::default();
         probe.seed_random(seed);
-        let d = probe.next_value();
+        let d = probe.next_u32();
         if d % 3 == 2 {
             break d;
         }
@@ -987,7 +987,7 @@ fn client_and_audio_rng_survive_boundary_ranges() {
     audio.seed_random(0xABCD);
     let mut replay = RandomState::default();
     replay.seed_random(0xABCD);
-    let first_draw = replay.next_value();
+    let first_draw = replay.next_u32();
 
     // delta wraps to 0x80000000: no panic, exact MSVC-wrapped value.
     let expected_u31 = (first_draw % 0x8000_0000) as i32;
@@ -998,7 +998,7 @@ fn client_and_audio_rng_survive_boundary_ranges() {
     // normal draw is still the stream's SECOND draw (replay steps it now).
     assert_eq!(client.next_int(i32::MIN, i32::MAX), i32::MAX);
     assert_eq!(audio.next_int(i32::MIN, i32::MAX), i32::MAX);
-    let second_draw = replay.next_value();
+    let second_draw = replay.next_u32();
     let expected_mid = (second_draw % 1000) as i32 + 1;
     assert_eq!(client.next_int(1, 1000), expected_mid);
     assert_eq!(audio.next_int(1, 1000), expected_mid);
@@ -1013,8 +1013,8 @@ fn scoped_logic_rng_owner_isolates_two_instances() {
     let _guard = RngTestGuard::new();
     // Two differently seeded driving instances must keep independent RNG
     // states: interleaved scopes draw each instance's own standalone
-    // Rust sequence. The original singleton no longer chooses the driving
-    // Rust world (user-approved RNG sequence/ownership change).
+    // sequence. The original singleton no longer chooses the driving
+    // world (instance-owned streams).
     let mut a = RandomState::default();
     a.seed_random(0xAAAA_0001);
     let mut b = RandomState::default();
@@ -1025,10 +1025,10 @@ fn scoped_logic_rng_owner_isolates_two_instances() {
     let mut replay_b = RandomState::default();
     replay_b.seed_random(0xBBBB_0002);
     let expect_a: Vec<i32> = (0..8)
-        .map(|_| (replay_a.next_value() % 1000) as i32)
+        .map(|_| (replay_a.next_u32() % 1000) as i32)
         .collect();
     let expect_b: Vec<i32> = (0..8)
-        .map(|_| (replay_b.next_value() % 1000) as i32)
+        .map(|_| (replay_b.next_u32() % 1000) as i32)
         .collect();
 
     let mut got_a = Vec::new();
@@ -1064,13 +1064,13 @@ fn scoped_logic_rng_owner_scope_end_returns_to_global_fallback() {
     init_random_with_seed(0x5EED_00AA);
     let mut replay = RandomState::default();
     replay.seed_random(0x5EED_00AA);
-    let global_expected = (replay.next_value() % 1000) as i32;
+    let global_expected = (replay.next_u32() % 1000) as i32;
 
     let mut owner = RandomState::default();
     owner.seed_random(0x1234_5678);
     let mut owner_replay = RandomState::default();
     owner_replay.seed_random(0x1234_5678);
-    let owner_expected = (owner_replay.next_value() % 1000) as i32;
+    let owner_expected = (owner_replay.next_u32() % 1000) as i32;
 
     let in_scope = with_logic_rng_owner(&mut owner, || get_game_logic_random_value(0, 999));
     assert_eq!(in_scope, owner_expected, "in-scope draws hit the owner");
@@ -1096,9 +1096,9 @@ fn nested_logic_rng_owner_scopes_restore_the_outer_owner() {
     replay_outer.seed_random(0x0D0D_0001);
     let mut replay_inner = RandomState::default();
     replay_inner.seed_random(0x1D1D_0002);
-    let expect_outer_1st = (replay_outer.next_value() % 1000) as i32;
-    let expect_inner = (replay_inner.next_value() % 1000) as i32;
-    let expect_outer_2nd = (replay_outer.next_value() % 1000) as i32;
+    let expect_outer_1st = (replay_outer.next_u32() % 1000) as i32;
+    let expect_inner = (replay_inner.next_u32() % 1000) as i32;
+    let expect_outer_2nd = (replay_outer.next_u32() % 1000) as i32;
 
     let got = with_logic_rng_owner(&mut outer, || {
         let first = get_game_logic_random_value(0, 999);
@@ -1125,9 +1125,9 @@ fn init_reseeds_only_global_fallback_while_owner_is_published() {
 
     let mut replay = RandomState::default();
     replay.seed_random(1);
-    let expected_owner = (replay.next_value() % 1000) as i32;
+    let expected_owner = (replay.next_u32() % 1000) as i32;
     replay.seed_random(0x5EED_00CC);
-    let expected_fallback = (replay.next_value() % 1000) as i32;
+    let expected_fallback = (replay.next_u32() % 1000) as i32;
 
     // Core/another session may initialize its process fallback while Main
     // owns the synchronous callback. Its explicit stream must stay intact.
@@ -1168,4 +1168,171 @@ fn raw_seed_state_accessors_honor_the_scoped_owner() {
         }
         assert_eq!(get_game_logic_random_seed_crc(), crc.get());
     });
+}
+
+// ============================================================================
+// KNOWN C++ SEQUENCES
+// Generated by compiling the unchanged original RandomValue.cpp (via
+// GeneralsMD/Code/ParityHarness/original_random_adapter.cpp, -D_DEBUG) and
+// calling InitRandom(seed) then the Get*RandomValue* entry points.
+// ============================================================================
+
+fn stream(seed: u32) -> RandomState {
+    let mut state = RandomState::default();
+    state.seed_random(seed);
+    state
+}
+
+fn real_bits(state: &mut RandomState, lo: f32, hi: f32, n: usize) -> Vec<u32> {
+    (0..n).map(|_| state.next_real(lo, hi).to_bits()).collect()
+}
+
+#[test]
+fn cpp_known_sequence_default_state_is_the_cpp_initial_table() {
+    assert_eq!(
+        RandomState::default().seed_words(),
+        [0xf22d0e56, 0x883126e9, 0xc624dd2f, 0x0702c49c, 0x9e353f7d, 0x6fdf3b64]
+    );
+    assert_eq!(stream(0).seed_words(), RandomState::default().seed_words());
+}
+
+#[test]
+fn cpp_known_sequence_integer_draws_and_state() {
+    let cases: [(u32, [i32; 8], [u32; 6]); 4] = [
+        (
+            0,
+            [135, 422, 430, 435, 906, 472, 619, 848],
+            [0x6575225a, 0x147409ea, 0xae5bc769, 0xb4111aec, 0x1d2f1ab9, 0x6fdf3b6c],
+        ),
+        (
+            1,
+            [141, 443, 486, 561, 157, 934, 410, 133],
+            [0x65752761, 0x14740bd9, 0xae5bc80e, 0xb4111b19, 0x1d2f1ac2, 0x6fdf3b6d],
+        ),
+        (
+            12345,
+            [131, 408, 59, 351, 738, 164, 91, 991],
+            [0x666790e9, 0x14d14821, 0xae7adc26, 0xb41994f1, 0x1d30ccba, 0x6fdf6ba5],
+        ),
+        (
+            0xDEADBEEF,
+            [214, 890, 390, 997, 644, 13, 59, 446],
+            [0xe0f005c6, 0xa66839fe, 0x3457d76f, 0xd89baaed, 0xf14ad120, 0x4e8cfa5b],
+        ),
+    ];
+    for (seed, values, words) in cases {
+        let mut s = stream(seed);
+        let got: Vec<i32> = (0..8).map(|_| s.next_int(0, 1000)).collect();
+        assert_eq!(got, values, "seed {seed:#x}");
+        assert_eq!(s.seed_words(), words, "seed {seed:#x} state");
+    }
+}
+
+#[test]
+fn cpp_known_sequence_streams_use_the_same_algorithm_per_owner() {
+    // Client and audio streams are the same generator on their own state:
+    // InitRandom(seed) seeds all three identically, then each advances alone.
+    let mut client = stream(0);
+    let got: Vec<i32> = (0..6).map(|_| client.next_int(-50, 50)).collect();
+    assert_eq!(got, [-46, 11, 25, 40, 33, 47]);
+    let mut audio = stream(0);
+    let got: Vec<i32> = (0..6).map(|_| audio.next_int(1, 4)).collect();
+    assert_eq!(got, [2, 2, 1, 3, 4, 3]);
+    let mut audio = stream(0xDEADBEEF);
+    let got: Vec<i32> = (0..6).map(|_| audio.next_int(1, 4)).collect();
+    assert_eq!(got, [4, 2, 3, 2, 2, 3]);
+    let mut client = stream(12345);
+    let got: Vec<i32> = (0..6).map(|_| client.next_int(-50, 50)).collect();
+    assert_eq!(got, [-9, -11, 0, 9, -29, -33]);
+}
+
+#[test]
+fn cpp_known_sequence_real_draws_are_bit_identical() {
+    // Reference built with -ffp-contract=off: the original MSVC x86 build
+    // rounds `r * mult * delta` and `+ lo` separately (no fused multiply-add).
+    // The reference draws reals right after the integer draws above on the
+    // same stream (8 x (0,1000) logic, 6 x (-50,50) client, 6 x (1,4) audio).
+    let after_ints = |seed: u32, n: usize, lo: i32, hi: i32| {
+        let mut s = stream(seed);
+        for _ in 0..n {
+            s.next_int(lo, hi);
+        }
+        s
+    };
+    assert_eq!(
+        real_bits(&mut after_ints(0, 8, 0, 1000), 0.0, 1.0, 4),
+        [0x3ed2c8ca, 0x3f1adbe2, 0x3f24b56b, 0x3d676d5b]
+    );
+    assert_eq!(
+        real_bits(&mut after_ints(1, 8, 0, 1000), 0.0, 1.0, 4),
+        [0x3ed2c8d9, 0x3f1adbee, 0x3f24b57c, 0x3d676ede]
+    );
+    assert_eq!(
+        real_bits(&mut after_ints(0, 6, -50, 50), -2.0, 5.0, 4),
+        [0x3e5c1eb0, 0x3f4633f0, 0x3f61bec4, 0x400f00cc]
+    );
+    assert_eq!(
+        real_bits(&mut after_ints(0xDEADBEEF, 6, -50, 50), -2.0, 5.0, 4),
+        [0xbecc92dc, 0x4084d205, 0x40733e38, 0x40473698]
+    );
+    assert_eq!(
+        real_bits(&mut after_ints(0, 6, 1, 4), 0.0, 10.0, 4),
+        [0x404a82bd, 0x407da4d6, 0x4083bd7e, 0x40c192da]
+    );
+}
+
+#[test]
+fn cpp_known_sequence_boundary_ranges_and_state_crc() {
+    let mut s = stream(7);
+    assert_eq!(s.next_int(0, i32::MAX), 1436176919);
+    assert_eq!(s.next_int(5, 3), 659466381);
+    assert_eq!(s.next_int(5, 4), 4); // delta == 0: hi, no draw consumed
+    assert_eq!(s.next_int(-100, -50), -88);
+    assert_eq!(s.next_int(10, 10), 10);
+    let mut crc = Crc::new();
+    for word in s.seed_words() {
+        crc.compute_single(&word);
+    }
+    assert_eq!(crc.get(), 0x8bc0aee1);
+}
+
+#[test]
+fn cpp_known_sequence_long_run_matches_original_state() {
+    // 100000 draws from InitRandom(0): crosses many low-word carries.
+    let mut s = stream(0);
+    for _ in 0..100_000 {
+        s.next_int(0, 1000);
+    }
+    assert_eq!(
+        s.seed_words(),
+        [0x2c0bfce6, 0x42e28715, 0x81638c1d, 0xb991f841, 0xc839e4ad, 0x6fe0c204]
+    );
+}
+
+#[test]
+fn cpp_known_sequence_scoped_session_stream_matches_borrowed_stream() {
+    let _guard = RngTestGuard::new();
+    let mut owner = stream(12345);
+    let got: Vec<i32> = with_logic_rng_owner(&mut owner, || {
+        (0..8).map(|_| get_game_logic_random_value(0, 1000)).collect()
+    });
+    assert_eq!(got, [131, 408, 59, 351, 738, 164, 91, 991]);
+    assert_eq!(
+        owner.seed_words(),
+        [0x666790e9, 0x14d14821, 0xae7adc26, 0xb41994f1, 0x1d30ccba, 0x6fdf6ba5]
+    );
+}
+
+#[test]
+fn raw_cpp_words_round_trip_and_retired_capsule_reseeds_deterministically() {
+    let words = [0x6575225a, 0x147409ea, 0xae5bc769, 0xb4111aec, 0x1d2f1ab9, 0x6fdf3b6c];
+    let mut s = RandomState::default();
+    s.set_seed_words(words);
+    assert_eq!(s.seed_words(), words);
+    // Retired-generator capsule: magic, version, seed lo/hi, !magic, !version.
+    let magic = u32::from_le_bytes(*b"FRNG");
+    let capsule = [magic, 1, 0x1234, 0, !magic, !1u32];
+    let mut a = RandomState::default();
+    a.set_seed_words(capsule);
+    assert_eq!(a, stream(0x1234));
 }

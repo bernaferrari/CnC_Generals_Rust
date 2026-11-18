@@ -1,9 +1,8 @@
-//! Host random draws share Common's owned Rust RNG backend.
+//! Host random draws share Common's owned C++ add-with-carry RNG.
 //!
 //! Index-seeded streams keep repeated scatter and strike queries stable.
-//! Diagnostic logic, client, and audio draws use independent local streams.
-//! The RNG sequence differs from the original C++ generator by explicit
-//! user approval; range semantics and stream ownership remain unchanged.
+//! Diagnostic logic, client, and audio draws use independent local streams,
+//! each the exact `RandomValue.cpp` generator (`seedRandom` + `randomValue`).
 
 use game_engine::common::random_value::RandomState as CommonRandomState;
 

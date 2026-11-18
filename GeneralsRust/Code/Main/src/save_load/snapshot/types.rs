@@ -331,10 +331,10 @@ pub struct WorldSnapshot {
     #[serde(default)]
     pub object_disguises: Vec<ObjectDisguiseSnapshot>,
 
-    /// Driving logic instance's Rust RNG state in a versioned six-word
-    /// capsule. Untagged C++ state imports as a seed; exact C++ random
-    /// sequence compatibility is intentionally waived. `[0; 6]` means an
-    /// older save omitted this continuation.
+    /// Driving logic instance's six C++ `theGameLogicSeed` ADC words
+    /// (exact continuation). A retired "FRNG" capsule from saves made between
+    /// 2026-10-09 and the ADC restoration re-seeds deterministically instead.
+    /// `[0; 6]` means an older save omitted this continuation.
     #[serde(default)]
     pub logic_rng_seed_words: [u32; 6],
 

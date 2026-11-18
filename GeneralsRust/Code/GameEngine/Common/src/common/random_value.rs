@@ -10,24 +10,40 @@
 
 use crate::common::crc::Crc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use parking_lot::Mutex;
+use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Multiplication factor for converting to floating point
 const MULT_FACTOR: f32 = 1.0 / (4294967295.0); // 2^32 - 1
 
-/// Versioned state capsule inside the existing six-word snapshot field.
-const STATE_MAGIC: u32 = u32::from_le_bytes(*b"FRNG");
-const STATE_VERSION: u32 = 1;
+/// C++ `theGameLogicSeed` initial words (RandomValue.cpp, also the table
+/// `seedRandom` offsets from).
+const INITIAL_SEED: [u32; 6] = [
+    0xf22d0e56, 0x883126e9, 0xc624dd2f, 0x0702c49c, 0x9e353f7d, 0x6fdf3b64,
+];
 
-/// Instance-owned random stream backed by the existing Rust RNG dependency.
+/// C++ `#define ADC(SUM,A,B,C) SUM=(A)+(B)+(C); C=((SUM<(A))||(SUM<(B)))`.
 ///
-/// The user explicitly approved replacing the original C++ ADC sequence.
-/// Stream ownership, call ordering and range semantics remain unchanged;
-/// original C++ replays and old saves no longer have identical continuation.
+/// Unsigned wrap plus the C++ carry predicate, not mathematical carry-out:
+/// when `A = B = 0xFFFFFFFF` and the incoming carry is 1, SUM wraps to
+/// `0xFFFFFFFF` and the carry is **cleared**.
+fn adc(a: u32, b: u32, c: u32) -> (u32, u32) {
+    let sum = a.wrapping_add(b).wrapping_add(c);
+    let carry = u32::from(sum < a || sum < b);
+    (sum, carry)
+}
+
+/// One C++ RandomValue.cpp stream: the six-word add-with-carry generator
+/// (`theGameLogicSeed` / `theGameClientSeed` / `theGameAudioSeed`).
+///
+/// Instance-owned: the driving simulation, presentation and audio owners each
+/// hold their own state and draw only through explicit borrows or a scoped
+/// [`SessionRandom`]. The six words are the exact C++ state, so snapshots,
+/// CRCs and replays are C++-compatible.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RandomState {
-    rng: fastrand::Rng,
+    seed: [u32; 6],
 }
 
 impl Default for RandomState {
@@ -38,27 +54,51 @@ impl Default for RandomState {
 
 impl RandomState {
     const fn new() -> Self {
-        Self {
-            rng: fastrand::Rng::with_seed(0),
-        }
+        Self { seed: INITIAL_SEED }
     }
 
-    fn next_value(&mut self) -> u32 {
-        self.next_u32()
-    }
-
-    /// Draw directly from an explicitly borrowed stream owner.
+    /// C++ `randomValue(UnsignedInt *seed)`: step the stream, return `ax`.
     pub fn next_u32(&mut self) -> u32 {
-        self.rng.u32(..)
+        let seed = &mut self.seed;
+        let (mut ax, mut c) = adc(seed[5], seed[4], 0);
+        seed[4] = ax;
+        (ax, c) = adc(ax, seed[3], c);
+        seed[3] = ax;
+        (ax, c) = adc(ax, seed[2], c);
+        seed[2] = ax;
+        (ax, c) = adc(ax, seed[1], c);
+        seed[1] = ax;
+        (ax, _) = adc(ax, seed[0], c);
+        seed[0] = ax;
+
+        // Increment the seed array, bubbling up the carries.
+        seed[5] = seed[5].wrapping_add(1);
+        if seed[5] == 0 {
+            seed[4] = seed[4].wrapping_add(1);
+            if seed[4] == 0 {
+                seed[3] = seed[3].wrapping_add(1);
+                if seed[3] == 0 {
+                    seed[2] = seed[2].wrapping_add(1);
+                    if seed[2] == 0 {
+                        seed[1] = seed[1].wrapping_add(1);
+                        if seed[1] == 0 {
+                            seed[0] = seed[0].wrapping_add(1);
+                            ax = ax.wrapping_add(1);
+                        }
+                    }
+                }
+            }
+        }
+        ax
     }
 
-    /// Inclusive integer draw from this borrowed stream.
+    /// Inclusive integer draw from this borrowed stream
+    /// (`GetGame{Logic,Client,Audio}RandomValue`).
     pub fn next_int(&mut self, lo: i32, hi: i32) -> i32 {
         logic_integer_with_draw(lo, hi, || self.next_u32())
     }
 
-    /// The same range arithmetic as the existing real-value adapter, using
-    /// this explicitly borrowed stream rather than selecting an active owner.
+    /// `GetGame{Logic,Client,Audio}RandomValueReal` on this borrowed stream.
     pub fn next_real(&mut self, lo: f32, hi: f32) -> f32 {
         let delta = hi - lo;
         if delta <= 0.0 {
@@ -67,58 +107,60 @@ impl RandomState {
         (self.next_u32() as f32 * MULT_FACTOR) * delta + lo
     }
 
-    /// Reset this stream without publishing or changing another instance.
+    /// C++ `seedRandom(SEED, seed[])` (RandomValue.cpp:150-174): the initial
+    /// table offset by `SEED`, expressed as the same running additions.
     pub fn seed_random(&mut self, seed_value: u32) {
-        self.rng.seed(u64::from(seed_value));
+        let mut ax = seed_value;
+        ax = ax.wrapping_add(0xf22d0e56);
+        self.seed[0] = ax;
+        ax = ax.wrapping_add(0x883126e9u32.wrapping_sub(0xf22d0e56));
+        self.seed[1] = ax;
+        ax = ax.wrapping_add(0xc624dd2fu32.wrapping_sub(0x883126e9));
+        self.seed[2] = ax;
+        ax = ax.wrapping_add(0x0702c49cu32.wrapping_sub(0xc624dd2f));
+        self.seed[3] = ax;
+        ax = ax.wrapping_add(0x9e353f7du32.wrapping_sub(0x0702c49c));
+        self.seed[4] = ax;
+        ax = ax.wrapping_add(0x6fdf3b64u32.wrapping_sub(0x9e353f7d));
+        self.seed[5] = ax;
     }
 
-    /// Restore a Rust capsule or deterministically import old C++ seed words.
+    /// Restore the six raw C++ seed words (xfer/snapshot load).
     ///
-    /// Legacy import uses a byte-defined FNV-1a fold, not the retired generator.
-    /// It accepts the old payload shape but intentionally changes its future
-    /// random sequence. Newly saved capsules preserve exact Rust continuation.
+    /// Saves written between 2026-10-09 and the ADC restoration carry a tagged
+    /// "FRNG" capsule of a retired generator's 64-bit seed instead of ADC
+    /// words. Those cannot continue their old sequence; they re-derive a
+    /// C++ `seedRandom` stream from the capsule's seed (lossy, deterministic).
     pub fn set_seed_words(&mut self, words: [u32; 6]) {
-        let seed = if words[0] == STATE_MAGIC
-            && words[1] == STATE_VERSION
-            && words[4] == !STATE_MAGIC
-            && words[5] == !STATE_VERSION
+        const RETIRED_MAGIC: u32 = u32::from_le_bytes(*b"FRNG");
+        if words[0] == RETIRED_MAGIC
+            && words[1] == 1
+            && words[4] == !RETIRED_MAGIC
+            && words[5] == !1u32
         {
-            u64::from(words[2]) | (u64::from(words[3]) << 32)
+            self.seed_random(words[2] ^ words[3]);
         } else {
-            words
-                .into_iter()
-                .flat_map(u32::to_le_bytes)
-                .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
-                    (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-                })
-        };
-        self.rng.seed(seed);
+            self.seed = words;
+        }
     }
 
-    /// Current backend/version and 64-bit state in the unchanged wire shape.
+    /// The six raw C++ seed words (xfer/snapshot save, CRC input).
     pub fn seed_words(&self) -> [u32; 6] {
-        let seed = self.rng.get_seed();
-        [
-            STATE_MAGIC,
-            STATE_VERSION,
-            seed as u32,
-            (seed >> 32) as u32,
-            !STATE_MAGIC,
-            !STATE_VERSION,
-        ]
+        self.seed
     }
 }
 
 /// Process random streams live on [`crate::common::common_services::CommonServices::random`].
 
 /// A session's sole logic stream, used by synchronous callbacks.
-/// The atomic handle supports the actual prepared-world startup worker handoff;
-/// it does not schedule concurrent simulation. Primitive draws linearize here.
-/// Cloning this handle shares the stream; `snapshot()` makes an independent
-/// state value. No references or placeholder state are published to callbacks.
+/// The shared handle supports the actual prepared-world startup worker handoff;
+/// it does not schedule concurrent simulation. Primitive draws linearize on
+/// the one lock. Cloning this handle shares the stream; `snapshot()` makes an
+/// independent state value. No references or placeholder state are published
+/// to callbacks.
 #[derive(Debug, Clone)]
 pub struct SessionRandom {
-    state: Arc<AtomicU64>,
+    state: Arc<Mutex<RandomState>>,
 }
 impl Default for SessionRandom {
     fn default() -> Self {
@@ -128,24 +170,20 @@ impl Default for SessionRandom {
 impl SessionRandom {
     pub fn from_state(state: RandomState) -> Self {
         Self {
-            state: Arc::new(AtomicU64::new(state.rng.get_seed())),
+            state: Arc::new(Mutex::new(state)),
         }
     }
     pub fn snapshot(&self) -> RandomState {
-        RandomState {
-            rng: fastrand::Rng::with_seed(self.state.load(Ordering::Relaxed)),
-        }
+        self.state.lock().clone()
     }
     pub fn seed_random(&self, seed: u32) {
-        self.state.store(u64::from(seed), Ordering::Relaxed);
+        self.state.lock().seed_random(seed);
     }
     pub fn set_seed_words(&self, words: [u32; 6]) {
-        let mut state = RandomState::default();
-        state.set_seed_words(words);
-        self.state.store(state.rng.get_seed(), Ordering::Relaxed);
+        self.state.lock().set_seed_words(words);
     }
     pub fn seed_words(&self) -> [u32; 6] {
-        self.snapshot().seed_words()
+        self.state.lock().seed_words()
     }
     /// Original inclusive integer range, consuming only this driving stream.
     pub fn next_int(&self, lo: i32, hi: i32) -> i32 {
@@ -160,22 +198,9 @@ impl SessionRandom {
         (self.next_u32() as f32 * MULT_FACTOR) * delta + lo
     }
 
-    /// Linearize one library draw; retries have no gameplay side effects.
+    /// One `randomValue` step on the shared stream.
     pub fn next_u32(&self) -> u32 {
-        let mut before = self.state.load(Ordering::Relaxed);
-        loop {
-            let mut rng = fastrand::Rng::with_seed(before);
-            let value = rng.u32(..);
-            match self.state.compare_exchange_weak(
-                before,
-                rng.get_seed(),
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => return value,
-                Err(current) => before = current,
-            }
-        }
+        self.state.lock().next_u32()
     }
 }
 

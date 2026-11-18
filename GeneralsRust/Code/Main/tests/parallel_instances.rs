@@ -81,7 +81,7 @@ fn same_process_interleaved_and_concurrent_worlds_match_single_runs() {
             assert_eq!(quiet_trace.initial.base_seed, quiet.seed);
             assert_eq!(other_trace.initial.base_seed, other.seed);
             assert_ne!(quiet_trace.initial.random_state, other_trace.initial.random_state,
-                "different seeds must reach different Rust RNG states");
+                "different seeds must reach different RNG states");
             assert_eq!(quiet_trace.frames.len(), frames as usize);
             for (index, observation) in quiet_trace.frames.iter().enumerate() {
                 assert_eq!(observation.frame, quiet_trace.initial.frame.wrapping_add(index as u32 + 1),

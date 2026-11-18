@@ -299,8 +299,8 @@ impl RetailWorldDefinitions {
 /// Inputs that identify one instance's match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SkirmishSpec {
-    /// Unsigned bit pattern passed as C++ GameInfo's seed. The Rust RNG
-    /// backend is not the original C++ generator.
+    /// Unsigned bit pattern passed as C++ GameInfo's seed
+    /// (`InitGameLogicRandom`).
     pub seed: u32,
     /// Logic frames to run after map load.
     pub frames: u32,
@@ -328,7 +328,7 @@ pub struct SkirmishObservation {
     pub logic_crc: u32,
     pub object_count: usize,
     pub players: Vec<(u32, u32, usize)>,
-    /// Match seed and the Rust RNG backend's current state words.
+    /// Match seed and the logic stream's current C++ ADC state words.
     pub base_seed: u32,
     pub random_state: [u32; 6],
     /// FNV-1a over every registered object's id, template, owner, quantized

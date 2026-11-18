@@ -63,7 +63,7 @@ struct StagedRestoreWorld {
     client_persist: crate::save_load::snapshot::WorldPersistV18,
     camera_continuation: Option<NativeCameraContinuation>,
     owns_session_camera: bool,
-    /// Driving-instance Rust RNG state capsule captured at save time.
+    /// Driving-instance C++ ADC RNG state words captured at save time.
     /// The commit boundary restores the staged instance from these words
     /// rather than leaving it on the game-start seed. `[0; 6]` marks a
     /// pre-v22 save: keep that stream.
