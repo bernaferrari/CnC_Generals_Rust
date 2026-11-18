@@ -238,6 +238,7 @@ fn combat_chinook_vehicle_rider_does_not_residual_fire() {
             reload_time: 0.1,
             range: 150.0,
             damage: 40.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
@@ -314,6 +315,7 @@ fn subdued_transport_stops_passenger_residual_fire() {
             reload_time: 0.1,
             range: 150.0,
             damage: 10.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
@@ -1147,6 +1149,7 @@ fn garrison_fire_releases_old_firepoint_before_taking_closer() {
             range: 200.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
@@ -1214,6 +1217,7 @@ fn garrison_fire_frees_firepoint_when_no_in_range_victim() {
             range: 20.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
@@ -1896,6 +1900,7 @@ fn garrison_residual_fire_skips_undetected_stealth() {
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
@@ -1971,6 +1976,7 @@ fn garrison_residual_fire_uses_garrisoned_133_range() {
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
@@ -2054,6 +2060,7 @@ fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
@@ -2204,6 +2211,7 @@ fn tunnel_occupants_do_not_garrison_fire() {
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
@@ -2297,6 +2305,7 @@ fn firebase_does_not_spawn_garrison_gun() {
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
@@ -2377,6 +2386,7 @@ fn poison_garrison_shot_skips_muzzle_flash() {
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
@@ -2452,6 +2462,7 @@ fn garrison_gun_aims_at_occupant_target() {
             range: 100.0,
             reload_time: 0.1,
             last_fire_time: -10.0,
+            projectile_speed: 0.0, // WeaponSpeed 999999: instant hit
             ..crate::game_logic::Weapon::default()
         },
         );
