@@ -1498,23 +1498,27 @@ fn choose_best_weapon_prefers_ready_slot() {
     let aid = ObjectId(2201);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
-        crate::fixture_content::arm_with_stats(
+        // Both slots are authored WeaponSet entries (C++ chooses only among them).
+        crate::fixture_content::arm_with_slot_stats(
             &mut o,
-            crate::game_logic::Weapon {
-                damage: 5.0,
-                range: 50.0,
-                reload_time: 1.0,
-                ..Default::default()
-            },
+            [
+                Some(Weapon {
+                    damage: 5.0,
+                    range: 50.0,
+                    reload_time: 1.0,
+                    last_fire_time: -10.0,
+                    ..Default::default()
+                }),
+                Some(Weapon {
+                    damage: 40.0,
+                    range: 50.0,
+                    reload_time: 1.0,
+                    last_fire_time: -10.0,
+                    ..Default::default()
+                }),
+                None,
+            ],
         );
-        o.weapon.as_mut().unwrap().last_fire_time = -10.0;
-        o.secondary_weapon = Some(Weapon {
-            damage: 40.0,
-            range: 50.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            ..Default::default()
-        });
         o
     });
     let mut vt = ThingTemplate::new("CwV");
@@ -1555,25 +1559,28 @@ fn update_combat_temp_lock_waits_instead_of_firing_primary() {
         .create_object("LockWaitTgt", Team::GLA, glam::Vec3::new(30.0, 0.0, 0.0))
         .expect("tgt");
     if let Some(o) = logic.objects.get_mut(&atk) {
-        crate::fixture_content::arm_with_stats(
+        crate::fixture_content::arm_with_slot_stats(
             o,
-            crate::game_logic::Weapon {
-                damage: 25.0,
-                range: 200.0,
-                reload_time: 0.0,
-                ..Default::default()
-            },
+            [
+                Some(Weapon {
+                    damage: 25.0,
+                    range: 200.0,
+                    reload_time: 0.0,
+                    last_fire_time: -100.0,
+                    ..Default::default()
+                }),
+                Some(Weapon {
+                    damage: 80.0,
+                    range: 200.0,
+                    reload_time: 10.0,
+                    last_fire_time: 1.0,
+                    ammo: Some(0),
+                    clip_size: 1,
+                    ..Weapon::default()
+                }),
+                None,
+            ],
         );
-        o.weapon.as_mut().unwrap().last_fire_time = -100.0;
-        o.secondary_weapon = Some(Weapon {
-            damage: 80.0,
-            range: 200.0,
-            reload_time: 10.0,
-            last_fire_time: 1.0,
-            ammo: Some(0),
-            clip_size: 1,
-            ..Weapon::default()
-        });
         assert!(o.set_weapon_lock(1, WeaponLockType::LockedTemporarily));
         o.target = Some(tgt);
         o.set_ai_state(
