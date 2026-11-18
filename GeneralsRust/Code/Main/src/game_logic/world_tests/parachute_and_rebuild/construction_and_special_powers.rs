@@ -1570,11 +1570,7 @@ fn structure_superweapon_creation_starts_full_recharge() {
             !o.is_special_power_ready(&SpecialPowerType::ParticleCannon),
             "PUC must start recharging, not ready-now"
         );
-        let rem = o
-            .special_power_cooldowns
-            .get(&SpecialPowerType::ParticleCannon)
-            .copied()
-            .unwrap_or(0.0);
+        let rem = o.special_power_countdown_seconds(&SpecialPowerType::ParticleCannon);
         assert!(
             (rem - expected).abs() < 0.01,
             "PUC reload {rem} vs expected {expected}"
@@ -1594,10 +1590,7 @@ fn structure_superweapon_creation_starts_full_recharge() {
         // Under construction: not yet recharging (or ready default).
         assert!(
             o.is_special_power_ready(&SpecialPowerType::ScudStorm)
-                || o.special_power_cooldowns
-                    .get(&SpecialPowerType::ScudStorm)
-                    .copied()
-                    .unwrap_or(0.0)
+                || o.special_power_countdown_seconds(&SpecialPowerType::ScudStorm)
                     <= 0.0
         );
     }
@@ -1611,11 +1604,7 @@ fn structure_superweapon_creation_starts_full_recharge() {
     {
         let o = logic.host_object(scud_uc).expect("scud done");
         assert!(!o.is_special_power_ready(&SpecialPowerType::ScudStorm));
-        let rem = o
-            .special_power_cooldowns
-            .get(&SpecialPowerType::ScudStorm)
-            .copied()
-            .unwrap_or(0.0);
+        let rem = o.special_power_countdown_seconds(&SpecialPowerType::ScudStorm);
         assert!((rem - scud_cd).abs() < 0.01, "scud {rem} vs {scud_cd}");
     }
 
@@ -1630,11 +1619,7 @@ fn structure_superweapon_creation_starts_full_recharge() {
     {
         let o = logic.host_object(nuke).unwrap();
         assert!(!o.is_special_power_ready(&SpecialPowerType::NuclearMissile));
-        let rem = o
-            .special_power_cooldowns
-            .get(&SpecialPowerType::NuclearMissile)
-            .copied()
-            .unwrap_or(0.0);
+        let rem = o.special_power_countdown_seconds(&SpecialPowerType::NuclearMissile);
         assert!((rem - nuke_cd).abs() < 0.01);
     }
 }
@@ -1836,30 +1821,68 @@ fn superweapon_max_simultaneous_blocks_second_when_limited() {
 #[test]
 fn science_purchase_expresses_shared_special_power_ready() {
     use crate::command_system::SpecialPowerType;
-    use crate::game_logic::Team;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     let pid = logic.get_player_by_team(Team::USA).map(|p| p.id).unwrap();
+    // C++ SpecialPowerModule::onSpecialPowerCreation runs on each owned Object's
+    // module that names the purchased science; the shared timer lives on the Player.
+    for (name, template, power, science) in [
+        (
+            "TestA10Airfield",
+            "SuperweaponA10ThunderboltMissileStrike1",
+            SpecialPowerType::Airstrike,
+            "SCIENCE_A10ThunderboltMissileStrike1",
+        ),
+        (
+            "TestDaisyAirfield",
+            "SuperweaponDaisyCutter",
+            SpecialPowerType::DaisyCutter,
+            "SCIENCE_DaisyCutter",
+        ),
+    ] {
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Structure).set_health(1000.0);
+        t.special_power_modules.push(sw_module_fixture(
+            "ModuleTag_SharedPower",
+            template,
+            power,
+            1_800,
+            Some(science),
+            true,
+        ));
+        logic.templates.insert(name.into(), t);
+        logic
+            .create_object_for_player(name, pid, glam::Vec3::ZERO)
+            .expect("owner of the shared power module");
+    }
     {
         let p = logic.get_player_mut(pid).unwrap();
         p.apply_faction_intrinsic_sciences();
         p.science_purchase_points = 5;
-        // Simulate prior cooling residual for A10.
-        p.shared_special_power_cooldowns
-            .insert(SpecialPowerType::Airstrike, 999.0);
+        // Simulate prior cooling for A10.
+        p.authored_special_power_timers
+            .insert("superweapona10thunderboltmissilestrike1".into(), 999.0);
     }
     assert!(logic.unlock_team_science(Team::USA, "SCIENCE_A10ThunderboltMissileStrike1"));
     let p = logic.get_player(pid).unwrap();
     assert!(p.has_unlocked_science("SCIENCE_A10ThunderboltMissileStrike1"));
     // C++ onSpecialPowerCreation: sharedNSync expressed ready-now.
-    assert!(
-        p.is_shared_special_power_ready(&SpecialPowerType::Airstrike),
-        "A10 must be ready-now after science creation residual"
+    assert_eq!(
+        p.authored_special_power_timers
+            .get("superweapona10thunderboltmissilestrike1")
+            .copied(),
+        Some(0.0),
+        "A10 must be ready-now after science creation"
     );
-    // DaisyCutter science creation residual.
     assert!(logic.unlock_team_science(Team::USA, "SCIENCE_DaisyCutter"));
     let p = logic.get_player(pid).unwrap();
-    assert!(p.is_shared_special_power_ready(&SpecialPowerType::DaisyCutter));
+    assert_eq!(
+        p.authored_special_power_timers
+            .get("superweapondaisycutter")
+            .copied(),
+        Some(0.0)
+    );
 }
 
 #[test]
@@ -1965,22 +1988,24 @@ fn presentation_structure_sw_timer_uses_object_cooldown() {
         None,
         false,
     ));
+    t.has_special_power_create = true;
     logic
         .templates
         .insert(AMERICA_PARTICLE_CANNON_UPLINK.into(), t);
     let id = logic
-        .create_object(AMERICA_PARTICLE_CANNON_UPLINK, Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player(AMERICA_PARTICLE_CANNON_UPLINK, 0, glam::Vec3::ZERO)
         .expect("puc");
+    // SpecialPowerCreate::onBuildComplete registers the structure's PublicTimer row.
+    logic.on_structure_superweapon_creation(id);
     if let Some(o) = logic.host_object_mut(id) {
-        o.special_power_cooldowns
-            .insert(SpecialPowerType::ParticleCannon, 123.0);
-        o.special_power_cooldown_remaining = 123.0;
-        o.set_special_power_ready(false);
+        // The structure's own authored SpecialPowerModule timer (C++
+        // SpecialPowerModule::m_availableOnFrame) drives the HUD row.
+        o.set_special_power_ready_seconds(&SpecialPowerType::ParticleCannon, 123.0);
     }
     // Player shared map must NOT drive structure SW HUD residual.
     if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
-        p.shared_special_power_cooldowns
-            .insert(SpecialPowerType::ParticleCannon, 1.0);
+        p.authored_special_power_timers
+            .insert("specialpowerparticleuplinkcannon".into(), 1.0);
     }
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let row = frame

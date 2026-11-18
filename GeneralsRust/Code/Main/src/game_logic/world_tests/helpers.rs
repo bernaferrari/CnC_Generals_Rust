@@ -907,6 +907,13 @@ pub(super) fn test_observed_damage_to(
 // Fail-closed: not full StealthUpdate transition opacity / model swap.
 // -----------------------------------------------------------------------
 
+/// C++ StealthUpdate::disguiseAsObject disguises as the target's controlling
+/// Player; give a programmatic fixture target a real USA Player.
+pub(super) fn controlled_by_usa_player(game_logic: &mut GameLogic, id: ObjectId) {
+    ensure_test_player_for_team(game_logic, Team::USA);
+    game_logic.objects.get_mut(&id).expect("target Object").owner_player_id = Some(0);
+}
+
 pub(super) fn ensure_test_bomb_truck_template(game_logic: &mut GameLogic) {
     if game_logic.templates.contains_key("TestBombTruck") {
         return;
@@ -922,6 +929,8 @@ pub(super) fn ensure_test_bomb_truck_template(game_logic: &mut GameLogic) {
         disguises_as_team: true,
         disguise_transition_frames: 60,
         disguise_reveal_transition_frames: 30,
+        // Retail GLAVehicleBombTruck StealthUpdate RevealDistanceFromTarget = 100.
+        reveal_distance_from_target: 100.0,
         ..Default::default()
     });
     t.stealth_disguise_fx = Some("FX_BombTruckDisguise".into());

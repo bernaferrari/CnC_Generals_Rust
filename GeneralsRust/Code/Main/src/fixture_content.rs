@@ -67,6 +67,38 @@ pub(crate) fn admit_retail_remote_c4_with_actions(game: &mut GameLogic, actions:
     }
 }
 
+/// Retail GameData.ini `WeaponBonus` table (Zero Hour INI/GameData.ini). C++
+/// GlobalData loads it at startup; a world that never loads GameData has no
+/// condition bonuses, so bonus fixtures admit the retail rows explicitly.
+pub(crate) fn admit_retail_weapon_bonuses(logic: &mut GameLogic) {
+    logic
+        .admit_combat_bonus_ini_sources([
+            "GameData\n\
+  WeaponBonus = HORDE RATE_OF_FIRE 150%\n\
+  WeaponBonus = NATIONALISM RATE_OF_FIRE 125%\n\
+  WeaponBonus = FANATICISM RATE_OF_FIRE 125%\n\
+  WeaponBonus = ENTHUSIASTIC RATE_OF_FIRE 125%\n\
+  WeaponBonus = SUBLIMINAL RATE_OF_FIRE 125%\n\
+  WeaponBonus = GARRISONED RANGE 133%\n\
+  WeaponBonus = GARRISONED DAMAGE 125%\n\
+  WeaponBonus = TARGET_FAERIE_FIRE RATE_OF_FIRE 150%\n\
+  WeaponBonus = FRENZY_ONE DAMAGE 110%\n\
+  WeaponBonus = FRENZY_TWO DAMAGE 120%\n\
+  WeaponBonus = FRENZY_THREE DAMAGE 130%\n\
+  WeaponBonus = VETERAN RATE_OF_FIRE 120%\n\
+  WeaponBonus = VETERAN DAMAGE 110%\n\
+  WeaponBonus = ELITE RATE_OF_FIRE 140%\n\
+  WeaponBonus = ELITE DAMAGE 120%\n\
+  WeaponBonus = HERO RATE_OF_FIRE 160%\n\
+  WeaponBonus = HERO DAMAGE 130%\n\
+  WeaponBonus = BATTLEPLAN_BOMBARDMENT DAMAGE 120%\n\
+  WeaponBonus = BATTLEPLAN_SEARCHANDDESTROY RANGE 120%\n\
+  WeaponBonus = BATTLEPLAN_HOLDTHELINE RATE_OF_FIRE 100%\n\
+End\n",
+        ])
+        .expect("retail WeaponBonus table admitted");
+}
+
 /// Retail GameData.ini production-energy fields. C++ GlobalData's constructor
 /// leaves these zero, so a world that never loads GameData builds at rate 0;
 /// timing fixtures state the authored retail values explicitly.

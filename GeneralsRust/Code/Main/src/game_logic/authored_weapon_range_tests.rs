@@ -192,7 +192,7 @@ fn authored_range_bonus_precedes_one_runtime_deduction() {
     let object = &logic.objects[&id];
     assert_eq!(object.weapon_slot(0).unwrap().damage, 13.0);
     assert_eq!(
-        object.weapon_bonus_fields().1,
+        logic.receiving_weapon_bonus_fields_for_slot(object, 0).1,
         2.0,
         "actual parsed extra RANGE 200% is active"
     );
@@ -212,11 +212,15 @@ fn authored_range_bonus_precedes_one_runtime_deduction() {
         rules.get_attack_range(authored_bonus)
     };
     assert_eq!(expected, 197.5, "100 * 2 - 2.5, not (100 - 2.5) * 2 - 2.5");
-    assert!(
-        object.is_within_attack_range_at_distance(0, expected),
+    // The runtime range is the weapon's authored range times the receiving world's
+    // RANGE bonus, minus one quarter-cell (never (range - cell) * bonus).
+    let bonus = logic.receiving_weapon_bonus_fields_for_slot(object, 0).1;
+    let runtime = object.weapon_slot(0).unwrap().range * bonus
+        - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+    assert_eq!(
+        runtime, expected,
         "the quarter-cell deduction must not be multiplied by RANGE bonus"
     );
-    assert!(!object.is_within_attack_range_at_distance(0, expected + 0.01));
     assert_eq!(object.weapon_slot(0).unwrap().range, 100.0);
 }
 

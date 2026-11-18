@@ -175,14 +175,30 @@ fn defector_special_power_defects_enemy() {
 
 #[test]
 fn model_condition_upgrade_sets_bit_on_object() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
+    use crate::game_logic::Team;
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("Demo_Technical");
-    t.set_health(200.0);
-    t.add_kind_of(KindOf::Vehicle);
-    logic.templates.insert("Demo_Technical".into(), t);
+    // C++ ModelConditionUpgrade is an authored module triggered through UpgradeMux
+    // against the Object's controlling Player.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut logic,
+        "Upgrade_DemoArmor",
+        "OBJECT",
+        0,
+        1,
+    );
+    admit_fixture_objects(
+        &mut logic,
+        &[FixtureObject::new("Demo_Technical")
+            .kind_of("VEHICLE")
+            .health(200.0)
+            .module(
+                "Behavior = ModelConditionUpgrade ModuleTag_DemoArmor\n TriggeredBy = Upgrade_DemoArmor\n ConditionFlag = USER_1\nEnd",
+            )],
+    );
+    ensure_test_player_for_team(&mut logic, Team::GLA);
     let id = logic
-        .create_object("Demo_Technical", Team::GLA, glam::Vec3::ZERO)
+        .create_object_for_player("Demo_Technical", 2, glam::Vec3::ZERO)
         .unwrap();
     let before = logic.objects.get(&id).unwrap().model_condition_bits;
     logic.apply_upgrade_to_object(id, "Upgrade_DemoArmor");
@@ -1592,6 +1608,7 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
     use crate::game_logic::host_frenzy::{HOST_FRENZY_RADIUS, HostFrenzyLevel};
 
     let mut game_logic = GameLogic::new();
+    crate::fixture_content::admit_retail_weapon_bonuses(&mut game_logic);
     ensure_test_tank_template(&mut game_logic);
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_barracks_template(&mut game_logic);

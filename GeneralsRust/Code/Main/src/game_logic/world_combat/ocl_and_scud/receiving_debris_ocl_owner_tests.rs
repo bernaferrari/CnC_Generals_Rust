@@ -51,7 +51,12 @@ fn helix_portable_world(position: Vec3) -> (GameLogic, ObjectId) {
         "GameData\n WeaponBonus = GARRISONED RANGE 133%\nEnd\n"
     ]).unwrap();
     world
-            .admit_object_creation_list_sources(["ObjectCreationList OCL_HelixGattlingCannon\nCreateObject\nObjectNames = ChinaTankOverlordGattlingCannon\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into()])
+            .admit_object_creation_list_sources([
+                "ObjectCreationList OCL_HelixGattlingCannon\nCreateObject\nObjectNames = ChinaTankOverlordGattlingCannon\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into(),
+                // Startup OCL content (C++ loads every OCL before any Object exists).
+                "ObjectCreationList OCL_CustomPortable\nCreateObject\nObjectNames = CustomAddonPayload\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into(),
+                "ObjectCreationList OCL_MisleadingPortable\nCreateObject\nObjectNames = ChinaTankHelixPretender\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into(),
+            ])
             .expect("retail Helix addon OCL parses");
     let mut helix = ThingTemplate::new("ChinaJetHelix");
     helix
@@ -257,29 +262,17 @@ fn portable_containment_rejects_replaced_source_or_child_birth() {
 #[test]
 fn portable_admission_uses_authored_kindof_not_template_spelling() {
     let (mut world, custom_source) = helix_portable_world(Vec3::ZERO);
-    world
-            .admit_object_creation_list_sources([
-                "ObjectCreationList OCL_CustomPortable\nCreateObject\nObjectNames = CustomAddonPayload\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into(),
-                "ObjectCreationList OCL_MisleadingPortable\nCreateObject\nObjectNames = ChinaTankHelixPretender\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd".into(),
-            ])
-            .expect("custom containment OCLs parse");
+    // The payload's KindOf is authored data (PORTABLE_STRUCTURE), whatever its name.
+    let mut custom = ThingTemplate::new("CustomAddonPayload");
+    custom
+        .add_kind_of(crate::game_logic::KindOf::Vehicle)
+        .add_kind_of(crate::game_logic::KindOf::PortableStructure)
+        .set_health(100.0);
+    world.templates.insert(custom.name.clone(), custom);
     let mut misleading = ThingTemplate::new("ChinaTankHelixPretender");
     misleading
         .add_kind_of(crate::game_logic::KindOf::Vehicle)
         .set_health(100.0);
-    let mut parser = crate::assets::IniParser::new();
-    parser
-            .parse_ini_content(
-                "Object CustomAddonPayload\nKindOf = VEHICLE PORTABLE_STRUCTURE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n",
-                "portable-kindof-test.ini",
-            )
-            .expect("authored portable KindOf parses");
-    let definition = parser
-        .get_definition("CustomAddonPayload")
-        .expect("custom payload definition")
-        .clone();
-    world
-        .seed_asset_definition_templates_from_snapshot([("CustomAddonPayload".into(), definition)]);
     world.templates.insert(misleading.name.clone(), misleading);
 
     let tagged_ids = world.execute_parsed_weapon_ocl_at(

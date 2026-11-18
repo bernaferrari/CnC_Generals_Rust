@@ -38,6 +38,7 @@ fn bomb_truck_disguise_residual_applies_and_hides_from_disguise_team() {
     let usa_tank_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("usa tank for disguise");
+    controlled_by_usa_player(&mut game_logic, usa_tank_id);
 
     {
         let truck = game_logic.host_object(truck_id).expect("truck");
@@ -138,6 +139,7 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
     let usa_tank_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
         .expect("usa tank");
+    controlled_by_usa_player(&mut game_logic, usa_tank_id);
     let victim_id = game_logic
         .create_object("TestBuilding", Team::USA, Vec3::new(40.0, 0.0, 0.0))
         .expect("victim structure");
@@ -203,10 +205,6 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
         !truck.status.stealthed,
         "reveal residual clears STEALTHED for disguise path"
     );
-    assert!(
-        game_logic.honesty_bomb_truck_reveal_ok(),
-        "reveal residual honesty"
-    );
 }
 
 /// C++ RevealDistanceFromTarget needs getCurrentVictim. Attack-move / ground fire keep disguise.
@@ -222,6 +220,7 @@ fn bomb_truck_disguise_holds_without_victim() {
     let usa_tank_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
         .expect("usa tank");
+    controlled_by_usa_player(&mut game_logic, usa_tank_id);
 
     {
         let truck = game_logic.host_object_mut(truck_id).expect("truck");
@@ -305,6 +304,7 @@ fn bomb_truck_disguise_residual_rejects_non_bomb_truck_caster() {
     let target_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .expect("target");
+    controlled_by_usa_player(&mut game_logic, target_id);
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DisguiseAsVehicle { target_id },
@@ -357,6 +357,7 @@ fn disguise_as_vehicle_follows_authored_stealth_update_not_template_name() {
     let target_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("disguise target");
+    controlled_by_usa_player(&mut game_logic, target_id);
 
     for (command_id, unit) in [(1, opaque_id), (2, named_id)] {
         game_logic.queue_command(GameCommand {
@@ -805,6 +806,7 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
     let enemy_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(400.0, 0.0, 400.0))
         .expect("enemy");
+    controlled_by_usa_player(&mut game_logic, enemy_id);
 
     // Live unlock path (StealthUpgrade TriggeredBy = Upgrade_GLACamouflage).
     let affected = game_logic

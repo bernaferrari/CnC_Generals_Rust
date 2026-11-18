@@ -17,11 +17,12 @@ fn explicit_primary_weapon_beats_store_and_default() {
 }
 
 #[test]
-fn infantry_without_weapon_gets_kind_fallback() {
+fn infantry_without_weapon_stays_unarmed_like_cpp() {
+    // C++ WeaponSet::updateWeaponSet arms only an authored WeaponSet: KindOf never
+    // implies a gun.
     let mut t = ThingTemplate::new("BareInfantry");
     t.add_kind_of(KindOf::Infantry);
-    let w = t.resolve_primary_weapon(0).expect("fallback");
-    assert!((w.damage - Weapon::default().damage).abs() < 0.01);
+    assert!(t.resolve_primary_weapon(0).is_none());
 }
 
 #[test]
@@ -78,40 +79,17 @@ fn secondary_without_name_stays_none_even_for_infantry() {
 }
 
 #[test]
-fn unit_name_residual_map_binds_without_explicit_weapon_name() {
-    // units.rs / setup_templates often omit primary_weapon_name; residual map
-    // must still prefer retail store stats over kind-based Weapon::default.
-    let mut technical = ThingTemplate::new("GLA_Technical");
-    technical
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable);
-    let tw = technical
-        .resolve_primary_weapon(0)
-        .expect("technical residual weapon");
-    assert!(
-        (tw.damage - Weapon::default().damage).abs() > 0.01,
-        "GLA_Technical must not fall through to Weapon::default (got dmg={})",
-        tw.damage
-    );
-    // Retail TechnicalMachineGunWeapon PrimaryDamage 10.
-    assert!((tw.damage - 10.0).abs() < 0.01);
-    assert!((tw.range - 150.0).abs() < 0.01);
-
-    let mut battle = ThingTemplate::new("China_BattleTank");
-    battle
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable);
-    let bw = battle
-        .resolve_primary_weapon(0)
-        .expect("battlemaster residual weapon");
-    assert!(
-        (bw.damage - Weapon::default().damage).abs() > 0.01,
-        "China_BattleTank must not fall through to Weapon::default (got dmg={})",
-        bw.damage
-    );
-    // Retail BattleMasterTankGun PrimaryDamage 60.
-    assert!((bw.damage - 60.0).abs() < 0.01);
-    assert!((bw.range - 150.0).abs() < 0.01);
+fn unit_name_alone_does_not_bind_a_weapon() {
+    // C++ ThingTemplate has no name-to-weapon table: an Object fires what its
+    // authored WeaponSet names, whatever its template is called.
+    for (name, kind) in [("GLA_Technical", KindOf::Vehicle), ("China_BattleTank", KindOf::Vehicle)] {
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(kind).add_kind_of(KindOf::Attackable);
+        assert!(
+            t.resolve_primary_weapon(0).is_none(),
+            "{name} must not get a weapon from its spelling"
+        );
+    }
 }
 
 #[test]
@@ -272,10 +250,19 @@ fn weapon_from_store_uses_leftover_rationalize_attack_range() {
     );
     assert!(!leftover.2);
     assert_eq!((weapon.range, weapon.min_range), (100.0, 10.0));
-    let mut template = ThingTemplate::new("RuntimeRationalizeAttackRange");
-    template.set_primary_weapon_name(NAME);
+    // An Object arms only its authored WeaponSet (WeaponSet.cpp).
     let mut logic = crate::game_logic::GameLogic::new();
-    logic.templates.insert(template.name.clone(), template);
+    crate::fixture_content::admit_fixture_content(
+        &mut logic,
+        &[crate::fixture_content::FixtureObject::new("RuntimeRationalizeAttackRange")
+            .kind_of("INFANTRY CAN_ATTACK")
+            .health(100.0)
+            .armed(NAME)],
+        &[crate::fixture_content::FixtureWeapon::new(NAME)
+            .damage(10.0)
+            .range(100.0)
+            .min_range(10.0)],
+    );
     let id = logic
         .create_object(
             "RuntimeRationalizeAttackRange",

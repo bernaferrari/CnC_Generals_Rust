@@ -8,8 +8,20 @@ use crate::game_logic::host_bone_fx_damage::{
 use crate::game_logic::host_enum_table_residual::{HostBodyDamageType, MC_BIT_DAMAGED};
 
 fn body() -> Object {
-    let mut template = ThingTemplate::new("BoundedBodyStateCallbackOwner");
-    template.set_health(100.0);
+    // Authored ActiveBody (a programmatic template carries no body module, so the
+    // retail damage-state thresholds never apply to it).
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content(
+        "Object BoundedBodyStateCallbackOwner\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody ModuleTag_Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
+        "damage_state_callback_owner.ini",
+    ).expect("authored receiving ActiveBody");
+    let template = GameLogic::build_template_from_object_definition(
+        "BoundedBodyStateCallbackOwner",
+        parser
+            .get_definition("BoundedBodyStateCallbackOwner")
+            .unwrap(),
+        None,
+    );
     let mut object = Object::new(template, ObjectId(947), Team::USA);
     let mut authored = HostBoneFxAuthored::default();
     for state in [
@@ -57,7 +69,9 @@ fn accepted_damage_commits_body_and_model_before_consuming_state_callback() {
     let bone = object.bone_fx_damage.as_ref().unwrap();
     assert_eq!(bone.transitions, 1);
     assert_eq!(bone.pending.len(), 1);
-    assert_eq!(bone.pending[0].old_state, HostBodyDamageType::Pristine);
+    // A BoneFX event names the state whose authored slot fired (BoneFXUpdate
+    // fires the current state's slots), not the transition endpoints.
+    assert_eq!(bone.pending[0].old_state, HostBodyDamageType::Damaged);
     assert_eq!(bone.pending[0].new_state, HostBodyDamageType::Damaged);
 }
 
@@ -73,7 +87,7 @@ fn state_callback_rereads_body_after_intervening_health_change() {
     let bone = object.bone_fx_damage.as_ref().unwrap();
     assert_eq!(bone.transitions, 1);
     assert_eq!(bone.pending.len(), 1);
-    assert_eq!(bone.pending[0].old_state, HostBodyDamageType::Pristine);
+    assert_eq!(bone.pending[0].old_state, HostBodyDamageType::ReallyDamaged);
     assert_eq!(bone.pending[0].new_state, HostBodyDamageType::ReallyDamaged);
 }
 

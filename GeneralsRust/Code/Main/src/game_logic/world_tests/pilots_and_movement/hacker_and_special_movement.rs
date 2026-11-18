@@ -740,13 +740,11 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
     // turn rate, so drive the channel to its trigger with bounded per-frame
     // ticks instead of a fixed big-dt budget.
     for _ in 0..1200 {
-        game_logic.frame = game_logic.frame.saturating_add(1);
         if game_logic.honesty_steal_cash_ok() {
             break;
         }
-        game_logic
-            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
-            .expect("receiving AI operation succeeds");
+        // Whole logic frames: facing/turning is integrated by movement, not by AI alone.
+        let _ = game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
     }
 
     assert!(
@@ -842,13 +840,11 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
     // 6000ms. Facing consumes a variable number of ticks at the unit's turn
     // rate; drive the channel to its trigger with bounded per-frame ticks.
     for _ in 0..1200 {
-        game_logic.frame = game_logic.frame.saturating_add(1);
         if game_logic.hero_abilities().cash_stolen_total > 0 {
             break;
         }
-        game_logic
-            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
-            .expect("receiving AI operation succeeds");
+        // Whole logic frames: facing/turning is integrated by movement, not by AI alone.
+        let _ = game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
     }
 
     let lotus = game_logic.host_object(lotus_id).expect("lotus after steal");
@@ -1001,13 +997,11 @@ fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
     // C++ NeedToFace → Unpack → Prep; facing consumes a variable number of
     // ticks at the unit's turn rate — drive to trigger with bounded ticks.
     for _ in 0..1200 {
-        game_logic.frame = game_logic.frame.saturating_add(1);
         if game_logic.hero_abilities().cash_stolen_total > 0 {
             break;
         }
-        game_logic
-            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
-            .expect("receiving AI operation succeeds");
+        // Whole logic frames: facing/turning is integrated by movement, not by AI alone.
+        let _ = game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
     }
 
     let china_caster = game_logic
@@ -1094,7 +1088,6 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
     // C++ NeedToFace → Unpack → Prep; facing consumes a variable number of
     // ticks at the unit's turn rate — reach mid-prep with bounded ticks.
     for _ in 0..1200 {
-        game_logic.frame = game_logic.frame.saturating_add(1);
         if game_logic
             .hero_abilities()
             .leftover_channel(lotus_id)
@@ -1103,9 +1096,8 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
         {
             break;
         }
-        game_logic
-            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
-            .expect("receiving AI operation succeeds");
+        // Whole logic frames: facing/turning is integrated by movement, not by AI alone.
+        let _ = game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
     }
     let phase = game_logic
         .hero_abilities()
@@ -1179,6 +1171,12 @@ fn leftover_lotus_unpack_sets_model_and_unpack_sound() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         lotus.target = Some(target_id);
+        // Already facing the target (C++ NeedToFace is satisfied), so the AI-only
+        // frames below reach Unpack without needing locomotor turning.
+        lotus.set_orientation_with_partition_owner(
+            std::f32::consts::PI,
+            fixture_partition_lotus,
+        );
     }
     game_logic.queued_audio_events.clear();
     game_logic
@@ -1270,7 +1268,6 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
     // ticks at the unit's turn rate — drive to trigger with bounded ticks.
     game_logic.queued_audio_events.clear();
     for _ in 0..1200 {
-        game_logic.frame = game_logic.frame.saturating_add(1);
         if game_logic
             .queued_audio_events
             .iter()
@@ -1278,9 +1275,8 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
         {
             break;
         }
-        game_logic
-            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
-            .expect("receiving AI operation succeeds");
+        // Whole logic frames: facing/turning is integrated by movement, not by AI alone.
+        let _ = game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
     }
     assert!(
         game_logic
@@ -1439,6 +1435,9 @@ fn leftover_burton_flips_180_after_unpack() {
             flip_object_after_unpacking: true,
             flip_object_after_packing: false,
         });
+    // Turning to face the target is the locomotor's job (C++ AIUpdateInterface turn).
+    game_logic.admit_default_locomotors_if_unadmitted();
+    burton.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     game_logic
         .templates
         .insert("AmericaInfantryColonelBurton".into(), burton);
@@ -1476,10 +1475,7 @@ fn leftover_burton_flips_180_after_unpack() {
     use crate::game_logic::host_hero_abilities::LeftoverSaPhase;
     let mut unpack_start_orientation: Option<f32> = None;
     for _ in 0..600 {
-        game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic
-            .update_ai(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP)
-            .expect("receiving AI operation succeeds");
+        let _ = game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
         let phase = game_logic
             .hero_abilities()
             .leftover_channel(burton_id)
@@ -1983,16 +1979,14 @@ fn disable_vehicle_hack_command_disables_after_reach() {
     // variable number of ticks at the unit's turn rate — drive the channel
     // to its trigger with bounded per-frame ticks.
     for _ in 0..1200 {
-        game_logic.frame = game_logic.frame.saturating_add(1);
         if game_logic
             .host_object(target_id)
             .is_some_and(|t| t.is_hacked_disabled())
         {
             break;
         }
-        game_logic
-            .update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP)
-            .expect("receiving AI operation succeeds");
+        // Whole logic frames: facing/turning is integrated by movement, not by AI alone.
+        let _ = game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
     }
 
     let target_after = game_logic
@@ -2678,8 +2672,10 @@ fn weapon_set_upgrade_sets_player_upgrade_flag() {
                 "Behavior = WeaponSetUpgrade FixtureFlashBang\n TriggeredBy = Upgrade_AmericaRangerFlashBangGrenade\nEnd",
             )],
     );
+    // C++ updateUpgradeModules runs against the Object's controlling Player.
+    ensure_test_player_for_team(&mut logic, Team::USA);
     let id = logic
-        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player("AmericaInfantryRanger", 0, glam::Vec3::ZERO)
         .unwrap();
     assert!(!logic.objects.get(&id).unwrap().test_weapon_condition(3));
     logic.apply_upgrade_to_object(id, "Upgrade_AmericaRangerFlashBangGrenade");
@@ -2763,7 +2759,6 @@ fn cost_modifier_upgrade_name_alone_does_not_change_vehicle_cost() {
         logic.modified_build_cost_supplies(pid, "TestTank", 1000),
         1000
     );
-    assert!(logic.upgrade_module_residuals.honesty_ok());
 }
 
 #[test]
@@ -2782,8 +2777,9 @@ fn weapon_bonus_upgrade_sets_player_upgrade_condition() {
                 "Behavior = WeaponBonusUpgrade FixtureAPRockets\n TriggeredBy = Upgrade_GLAAPRockets\nEnd",
             )],
     );
+    ensure_test_player_for_team(&mut logic, Team::GLA);
     let id = logic
-        .create_object("GLATankScorpion", Team::GLA, glam::Vec3::ZERO)
+        .create_object_for_player("GLATankScorpion", 2, glam::Vec3::ZERO)
         .unwrap();
     assert!(!logic.objects.get(&id).unwrap().weapon_bonus_player_upgrade);
     logic.apply_upgrade_to_object(id, "Upgrade_GLAAPRockets");

@@ -3,6 +3,10 @@ use super::*;
 #[derive(Clone, Copy)]
 enum ExtraWeaponBonus<'a> {
     Ambient(Option<&'a str>),
+    /// The Object's own selected Weapon rule (C++ Weapon holds its WeaponTemplate):
+    /// the extra set comes from that rule, never the process-wide store. Flag
+    /// handling matches `Ambient`.
+    Native(Option<&'a gamelogic::weapon::WeaponBonusSet>),
     Owned(Option<&'a gamelogic::weapon::WeaponBonusSet>),
 }
 
@@ -154,12 +158,17 @@ impl Object {
         let name = self
             .weapon_name_for_slot(self.active_weapon_slot)
             .or_else(|| self.primary_weapon_name());
-        self.weapon_bonus_fields_with_name(container, name, None)
+        self.weapon_bonus_fields_for_slot_named(container, self.active_weapon_slot, name, None)
     }
 
     /// Compute template extras for this concrete firing slot without changing selection.
     pub(crate) fn weapon_bonus_fields_for_slot(&self, slot: u8) -> (f32, f32, f32, f32, f32) {
-        self.weapon_bonus_fields_with_name(None, self.authored_weapon_name_for_slot(slot), None)
+        self.weapon_bonus_fields_for_slot_named(
+            None,
+            slot,
+            self.authored_weapon_name_for_slot(slot),
+            None,
+        )
     }
 
     /// Active-slot Object bonuses using the receiving session's admitted SOLO set.
@@ -181,7 +190,7 @@ impl Object {
         let name = self
             .weapon_name_for_slot(self.active_weapon_slot)
             .or_else(|| self.primary_weapon_name());
-        self.weapon_bonus_fields_with_name(None, name, Some(solo_set))
+        self.weapon_bonus_fields_for_slot_named(None, self.active_weapon_slot, name, Some(solo_set))
     }
 
     /// Concrete-slot Object bonuses using the receiving session's admitted SOLO set.
@@ -190,8 +199,9 @@ impl Object {
         slot: u8,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
     ) -> (f32, f32, f32, f32, f32) {
-        self.weapon_bonus_fields_with_name(
+        self.weapon_bonus_fields_for_slot_named(
             None,
+            slot,
             self.authored_weapon_name_for_slot(slot),
             Some(solo_set),
         )
@@ -215,6 +225,23 @@ impl Object {
         solo_set: &gamelogic::weapon::WeaponBonusSet,
     ) -> (f32, f32, f32, f32, f32) {
         self.weapon_bonus_fields_with_name(None, Some(name), Some(solo_set))
+    }
+
+    /// Bonus fields for a concrete slot: the slot's own native Weapon rule supplies
+    /// the extra set when the Object carries one; otherwise the named lookup.
+    fn weapon_bonus_fields_for_slot_named(
+        &self,
+        container: Option<&Object>,
+        slot: u8,
+        weapon_name: Option<&str>,
+        session_solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> (f32, f32, f32, f32, f32) {
+        let native = self.selected_native_weapon_rule(slot);
+        let extra = match native.as_deref() {
+            Some(rule) => ExtraWeaponBonus::Native(rule.extra_bonus.as_ref()),
+            None => ExtraWeaponBonus::Ambient(weapon_name),
+        };
+        self.weapon_bonus_fields_with_extra(container, session_solo_set, extra)
     }
 
     fn weapon_bonus_fields_with_name(
@@ -316,7 +343,7 @@ impl Object {
 
         let mut bonus = WeaponBonus::new();
 
-        if matches!(extra, ExtraWeaponBonus::Ambient(_)) {
+        if matches!(extra, ExtraWeaponBonus::Ambient(_) | ExtraWeaponBonus::Native(_)) {
             if enthusiastic {
                 append_field(&mut bonus, RateOfFire, ENTHUSIASTIC_RATE_OF_FIRE_MULT);
             }
@@ -430,7 +457,7 @@ impl Object {
             let inherited = inherit.map(|c| c.weapon_bonus_solo).unwrap_or(0);
             if own != 0 { own } else { inherited }
         };
-        if matches!(extra, ExtraWeaponBonus::Ambient(_)) {
+        if matches!(extra, ExtraWeaponBonus::Ambient(_) | ExtraWeaponBonus::Native(_)) {
             if let Some(set) = session_solo_set {
                 append_solo_bonus_from_set(&mut bonus, set, solo);
             } else {
@@ -586,8 +613,12 @@ impl Object {
                         name, flags, &mut bonus,
                     );
                 }
-                ExtraWeaponBonus::Owned(Some(set)) => set.append_bonuses(flags, &mut bonus),
-                ExtraWeaponBonus::Ambient(None) | ExtraWeaponBonus::Owned(None) => {}
+                ExtraWeaponBonus::Owned(Some(set)) | ExtraWeaponBonus::Native(Some(set)) => {
+                    set.append_bonuses(flags, &mut bonus)
+                }
+                ExtraWeaponBonus::Ambient(None)
+                | ExtraWeaponBonus::Owned(None)
+                | ExtraWeaponBonus::Native(None) => {}
             }
         }
 

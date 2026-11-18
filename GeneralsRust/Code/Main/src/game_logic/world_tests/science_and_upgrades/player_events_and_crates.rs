@@ -1204,6 +1204,7 @@ fn disguise_transition_halfpoint_commits_appearance() {
     let tank_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .expect("tank");
+    controlled_by_usa_player(&mut game_logic, tank_id);
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DisguiseAsVehicle { target_id: tank_id },
         player_id: 2,
@@ -1269,6 +1270,7 @@ fn disguise_copies_already_disguised_template() {
     let usa_tank = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(50.0, 0.0, 0.0))
         .expect("usa tank");
+    controlled_by_usa_player(&mut game_logic, usa_tank);
 
     // A disguises as USA tank first.
     game_logic.queue_command(GameCommand {

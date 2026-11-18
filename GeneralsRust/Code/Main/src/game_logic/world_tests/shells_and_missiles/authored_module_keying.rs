@@ -582,26 +582,30 @@ fn stealth_fighter_innate_stealth_residual_keys_on_authored_stealth_update() {
     );
 }
 
-/// hq-2qedt.153: object_hit Comanche residuals key on the fired slot's authored
-/// weapon (Comanche20mmCannonWeapon), not an is_comanche_template sniff. C++
-/// Weapon::fireWeapon has no firing-template name branch.
+/// hq-2qedt.153: Comanche firing has no template-name or weapon-name residual.
+/// C++ Weapon::fireWeapon (Weapon.cpp) applies the authored Weapon template to
+/// whichever Object's WeaponSet names it, so an authored Comanche20mmCannonWeapon
+/// and an authored foreign weapon both damage through the one generic path and
+/// neither takes a cannon-specific residual.
 #[test]
 fn comanche_cannon_object_hit_residual_keys_on_authored_weapon_not_template_name() {
-    use crate::game_logic::host_comanche_rocket_pods::COMANCHE_PRIMARY_WEAPON;
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+    use crate::fixture_content::{admit_fixture_content, FixtureObject, FixtureWeapon};
 
-    fn fire(name: &str, weapon: &str) -> u32 {
-        ensure_host_weapon_store();
+    fn fire(name: &str, weapon: &str) -> (u32, f32) {
         let mut gl = GameLogic::new();
-        ensure_test_tank_template(&mut gl);
-        let mut tpl = crate::game_logic::ThingTemplate::new(name);
-        tpl.add_kind_of(KindOf::Aircraft)
-            .add_kind_of(KindOf::Vehicle)
-            .add_kind_of(KindOf::Selectable)
-            .add_kind_of(KindOf::Attackable)
-            .set_health(160.0)
-            .set_primary_weapon_name(weapon);
-        gl.templates.insert(name.to_string(), tpl);
+        admit_fixture_content(
+            &mut gl,
+            &[
+                FixtureObject::new(name)
+                    .kind_of("AIRCRAFT VEHICLE SELECTABLE")
+                    .health(160.0)
+                    .armed(weapon),
+                FixtureObject::new("TestTank")
+                    .kind_of("VEHICLE SELECTABLE")
+                    .health(250.0),
+            ],
+            &[FixtureWeapon::new(weapon).damage(6.0).range(200.0).delay_ms(50)],
+        );
         let shooter = gl
             .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("shooter");
@@ -623,18 +627,20 @@ fn comanche_cannon_object_hit_residual_keys_on_authored_weapon_not_template_name
         }
         gl.set_current_frame(50);
         gl.update_combat(&[shooter, enemy], LOGIC_FRAME_TIMESTEP);
-        gl.comanche_cannon_residual_fires
+        (
+            gl.comanche_cannon_residual_fires,
+            gl.host_object(enemy).map_or(0.0, |e| e.health.current),
+        )
     }
 
-    assert!(
-        fire("TestAuthoredGunshipCarrier", COMANCHE_PRIMARY_WEAPON) > 0,
-        "authored Comanche20mmCannonWeapon must take the cannon residual"
-    );
-    assert_eq!(
-        fire("AmericaVehicleComanche", "RaptorJetMissileWeapon"),
-        0,
-        "comanche-named template with a different authored weapon must not"
-    );
+    for (name, weapon) in [
+        ("TestAuthoredGunshipCarrier", "Comanche20mmCannonWeapon"),
+        ("AmericaVehicleComanche", "RaptorJetMissileWeapon"),
+    ] {
+        let (residual, hp) = fire(name, weapon);
+        assert_eq!(residual, 0, "{name}/{weapon}: no cannon residual exists in C++");
+        assert!(hp < 250.0, "{name}/{weapon}: authored weapon must damage via the generic path");
+    }
 }
 
 /// hq-2qedt.180: vehicle_shells Scorpion splash keys on the fired slot's

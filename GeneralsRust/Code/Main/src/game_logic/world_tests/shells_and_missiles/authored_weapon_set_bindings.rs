@@ -296,26 +296,25 @@ fn rpg_trooper_create_primary_comes_from_authored_weapon_set() {
 /// takes the generic path.
 #[test]
 fn fire_base_object_hit_residual_keys_on_authored_weapon_not_template_name() {
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+    use crate::fixture_content::{admit_fixture_content, FixtureObject, FixtureWeapon};
 
-    ensure_host_weapon_store();
     let mut game_logic = GameLogic::new();
-    let mut tpl = crate::game_logic::ThingTemplate::new("TestFireBase");
-    tpl.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(200.0)
-        .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
-    game_logic.templates.insert("TestFireBase".to_string(), tpl);
-    let mut victim = crate::game_logic::ThingTemplate::new("A17xVictim");
-    victim
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(1000.0);
-    game_logic
-        .templates
-        .insert("A17xVictim".to_string(), victim);
+    admit_fixture_content(
+        &mut game_logic,
+        &[
+            FixtureObject::new("TestFireBase")
+                .kind_of("STRUCTURE SELECTABLE")
+                .health(200.0)
+                .armed("RangerFlashBangGrenadeWeapon"),
+            FixtureObject::new("A17xVictim")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(1000.0),
+        ],
+        &[FixtureWeapon::new("RangerFlashBangGrenadeWeapon")
+            .damage(20.0)
+            .range(150.0)
+            .delay_ms(100)],
+    );
     let id = game_logic
         .create_object("TestFireBase", Team::China, Vec3::new(0.0, 0.0, 0.0))
         .expect("attacker");
