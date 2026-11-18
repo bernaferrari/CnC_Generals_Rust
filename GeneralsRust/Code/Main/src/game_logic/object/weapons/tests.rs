@@ -426,10 +426,12 @@ fn leftover_choose_best_skips_zero_damage_unless_unresistable() {
         store.add_weapon_template(template);
     });
     attacker.thing.template.set_primary_weapon_name(UNRES);
-    crate::fixture_content::arm_slot_with_stats(
+    // The authored rule's DamageType rides with the fixture rule too.
+    let backup = attacker.weapon_slot(1).cloned();
+    crate::fixture_content::arm_with_slot_stats_and_fields(
         &mut attacker,
-        0,
-        weapon(0.0),
+        [Some(weapon(0.0)), backup, None],
+        [&["DamageType = UNRESISTABLE"], &[], &[]],
     );
     assert_eq!(
         attacker.select_combat_weapon_slot(&target, 1.0),
@@ -541,25 +543,24 @@ fn leftover_choose_best_skips_empty_no_auto_reload_slot() {
     let mut t = ThingTemplate::new("EmptyNoReloadChooser");
     t.set_primary_weapon_name(EMPTY);
     let mut attacker = Object::new(t, ObjectId(1), Team::USA);
-    crate::fixture_content::arm_slot_with_stats(
+    crate::fixture_content::arm_with_slot_stats_and_fields(
         &mut attacker,
-        0,
-        Weapon {
-            ammo: Some(0),
-            clip_size: 1,
-            last_fire_time: 1.0,
-            reload_time: 1.0,
-            ..weapon(100.0)
-        },
-    );
-    crate::fixture_content::arm_slot_with_stats(
-        &mut attacker,
-        1,
-        Weapon {
-            last_fire_time: 1.0,
-            reload_time: 1.0,
-            ..weapon(10.0)
-        },
+        [
+            Some(Weapon {
+                ammo: Some(0),
+                clip_size: 1,
+                last_fire_time: 1.0,
+                reload_time: 1.0,
+                ..weapon(100.0)
+            }),
+            Some(Weapon {
+                last_fire_time: 1.0,
+                reload_time: 1.0,
+                ..weapon(10.0)
+            }),
+            None,
+        ],
+        [&["AutoReloadsClip = No"], &[], &[]],
     );
     let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
     target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
