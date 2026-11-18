@@ -196,6 +196,11 @@ fn continue_attack_after_kill_decision_authority() {
     let next = logic
         .create_object("CaN", Team::GLA, glam::Vec3::new(8.0, 0.0, 0.0))
         .expect("n");
+    // PartitionManager::update runs each frame; the new Objects are in its
+    // cells before any radius query.
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     // No vision pass runs in this raw fixture; the next victim is in front of
     // the attacker, i.e. shroud-clear for its owning player (canAttack gate).
     if let Some(pid) = logic.player_id_for_team(Team::USA) {
@@ -740,6 +745,11 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         o.auto_acquire_idle_bits |=
             gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
     }
+    // PartitionManager::update runs each frame; the new Objects are in its
+    // cells before the mood scan queries them.
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     // Drive one mood tick.
     logic.tick_mood_auto_acquire_for_test(&[oid]);
 

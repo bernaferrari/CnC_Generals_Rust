@@ -2386,26 +2386,48 @@ fn jet_exhaust_only_in_forward_flight() {
 
 #[test]
 fn jet_stop_and_enter_airfield_land() {
-    use crate::game_logic::{GameLogic, KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, Team};
     use glam::Vec3;
     let mut logic = GameLogic::new();
-    let mut af_t = ThingTemplate::new("AmericaAirfield");
-    af_t.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSAirfield)
-        .set_health(1000.0);
-    af_t.parking_place = Some(ParkingPlaceMetadata {
-        num_rows: 2,
-        num_cols: 2,
-        approach_height: 50.0,
-        landing_deck_height_offset: 0.0,
-        has_runways: true,
-        park_in_hangars: false,
-        heal_amount_per_second: 10.0,
-    });
-    logic.templates.insert("AmericaAirfield".into(), af_t);
-    let mut jet_t = ThingTemplate::new("AmericaJetRaptor");
-    jet_t.add_kind_of(KindOf::Aircraft).set_health(80.0);
-    logic.templates.insert("AmericaJetRaptor".into(), jet_t);
+    // C++ loads Object INI before NewGame: the airfield authors its
+    // ParkingPlaceBehavior and the Raptor its JetAIUpdate.
+    logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "jet-stop-airfield.ini".into(),
+                r#"
+Object AmericaAirfield
+  KindOf = STRUCTURE FS_AIRFIELD
+  Body = ActiveBody BodyTag
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+  Behavior = ParkingPlaceBehavior ParkingTag
+    NumRows = 2
+    NumCols = 2
+    ApproachHeight = 50.0
+    LandingDeckHeightOffset = 0.0
+    HasRunways = Yes
+    ParkInHangars = No
+    HealAmountPerSecond = 10.0
+  End
+End
+Object AmericaJetRaptor
+  KindOf = AIRCRAFT
+  Body = ActiveBody BodyTag
+    MaxHealth = 80
+    InitialHealth = 80
+  End
+  Behavior = JetAIUpdate AiTag
+    NeedsRunway = Yes
+  End
+End
+"#
+                .into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     let af = logic
         .create_object("AmericaAirfield", Team::USA, Vec3::ZERO)
         .expect("af");

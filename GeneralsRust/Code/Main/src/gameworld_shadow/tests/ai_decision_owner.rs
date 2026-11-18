@@ -270,15 +270,23 @@ mod ai_move_owner_tests {
 
     fn moving_world() -> (GameLogic, ObjectId) {
         let mut logic = GameLogic::new();
-        // C++ loads Object and Locomotor INI before NewGame: the mover authors
-        // an AIUpdateInterface and a Locomotor, or no move order reaches it.
-        crate::fixture_content::admit_fixture_objects(
-            &mut logic,
-            &[crate::fixture_content::FixtureObject::new("DecisionMoveSource")
-                .kind_of("AIRCRAFT")
-                .health(100.0)
-                .walker()],
-        );
+        // C++ loads Locomotor and Object INI before NewGame: the aircraft authors
+        // an AIUpdateInterface and an AIR Locomotor, or no move order reaches it.
+        let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+        locomotors
+            .apply_source(
+                "Locomotor DecisionMoveFlight\n Surfaces = AIR\n Speed = 60\n Acceleration = 100\n Braking = 100\n TurnRate = 180\n Lift = 300\n Appearance = HOVER\n PreferredHeight = 50\n AllowAirborneMotiveForce = Yes\nEnd\n",
+            )
+            .expect("authored locomotor");
+        logic
+            .admit_locomotor_definitions(locomotors)
+            .expect("locomotor admitted before Object content");
+        logic
+            .admit_object_ini_sources([(
+                "decision-move-source.ini".to_string(),
+                "Object DecisionMoveSource\n KindOf = VEHICLE AIRCRAFT\n Body = ActiveBody ModuleTag_Body\n  MaxHealth = 100\n  InitialHealth = 100\n End\n Behavior = AIUpdateInterface ModuleTag_AI\n End\n Locomotor = SET_NORMAL DecisionMoveFlight\nEnd\n".to_string(),
+            )])
+            .expect("authored aircraft admitted before NewGame");
         let source = logic
             .create_object("DecisionMoveSource", Team::USA, Vec3::ZERO)
             .unwrap();
@@ -299,8 +307,11 @@ mod ai_move_owner_tests {
             object_id: source,
             position: destination,
         });
-        // aiMoveTo queues the search; Pathfinder::processPathfindQueue installs it.
-        a.process_pathfind_queue().unwrap();
+        // aiMoveTo queues the search; Pathfinder::processPathfindQueue installs it
+        // (its first pass may only calculate the zones and skip the queue).
+        for _ in 0..2 {
+            a.process_pathfind_queue().unwrap();
+        }
         let unit = a.host_object(source).unwrap();
         assert_eq!(unit.ai_state(), AIState::Moving);
         assert_eq!(unit.path_goal_position, Some(destination));
