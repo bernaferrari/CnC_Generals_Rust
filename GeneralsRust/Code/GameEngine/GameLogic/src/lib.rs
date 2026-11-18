@@ -170,7 +170,7 @@ pub use system::network_bridge::{BridgeStatistics, NetworkCommandBridge};
 pub use system::network_bridge_stub::{BridgeStatistics, NetworkCommandBridge};
 
 pub use scripting::{
-    ActionRegistry, ConditionRegistry, EventFilter, EventManager, GameEvent, GameEventType,
+    EventFilter, EventManager, GameEvent, GameEventType,
     GameStateContext, ScriptContext, ScriptPriority, ScriptResult, ScriptValue, get_script_engine,
 };
 
