@@ -531,7 +531,7 @@ mod tests {
         let (nosc, applied2) = comanche_antitank_scatter_aim(aim, false, 31);
         assert!(!applied2);
         assert_eq!(nosc, aim);
-        assert!(comanche_antitank_scatter_misses_infantry(true, 67, 0.5));
+        crate::game_logic::weapon_bootstrap::assert_scatter_miss_is_monotone_in_hit_radius(|r| comanche_antitank_scatter_misses_infantry(true, 67, r));
         assert!(!comanche_antitank_scatter_misses_infantry(true, 67, 100.0));
         assert!(!comanche_antitank_scatter_misses_infantry(false, 67, 0.5));
     }

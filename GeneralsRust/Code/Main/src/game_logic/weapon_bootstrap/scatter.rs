@@ -183,6 +183,22 @@ pub fn scatter_misses_intended_target(
     miss_dist > hit_r
 }
 
+/// Draw-independent contract of every "scatter misses infantry" predicate: misses
+/// only shrink as the hit radius grows, and a radius far beyond any scatter cone
+/// never misses. Holds for whatever draw the seed yields.
+#[cfg(test)]
+pub(crate) fn assert_scatter_miss_is_monotone_in_hit_radius(misses: impl Fn(f32) -> bool) {
+    let radii = [0.5_f32, 1.0, 2.0, 5.0, 10.0, 20.0, 100.0];
+    let results: Vec<bool> = radii.iter().map(|r| misses(*r)).collect();
+    for pair in results.windows(2) {
+        assert!(
+            pair[0] || !pair[1],
+            "a larger hit radius cannot start missing: {results:?}"
+        );
+    }
+    assert!(!results[results.len() - 1], "a 100-wide hit radius never misses");
+}
+
 /// Deterministic scatter seed residual from shooter/target/frame.
 ///
 /// Frame must be included: a pairing-only seed repeats the same miss cone

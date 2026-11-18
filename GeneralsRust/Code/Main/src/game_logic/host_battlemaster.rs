@@ -1073,7 +1073,7 @@ mod tests {
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= BATTLE_MASTER_SCATTER_VS_INFANTRY + 0.01);
 
-        assert!(battlemaster_scatter_misses_infantry(true, 37, 0.5));
+        crate::game_logic::weapon_bootstrap::assert_scatter_miss_is_monotone_in_hit_radius(|r| battlemaster_scatter_misses_infantry(true, 37, r));
         assert!(!battlemaster_scatter_misses_infantry(true, 37, 100.0));
         assert!(!battlemaster_scatter_misses_infantry(false, 37, 0.5));
     }

@@ -602,7 +602,7 @@ mod tests {
         let (nosc, applied2) = mig_scatter_aim(aim, false, 31);
         assert!(!applied2);
         assert_eq!(nosc, aim);
-        assert!(mig_scatter_misses_infantry(true, 67, 0.5));
+        crate::game_logic::weapon_bootstrap::assert_scatter_miss_is_monotone_in_hit_radius(|r| mig_scatter_misses_infantry(true, 67, r));
         assert!(!mig_scatter_misses_infantry(true, 67, 100.0));
         assert!(!mig_scatter_misses_infantry(false, 67, 0.5));
     }

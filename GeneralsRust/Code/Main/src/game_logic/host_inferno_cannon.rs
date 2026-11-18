@@ -617,7 +617,7 @@ mod tests {
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= INFERNO_CANNON_SCATTER_VS_INFANTRY + 0.01);
 
-        assert!(inferno_cannon_scatter_misses_infantry(true, 59, 0.5));
+        crate::game_logic::weapon_bootstrap::assert_scatter_miss_is_monotone_in_hit_radius(|r| inferno_cannon_scatter_misses_infantry(true, 59, r));
         assert!(!inferno_cannon_scatter_misses_infantry(true, 59, 100.0));
         assert!(!inferno_cannon_scatter_misses_infantry(false, 59, 0.5));
     }

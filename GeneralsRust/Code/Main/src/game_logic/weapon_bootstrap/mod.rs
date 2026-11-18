@@ -79,6 +79,8 @@ impl ReceivingWeaponRadii {
     }
 }
 pub(crate) use scatter::scatter_aim_offset_logic;
+#[cfg(test)]
+pub(crate) use scatter::assert_scatter_miss_is_monotone_in_hit_radius;
 pub use scatter::*;
 mod collide;
 pub(in crate::game_logic) use collide::receiving_splash_templates_equivalent;

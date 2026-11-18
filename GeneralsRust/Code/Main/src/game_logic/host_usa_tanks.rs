@@ -527,7 +527,7 @@ mod tests {
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= USA_TANK_GUN_SCATTER_VS_INFANTRY + 0.01);
 
-        assert!(usa_tank_scatter_misses_infantry(true, 67, 0.5));
+        crate::game_logic::weapon_bootstrap::assert_scatter_miss_is_monotone_in_hit_radius(|r| usa_tank_scatter_misses_infantry(true, 67, r));
         assert!(!usa_tank_scatter_misses_infantry(true, 67, 100.0));
         assert!(!usa_tank_scatter_misses_infantry(false, 67, 0.5));
     }

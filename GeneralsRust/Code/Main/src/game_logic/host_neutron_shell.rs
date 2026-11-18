@@ -520,7 +520,7 @@ mod tests {
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d > 0.01 && d <= NEUTRON_WEAPON_SCATTER_VS_INFANTRY + 0.01);
 
-        assert!(neutron_shell_scatter_misses_infantry(true, 67, 0.5));
+        crate::game_logic::weapon_bootstrap::assert_scatter_miss_is_monotone_in_hit_radius(|r| neutron_shell_scatter_misses_infantry(true, 67, r));
         assert!(!neutron_shell_scatter_misses_infantry(true, 67, 100.0));
         assert!(!neutron_shell_scatter_misses_infantry(false, 67, 0.5));
     }

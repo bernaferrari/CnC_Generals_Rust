@@ -541,7 +541,7 @@ mod tests {
         let d = ((sc.x - aim.x).powi(2) + (sc.z - aim.z).powi(2)).sqrt();
         assert!(d <= RAPTOR_SCATTER_VS_INFANTRY + 0.01);
 
-        assert!(raptor_scatter_misses_infantry(true, 61, 0.5));
+        crate::game_logic::weapon_bootstrap::assert_scatter_miss_is_monotone_in_hit_radius(|r| raptor_scatter_misses_infantry(true, 61, r));
         assert!(!raptor_scatter_misses_infantry(true, 61, 100.0));
         assert!(!raptor_scatter_misses_infantry(false, 61, 0.5));
     }
