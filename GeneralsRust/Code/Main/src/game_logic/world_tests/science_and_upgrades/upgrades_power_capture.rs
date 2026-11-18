@@ -9,6 +9,8 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
     let mut logic = GameLogic::new();
+    // A live session runs past frame 0 (the Dozer machine picks its request next update).
+    logic.frame = 10;
     logic.admit_production_energy_base(game_engine::common::ini::ini_game_data::ProductionEnergyRules::default().overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd").unwrap());
     logic.add_player(Player::new(0, Team::USA, "USA one", true));
     logic.add_player(Player::new(1, Team::USA, "USA two", false));
@@ -2078,7 +2080,15 @@ fn actively_constructing_bit_on_dozer_and_factory() {
         site.set_status_under_construction(true);
         site.construction_percent = 0.0;
     }
-    assert!(logic.resume_construction(&[did], sid).expect("resume"));
+    let resumed = logic.resume_construction(&[did], sid).expect("resume");
+    assert!(
+        resumed,
+        "resume refused: can_construct={:?} dozer_owner={:?} site_owner={:?} {}",
+        logic.host_object(did).map(|o| o.can_construct()),
+        logic.host_object(did).map(|o| o.owner_player_id),
+        logic.host_object(sid).map(|o| o.owner_player_id),
+        super::super::helpers::dozer_site_state(&logic, did, sid)
+    );
     super::super::helpers::dock_builder_for_site(&mut logic, sid);
     logic.update_actively_constructing_model_conditions();
     let d = logic.host_object(did).expect("d");
