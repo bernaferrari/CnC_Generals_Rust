@@ -418,25 +418,21 @@ impl RenderPipeline {
     /// frame's frozen `fow_grid` when available so terrain/minimap overlay does
     /// not re-query the live shroud manager mid-render.
     pub fn update_minimap_fow_texture(&mut self) -> Result<()> {
-        // Clone grid before mutably borrowing minimap_renderer (split-borrow).
-        let grid = self
-            .presentation_frame
-            .as_ref()
-            .map(|f| f.fow_grid().clone());
+        let grid = self.presentation_frame.as_ref().map(|frame| frame.fow_grid());
         let player_id = self.current_player_id as usize;
         let frame_number = self.frame_number;
         if let Some(ref mut minimap_renderer) = self.minimap_renderer {
             minimap_renderer.update_texture_from_fow_with_grid(
                 player_id,
                 frame_number,
-                grid.as_ref(),
+                grid,
             )?;
 
             trace!(
                 "Updated minimap FOW texture for player {} at frame {} (grid_active={})",
                 player_id,
                 frame_number,
-                grid.as_ref().map(|g| g.active).unwrap_or(false)
+                grid.is_some_and(|grid| grid.active)
             );
         }
 
@@ -449,7 +445,7 @@ impl RenderPipeline {
         {
             let r8 = self.presentation_terrain_fow_r8();
             if let Some(visual) = self.native_terrain.as_mut() {
-                if let (Some(grid), Some(r8)) = (grid.as_ref(), r8.as_ref()) {
+                if let (Some(grid), Some(r8)) = (grid, r8.as_ref()) {
                     visual.set_shroud_overlay_r8(
                         grid.width as i32,
                         grid.height as i32,

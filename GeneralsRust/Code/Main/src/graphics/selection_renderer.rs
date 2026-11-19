@@ -842,19 +842,16 @@ pub fn collect_blob_shadows_from_presentation(
     if !game_engine::common::game_lod::use_shadow_decals() {
         return Vec::new();
     }
-    let volumes = game_engine::common::game_lod::use_shadow_volumes();
     frame
         .unit_render_inputs_shared()
         .iter()
         .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
-        // SHADOW_VOLUME objects cast a stencil volume instead when 3D shadows are on.
-        .filter(|u| !(volumes && casts_volume(u)))
+        // W3DShadowManager routes volumes exclusively to the stencil manager,
+        // which returns NULL when 3D shadows are off (W3DVolumetricShadow.cpp:3832).
+        .filter(|u| !casts_volume(u))
         .map(|u| {
-            // Retail blob sizing: DECAL family uses the authored ShadowSize world
-            // extent (infantry 14x14); VOLUME-family ShadowSizeX is a sun-elevation
-            // angle, so extent derives from bounding geometry via the C++
-            // W3DProjectedShadow.cpp addShadow `Extent * 2` heuristic. The ladder
-            // is never (0, 0); draw additionally clamps radius to >= 1.
+            // The temporary projected shadow approximation uses authored decal
+            // size or a bounding extent. Volume casters use the stencil pass.
             let (sx, sy) = crate::game_logic::host_battlemaster::leftover_template_blob_shadow_size(
                 &u.template_name,
             );
@@ -1653,55 +1650,51 @@ mod presentation_selection_tests {
     }
 
     #[test]
-    fn blob_casters_collect_for_volume_units_with_positive_radius() {
-        // Retail Crusader-class units author SHADOW_VOLUME (a C++ stencil
-        // volume): a volume caster with 3D shadows on, a blob disc without.
+    fn disabling_volume_shadows_does_not_replace_them_with_discs() {
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("VolBlobMap");
         crate::fixture_content::admit_fixture_objects(
             &mut logic,
             &[
-                crate::fixture_content::FixtureObject::new("VolBlobTank").field("Shadow = SHADOW_VOLUME").kind_of("VEHICLE").health(100.0).walker(),
+                crate::fixture_content::FixtureObject::new("VolBlobTank")
+                    .field("Shadow = SHADOW_VOLUME")
+                    .kind_of("VEHICLE")
+                    .health(100.0)
+                    .walker(),
+                crate::fixture_content::FixtureObject::new("DecalShadowInfantry")
+                    .field("Shadow = SHADOW_DECAL")
+                    .kind_of("INFANTRY")
+                    .health(100.0),
             ],
         );
-        crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
-
-        let id = logic
-            .create_object("VolBlobTank", Team::USA, glam::Vec3::new(4.0, 0.0, 6.0))
-            .expect("tank");
-        if let Some(o) = logic.host_object_mut(id) {
-            o.selection_radius = 9.0;
-        }
+        crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg)
+            .expect("config");
+        let tank = logic
+            .create_object("VolBlobTank", Team::USA, Vec3::new(4.0, 0.0, 6.0))
+            .unwrap();
+        logic
+            .create_object("DecalShadowInfantry", Team::USA, Vec3::new(14.0, 0.0, 16.0))
+            .unwrap();
 
         let snap = PresentationFrame::build_from_logic(&mut logic, 0);
-        let set_volumes = |on: bool| {
-            if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {
-                runtime.writable.use_shadow_volumes = on;
-            }
+        let set_volumes = |enabled| {
+            let mut runtime = game_engine::common::global_data::write_safe().unwrap();
+            runtime.writable.use_shadow_volumes = enabled;
         };
-        // 3D shadows on: the unit casts a stencil volume, not a disc.
+        let previous = game_engine::common::game_lod::use_shadow_volumes();
         set_volumes(true);
-        assert!(collect_blob_shadows_from_presentation(&snap).is_empty());
-        assert!(volume_shadow_caster_ids(&snap).contains(&id));
-        // 3D shadows off: the 2D blob disc stands in.
+        let with_volumes = collect_blob_shadows_from_presentation(&snap);
         set_volumes(false);
-        let blobs = collect_blob_shadows_from_presentation(&snap);
-        set_volumes(true);
-        assert_eq!(
-            blobs.len(),
-            1,
-            "with 3D shadows off a SHADOW_VOLUME unit casts a blob disc"
-        );
-        assert!(
-            blobs[0].radius > 0.0,
-            "blob radius must stay positive, got {}",
-            blobs[0].radius
-        );
-        assert!(
-            (blobs[0].position.x - 4.0).abs() < 0.01 && (blobs[0].position.z - 6.0).abs() < 0.01,
-            "blob must sit under the unit pose: {:?}",
-            blobs[0].position
-        );
+        let without_volumes = collect_blob_shadows_from_presentation(&snap);
+        set_volumes(previous);
+
+        assert!(volume_shadow_caster_ids(&snap).contains(&tank));
+        // SHADOW_DECAL still draws with either stencil setting.
+        for decals in [with_volumes, without_volumes] {
+            assert_eq!(decals.len(), 1);
+            assert_eq!(decals[0].position.x, 14.0);
+            assert_eq!(decals[0].position.z, 16.0);
+        }
     }
 
     #[test]

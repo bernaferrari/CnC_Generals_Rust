@@ -544,6 +544,9 @@ pub struct MinimapTextureRenderer {
     /// Frame counter for update tracking
     last_update_frame: u64,
 
+    /// Frozen grid that produced the pixels currently on the GPU.
+    uploaded_grid: Option<PresentationFowGrid>,
+
     /// Coordinate mapping data
     coordinates: MinimapCoordinates,
 
@@ -591,6 +594,7 @@ impl MinimapTextureRenderer {
             dimensions,
             current_player_id: 0,
             last_update_frame: 0,
+            uploaded_grid: None,
             coordinates,
             texture_format: TextureFormat::Rgba8Unorm,
             force_refresh: true,
@@ -649,45 +653,46 @@ impl MinimapTextureRenderer {
         frame_number: u64,
         fow_grid: Option<&PresentationFowGrid>,
     ) -> Result<()> {
-        // Only update if player changed or enough frames have passed
-        if self.force_refresh
-            || self.current_player_id != player_id
-            || frame_number > self.last_update_frame + 2
-        {
-            self.current_player_id = player_id;
-            self.last_update_frame = frame_number;
-
-            // Regenerate texture for current player
-            self.fow.ensure_dimensions(self.dimensions);
-            self.fow
-                .set_world_bounds(self.coordinates.world_min, self.coordinates.world_max);
-            if let Some(grid) = fow_grid.filter(|g| g.active) {
-                self.fow
-                    .regenerate_texture_from_presentation_grid(player_id, grid, frame_number);
-            } else {
-                self.fow.regenerate_texture(None, player_id, frame_number);
-            }
-
-            // Get texture data
-            let texture_data = self.fow.get_texture_data(player_id);
-
-            // Upload to GPU
-            self.upload_texture_to_gpu(&texture_data)?;
-
-            trace!(
-                "Updated minimap FOW texture for player {} at frame {} (presentation_grid={})",
-                player_id,
-                frame_number,
-                fow_grid.map(|g| g.active).unwrap_or(false)
-            );
-            self.force_refresh = false;
+        let needs_refresh = self.force_refresh || self.current_player_id != player_id;
+        if !needs_refresh && frame_number <= self.last_update_frame + 2 {
+            return Ok(());
         }
+
+        let grid = fow_grid.filter(|grid| grid.active);
+        if !needs_refresh && self.uploaded_grid.as_ref() == grid {
+            self.last_update_frame = frame_number;
+            return Ok(());
+        }
+
+        self.fow.ensure_dimensions(self.dimensions);
+        self.fow
+            .set_world_bounds(self.coordinates.world_min, self.coordinates.world_max);
+        if let Some(grid) = grid {
+            self.fow
+                .regenerate_texture_from_presentation_grid(player_id, grid, frame_number);
+        } else {
+            self.fow.regenerate_texture(None, player_id, frame_number);
+        }
+
+        // Both regeneration paths populated the receiving player's pixels.
+        self.upload_texture_to_gpu(&self.fow.cached_textures[&player_id])?;
+        self.current_player_id = player_id;
+        self.last_update_frame = frame_number;
+        self.uploaded_grid = grid.cloned();
+        self.force_refresh = false;
+
+        trace!(
+            "Updated minimap FOW texture for player {} at frame {} (presentation_grid={})",
+            player_id,
+            frame_number,
+            grid.is_some()
+        );
 
         Ok(())
     }
 
     /// Upload texture data to GPU
-    fn upload_texture_to_gpu(&mut self, data: &[u8]) -> Result<()> {
+    fn upload_texture_to_gpu(&self, data: &[u8]) -> Result<()> {
         let texture = self
             .texture
             .as_ref()
@@ -778,7 +783,6 @@ impl MinimapTextureRenderer {
         self.coordinates.screen_pos = top_left;
         self.coordinates.minimap_width = size.x.max(1.0);
         self.coordinates.minimap_height = size.y.max(1.0);
-        self.force_refresh = true;
     }
 
     /// Get coordinate mapping
@@ -894,6 +898,58 @@ mod tests {
         assert_eq!(first.get_pixel_state(0, 0, 0), MinimapFowState::Hidden);
         assert_eq!(second.get_pixel_state(0, 0, 0), MinimapFowState::Visible);
         assert_eq!(second.get_texture_data(0), vec![255; 2 * 2 * 4]);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "requires a native GPU for the actual minimap texture upload"]
+    fn minimap_reuses_pixels_until_a_raster_input_changes() {
+        let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+            width: 16,
+            height: 16,
+            ..Default::default()
+        })
+        .unwrap();
+        let (device, queue) = {
+            let engine = engine.lock();
+            (engine.device(), engine.queue())
+        };
+        let dimensions = MinimapDimensions { width: 2, height: 2 };
+        let world_bounds = (Vec3::ZERO, Vec3::new(20.0, 0.0, 20.0));
+        let mut renderer =
+            MinimapTextureRenderer::new(device, queue, dimensions, world_bounds).unwrap();
+        let grid = PresentationFowGrid::from_snapshot(2, 2, 10.0, vec![0, 1, 1, 2]);
+        renderer.update_texture_from_fow_with_grid(0, 1, Some(&grid)).unwrap();
+        let first_pixels = renderer.fow.cached_textures[&0].as_ptr();
+
+        renderer.set_screen_rect(Vec2::new(100., 200.), Vec2::splat(120.));
+        assert_eq!(
+            renderer.world_to_screen(Vec3::new(10., 0., 10.)),
+            Vec2::new(160., 260.)
+        );
+        let equivalent_grid = grid.clone();
+        renderer
+            .update_texture_from_fow_with_grid(0, 4, Some(&equivalent_grid))
+            .unwrap();
+        assert_eq!(renderer.fow.cached_textures[&0].as_ptr(), first_pixels);
+        assert_eq!(renderer.last_update_frame, 4);
+
+        let mut revealed = grid.clone();
+        revealed.cells[0] = PresentationFowGrid::CELL_VISIBLE;
+        renderer.update_texture_from_fow_with_grid(0, 5, Some(&revealed)).unwrap();
+        assert_eq!(renderer.fow.get_pixel_state(0, 0, 0), MinimapFowState::Hidden);
+        renderer.update_texture_from_fow_with_grid(0, 7, Some(&revealed)).unwrap();
+        assert_eq!(renderer.fow.get_pixel_state(0, 0, 0), MinimapFowState::Visible);
+        assert_ne!(renderer.fow.cached_textures[&0].as_ptr(), first_pixels);
+
+        renderer.set_base_terrain_texture(vec![80; 16]).unwrap();
+        renderer.update_texture_from_fow_with_grid(0, 8, Some(&revealed)).unwrap();
+        assert_eq!(renderer.fow.cached_textures[&0][0], 80);
+
+        renderer.update_texture_from_fow_with_grid(1, 8, Some(&revealed)).unwrap();
+        assert_eq!(renderer.fow.get_pixel_state(1, 1, 0), MinimapFowState::Explored);
+        renderer.update_texture_from_fow_with_grid(1, 11, None).unwrap();
+        assert_eq!(renderer.fow.get_pixel_state(1, 1, 0), MinimapFowState::Visible);
     }
 
     #[test]
