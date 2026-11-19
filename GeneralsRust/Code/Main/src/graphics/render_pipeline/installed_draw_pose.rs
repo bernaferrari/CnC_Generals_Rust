@@ -11,7 +11,7 @@ use super::*;
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct ObjectVisualState {
     pub native_source_template: String,
-    pub native_source_supported: bool,
+    pub native_instance_scale: Option<f32>,
     pub native_condition_supported: bool,
     pub native_condition_bits: Option<u128>,
     pub native_pending_condition: Option<crate::assets::AuthoredDrawModel>,
@@ -50,6 +50,7 @@ pub(super) enum InstalledDrawObject {
 #[derive(Debug, Clone)]
 pub(super) struct InstalledDrawPose {
     pub(super) model: Arc<crate::assets::W3DModel>,
+    asset_scale: f32,
     pub(super) world: Mat4,
     pub(super) animation_binding: Option<crate::assets::W3dAnimationBinding>,
     pub(super) controls: Vec<(i32, Mat4)>,
@@ -90,6 +91,7 @@ impl TurretBoneNames {
 impl PartialEq for InstalledDrawPose {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.model, &other.model)
+            && self.asset_scale == other.asset_scale
             && self.world == other.world
             && self.controls == other.controls
             && self.turret_names == other.turret_names
@@ -118,6 +120,7 @@ impl InstalledDrawPose {
     ) -> Self {
         Self {
             model,
+            asset_scale: 1.0,
             world,
             animation_binding,
             controls: Vec::new(),
@@ -126,6 +129,13 @@ impl InstalledDrawPose {
             hierarchy_valid: false,
             sampled_frame: 0.,
         }
+    }
+    pub(super) fn with_asset_scale(mut self, instance_scale: Option<f32>) -> Self {
+        // W3DAssetManager creates a scaled asset only outside scale_epsilon.
+        self.asset_scale = instance_scale
+            .filter(|scale| (scale - 1.0).abs() > 0.01)
+            .unwrap_or(1.0);
+        self
     }
     pub(super) fn can_reuse_for(
         &self,
@@ -175,9 +185,10 @@ impl RenderPipeline {
             .drawable_visual_states
             .entry((NativeDrawOwnerId::Actor(id.0), module_index))
             .or_default();
-        state.installed_draw_pose = InstalledDrawObject::Ready(InstalledDrawPose::created(
-            model, world, draw_model, binding,
-        ));
+        state.installed_draw_pose = InstalledDrawObject::Ready(
+            InstalledDrawPose::created(model, world, draw_model, binding)
+                .with_asset_scale(state.native_instance_scale),
+        );
     }
     /// Explicit selected Model=None admission. Not the same as not having
     /// reached the constructor/condition-state producer yet.
@@ -237,12 +248,10 @@ impl RenderPipeline {
             _ => true,
         };
         if needs_recreation {
-            state.installed_draw_pose = InstalledDrawObject::Ready(InstalledDrawPose::created(
-                model,
-                world,
-                draw_model,
-                binding.clone(),
-            ));
+            state.installed_draw_pose = InstalledDrawObject::Ready(
+                InstalledDrawPose::created(model, world, draw_model, binding.clone())
+                    .with_asset_scale(state.native_instance_scale),
+            );
         }
         let InstalledDrawObject::Ready(pose) = &mut state.installed_draw_pose else {
             unreachable!()
@@ -350,6 +359,7 @@ impl ObjectVisualState {
             pose.model.source_controlled_hierarchy_valid(
                 pose.animation_binding.as_ref(),
                 pose.sampled_frame,
+                pose.asset_scale,
                 &pose.controls,
             )?;
             pose.hierarchy_valid = true;
@@ -399,6 +409,7 @@ impl ObjectVisualState {
                 bone_name,
                 pose.animation_binding.as_ref(),
                 pose.sampled_frame,
+                pose.asset_scale,
                 &pose.controls,
             )
             .map_err(Bone)?

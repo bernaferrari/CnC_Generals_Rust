@@ -156,6 +156,48 @@ fn eye(
         .native_installed_camera_pose(ID, first.module_index, bone)
         .map(|matrix| matrix.w_axis.truncate())
 }
+
+#[test]
+#[ignore = "requires native WGPU; run explicit isolated receiver acceptance"]
+fn scaled_actor_particles_read_the_installed_animated_bone() {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    let (device, queue, color_format, depth_format) = {
+        let engine = engine.lock();
+        (engine.device(), engine.queue(), engine.color_format(), engine.depth_format())
+    };
+    let mut graphics = GraphicsSystem::new(device, queue, color_format, depth_format).unwrap();
+    graphics.cache_model(
+        crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
+        model(),
+    );
+    let mut pipeline = RenderPipeline::initialize(engine, &graphics).unwrap();
+    let mut client = GameClient::new().unwrap();
+    let mut world = GameLogic::new();
+    admit(&mut world, DRAW, 103.);
+    // Retail AmphibiousTransport uses a 0.7 Drawable scale with an animated
+    // W3DModelDraw and named ParticleSysBone attachments.
+    world.host_object_mut(ID).unwrap().drawable_instance_scale = 0.7;
+    let unit = source(&mut world);
+    sync(&mut client, &mut pipeline, &mut graphics, &unit, 0);
+    let source = world.current_native_slave_source(ID, 0).unwrap();
+    let key = client.borrow_native_drawable_owner().binding_key(19, ID.0).unwrap();
+    pipeline.admit_native_drawable_binding(&source.identity, key).unwrap();
+    pipeline.observe_animation_sync(1000);
+    let transforms = pipeline.borrow_native_installed_poses()
+        .sample_current_client_bone_transforms(&source, key, "CAMERA", 0, 1, &mut graphics)
+        .unwrap();
+    assert_eq!(transforms.len(), 1);
+    // HTreeClass::Scale scales frame-one's ten-unit translation, then
+    // W3DModelDraw's particle lookup applies the Drawable scale to the pose.
+    assert!((transforms[0].w_axis.x - 4.9).abs() < 1e-5);
+    assert!((transforms[0].x_axis.x - 0.7).abs() < 1e-5);
+}
+
 #[test]
 #[ignore = "requires native WGPU; run explicit isolated receiver acceptance"]
 fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_draw() {

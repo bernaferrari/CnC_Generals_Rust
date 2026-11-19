@@ -42,7 +42,7 @@ pub(crate) fn model_pristine_bone_transforms(
             format!("{prefix}{index:02}")
         };
         let Some(local) = model
-            .source_named_bone_transform(&name, binding, frame, &[])
+            .source_named_bone_transform(&name, binding, frame, 1.0, &[])
             .map_err(|error| format!("pristine source hierarchy unavailable: {error:?}"))?
         else {
             break;

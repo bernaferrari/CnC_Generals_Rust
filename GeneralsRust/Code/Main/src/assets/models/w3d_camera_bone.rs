@@ -117,6 +117,7 @@ impl W3DModel {
         bone_name: &str,
         animation_binding: Option<&W3dAnimationBinding>,
         animation_frame: f32,
+        asset_scale: f32,
         capture_controls: &[(i32, Mat4)],
     ) -> Result<Option<Mat4>, BonePoseUnavailable> {
         use BonePoseUnavailable::*;
@@ -126,6 +127,7 @@ impl W3DModel {
         let globals = self.source_controlled_hierarchy_transforms(
             animation_binding,
             animation_frame,
+            asset_scale,
             capture_controls,
         )?;
         let source = globals.get(index).ok_or(InvalidHierarchy)?;
@@ -139,6 +141,7 @@ impl W3DModel {
         &self,
         animation_binding: Option<&W3dAnimationBinding>,
         animation_frame: f32,
+        asset_scale: f32,
         capture_controls: &[(i32, Mat4)],
     ) -> Result<(), BonePoseUnavailable> {
         // MeshClass has no Animatable3DObj hierarchy to validate. This does
@@ -159,6 +162,7 @@ impl W3DModel {
         self.source_controlled_hierarchy_transforms(
             animation_binding,
             animation_frame,
+            asset_scale,
             capture_controls,
         )
         .map(|_| ())
@@ -168,15 +172,25 @@ impl W3DModel {
         &self,
         animation_binding: Option<&W3dAnimationBinding>,
         animation_frame: f32,
+        asset_scale: f32,
         capture_controls: &[(i32, Mat4)],
     ) -> Result<Vec<[f32; 16]>, BonePoseUnavailable> {
         use BonePoseUnavailable::*;
         let hierarchy = self
             .hierarchy_for_sampled_hlod_or_legacy()
             .ok_or(InvalidHierarchy)?;
-        let locals = self
+        let mut locals = self
             .local_transforms_for_animation_binding(animation_binding, animation_frame)
             .ok_or(IncompatibleAnimation)?;
+        // HTreeClass::Scale scales the base pivot and animation translations.
+        // Apply that baked asset transform before live Control_Bone offsets.
+        if asset_scale != 1.0 {
+            for local in &mut locals {
+                for translation in &mut local[12..15] {
+                    *translation *= asset_scale;
+                }
+            }
+        }
         let mut controls = vec![None; hierarchy.pivots.len()];
         for (raw_index, transform) in capture_controls {
             let index = usize::try_from(*raw_index)

@@ -374,14 +374,8 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                         .or_default();
                     state.native_host_identity = source.identity.cloned();
                     state.native_source_template = source.template.to_owned();
-                    // Native cached W3D is unscaled. C++ applies asset scale to
-                    // HTree data, not camera basis. Until baked scale admission
-                    // exists, do not accept a scaled object's bone camera.
-                    state.native_source_supported = match owner {
-                        NativeDrawOwnerId::Actor(_) => source.mesh_scale == 1.,
-                        #[cfg(feature = "game_client")]
-                        NativeDrawOwnerId::Aux(_) => source.mesh_scale.is_finite(),
-                    };
+                    state.native_instance_scale =
+                        source.mesh_scale.is_finite().then_some(source.mesh_scale);
                     state.native_condition_bits = Some(0);
                     state.native_drawable_transform = world;
                     state.native_pending_condition = Some(model);
@@ -646,9 +640,10 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 pose.hierarchy_valid = false;
             }
         } else {
-            state.installed_draw_pose = InstalledDrawObject::Ready(InstalledDrawPose::created(
-                model, world, &selected, binding,
-            ));
+            state.installed_draw_pose = InstalledDrawObject::Ready(
+                InstalledDrawPose::created(model, world, &selected, binding)
+                    .with_asset_scale(state.native_instance_scale),
+            );
             // nukeCurrentRender resets the module pause latch on recreation.
             state.animation_paused = false;
         }
@@ -691,11 +686,7 @@ impl ObjectVisualState {
         let Some((revision, world)) = identity.native_pose() else {
             return;
         };
-        self.native_source_supported = match identity.owner_id() {
-            NativeDrawOwnerId::Actor(_) => mesh_scale == 1.,
-            #[cfg(feature = "game_client")]
-            NativeDrawOwnerId::Aux(_) => mesh_scale.is_finite(),
-        };
+        self.native_instance_scale = mesh_scale.is_finite().then_some(mesh_scale);
         if self.native_transform_revision == Some(revision) {
             return;
         }
@@ -725,11 +716,7 @@ impl ObjectVisualState {
             return;
         }
         let revision = identity.native_pose().map(|(revision, _)| revision);
-        self.native_source_supported = match identity.owner_id() {
-            NativeDrawOwnerId::Actor(_) => mesh_scale == 1.,
-            #[cfg(feature = "game_client")]
-            NativeDrawOwnerId::Aux(_) => mesh_scale.is_finite(),
-        };
+        self.native_instance_scale = mesh_scale.is_finite().then_some(mesh_scale);
         self.install_native_transform(
             world,
             revision,
@@ -785,7 +772,7 @@ impl ObjectVisualState {
 
     fn take_native_condition_to_install(&mut self) -> Option<crate::assets::AuthoredDrawModel> {
         let selected = self.native_pending_condition.take()?;
-        if !self.native_source_supported {
+        if self.native_instance_scale.is_none() {
             // The previous condition is no longer admitted. When supported
             // source controls return, identical bits must be eligible again.
             self.native_condition_supported = false;
@@ -817,7 +804,7 @@ mod condition_recovery_tests {
             ..Default::default()
         };
         let mut state = ObjectVisualState {
-            native_source_supported: true,
+            native_instance_scale: Some(1.0),
             native_condition_supported: true,
             native_condition_bits: Some(0),
             native_selected_condition: Some(previous),
@@ -825,7 +812,7 @@ mod condition_recovery_tests {
             ..Default::default()
         };
         let peer = state.clone();
-        state.native_source_supported = false;
+        state.native_instance_scale = None;
         state.mark_native_condition(1, next.clone());
         assert!(state.take_native_condition_to_install().is_none());
         assert!(!state.native_condition_supported);
@@ -834,7 +821,7 @@ mod condition_recovery_tests {
             InstalledDrawObject::AwaitingAdmission
         ));
         assert!(state.native_pending_condition.is_none());
-        state.native_source_supported = true;
+        state.native_instance_scale = Some(1.0);
         // Main's actual GameClient observer emits ConditionsMarked every sync.
         // No bit change, recreation, or alternate camera is needed to recover.
         state.mark_native_condition(1, next.clone());

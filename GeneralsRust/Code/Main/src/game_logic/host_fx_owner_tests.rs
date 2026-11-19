@@ -502,7 +502,7 @@ impl crate::game_logic::NativeViewEffects for BoneView {
             format!("{name}{start:02}")
         };
         self.model
-            .source_named_bone_transform(&name, None, 0., &[])
+            .source_named_bone_transform(&name, None, 0., 1., &[])
             .map(|pose| pose.into_iter().collect())
             .map_err(|error| format!("{error:?}"))
     }

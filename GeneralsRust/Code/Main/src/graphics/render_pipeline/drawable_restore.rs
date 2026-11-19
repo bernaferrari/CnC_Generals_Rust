@@ -177,7 +177,7 @@ impl super::super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             else {
                 continue;
             };
-            if !state.native_source_supported || !state.native_condition_supported {
+            if state.native_instance_scale.is_none() || !state.native_condition_supported {
                 continue;
             }
             let Some(selected) = state.native_selected_condition.clone() else {

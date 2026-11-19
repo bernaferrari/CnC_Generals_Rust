@@ -19,7 +19,7 @@ fn admitted(identity: LiveDrawPlaybackIdentity) -> ObjectVisualState {
         native_host_identity: Some(identity),
         native_client_binding: Some(key(3)),
         native_source_template: "CameraOwner".into(),
-        native_source_supported: true,
+        native_instance_scale: Some(1.0),
         native_condition_supported: true,
         installed_draw_pose: InstalledDrawObject::NoRenderObject,
         native_pending_condition: Some(crate::assets::AuthoredDrawModel::default()),

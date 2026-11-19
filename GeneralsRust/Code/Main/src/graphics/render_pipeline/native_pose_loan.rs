@@ -384,7 +384,7 @@ impl NativeInstalledPoseLoan<'_> {
                 .drawable_visual_states
                 .get_mut(&(NativeDrawOwnerId::Actor(identity.object_id()), module))
                 .ok_or(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
-            if !state.native_source_supported || !state.native_condition_supported {
+            if state.native_instance_scale.is_none() || !state.native_condition_supported {
                 return Err(NativeCameraPoseUnavailable::UnsupportedSourceControls);
             }
             // The 64-bone clamp belongs to each ObjectDrawInterface, while
@@ -404,8 +404,8 @@ impl NativeInstalledPoseLoan<'_> {
                         Ok(None) | Err(NativeCameraPoseUnavailable::NoRenderObject) => break,
                         Err(error) => return Err(error),
                     };
-                // C++ removes the RenderObj world transform then applies the
-                // Drawable instance scale. The source hierarchy is already Z-up.
+                // C++ applies the Drawable scale to the local query transform
+                // after sampling the RenderObj's already scaled HTree.
                 transforms.push(Mat4::from_scale(Vec3::splat(source.mesh_scale)) * local);
                 count += 1;
                 if count >= limit {
@@ -532,7 +532,7 @@ impl NativeInstalledPoseLoan<'_> {
             .drawable_visual_states
             .get_mut(&(NativeDrawOwnerId::Actor(id.0), module_index))
             .ok_or(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
-        if !state.native_source_supported || !state.native_condition_supported {
+        if state.native_instance_scale != Some(1.0) || !state.native_condition_supported {
             return Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle);
         }
         state.installed_camera_pose(self.animation_sync_ms, bone_name)

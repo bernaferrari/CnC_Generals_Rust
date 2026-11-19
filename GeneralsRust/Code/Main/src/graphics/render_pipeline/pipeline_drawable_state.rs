@@ -733,7 +733,7 @@ impl RenderPipeline {
             };
             let installed_draw_pose = std::mem::take(&mut state.installed_draw_pose);
             let native_source_template = std::mem::take(&mut state.native_source_template);
-            let native_source_supported = state.native_source_supported;
+            let native_instance_scale = state.native_instance_scale;
             let native_condition_supported = state.native_condition_supported;
             let native_condition_bits = state.native_condition_bits;
             let native_pending_condition = state.native_pending_condition.take();
@@ -747,7 +747,7 @@ impl RenderPipeline {
                 animation: retained_animation,
                 installed_draw_pose,
                 native_source_template,
-                native_source_supported,
+                native_instance_scale,
                 native_condition_supported,
                 native_condition_bits,
                 native_pending_condition,
