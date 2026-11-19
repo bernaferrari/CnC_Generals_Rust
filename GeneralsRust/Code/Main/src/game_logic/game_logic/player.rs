@@ -513,19 +513,14 @@ impl GameLogic {
 
     /// Purchase through this session's science definitions and live player.
     pub(crate) fn attempt_player_science_purchase(&mut self, id: u32, name: &str) -> bool {
-        self.with_own_services_mut(|this| {
-            this.attempt_player_science_purchase_bound(id, name)
-        })
-    }
-
-    fn attempt_player_science_purchase_bound(&mut self, id: u32, name: &str) -> bool {
         use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
         let Some(content) = self.receiving_module_content.as_ref() else {
             let canonical = normalize_science_name_residual(name);
-            return self
-                .players
-                .get_mut(&id)
-                .is_some_and(|player| player.attempt_to_purchase_science(&canonical));
+            return self.with_own_services_mut(|this| {
+                this.players
+                    .get_mut(&id)
+                    .is_some_and(|player| player.attempt_to_purchase_science(&canonical))
+            });
         };
         let facts = content.science_facts_ref();
         let canonical = if facts.science(name.trim()).is_some() {
@@ -541,6 +536,50 @@ impl GameLogic {
         };
         player.science_purchase_points = player.science_purchase_points.wrapping_sub(cost);
         player.unlock_science(&canonical)
+    }
+
+    /// C++ Player::grantScience / attemptToPurchaseScience and addScience.
+    /// The action and its acquisition event belong to the same receiving player.
+    pub(crate) fn apply_receiving_science_action(
+        &mut self,
+        id: u32,
+        name: &str,
+        grant: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut dyn FnMut(game_engine::common::message_stream::ReceivingRankScienceUi),
+    ) -> bool {
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
+        use game_engine::common::message_stream::ReceivingRankScienceUi;
+
+        let Some(old_points) = self.players.get(&id).map(|p| p.science_purchase_points) else {
+            return false;
+        };
+        let science = self.receiving_module_content.as_ref().and_then(|content| {
+            let facts = content.science_facts_ref();
+            facts
+                .science(name.trim())
+                .or_else(|| facts.science(&normalize_science_name_residual(name)))
+        });
+        let gained = if grant {
+            self.grant_player_science(id, name)
+        } else {
+            self.attempt_player_science_purchase(id, name)
+        };
+        if !gained {
+            return false;
+        }
+        let purchase_points = self.players[&id].science_purchase_points;
+        if old_points != purchase_points {
+            ui(ReceivingRankScienceUi::PurchasePointsChanged { purchase_points });
+        }
+        self.on_special_power_science_creation(id, name);
+        ui(ReceivingRankScienceUi::ScienceAdded);
+        if let (Some(science), Some(interpreter)) =
+            (science, interpreter.or(self.owned_script_engine.as_ref()))
+        {
+            interpreter.notify_of_acquired_science(id as usize, science);
+        }
+        true
     }
 
     /// Grant only a science marked grantable by this session's definitions.

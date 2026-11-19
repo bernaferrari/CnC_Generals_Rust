@@ -167,7 +167,13 @@ impl<'a> CommandExecutor<'a> {
 
         // C++ Player::attemptToPurchaseScience residual: science purchase points,
         // not supply cash. Cost 0 / missing prereqs / insufficient points → fail.
-        let unlocked = self.game_logic.attempt_player_science_purchase(player_id, science_name);
+        let unlocked = self.game_logic.apply_receiving_science_action(
+            player_id,
+            science_name,
+            false,
+            self.target_policy,
+            &mut |_| {},
+        );
 
         if unlocked {
             // SCIENCE_StealthFighter residual: record unlock honesty on purchase.
@@ -175,9 +181,6 @@ impl<'a> CommandExecutor<'a> {
             if crate::game_logic::host_stealth_fighter::is_stealth_fighter_science(science_name) {
                 self.game_logic.record_stealth_fighter_science_unlock();
             }
-            // C++ SpecialPowerModule::onSpecialPowerCreation residual.
-            self.game_logic
-                .on_special_power_science_creation(player_id, science_name);
             return CommandResult::Success;
         }
         CommandResult::InvalidCommand

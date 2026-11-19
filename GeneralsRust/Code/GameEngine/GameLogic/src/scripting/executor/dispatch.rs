@@ -237,6 +237,23 @@ impl ScriptActionDispatcher<'_> {
         driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let action_type = action.get_action_type();
+        if matches!(
+            action_type,
+            ScriptActionType::PlayerGrantScience | ScriptActionType::PlayerPurchaseScience
+        ) {
+            let player = self.get_string_param(action, 0)?;
+            let science = self.get_string_param(action, 1)?;
+            let current = self.context.borrowed_engine().get_current_player_name();
+            if let Some(result) = driver.player_science_action(
+                &player,
+                &science,
+                action_type == ScriptActionType::PlayerGrantScience,
+                current.as_deref(),
+            ) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
         if action_type == ScriptActionType::OptionsSetDrawiconUiMode {
             let mode = self.get_int_param(action, 0)?;
             if let Some(result) = driver.set_draw_icon_ui(mode != 0) {

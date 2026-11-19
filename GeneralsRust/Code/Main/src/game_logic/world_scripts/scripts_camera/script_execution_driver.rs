@@ -1,5 +1,6 @@
 //! Live synchronous Main owner for one ScriptEngine action walk.
 use super::*;
+use game_engine::common::rts::science::{ScienceNameFacts, ScienceType};
 use gamelogic::common::Relationship;
 use gamelogic::scripting::engine::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
@@ -176,6 +177,31 @@ impl<'a> HostScriptExecutionDriver<'a> {
             THE_PLAYER if self.world.is_challenge_session() => self.world.local_player_id(),
             _ => self.named_player_id(token),
         }
+    }
+
+    fn script_science_source(
+        &self,
+        player: &str,
+        player_mask: u32,
+        science: &str,
+        current_player: Option<&str>,
+    ) -> Option<(&Player, &ScienceNameFacts, ScienceType)> {
+        // CPP playerFromParam resolves an existing single-player mask before
+        // consulting the authored side name.
+        let id = if player_mask == 0 {
+            self.script_player_id(player, current_player)?
+        } else if player_mask.is_power_of_two() {
+            player_mask.trailing_zeros()
+        } else {
+            return None;
+        };
+        let player = self.world.get_player(id)?;
+        let facts = self
+            .world
+            .receiving_module_content
+            .as_ref()?
+            .science_facts_ref();
+        Some((player, facts, facts.science(science)?))
     }
 
     fn qualified_area(&self, area: &str, current_player: Option<&str>) -> Option<String> {
@@ -1943,6 +1969,75 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn player_rank_roster(&self) -> Option<Arc<RwLock<gamelogic::player::PlayerList>>> {
         Some(Arc::clone(self.world.world_services.players()))
+    }
+
+    fn player_acquired_science_source(
+        &self,
+        player: &str,
+        player_mask: u32,
+        science: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<(usize, ScienceType)> {
+        match self.script_science_source(player, player_mask, science, current_player) {
+            Some((player, _, science)) => ScriptOwnerQuery::Present((player.id as usize, science)),
+            None => ScriptOwnerQuery::Missing,
+        }
+    }
+
+    fn player_can_purchase_science(
+        &self,
+        player: &str,
+        player_mask: u32,
+        science: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        match self.script_science_source(player, player_mask, science, current_player) {
+            Some((player, facts, _)) => ScriptOwnerQuery::Present(
+                player.science_purchase_cost_with_facts(science, facts).is_some(),
+            ),
+            None => ScriptOwnerQuery::Missing,
+        }
+    }
+
+    fn player_science_action(
+        &mut self,
+        player: &str,
+        science: &str,
+        grant: bool,
+        current_player: Option<&str>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        use game_engine::common::message_stream::ReceivingRankScienceUi;
+
+        let Some((player, _, _)) = self.script_science_source(player, 0, science, current_player)
+        else {
+            return Some(Ok(()));
+        };
+        let player = player.id;
+        let is_local = self.world.local_player_id() == Some(player);
+        let ui = &mut self.ui.ui;
+        let view = &mut self.ui.view;
+        let mut callback_error = None;
+        self.world.apply_receiving_science_action(
+            player,
+            science,
+            grant,
+            self.interpreter,
+            &mut |event| {
+                if is_local || event == ReceivingRankScienceUi::ScienceAdded {
+                    if let Some(ui) = ui.as_deref_mut() {
+                        ui.rank_science_event(event);
+                    } else if let Some(view) = view.as_deref_mut()
+                        && let Err(error) = view.admission_rank_event(event)
+                    {
+                        callback_error.get_or_insert(error);
+                    }
+                }
+            },
+        );
+        Some(match callback_error {
+            Some(error) => Err(gamelogic::GameLogicError::Configuration(error)),
+            None => Ok(()),
+        })
     }
 
     fn player_rank(

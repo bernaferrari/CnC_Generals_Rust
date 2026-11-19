@@ -388,6 +388,47 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(result);
         }
 
+        if matches!(
+            condition_type,
+            ConditionType::PlayerAcquiredScience | ConditionType::PlayerCanPurchaseScience
+        ) {
+            use crate::scripting::engine::ScriptOwnerQuery;
+            let player = condition
+                .get_parameter(0)
+                .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?;
+            let science = condition
+                .get_parameter(1)
+                .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 1 not found".into()))?
+                .get_string();
+            let engine = self.context.borrowed_engine();
+            let current = engine.get_current_player_name();
+            let query = match condition_type {
+                ConditionType::PlayerAcquiredScience => match driver.player_acquired_science_source(
+                    player.get_string(),
+                    player.get_int() as u32,
+                    science,
+                    current.as_deref(),
+                ) {
+                    ScriptOwnerQuery::Present((index, science)) => {
+                        ScriptOwnerQuery::Present(engine.is_science_acquired(index, science, true))
+                    }
+                    ScriptOwnerQuery::Missing => ScriptOwnerQuery::Missing,
+                    ScriptOwnerQuery::Unavailable => ScriptOwnerQuery::Unavailable,
+                },
+                _ => driver.player_can_purchase_science(
+                    player.get_string(),
+                    player.get_int() as u32,
+                    science,
+                    current.as_deref(),
+                ),
+            };
+            match query {
+                ScriptOwnerQuery::Present(value) => return Ok(bool_result(value)),
+                ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
+                ScriptOwnerQuery::Unavailable => {}
+            }
+        }
+
         if let Some(result) = self.eval_owned_named_containment(condition, driver)? {
             return Ok(result);
         }

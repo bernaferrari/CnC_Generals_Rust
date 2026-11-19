@@ -1,50 +1,59 @@
-//! Main regressions for consumable PLAYER_ACQUIRED_SCIENCE events.
-//! C++ authority: ScriptConditions.cpp:1543–1553 (acquired science is consumed)
-//! and ScriptActions.cpp PLAYER_GRANT_SCIENCE (grants to ThePlayerList player).
+//! Main regressions for the one-shot player science receipt, readiness check,
+//! grant and purchase in ScriptConditions.cpp and ScriptActions.cpp.
 
 use super::*;
-use game_engine::common::name_key_generator::NameKeyGenerator;
+use crate::command_executor::CommandExecutor;
+use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
 use game_engine::common::rts::science::{
-    SCIENCE_INVALID, ScienceInfo, ScienceNameFacts, ScienceStore, get_science_store,
-    get_science_store_mut,
+    SCIENCE_INVALID, ScienceInfo, ScienceNameFacts, ScienceStore, ScienceType, get_science_store,
 };
 use game_engine::common::thing::{
     module_factory::ModuleFactory, receiving_module_content::ReceivingModuleContent,
 };
-use gamelogic::player::{Player as LogicPlayer, PlayerList, player_list};
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
-use gamelogic::scripting::engine::{ScriptEngine, get_script_engine};
-use std::sync::{Arc, RwLock};
+use gamelogic::scripting::engine::ScriptEngine;
+use std::sync::Arc;
+use std::time::SystemTime;
 
 const SIDE: &str = "Local";
 const SCIENCE: &str = "SCIENCE_EdgeOwnershipFixture";
 const OBSERVER_A: &str = "science_edge_observer_a";
 const OBSERVER_B: &str = "science_edge_observer_b";
 
-fn truth_condition() -> Box<OrCondition> {
-    let and = Condition::new(ConditionType::ConditionTrue);
+fn single_condition(and: Condition) -> Box<OrCondition> {
     let mut result = OrCondition::new();
     result.set_first_and_condition(Some(Box::new(and)));
     Box::new(result)
 }
 
-fn acquired_condition() -> Box<OrCondition> {
-    let mut condition = Condition::new(ConditionType::PlayerAcquiredScience);
-    condition
-        .add_parameter(Parameter::with_string(ParameterType::Side, SIDE.into()))
-        .unwrap();
+fn truth_condition() -> Box<OrCondition> {
+    single_condition(Condition::new(ConditionType::ConditionTrue))
+}
+
+fn science_condition(
+    kind: ConditionType,
+    side: &str,
+    mask: i32,
+    science: &str,
+) -> Box<OrCondition> {
+    let mut condition = Condition::new(kind);
+    let mut side = Parameter::with_string(ParameterType::Side, side.into());
+    side.int_value = mask;
+    condition.add_parameter(side).unwrap();
     condition
         .add_parameter(Parameter::with_string(
             ParameterType::Science,
-            SCIENCE.into(),
+            science.into(),
         ))
         .unwrap();
-    let mut result = OrCondition::new();
-    result.set_first_and_condition(Some(Box::new(condition)));
-    Box::new(result)
+    single_condition(condition)
+}
+
+fn acquired_condition() -> Box<OrCondition> {
+    science_condition(ConditionType::PlayerAcquiredScience, SIDE, 0, SCIENCE)
 }
 
 fn flag_action(name: &str) -> Box<ScriptAction> {
@@ -58,17 +67,15 @@ fn flag_action(name: &str) -> Box<ScriptAction> {
     Box::new(action)
 }
 
-fn grant_action() -> Box<ScriptAction> {
-    // The core action resolves the side by name and the science through the
-    // world's own ScienceStore, exactly like the authored script parameters.
-    let mut action = ScriptAction::new(ScriptActionType::PlayerGrantScience);
+fn science_action(kind: ScriptActionType, side: &str, science: &str) -> Box<ScriptAction> {
+    let mut action = ScriptAction::new(kind);
     action
-        .add_parameter(Parameter::with_string(ParameterType::Side, SIDE.into()))
+        .add_parameter(Parameter::with_string(ParameterType::Side, side.into()))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Science,
-            SCIENCE.into(),
+            science.into(),
         ))
         .unwrap();
     Box::new(action)
@@ -83,44 +90,40 @@ fn script(name: &str, condition: Box<OrCondition>, action: Box<ScriptAction>) ->
     Box::new(script)
 }
 
-fn set_named_indexed_legacy_player() {
-    let mut player = LogicPlayer::new(0);
-    player.set_player_name_key(NameKeyGenerator::name_to_key(SIDE));
-    let players = player_list();
-    let mut list = players.write().expect("legacy player list");
-    *list = PlayerList::new();
-    list.add_player(Arc::new(RwLock::new(player)));
-}
-
-fn science_definitions() -> ScienceStore {
+fn world_with_science(cost: i32) -> (GameLogic, ScienceType) {
     let mut store = ScienceStore::new();
-    store.add_science(ScienceInfo::new(SCIENCE_INVALID, SCIENCE));
-    store
-}
-
-/// C++ has one TheScienceStore per engine. Here the world owns it twice over:
-/// its receiving science facts (host grant) and its own CommonServices store
-/// (core PLAYER_GRANT_SCIENCE lookup, ScriptActions.cpp doPlayerGrantScience).
-fn world_with_science() -> GameLogic {
+    let mut definition = ScienceInfo::new(SCIENCE_INVALID, SCIENCE);
+    definition.science_purchase_point_cost = cost;
+    store.add_science(definition);
+    let facts = ScienceNameFacts::from_store(&store);
+    let science = facts.science(SCIENCE).unwrap();
     let mut modules = ModuleFactory::new();
-    modules.replace_receiving_science_facts(Arc::new(ScienceNameFacts::from_store(
-        &science_definitions(),
-    )));
+    modules.replace_receiving_science_facts(Arc::new(facts));
+
     let mut world = GameLogic::new();
     world.receiving_module_content = Some(ReceivingModuleContent::new(modules));
-    world.with_own_services(|| {
-        *get_science_store_mut().expect("world ScienceStore") = science_definitions();
-    });
-    world.add_player(Player::new(0, Team::USA, SIDE, true).with_script_identity(SIDE));
-    world
+    let mut player = Player::new(0, Team::USA, SIDE, true).with_script_identity(SIDE);
+    player.science_purchase_points = 3;
+    world.add_player(player);
+    (world, science)
 }
 
-fn engine_with(scripts: ScriptList) -> ScriptEngine {
-    let mut engine = ScriptEngine::new_in_published_world().expect("script engine");
-    engine
-        .set_script_list_for_player(0, Some(Box::new(scripts)))
-        .expect("script list");
-    engine
+fn install_scripts(world: &mut GameLogic, scripts: ScriptList) {
+    let engine = world.with_own_services(|| {
+        assert_eq!(
+            get_science_store()
+                .expect("world CommonServices")
+                .get_science_from_internal_name(SCIENCE),
+            SCIENCE_INVALID,
+        );
+        let mut engine = ScriptEngine::new_in_published_world().expect("script engine");
+        engine
+            .set_script_list_for_player(0, Some(Box::new(scripts)))
+            .expect("script list");
+        engine
+    });
+    world.install_owned_script_engine(engine);
+    world.scripts_loaded = true;
 }
 
 fn engine_flag(world: &GameLogic, name: &str) -> bool {
@@ -139,96 +142,150 @@ fn one_acquisition_edge_triggers_only_one_of_two_one_shot_observers() {
         module_path!(),
         "one_acquisition_edge_triggers_only_one_of_two_one_shot_observers",
         || {
-            let mut world = world_with_science();
-
+            let (mut world, _) = world_with_science(0);
             let mut scripts = ScriptList::new();
-            scripts.append_script(script("grant_once", truth_condition(), grant_action()));
+            scripts.append_script(script(
+                "grant_once",
+                truth_condition(),
+                science_action(ScriptActionType::PlayerGrantScience, SIDE, SCIENCE),
+            ));
             scripts.append_script(script(
                 "observe_edge_a_once",
                 acquired_condition(),
                 flag_action(OBSERVER_A),
             ));
-            // A second authored grant of an already-owned science must not
-            // create a second addScience edge.
             scripts.append_script(script(
                 "grant_duplicate_once",
                 truth_condition(),
-                grant_action(),
+                science_action(ScriptActionType::PlayerGrantScience, SIDE, SCIENCE),
             ));
             scripts.append_script(script(
                 "observe_edge_b_once",
                 acquired_condition(),
                 flag_action(OBSERVER_B),
             ));
+            install_scripts(&mut world, scripts);
 
-            let engine = world.with_own_services(|| {
-                let store = get_science_store().expect("world ScienceStore");
-                let science = store.get_science_from_internal_name(SCIENCE);
-                assert_ne!(science, SCIENCE_INVALID);
-                assert!(store.is_science_grantable(science));
-                drop(store);
-                set_named_indexed_legacy_player();
-                engine_with(scripts)
-            });
-            world.install_owned_script_engine(engine);
-            world.scripts_loaded = true;
-
-            // Host census is captured before this tick's grant action, so the
-            // observer result comes from the actual PlayerList acquisition edge.
             world.evaluate_and_execute_scripts(0.0);
             assert!(world.players[&0].has_unlocked_science(SCIENCE));
-            assert!(
-                engine_flag(&world, OBSERVER_A),
-                "first observer consumes the edge"
-            );
-            assert!(
-                !engine_flag(&world, OBSERVER_B),
-                "second observer has no second edge"
-            );
+            assert!(engine_flag(&world, OBSERVER_A));
+            assert!(!engine_flag(&world, OBSERVER_B));
 
-            // Next tick's persistent host census still contains the science.
-            // It must not recreate the already-consumed edge for observer B.
             world.frame += 1;
             world.evaluate_and_execute_scripts(0.0);
-            assert!(engine_flag(&world, OBSERVER_A));
-            assert!(
-                !engine_flag(&world, OBSERVER_B),
-                "level membership must not synthesize a repeat acquisition edge"
-            );
+            assert!(!engine_flag(&world, OBSERVER_B));
         },
     );
 }
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
-fn persisted_host_science_without_playerlist_or_pending_edge_is_not_acquired() {
+fn script_purchase_uses_receiving_cost_and_delivers_one_edge() {
     super::sequential_actor_tests::isolated(
         module_path!(),
-        "persisted_host_science_without_playerlist_or_pending_edge_is_not_acquired",
+        "script_purchase_uses_receiving_cost_and_delivers_one_edge",
         || {
-            let mut world = world_with_science();
-            assert!(world.grant_player_science(0, SCIENCE));
+            let (mut world, _) = world_with_science(2);
+            let (mut peer, _) = world_with_science(4);
+            let purchase_scripts = || {
+                let mut scripts = ScriptList::new();
+                scripts.append_script(script(
+                    "purchase_once",
+                    science_condition(ConditionType::PlayerCanPurchaseScience, SIDE, 0, SCIENCE),
+                    science_action(ScriptActionType::PlayerPurchaseScience, SIDE, SCIENCE),
+                ));
+                scripts.append_script(script(
+                    "observe_purchase",
+                    acquired_condition(),
+                    flag_action(OBSERVER_A),
+                ));
+                scripts.append_script(script(
+                    "observe_duplicate",
+                    acquired_condition(),
+                    flag_action(OBSERVER_B),
+                ));
+                scripts
+            };
+            install_scripts(&mut world, purchase_scripts());
+            install_scripts(&mut peer, purchase_scripts());
 
-            let mut scripts = ScriptList::new();
-            scripts.append_script(script(
-                "observe_missing_legacy_player",
-                acquired_condition(),
-                flag_action(OBSERVER_A),
-            ));
-            // The live census says the science is owned, but the matching
-            // name/indexed legacy player is absent. C++ playerFromParam fails.
-            let engine = world.with_own_services(|| {
-                *player_list().write().expect("legacy player list") = PlayerList::new();
-                engine_with(scripts)
-            });
-            world.install_owned_script_engine(engine);
-            world.scripts_loaded = true;
+            peer.evaluate_and_execute_scripts(0.0);
             world.evaluate_and_execute_scripts(0.0);
+            assert!(world.players[&0].has_unlocked_science(SCIENCE));
+            assert_eq!(world.players[&0].science_purchase_points, 1);
+            assert!(engine_flag(&world, OBSERVER_A));
+            assert!(!engine_flag(&world, OBSERVER_B));
+            assert!(!peer.players[&0].has_unlocked_science(SCIENCE));
+            assert_eq!(peer.players[&0].science_purchase_points, 3);
+            assert!(!engine_flag(&peer, OBSERVER_A));
 
-            assert!(
-                !engine_flag(&world, OBSERVER_A),
-                "missing legacy player fails closed"
+            world.frame += 1;
+            world.evaluate_and_execute_scripts(0.0);
+            assert_eq!(world.players[&0].science_purchase_points, 1);
+            assert!(!engine_flag(&world, OBSERVER_B));
+        },
+    );
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn player_command_receipt_survives_unknown_sources_until_valid_mask_consumes_it() {
+    super::sequential_actor_tests::isolated(
+        module_path!(),
+        "player_command_receipt_survives_unknown_sources_until_valid_mask_consumes_it",
+        || {
+            let (mut world, science) = world_with_science(2);
+            let mut scripts = ScriptList::new();
+            for (name, side, mask, science) in [
+                ("missing_player", "ForeignSide", 0, SCIENCE),
+                ("missing_science", SIDE, 0, "SCIENCE_Unknown"),
+                ("ambiguous_mask", SIDE, 3, SCIENCE),
+                ("missing_mask_player", SIDE, 2, SCIENCE),
+                (OBSERVER_A, "StoredNameIgnoredByMask", 1, SCIENCE),
+                (OBSERVER_B, SIDE, 0, SCIENCE),
+            ] {
+                scripts.append_script(script(
+                    name,
+                    science_condition(ConditionType::PlayerAcquiredScience, side, mask, science),
+                    flag_action(name),
+                ));
+            }
+            install_scripts(&mut world, scripts);
+
+            let command = GameCommand {
+                command_type: CommandType::PurchaseScience {
+                    science_name: SCIENCE.into(),
+                },
+                player_id: 0,
+                command_id: 1,
+                timestamp: SystemTime::now(),
+                selected_units: Vec::new(),
+                modifier_keys: ModifierKeys::default(),
+            };
+            let mut commands = CommandExecutor::new(&mut world, 0);
+            assert_eq!(
+                commands.execute_command(command.clone()).unwrap(),
+                CommandResult::Success,
             );
+            assert_eq!(
+                commands.execute_command(command).unwrap(),
+                CommandResult::InvalidCommand,
+            );
+            let engine = world.owned_script_engine.as_ref().unwrap();
+            assert!(engine.is_science_acquired(0, science, false));
+
+            world.evaluate_and_execute_scripts(0.0);
+            for missing in [
+                "missing_player",
+                "missing_science",
+                "ambiguous_mask",
+                "missing_mask_player",
+            ] {
+                assert!(!engine_flag(&world, missing), "{missing}");
+            }
+            assert!(engine_flag(&world, OBSERVER_A));
+            assert!(!engine_flag(&world, OBSERVER_B));
+            assert_eq!(world.players[&0].science_purchase_points, 1);
         },
     );
 }
@@ -240,47 +297,20 @@ fn owned_science_before_fresh_engine_has_no_acquisition_event() {
         module_path!(),
         "owned_science_before_fresh_engine_has_no_acquisition_event",
         || {
-            let mut world = world_with_science();
+            let (mut world, _) = world_with_science(0);
             assert!(world.grant_player_science(0, SCIENCE));
 
-            // Grant into a named/indexed legacy Player while there is no
-            // ScriptEngine installed, then start a fresh owner with an empty
-            // acquired-science queue. This is persistent ownership only.
             let mut scripts = ScriptList::new();
             scripts.append_script(script(
                 "observe_no_new_acquisition",
                 acquired_condition(),
                 flag_action(OBSERVER_A),
             ));
-            let fresh = world.with_own_services(|| {
-                let science = get_science_store()
-                    .unwrap()
-                    .get_science_from_internal_name(SCIENCE);
-                let mut legacy = LogicPlayer::new(0);
-                legacy.set_player_name_key(NameKeyGenerator::name_to_key(SIDE));
-                let player = Arc::new(RwLock::new(legacy));
-                assert!(player.write().unwrap().grant_science(science));
-                let handle = player_list();
-                let mut list = handle.write().expect("legacy player list");
-                *list = PlayerList::new();
-                list.add_player(player);
-                drop(list);
-                let fresh = engine_with(scripts);
-                assert!(
-                    !fresh.is_science_acquired(0, science, false),
-                    "fresh engine starts with no event tail"
-                );
-                fresh
-            });
-            world.install_owned_script_engine(fresh);
-            world.scripts_loaded = true;
+            install_scripts(&mut world, scripts);
             world.evaluate_and_execute_scripts(0.0);
 
             assert!(world.players[&0].has_unlocked_science(SCIENCE));
-            assert!(
-                !engine_flag(&world, OBSERVER_A),
-                "membership alone is not acquisition"
-            );
+            assert!(!engine_flag(&world, OBSERVER_A));
         },
     );
 }

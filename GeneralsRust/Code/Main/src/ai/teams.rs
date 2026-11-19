@@ -1313,11 +1313,7 @@ impl AIPlayer {
     }
 
     pub(super) fn purchase_skillset_science(world: &mut GameLogic, player: u32, name: &str) {
-        let purchased = world.attempt_player_science_purchase(player, name);
-        // Player::addScience observes each successful purchase immediately.
-        if purchased {
-            world.on_special_power_science_creation(player, name);
-        }
+        world.apply_receiving_science_action(player, name, false, None, &mut |_| {});
     }
 
     /// C++ `AIPlayer::buildUpgrade` residual — queue one structure upgrade.

@@ -1507,6 +1507,38 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
+    /// Resolve the receiving Player and ScienceType for the interpreter's
+    /// consumable acquisition receipt (ScriptConditions.cpp:1543–1554).
+    fn player_acquired_science_source(
+        &self,
+        _player: &str,
+        _player_mask: u32,
+        _science: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<(usize, game_engine::common::rts::science::ScienceType)> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn player_can_purchase_science(
+        &self,
+        _player: &str,
+        _player_mask: u32,
+        _science: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn player_science_action(
+        &mut self,
+        _player: &str,
+        _science: &str,
+        _grant: bool,
+        _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     /// Present/Missing are authoritative; Unavailable preserves standalone Core behavior.
     /// CPP ENABLE/DISABLE_SCORING mutates the driving GameLogic instance.
     fn scoring_enabled(&mut self, _enabled: bool) -> ScriptOwnerQuery<()> {
