@@ -196,57 +196,61 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
     logic.initialize_receiving_named_cache_for_fixture();
     logic.inject_host_script_query_snapshot();
 
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
-    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
+    // inject_host_script_query_snapshot published on this world's own services;
+    // the evaluator must read them, not the ambient (unbound) ones.
+    logic.with_own_services(|| {
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
-    let mut created = Condition::new(ConditionType::NamedCreated);
-    created
-        .add_parameter(Parameter::with_string(
-            ParameterType::Unit,
-            "MapNamedScout".into(),
-        ))
-        .unwrap();
-    assert_eq!(
-        evaluator.evaluate_condition(&mut created).unwrap(),
-        ScriptConditionResult::True
-    );
+        let mut created = Condition::new(ConditionType::NamedCreated);
+        created
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "MapNamedScout".into(),
+            ))
+            .unwrap();
+        assert_eq!(
+            evaluator.evaluate_condition(&mut created).unwrap(),
+            ScriptConditionResult::True
+        );
 
-    let mut totally_dead = Condition::new(ConditionType::NamedTotallyDead);
-    totally_dead
-        .add_parameter(Parameter::with_string(
-            ParameterType::Unit,
-            "MapNamedScout".into(),
-        ))
-        .unwrap();
-    assert_eq!(
-        evaluator.evaluate_condition(&mut totally_dead).unwrap(),
-        ScriptConditionResult::False
-    );
+        let mut totally_dead = Condition::new(ConditionType::NamedTotallyDead);
+        totally_dead
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "MapNamedScout".into(),
+            ))
+            .unwrap();
+        assert_eq!(
+            evaluator.evaluate_condition(&mut totally_dead).unwrap(),
+            ScriptConditionResult::False
+        );
 
-    let mut destroyed = Condition::new(ConditionType::TeamDestroyed);
-    destroyed
-        .add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            "USA_RangerSquad".into(),
-        ))
-        .unwrap();
-    assert_eq!(
-        evaluator.evaluate_condition(&mut destroyed).unwrap(),
-        ScriptConditionResult::False
-    );
+        let mut destroyed = Condition::new(ConditionType::TeamDestroyed);
+        destroyed
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "USA_RangerSquad".into(),
+            ))
+            .unwrap();
+        assert_eq!(
+            evaluator.evaluate_condition(&mut destroyed).unwrap(),
+            ScriptConditionResult::False
+        );
 
-    let mut has_units = Condition::new(ConditionType::TeamHasUnits);
-    has_units
-        .add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            "USA_RangerSquad".into(),
-        ))
-        .unwrap();
-    assert_eq!(
-        evaluator.evaluate_condition(&mut has_units).unwrap(),
-        ScriptConditionResult::True
-    );
+        let mut has_units = Condition::new(ConditionType::TeamHasUnits);
+        has_units
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "USA_RangerSquad".into(),
+            ))
+            .unwrap();
+        assert_eq!(
+            evaluator.evaluate_condition(&mut has_units).unwrap(),
+            ScriptConditionResult::True
+        );
 
+    });
     get_named_object_tracker().clear().unwrap();
 }
 
@@ -924,10 +928,24 @@ fn host_ai_rebind_after_world_wipe_keeps_players_cash_and_rebuilds() {
     // anchor (base_center default Vec3::ZERO; pads at ±50/100 stay clear of
     // the +45 offset CC footprint), exactly as the map does.
     logic
-        .create_object_for_player("GLA_CommandCenter", 1, Vec3::new(45.0, 0.0, 45.0))
+        .create_object_for_player_with_effects_checked(
+            "GLA_CommandCenter",
+            1,
+            Vec3::new(45.0, 0.0, 45.0),
+            None,
+            &mut Default::default(),
+        )
+        .unwrap_or_else(|error| panic!("map-restored GLA CommandCenter: {error}"))
         .expect("map-restored GLA CommandCenter");
     logic
-        .create_object_for_player("GLAInfantryWorker", 1, Vec3::new(52.0, 0.0, 52.0))
+        .create_object_for_player_with_effects_checked(
+            "GLAInfantryWorker",
+            1,
+            Vec3::new(52.0, 0.0, 52.0),
+            None,
+            &mut Default::default(),
+        )
+        .unwrap_or_else(|error| panic!("map-restored GLA worker: {error}"))
         .expect("map-restored GLA worker");
 
     // Non-panicking multi-frame AI update after rebind.
@@ -1770,10 +1788,15 @@ fn process_ai_behavior_hunt_seeks_map_wide_not_100_circle() {
         .expect("far enemy should be created");
     {
         let unit = game_logic.host_object_mut(unit_id).expect("unit");
-        unit.weapon = Some(Weapon {
-            range: 150.0,
-            ..Weapon::default()
-        });
+        // The hunter acquires only through a weapon its WeaponSet authors.
+        crate::fixture_content::arm_with_stats(
+            unit,
+            Weapon {
+                damage: 10.0,
+                range: 150.0,
+                ..Weapon::default()
+            },
+        );
     }
     let (start, team, can_attack) = {
         let unit = game_logic.host_object(unit_id).expect("unit should exist");
@@ -2072,6 +2095,9 @@ fn capture_command_does_not_instantly_flip_building_owner() {
 
 #[test]
 fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
+    use crate::fixture_content::FixtureObject;
+    use crate::game_logic::host_upgrades::UPGRADE_INFANTRY_CAPTURE;
+    const CAPTURE: &str = "SpecialAbilityRangerCaptureBuilding";
     let mut game_logic = GameLogic::new();
     // Non-local fixture player: the C++ local-human authority additionally
     // consults shroud visibility (ActionManager.cpp:76-102), and this fixture
@@ -2079,35 +2105,59 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
     // upgrade contract under test (same class as the BlackLotus capture
     // fixture in pilots_and_movement).
     game_logic.add_player(Player::new(0, Team::USA, "USA", false));
-    // Object::defect needs the building's concrete owner as well.
-    game_logic.add_player(Player::new(2, Team::GLA, "GLA", false));
-    ensure_test_infantry_template(&mut game_logic);
-    ensure_test_structure_template(&mut game_logic);
+    // Object::defect requires the target's admitted controller/default team.
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut game_logic,
+        UPGRADE_INFANTRY_CAPTURE,
+        "PLAYER",
+        1000,
+        30,
+    );
+    // Retail Ranger capture authored as Object INI: SpecialAbility
+    // `StartsPaused = Yes` plus the UnpauseSpecialPowerUpgrade triggered by
+    // the capture upgrade (AmericaInfantry.ini). Only that module unpauses it.
+    let captor = FixtureObject::new("AuthoredUpgradeCaptor")
+        .kind_of("INFANTRY SELECTABLE SCORE")
+        .health(80.0)
+        .walker()
+        .module(format!(
+            "Behavior = SpecialAbility CaptureTag\n SpecialPowerTemplate = {CAPTURE}\n UpdateModuleStartsAttack = Yes\n StartsPaused = Yes\nEnd"
+        ))
+        .module(format!(
+            "Behavior = SpecialAbilityUpdate CaptureUpdateTag\n SpecialPowerTemplate = {CAPTURE}\n StartAbilityRange = 5\n UnpackTime = 3000\n PreparationTime = 20000\n PackTime = 2000\nEnd"
+        ))
+        .module(format!(
+            "Behavior = UnpauseSpecialPowerUpgrade CaptureUnpauseTag\n SpecialPowerTemplate = {CAPTURE}\n TriggeredBy = {UPGRADE_INFANTRY_CAPTURE}\nEnd"
+        ));
+    let target = FixtureObject::new("AuthoredUpgradeCaptureTarget")
+        .kind_of("STRUCTURE SELECTABLE CAPTURABLE")
+        .health(1200.0);
+    crate::fixture_content::admit_fixture_content_with_actions(
+        &mut game_logic,
+        &[captor, target],
+        &[],
+        &format!("SpecialPower {CAPTURE}\n ReloadTime = 15000\nEnd\n"),
+    );
 
     let captor_id = game_logic
-        .create_object("TestInfantry", Team::USA, Vec3::new(12.0, 0.0, 0.0))
+        .create_object_for_player("AuthoredUpgradeCaptor", 0, Vec3::new(12.0, 0.0, 0.0))
         .expect("captor should be created");
     let building_id = game_logic
-        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object_for_player("AuthoredUpgradeCaptureTarget", 2, Vec3::new(0.0, 0.0, 0.0))
         .expect("building should be created");
-    game_logic
-        .host_object_mut(captor_id)
-        .expect("captor should exist")
-        .pause_special_power_countdown(
-            &crate::command_system::SpecialPowerType::RangerCaptureBuilding,
-            true,
-        );
-
-    game_logic.queue_command(crate::command_system::GameCommand {
+    let capture_command = |command_id| crate::command_system::GameCommand {
         command_type: crate::command_system::CommandType::CaptureBuilding {
             target_id: building_id,
         },
         player_id: 0,
-        command_id: 1,
+        command_id,
         timestamp: std::time::SystemTime::now(),
         selected_units: vec![captor_id],
         modifier_keys: crate::command_system::ModifierKeys::default(),
-    });
+    };
+
+    game_logic.queue_command(capture_command(1));
     game_logic.process_commands();
 
     let captor = game_logic
@@ -2119,40 +2169,25 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
     game_logic
         .get_player_mut(0)
         .expect("USA player should exist")
-        .add_completed_upgrade("Upgrade_InfantryCaptureBuilding");
-    game_logic.apply_upgrade_to_object(captor_id, "Upgrade_InfantryCaptureBuilding");
-    // Retail capture powers reload for 15 seconds (450 logic frames) after
-    // `StartsPaused` is unpaused; run those frames before issuing the command.
-    super::super::helpers::advance_logic_frames(&mut game_logic, 460);
+        .add_completed_upgrade(UPGRADE_INFANTRY_CAPTURE);
+    game_logic.apply_upgrade_to_object(captor_id, UPGRADE_INFANTRY_CAPTURE);
+    // The unpaused special keeps its authored 15s ctor ReloadTime; model it
+    // elapsing (C++ setReadyFrame(0) residual) so the power is ready at click.
+    game_logic
+        .host_object_mut(captor_id)
+        .expect("captor ready")
+        .set_special_power_ready_seconds(
+            &crate::command_system::SpecialPowerType::RangerCaptureBuilding,
+            0.0,
+        );
 
-    game_logic.queue_command(crate::command_system::GameCommand {
-        command_type: crate::command_system::CommandType::CaptureBuilding {
-            target_id: building_id,
-        },
-        player_id: 0,
-        command_id: 2,
-        timestamp: std::time::SystemTime::now(),
-        selected_units: vec![captor_id],
-        modifier_keys: crate::command_system::ModifierKeys::default(),
-    });
+    game_logic.queue_command(capture_command(2));
     game_logic.process_commands();
 
-    let capture_state = format!(
-        "can_capture_ready={} can_capture_unready={} ready={} local={:?} owners={:?}/{:?}",
-        game_logic.can_unit_capture_building(captor_id, building_id, true),
-        game_logic.can_unit_capture_building(captor_id, building_id, false),
-        game_logic.is_special_power_ready_for(
-            captor_id,
-            &crate::command_system::SpecialPowerType::RangerCaptureBuilding
-        ),
-        game_logic.local_player_id(),
-        game_logic.host_object(captor_id).map(|o| o.owner_player_id),
-        game_logic.host_object(building_id).map(|o| o.owner_player_id),
-    );
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor should exist after upgraded command");
-    assert_eq!(captor.ai_state(), AIState::Capturing, "{capture_state}");
+    assert_eq!(captor.ai_state(), AIState::Capturing);
     assert_eq!(captor.target, Some(building_id));
 }
 
