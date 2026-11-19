@@ -40,7 +40,7 @@ fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() 
     let mut pending = None;
     let mut imports = HashMap::new();
     let mut playback = HashMap::new();
-    let mut lifetimes: HashMap<_, _> = states
+    let mut lifetimes: game_engine::common::fast_hash::FxHashMap<_, _> = states
         .iter()
         .filter_map(|((object, _), state)| {
             state.native_host_identity.as_ref().map(|identity| {
@@ -103,7 +103,7 @@ fn residual_same_id_sibling_from_prior_generation_rejects_whole_source_query() {
     let mut pending = None;
     let mut imports = HashMap::new();
     let mut playback = HashMap::new();
-    let mut lifetimes: HashMap<_, _> = states
+    let mut lifetimes: game_engine::common::fast_hash::FxHashMap<_, _> = states
         .iter()
         .filter_map(|((object, _), state)| {
             state.native_host_identity.as_ref().map(|identity| {
@@ -172,7 +172,7 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
     let mut pending = None;
     let mut imports = HashMap::new();
     let mut playback = HashMap::new();
-    let mut lifetimes: HashMap<_, _> = states
+    let mut lifetimes: game_engine::common::fast_hash::FxHashMap<_, _> = states
         .iter()
         .filter_map(|((object, _), state)| {
             state.native_host_identity.as_ref().map(|identity| {
