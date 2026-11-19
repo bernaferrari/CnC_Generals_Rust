@@ -292,55 +292,63 @@ fn enqueue_infantry_on_command_center_fails_barracks_succeeds() {
     );
 }
 
+/// Authored content for the construction/enqueue tests: the retail builder
+/// (DozerAIUpdate is the only thing that advances construction,
+/// DozerAIUpdate.cpp:511-517), a barracks that is a real ProductionUpdate
+/// producer, its infantry, and a completed energy source (C++ calcTimeToBuild
+/// takes the builder player's energy ratio).
+fn admit_authored_construction_world(logic: &mut GameLogic) {
+    use super::super::helpers::{
+        add_completed_power_plant, admit_retail_production_energy_rules, ADMITTED_DOZER_INI,
+    };
+    logic.frame = 10;
+    // Without energy rules the build rate bottoms out at 1/700; with them and a
+    // completed plant the grid runs the build at full speed.
+    admit_retail_production_energy_rules(logic);
+    logic.admit_default_locomotors_if_unadmitted();
+    ensure_test_player_for_team(logic, Team::USA);
+    // One admission: the authored retail-shaped builder (DozerAIUpdate + dozer
+    // locomotor), a real ProductionUpdate barracks, its infantry and the power plant.
+    let source = format!(
+        "{ADMITTED_DOZER_INI}Object TestBarracks\nKindOf = STRUCTURE FS_BARRACKS SELECTABLE\nBuildCost = 600\nBuildTime = 1\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = ProductionUpdate ProductionTag\nEnd\nEnd\nObject TestInfantry\nKindOf = INFANTRY SELECTABLE\nBuildCost = 100\nBody = ActiveBody Body\nMaxHealth = 80\nInitialHealth = 80\nEnd\nEnd\n"
+    );
+    logic
+        .admit_object_ini_sources([("construction-world.ini".to_string(), source)])
+        .expect("authored construction content admits");
+    add_completed_power_plant(logic, 0);
+}
+
+/// Resume a scaffolded `TestBarracks` with an authored dozer and run frames
+/// until the dozer machine finishes it; returns the barracks id.
+fn build_barracks_with_authored_dozer(logic: &mut GameLogic, at: Vec3) -> ObjectId {
+    let id = logic
+        .create_object_for_player("TestBarracks", 0, at)
+        .expect("barracks scaffold");
+    {
+        let site = logic.host_object_mut(id).expect("scaffold");
+        site.set_status_under_construction(true);
+        site.construction_percent = 0.0;
+    }
+    let dozer_id = logic
+        .create_object_for_player("TestDozer", 0, at + Vec3::new(5.0, 0.0, 0.0))
+        .expect("builder dozer");
+    assert!(logic.resume_construction(&[dozer_id], id).expect("resume"));
+    for _ in 0..600 {
+        super::super::helpers::advance_logic_frames(logic, 1);
+        if !logic.host_object(id).expect("barracks").status.under_construction {
+            break;
+        }
+    }
+    id
+}
+
 #[test]
 fn host_construction_completes_without_coupled_shadow() {
     let mut game_logic = GameLogic::new();
-    ensure_test_player_for_team(&mut game_logic, Team::USA);
-    supply_construction_fixture_power(&mut game_logic);
-    ensure_test_barracks_template(&mut game_logic);
-    ensure_test_infantry_template(&mut game_logic);
-    if let Some(t) = game_logic.templates.get_mut("TestBarracks") {
-        t.build_time = 1.0;
-    }
-    let id = game_logic
-        .create_object_under_construction("TestBarracks", Team::USA, Vec3::new(40.0, 0.0, 40.0))
-        .expect("uc barracks").expect("ObjectId");
-    // C++ DozerAIUpdate.cpp:511-517 — only a dozer docked at the ACTION dock
-    // advances construction percent; author the retail builder fixture.
-    ensure_test_dozer_template(&mut game_logic);
-    let dozer_id = game_logic
-        .create_object("TestDozer", Team::USA, Vec3::new(40.0, 0.0, 40.0))
-        .expect("builder dozer");
-    {
-        let barracks = game_logic.host_object_mut(id).expect("barracks");
-        barracks.builder_id = Some(dozer_id);
-    }
-    {
-        let (dozer, attack_events) = game_logic
-            .host_object_and_attack_events_mut(dozer_id)
-            .expect("dozer");
-        dozer.set_target(
-            Some(id),
-            0,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        dozer.set_ai_state(
-            AIState::Constructing,
-            0,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        dozer.status.moving = false;
-        dozer.set_dozer_dock_action(Some(dozer.get_position()));
-    }
-    assert!(
-        game_logic
-            .host_object(id)
-            .is_some_and(|o| o.status.under_construction)
-    );
-    for _ in 0..80 {
-        game_logic.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
-    }
+    admit_authored_construction_world(&mut game_logic);
+    // C++ DozerAIUpdate.cpp:511-517: only a dozer docked at the ACTION dock
+    // advances construction percent.
+    let id = build_barracks_with_authored_dozer(&mut game_logic, Vec3::new(40.0, 0.0, 40.0));
     let obj = game_logic.host_object(id).expect("still exists");
     assert!(
         !obj.status.under_construction,
@@ -355,66 +363,18 @@ fn host_construction_completes_without_coupled_shadow() {
 
 #[test]
 fn host_construction_completes_when_sole_tick_unmapped() {
-    use crate::game_logic::AIState;
     // Coupled sole-tick with no live shadow map: host must store percent and
     // complete. The previous hole computed `projected` then discarded it
     // (`if !sole` never assigned), so barracks stayed UC forever.
     // Production keeps construction authority default-off (host GameLogic is
     // the sole writer, C++ single-store); the sole-tick contract under test
-    // opts in via `GameLogic::set_construction_authority(true)`.
+    // is position-independent, so the barracks stands at the origin.
     let _env_guard = host_state_residual_test_env_lock();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut game_logic = GameLogic::new();
-        ensure_test_player_for_team(&mut game_logic, Team::USA);
-        supply_construction_fixture_power(&mut game_logic);
-        ensure_test_barracks_template(&mut game_logic);
-        // Opt this instance into construction authority (retired env
-        // channel); with shadow on + coupled frame this makes the sole-tick
-        // gate observable.
-
-        ensure_test_infantry_template(&mut game_logic);
-        if let Some(t) = game_logic.templates.get_mut("TestBarracks") {
-            t.build_time = 1.0;
-        }
-        // Origin placement (phase3_produce precedent): the bare fixture has no
-        // revealed build area away from the map origin, so legality fails
-        // there; the sole-tick contract under test is position-independent.
-        let id = game_logic
-            .create_object_under_construction("TestBarracks", Team::USA, Vec3::ZERO)
-            .expect("uc barracks").expect("ObjectId");
-        // C++ DozerAIUpdate.cpp:511-517 — even the unmapped sole-tick fail-open
-        // path is dozer-driven; author the retail builder fixture.
-        ensure_test_dozer_template(&mut game_logic);
-        let dozer_id = game_logic
-            .create_object("TestDozer", Team::USA, Vec3::ZERO)
-            .expect("builder dozer");
-        {
-            let barracks = game_logic.host_object_mut(id).expect("barracks");
-            barracks.builder_id = Some(dozer_id);
-        }
-        {
-            let (dozer, attack_events) = game_logic
-                .host_object_and_attack_events_mut(dozer_id)
-                .expect("dozer");
-            dozer.set_target(
-                Some(id),
-                0,
-                attack_events,
-                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-            );
-            dozer.set_ai_state(
-                AIState::Constructing,
-                0,
-                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-            );
-            dozer.status.moving = false;
-            dozer.set_dozer_dock_action(Some(dozer.get_position()));
-        }
-
-        for _ in 0..80 {
-            game_logic.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
-        }
+        admit_authored_construction_world(&mut game_logic);
+        let id = build_barracks_with_authored_dozer(&mut game_logic, Vec3::ZERO);
         let obj = game_logic.host_object(id).expect("still exists");
         assert!(
             !obj.status.under_construction,
