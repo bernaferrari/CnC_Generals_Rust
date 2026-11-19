@@ -432,31 +432,24 @@ impl PresentationFrame {
                 continue;
             }
 
-            // Coupled GameWorld is truth for sit-through HP / pose / dest / target /
-            // ammo / occupants. HashMap poke without commit must not win.
-            let auth_health = logic
-                .host_authoritative_health(obj.id)
-                .unwrap_or(obj.health.current);
-            let auth_pose = logic.host_authoritative_pose(obj.id);
-            let auth_dest = logic
-                .host_authoritative_move_dest(obj.id)
-                .map(glam::Vec3::from);
-            let auth_target = logic.host_authoritative_target(obj.id);
-            let auth_ammo = logic.host_authoritative_weapon_ammo(obj.id);
-            let auth_projectile_clip_statuses =
-                logic.host_authoritative_projectile_clip_statuses(obj.id);
-            let projectile_clip_statuses = std::array::from_fn(|slot| {
-                auth_projectile_clip_statuses
-                    .get(slot)
-                    .copied()
-                    .flatten()
-                    .map(
-                        |(shots_remaining, max_shots)| PresentationProjectileClipStatus {
-                            shots_remaining,
-                            max_shots,
-                        },
-                    )
-            });
+            // One ordinary lookup serves the snapshot. Keep its reset mask and
+            // the existing per-field fallbacks for linked teardown objects.
+            let canonical = logic.host_object(obj.id);
+            let body = canonical.unwrap_or(obj);
+            let auth_health = body.health.current;
+            let auth_dest = canonical.and_then(|object| object.movement.target_position);
+            let auth_target = canonical.and_then(|object| object.target);
+            let auth_ammo = canonical
+                .and_then(|object| object.weapon.as_ref())
+                .and_then(|weapon| weapon.ammo);
+            let projectile_clip_statuses = canonical
+                .map_or([None; 3], |object| object.drawable_projectile_clip_statuses())
+                .map(|clip| {
+                    clip.map(|(shots_remaining, max_shots)| PresentationProjectileClipStatus {
+                        shots_remaining,
+                        max_shots,
+                    })
+                });
             let auth_occupants = logic.host_authoritative_occupant_count(obj.id);
             let authoritative_contained = logic.host_authoritative_contained_units(obj.id);
             let containment_id = logic.redirected_containment_owner(obj.id);
@@ -465,10 +458,8 @@ impl PresentationFrame {
                 .then(|| containment.transport_capacity());
             let shared_containment =
                 obj.is_tunnel_network_style_container() || obj.is_cave_style_container();
-            let _auth_attack_sub = logic.host_authoritative_attack_substate(obj.id);
-            let (auth_construction_percent, auth_under_construction) = logic
-                .host_authoritative_construction(obj.id)
-                .unwrap_or((obj.construction_percent, obj.status.under_construction));
+            let auth_construction_percent = body.construction_percent;
+            let auth_under_construction = body.status.under_construction;
             let is_structure = obj.is_kind_of(KindOf::Structure);
             let is_unit = obj.is_kind_of(KindOf::Infantry)
                 || obj.is_kind_of(KindOf::Vehicle)
@@ -477,8 +468,6 @@ impl PresentationFrame {
             // loaded Object INI has no retained ConditionState table.  A
             // source-authored Draw state below takes precedence; the render
             // collector must receive that exact W3D key untouched.
-            let base_model_key =
-                crate::assets::mesh_asset_resolve::model_key_from_template(application_assets.as_deref(), obj.get_template());
             let destroyed_for_mesh = obj.status.destroyed || auth_health <= 0.01;
             let body_ord = {
                 use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
@@ -491,16 +480,21 @@ impl PresentationFrame {
             };
             let model_condition_bits =
                 super::live_draw_source::current_base_condition_bits(logic, obj);
-            let fallback_draw_models =
-                (!base_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
-                    module_index: 0,
-                    model_key: base_model_key.clone(),
-                    ..Default::default()
-                });
             let draw_models = obj
                 .get_template()
                 .authored_draw_models_for_conditions(model_condition_bits)
                 .unwrap_or_else(|| {
+                    let base_model_key = crate::assets::mesh_asset_resolve::model_key_from_template(
+                        application_assets.as_deref(),
+                        obj.get_template(),
+                    );
+                    let fallback_draw_models = (!base_model_key.trim().is_empty()).then(|| {
+                        crate::assets::AuthoredDrawModel {
+                            module_index: 0,
+                            model_key: base_model_key,
+                            ..Default::default()
+                        }
+                    });
                     crate::assets::resolve_presentation_draw_models_for_conditions(
                         application_assets.as_deref(),
                         &obj.template_name,
@@ -560,6 +554,7 @@ impl PresentationFrame {
             } else {
                 obj.team
             };
+            let (ammo_pip_total, ammo_pip_full) = obj.get_ammo_pip_showing_info().unwrap_or_default();
             let renderable = RenderableObject {
                 receiving_draw_models: obj.get_template().receiving_draw_models(),
                 status_tint: [0.0; 3],
@@ -592,9 +587,7 @@ impl PresentationFrame {
                 },
                 // Use accessors so presentation matches authoritative transform state.
                 position: {
-                    let mut p = auth_pose
-                        .map(|a| glam::Vec3::new(a[0], a[1], a[2]))
-                        .unwrap_or(pos);
+                    let mut p = canonical.map_or(pos, |object| object.get_position());
                     p.y += obj.presentation_collapse_height_offset();
                     p.y += obj.presentation_slow_death_sink_offset();
                     if crate::assets::authored_draw_adjusts_height_by_construction(&draw_models) {
@@ -881,8 +874,8 @@ impl PresentationFrame {
                         .unwrap_or(u32::MAX)
                 }),
                 projectile_clip_statuses,
-                ammo_pip_total: obj.get_ammo_pip_showing_info().map(|(t, _)| t).unwrap_or(0),
-                ammo_pip_full: obj.get_ammo_pip_showing_info().map(|(_, f)| f).unwrap_or(0),
+                ammo_pip_total,
+                ammo_pip_full,
                 weapon_ready_percent: obj
                     .get_most_percent_ready_to_fire_any_weapon(weapon_ready_time_seconds),
                 weapon_can_target_air: obj

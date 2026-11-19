@@ -854,27 +854,8 @@ impl GameLogic {
         &self,
         id: ObjectId,
     ) -> [Option<(u32, u32)>; 3] {
-        let valid_clip = |shots_remaining: u32, max_shots: u32| {
-            (max_shots > 0 && shots_remaining <= max_shots).then_some((shots_remaining, max_shots))
-        };
-
-        let Some(object) = self.host_object(id) else {
-            return [None; 3];
-        };
-        std::array::from_fn(|index| {
-            let slot = u8::try_from(index).ok()?;
-            let weapon = object.weapon_slot(slot)?;
-            let shots_remaining = if weapon.reloading_clip
-                || (slot == object.active_weapon_slot
-                    && object.weapon_fire_status
-                        == crate::game_logic::object::WeaponFireStatus::ReloadingClip)
-            {
-                0
-            } else {
-                weapon.ammo?
-            };
-            valid_clip(shots_remaining, weapon.clip_size)
-        })
+        self.host_object(id)
+            .map_or([None; 3], |object| object.drawable_projectile_clip_statuses())
     }
 
     /// Mutate attack substate via HashMap field borrow so `self.frame` stays readable.

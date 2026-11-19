@@ -394,6 +394,23 @@ impl Object {
         most.min(100)
     }
 
+    /// C++ Drawable::updateDrawableClipStatus visits each concrete WeaponSet slot.
+    pub(crate) fn drawable_projectile_clip_statuses(&self) -> [Option<(u32, u32)>; 3] {
+        [0, 1, 2].map(|slot| {
+            let weapon = self.weapon_slot(slot)?;
+            let shots_remaining = if weapon.reloading_clip
+                || (slot == self.active_weapon_slot
+                    && self.weapon_fire_status == WeaponFireStatus::ReloadingClip)
+            {
+                0
+            } else {
+                weapon.ammo?
+            };
+            let max_shots = weapon.clip_size;
+            (max_shots > 0 && shots_remaining <= max_shots).then_some((shots_remaining, max_shots))
+        })
+    }
+
     pub fn get_ammo_pip_showing_info(&self) -> Option<(u32, u32)> {
         use crate::game_logic::weapon_bootstrap::host_shows_ammo_pips_for_weapon_name;
         for slot in [0u8, 1u8, 2u8] {
