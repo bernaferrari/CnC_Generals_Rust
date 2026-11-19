@@ -26,6 +26,9 @@ fn helipad_heals_landed_helo_without_stall() {
     heli_tmpl
         .add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Vehicle)
+        // The Comanche is produced at a helipad (retail KindOf), which is what
+        // makes the pad heal it without a hangar stall.
+        .add_kind_of(KindOf::ProducedAtHelipad)
         .set_health(220.0);
     logic
         .templates
