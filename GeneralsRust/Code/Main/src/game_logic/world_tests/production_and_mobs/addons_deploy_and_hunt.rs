@@ -2624,6 +2624,9 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
     );
 
     logic.destroy_object(af_id).unwrap();
+    // C++ GameLogic deletes the destroyed airfield at the end of that frame, so
+    // getPP(producerID) is NULL on the jet's next update (JetAIUpdate.cpp:1509).
+    logic.process_destroy_list();
     if let Some(af) = logic.objects.get_mut(&af_id) {
         af.status.destroyed = true;
         af.health.current = 0.0;
@@ -2654,6 +2657,11 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
             &mut Default::default(),
             fixture_partition_jet,
         );
+        // Arriving over the wreck completes the move: the return path is done
+        // (the circling state only begins once the jet's own move has finished).
+        jet.movement.clear_path();
+        jet.movement.target_position = None;
+        jet.waiting_for_path = false;
     }
     logic.queued_audio_events.clear();
     logic
