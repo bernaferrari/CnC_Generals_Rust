@@ -263,6 +263,9 @@ impl GameLogic {
             self.eject_foreign_occupants_on_enter_with_effects(container_id, object_id, effects)?;
         }
         if normal_enter && !self.can_unit_enter_normal_target(object_id, requested_container_id) {
+            // AIEnterState::update returns STATE_FAILURE; the machine leaves
+            // the state for its idle default instead of staying "Entering".
+            let frame = self.frame;
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
@@ -270,6 +273,11 @@ impl GameLogic {
                 obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
+                obj.set_ai_state(
+                    AIState::Idle,
+                    frame,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                );
             }
             return Ok(());
         }

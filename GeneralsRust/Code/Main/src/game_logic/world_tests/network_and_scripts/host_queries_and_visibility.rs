@@ -2117,12 +2117,11 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
     game_logic
         .get_player_mut(0)
         .expect("USA player should exist")
-        .unlocked_sciences
-        .insert("Upgrade_InfantryCaptureBuilding".to_string());
+        .add_completed_upgrade("Upgrade_InfantryCaptureBuilding");
     game_logic.apply_upgrade_to_object(captor_id, "Upgrade_InfantryCaptureBuilding");
-    // Retail capture powers reload for 15 seconds after `StartsPaused` is
-    // unpaused; advance the test authority clock before issuing the command.
-    let _ = game_logic.update_with_dt(15.1);
+    // Retail capture powers reload for 15 seconds (450 logic frames) after
+    // `StartsPaused` is unpaused; run those frames before issuing the command.
+    super::super::helpers::advance_logic_frames(&mut game_logic, 460);
 
     game_logic.queue_command(crate::command_system::GameCommand {
         command_type: crate::command_system::CommandType::CaptureBuilding {
@@ -2818,6 +2817,16 @@ fn hacker_disable_prep_stamps_firing_a() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
+    // The NeedToFace turn is solved by the Locomotor in the movement tick
+    // (AIUpdate::doLocomotor), so the hacker carries an authored one.
+    crate::fixture_content::author_locomotors(
+        &mut game_logic,
+        "Locomotor FixtureHackerLocomotor\n Surfaces = GROUND\n Speed = 30\n Acceleration = 100\n TurnRate = 180\nEnd\n",
+    );
+    game_logic
+        .host_object_mut(hacker_id)
+        .expect("hacker")
+        .locomotor_set_names = vec!["FixtureHackerLocomotor".to_string()];
     // C++ SpecialAbilityUpdate orders NeedToFace ahead of Unpack/startPreparation:
     // the hacker spawns facing +x and the target sits behind it (180 deg), and
     // the facing slice consumes a variable number of turn-rate ticks before
@@ -2828,6 +2837,7 @@ fn hacker_disable_prep_stamps_firing_a() {
         game_logic
             .update_ai(&[hacker_id, building_id], 1.0 / 30.0)
             .expect("receiving AI operation succeeds");
+        game_logic.update_movement_for_test(&[hacker_id], 1.0 / 30.0);
         phase = game_logic
             .host_object(hacker_id)
             .and_then(|o| o.hacker_disable_channel)

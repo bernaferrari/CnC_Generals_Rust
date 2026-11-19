@@ -1360,12 +1360,8 @@ pub(super) fn admit_retail_command_catalog(logic: &mut GameLogic) {
     admit_retail_science_catalog(logic);
     for file in ["CommandButton.ini", "CommandSet.ini"] {
         let text = retail_ini_text(file);
-        let mut ini = game_engine::common::ini::INI::new();
-        if let Some(content) = logic.receiving_module_content.as_ref() {
-            ini.set_receiving_science_names(content.science_facts());
-        }
-        ini.with_inline_source(&text, |ini| ini.parse_current_file())
-            .unwrap_or_else(|error| panic!("parse retail {file}: {error:?}"));
+        // C++ INI::load into the owning engine's TheControlBar.
+        logic.load_own_command_ini_for_test(&text);
         logic
             .admit_fixture_command_action_source(&text)
             .unwrap_or_else(|error| panic!("admit retail {file}: {error}"));

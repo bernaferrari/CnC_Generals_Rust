@@ -2781,9 +2781,12 @@ fn player_grant_science_script_honors_is_grantable() {
     super::super::helpers::admit_retail_science_catalog(&mut logic);
     logic.scripts_loaded = true;
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"));
-    let _ = gamelogic::scripting::take_host_science_action_requests();
-    gamelogic::scripting::request_host_science_action("Local", "SCIENCE_PaladinTank", true);
-    gamelogic::scripting::request_host_science_action("Local", "SCIENCE_Rank2", true);
+    // The script request queue is this world's own (WorldServices).
+    logic.with_own_services(|| {
+        let _ = gamelogic::scripting::take_host_science_action_requests();
+        gamelogic::scripting::request_host_science_action("Local", "SCIENCE_PaladinTank", true);
+        gamelogic::scripting::request_host_science_action("Local", "SCIENCE_Rank2", true);
+    });
     logic.evaluate_and_execute_scripts(0.0);
     let p = logic.players.get(&0).expect("p");
     assert!(
@@ -2818,12 +2821,14 @@ fn player_grant_science_script_readies_shared_special_power() {
     // ThePlayerList (getPlayerFromAsciiString); an unregistered player can
     // never be resolved, so the fixture must insert it into logic.players.
     logic.players.insert(0, player);
-    let _ = gamelogic::scripting::take_host_science_action_requests();
-    gamelogic::scripting::request_host_science_action(
-        "Local",
-        "SCIENCE_A10ThunderboltMissileStrike1",
-        false,
-    );
+    logic.with_own_services(|| {
+        let _ = gamelogic::scripting::take_host_science_action_requests();
+        gamelogic::scripting::request_host_science_action(
+            "Local",
+            "SCIENCE_A10ThunderboltMissileStrike1",
+            false,
+        );
+    });
     logic.evaluate_and_execute_scripts(0.0);
     let p = logic.players.get(&0).expect("p");
     assert!(
