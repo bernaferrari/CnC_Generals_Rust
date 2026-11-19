@@ -464,6 +464,53 @@ mod tests {
         }
     }
 
+    pub(super) fn lone_eagle_road_corner_segments() -> [RuntimeRoadVisualSegment; 2] {
+        let corner = [3088.018_1, 0.0, 2180.012_7];
+        let mut first = runtime_road_segment(
+            corner,
+            [3156.723, 0.0, 2903.125],
+            60.0,
+            0.95,
+            1,
+            false,
+        );
+        let mut second = runtime_road_segment(
+            corner,
+            [3179.144_5, 0.0, 1925.486_1],
+            60.0,
+            0.95,
+            1,
+            false,
+        );
+        first.curve_radius = 0.5;
+        second.curve_radius = 0.5;
+        [first, second]
+    }
+
+    #[test]
+    fn lone_eagle_road_corner_shares_cpp_miter_edges() {
+        crate::test_support::ensure_ambient_host();
+        let roads = lone_eagle_road_corner_segments();
+        let corner = roads[0].start;
+        let mut visual = TerrainVisualImpl::new();
+        visual.set_runtime_map_road_segments(&roads, &[]).unwrap();
+        let (mut start, mut end, mut count) = (None, None, 0);
+        visual.road_system.for_each_visible_overlay_source(|_, segment| {
+            count += 1;
+            if segment.start.to_array() == corner {
+                start = segment.properties.w3d_miters[0];
+            }
+            if segment.end.to_array() == corner {
+                end = segment.properties.w3d_miters[1];
+            }
+        });
+        assert_eq!(count, 2, "the source's 25.126° corner uses a miter");
+        let start = start.expect("miter on the outgoing road");
+        assert_eq!(Some(start), end, "both strips must share their two edge points");
+        assert!((Vec2::from_array(start.top) - Vec2::new(3059.045_2, 2176.385_7)).length() < 0.002);
+        assert!((Vec2::from_array(start.bottom) - Vec2::new(3116.991, 2183.639_6)).length() < 0.002);
+    }
+
     #[test]
     fn alpha_join_synthesis_scales_texture_width_not_road_width_like_cpp() {
         crate::test_support::ensure_ambient_host();

@@ -493,6 +493,78 @@ fn three_way_blend_keeps_flat_terrain_directional_lighting() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "requires a native GPU adapter"]
+fn lone_eagle_road_miter_fills_exterior_gap_pixels() {
+    use game_engine::common::ini::ini_road::TerrainRoadCollection;
+
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        .expect("road miter test requires a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("road miter test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let directory = tempfile::tempdir().unwrap();
+    let texture_path = directory.path().join("RoadMiterWitness.tga");
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([120u8, 100, 80, 255]))
+        .save_with_format(&texture_path, image::ImageFormat::Tga)
+        .unwrap();
+    let mut definitions = TerrainRoadCollection::new();
+    let road = definitions.new_road(AsciiString::from("RoadMiterWitness"));
+    road.texture = AsciiString::from(texture_path.to_str().unwrap());
+    let road_type_id = road.id;
+
+    let mut roads = super::tests::lone_eagle_road_corner_segments();
+    let origin = roads[0].start;
+    for road in &mut roads {
+        for endpoint in [&mut road.start, &mut road.end] {
+            endpoint[0] = 40.0 + (endpoint[0] - origin[0]) * 0.1;
+            endpoint[2] = 40.0 + (endpoint[2] - origin[2]) * 0.1;
+        }
+        road.width *= 0.1;
+        road.road_type_id = road_type_id;
+        road.template_name = "RoadMiterWitness".into();
+    }
+    let terrain = [(TerrainSourceTileClass {
+        first_tile: 0, num_tiles: 1, width: 1, name: "RoadWhiteGround".into(),
+    }, [255; 3])];
+    let mut visual = live_terrain_visual(
+        &device, &queue, &terrain, HeightMap::new(64, 64, 0.0, 1.0), 1.0,
+    );
+    visual.create_road_pipeline(&device).unwrap();
+    visual.admit_road_presentation(definitions.presentation());
+    visual.set_runtime_map_road_segments(&roads, &[]).unwrap();
+    visual.update_road_meshes().unwrap();
+    let transform = Mat4::from_cols_array_2d(&[
+        [5.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
+        [0.0, 5.0, 0.0, 0.0], [-186.5, -198.25, 0.5, 1.0],
+    ]);
+    let with_miter = render_live_terrain_visual_with_transform(
+        &device, &queue, &mut visual, transform,
+    );
+
+    let mut ids = Vec::new();
+    visual.road_system.for_each_visible_overlay_source(|_, road| ids.push(road.id));
+    for id in ids {
+        visual.road_system.get_segment_mut(id).unwrap().properties.w3d_miters = [None; 2];
+    }
+    visual.overlay_gpu_meshes_dirty = true;
+    visual.update_road_meshes().unwrap();
+    let without_miter = render_live_terrain_visual_with_transform(
+        &device, &queue, &mut visual, transform,
+    );
+
+    // This sample is outside both butt-ended strips and inside the
+    // shared footprint at the miter's exterior side.
+    let pixel = 4 * 256 + 11 * 4;
+    assert_eq!(&without_miter[pixel..pixel + 4], &[255, 255, 255, 255]);
+    assert_eq!(&with_miter[pixel..pixel + 4], &[80, 100, 120, 255]);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
 fn receiving_terrain_owners_render_their_own_live_lights_and_restore_static_color() {
     use crate::fx_list::{DisplayLightPulse, FxClientState};
     crate::test_support::ensure_ambient_host();

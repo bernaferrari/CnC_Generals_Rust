@@ -704,6 +704,39 @@ pub fn bake_straight_road_segment_with_lights(
     sample_max_cell_height: impl Fn(f32, f32) -> f32,
     lights: &[DisplayDynamicLight],
 ) -> Option<(Vec<RoadSegVertex>, Vec<u16>)> {
+    bake_straight_road_section(
+        start,
+        end,
+        width,
+        width_in_texture,
+        u_offset,
+        v_offset,
+        scale,
+        [None; 2],
+        sample_max_cell_height,
+        lights,
+    )
+}
+
+/// Shared top and bottom edge of two C++ W3DRoadBuffer segments.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct RoadMiter {
+    pub bottom: [f32; 2],
+    pub top: [f32; 2],
+}
+
+pub(crate) fn bake_straight_road_section(
+    start: [f32; 2],
+    end: [f32; 2],
+    width: f32,
+    width_in_texture: f32,
+    u_offset: f32,
+    v_offset: f32,
+    scale: f32,
+    miters: [Option<RoadMiter>; 2],
+    sample_max_cell_height: impl Fn(f32, f32) -> f32,
+    lights: &[DisplayDynamicLight],
+) -> Option<(Vec<RoadSegVertex>, Vec<u16>)> {
     let road_vector = [end[0] - start[0], end[1] - start[1]];
     if road_vector[0].abs() < MIN_ROAD_SEGMENT && road_vector[1].abs() < MIN_ROAD_SEGMENT {
         return None;
@@ -723,15 +756,19 @@ pub fn bake_straight_road_segment_with_lights(
     // span; preloadRoadSegment still uses `width` alone as the UV scale.
     let half = width.max(0.1) * width_in_texture.max(0.0) * 0.5;
     road_normal = [road_normal[0] * half, road_normal[1] * half];
-    let bottom_left = [start[0] - road_normal[0], start[1] - road_normal[1]];
-    let top_left = [start[0] + road_normal[0], start[1] + road_normal[1]];
-    let bottom_right = [end[0] - road_normal[0], end[1] - road_normal[1]];
-    let top_right = [end[0] + road_normal[0], end[1] + road_normal[1]];
+    let endpoints = [start, end];
+    let [left, right] = std::array::from_fn(|i| {
+        let [x, y] = endpoints[i];
+        miters[i].unwrap_or(RoadMiter {
+            bottom: [x - road_normal[0], y - road_normal[1]],
+            top: [x + road_normal[0], y + road_normal[1]],
+        })
+    });
     Some(load_float_4pt_section_with_lights(
         start,
         road_normal,
         road_vector,
-        [bottom_left, bottom_right, top_left, top_right],
+        [left.bottom, right.bottom, left.top, right.top],
         u_offset,
         v_offset,
         scale.max(0.1),

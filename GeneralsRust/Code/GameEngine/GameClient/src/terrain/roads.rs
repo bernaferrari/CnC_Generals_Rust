@@ -4,6 +4,7 @@
 //! elements that modify terrain appearance and affect gameplay.
 
 use crate::terrain::{TerrainError, TerrainResult};
+use super::w3d_overlay_mesh::RoadMiter;
 use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 use glam::{Vec2, Vec3, Mat4};
 use std::collections::HashMap;
@@ -97,6 +98,9 @@ pub struct RoadSegmentProperties {
 
     /// Synthetic intersection origin used for runtime tee/four-way reconstruction.
     pub synthetic_intersection: Option<RoadSyntheticIntersectionKind>,
+
+    /// C++ straight-section overrides for the start and end edge.
+    pub(crate) w3d_miters: [Option<RoadMiter>; 2],
 
     /// C++ parity metadata: number of same-type segments sharing start endpoint.
     pub endpoint_start_count: u8,
@@ -422,6 +426,7 @@ impl Default for RoadSegmentProperties {
             has_markings: false,
             texture_override: None,
             synthetic_intersection: None,
+            w3d_miters: [None; 2],
             endpoint_start_count: 0,
             endpoint_end_count: 0,
             endpoint_start_last: true,

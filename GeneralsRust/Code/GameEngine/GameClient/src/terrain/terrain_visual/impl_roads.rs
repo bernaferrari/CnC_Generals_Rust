@@ -110,9 +110,40 @@ impl TerrainVisualImpl {
         });
     }
 
+    fn miter_runtime_road_pair(
+        a: &RuntimeRoadVisualSegment,
+        b: &RuntimeRoadVisualSegment,
+    ) -> Option<super::w3d_overlay_mesh::RoadMiter> {
+        let offset_side = |segment: &RuntimeRoadVisualSegment| {
+            let start = Vec2::new(segment.start[0], segment.start[2]);
+            let end = Vec2::new(segment.end[0], segment.end[2]);
+            let delta = end - start;
+            let normal = Vec2::new(-delta.y, delta.x).normalize_or_zero()
+                * (0.5 * segment.width * segment.width_in_texture);
+            (start, end, normal)
+        };
+        let (a_start, a_end, a_offset) = offset_side(a);
+        let (b_start, b_end, b_offset) = offset_side(b);
+        let intersection = |side: f32| {
+            Self::runtime_line_intersection(
+                a_start + a_offset * side,
+                a_end + a_offset * side,
+                b_start + b_offset * side,
+                b_end + b_offset * side,
+            )
+            .filter(|point| point.is_finite())
+            .map(|point| point.to_array())
+        };
+        Some(super::w3d_overlay_mesh::RoadMiter {
+            top: intersection(1.0)?,
+            bottom: intersection(-1.0)?,
+        })
+    }
+
     fn insert_runtime_curve_segment_at(
         segment_a: &mut RuntimeRoadVisualSegment,
         segment_b: &mut RuntimeRoadVisualSegment,
+        miter: &mut Option<super::w3d_overlay_mesh::RoadMiter>,
     ) -> Vec<RuntimeRoadVisualSegment> {
         const DOT_LIMIT: f32 = 0.5;
 
@@ -121,10 +152,6 @@ impl TerrainVisualImpl {
         }
 
         let radius = segment_a.curve_radius.max(0.0) * segment_a.width.max(0.0);
-        if radius <= 1.0e-3 {
-            return Vec::new();
-        }
-
         let source_a = segment_a.clone();
         let shared_height = (segment_a.start[1] + segment_b.end[1]) * 0.5;
 
@@ -170,6 +197,12 @@ impl TerrainVisualImpl {
         let angle = cur_sin.acos();
         let count = angle / (PI / 6.0);
         if count < 0.9 || segment_a.start_is_angled {
+            // W3DRoadBuffer::miter shares both offset side intersections
+            // without moving either segment's centreline or UV frame.
+            *miter = Self::miter_runtime_road_pair(segment_a, segment_b);
+            return Vec::new();
+        }
+        if radius <= 1.0e-3 {
             return Vec::new();
         }
 
@@ -200,6 +233,7 @@ impl TerrainVisualImpl {
         if dot1 < DOT_LIMIT || dot2 < DOT_LIMIT {
             segment_a.start = Self::runtime_point_from_ground(original_corner, segment_a.start[1]);
             segment_b.end = Self::runtime_point_from_ground(original_corner, segment_b.end[1]);
+            *miter = Self::miter_runtime_road_pair(segment_a, segment_b);
             return Vec::new();
         }
 
@@ -256,10 +290,11 @@ impl TerrainVisualImpl {
     fn insert_runtime_curve_segments(
         ordered_segments: &mut Vec<RuntimeRoadVisualSegment>,
         topology: &[RuntimeRoadEndpointTopology],
-    ) {
+    ) -> Vec<[Option<super::w3d_overlay_mesh::RoadMiter>; 2]> {
         let original_segment_count = ordered_segments.len().min(topology.len());
+        let mut miters = vec![[None; 2]; original_segment_count];
         if original_segment_count <= 1 {
-            return;
+            return miters;
         }
 
         let mut segment_start_index: Option<usize> = None;
@@ -299,17 +334,23 @@ impl TerrainVisualImpl {
                 continue;
             }
 
+            let mut miter = None;
             let curves = if a < b {
                 let (left, right) = ordered_segments.split_at_mut(b);
-                Self::insert_runtime_curve_segment_at(&mut left[a], &mut right[0])
+                Self::insert_runtime_curve_segment_at(&mut left[a], &mut right[0], &mut miter)
             } else {
                 let (left, right) = ordered_segments.split_at_mut(a);
-                Self::insert_runtime_curve_segment_at(&mut right[0], &mut left[b])
+                Self::insert_runtime_curve_segment_at(&mut right[0], &mut left[b], &mut miter)
             };
+            if let Some(miter) = miter {
+                miters[a][0] = Some(miter);
+                miters[b][1] = Some(miter);
+            }
             if !curves.is_empty() {
                 ordered_segments.extend(curves);
             }
         }
+        miters
     }
 
     fn runtime_xp_sign(v1: Vec2, v2: Vec2) -> i32 {
@@ -805,7 +846,7 @@ impl TerrainVisualImpl {
             &ordered_road_segments,
             &endpoint_topology,
         );
-        Self::insert_runtime_curve_segments(&mut ordered_road_segments, &endpoint_topology);
+        let miters = Self::insert_runtime_curve_segments(&mut ordered_road_segments, &endpoint_topology);
         let (alpha_join_segments, road_stackings) =
             Self::synthesize_runtime_cross_type_join_segments(
                 &ordered_road_segments,
@@ -847,6 +888,7 @@ impl TerrainVisualImpl {
             }
             if let Some(segment) = self.road_system.get_segment_mut(segment_id) {
                 let topology = endpoint_topology.get(index).copied().unwrap_or_default();
+                segment.properties.w3d_miters = miters.get(index).copied().unwrap_or([None; 2]);
                 segment.properties.texture_override = Some(format!(
                     "RoadTypeId={} WidthInTexture={:.3} Kind={}",
                     road_segment.road_type_id,

@@ -1015,7 +1015,7 @@ impl TerrainVisualImpl {
                     let width_in_texture = segment
                         .runtime_texture_override_f32("WidthInTexture")
                         .unwrap_or(1.0);
-                    if let Some((verts, indices)) = bake_straight_road_segment(
+                    if let Some((verts, indices)) = bake_straight_road_section(
                         [segment.start.x, segment.start.z],
                         [segment.end.x, segment.end.z],
                         segment.width,
@@ -1023,7 +1023,9 @@ impl TerrainVisualImpl {
                         0.0,
                         85.0 / 512.0,
                         segment.width,
+                        segment.properties.w3d_miters,
                         height_at,
+                        &[],
                     ) {
                         if !verts.is_empty() && !indices.is_empty() {
                             let mut gpu_vertices = fill_road_gpu_upload_vertices(&verts);

@@ -36,7 +36,7 @@ use super::tree_buffer::{
 };
 use super::w3d_overlay_mesh::{
     BRIDGE_FLOAT_AMT, DEFAULT_ROAD_SCALE, OverlayGpuVertex, ROAD_FLOAT_AMOUNT, WaterGpuVertex,
-    WaterTerrainLight, bake_bridge_span, bake_straight_road_segment,
+    WaterTerrainLight, bake_bridge_span, bake_straight_road_section,
     bake_water_tiles_world, compute_standing_water_diffuse,
     default_sectional_bridge_model, fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices,
     fill_water_gpu_upload_vertices,
