@@ -928,7 +928,17 @@ impl GameLogic {
         );
         self.restore_combat_bonus_baseline();
         self.restore_tunnel_capacity_baseline();
+        // Object teardown (run just before this) queues the stop requests for
+        // every playing loop; the audio system outlives a logic reset (C++
+        // TheAudio), so those stops are delivered rather than discarded.
+        let teardown_stops: Vec<_> = self
+            .queued_audio_events
+            .drain_requests()
+            .into_iter()
+            .filter(|event| event.stop)
+            .collect();
         self.queued_audio_events.reset();
+        self.queued_audio_events.extend_admitted(teardown_stops);
         self.session_view.world_animations.clear();
         self.session_view.border_shroud_level = None;
         self.native_hulk_max_lifetime_override = -1;

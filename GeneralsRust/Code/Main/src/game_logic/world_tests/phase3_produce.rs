@@ -973,6 +973,9 @@ fn construction_audio_fixture(logic: &mut GameLogic, pos: glam::Vec3) -> ObjectI
     // A reset world re-admits the authored content; a world that already carries it
     // keeps its own admission.
     let _ = ensure_admitted_dozer_content(logic);
+    // A reset world restarts at frame 0; a live session runs past it (the Dozer
+    // machine picks its request on a later update).
+    logic.frame = logic.frame.max(10);
     let site = logic
         .create_object_under_construction("TestBuilding", Team::USA, pos)
         .expect("construction site").expect("ObjectId");
@@ -1049,9 +1052,18 @@ fn construction_audio_same_id_completion_and_reset_are_owner_local() {
                 }
             }
             assert!(!b.host_object(b_site).unwrap().status.under_construction);
-            assert!(b.queued_audio_events.iter().any(|event| event.stop
-                && event.event_type == "BuildingConstructionLoop"
-                && event.object_id == Some(b_site)));
+            assert!(
+                b.queued_audio_events.iter().any(|event| event.stop
+                    && event.event_type == "BuildingConstructionLoop"
+                    && event.object_id == Some(b_site)),
+                "completion must stop the loop: events={:?} loops={:?} percent={}",
+                b.queued_audio_events
+                    .iter()
+                    .map(|event| (&event.event_type, event.stop, event.is_looping, event.object_id))
+                    .collect::<Vec<_>>(),
+                b.construction_audio_loops,
+                b.host_object(b_site).unwrap().construction_percent
+            );
             drive_dozer_frame(&mut a, &[a_dozer, a_site]);
             assert!(
                 !a.queued_audio_events
