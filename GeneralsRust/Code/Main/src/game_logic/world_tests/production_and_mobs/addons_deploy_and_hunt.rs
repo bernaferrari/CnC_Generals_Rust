@@ -1266,6 +1266,8 @@ fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
                 damage: 40.0,
                 range: 100.0,
                 reload_time: 0.1,
+                // Instant-hit sentinel: the default 200/s delays a 30-unit shot.
+                projectile_speed: 0.0,
                 ..Default::default()
             },
         );

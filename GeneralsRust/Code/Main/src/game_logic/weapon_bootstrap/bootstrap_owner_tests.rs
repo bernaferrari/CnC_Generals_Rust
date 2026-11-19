@@ -187,64 +187,67 @@ fn bootstrap_completion_clears_on_actual_catalog_reset() {
     );
 }
 
-#[test]
-fn ordinary_admission_bootstraps_replacement_without_foreign_completion() {
-    isolated(
-        "ordinary_admission_bootstraps_replacement_without_foreign_completion",
-        || {
-            let _restore = RestoreStore::install();
-            prime_catalog();
-            let _first = gamelogic::weapon::with_weapon_store_mut(std::mem::take).unwrap();
-            assert!(!store_has(RANGER_PRIMARY_WEAPON));
-            // No direct ensure here: actual create_object -> template resolution
-            // must admit the missing rules before binding the weapon.
-            admit_ranger(5.0);
-            assert!(store_has(RANGER_PRIMARY_WEAPON));
-            assert_eq!(ensure_host_weapon_store(), 0);
-        },
-    );
+/// Weapon.ini text for the Ranger primary with the stated numbers (C++
+/// TheWeaponStore is filled from Weapon.ini before any Object is created).
+fn ranger_rule_ini(damage: f32, range: f32) -> String {
+    format!(
+        "Weapon {RANGER_PRIMARY_WEAPON}\n  PrimaryDamage = {damage}\n  AttackRange = {range}\n  DelayBetweenShots = 1000\n  WeaponSpeed = 30000000\n  ClipSize = 8\n  DamageType = SMALL_ARMS\n  AntiGround = Yes\n  ProjectileObject = NONE\nEnd\n"
+    )
 }
 
-#[test]
-fn bootstrap_retains_actual_parsed_override_and_completed_catalog() {
-    isolated(
-        "bootstrap_retains_actual_parsed_override_and_completed_catalog",
-        || {
-            let _restore = RestoreStore::install();
-            assert_eq!(
-                crate::assets::ini_template_loader::register_weapons_from_ini_text(
-                    r#"
-Weapon RangerAdvancedCombatRifle
-  PrimaryDamage = 37
-  AttackRange = 123
-  DelayBetweenShots = 1000
-  WeaponSpeed = 30000000
-  ClipSize = 8
-  DamageType = SMALL_ARMS
-  AntiGround = Yes
-  ProjectileObject = NONE
-End
-"#
-                ),
-                1
-            );
-            assert!(
-                ensure_host_weapon_store() > 0,
-                "fills remaining names beside authored Ranger"
-            );
-            admit_ranger(37.0);
-            gamelogic::weapon::with_weapon_store(|store| {
-                let actual = store.find_weapon_template(RANGER_PRIMARY_WEAPON).unwrap();
-                assert_eq!(actual.primary_damage, 37.0);
-                assert_eq!(actual.attack_range, 123.0);
-                assert_eq!(actual.clip_size, 8);
-                assert!(actual.projectile_name.eq_ignore_ascii_case("NONE"));
-            })
-            .unwrap();
-            assert_eq!(ensure_host_weapon_store(), 0);
-            admit_ranger(37.0);
-        },
+/// A fresh world whose own WeaponStore snapshot is the parsed `weapon_ini`;
+/// creates one Ranger from it and returns the world and the Ranger's id.
+fn world_with_own_ranger_rule(weapon_ini: &str) -> (crate::game_logic::GameLogic, crate::game_logic::ObjectId) {
+    let mut world = crate::game_logic::GameLogic::new();
+    let mut rules = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut rules,
+        weapon_ini,
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
     );
+    world
+        .admit_receiving_weapon_snapshot(
+            rules.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
+        )
+        .expect("weapon content admitted before live Objects");
+    let mut template = ThingTemplate::new("BootstrapOwnedRanger");
+    template.add_kind_of(KindOf::Infantry);
+    template.add_kind_of(KindOf::Attackable);
+    template.set_health(100.0);
+    template.set_primary_weapon_name(RANGER_PRIMARY_WEAPON);
+    world.templates.insert(template.name.clone(), template);
+    let id = world
+        .create_object("BootstrapOwnedRanger", Team::USA, Vec3::ZERO)
+        .expect("actual Main admission");
+    (world, id)
+}
+
+// Each world owns its WeaponStore snapshot (C++ one TheWeaponStore per match):
+// another world's rules, or the thread-local compatibility store, never bind.
+#[test]
+fn ordinary_admission_binds_each_worlds_own_weapon_snapshot() {
+    let (first, first_id) = world_with_own_ranger_rule(&ranger_rule_ini(37.0, 123.0));
+    let (second, second_id) = world_with_own_ranger_rule(&ranger_rule_ini(55.0, 77.0));
+    let first_weapon = first.host_object(first_id).unwrap().weapon.as_ref().unwrap();
+    let second_weapon = second.host_object(second_id).unwrap().weapon.as_ref().unwrap();
+    assert_eq!((first_weapon.damage, first_weapon.range), (37.0, 123.0));
+    assert_eq!((second_weapon.damage, second_weapon.range), (55.0, 77.0));
+}
+
+// An authored override of the Ranger rule is the rule the world binds, and a
+// later Object of the same world keeps it.
+#[test]
+fn world_admission_retains_parsed_override_rule() {
+    let (mut world, id) = world_with_own_ranger_rule(&ranger_rule_ini(37.0, 123.0));
+    let weapon = world.host_object(id).unwrap().weapon.as_ref().unwrap();
+    assert_eq!(weapon.damage, 37.0);
+    assert_eq!(weapon.range, 123.0);
+    assert_eq!(weapon.ammo, Some(8));
+    let again = world
+        .create_object("BootstrapOwnedRanger", Team::USA, Vec3::ZERO)
+        .expect("second Ranger from the same snapshot");
+    let weapon = world.host_object(again).unwrap().weapon.as_ref().unwrap();
+    assert_eq!((weapon.damage, weapon.range, weapon.ammo), (37.0, 123.0, Some(8)));
 }
 
 #[test]

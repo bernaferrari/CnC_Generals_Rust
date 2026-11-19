@@ -755,6 +755,9 @@ pub(super) fn setup_ground_attacker(
             // A ground shot has no victim: it harms only through the weapon's
             // PrimaryDamageRadius around the impact point.
             splash_radius: 10.0,
+            // WeaponSpeed 0 authors the instant-hit sentinel; the default 200/s
+            // would delay the 15-unit shot by three frames (Weapon.cpp:1006).
+            projectile_speed: 0.0,
             ..Default::default()
         },
     );
