@@ -170,13 +170,6 @@ impl SharedSkirmishAssets {
         // GENERALS_ASSETS_DIR or a known windows_game install, so the probe
         // also runs from worktrees without a local windows_game.
         let _ = crate::map_frame_scenario::ensure_assets_env_for_tests();
-        // GameEngine::init mounts TheFileSystem (local + BIG) before INI and
-        // GameLogic (GameEngine.cpp:281-329). SidesList::prepareForMP_or_Skirmish
-        // opens Data\\Scripts\\SkirmishScripts.scb through it (SidesList.cpp:487);
-        // without the mount the skirmish AI has no scripts and never builds.
-        let _ = crate::subsystem_manager::SubsystemInterface::init(
-            &mut crate::subsystem_manager::FileSystemSubsystem::new(),
-        );
         let map_path = crate::map_frame_scenario::lone_eagle_map_path()
             .map(PathBuf::from)
             .ok_or_else(|| HarnessAssetError::Missing(format!("{HARNESS_MAP}.map")))?;
@@ -362,7 +355,20 @@ impl HeadlessSkirmish {
     /// Admit the shared content into a fresh world and start the skirmish.
     /// Must run on the thread that will drive the instance.
     pub fn start(assets: &SharedSkirmishAssets, seed: u32) -> Result<Self, String> {
-        let mut logic = GameLogic::new();
+        crate::game_logic::ensure_world_ambient();
+        let mut logic = {
+            let application = game_engine::common::common_services::CommonServicesScope::new();
+            // GameEngine.cpp:281-329 mounts loose and BIG files before INI
+            // admission. SidesList.cpp:487 opens SkirmishScripts.scb from
+            // these same application channels when the map lacks scripts.
+            let mut file_system = application.services().application.file_system
+                .lock()
+                .map_err(|error| format!("cannot lock the skirmish filesystem: {error}"))?;
+            crate::subsystem_manager::FileSystemSubsystem::mount_common_files(&mut file_system)
+                .map_err(|error| error.to_string())?;
+            drop(file_system);
+            GameLogic::new()
+        };
         logic.with_own_services_mut(|logic| -> Result<(), String> {
             assets.definitions.admit(logic)?;
             apply_skirmish_config(logic, &assets.match_config(seed))?;
@@ -668,12 +674,16 @@ pub fn run_headless_skirmish(
     if spec.human_orders {
         game.issue_human_orders()?;
     }
-    let frames = (0..spec.frames)
-        .map(|_| {
-            game.advance();
-            game.observe()
-        })
-        .collect();
+    let mut frames = Vec::with_capacity(spec.frames as usize);
+    for _ in 0..spec.frames {
+        let previous = game.frame();
+        game.advance();
+        let actual = game.frame();
+        if actual != previous.wrapping_add(1) {
+            return Err(format!("expected one logic frame after {previous}, reached {actual}"));
+        }
+        frames.push(game.observe());
+    }
     Ok(SkirmishTrace { spec, initial, frames })
 }
 
@@ -700,13 +710,14 @@ pub fn run_parallel_skirmishes(
                         drop(start.read().expect("start gate poisoned"));
                         run_headless_skirmish(assets, spec)
                     })
-                    .expect("spawn skirmish thread")
             })
             .collect();
         drop(gate);
         handles
             .into_iter()
-            .map(|handle| {
+            .enumerate()
+            .map(|(index, handle)| {
+                let handle = handle.map_err(|error| format!("could not start instance {index}: {error}"))?;
                 handle.join().unwrap_or_else(|payload| {
                     Err(format!("instance panicked: {}", panic_message(&*payload)))
                 })

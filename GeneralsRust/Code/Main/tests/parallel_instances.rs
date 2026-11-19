@@ -8,6 +8,8 @@
 //! only part of the simulation; a pass is not proof of complete isolation or
 //! parity with the original game.
 
+use gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
+use generals_main::game_logic::AIState;
 use generals_main::parallel_harness::{
     HeadlessSkirmish, HumanOrders, SharedSkirmishAssets, SkirmishObservation, SkirmishSpec,
     SkirmishTrace, run_headless_skirmish, run_parallel_skirmishes,
@@ -91,6 +93,12 @@ fn same_process_interleaved_and_concurrent_worlds_match_single_runs() {
             // the world diverges from the same-seed run without input.
             assert_eq!(ordered_trace.initial, quiet_trace.initial, "orders are issued after the start snapshot");
             let human = HumanOrders::PLAYER;
+            let computer = 1;
+            let starting_ai_supplies = supplies(&quiet_trace.initial, computer);
+            assert!(
+                quiet_trace.frames.iter().any(|frame| supplies(frame, computer) < starting_ai_supplies),
+                "the retail AI must run its opening purchase"
+            );
             let last = frames as usize - 1;
             assert!(supplies(&ordered_trace.frames[last], human) < supplies(&quiet_trace.frames[last], human),
                 "queuing a {} must charge the human player", HumanOrders::PRODUCED_UNIT);
@@ -144,9 +152,16 @@ fn same_process_interleaved_and_concurrent_worlds_match_single_runs() {
             let parallel = run_parallel_skirmishes(&assets, &specs);
             assert_eq!(parallel.len(), instances);
             for (index, result) in parallel.into_iter().enumerate() {
-                assert_eq!(&result.unwrap_or_else(|error| panic!("instance {index}: {error}")),
-                    rotation[index % 3].1, "parallel instance {index}");
+                let actual = result.unwrap_or_else(|error| panic!("instance {index}: {error}"));
+                let expected = rotation[index % 3].1;
+                assert_eq!(actual.spec, expected.spec, "instance {index} inputs");
+                assert_eq!(actual.initial, expected.initial, "instance {index} first frame");
+                assert_eq!(actual.frames.len(), expected.frames.len(), "instance {index} trace length");
+                for (actual, expected) in actual.frames.iter().zip(&expected.frames) {
+                    assert_eq!(actual, expected, "instance {index} at logic frame {}", expected.frame);
+                }
             }
+            eprintln!("{instances} concurrent worlds matched their solo runs for {frames} frames");
         })
         .expect("spawn probe")
         .join()
@@ -186,19 +201,17 @@ fn human_power_plant_completes_in_its_cpp_build_time_while_worlds_take_turns() {
             assert_eq!(cpp_build_frames(&worlds[1], human, HumanOrders::STRUCTURE), expected,
                 "both worlds start from the same authored build-time inputs");
             assert!(expected >= 30, "retail Power Plant build time: {expected} frames");
-            // The ordered Dozer and its approach budget: C++ newTask stores
-            // the build dock from findGoodBuildOrRepairPosition, outside the
-            // scaffold, and the Dozer drives its first planned path there at
-            // locomotor speed. Budget = frames until that path exists + its
-            // length at max speed + APPROACH_SLACK (acceleration, turning and
-            // the MoveToActionPos arrival tolerance).
-            const APPROACH_SLACK: u32 = 30;
+            // DozerAIUpdate.cpp:485-507 issues a second movement command
+            // before waiting for idle at the ACTION dock. AIUpdate.cpp:485
+            // can defer its path request for a second. Observe that state
+            // transition directly instead of timing the first path at max speed.
             let order_frame = worlds[0].frame();
             let dozers: Vec<_> = worlds
-                .iter_mut()
+                .iter()
                 .map(|world| world.owned_ids(human, "AmericaVehicleDozer")[0])
                 .collect();
-            let mut approach_budget = [None; 2];
+            let mut saw_approach_path = [false; 2];
+            let mut dock_path_end = [None; 2];
             // Approach and docking, then exactly one percent step per frame.
             let limit = expected + 600;
             let mut started = [None; 2];
@@ -210,22 +223,36 @@ fn human_power_plant_completes_in_its_cpp_build_time_while_worlds_take_turns() {
                     }
                     world.advance();
                     let dozer = dozers[index];
-                    if approach_budget[index].is_none() {
-                        if let Some((_, Some(dock), speed, Some(path))) = world.dozer_approach(dozer) {
-                            let site = world.owned_ids(human, HumanOrders::STRUCTURE)[0];
-                            assert_eq!(world.footprint_contains(site, dock), Some(false),
-                                "world {index}: build dock {dock:?} must lie outside the scaffold");
-                            assert!(speed > 0.0, "world {index}: dozer locomotor speed");
-                            // Locomotor turning slows the Dozer at each path
-                            // corner: allow 10% over the full-speed drive.
-                            let drive = (path / (speed / 30.0) * 1.1).ceil() as u32;
-                            approach_budget[index] = Some(world.frame() - order_frame + drive + APPROACH_SLACK);
-                        }
-                    }
                     let sites = world.construction(human, HumanOrders::STRUCTURE);
                     assert_eq!(sites.len(), 1, "world {index}: one scaffold, got {sites:?}");
-                    let (_, under_construction, percent) = sites[0];
+                    let (site, under_construction, percent) = sites[0];
+                    let actor = world.logic().host_object(dozer).expect("starting dozer");
+                    let phase = actor.dozer_tasks.build_sub_task;
+                    if !saw_approach_path[index] && !actor.movement.path.is_empty() {
+                        let dock = actor.dozer_dock_action().expect("build task has an ACTION dock");
+                        assert_eq!(world.footprint_contains(site, dock), Some(false),
+                            "world {index}: build dock {dock:?} must lie outside the scaffold");
+                        saw_approach_path[index] = true;
+                    }
+                    if phase == DozerBuildSubTask::MovingToBuildDockLocation {
+                        if let Some(end) = actor.movement.path.last().copied() {
+                            dock_path_end[index] = Some(end);
+                        }
+                        assert_eq!(percent, 0.0, "world {index}: construction during dock movement");
+                    }
                     if started[index].is_none() && percent > 0.0 {
+                        assert!(saw_approach_path[index],
+                            "world {index}: construction started before the dozer's approach");
+                        assert_eq!(phase, DozerBuildSubTask::DoBuildAtDock);
+                        assert_eq!(actor.ai_state(), AIState::Idle);
+                        // AIStates.cpp:1887-1916 checks the end of the selected
+                        // path, which can differ from the requested dock.
+                        let delta = actor.get_position() - dock_path_end[index].expect("dock path");
+                        let tolerance = actor.close_enough_dist.unwrap_or(1.0);
+                        assert!(delta.x.hypot(delta.z) < tolerance,
+                            "world {index}: dozer began construction {delta:?} from its dock");
+                        assert!((percent - 1.0 / expected as f32).abs() < 1e-6,
+                            "world {index}: first contribution {percent}, expected one of {expected} frames");
                         started[index] = Some(world.frame());
                     }
                     if !under_construction {
@@ -239,14 +266,10 @@ fn human_power_plant_completes_in_its_cpp_build_time_while_worlds_take_turns() {
             }
             for index in 0..2 {
                 let start = started[index].unwrap_or_else(|| panic!("world {index}: Dozer never started building"));
-                let budget = approach_budget[index].unwrap_or_else(|| panic!("world {index}: no build dock"));
-                eprintln!("world {index}: approach {} frames (budget {budget})", start - order_frame);
-                assert!(start - order_frame <= budget,
-                    "world {index}: Dozer took {} frames to reach the scaffold, its planned path allows {budget}",
-                    start - order_frame);
                 let end = finished[index].unwrap_or_else(|| panic!("world {index}: Power Plant unfinished after {limit} frames"));
                 // The first contributing frame already adds 1/frames.
                 let building = end - start + 1;
+                eprintln!("world {index}: approach {} frames, construction {building} frames", start - order_frame);
                 assert!((expected..=expected + 1).contains(&building),
                     "world {index}: built in {building} frames, C++ calcTimeToBuild gives {expected}");
                 // The finished plant now powers its own world only.

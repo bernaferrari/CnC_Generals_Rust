@@ -6,7 +6,7 @@ use game_engine::common::message_stream::{
     GameMessageType as MessageStreamGameMessageType, get_message_stream,
 };
 use game_engine::common::system::{
-    Xfer, big_file_system::BigArchiveBackend, file_system::get_file_system,
+    Xfer, big_file_system::BigArchiveBackend, file_system::{FileSystem, get_file_system},
     local_file_system::LocalFileSystem,
     subsystem_interface::SubsystemInterface as CommonSubsystemInterface,
 };
@@ -169,16 +169,9 @@ impl FileSystemSubsystem {
     pub fn get_archive_system(&self) -> Option<&crate::assets::archive::ArchiveFileSystem> {
         self.archive_system.as_ref()
     }
-}
 
-impl SubsystemInterface for FileSystemSubsystem {
-    fn name(&self) -> &'static str {
-        "FileSystem"
-    }
-
-    fn init(&mut self) -> Result<()> {
-        info!("Initializing FileSystem subsystem");
-
+    /// Mount the loose and BIG backends on the receiving application's filesystem.
+    pub(crate) fn mount_common_files(file_system: &mut FileSystem) -> Result<()> {
         // Initialize the shared Common file system used by INI/map/texture loaders.
         let mut search_paths = vec![
             PathBuf::from("."),
@@ -238,36 +231,42 @@ impl SubsystemInterface for FileSystemSubsystem {
             }
         }
 
+        let local_backend = file_system.ensure_backend(LocalFileSystem::new);
+        for path in &deduped {
+            local_backend.add_search_path(path);
+        }
+        let big_backend = file_system.ensure_backend(BigArchiveBackend::new);
+        for path in &big_paths {
+            big_backend.add_search_path(path);
+        }
+
+        file_system.clear_cache();
+        CommonSubsystemInterface::init(file_system)
+            .map_err(|error| anyhow!("Initializing Common FileSystem: {error}"))?;
+
+        if file_system.does_file_exist("INIZH.big") {
+            info!("Common FileSystem: INIZH.big detected");
+        } else {
+            warn!("Common FileSystem: INIZH.big not detected in configured search paths");
+        }
+        Ok(())
+    }
+}
+
+impl SubsystemInterface for FileSystemSubsystem {
+    fn name(&self) -> &'static str {
+        "FileSystem"
+    }
+
+    fn init(&mut self) -> Result<()> {
+        info!("Initializing FileSystem subsystem");
+
         {
             let file_system = get_file_system();
-            let mut fs_guard = file_system
+            let mut file_system = file_system
                 .lock()
                 .map_err(|_| anyhow!("Failed to lock Common FileSystem"))?;
-
-            {
-                let local_backend: &mut LocalFileSystem =
-                    fs_guard.ensure_backend(LocalFileSystem::new);
-                for path in &deduped {
-                    local_backend.add_search_path(path);
-                }
-            }
-
-            {
-                let big_backend: &mut BigArchiveBackend =
-                    fs_guard.ensure_backend(BigArchiveBackend::new);
-                for path in &big_paths {
-                    big_backend.add_search_path(path);
-                }
-            }
-
-            fs_guard.clear_cache();
-            let _ = CommonSubsystemInterface::init(&mut *fs_guard);
-
-            if fs_guard.does_file_exist("INIZH.big") {
-                info!("Common FileSystem: INIZH.big detected");
-            } else {
-                warn!("Common FileSystem: INIZH.big not detected in configured search paths");
-            }
+            Self::mount_common_files(&mut file_system)?;
         }
 
         // Create local file system first (matches C++ order)
