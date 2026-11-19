@@ -140,41 +140,41 @@ impl Object {
         if dual_world_registry_unavailable() {
             return;
         }
-        self.with_legacy_partition_services(|object, services| object.partition_look(services));
+        self.with_active_world_vision(|object, services| object.partition_look(services));
     }
 
     pub(super) fn unlook(&mut self) {
-        self.with_legacy_partition_services(|object, services| object.partition_unlook(services));
+        self.with_active_world_vision(|object, services| object.partition_unlook(services));
     }
 
     pub(super) fn shroud(&mut self) {
-        self.with_legacy_partition_services(|object, services| object.partition_shroud(services));
+        self.with_active_world_vision(|object, services| object.partition_shroud(services));
     }
 
     pub(super) fn unshroud(&mut self) {
-        self.with_legacy_partition_services(|object, services| object.partition_unshroud(services));
+        self.with_active_world_vision(|object, services| object.partition_unshroud(services));
     }
 
     pub(super) fn add_value(&mut self) {
-        self.with_legacy_partition_services(|object, services| {
+        self.with_active_world_vision(|object, services| {
             object.partition_add_value(services)
         });
     }
 
     pub(super) fn remove_value(&mut self) {
-        self.with_legacy_partition_services(|object, services| {
+        self.with_active_world_vision(|object, services| {
             object.partition_remove_value(services)
         });
     }
 
     pub(super) fn add_threat(&mut self) {
-        self.with_legacy_partition_services(|object, services| {
+        self.with_active_world_vision(|object, services| {
             object.partition_add_threat(services)
         });
     }
 
     pub(super) fn remove_threat(&mut self) {
-        self.with_legacy_partition_services(|object, services| {
+        self.with_active_world_vision(|object, services| {
             object.partition_remove_threat(services)
         });
     }
@@ -182,7 +182,7 @@ impl Object {
     /// Handle partition cell maintenance
     /// Called when object position/visibility changes to refresh shroud and influence maps.
     pub fn handle_partition_cell_maintenance(&mut self) {
-        self.with_legacy_partition_services(|object, services| {
+        self.with_active_world_vision(|object, services| {
             object.partition_maintenance(services)
         });
     }

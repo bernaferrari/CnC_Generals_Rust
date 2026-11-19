@@ -1199,6 +1199,31 @@ impl GameLogic {
         // (PartitionManager.cpp:2052-2062) — the movement-driven shroud
         // look/unlook driver. Deferred here so no object read guard is held
         // while `handle_partition_cell_maintenance` mutates the object.
+        // Explicit borrowed owners (this world's partition manager + the
+        // shroud/object-manager/player-list stores); an object whose borrowed
+        // route cannot be admitted keeps the legacy bridge for that call.
+        let partition = Arc::clone(&self.partition);
+        let shroud = get_shroud_manager();
+        let spatial_objects = crate::object_manager::get_object_manager();
+        let frame = self.frame;
+        let unlook_persist_frames = game_engine::common::global_data::read_safe()
+            .map(|data| data.unlook_persist_duration)
+            .unwrap_or(0);
+        let maintain = |object: &mut Object| {
+            let borrowed = match partition.write() {
+                Ok(mut partition) => object.handle_partition_cell_maintenance_borrowed(
+                    &mut partition,
+                    &shroud,
+                    &spatial_objects,
+                    frame,
+                    unlook_persist_frames,
+                ),
+                Err(_) => false,
+            };
+            if !borrowed {
+                object.handle_partition_cell_maintenance();
+            }
+        };
         for obj_id in cell_changed {
             // C++ walks the live object list by pointer — no registry, no
             // lock (GameLogic.h:386-397). Mirror the collision loop above:
@@ -1210,12 +1235,8 @@ impl GameLogic {
                 .objects
                 .get(&obj_id)
                 .and_then(|entry| entry.write().ok())
-                .map(|mut object_guard| object_guard.handle_partition_cell_maintenance())
-                .or_else(|| {
-                    OBJECT_REGISTRY.with_object_mut(obj_id, |object_guard| {
-                        object_guard.handle_partition_cell_maintenance()
-                    })
-                });
+                .map(|mut object_guard| maintain(&mut object_guard))
+                .or_else(|| OBJECT_REGISTRY.with_object_mut(obj_id, |object_guard| maintain(object_guard)));
             let _ = cell_maintained;
         }
 
