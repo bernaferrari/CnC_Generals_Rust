@@ -2137,10 +2137,22 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
     });
     game_logic.process_commands();
 
+    let capture_state = format!(
+        "can_capture_ready={} can_capture_unready={} ready={} local={:?} owners={:?}/{:?}",
+        game_logic.can_unit_capture_building(captor_id, building_id, true),
+        game_logic.can_unit_capture_building(captor_id, building_id, false),
+        game_logic.is_special_power_ready_for(
+            captor_id,
+            &crate::command_system::SpecialPowerType::RangerCaptureBuilding
+        ),
+        game_logic.local_player_id(),
+        game_logic.host_object(captor_id).map(|o| o.owner_player_id),
+        game_logic.host_object(building_id).map(|o| o.owner_player_id),
+    );
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor should exist after upgraded command");
-    assert_eq!(captor.ai_state(), AIState::Capturing);
+    assert_eq!(captor.ai_state(), AIState::Capturing, "{capture_state}");
     assert_eq!(captor.target, Some(building_id));
 }
 

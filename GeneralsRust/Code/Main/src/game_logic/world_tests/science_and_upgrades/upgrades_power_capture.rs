@@ -237,7 +237,19 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
             .and_then(|mission| mission.source_owner_player_id),
         Some(0)
     );
-    logic.frame = HostParadropKind::AmericaParadrop.drop_delay_frames();
+    // The drop is due one approach delay after the frame the power fired on;
+    // this world has already run its dozer/construction frames by now, so the
+    // due frame comes from the mission, not from frame 0.
+    let due_frame = logic
+        .host_paradrops
+        .get(paradrop_id)
+        .map(|mission| mission.drop_frame)
+        .expect("queued paradrop");
+    assert_eq!(
+        due_frame,
+        logic.frame + HostParadropKind::AmericaParadrop.drop_delay_frames()
+    );
+    logic.frame = due_frame;
     logic.update_paradrops();
     let mission = logic
         .host_paradrops
