@@ -82,5 +82,7 @@ fn kill_pilot_and_kill_garrisoned_complete_without_target_lock_reentry() {
     assert!(!result.unwrap().destroyed);
     let building = owner.host_object(building).unwrap();
     assert_eq!(building.health.current, 100.0);
-    assert_eq!(building.status.pending_kill_garrisoned, 3);
+    // ActiveBody.cpp:421-460 kills the occupants synchronously inside the damage
+    // call, so the recorded count is already flushed when it returns.
+    assert_eq!(building.status.pending_kill_garrisoned, 0);
 }

@@ -94,20 +94,26 @@ fn return_to_base_blocks_fire_until_rearm() {
     tmpl.add_kind_of(KindOf::Attackable);
     let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
     jet.set_position(Vec3::ZERO);
-    crate::fixture_content::arm_slot_with_stats(
+    // Retail jet missiles are `AutoReloadsClip = RETURN_TO_BASE`: an emptied clip
+    // holds fire until the jet rearms at an airfield (Weapon.cpp:1893).
+    crate::fixture_content::arm_with_slot_stats_and_fields(
         &mut jet,
-        0,
-        Weapon {
-            damage: 100.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ammo: Some(2),
-            clip_size: 2,
-            can_target_air: true,
-            can_target_ground: true,
-            ..Weapon::default()
-        },
+        [
+            Some(Weapon {
+                damage: 100.0,
+                range: 200.0,
+                reload_time: 0.0,
+                last_fire_time: -100.0,
+                ammo: Some(2),
+                clip_size: 2,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Weapon::default()
+            }),
+            None,
+            None,
+        ],
+        [&["AutoReloadsClip = RETURN_TO_BASE"], &[], &[]],
     );
     let tgt = ObjectId(9);
     assert!(jet.fire_at(

@@ -349,7 +349,9 @@ fn body_visual_change_replaces_auto_particles_immediately_in_receiving_world() {
         world
             .apply_owned_damage_with_killer_team_and_after_fx_with_effects(
                 id,
-                60.,
+                // 70 of 100 HP leaves 30%: below the retail UnitReallyDamagedThreshold
+                // (0.35); 60 would stop at Damaged (0.7 > 40% > 0.35).
+                70.,
                 None,
                 crate::game_logic::combat::DamageType::Explosive,
                 crate::game_logic::host_usa_pilot::HostDeathType::Normal,

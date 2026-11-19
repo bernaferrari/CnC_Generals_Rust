@@ -518,7 +518,10 @@ fn battle_bus_second_life_is_held() {
     assert!(obj.is_disabled());
     assert!(obj.is_physics_held());
     assert!(!obj.can_move());
-    assert!(!obj.can_attack());
+    // DISABLED_HELD only fixes position: Object::isAbleToAttack (Object.cpp:3153-3250)
+    // has no HELD gate, so the armed unit still attacks (a passenger's fire is
+    // gated by its container's isPassengerAllowedToFire, not by the hold).
+    assert!(obj.can_attack());
 }
 
 #[test]
@@ -527,6 +530,10 @@ fn hacked_spawn_site_idles_residual_slaves() {
 
     let mut site = make_test_object();
     site.template_name = "GLAStingerSite".into();
+    // Retail GLAStingerSite is KINDOF_SPAWNS_ARE_THE_WEAPONS: setDisabledUntil
+    // orders its slaves idle only for such masters.
+    site.template_mut()
+        .add_kind_of(crate::game_logic::KindOf::SpawnsAreTheWeapons);
     site.hive_slaves = crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
     site.hive_slave_count = 3;
     let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_attack_target(

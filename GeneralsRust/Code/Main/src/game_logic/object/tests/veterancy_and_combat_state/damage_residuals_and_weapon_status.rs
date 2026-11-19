@@ -861,14 +861,14 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
     tpl.add_kind_of(KindOf::Selectable);
     tpl.set_health(100.0);
     logic.templates.insert("FF_ATK".to_string(), tpl);
-    let atk = logic
-        .create_object("FF_ATK", Team::USA, Vec3::ZERO)
-        .unwrap();
-    {
-        let _ = logic.host_object_mut(atk).unwrap();
-        let a = logic.objects.get_mut(&atk).unwrap();
+    // The ROF bonus sets the delay when the shot fires (Weapon::reloadWithBonus),
+    // so the faerie-fire shooter and the plain shooter are separate sequences.
+    let armed_attacker = |logic: &mut GameLogic| {
+        let id = logic
+            .create_object("FF_ATK", Team::USA, Vec3::ZERO)
+            .unwrap();
         crate::fixture_content::arm_slot_with_stats(
-            a,
+            logic.objects.get_mut(&id).unwrap(),
             0,
             Weapon {
                 damage: 10.0,
@@ -878,44 +878,36 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
                 ..Weapon::default()
             },
         );
-        // First shot at t=0
-        assert!(a.fire_at_ex(
+        id
+    };
+    fn shoot(logic: &mut GameLogic, id: ObjectId, faerie: bool, frame: u32) -> bool {
+        let a = logic.objects.get_mut(&id).unwrap();
+        a.fire_at_ex(
             ObjectId(99),
-            0.0,
+            frame as f32 / 30.0,
             false,
-            true,
-            logic.frame,
+            faerie,
+            frame,
             &mut logic.combat_system,
             &mut logic.attack_events,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        ));
-        // Without faerie, not ready at 0.7 (needs full 1.0s)
-        assert!(!a.fire_at_ex(
-            ObjectId(99),
-            0.7,
-            false,
-            false,
-            logic.frame,
-            &mut logic.combat_system,
-            &mut logic.attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        ));
-        // With faerie ROF 150%, ready at 0.7 (effective reload ~0.667)
-        assert!(
-            a.fire_at_ex(
-                ObjectId(99),
-                0.7,
-                false,
-                true,
-                logic.frame,
-                &mut logic.combat_system,
-                &mut logic.attack_events,
-                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-            ),
-            "TARGET_FAERIE_FIRE should ready at ~0.667s reload"
-        );
-        assert!((FAERIE_FIRE_ROF_MULTIPLIER - 1.5).abs() < 0.001);
+        )
     }
+    let plain = armed_attacker(&mut logic);
+    let faerie = armed_attacker(&mut logic);
+    // First shot at frame 0; without faerie the 1.0s reload (30 frames) is not
+    // over at 0.7s (frame 21).
+    assert!(shoot(&mut logic, plain, false, 0));
+    assert!(!shoot(&mut logic, plain, false, 21));
+    // With faerie ROF 150% the delay is 1.0s / 1.5 = 20 frames: not ready at
+    // frame 19, ready at frame 21.
+    assert!(shoot(&mut logic, faerie, true, 0));
+    assert!(!shoot(&mut logic, faerie, true, 19));
+    assert!(
+        shoot(&mut logic, faerie, true, 21),
+        "TARGET_FAERIE_FIRE should ready at ~0.667s reload"
+    );
+    assert!((FAERIE_FIRE_ROF_MULTIPLIER - 1.5).abs() < 0.001);
 }
 
 #[test]

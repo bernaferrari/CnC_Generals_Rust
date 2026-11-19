@@ -852,13 +852,16 @@ fn structure_collapse_binds_and_plays_phase_fx() {
         template.receiving_object_definition = Some(std::sync::Arc::new(definition));
         Object::new(template, ObjectId(1), Team::Neutral)
     };
+    // C++ StructureCollapseUpdate parseFX: one `FXList = <PHASE> <fx...>` field per
+    // phase. MinBurstDelay/MaxBurstDelay are INI msec (parseDurationUnsignedInt): 2200ms
+    // and 4400ms are 66 and 132 logic frames.
     let mut b = make_object(definition(
-        66,
-        "INITIAL FX_DieInitial\nDELAY FX_DieDelay\nBURST FX_DieBurst\nFINAL FX_DieFinal",
+        2200,
+        "INITIAL FX_DieInitial\n  FXList = DELAY FX_DieDelay\n  FXList = BURST FX_DieBurst\n  FXList = FINAL FX_DieFinal",
     ));
     let mut other = make_object(definition(
-        132,
-        "INITIAL FX_OtherInitial\nDELAY FX_OtherDelay\nBURST FX_OtherBurst\nFINAL FX_OtherFinal",
+        4400,
+        "INITIAL FX_OtherInitial\n  FXList = DELAY FX_OtherDelay\n  FXList = BURST FX_OtherBurst\n  FXList = FINAL FX_OtherFinal",
     ));
     assert!(b.begin_structure_collapse(
         0,
