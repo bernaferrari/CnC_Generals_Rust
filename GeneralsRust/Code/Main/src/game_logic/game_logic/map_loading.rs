@@ -96,12 +96,24 @@ mod tests {
     #[test]
     fn same_thread_peers_bind_services_only_during_own_calls() {
         use gamelogic::system::engine_stores::{is_services_active, try_active_services};
+        // Main's test build may carry a thread ambient CommonServices head
+        // (test-ambient-services); the contract is that constructing, binding
+        // and dropping peers leaves that head exactly as it was, never one of
+        // the instances' own services.
+        let ambient = try_active_services();
+        let same = |now: &Option<std::sync::Arc<_>>, before: &Option<std::sync::Arc<_>>| match (
+            now, before,
+        ) {
+            (None, None) => true,
+            (Some(now), Some(before)) => std::sync::Arc::ptr_eq(now, before),
+            _ => false,
+        };
         let mut a = super::super::GameLogic::new();
         let mut b = super::super::GameLogic::new();
         // Construction must not leave either instance published.
         assert!(!is_services_active(&a.world_services));
         assert!(!is_services_active(&b.world_services));
-        assert!(try_active_services().is_none());
+        assert!(same(&try_active_services(), &ambient));
 
         a.with_own_services_mut(|this| {
             assert!(is_services_active(&this.world_services));
@@ -111,7 +123,7 @@ mod tests {
             assert!(!is_services_active(&b.world_services));
         });
         assert!(!is_services_active(&a.world_services));
-        assert!(try_active_services().is_none());
+        assert!(same(&try_active_services(), &ambient));
 
         b.with_own_services_mut(|this| {
             assert!(is_services_active(&this.world_services));
@@ -120,7 +132,7 @@ mod tests {
             assert!(!is_services_active(&a.world_services));
         });
         assert!(!is_services_active(&b.world_services));
-        assert!(try_active_services().is_none());
+        assert!(same(&try_active_services(), &ambient));
 
         // Interleaved method-scoped binds: drop order of the instances must
         // not reinstate a buried peer (Drop only pops if current / buries).
@@ -128,7 +140,7 @@ mod tests {
             assert!(is_services_active(&a.world_services));
         });
         drop(b);
-        assert!(try_active_services().is_none());
+        assert!(same(&try_active_services(), &ambient));
         assert!(!is_services_active(&a.world_services));
         let _ = a;
     }

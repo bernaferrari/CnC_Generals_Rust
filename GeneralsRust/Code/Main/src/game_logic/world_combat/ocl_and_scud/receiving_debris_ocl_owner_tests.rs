@@ -136,12 +136,18 @@ fn helix_portable_rider_fires_its_own_weapon_without_passenger_upgrade() {
     {
         let object = world.host_object_mut(rider).unwrap();
         assert!(!object.status.disabled_held);
-        let mut weapon = crate::game_logic::Weapon::default();
-        weapon.last_fire_time = -10.0;
-        weapon.reload_time = 0.1;
-        weapon.range = 150.0;
-        weapon.damage = 10.0;
-        object.weapon = Some(weapon);
+        // The rider fires its own authored WeaponSet slot; Object::can_attack
+        // reads the slots, not a bare `weapon` field.
+        crate::fixture_content::arm_with_stats(
+            object,
+            crate::game_logic::Weapon {
+                last_fire_time: -10.0,
+                reload_time: 0.1,
+                range: 150.0,
+                damage: 10.0,
+                ..Default::default()
+            },
+        );
     }
     let mut victim = ThingTemplate::new("HelixRiderTarget");
     victim.add_kind_of(crate::game_logic::KindOf::Infantry)

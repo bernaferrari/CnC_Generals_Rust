@@ -1,6 +1,5 @@
 use super::*;
 use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
-use game_engine::common::ini::ini_fx_list::{CameraShakeType, FXList, FXNugget};
 use glam::Vec3;
 
 #[test]
@@ -9,12 +8,6 @@ fn baikonur_neutron_spawn_fx_shakes_only_receiving_view() {
         module_path!(),
         "baikonur_neutron_spawn_fx_shakes_only_receiving_view",
         || {
-            let mut definition = FXList::new("FX_Nuke".into());
-            definition.add_nugget(FXNugget::ViewShake {
-                shake_type: CameraShakeType::Normal,
-            });
-            let list = game_client::fx_list::FXList::from_definition(&definition);
-            game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list("FX_Nuke".into(), list); });
             game_client::display::view::with_tactical_view(|view| {
                 let target = game_client::display::view::Point3::new(-10000., -20000., 7.);
                 view.set_position(&target);
@@ -29,6 +22,11 @@ fn baikonur_neutron_spawn_fx_shakes_only_receiving_view() {
             let before = core();
             fn world() -> (GameLogic, crate::game_logic::ObjectId) {
                 let mut world = GameLogic::new();
+                // The world's own admitted FX catalog supplies FX_Nuke's ViewShake
+                // (retail FXList.ini syntax); no process-wide FXListStore is written.
+                world
+                    .admit_fx_source("FXList FX_Nuke\n  ViewShake\n    Type = NORMAL\n  End\nEnd\n")
+                    .expect("admit FX_Nuke");
                 world.add_player(Player::new(0, Team::Neutral, "Neutral", false));
                 world.add_player(Player::new(1, Team::USA, "Local", true));
                 let mut template = ThingTemplate::new("ReceivingBaikonurTower");

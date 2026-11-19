@@ -18,7 +18,7 @@ fn admitted_world(start_barrel: u8) -> GameLogic {
     logic
         .admit_object_ini_sources([(
             "owned-discharge.ini".to_string(),
-            "Object OwnedDischargeSource\nBody = ActiveBody ModuleTag_Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = AIUpdateInterface ModuleTag_AI\nEnd\nEnd\n"
+            "Object OwnedDischargeSource\nBody = ActiveBody ModuleTag_Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = AIUpdateInterface ModuleTag_AI\nEnd\nEnd\nObject OwnedDischargeVictim\nBody = ActiveBody ModuleTag_Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
                 .to_string(),
         )])
         .expect("authored discharge source admits");
@@ -44,7 +44,9 @@ fn admitted_world(start_barrel: u8) -> GameLogic {
     assert!(source.set_weapon_barrel_count_for_slot(0, 3));
     source.weapon_barrel_states[0].current_barrel = start_barrel;
     source.weapon_barrel_states[0].shots_left_on_barrel = 1;
-    let mut victim_template = ThingTemplate::new("OwnedDischargeVictim");
+    // A saved Object restores only into admitted content, so the victim is an
+    // authored Object like the source rather than a proxy template.
+    let mut victim_template = logic.templates["OwnedDischargeVictim"].clone();
     victim_template.add_kind_of(KindOf::Attackable);
     let mut victim = Object::new(victim_template, VICTIM, Team::China);
     victim.owner_player_id = Some(1);
