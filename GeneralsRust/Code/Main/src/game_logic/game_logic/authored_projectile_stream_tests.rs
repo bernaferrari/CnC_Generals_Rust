@@ -16,10 +16,11 @@ const PRIMARY_STREAM: &str = "AuthoredPrimaryProjectileStream";
 const SECONDARY_STREAM: &str = "AuthoredSecondaryProjectileStream";
 const TERTIARY_STREAM: &str = "AuthoredTertiaryProjectileStream";
 
-fn stream_world(missing_projectile: bool) -> GameLogic {
+fn stream_world(slots: [&str; 3], missing_projectile: bool) -> GameLogic {
     use crate::assets::ini_template_loader::{
         WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
     };
+    use crate::fixture_content::FixtureObject;
     let mut rows = HashMap::new();
     assert_eq!(
         parse_weapon_definitions_ini_into(
@@ -76,26 +77,36 @@ fn stream_world(missing_projectile: bool) -> GameLogic {
             .unwrap()
             .projectile_name = "UnresolvedHostDragonFlameStreamContract".into();
     }
-    let mut parser = crate::assets::ini_parser::IniParser::new();
-    parser.parse_ini_content(
-        "Object AuthoredStreamLiveProjectile\n Locomotor = SET_NORMAL MissileDefenderMissileLocomotor\n Behavior = PhysicsBehavior ModuleTag_Physics\n Mass = 1\n End\n Behavior = MissileAIUpdate ModuleTag_Flight\n IgnitionDelay = 0\n TryToFollowTarget = Yes\n End\nEnd",
-        "authored-stream-content.ini",
-    ).unwrap();
-    let objects: Vec<_> = parser
-        .get_all_definitions()
-        .iter()
-        .map(|(name, row)| (name.clone(), row.clone()))
-        .collect();
+    let objects = [
+        FixtureObject::new("AuthoredStreamLiveProjectile")
+            .kind_of("PROJECTILE")
+            .health(1.0)
+            .field("Locomotor = SET_NORMAL MissileDefenderMissileLocomotor")
+            .module("Behavior = PhysicsBehavior ModuleTag_Physics\n Mass = 1\nEnd")
+            .module("Behavior = MissileAIUpdate ModuleTag_Flight\n IgnitionDelay = 0\n InitialVelocity = 30\n TryToFollowTarget = Yes\nEnd"),
+        FixtureObject::new("AuthoredStreamShooter")
+            .kind_of("INFANTRY CAN_ATTACK")
+            .health(100.0)
+            .module("Behavior = AIUpdateInterface ModuleTag_ShooterAI\nEnd")
+            .weapon("PRIMARY", slots[0])
+            .weapon("SECONDARY", slots[1])
+            .weapon("TERTIARY", slots[2]),
+        FixtureObject::new("AuthoredStreamTarget")
+            .kind_of("INFANTRY")
+            .health(100.0),
+    ];
+    let content = objects.iter().map(FixtureObject::ini).collect::<String>();
     let mut world = GameLogic::new();
     world
         .admit_locomotor_definitions(crate::fixture_content::retail_locomotors_with_missile_flight())
         .expect("Locomotor catalog admitted before Object content");
     world
-        .admit_weapon_content_snapshot(
-            rows.into_values()
-                .map(|row| (row.name.clone(), row))
-                .collect(),
-            &objects,
+        .admit_receiving_module_content_with_weapons(
+            crate::assets::ReceivingObjectContent::from_sources([
+                ("authored-stream-content.ini".into(), content),
+            ])
+            .unwrap(),
+            Some(rows.into_values().map(|row| (row.name.clone(), row)).collect()),
         )
         .unwrap();
     world
@@ -106,30 +117,10 @@ fn prepare_world(
     selected: u8,
     missing_projectile: bool,
 ) -> (GameLogic, ObjectId, ObjectId) {
-    let mut world = stream_world(missing_projectile);
-    let mut source_definition = ThingTemplate::new("AuthoredStreamShooter");
-    source_definition
-        .set_health(100.0)
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Attackable)
-        .set_primary_weapon_name(slots[0])
-        .set_secondary_weapon_name(slots[1])
-        .set_tertiary_weapon_name(slots[2]);
-    world
-        .templates
-        .insert(source_definition.name.clone(), source_definition);
+    let mut world = stream_world(slots, missing_projectile);
     let source = world
-        .create_object("AuthoredStreamShooter", Team::USA, Vec3::ZERO)
+        .create_object("AuthoredStreamShooter", Team::USA, Vec3::new(0.0, 20.0, 0.0))
         .unwrap();
-    let mut target_definition = ThingTemplate::new("AuthoredStreamTarget");
-    target_definition
-        .set_health(100.0)
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Attackable)
-        .set_primary_weapon_none();
-    world
-        .templates
-        .insert(target_definition.name.clone(), target_definition);
     let target = world
         .create_object(
             "AuthoredStreamTarget",
@@ -320,12 +311,8 @@ fn receiving_stream_launch_binding_survives_override_and_encoded_save_load() {
     )
     .unwrap();
     // Re-seed from live projectiles through the ordinary tick residual.
-    eprintln!("stream test: before re-seed tick frame {} projectiles {}", world.frame, world.combat_system.projectile_count());
-    for shot in world.combat_system.projectiles_snapshot() {
-        eprintln!("stream test: shot pos {:?} vel {:?} target {:?}", shot.position, shot.velocity, shot.target_id);
-    }
     let _ = world.update_with_dt(1.0 / 30.0);
-    eprintln!("stream test: after re-seed tick frame {} projectiles {} target hp {}", world.frame, world.combat_system.projectile_count(), world.objects[&target].health.current);
+    assert_eq!(world.combat_system.projectile_count(), 1, "the launch must still be in flight");
     let streams = world.projectile_stream_snapshot();
     assert_eq!(streams.len(), 1);
     assert_eq!(streams[0].0, source);
@@ -471,25 +458,71 @@ fn uranium_projectile_world() -> (GameLogic, ObjectId, ObjectId) {
 }
 
 fn uranium_launch(world: &mut GameLogic, source: ObjectId, target: ObjectId) {
+    // The fire path puts the carrier in Attacking. Limit this test to the
+    // accepted shell while ordinary ticks keep running the carrier's AI.
+    world.objects.get_mut(&source).unwrap().set_max_shots_to_fire(1);
     assert_eq!(world.attack_fire_weapon_update(source, target, 10.0), AttackFireResult::Success);
     world.drain_pending_projectiles_into_combat();
     assert_eq!(world.combat_system.projectile_count(), 1);
+    assert!(!world.objects[&source].has_max_shots_remaining());
     assert_eq!(world.objects[&target].health.current, 1000.0);
 }
 
 fn uranium_impact(world: &mut GameLogic, target: ObjectId) -> f32 {
-    let mut last = world.objects[&target].health.current;
+    let shell_id = world.combat_system.projectiles_snapshot()[0].id;
     for _ in 0..300 {
-        if world.combat_system.projectile_count() == 0 { break; }
         let _ = world.update_with_dt(1.0 / 30.0);
-        let now = world.objects[&target].health.current;
-        if now != last {
-            eprintln!("uranium_impact: frame {} damage {} projectiles_left {}", world.frame, last - now, world.combat_system.projectile_count());
-            last = now;
+        let shots = world.combat_system.get_projectiles();
+        if shots.is_empty() {
+            let health = world.objects[&target].health.current;
+            for _ in 0..30 {
+                let _ = world.update_with_dt(1.0 / 30.0);
+                assert_eq!(world.combat_system.projectile_count(), 0);
+                assert_eq!(world.objects[&target].health.current, health);
+            }
+            return 1000.0 - health;
+        }
+        assert_eq!(shots.len(), 1);
+        assert!(shots.contains_key(&shell_id), "the original shell must still be in flight");
+        assert_eq!(world.objects[&target].health.current, 1000.0, "damage must retire the shell");
+    }
+    panic!("shell {shell_id:?} must actually arrive");
+}
+
+#[test]
+fn uranium_carrier_repeat_fire_uses_two_distinct_shells() {
+    let (mut world, source, target) = uranium_projectile_world();
+    assert_eq!(world.attack_fire_weapon_update(source, target, 10.0), AttackFireResult::Success);
+    world.drain_pending_projectiles_into_combat();
+    let shots = world.combat_system.projectiles_snapshot();
+    assert_eq!(shots.len(), 1, "expected one shell from the accepted shot");
+    let first_id = shots[0].id;
+    let mut first_hit_frame = None;
+    let mut second_id = None;
+    for _ in 0..60 {
+        let _ = world.update_with_dt(1.0 / 30.0);
+        let shots = world.combat_system.get_projectiles();
+        match world.objects[&target].health.current {
+            1000.0 => {}
+            920.0 if first_hit_frame.is_none() => {
+                assert!(!shots.contains_key(&first_id));
+                assert_eq!(shots.len(), 1, "the carrier's next shell is still in flight");
+                first_hit_frame = Some(world.frame);
+                second_id = shots.keys().next().copied();
+            }
+            920.0 => {
+                assert_eq!(shots.len(), 1);
+                assert!(shots.contains_key(&second_id.unwrap()));
+            }
+            840.0 => {
+                assert!(shots.is_empty());
+                assert_eq!(world.frame - first_hit_frame.unwrap(), 9);
+                return;
+            }
+            health => panic!("unexpected health after firing two 80 HP shells: {health}"),
         }
     }
-    assert_eq!(world.combat_system.projectile_count(), 0, "shell must actually arrive");
-    1000.0 - world.objects[&target].health.current
+    panic!("both shells must arrive");
 }
 
 #[test]
