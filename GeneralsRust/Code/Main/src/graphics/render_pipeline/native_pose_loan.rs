@@ -221,13 +221,12 @@ impl NativeInstalledPoseLoan<'_> {
     ) -> Result<(), NativeCameraPoseUnavailable> {
         self.validate_object_retirement(identity, key)
             .map_err(|_| NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
-        self.validate_identity(identity, module_index)?;
-        if key.object_id != identity.object_id()
-            || self.drawable_visual_states.iter().any(|((id, _), state)| {
-                *id == NativeDrawOwnerId::Actor(identity.object_id())
-                    && state.native_client_binding != Some(key)
-            })
-        {
+        // Retirement validates the constructor and each installed module's
+        // identity and binding. A pose query additionally needs this module.
+        if !self.drawable_visual_states.contains_key(&(
+            NativeDrawOwnerId::Actor(identity.object_id()),
+            module_index,
+        )) {
             return Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle);
         }
         Ok(())
@@ -290,6 +289,7 @@ impl NativeInstalledPoseLoan<'_> {
         graphics: &mut GraphicsSystem,
     ) -> Result<Vec<u32>, NativeCameraPoseUnavailable> {
         let identity = &source.identity;
+        let owner = NativeDrawOwnerId::Actor(identity.object_id());
         let models = source
             .receiving_draw_models
             .object_draws(source.condition_bits)
@@ -320,18 +320,19 @@ impl NativeInstalledPoseLoan<'_> {
         {
             return Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle);
         }
-        for ((object, _), state) in &mut *self.drawable_visual_states {
-            if *object == NativeDrawOwnerId::Actor(identity.object_id()) {
-                state.receive_native_transform_observations(
-                    identity,
-                    source.mesh_scale,
-                    source.float_yaw,
-                    source.float_pitch,
-                    source.under_construction,
-                    source.construction_percent,
-                    source.max_height_above_position,
-                );
-            }
+        for (_, state) in self
+            .drawable_visual_states
+            .range_mut(native_draw_world::owner_module_keys(owner))
+        {
+            state.receive_native_transform_observations(
+                identity,
+                source.mesh_scale,
+                source.float_yaw,
+                source.float_pitch,
+                source.under_construction,
+                source.construction_percent,
+                source.max_height_above_position,
+            );
         }
         for model in models {
             let state = self
