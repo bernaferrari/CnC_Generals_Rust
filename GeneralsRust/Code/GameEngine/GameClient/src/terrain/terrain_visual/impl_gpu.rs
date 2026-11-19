@@ -925,18 +925,6 @@ impl TerrainVisualImpl {
             return Ok(());
         };
 
-        // Curve/join geometry is authored on the map plane. C++
-        // `loadFloat4PtSection` / `updateSegLighting` project those verts with
-        // `getMaxCellHeight`. `apply_terrain_heights_and_normals` is the live
-        // equivalent and otherwise has no production callers.
-        self.road_system.invalidate_terrain_lighting();
-        if let Some(height_map) = self.height_map.as_ref() {
-            self.road_system.apply_terrain_heights_and_normals(
-                |pos| height_map.get_max_cell_height(pos.x, pos.z),
-                |pos| height_map.get_normal_at(pos.x, pos.z),
-            );
-        }
-
         let mut road_meshes = Vec::new();
         let mut bridge_meshes = Vec::new();
         let authored_roads = &self.road_presentation;
@@ -1058,8 +1046,13 @@ impl TerrainVisualImpl {
                 if geometry.vertices.is_empty() || geometry.indices.is_empty() {
                     return;
                 }
-                let mut gpu_vertices: Vec<RoadVertex> = geometry
-                    .vertices
+                let projected = height_map
+                    .and_then(|_| segment.project_overlay_strip(|pos| height_at(pos.x, pos.z)));
+                let (vertices, indices) = projected.as_ref().map_or(
+                    (geometry.vertices.as_slice(), geometry.indices.as_slice()),
+                    |(vertices, indices)| (vertices.as_slice(), indices.as_slice()),
+                );
+                let mut gpu_vertices: Vec<RoadVertex> = vertices
                     .iter()
                     .map(|vertex| OverlayGpuVertex {
                         position: vertex.position,
@@ -1069,9 +1062,6 @@ impl TerrainVisualImpl {
                         diffuse: 0xFFFF_FFFF,
                     })
                     .collect();
-                // The manager already projected each strip row to the maximum
-                // sampled cell height. Reprojecting individual vertices here
-                // would undo the C++ row maximum and sink joined roads.
                 if height_map.is_none() {
                     for vertex in &mut gpu_vertices {
                         vertex.position[1] = ROAD_FLOAT_AMOUNT;
@@ -1089,7 +1079,7 @@ impl TerrainVisualImpl {
                     &device,
                     "Road Mesh",
                     &gpu_vertices,
-                    &geometry.indices,
+                    indices,
                 ) {
                     mesh.texture_name = texture_name;
                     road_meshes.push(mesh);

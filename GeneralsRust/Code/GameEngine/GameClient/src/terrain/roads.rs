@@ -1191,6 +1191,29 @@ impl RoadSegment {
         (right, normal)
     }
 
+    /// W3DRoadBuffer::loadFloat4PtSection projects all authored columns
+    /// before deleting redundant ones. Keep those columns for later bakes.
+    pub(super) fn project_overlay_strip(
+        &self,
+        mut sample_height: impl FnMut(Vec3) -> f32,
+    ) -> Option<(Vec<RoadVertex>, Vec<u32>)> {
+        let geometry = self.geometry.as_ref()?;
+        if geometry.row_height_samples.is_empty() {
+            return None;
+        }
+        let mut vertices = geometry.vertices.clone();
+        let mut indices = geometry.indices.clone();
+        RoadManager::project_vertices_to_terrain(
+            &mut vertices,
+            self.properties.elevation,
+            true,
+            Some(&geometry.row_height_samples),
+            &mut sample_height,
+        );
+        RoadManager::collapse_strip_rows(&mut vertices, &mut indices);
+        Some((vertices, indices))
+    }
+
     /// Generate geometry for this segment
     pub fn generate_geometry(&mut self, config: &RoadGenerationConfig) -> TerrainResult<()> {
         if self.runtime_kind_is("ALPHA_JOIN") {
@@ -1914,6 +1937,10 @@ impl RoadManager {
 
     pub fn needs_terrain_normal_reprojection(&self) -> bool {
         self.terrain_normals_dirty
+    }
+
+    pub(super) fn take_terrain_lighting_invalidation(&mut self) -> bool {
+        std::mem::take(&mut self.terrain_normals_dirty)
     }
 
     pub fn invalidate_terrain_lighting(&mut self) {

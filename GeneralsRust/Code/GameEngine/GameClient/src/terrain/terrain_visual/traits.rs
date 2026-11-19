@@ -544,24 +544,8 @@ impl TerrainVisualImpl {
 
         let road_started = std::time::Instant::now();
         self.road_system.update()?;
-        if let Some(height_map) = self.height_map.as_ref() {
-            if self.road_system.needs_terrain_normal_reprojection() {
-                let lighting = self.chunk_manager.static_lighting();
-                self.road_system.apply_terrain_heights_normals_and_diffuse(
-                    |pos| height_map.get_height_at(pos.x, pos.z),
-                    |pos| height_map.get_normal_at(pos.x, pos.z),
-                    |pos| {
-                        let normal = height_map.get_normal_at(pos.x, pos.z);
-                        Self::terrain_static_diffuse_from_normal(
-                            normal,
-                            &lighting.lights,
-                            lighting.ambient,
-                        )
-                    },
-                );
-                self.overlay_gpu_meshes_dirty = true;
-            }
-        }
+        self.overlay_gpu_meshes_dirty |=
+            self.height_map.is_some() && self.road_system.take_terrain_lighting_invalidation();
         let road_elapsed = road_started.elapsed();
 
         let road_meshes_started = std::time::Instant::now();

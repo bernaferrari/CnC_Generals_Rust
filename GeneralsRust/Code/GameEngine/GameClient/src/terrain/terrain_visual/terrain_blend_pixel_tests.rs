@@ -656,6 +656,91 @@ fn lone_eagle_tight_road_curve_draws_the_authored_atlas_row() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "requires a native GPU adapter"]
+fn tight_road_curve_preserves_max_cell_height_over_a_slope() {
+    use game_engine::common::ini::ini_road::TerrainRoadCollection;
+
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("sloped curve test requires a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("sloped curve test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let directory = tempfile::tempdir().unwrap();
+    let texture_path = directory.path().join("SlopedCurveWitness.tga");
+    let color = [35, 160, 210, 255];
+    image::RgbaImage::from_pixel(128, 512, image::Rgba(color))
+        .save_with_format(&texture_path, image::ImageFormat::Tga)
+        .unwrap();
+    let mut definitions = TerrainRoadCollection::new();
+    let road = definitions.new_road(AsciiString::from("SlopedCurveWitness"));
+    road.texture = AsciiString::from(texture_path.to_str().unwrap());
+    let road_type_id = road.id;
+
+    let mut roads = super::tests::lone_eagle_road_curve_segments();
+    let offset = Vec3::new(300.0, 0.0, 300.0) - Vec3::from_array(roads[0].start);
+    for road in &mut roads {
+        road.start = (Vec3::from_array(road.start) + offset).to_array();
+        road.end = (Vec3::from_array(road.end) + offset).to_array();
+        road.road_type_id = road_type_id;
+        road.template_name = "SlopedCurveWitness".into();
+    }
+    let terrain = [(
+        TerrainSourceTileClass {
+            first_tile: 0,
+            num_tiles: 1,
+            width: 1,
+            name: "CurveWhiteGround".into(),
+        },
+        [255; 3],
+    )];
+    let mut height_map = HeightMap::new(64, 64, 9.0, 10.0);
+    height_map.set_raw_height(32, 32, u8::MAX);
+    assert!((height_map.get_height_at(323.0, 318.0) - 4.5).abs() < 0.001);
+    let mut visual = live_terrain_visual(&device, &queue, &terrain, height_map, 1.0);
+    visual.create_road_pipeline(&device).unwrap();
+    visual.admit_road_presentation(definitions.presentation());
+    visual.set_runtime_map_road_segments(&roads, &[]).unwrap();
+    let transform = Mat4::from_cols_array_2d(&[
+        [0.5, 0.0, 0.0, 0.0],
+        [0.0, 0.0, -0.02, 0.0],
+        [0.0, 0.5, 0.0, 0.0],
+        [-161.46875, -158.875, 0.5, 1.0],
+    ]);
+    // World (323, 318) lies on the curve exclusively. In the source the two
+    // surrounding columns both reach the 9.0 peak plus the road float bias.
+    let pixel = 3 * 256 + 16 * 4;
+    for frame in 0..2 {
+        if frame != 0 {
+            visual.static_lighting_changed();
+        }
+        visual
+            .update_native(
+                TerrainVisualMotion {
+                    frame,
+                    paused: false,
+                    gravity: 0.0,
+                    breeze: Default::default(),
+                },
+                None,
+            )
+            .unwrap();
+        let pixels =
+            render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+        assert_eq!(
+            &pixels[pixel..pixel + 4],
+            &[color[2], color[1], color[0], color[3]],
+            "road bake at frame {frame}"
+        );
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
 fn receiving_terrain_owners_render_their_own_live_lights_and_restore_static_color() {
     use crate::fx_list::{DisplayLightPulse, FxClientState};
     crate::test_support::ensure_ambient_host();
