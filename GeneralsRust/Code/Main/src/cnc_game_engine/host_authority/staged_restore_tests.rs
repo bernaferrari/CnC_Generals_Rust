@@ -2478,6 +2478,8 @@ End
 Object ContainmentStagePassenger
  KindOf = INFANTRY
  TransportSlotCount = 1
+ Behavior = AIUpdateInterface ModuleTag_AI
+ End
  Body = ActiveBody BodyTag
   MaxHealth = 100
   InitialHealth = 100

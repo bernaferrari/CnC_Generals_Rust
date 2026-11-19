@@ -22,6 +22,12 @@ fn retail_world() -> GameLogic {
     retail_world_from(&retail_definitions())
 }
 fn retail_world_from(definitions: &crate::parallel_harness::RetailWorldDefinitions) -> GameLogic {
+    // GameEngine::init mounts TheFileSystem before GameLogic; the Skirmish
+    // side preparation opens Data\\Scripts\\SkirmishScripts.scb through it
+    // (SidesList.cpp:487), which adds the AI factions' script Teams.
+    let _ = crate::subsystem_manager::SubsystemInterface::init(
+        &mut crate::subsystem_manager::FileSystemSubsystem::new(),
+    );
     let mut world = GameLogic::new();
     world
         .with_own_services_mut(|world| definitions.admit(world))
@@ -313,7 +319,7 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
                 crate::save_load::snapshot::WORLD_SNAPSHOT_BINCODE_VERSION,
                 "the actual encoded save retains current capability"
             );
-            let restored = stage(&mut saves, "direct", &source).unwrap();
+            let restored = stage_native(&mut saves, "direct", &source).unwrap();
             assert_eq!(
                 restored
                     .logic

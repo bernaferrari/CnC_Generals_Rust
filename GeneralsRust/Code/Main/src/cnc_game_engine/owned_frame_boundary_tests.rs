@@ -324,7 +324,15 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
             break;
         }
     }
-    assert!(logic.host_object(id).unwrap().construction_percent > 0.0);
+    assert!(
+        logic.host_object(id).unwrap().construction_percent > 0.0,
+        "dozer never contributed BUILD progress: frame={} task_target={:?} dozer_pos={:?} scaffold_pos={:?} scaffold_under_construction={}",
+        logic.frame,
+        logic.host_object(dozer).unwrap().dozer_tasks.requests[0].target,
+        logic.host_object(dozer).unwrap().get_position(),
+        logic.host_object(id).unwrap().get_position(),
+        logic.host_object(id).unwrap().status.under_construction,
+    );
     assert!(logic.host_object(id).unwrap().status.under_construction);
     assert!(!logic.construction_events.has_pending(id));
     // One more BUILD frame (1 / 30 of a one-second BuildTime) completes it.
