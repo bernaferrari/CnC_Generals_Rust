@@ -35,16 +35,13 @@ fn missile(id: ObjectId, delay: u32) -> Projectile {
     p
 }
 #[cfg(feature = "game_client")]
-fn install_shake() {
-    use game_engine::common::ini::ini_fx_list::{CameraShakeType, FXList, FXNugget};
-    let mut definition = FXList::new("FX_ReceivingProjectile".into());
-    definition.add_nugget(FXNugget::ViewShake {
-        shake_type: CameraShakeType::Normal,
-    });
-    game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(
-        definition.name.to_string(),
-        game_client::fx_list::FXList::from_definition(&definition),
-    ); });
+fn admit_shake(world: &mut GameLogic) {
+    assert_eq!(
+        world.admit_fx_source(
+            "FXList FX_ReceivingProjectile\n  ViewShake\n    Type = NORMAL\n  End\nEnd\n",
+        ).unwrap(),
+        1,
+    );
 }
 fn reveal_object(world: &GameLogic, id: ObjectId) {
     world
@@ -62,12 +59,13 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
         module_path!(),
         "native_ignition_is_delayed_once_and_uses_receiving_view_after_restore",
         || {
-            install_shake();
-            let rules = game_engine::common::global_data::read().clone();
-            assert!(rules.max_shake_range > 0. && rules.shake_normal_intensity > 0.);
             let id = ObjectId(9001);
             let mut owner = world();
             let mut peer = world();
+            admit_shake(&mut owner);
+            admit_shake(&mut peer);
+            let rules = owner.session_view.camera.shake_policy.current();
+            assert!(rules.max_shake_range > 0. && rules.shake_normal_intensity > 0.);
             owner.session_view.target = Vec3::new(10., 0., 12.);
             peer.session_view.target = Vec3::new(10. + rules.max_shake_range * 2., 0., 12.);
             reveal_object(&owner, id);
@@ -89,6 +87,7 @@ fn native_ignition_is_delayed_once_and_uses_receiving_view_after_restore() {
             );
             let encoded = serde_json::to_vec(&owner.combat_system.projectiles[&id]).unwrap();
             let mut restored = world();
+            admit_shake(&mut restored);
             restored
                 .session_view
                 .admit(owner.session_view.capture())
@@ -194,9 +193,9 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
         module_path!(),
         "native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation",
         || {
-            install_shake();
             for eligible in [false, true] {
                 let mut owner = world();
+                admit_shake(&mut owner);
                 let building = ObjectId(2);
                 let occupant = ObjectId(3);
                 let projectile = ObjectId(9001);
@@ -222,6 +221,7 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
                 );
                 data.garrisoned_units = vec![occupant];
                 bunker.building_data = Some(data);
+                let bunker_health = bunker.health.current;
                 owner.objects.insert(building, bunker);
                 reveal_object(&owner, building);
                 owner.session_view.target = pos;
@@ -251,10 +251,12 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
                     );
                     assert!(!owner.objects[&occupant].is_alive());
                     assert!(owner.objects[&building].contained_units().is_empty());
+                    assert_eq!(owner.objects[&building].health.current, bunker_health);
                     assert!(owner.combat_system.take_impact_fx().is_empty());
                 } else {
                     assert_eq!(owner.session_view.impulse.intensity, 0.);
                     assert!(owner.objects[&occupant].is_alive());
+                    assert_eq!(owner.objects[&building].health.current, bunker_health - 1.);
                     // Detonation FX/OCL flush synchronously before Body damage
                     // (Weapon.cpp handleProjectileDetonation), so the deferred
                     // end-phase queue must already be empty.
@@ -290,37 +292,39 @@ fn no_authored_ignition_fx_still_observes_pose_without_an_effect_callback() {
 }
 
 #[test]
-fn native_no_fx_ignition_pose_uses_receiving_visibility_for_colliding_ids() {
+#[cfg(feature = "game_client")]
+fn native_ignition_fx_uses_receiving_visibility_for_matching_ids() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
-        "native_no_fx_ignition_pose_uses_receiving_visibility_for_colliding_ids",
+        "native_ignition_fx_uses_receiving_visibility_for_matching_ids",
         || {
             let id = ObjectId(9002);
-            let mut source = world();
+            let mut owner = world();
             let mut peer = world();
-            reveal_object(&source, id);
+            admit_shake(&mut owner);
+            admit_shake(&mut peer);
+            reveal_object(&owner, id);
             peer.world_services
                 .shroud()
                 .lock()
                 .unwrap()
                 .set_host_object_shroud_status(1, id.0, ObjectShroudStatus::Fogged);
-            let mut p = missile(id, 0);
-            if let Some(HostProjectileFlight::Missile(flight)) = &mut p.flight {
-                flight.ignition_fx.clear();
-            }
-            source.combat_system.projectiles.insert(id, p.clone());
+            let p = missile(id, 0);
+            // C++ FXList::doFXObj receives the missile pose. Both views are
+            // centered above that pose, so shroud alone changes the effect.
+            owner.session_view.target = Vec3::new(10., 0., 12.);
+            peer.session_view.target = owner.session_view.target;
+            owner.combat_system.projectiles.insert(id, p.clone());
             peer.combat_system.projectiles.insert(id, p);
-            source.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
-            let pose = gamelogic::helpers::host_fx_object_pose(id.0).unwrap();
-            assert!(!pose.is_shrouded);
-            assert_eq!(pose.position.x, 10.0);
-            assert_eq!(pose.position.z, 4.0);
             peer.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
-            assert!(
-                gamelogic::helpers::host_fx_object_pose(id.0)
-                    .unwrap()
-                    .is_shrouded
-            );
+            assert!(peer.combat_system.projectiles[&id].is_warhead_armed());
+            assert_eq!(peer.session_view.impulse.intensity, 0.);
+            owner.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
+            assert!(owner.combat_system.projectiles[&id].is_warhead_armed());
+            assert!(owner.session_view.impulse.intensity > 0.);
+            reveal_object(&peer, id);
+            peer.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
+            assert_eq!(peer.session_view.impulse.intensity, 0., "ignition must not replay when revealed");
         },
     );
 }
@@ -334,8 +338,8 @@ fn detonation_fx_flushes_before_body_damage_and_empties_deferred_queue() {
         module_path!(),
         "detonation_fx_flushes_before_body_damage_and_empties_deferred_queue",
         || {
-            install_shake();
             let mut owner = world();
+            admit_shake(&mut owner);
             let shooter = ObjectId(10);
             let victim = ObjectId(20);
             let projectile = ObjectId(9007);

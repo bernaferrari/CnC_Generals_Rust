@@ -1904,62 +1904,54 @@ impl GameLogic {
         let ids = self.combat_system.projectile_update_ids();
         let limit = self.combat_system.historic_damage_limit();
         let mut retired = Vec::new();
-        let mut births = Vec::new();
+        let mut error = None;
         for id in ids {
             let birth = self.combat_system.get_projectiles().get(&id)
                 .and_then(|shot| shot.missile_actor_birth);
-            let removals = self.update_owned_projectile_impact_with_effects(id, dt, limit, effects)?;
-            for removed in removals {
-                if removed == id {
-                    retired.push(removed);
-                    births.push(birth);
-                }
+            let (retire, result) = self.update_owned_projectile_impact_with_effects(id, dt, limit, effects);
+            if retire {
+                retired.push((id, birth));
+            }
+            if let Err(callback_error) = result {
+                error = Some(callback_error);
+                break;
             }
         }
-        // A callback can replace an ID. Retire only the selected missile
-        // incarnation, then destroy its matching ordinary Object.
-        for (&id, birth) in retired.iter().zip(births) {
+        // Terminal effects can already have run when a callback fails. Finish
+        // retirement at the batch boundary so a retry cannot replay them.
+        // A callback can replace an ID, so retire only the selected incarnation.
+        for &(id, birth) in &retired {
             let current = self.combat_system.get_projectiles().get(&id);
             if current.is_some_and(|shot| shot.missile_actor_birth == birth) {
                 self.combat_system.retire_projectile_impacts(&[id]);
-                if let Some(birth) = birth {
-                    if self.spawn_identity_matches(id, birth.0, birth.1) {
-                        self.destroy_object_with_effects(id, effects)?;
-                    }
+                if let Some((generation, epoch)) = birth
+                    && self.spawn_identity_matches(id, generation, epoch)
+                    && let Err(destroy_error) = self.destroy_object_with_effects(id, effects)
+                {
+                    error.get_or_insert(destroy_error);
                 }
             }
         }
-        Ok(retired)
+        if let Some(error) = error {
+            return Err(error);
+        }
+        Ok(retired.into_iter().map(|(id, _)| id).collect())
     }
 
-    /// One bounded callback, suitable for the session UpdateModule dispatcher.
-    /// No object/projectile borrow crosses the synchronous Body completion.
-    pub(in crate::game_logic) fn update_owned_projectile_impact(
-        &mut self,
-        id: ObjectId,
-        dt: f32,
-        historic_damage_limit: u32,
-    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
-        self.update_owned_projectile_impact_with_effects(
-            id,
-            dt,
-            historic_damage_limit,
-            &mut Default::default(),
-        )
-    }
-
-    pub(in crate::game_logic) fn update_owned_projectile_impact_with_effects(
+    /// One callback without holding the projectile arena across Body or OCL.
+    /// The retirement decision is final even if an effect fails.
+    fn update_owned_projectile_impact_with_effects(
         &mut self,
         id: ObjectId,
         dt: f32,
         historic_damage_limit: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Vec<ObjectId>> {
+    ) -> (bool, gamelogic::GameLogicResult<()>) {
         if let Some(birth) = self.combat_system.get_projectiles().get(&id)
             .and_then(|projectile| projectile.missile_actor_birth)
         {
             if !self.spawn_identity_matches(id, birth.0, birth.1) {
-                return Ok(vec![id]);
+                return (true, Ok(()));
             }
         }
         // Weapon.cpp:1504-1508 and 1797-1816 compute the detonation
@@ -2051,14 +2043,13 @@ impl GameLogic {
         // C++ Weapon::handleProjectileDetonation → fireWeaponTemplate with
         // isProjectileDetonation: ProjectileDetonationFX/OCL run before Body
         // damage (Weapon.cpp:889-949 then dealDamageInternal).
-        self.flush_projectile_impact_fx_with_effects(effects)?;
-
-        for event in events {
-            self.apply_owned_combat_damage_with_effects(&event, effects)?;
-        }
-        // Return deletion requests; do not physically remove the callback's
-        // projectile while other callbacks can still inspect the arena.
-        Ok(retired)
+        let result = self.flush_projectile_impact_fx_with_effects(effects).and_then(|()| {
+            for event in events {
+                self.apply_owned_combat_damage_with_effects(&event, effects)?;
+            }
+            Ok(())
+        });
+        (retired.contains(&id), result)
     }
 
     fn apply_owned_combat_damage_with_effects(

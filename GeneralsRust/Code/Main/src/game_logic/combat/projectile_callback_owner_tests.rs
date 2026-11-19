@@ -61,6 +61,57 @@ fn shell(id: ObjectId, source: ObjectId) -> Projectile {
 }
 
 #[test]
+fn impact_callback_error_cannot_replay_retired_shells() {
+    use gamelogic::effects::ObjectCreationList;
+    use gamelogic::object_creation_list::GenericObjectCreationNugget;
+    use std::sync::Arc;
+
+    const IMPACT_OCL: &str = "TestImpactSequence";
+    const FIRST_CHILD: &str = "TestImpactChild";
+    const REJECTED_CHILD: &str = "TestInvalidImpactChild";
+    let (mut owner, source, target) = world();
+    let mut list = ObjectCreationList::new();
+    for name in [FIRST_CHILD, REJECTED_CHILD] {
+        owner.templates.insert(name.into(), ThingTemplate::new(name));
+        list.add_nugget(Arc::new(GenericObjectCreationNugget {
+            names: vec![name.into()],
+            ..Default::default()
+        }));
+    }
+    owner
+        .templates
+        .get_mut(REJECTED_CHILD)
+        .unwrap()
+        .body_definition_error = Some("injected impact OCL factory failure".into());
+    owner.admit_weapon_ocl_definition(IMPACT_OCL, list).unwrap();
+    for id in [ObjectId(9001), ObjectId(9002)] {
+        let mut projectile = shell(id, source);
+        projectile.target_position = Vec3::ZERO;
+        projectile.target_id = Some(target);
+        owner.combat_system.projectiles.insert(id, projectile);
+    }
+    let order = owner.combat_system.projectile_update_ids();
+    owner.combat_system.projectiles.get_mut(&order[1]).unwrap().detonation_ocl_name =
+        IMPACT_OCL.into();
+
+    let count_children = |world: &GameLogic, name: &str| {
+        world.host_objects().registered_values().filter(|o| o.template_name == name).count()
+    };
+    let error = owner.update_owned_projectile_impacts(0.0).unwrap_err();
+    assert!(error.to_string().contains("injected impact OCL factory failure"));
+    assert_eq!(count_children(&owner, FIRST_CHILD), 1);
+    assert_eq!(count_children(&owner, REJECTED_CHILD), 0);
+    assert_eq!(owner.host_object(target).unwrap().health.current, 80.0);
+    assert_eq!(owner.combat_system.projectile_count(), 0, "both impacts already started");
+
+    owner.templates.get_mut(REJECTED_CHILD).unwrap().body_definition_error = None;
+    assert!(owner.update_owned_projectile_impacts(0.0).unwrap().is_empty());
+    assert_eq!(count_children(&owner, FIRST_CHILD), 1);
+    assert_eq!(count_children(&owner, REJECTED_CHILD), 0);
+    assert_eq!(owner.host_object(target).unwrap().health.current, 80.0);
+}
+
+#[test]
 fn first_body_callback_neutralizes_controller_before_next_incidental_collision() {
     let (mut owner, source, blocker) = world();
     let (peer, peer_source, peer_blocker) = world();
