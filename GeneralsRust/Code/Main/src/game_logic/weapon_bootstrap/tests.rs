@@ -223,6 +223,11 @@ fn create_object_technical_and_battlemaster_bind_authored_weapon_set() {
 /// The ranger FlashBang grenade resolves through the shared weapon path; no
 /// separate projectile object remains to advance, only pending destroys.
 fn land_in_flight_projectiles(logic: &mut crate::game_logic::GameLogic) {
+    // The session UpdateModule dispatcher ticks projectile impacts; the
+    // update_combat-only driver has to do the same for a grenade to land.
+    logic
+        .update_owned_projectile_impacts(1.0 / 30.0)
+        .expect("projectile impacts");
     logic.process_destroy_list();
 }
 
@@ -236,8 +241,11 @@ fn fire_until_flashbang_lands(
     attacker_id: crate::game_logic::ObjectId,
     target_id: crate::game_logic::ObjectId,
     reset_primary: bool,
-) -> f32 {
+    stop_on_damage: bool,
+) -> (f32, Option<(bool, bool)>) {
     let mut dealt = 0.0;
+    // (secondary fired, primary fired) on the first frame either weapon fired.
+    let mut first_shot = None;
     for frame in 61..=360 {
         {
             let atk = logic.objects.get_mut(&attacker_id).expect("attacker");
@@ -262,6 +270,17 @@ fn fire_until_flashbang_lands(
             .health
             .current;
         logic.update_combat(&[attacker_id, target_id], 1.0 / 60.0);
+        if first_shot.is_none() {
+            let a = logic.objects.get(&attacker_id).expect("attacker");
+            let pri = a.weapon.as_ref().is_some_and(|w| w.last_fire_frame != 0);
+            let sec = a
+                .secondary_weapon
+                .as_ref()
+                .is_some_and(|w| w.last_fire_frame != 0);
+            if pri || sec {
+                first_shot = Some((sec, pri));
+            }
+        }
         land_in_flight_projectiles(logic);
         let after = logic
             .objects
@@ -270,11 +289,11 @@ fn fire_until_flashbang_lands(
             .health
             .current;
         dealt = before - after;
-        if dealt > 0.0 {
+        if stop_on_damage && dealt > 0.0 {
             break;
         }
     }
-    dealt
+    (dealt, first_shot)
 }
 
 
@@ -356,7 +375,7 @@ fn update_combat_secondary_considered_vs_structure() {
         }
     }
 
-    let _ = fire_until_flashbang_lands(&mut logic, attacker_id, target_id, true);
+    let _ = fire_until_flashbang_lands(&mut logic, attacker_id, target_id, true, true);
 
     // Armor-adjusted chooser verdict: whichever slot won, the primary must
     // have been re-evaluated (not skipped), and the loop must have converged.
@@ -389,6 +408,9 @@ fn update_combat_prefers_secondary_damage_vs_infantry() {
         .set_health(120.0)
         .set_primary_weapon_name(RANGER_PRIMARY_WEAPON)
         .set_secondary_weapon_name(RANGER_SECONDARY_WEAPON);
+    // WeaponSet PreferredAgainst = SECONDARY INFANTRY (C++ WeaponSet.cpp:869-877
+    // keeps such a weapon chosen while it merely reloads).
+    ranger.preferred_against[1].push(KindOf::Infantry);
     logic.templates.insert("USA_Ranger".to_string(), ranger);
 
     let mut rebel = ThingTemplate::new("GLA_Soldier");
@@ -432,30 +454,26 @@ fn update_combat_prefers_secondary_damage_vs_infantry() {
         }
     }
 
-    // ScatterRadius 4 + grenade detonate falloff make exact landed damage
-    // vary; the secondary path itself is proven by the last_fire asserts.
-    let dealt = fire_until_flashbang_lands(&mut logic, attacker_id, target_id, true);
-    assert!(
-        dealt > 0.0,
-        "infantry PreferredAgainst residual must use secondary: dealt={dealt} primary={primary_dmg} secondary={secondary_dmg}"
-    );
+    // Which weapon fires is what the chooser decides; whether the grenade lands
+    // is projectile flight, not under test here. Run the full window so the
+    // primary has every chance to (wrongly) fire while the secondary reloads.
+    let (dealt, first_shot) =
+        fire_until_flashbang_lands(&mut logic, attacker_id, target_id, true, false);
 
-    let atk = logic.objects.get(&attacker_id).expect("attacker");
-    let pri_last = atk.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
-    let sec_last = atk
-        .secondary_weapon
-        .as_ref()
-        .map(|w| w.last_fire_time)
-        .unwrap_or(0.0);
-    assert!(
-        sec_last > 0.0,
-        "secondary last_fire_time must advance vs infantry PreferredAgainst: dealt={dealt} pri_last={pri_last} sec_last={sec_last} primary_dmg={primary_dmg} secondary_dmg={secondary_dmg} ranger_target_health={:?} {}",
-        logic.objects.get(&target_id).map(|t| t.health.current),
+    // C++ chooseBestWeaponForTarget picks the PreferredAgainst secondary for
+    // the opening shot; once it is reloading the primary is free to fire.
+    assert_eq!(
+        first_shot,
+        Some((true, false)),
+        "the first shot vs infantry must be the secondary (secondary, primary): dealt={dealt} primary_dmg={primary_dmg} secondary_dmg={secondary_dmg} {}",
         chooser_diag(&mut logic, attacker_id, target_id)
     );
-    assert!(
-        (pri_last - 0.0).abs() < f32::EPSILON,
-        "primary must stay idle when secondary PreferredAgainst fires"
+    // While the preferred secondary reloads, the primary must stay idle.
+    let atk = logic.objects.get(&attacker_id).expect("attacker");
+    assert_eq!(
+        atk.weapon.as_ref().map(|w| w.last_fire_frame),
+        Some(0),
+        "primary must stay idle while the preferred secondary reloads"
     );
 }
 
@@ -517,25 +535,17 @@ fn update_combat_uses_secondary_when_primary_reloading() {
         }
     }
 
-    // Primary stays on cooldown (reset_primary=false); scatter/falloff makes
-    // exact landed damage vary, so retry until a grenade lands.
-    let dealt = fire_until_flashbang_lands(&mut logic, attacker_id, target_id, false);
-    assert!(
-        dealt > 0.0,
-        "secondary must fire while primary reloads; dealt={dealt} secondary_dmg={secondary_dmg} primary(last,reload)={:?} secondary(last,reload,ammo)={:?} dist={:?} {}",
-        logic.objects.get(&attacker_id).and_then(|a| a.weapon.as_ref()).map(|w| (w.last_fire_time, w.reload_time)),
-        logic.objects.get(&attacker_id).and_then(|a| a.secondary_weapon.as_ref()).map(|w| (w.last_fire_time, w.reload_time, w.ammo)),
-        logic.objects.get(&attacker_id).map(|a| a.get_position().distance(Vec3::new(30.0, 0.0, 0.0))),
+    // Primary stays on cooldown (reset_primary=false): the secondary is the only
+    // ready weapon, so it must be the one that fires.
+    let (dealt, first_shot) =
+        fire_until_flashbang_lands(&mut logic, attacker_id, target_id, false, false);
+
+    assert_eq!(
+        first_shot,
+        Some((true, false)),
+        "only the secondary may fire while the primary is reloading (secondary, primary): dealt={dealt} secondary_dmg={secondary_dmg} {}",
         chooser_diag(&mut logic, attacker_id, target_id)
     );
-
-    let atk = logic.objects.get(&attacker_id).expect("attacker");
-    let sec_last = atk
-        .secondary_weapon
-        .as_ref()
-        .map(|w| w.last_fire_time)
-        .unwrap_or(0.0);
-    assert!(sec_last > 0.0, "secondary last_fire_time must advance");
 }
 
 #[test]

@@ -959,6 +959,17 @@ impl Object {
             return None;
         }
 
+        // C++ WeaponSet.cpp:869-877 PreferredAgainst override: a matching weapon
+        // is always chosen (merely reloading still counts as ready) regardless of
+        // which slot fired last; the current slot never biases chooseBest.
+        // Primary wins ties because C++ walks slots backwards and `damage >= best`.
+        if self.ini_preferred_slot_usable(0, target) {
+            return Some(0);
+        }
+        if self.ini_preferred_slot_usable(1, target) {
+            return Some(1);
+        }
+
         if self.active_weapon_slot == 1 {
             // Explicit secondary (flashbang / TOW) even if AutoChoose is NONE.
             let secondary_explicit = self.secondary_weapon.as_ref().is_some_and(|w| {
@@ -984,15 +995,6 @@ impl Object {
                 return Some(0);
             }
             return None;
-        }
-
-        // C++ WeaponSet.cpp:869-877 PreferredAgainst override. Primary wins
-        // ties because C++ walks slots backwards and `damage >= best`.
-        if self.ini_preferred_slot_usable(0, target) {
-            return Some(0);
-        }
-        if self.ini_preferred_slot_usable(1, target) {
-            return Some(1);
         }
 
         let target_is_structure =
