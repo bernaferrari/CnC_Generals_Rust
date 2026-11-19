@@ -142,6 +142,7 @@ pub(super) struct RuntimeHostBridge {
     capture_request_started_at: Option<Instant>,
     screenshot_enqueue_failed: bool,
     has_published_live_frame: bool,
+    windowed_presented_frames: u64,
     created_at: Instant,
     last_capture_health_log_at: Option<Instant>,
 }
@@ -241,6 +242,7 @@ impl RuntimeHostBridge {
     /// honest case where the OS surface has presented even if PNG readback is
     /// delayed. Headless must never call this (no OS surface present).
     pub(super) fn note_windowed_surface_presented(&mut self) {
+        self.windowed_presented_frames += 1;
         if !self.has_published_live_frame {
             info!(
                 "Runtime host latched live_frame_ok from windowed surface present (frame={})",
@@ -305,6 +307,7 @@ impl RuntimeHostBridge {
             capture_request_started_at: None,
             screenshot_enqueue_failed: false,
             has_published_live_frame: false,
+            windowed_presented_frames: 0,
             created_at: Instant::now(),
             last_capture_health_log_at: None,
         })
@@ -455,6 +458,10 @@ impl RuntimeHostBridge {
         payload.push_str(&format!("startup_phase={}\n", snapshot.startup_phase));
         payload.push_str(&format!("map={}\n", snapshot.map));
         payload.push_str(&format!("frame={}\n", snapshot.frame));
+        payload.push_str(&format!(
+            "windowed_presented_frames={}\n",
+            self.windowed_presented_frames
+        ));
         payload.push_str(&format!("logic_frame={}\n", snapshot.logic_frame));
         payload.push_str(&format!("logic_steps={}\n", snapshot.logic_steps));
         payload.push_str(&format!(

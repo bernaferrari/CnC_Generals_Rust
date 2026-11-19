@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 struct Snap {
     state: String,
     frame: u32,
+    windowed_presented_frames: Option<u64>,
     logic_frame: u32,
     present_ms: f32,
     present_collect_ms: f32,
@@ -25,6 +26,16 @@ struct Snap {
     render_terrain_chunks: u32,
     last_gameplay_cmd: String,
     startup_phase: String,
+}
+
+impl Snap {
+    fn benchmark_frames(&self, windowed: bool) -> Option<u64> {
+        if windowed {
+            self.windowed_presented_frames
+        } else {
+            Some(u64::from(self.frame))
+        }
+    }
 }
 
 fn retail_root() -> Option<PathBuf> {
@@ -62,6 +73,7 @@ fn parse_status(path: &Path) -> Option<Snap> {
         match k.trim() {
             "state" => s.state = v.trim().to_string(),
             "frame" => s.frame = v.trim().parse().unwrap_or(0),
+            "windowed_presented_frames" => s.windowed_presented_frames = v.trim().parse().ok(),
             "logic_frame" => s.logic_frame = v.trim().parse().unwrap_or(0),
             "present_ms" => s.present_ms = v.trim().parse().unwrap_or(0.0),
             "present_collect_ms" => s.present_collect_ms = v.trim().parse().unwrap_or(0.0),
@@ -111,7 +123,7 @@ fn find_generals_exe() -> Option<PathBuf> {
 struct BenchNumbers {
     mode: &'static str,
     ticks: u32,
-    frames: u32,
+    frames: u64,
     ms_per_tick: f64,
     ms_per_frame: f64,
     peak_radar_pixels: u32,
@@ -162,13 +174,17 @@ fn run_mode(
     let _ = fs::File::create(&control_path);
     let _ = fs::File::create(&status_path);
 
-    let runtime_host_arg = if launch == "headless" {
+    let windowed = launch == "windowed";
+    let runtime_host_arg = if !windowed {
         "-runtime_host=headless"
     } else {
         "-runtime_host=windowed"
     };
 
     let mut command = Command::new(&exe);
+    if windowed && std::env::var_os("LONE_EAGLE_BENCH_UNCAPPED").is_some() {
+        command.arg("-nofpslimit");
+    }
     if let Some(assets_dir) = &options.assets_dir {
         command.env("GENERALS_ASSETS_DIR", assets_dir);
     } else {
@@ -210,18 +226,19 @@ fn run_mode(
     let mut commanded_at = Instant::now();
     let mut measure_start: Option<Instant> = None;
     let mut start_logic = 0u32;
-    let mut start_frame = 0u32;
+    let mut start_frame = 0u64;
+    let mut last_timed_frame = 0u64;
     let mut present_samples: Vec<f32> = Vec::new();
     let mut collect_samples: Vec<f32> = Vec::new();
     let mut terrain_samples: Vec<f32> = Vec::new();
     let mut forward_samples: Vec<f32> = Vec::new();
     let mut peak_radar = 0u32;
     let mut peak_chunks = 0u32;
-    let mut done = false;
+    let mut finished = None;
     let mut sample_path = None;
     let mut boot_to_ingame: Option<f32> = None;
 
-    while started.elapsed() < timeout && !done {
+    while started.elapsed() < timeout && finished.is_none() {
         if let Some(snap) = parse_status(&status_path) {
             peak_radar = peak_radar.max(snap.radar_pixels);
             peak_chunks = peak_chunks.max(snap.render_terrain_chunks);
@@ -255,9 +272,6 @@ fn run_mode(
                             phase = 2;
                             commanded_at = Instant::now();
                         }
-                    } else if commanded_at.elapsed() > Duration::from_secs(2) {
-                        let _ = write_control(&control_path, &["open_skirmish_menu"]);
-                        commanded_at = Instant::now();
                     }
                 }
                 2 => {
@@ -280,10 +294,11 @@ fn run_mode(
                         }
                         // Let AI settle a few frames, then measure.
                         if measure_start.is_none() {
-                            if snap.logic_frame > 30 {
+                            if snap.logic_frame > 30 && let Some(frame) = snap.benchmark_frames(windowed) {
                                 measure_start = Some(Instant::now());
                                 start_logic = snap.logic_frame;
-                                start_frame = snap.frame;
+                                start_frame = frame;
+                                last_timed_frame = frame;
                                 // Fire a macOS sample while measuring when available.
                                 if launch == "windowed" {
                                     if let Ok(sample) = which_sample() {
@@ -304,17 +319,19 @@ fn run_mode(
                                     }
                                 }
                             }
-                        } else {
-                            if snap.present_ms > 0.0 {
+                        } else if let Some(frame) = snap.benchmark_frames(windowed) {
+                            if frame > last_timed_frame && snap.present_ms > 0.0 {
                                 present_samples.push(snap.present_ms);
                                 collect_samples.push(snap.present_collect_ms);
                                 terrain_samples.push(snap.present_terrain_ms);
                                 forward_samples.push(snap.present_forward_ms);
                             }
+                            last_timed_frame = frame;
                             let logic_delta = snap.logic_frame.saturating_sub(start_logic);
-                            let frame_delta = snap.frame.saturating_sub(start_frame);
-                            if logic_delta >= n_ticks && frame_delta >= n_frames {
-                                done = true;
+                            let frame_delta = frame.saturating_sub(start_frame);
+                            if logic_delta >= n_ticks && frame_delta >= u64::from(n_frames) {
+                                finished = Some((Instant::now(), snap));
+                                break;
                             }
                         }
                     } else if commanded_at.elapsed() > Duration::from_secs(20) {
@@ -331,15 +348,17 @@ fn run_mode(
         thread::sleep(Duration::from_millis(50));
     }
 
+    let completed = finished.is_some();
+    let (measured_at, final_snap) =
+        finished.unwrap_or_else(|| (Instant::now(), parse_status(&status_path).unwrap_or_default()));
     let measure_elapsed = measure_start
-        .map(|t| t.elapsed())
+        .map(|start| measured_at.saturating_duration_since(start))
         .unwrap_or_default()
         .as_secs_f64();
-    let final_snap = parse_status(&status_path).unwrap_or_default();
-    let logic_delta = final_snap.logic_frame.saturating_sub(start_logic).max(1);
-    let frame_delta = final_snap.frame.saturating_sub(start_frame).max(1);
+    let logic_delta = final_snap.logic_frame.saturating_sub(start_logic);
+    let frame_delta = final_snap.benchmark_frames(windowed).unwrap_or(0).saturating_sub(start_frame);
     let ms_per_tick = (measure_elapsed * 1000.0) / f64::from(logic_delta);
-    let ms_per_frame = (measure_elapsed * 1000.0) / f64::from(frame_delta);
+    let ms_per_frame = (measure_elapsed * 1000.0) / frame_delta as f64;
 
     // Surface sync stage lines from child stderr (RUST_LOG=info).
     if let Ok(err_txt) = fs::read_to_string(tmp.join("child_stderr.txt")) {
@@ -380,10 +399,10 @@ fn run_mode(
     let _ = child.kill();
     let _ = child.wait();
 
-    if !done && measure_start.is_none() {
+    if !completed || logic_delta < n_ticks || frame_delta < u64::from(n_frames) {
         return Err(format!(
-            "{launch}: never reached measurable InGame (state={} logic={} cmd={})",
-            final_snap.state, final_snap.logic_frame, final_snap.last_gameplay_cmd
+            "{launch}: benchmark incomplete (state={}, ticks={logic_delta}/{n_ticks}, frames={frame_delta}/{n_frames}, cmd={})",
+            final_snap.state, final_snap.last_gameplay_cmd
         ));
     }
 
@@ -408,13 +427,8 @@ fn run_mode(
 }
 
 fn which_sample() -> Result<PathBuf, ()> {
-    for candidate in ["/opt/homebrew/bin/sample", "/usr/bin/sample"] {
-        let p = PathBuf::from(candidate);
-        if p.is_file() {
-            return Ok(p);
-        }
-    }
-    Err(())
+    let sample = PathBuf::from("/usr/bin/sample");
+    sample.is_file().then_some(sample).ok_or(())
 }
 
 fn write_docs(path: &Path, rows: &[BenchNumbers], notes: &str) -> std::io::Result<()> {
@@ -426,7 +440,7 @@ fn write_docs(path: &Path, rows: &[BenchNumbers], notes: &str) -> std::io::Resul
     writeln!(f)?;
     writeln!(
         f,
-        "Captured by `lone_eagle_bench` on the Mac playable worktree. Times are wall-clock over observed logic/present deltas after InGame settle."
+        "Captured by `lone_eagle_bench` on the Mac playable worktree. Times are wall-clock after InGame settle. Windowed frames count surface presents, while headless frames count host updates."
     )?;
     writeln!(f)?;
     writeln!(
@@ -459,7 +473,7 @@ fn write_docs(path: &Path, rows: &[BenchNumbers], notes: &str) -> std::io::Resul
     writeln!(f)?;
     writeln!(
         f,
-        "Present breakdown comes from `RenderPipeline::execute` residuals (`present_collect_ms` / `present_terrain_ms` / `present_forward_ms`). Larger of the three is the leading GPU/CPU present cost."
+        "Present breakdown comes from `RenderPipeline::execute` residuals (`present_collect_ms` / `present_terrain_ms` / `present_forward_ms`). These are wall-clock durations of CPU stages, including any waits inside them."
     )?;
     for r in rows {
         let mut parts = BTreeMap::new();

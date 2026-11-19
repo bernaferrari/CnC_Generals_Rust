@@ -476,6 +476,20 @@ fn live_catchup_runs_one_step_and_drops_excess_backlog() {
     assert!(!headless.fixed_step_diagnostics().dropped_excess_time);
 }
 
+#[test]
+fn high_refresh_drive_keeps_thirty_logic_ticks_per_second() {
+    for rate in [30, 120, 240] {
+        let mut logic = GameLogic::new();
+        let presentations_per_tick = rate / 30;
+        let dt = LOGIC_FRAME_TIMESTEP / presentations_per_tick as f32;
+        for present in 1..=rate {
+            logic.step_simulation_with_budget(dt, None);
+            assert_eq!(logic.frame, present / presentations_per_tick);
+            assert!(!logic.fixed_step_diagnostics().dropped_excess_time);
+        }
+    }
+}
+
 /// Perf-gate seam: on a fresh world every residual registry is empty, so
 /// each gated residual pass must be SKIPPED (counter bumps once per step)
 /// while the step itself still advances normally — the gates are pure

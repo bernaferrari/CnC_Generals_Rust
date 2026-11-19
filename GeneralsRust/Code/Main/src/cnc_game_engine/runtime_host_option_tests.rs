@@ -24,6 +24,29 @@ mod runtime_host_windowed_bridge_tests {
     use crate::command_line::CommandLineArgs;
 
     #[test]
+    fn successful_surface_presents_are_counted_separately_from_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let status = dir.path().join("status.txt");
+        let args = CommandLineArgs::parse_from_args(vec![
+            "generals".into(),
+            "-runtime_host=windowed".into(),
+            format!("-gpui_control={}", dir.path().join("control.txt").display()),
+            format!("-gpui_status={}", status.display()),
+            format!("-gpui_frame={}", dir.path().join("frame.png").display()),
+        ])
+        .unwrap();
+        let mut bridge = RuntimeHostBridge::from_command_line(&args).unwrap();
+        bridge.publish_booting_from_winit_query(false, Some(true));
+        assert!(std::fs::read_to_string(&status).unwrap().contains("windowed_presented_frames=0"));
+        bridge.note_windowed_surface_presented();
+        bridge.note_windowed_surface_presented();
+        bridge.publish_booting_from_winit_query(false, Some(true));
+        let snapshot = std::fs::read_to_string(&status).unwrap();
+        assert!(snapshot.lines().any(|line| line == "frame=0"));
+        assert!(snapshot.lines().any(|line| line == "windowed_presented_frames=2"));
+    }
+
+    #[test]
     fn windowed_runtime_host_is_requested_but_not_headless() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let control = dir.path().join("control.txt");

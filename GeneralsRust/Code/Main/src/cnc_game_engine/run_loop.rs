@@ -21,7 +21,7 @@ impl Wake for NoopWake {
 
 /// C++ `GameEngine.h:13` `DEFAULT_MAX_FPS` — execute present cap, not logic Hz.
 pub(super) const DEFAULT_MAX_FPS: u32 = 45;
-/// Windowed GPU present interval: 1/45 s (~22_222 µs).
+/// Original execute-only interval before W3DDisplay applies its draw wait.
 /// C++ `GameEngine::execute` (`GameEngine.cpp:856-857`) uses
 /// `DWORD limit = (1000.0f/m_maxFPS)-1` after `m_maxFPS = DEFAULT_MAX_FPS`
 /// (`GameEngine.cpp:271`). This is the windowed present/execute cap only;
@@ -1098,6 +1098,20 @@ fn execute_wait_deadline(prev_time: Instant, interval: Option<Duration>) -> Inst
     }
 }
 
+/// The original execute and draw waits apply in the legacy rate range.
+/// A higher requested rate controls submission only; logic has its own clock.
+fn windowed_present_interval(max_fps: i32) -> Option<Duration> {
+    if max_fps <= 0 {
+        return None;
+    }
+    if max_fps as u32 > DEFAULT_MAX_FPS {
+        return Some(Duration::from_secs_f64(1.0 / f64::from(max_fps)));
+    }
+    let exec_ms = (1000.0 / max_fps as f32 - 1.0).max(0.0);
+    let draw_ms = (W3D_DRAW_MIN_TIME_MS as f32 - 1.0).max(0.0);
+    Some(Duration::from_millis(exec_ms.max(draw_ms).round() as u64))
+}
+
 /// Map leftover/host `ObjectShroudStatus` onto Common radar discriminants.
 fn host_object_shroud_to_radar(
     status: gamelogic::common::ObjectShroudStatus,
@@ -1194,7 +1208,7 @@ impl CnCGameEngine {
         self.native_display.should_present()
     }
 
-    /// C++ execute limiter + W3DDisplay 30ms draw limiter.
+    /// Windowed submission rate from the receiving engine's FPS policy.
     /// `None` = unlocked (m_useFpsLimit false) or time-fast / TiVO replay.
     pub(super) fn live_present_interval(&self) -> Option<Duration> {
         let visual_speed = self.presentation_or_boot_visual_speed();
@@ -1206,15 +1220,7 @@ impl CnCGameEngine {
             self.replay_fast_forward,
             self.presentation_or_boot_in_replay_game(),
         )?;
-        if max_fps <= 0 {
-            // Non-positive float-to-DWORD behavior is target-specific in C++;
-            // never substitute a peer/global/default rate here.
-            return None;
-        }
-        let exec_ms = (1000.0 / max_fps as f32 - 1.0).max(0.0);
-        let draw_ms = (W3D_DRAW_MIN_TIME_MS as f32 - 1.0).max(0.0);
-        let ms = exec_ms.max(draw_ms);
-        Some(Duration::from_millis(ms.round() as u64))
+        windowed_present_interval(max_fps)
     }
 
     /// C++ `W3DDisplay::updateAverageFPS` + `findDynamicLODLevel` / force VERY_HIGH.
@@ -1370,7 +1376,7 @@ mod tests {
         // C++ GameEngine.cpp:271 `m_maxFPS = DEFAULT_MAX_FPS`
         // C++ GameEngine.cpp:856-857 execute present cap:
         //   `DWORD limit = (1000.0f/m_maxFPS)-1`
-        // Windowed WaitUntil present interval is 1/45 s; logic stays 30 Hz.
+        // Original execute interval alone is 1/45 s; logic stays 30 Hz.
         assert_eq!(DEFAULT_MAX_FPS, 45);
         assert_eq!(FRAME_INTERVAL, Duration::from_micros(1_000_000 / 45));
         assert_ne!(
@@ -1383,6 +1389,20 @@ mod tests {
             Duration::from_nanos(33_333_333),
             "headless 30 Hz logic interval must stay 30 logic frames/sec"
         );
+    }
+
+    #[test]
+    fn higher_present_rates_fit_between_unchanged_logic_ticks() {
+        use super::windowed_present_interval;
+
+        assert_eq!(windowed_present_interval(0), None);
+        assert_eq!(windowed_present_interval(30), Some(Duration::from_millis(32)));
+        assert_eq!(windowed_present_interval(45), Some(Duration::from_millis(29)));
+        for rate in [120, 240] {
+            let interval = windowed_present_interval(rate).unwrap();
+            assert_eq!(interval, Duration::from_secs_f64(1.0 / f64::from(rate)));
+            assert!(interval < HEADLESS_LOGIC_INTERVAL);
+        }
     }
 
     #[test]
