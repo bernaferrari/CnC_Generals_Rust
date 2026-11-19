@@ -7,7 +7,8 @@
     unused_assignments,
     clippy::all
 )]
-use super::*;
+use super::{bind_cache::StageResources, *};
+use std::borrow::Cow;
 
 /// C++ `WW3DAssetManager::Get_Texture` parity (W3DAssetManager.cpp:127-225):
 /// resolves a W3D pass-texture name to a hydrated `TextureClass` (decoded
@@ -199,12 +200,6 @@ struct MeshFallbackTextures {
     view_2d: Arc<wgpu::TextureView>,
     _texture_cube: Arc<wgpu::Texture>,
     view_cube: Arc<wgpu::TextureView>,
-}
-
-struct StageResources {
-    view_2d: Arc<wgpu::TextureView>,
-    view_cube: Arc<wgpu::TextureView>,
-    sampler: Arc<wgpu::Sampler>,
 }
 
 struct VertexColorResources {
@@ -708,12 +703,17 @@ impl MeshRenderManager {
     /// environment (the W3D ghost branch uses its always-fogged environment),
     /// so dropping this field at the WGPU boundary would make such objects
     /// indistinguishable from normal geometry.
-    fn render_info_for_mesh(mesh: &MeshClass, render_info: &RenderInfoClass) -> RenderInfoClass {
-        let mut selected = render_info.clone();
+    fn render_info_for_mesh<'a>(
+        mesh: &MeshClass,
+        render_info: &'a RenderInfoClass,
+    ) -> Cow<'a, RenderInfoClass> {
         if let Some(environment) = mesh.get_lighting_environment() {
+            let mut selected = render_info.clone();
             selected.set_lighting_environment((**environment).clone());
+            Cow::Owned(selected)
+        } else {
+            Cow::Borrowed(render_info)
         }
-        selected
     }
 
     fn render_mesh(
@@ -733,8 +733,8 @@ impl MeshRenderManager {
             let model = mesh.model.as_ref().unwrap();
             self.preparemodel(model)?
         };
-        let mut mesh_render_info = Self::render_info_for_mesh(mesh, render_info);
-        let render_info = &mesh_render_info;
+        let mesh_render_info = Self::render_info_for_mesh(mesh, render_info);
+        let render_info = mesh_render_info.as_ref();
 
         resources.set_vertex_buffer(render_pass, 0, Arc::clone(&prepared.vertex_buffer));
 
@@ -1423,67 +1423,41 @@ impl MeshRenderManager {
         pipeline: &Arc<wgpu::RenderPipeline>,
         pass: &MaterialPassClass,
         first_group_index: u32,
-    ) -> Vec<Arc<wgpu::BindGroup>> {
-        let mut bind_groups = Vec::with_capacity(MAX_TEXTURE_STAGE_GROUPS);
-        let pipeline_id = super::bind_cache::addr(pipeline);
-        for group in 0..MAX_TEXTURE_STAGE_GROUPS {
+    ) -> [Arc<wgpu::BindGroup>; MAX_TEXTURE_STAGE_GROUPS] {
+        std::array::from_fn(|group| {
             let group_index = first_group_index + group as u32;
             let stage_base = group * TEXTURES_PER_GROUP;
-            let mut views: Vec<Arc<wgpu::TextureView>> = Vec::with_capacity(TEXTURES_PER_GROUP * 2);
-            let mut samplers: Vec<Arc<wgpu::Sampler>> = Vec::with_capacity(TEXTURES_PER_GROUP);
-            for stage_offset in 0..TEXTURES_PER_GROUP {
-                let resources = self.stage_resources_for(pass, stage_base + stage_offset);
-                views.push(resources.view_2d);
-                views.push(resources.view_cube);
-                samplers.push(resources.sampler);
-            }
-            let key = super::bind_cache::TextureGroupKey {
-                pipeline: pipeline_id,
-                group: group_index,
-                resources: views
-                    .iter()
-                    .map(super::bind_cache::addr)
-                    .chain(samplers.iter().map(super::bind_cache::addr))
-                    .collect(),
-            };
-            let device = Arc::clone(&self.gpu_device);
-            let create = || {
-                let layout = pipeline.get_bind_group_layout(group_index);
-                let mut entries = Vec::with_capacity(TEXTURES_PER_GROUP * 3);
-                for stage_offset in 0..TEXTURES_PER_GROUP {
-                    let binding_base = (stage_offset * 3) as u32;
-                    entries.push(wgpu::BindGroupEntry {
-                        binding: binding_base,
-                        resource: wgpu::BindingResource::TextureView(
-                            views[stage_offset * 2].as_ref(),
-                        ),
-                    });
-                    entries.push(wgpu::BindGroupEntry {
-                        binding: binding_base + 1,
-                        resource: wgpu::BindingResource::TextureView(
-                            views[stage_offset * 2 + 1].as_ref(),
-                        ),
-                    });
-                    entries.push(wgpu::BindGroupEntry {
-                        binding: binding_base + 2,
-                        resource: wgpu::BindingResource::Sampler(samplers[stage_offset].as_ref()),
-                    });
-                }
-                device
-                    .wgpu_device()
-                    .create_bind_group(&wgpu::BindGroupDescriptor {
+            let stages =
+                std::array::from_fn(|offset| self.stage_resources_for(pass, stage_base + offset));
+            let device = self.gpu_device.wgpu_device();
+            self.bind_cache
+                .texture_group(pipeline, group_index, stages, |stages| {
+                    let layout = pipeline.get_bind_group_layout(group_index);
+                    let mut entries = Vec::with_capacity(TEXTURES_PER_GROUP * 3);
+                    for (offset, stage) in stages.iter().enumerate() {
+                        let binding = (offset * 3) as u32;
+                        entries.extend([
+                            wgpu::BindGroupEntry {
+                                binding,
+                                resource: wgpu::BindingResource::TextureView(&stage.view_2d),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: binding + 1,
+                                resource: wgpu::BindingResource::TextureView(&stage.view_cube),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: binding + 2,
+                                resource: wgpu::BindingResource::Sampler(&stage.sampler),
+                            },
+                        ]);
+                    }
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("MeshManager Texture Bind Group"),
                         layout: &layout,
                         entries: &entries,
                     })
-            };
-            let (pinned_views, pinned_samplers) = (views.clone(), samplers.clone());
-            let bind_group =
-                self.bind_cache
-                    .texture_group(key, pipeline, pinned_views, pinned_samplers, create);
-            bind_groups.push(bind_group);
-        }
-        bind_groups
+                })
+        })
     }
 
     fn stage_resources_for(&mut self, pass: &MaterialPassClass, stage: usize) -> StageResources {
@@ -2303,11 +2277,8 @@ mod per_mesh_lighting_tests {
         scene_info.set_lighting_environment(LightEnvironmentClass::new());
 
         let mut mesh = MeshClass::new();
-        assert!(
-            MeshRenderManager::render_info_for_mesh(&mesh, &scene_info)
-                .lighting
-                .is_some()
-        );
+        let selected = MeshRenderManager::render_info_for_mesh(&mesh, &scene_info);
+        assert!(std::ptr::eq(selected.as_ref(), &scene_info));
 
         let mesh_environment = Arc::new(LightEnvironmentClass::new());
         mesh.set_lighting_environment(Some(Arc::clone(&mesh_environment)));

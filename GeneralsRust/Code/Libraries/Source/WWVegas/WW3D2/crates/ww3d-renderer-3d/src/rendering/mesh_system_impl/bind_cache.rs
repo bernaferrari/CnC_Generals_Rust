@@ -11,9 +11,11 @@
 //! * Per-pass entries (camera, UV transform) point into the frame uniform
 //!   arena and are dropped by [`MeshBindCache::begin_pass`].
 
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
+
+use super::TEXTURES_PER_GROUP;
 
 /// Frames a persistent entry may stay unused before it is evicted.
 const IDLE_FRAMES: u64 = 120;
@@ -33,10 +35,21 @@ pub(super) fn content_hash(bytes: &[u8]) -> u64 {
 /// Key of one texture-stage bind group: pipeline, group slot, and the exact
 /// view/sampler objects bound in it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct TextureGroupKey {
-    pub pipeline: usize,
-    pub group: u32,
-    pub resources: Vec<usize>,
+struct TextureGroupKey {
+    pipeline: usize,
+    group: u32,
+    resources: [[usize; 3]; TEXTURES_PER_GROUP],
+}
+
+pub(super) struct StageResources {
+    pub view_2d: Arc<wgpu::TextureView>,
+    pub view_cube: Arc<wgpu::TextureView>,
+    pub sampler: Arc<wgpu::Sampler>,
+}
+
+struct CachedTextureGroup {
+    bind_group: Arc<wgpu::BindGroup>,
+    _stages: [StageResources; TEXTURES_PER_GROUP],
 }
 
 /// Key of a vertex-color bind group: pipeline, slot, and the color contents.
@@ -86,8 +99,6 @@ struct Persistent<V> {
     value: V,
     last_used: u64,
     _pipeline: Arc<wgpu::RenderPipeline>,
-    _views: Vec<Arc<wgpu::TextureView>>,
-    _samplers: Vec<Arc<wgpu::Sampler>>,
 }
 
 /// A cached bind group plus the buffers it reads.
@@ -108,7 +119,7 @@ pub struct MeshBindCacheStats {
 #[derive(Default)]
 pub(super) struct MeshBindCache {
     frame: u64,
-    textures: HashMap<TextureGroupKey, Persistent<Arc<wgpu::BindGroup>>>,
+    textures: HashMap<TextureGroupKey, Persistent<CachedTextureGroup>>,
     vertex_colors: HashMap<VertexColorKey, Persistent<CachedGroup>>,
     color_buffers: HashMap<(u64, usize), (Arc<wgpu::Buffer>, u64)>,
     per_pass: HashMap<UniformGroupKey, CachedGroup>,
@@ -141,31 +152,38 @@ impl MeshBindCache {
 
     pub(super) fn texture_group(
         &mut self,
-        key: TextureGroupKey,
         pipeline: &Arc<wgpu::RenderPipeline>,
-        views: Vec<Arc<wgpu::TextureView>>,
-        samplers: Vec<Arc<wgpu::Sampler>>,
-        create: impl FnOnce() -> wgpu::BindGroup,
+        group: u32,
+        stages: [StageResources; TEXTURES_PER_GROUP],
+        create: impl FnOnce(&[StageResources; TEXTURES_PER_GROUP]) -> wgpu::BindGroup,
     ) -> Arc<wgpu::BindGroup> {
-        let frame = self.frame;
-        if let Some(entry) = self.textures.get_mut(&key) {
-            entry.last_used = frame;
-            self.stats.hits += 1;
-            return Arc::clone(&entry.value);
+        let key = TextureGroupKey {
+            pipeline: addr(pipeline),
+            group,
+            resources: stages.each_ref().map(|stage| {
+                [addr(&stage.view_2d), addr(&stage.view_cube), addr(&stage.sampler)]
+            }),
+        };
+        match self.textures.entry(key) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().last_used = self.frame;
+                self.stats.hits += 1;
+                Arc::clone(&entry.get().value.bind_group)
+            }
+            Entry::Vacant(entry) => {
+                self.stats.misses += 1;
+                let bind_group = Arc::new(create(&stages));
+                entry.insert(Persistent {
+                    value: CachedTextureGroup {
+                        bind_group: Arc::clone(&bind_group),
+                        _stages: stages,
+                    },
+                    last_used: self.frame,
+                    _pipeline: Arc::clone(pipeline),
+                });
+                bind_group
+            }
         }
-        self.stats.misses += 1;
-        let value = Arc::new(create());
-        self.textures.insert(
-            key,
-            Persistent {
-                value: Arc::clone(&value),
-                last_used: frame,
-                _pipeline: Arc::clone(pipeline),
-                _views: views,
-                _samplers: samplers,
-            },
-        );
-        value
     }
 
     /// The shared sampler for `desc`'s state.
@@ -230,8 +248,6 @@ impl MeshBindCache {
                 value: value.clone(),
                 last_used: frame,
                 _pipeline: Arc::clone(pipeline),
-                _views: Vec::new(),
-                _samplers: Vec::new(),
             },
         );
         value
