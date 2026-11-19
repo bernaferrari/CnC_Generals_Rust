@@ -743,12 +743,21 @@ pub(super) fn setup_ground_attacker(
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     attacker.set_status_attacking(true);
-    if let Some(weapon) = attacker.weapon.as_mut() {
-        weapon.damage = 40.0;
-        weapon.range = 150.0;
-        weapon.reload_time = 0.25;
-        weapon.last_fire_time = 0.0;
-    }
+    // The tank template authors no weapon: arm the instance's slots from the stated
+    // stats so the WeaponSet (anti masks, ranges, reload) sees a real primary.
+    crate::fixture_content::arm_with_stats(
+        attacker,
+        crate::game_logic::Weapon {
+            damage: 40.0,
+            range: 150.0,
+            reload_time: 0.25,
+            last_fire_time: 0.0,
+            // A ground shot has no victim: it harms only through the weapon's
+            // PrimaryDamageRadius around the impact point.
+            splash_radius: 10.0,
+            ..Default::default()
+        },
+    );
 
     attacker_id
 }

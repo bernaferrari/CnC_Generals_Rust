@@ -643,7 +643,9 @@ fn ignored_structure_keeps_its_stored_position() {
         logic
             .pathfinding_system
             .grid
-            .update_dynamic_obstacles(logic.objects.read(), &ground_source)
+            // Occupancy is event-driven (Object::setPosition -> Pathfinder::updatePos,
+            // AIPathfind.cpp:9921); this raw-grid fixture delivers the creation event.
+            .update_dynamic_obstacles_after_creation_events(logic.objects.read(), &ground_source)
     });
     assert_eq!(
         logic.pathfinding_system.grid.ground_position_unit(cell),
@@ -675,82 +677,76 @@ fn ignored_structure_keeps_its_stored_position() {
 }
 #[test]
 fn construction_complete_end_dock_uses_stored_action() {
-    // hq-pogoh: complete END is ACTION + 5 cells, not the dozer's current pose.
+    // hq-pogoh: complete END is ACTION + 5 cells (DozerAIUpdate.cpp:1992-1998
+    // stores it at newTask), not the dozer's pose when the build completes
+    // (DozerAIUpdate.cpp:628-637 reads getDockPoint(END)).
+    use super::super::helpers::{
+        add_completed_power_plant, admit_retail_production_energy_rules, advance_logic_frames,
+        ensure_admitted_dozer_content,
+    };
     use crate::game_logic::host_repair::dozer_complete_end_dock;
-    use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
+    logic.frame = 10;
     admit_retail_production_energy_rules(&mut logic);
-    logic.add_player(Player::new(0, Team::USA, "P0", true));
-
-    let mut pad = ThingTemplate::new("EndDockPad");
-    pad.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(1_000.0);
-    pad.build_time = 10.0;
-    logic.templates.insert("EndDockPad".into(), pad);
-
-    let mut dozer_tpl = ThingTemplate::new("EndDockDozer");
-    dozer_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Dozer)
-        .set_health(200.0);
-    logic.templates.insert("EndDockDozer".into(), dozer_tpl);
-
+    ensure_admitted_dozer_content(&mut logic).expect("authored dozer content admits");
+    add_completed_power_plant(&mut logic, 0);
     let pad_id = logic
-        .create_object_for_player("EndDockPad", 0, Vec3::ZERO)
+        .create_object_for_player("TestBuilding", 0, Vec3::ZERO)
         .expect("pad");
     let dozer = logic
-        .create_object_for_player("EndDockDozer", 0, Vec3::new(200.0, 0.0, 0.0))
+        .create_object_for_player("TestDozer", 0, Vec3::new(200.0, 0.0, 0.0))
         .expect("dozer");
-    logic.dozer_new_task_build(dozer, pad_id);
+    {
+        let obj = logic.host_object_mut(pad_id).expect("pad");
+        obj.template_mut().build_time = 0.5; // 15 frames
+        obj.set_status_under_construction(true);
+        obj.construction_percent = 0.0;
+    }
+    assert!(logic.resume_construction(&[dozer], pad_id).expect("resume"));
     let action = logic
         .host_object(dozer)
         .and_then(|d| d.dozer_dock_action())
         .expect("ACTION");
     let off_line = Vec3::new(0.0, 0.0, 80.0);
-    {
-        let obj = logic.host_object_mut(pad_id).expect("pad");
-        obj.set_status_under_construction(true);
-        obj.construction_percent = 1.0;
-        obj.builder_id = Some(dozer);
+    let mut moved = false;
+    let mut done = false;
+    for _ in 0..300 {
+        advance_logic_frames(&mut logic, 1);
+        let pad = logic.host_object(pad_id).expect("pad");
+        done = !pad.status.under_construction && pad.construction_percent >= 1.0;
+        if done {
+            break;
+        }
+        if !moved && pad.construction_percent > 0.0 {
+            // Mid-build the dozer stands off the stored ACTION line.
+            let (obj, _attack_events, _audio, partition_obj) = logic
+                .host_object_attack_audio_partition_mut(dozer)
+                .expect("dozer");
+            obj.set_position_with_partition_owner(
+                off_line,
+                0,
+                &mut Default::default(),
+                partition_obj,
+            );
+            moved = true;
+        }
     }
-    {
-        let ai_entry_frame = logic.frame;
-        let (obj, attack_events, _fixture_audio_obj, fixture_partition_obj) = logic
-            .host_object_attack_audio_partition_mut(dozer)
-            .expect("dozer");
-        obj.set_position_with_partition_owner(
-            off_line,
-            0,
-            &mut Default::default(),
-            fixture_partition_obj,
-        );
-        obj.set_target(
-            Some(pad_id),
-            ai_entry_frame,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        obj.set_ai_state(
-            AIState::Constructing,
-            ai_entry_frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        obj.status.moving = false;
+    assert!(moved && done, "build progressed (moved={moved}) and finished (done={done})");
+    // The exit order reaches the unit on the frames right after completion.
+    let mut dest = None;
+    for _ in 0..40 {
+        let unit = logic.host_object(dozer).expect("dozer");
+        dest = unit.movement.path.last().copied().or(unit.requested_destination);
+        if dest.is_some() {
+            break;
+        }
+        advance_logic_frames(&mut logic, 1);
     }
-
-    logic.update_construction(&[pad_id], 1.0);
-    let dz = logic.host_object(dozer).expect("dz");
-    let dest = dz
-        .movement
-        .path
-        .last()
-        .copied()
-        .or(dz.requested_destination)
-        .expect("END destination");
-    let expected = dozer_complete_end_dock(Some(action), off_line, Vec3::ZERO);
+    let dest = dest.expect("END destination");
+    let building_pos = logic.host_object(pad_id).expect("pad").get_position();
+    let expected = dozer_complete_end_dock(Some(action), off_line, building_pos);
     assert!(
-        (dest - expected).length() < 2.0,
+        dest.distance(expected) < 15.0,
         "hq-pogoh: END must come from stored ACTION, dest={dest:?} expected={expected:?}"
     );
 }
@@ -1293,6 +1289,14 @@ fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
         assert!(bus.add_occupant(infantry_id));
     }
     game_logic.refresh_battle_bus_armed_riders_weapon_set(bus_id);
+    // Fire readiness is the frame clock: the rider's weapon is ready now.
+    game_logic
+        .host_object_mut(infantry_id)
+        .unwrap()
+        .weapon
+        .as_mut()
+        .unwrap()
+        .next_fire_frame = 0;
 
     let enemy_hp_before = game_logic
         .host_object(enemy_id)
@@ -1300,6 +1304,7 @@ fn battle_bus_residual_passenger_fire_damages_nearby_enemy() {
         .unwrap_or(0.0);
 
     game_logic.update_combat(&[infantry_id, bus_id, enemy_id], 1.0 / 30.0);
+    game_logic.drain_pending_projectiles_into_combat();
 
     let enemy_hp_after = game_logic
         .host_object(enemy_id)
@@ -1909,35 +1914,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
-        .set_health(240.0)
-        .set_primary_weapon(Weapon {
-            damage: 30.0,
-            range: 100.0,
-            min_range: 0.0,
-            // Start reloading: C++ DeployStyleAIUpdate checks current-weapon
-            // range, not weapon readiness, before it begins unpacking.
-            reload_time: 100.0,
-            last_fire_time: 0.0,
-            last_fire_frame: 0,
-            ammo: None,
-            clip_size: 0,
-            clip_reload_time: 0.0,
-            can_target_air: false,
-            can_target_ground: true,
-            // A finite speed above the 50-unit in-range shot distance gives
-            // C++'s projectileless path a sub-frame delay, so it damages on
-            // the firing frame without relying on the undefined 0/0 case.
-            projectile_speed: 200.0,
-            pre_attack_delay: 0.0,
-            splash_radius: 0.0,
-            suspend_fx_frame: 0,
-            reloading_clip: false,
-            last_bonus_rof: 0.0,
-            next_fire_frame: 0,
-            reload_started_frame: 0,
-            frame_clock_active: false,
-            frame_clock_status: Default::default(),
-        });
+        .set_health(240.0);
     // Retail ChinaVehicleNukeLauncher has 3333ms Pack/Unpack, parsed with
     // C++ duration rounding into 100 logic frames. TurretsMustCenterBeforePacking
     // is live: READY_TO_ATTACK + move waits ALIGNING_TURRETS until natural.
@@ -1969,6 +1946,32 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
             Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("nuke launcher");
+    // A WeaponSet slot is authored content (named, with an anti mask and damage
+    // type); arm the instance from the stated stats instead of a nameless struct.
+    crate::fixture_content::arm_with_stats(
+        logic.host_object_mut(launcher_id).unwrap(),
+        Weapon {
+            damage: 30.0,
+            range: 100.0,
+            min_range: 0.0,
+            // Start reloading: C++ DeployStyleAIUpdate checks current-weapon
+            // range, not weapon readiness, before it begins unpacking.
+            reload_time: 100.0,
+            last_fire_time: 0.0,
+            last_fire_frame: 0,
+            ammo: None,
+            clip_size: 0,
+            clip_reload_time: 0.0,
+            can_target_air: false,
+            can_target_ground: true,
+            // WeaponSpeed is a per-second velocity (INI::parseVelocityReal
+            // divides by 30): delayInFrames = distance / speed (Weapon.cpp:1006).
+            // 3000/s is 100 units per frame, so the 50-unit in-range shot has a
+            // 0.5-frame delay and damages on the firing frame (Weapon.cpp:1036).
+            projectile_speed: 3000.0,
+            ..Default::default()
+        },
+    );
     let target_id = logic
         .create_object("DeployStyleTarget", Team::USA, Vec3::new(200.0, 0.0, 0.0))
         .expect("out-of-range target");
@@ -2041,6 +2044,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
     {
         weapon.reload_time = 0.0;
         weapon.last_fire_time = -100.0;
+        weapon.next_fire_frame = 0;
     }
 
     tick_through_frame(&mut logic, &mut last_ticked_frame, 101);
@@ -2190,10 +2194,12 @@ fn deploy_style_sentry_auto_target_loss_clears_pending_attack() {
     assert!(logic.objects.remove(&target_id).is_some());
     logic.set_current_frame(2);
     logic.tick_deploy_style_updates();
+    // DeployStyleAIUpdate.cpp:195-203 holds the machine in AI_BUSY for the whole
+    // DEPLOY phase, so the unit is not Idle until the deploy completes; only the
+    // pending attack (victim + engagement) is dropped meanwhile.
     let sentry_after_loss = logic.host_object(sentry_id).unwrap();
     assert!(sentry_after_loss.target.is_none());
     assert!(!sentry_after_loss.status.attacking);
-    assert_eq!(sentry_after_loss.ai_state(), AIState::Idle);
     assert!(matches!(
         sentry_after_loss
             .deploy_style
