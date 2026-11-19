@@ -949,6 +949,22 @@ pub fn clip_line_to_rect(
 }
 
 /// Radar system manager (matches C++ Radar class)
+/// Geometry that decides how partition cells map to radar pixels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PartitionPaintKey {
+    width: u32,
+    height: u32,
+    has_map_extent: bool,
+    bits: [u32; 7],
+}
+
+#[derive(Debug, Clone)]
+struct PartitionPaint {
+    key: PartitionPaintKey,
+    statuses: Vec<CellShroudStatus>,
+    painted: Vec<CellShroudStatus>,
+}
+
 pub struct RadarSystem {
     owner_identity: Arc<()>,
     event_identities: [Arc<()>; MAX_RADAR_EVENTS],
@@ -1020,6 +1036,10 @@ pub struct RadarSystem {
 
     /// Has shroud been cleared (for scenarios without fog of war)
     shroud_cleared: bool,
+
+    /// Inputs and result of the last `paint_shroud_from_partition_cells`, so an
+    /// unchanged partition grid is not repainted pixel by pixel every frame.
+    partition_paint: Option<PartitionPaint>,
 
     /// GPS satellite active (reveals all units/buildings for a duration)
     /// Frame when GPS expires (0 = not active)
@@ -1093,6 +1113,7 @@ impl RadarSystem {
             shroud_revision: 0,
             shroud_grid: vec![CellShroudStatus::Shrouded; grid_size],
             shroud_cleared: false,
+            partition_paint: None,
             gps_active_until_frame: 0,
             radar_scans: Vec::new(),
             jamming_sources: Vec::new(),
@@ -1828,6 +1849,76 @@ impl RadarSystem {
                 self.set_shroud_level(x, y, status);
             }
         }
+    }
+
+    /// `clearShroud` followed by `setShroudLevel` for every partition cell
+    /// (`statuses` is row-major, `width * height` long), the way the player's
+    /// partition grid is painted onto the radar.
+    ///
+    /// The result is identical to repainting every cell. When neither the
+    /// partition statuses, the cell-to-pixel geometry, nor the radar grid
+    /// itself changed since the last paint, the repaint would reproduce the
+    /// grid exactly, so only the `clearShroud` flags are re-stamped. Like
+    /// `update_shroud_from_radar`, the revision (the key for the resident
+    /// shroud texture) advances only on a net change of the grid.
+    pub fn paint_shroud_from_partition_cells(
+        &mut self,
+        width: u32,
+        height: u32,
+        cell_size: f32,
+        world_origin_xy: [f32; 2],
+        statuses: &[CellShroudStatus],
+    ) {
+        debug_assert_eq!(statuses.len(), width as usize * height as usize);
+        let key = PartitionPaintKey {
+            width,
+            height,
+            has_map_extent: self.has_map_extent(),
+            bits: [
+                cell_size.to_bits(),
+                world_origin_xy[0].to_bits(),
+                world_origin_xy[1].to_bits(),
+                self.map_extent.lo.x.to_bits(),
+                self.map_extent.lo.y.to_bits(),
+                self.x_sample.to_bits(),
+                self.y_sample.to_bits(),
+            ],
+        };
+        if self.partition_paint.as_ref().is_some_and(|last| {
+            last.key == key && last.statuses == statuses && last.painted == self.shroud_grid
+        }) {
+            self.shroud_cleared = true;
+            self.terrain_dirty = true;
+            return;
+        }
+        let revision_before = self.shroud_revision;
+        let grid_before = self.shroud_grid.clone();
+        self.clear_shroud();
+        for y in 0..height {
+            for x in 0..width {
+                self.set_shroud_level_from_partition_cell(
+                    x as i32,
+                    y as i32,
+                    statuses[(y * width + x) as usize],
+                    cell_size,
+                    cell_size,
+                    world_origin_xy,
+                );
+            }
+        }
+        if self.shroud_grid == grid_before {
+            self.shroud_revision = revision_before;
+        }
+        let paint = self.partition_paint.get_or_insert_with(|| PartitionPaint {
+            key: key.clone(),
+            statuses: Vec::new(),
+            painted: Vec::new(),
+        });
+        paint.key = key;
+        paint.statuses.clear();
+        paint.statuses.extend_from_slice(statuses);
+        paint.painted.clear();
+        paint.painted.extend_from_slice(&self.shroud_grid);
     }
 
     /// Get shroud level at specific radar cell

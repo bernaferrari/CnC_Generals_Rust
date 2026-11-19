@@ -14,7 +14,7 @@ struct CompletedMaterialDraw {
 
 pub(super) struct FrozenMaterialDrawFrame {
     frame: Weak<PresentationFrame>,
-    values: HashMap<PresentationDirectDrawableBindingKey, CompletedMaterialDraw>,
+    values: game_engine::common::fast_hash::FxHashMap<PresentationDirectDrawableBindingKey, CompletedMaterialDraw>,
 }
 
 impl FrozenMaterialDrawFrame {

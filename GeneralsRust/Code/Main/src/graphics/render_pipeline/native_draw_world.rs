@@ -100,7 +100,7 @@ pub(super) struct NativeDrawableLifetime {
 pub(crate) struct NativeDrawWorld {
     #[cfg(feature = "game_client")]
     pub(super) pending_native_props: game_client::terrain::terrain_visual::TerrainPropQueue,
-    pub(super) native_drawable_lifetimes: HashMap<NativeDrawOwnerId, NativeDrawableLifetime>,
+    pub(super) native_drawable_lifetimes: game_engine::common::fast_hash::FxHashMap<NativeDrawOwnerId, NativeDrawableLifetime>,
     /// Runtime identity and current state for each original Draw module.
     pub(super) drawable_visual_states: DrawableVisualStates,
     pub(super) live_draw_playback:

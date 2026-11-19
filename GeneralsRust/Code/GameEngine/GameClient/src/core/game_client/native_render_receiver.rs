@@ -492,7 +492,7 @@ impl drawable_world::DrawableState {
     fn resolve_material_draw_facts(
         &self,
         facts: &[NativeMaterialObservation],
-    ) -> GameClientResult<HashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>>
+    ) -> GameClientResult<game_engine::common::fast_hash::FxHashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>>
     {
         // CU may retire an owner before Draw; live reused IDs still undergo
         // the complete key check. No registry or guessed-alive fallback.
@@ -505,7 +505,7 @@ impl drawable_world::DrawableState {
             })
             .collect();
         self.validate_material_observations(&live)?;
-        let by_key: HashMap<_, _> = live
+        let by_key: game_engine::common::fast_hash::FxHashMap<_, _> = live
             .into_iter()
             .map(|fact| (fact.binding_key, fact))
             .collect();
@@ -528,7 +528,7 @@ impl drawable_world::DrawableState {
     fn advance_material_drawable(
         &mut self,
         id: DrawableId,
-        by_key: &HashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>,
+        by_key: &game_engine::common::fast_hash::FxHashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>,
     ) -> GameClientResult<()> {
         let receiver = self.drawable_map.get_mut(&id).ok_or_else(|| {
             GameClientError::InvalidOperation(

@@ -2361,26 +2361,23 @@ impl ShroudManager {
             return;
         }
         if let Some(grid) = self.shroud_grid.as_ref() {
-            {
-                radar.clear_shroud();
-                for y in 0..grid.height {
-                    for x in 0..grid.width {
-                        let status = match grid.get_cell_state(player_id as usize, x, y) {
-                            ShroudState::Visible => CellShroudStatus::Clear,
-                            ShroudState::Explored => CellShroudStatus::Fogged,
-                            ShroudState::Hidden => CellShroudStatus::Shrouded,
-                        };
-                        radar.set_shroud_level_from_partition_cell(
-                            x as i32,
-                            y as i32,
-                            status,
-                            grid.cell_size,
-                            grid.cell_size,
-                            grid.world_origin_xy,
-                        );
-                    }
+            let mut statuses = Vec::with_capacity(grid.width as usize * grid.height as usize);
+            for y in 0..grid.height {
+                for x in 0..grid.width {
+                    statuses.push(match grid.get_cell_state(player_id as usize, x, y) {
+                        ShroudState::Visible => CellShroudStatus::Clear,
+                        ShroudState::Explored => CellShroudStatus::Fogged,
+                        ShroudState::Hidden => CellShroudStatus::Shrouded,
+                    });
                 }
             }
+            radar.paint_shroud_from_partition_cells(
+                grid.width as u32,
+                grid.height as u32,
+                grid.cell_size,
+                grid.world_origin_xy,
+                &statuses,
+            );
         }
         self.last_update_frame = frame;
         self.last_vision_recalc_frame = frame;

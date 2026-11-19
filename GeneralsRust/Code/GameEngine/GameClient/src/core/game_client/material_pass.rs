@@ -107,7 +107,7 @@ impl GameClient {
     fn resolve_material_draw_facts(
         &self,
         facts: &[NativeMaterialObservation],
-    ) -> GameClientResult<HashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>>
+    ) -> GameClientResult<game_engine::common::fast_hash::FxHashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>>
     {
         self.drawables.resolve_material_draw_facts(facts)
     }
@@ -115,7 +115,7 @@ impl GameClient {
     fn advance_material_drawable(
         &mut self,
         id: DrawableId,
-        by_key: &HashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>,
+        by_key: &game_engine::common::fast_hash::FxHashMap<PresentationDirectDrawableBindingKey, NativeMaterialObservation>,
     ) -> GameClientResult<()> {
         self.drawables.advance_material_drawable(id, by_key)
     }

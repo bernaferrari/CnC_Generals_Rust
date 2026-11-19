@@ -58,12 +58,12 @@ pub struct DrawableState {
     /// C++ GameClient.cpp480 prepends each newly constructed Drawable.
     pub(super) native_drawable_order: Vec<DrawableId>,
     pub(super) owned_laser_order: Vec<DrawableId>,
-    pub(super) drawable_map: HashMap<DrawableId, Box<dyn Drawable>>,
-    pub(super) drawable_object_map: HashMap<ObjectID, DrawableId>,
+    pub(super) drawable_map: game_engine::common::fast_hash::FxHashMap<DrawableId, Box<dyn Drawable>>,
+    pub(super) drawable_object_map: game_engine::common::fast_hash::FxHashMap<ObjectID, DrawableId>,
     /// Runtime-only direct binding metadata. C++ reconstructs associations
     /// around loaded Drawables; this table does not enter Xfer.
     pub(super) presentation_direct_drawable_bindings:
-        HashMap<DrawableId, PresentationDirectDrawableBinding>,
+        game_engine::common::fast_hash::FxHashMap<DrawableId, PresentationDirectDrawableBinding>,
     /// Survives world invalidation so reused IDs do not inherit old bindings.
     pub(super) next_presentation_direct_binding_generation: u64,
     pub(super) text_bearing_drawables: Vec<DrawableId>,
@@ -85,9 +85,9 @@ impl DrawableState {
             ray_effects: Default::default(),
             native_drawable_order: Vec::new(),
             owned_laser_order: Vec::new(),
-            drawable_map: HashMap::with_capacity(super::super::DRAWABLE_HASH_SIZE),
-            drawable_object_map: HashMap::new(),
-            presentation_direct_drawable_bindings: HashMap::new(),
+            drawable_map: game_engine::common::fast_hash::FxHashMap::with_capacity_and_hasher(super::super::DRAWABLE_HASH_SIZE, Default::default()),
+            drawable_object_map: game_engine::common::fast_hash::FxHashMap::default(),
+            presentation_direct_drawable_bindings: Default::default(),
             next_presentation_direct_binding_generation: 1,
             text_bearing_drawables: Vec::new(),
             live_terrain_decal_handles: Vec::new(),

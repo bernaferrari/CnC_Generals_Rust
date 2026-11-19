@@ -7,7 +7,7 @@ pub struct NativeInstalledPoseLoan<'a> {
     #[cfg(feature = "game_client")]
     pub(super) pending_native_props: &'a mut game_client::terrain::terrain_visual::TerrainPropQueue,
     pub(super) native_drawable_lifetimes:
-        &'a mut HashMap<NativeDrawOwnerId, native_draw_world::NativeDrawableLifetime>,
+        &'a mut game_engine::common::fast_hash::FxHashMap<NativeDrawOwnerId, native_draw_world::NativeDrawableLifetime>,
     pub(super) live_draw_playback:
         &'a mut HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
     pub(super) drawable_visual_states: &'a mut native_draw_world::DrawableVisualStates,

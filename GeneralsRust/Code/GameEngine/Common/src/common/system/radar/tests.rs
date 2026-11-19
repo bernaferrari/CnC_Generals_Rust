@@ -1940,3 +1940,48 @@ fn under_attack_glow_and_eva_go_to_the_victims_owner() {
     // C++ Radar.cpp:1168: the attack sound plays in the victim's engine.
     assert_eq!(owner.audio, vec!["RadarStructureUnderAttackSound".to_string()]);
 }
+
+#[test]
+fn test_paint_shroud_from_partition_cells_cache_matches_full_repaint() {
+    let new_radar = || {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1280.0, 1280.0, 100.0),
+            &[],
+        );
+        radar
+    };
+    // 32x32 partition cells of 40wu over the 1280wu map.
+    let (w, h) = (32u32, 32u32);
+    let mut statuses = vec![CellShroudStatus::Shrouded; (w * h) as usize];
+    statuses[0] = CellShroudStatus::Clear;
+    statuses[(5 * w + 7) as usize] = CellShroudStatus::Fogged;
+    let mut cached = new_radar();
+    cached.paint_shroud_from_partition_cells(w, h, 40.0, [0.0, 0.0], &statuses);
+    let revision = cached.shroud_revision;
+    let grid = cached.shroud_grid.clone();
+    // Identical inputs: grid and revision are untouched, the radar still re-arms its dirty flags.
+    cached.paint_shroud_from_partition_cells(w, h, 40.0, [0.0, 0.0], &statuses);
+    assert_eq!(cached.shroud_grid, grid);
+    assert_eq!(cached.shroud_revision, revision);
+    // A changed status repaints exactly like a fresh radar painting the new statuses.
+    statuses[(20 * w + 20) as usize] = CellShroudStatus::Clear;
+    cached.paint_shroud_from_partition_cells(w, h, 40.0, [0.0, 0.0], &statuses);
+    let mut fresh = new_radar();
+    fresh.paint_shroud_from_partition_cells(w, h, 40.0, [0.0, 0.0], &statuses);
+    assert_eq!(cached.shroud_grid, fresh.shroud_grid);
+    assert_ne!(cached.shroud_grid, grid);
+    assert_ne!(cached.shroud_revision, revision);
+    // An outside mutation of the grid (e.g. GPS reveal) is repainted away, not trusted from the cache.
+    cached.set_shroud_level_from_partition_cell(
+        0,
+        0,
+        CellShroudStatus::Fogged,
+        40.0,
+        40.0,
+        [0.0, 0.0],
+    );
+    cached.paint_shroud_from_partition_cells(w, h, 40.0, [0.0, 0.0], &statuses);
+    assert_eq!(cached.shroud_grid, fresh.shroud_grid);
+}
