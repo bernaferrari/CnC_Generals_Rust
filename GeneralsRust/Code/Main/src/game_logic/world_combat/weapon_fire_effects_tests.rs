@@ -1,100 +1,65 @@
 //! Real normal/passive accepted fire, receiving immutable effects, and callback order.
-use crate::game_logic::{
-    AIState, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon,
-};
-use gamelogic::effects::ObjectCreationList;
-use gamelogic::object_creation_list::GenericObjectCreationNugget;
+use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
+use crate::game_logic::{AIState, GameLogic, ObjectId, Player, Team};
 use glam::Vec3;
-use std::sync::Arc;
 const WEAPON: &str = "ReceivingEffectWeapon";
 const FIRE_CHILD: &str = "ReceivingFireChild";
 const DEATH_CHILD: &str = "ReceivingDeathChild";
-fn world(play_hidden: bool, suspend: u32) -> (GameLogic, ObjectId, ObjectId) {
+fn world(play_hidden: bool, suspend: u32, local_player: u32) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     for (id, team, name) in [
         (0, Team::USA, "observer"),
         (1, Team::China, "source"),
         (2, Team::GLA, "victim"),
     ] {
-        let mut player = Player::new(id, team, name, id == 0);
+        let mut player = Player::new(id, team, name, id == local_player);
         player.alliance_team = id as i32;
         world.add_player(player);
     }
-    let mut native = gamelogic::weapon::WeaponTemplate::new(WEAPON.to_owned());
-    native.play_fx_when_stealthed = play_hidden;
-    native.fire_fx[0] = Some(gamelogic::effects::FXList::new("ReceivingFireFX"));
-    native.fire_ocl_names[0] = Some("ReceivingFireOCL".into());
-    world.admit_weapon_fire_definition(WEAPON, &native).unwrap();
-    let mut ocl = ObjectCreationList::new();
-    ocl.add_nugget(Arc::new(GenericObjectCreationNugget {
-        names: vec![FIRE_CHILD.into()],
-        ..Default::default()
-    }));
     world
-        .admit_weapon_ocl_definition("ReceivingFireOCL", ocl)
+        .admit_ocl_application_sources(&[
+            format!("ObjectCreationList ReceivingFireOCL\nCreateObject\nObjectNames = {FIRE_CHILD}\nCount = 1\nEnd\nEnd"),
+            format!("ObjectCreationList ReceivingDeathOCL\nCreateObject\nObjectNames = {DEATH_CHILD}\nCount = 1\nEnd\nEnd"),
+        ])
         .unwrap();
-    let mut source = ThingTemplate::new("ReceivingEffectSource");
-    source.add_kind_of(KindOf::Vehicle);
-    source.add_kind_of(KindOf::Attackable);
-    source.primary_weapon_name = Some(WEAPON.into());
-    source.primary_weapon = Some(Weapon {
-        damage: 200.0,
-        range: 500.0,
-        reload_time: 0.0,
-        ammo: Some(3),
-        clip_size: 3,
-        last_fire_time: -10.0,
-        ..Default::default()
-    });
-    world.templates.insert(source.name.clone(), source);
-    let mut target = ThingTemplate::new("ReceivingEffectVictim");
-    target.add_kind_of(KindOf::Attackable);
-    target.set_health(100.0);
-    world.templates.insert(target.name.clone(), target);
-    for name in [FIRE_CHILD, DEATH_CHILD] {
-        world
-            .templates
-            .insert(name.into(), ThingTemplate::new(name));
-    }
+    let weapon = FixtureWeapon::new(WEAPON)
+        .damage(200.0)
+        .range(500.0)
+        .delay_ms(0)
+        .clip(3, 0)
+        .field("AntiGround = Yes")
+        // Weapon.cpp's instant-hit speed exercises FireOCL then Body on one shot.
+        .field("WeaponSpeed = 999999")
+        .field("FireFX = ReceivingFireFX")
+        .field("FireOCL = ReceivingFireOCL")
+        .field(format!(
+            "PlayFXWhenStealthed = {}",
+            if play_hidden { "Yes" } else { "No" }
+        ));
+    admit_fixture_content(
+        &mut world,
+        &[
+            FixtureObject::new("ReceivingEffectSource")
+                .kind_of("VEHICLE SELECTABLE CAN_ATTACK")
+                .health(100.0)
+                .walker()
+                .weapon("PRIMARY", WEAPON),
+            FixtureObject::new("ReceivingEffectVictim")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(100.0)
+                .module("Behavior = CreateObjectDie CreateChild\nCreationList = ReceivingDeathOCL\nEnd")
+                .module("Behavior = DestroyDie RemoveVictim\nEnd"),
+            FixtureObject::new(FIRE_CHILD).health(100.0),
+            FixtureObject::new(DEATH_CHILD).health(100.0),
+        ],
+        &[weapon],
+    );
     let source = world
         .create_object_for_player("ReceivingEffectSource", 1, Vec3::new(5.0, 0.0, 7.0))
         .unwrap();
-    // The source's attack ability is its authored WeaponSet row (Object
-    // can_attack reads the bound row, not the template's loose stats).
-    // The effects come from the bound native rule, so the row authors the same
-    // FireFX / FireOCL / PlayFXWhenStealthed the admitted definition carries.
-    let fire_lines = [
-        "FireFX = ReceivingFireFX".to_owned(),
-        "FireOCL = ReceivingFireOCL".to_owned(),
-        format!("PlayFXWhenStealthed = {}", if play_hidden { "Yes" } else { "No" }),
-    ];
-    let fire_lines: Vec<&str> = fire_lines.iter().map(String::as_str).collect();
-    crate::fixture_content::arm_with_slot_stats_and_fields(
-        world.host_object_mut(source).unwrap(),
-        [
-            Some(Weapon {
-                damage: 200.0,
-                range: 500.0,
-                reload_time: 0.0,
-                ammo: Some(3),
-                clip_size: 3,
-                last_fire_time: -10.0,
-                ..Default::default()
-            }),
-            None,
-            None,
-        ],
-        [&fire_lines, &[], &[]],
-    );
     let target = world
         .create_object_for_player("ReceivingEffectVictim", 2, Vec3::new(15.0, 0.0, 7.0))
         .unwrap();
-    world.host_object_mut(target).unwrap().create_object_die = Some(
-        crate::game_logic::host_create_object_die::HostCreateObjectDieData::single(
-            "ReceivingDeathOCL",
-            DEATH_CHILD,
-        ),
-    );
     let actor = world.host_object_mut(source).unwrap();
     actor.target = Some(target);
     actor.restore_ai_state(AIState::Attacking);
@@ -115,7 +80,7 @@ fn child(world: &GameLogic, name: &str) -> ObjectId {
 
 #[test]
 fn accepted_fire_reports_ocl_factory_failure_before_delivery() {
-    let (mut owner, source, target) = world(false, 0);
+    let (mut owner, source, target) = world(false, 0, 1);
     owner.templates.get_mut(FIRE_CHILD).unwrap().body_definition_error =
         Some("injected fire OCL factory failure".into());
     let origin = owner.host_object(source).unwrap().get_position();
@@ -129,10 +94,10 @@ fn accepted_fire_reports_ocl_factory_failure_before_delivery() {
 }
 #[test]
 fn normal_fire_ocl_precedes_lethal_body_callback_and_save_never_replays_it() {
-    let (mut owner, source, target) = world(false, 0);
-    let (peer, peer_source, peer_target) = world(false, 0);
+    let (mut owner, source, target) = world(false, 0, 1);
+    let (peer, peer_source, peer_target) = world(false, 0, 1);
     assert_eq!((source, target), (peer_source, peer_target));
-    owner.update_combat(&[source, target], 1.0 / 30.0);
+    owner.update_combat(&[source, target], 1.0 / 30.0).unwrap();
     let fire = child(&owner, FIRE_CHILD);
     let death = child(&owner, DEATH_CHILD);
     assert!(
@@ -176,10 +141,10 @@ fn normal_fire_ocl_precedes_lethal_body_callback_and_save_never_replays_it() {
     let saved = builder.create_world_snapshot(&owner).unwrap();
     let bytes = bincode_legacy::serialize(&saved).unwrap();
     let saved = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
-    let (mut loaded, _, _) = world(false, 0);
+    let (mut loaded, _, _) = world(false, 0, 1);
     builder.restore_from_snapshot(&saved, &mut loaded).unwrap();
     loaded.frame = 31;
-    loaded.update_combat(&[source, target], 1.0 / 30.0);
+    loaded.update_combat(&[source, target], 1.0 / 30.0).unwrap();
     assert_eq!(child(&loaded, FIRE_CHILD), fire);
     assert_eq!(child(&loaded, DEATH_CHILD), death);
     assert_eq!(
@@ -202,7 +167,7 @@ fn passive_fire_keeps_muzzle_origin_and_effect_gates_do_not_suppress_ocl() {
         (true, 0, FrozenWeaponVisualFxRoute::BroadcastWithFireFx),
         (true, 31, FrozenWeaponVisualFxRoute::BroadcastWithoutFireFx),
     ] {
-        let (mut owner, source, target) = world(play_hidden, suspend);
+        let (mut owner, source, target) = world(play_hidden, suspend, 0);
         let actor = owner.host_object_mut(source).unwrap();
         actor.restore_ai_state(AIState::Garrisoned);
         actor.status.stealthed = true;
@@ -249,8 +214,8 @@ fn passive_fire_keeps_muzzle_origin_and_effect_gates_do_not_suppress_ocl() {
 
 #[test]
 fn nested_attack_acceptance_delivers_fire_effects_before_body_and_never_requeues_them() {
-    let (mut owner, source, target) = world(false, 0);
-    let (peer, peer_source, peer_target) = world(false, 0);
+    let (mut owner, source, target) = world(false, 0, 1);
+    let (peer, peer_source, peer_target) = world(false, 0, 1);
     assert_eq!((source, target), (peer_source, peer_target));
     assert_eq!(
         owner.attack_state_enter(source, target),
@@ -260,7 +225,7 @@ fn nested_attack_acceptance_delivers_fire_effects_before_body_and_never_requeues
     for frame in 30..=45 {
         owner.frame = frame;
         // Normal combat must yield to this actual installed nested machine.
-        owner.update_combat(&[source, target], 1.0 / 30.0);
+        owner.update_combat(&[source, target], 1.0 / 30.0).unwrap();
         owner.tick_nested_attack_machines(&[source], frame as f32 / 30.0, frame);
         if owner.weapon_discharge_log.len() != 0 {
             accepted_frame = Some(frame);
@@ -355,7 +320,7 @@ fn nested_attack_acceptance_delivers_fire_effects_before_body_and_never_requeues
 fn no_drawable_skips_muzzle_fx_but_still_runs_fire_ocl() {
     // C++ Weapon.cpp:889 — muzzle/FireFX require sourceObj->getDrawable();
     // FireOCL at 943 is outside that gate and must still run.
-    let (mut owner, source, target) = world(false, 0);
+    let (mut owner, source, target) = world(false, 0, 1);
     owner.host_object_mut(source).unwrap().has_drawable = false;
     let origin = owner.host_object(source).unwrap().get_position();
     let accepted = owner.begin_owned_weapon_effects(
