@@ -37,8 +37,8 @@ use crate::rendering::lighting_system::LightEnvironmentClass;
 use crate::rendering::texture_system::texture_base::{TextureAddressMode, TextureFilterMode};
 use crate::rendering::wgpu_renderer::wgpu_material_binds::WgpuMaterialBinds;
 use crate::rendering::wgpu_renderer::wgpu_pipeline_manager::{
-    MAX_TEXTURE_STAGE_GROUPS, MAX_TEXTURE_STAGES, TEXTURES_PER_GROUP, VertexFormat,
-    WgpuPipelineManager,
+    MAX_TEXTURE_STAGE_GROUPS, MAX_TEXTURE_STAGES, MESH_COLOR_GROUP, MESH_MODEL_GROUP,
+    MESH_TEXTURE_GROUP, MESH_UV_GROUP, TEXTURES_PER_GROUP, VertexFormat, WgpuPipelineManager,
 };
 use crate::texture_system::TextureClass;
 use bytemuck;

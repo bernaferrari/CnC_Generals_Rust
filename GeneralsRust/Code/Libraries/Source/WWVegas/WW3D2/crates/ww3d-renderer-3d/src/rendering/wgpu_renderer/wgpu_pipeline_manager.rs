@@ -4,6 +4,7 @@ use crate::rendering::shader_system::shader::{
     SrcBlendFuncType,
 };
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::sync::Arc;
 use ww3d_gpu::device::GpuDevice;
 
@@ -14,6 +15,37 @@ use ww3d_gpu::device::GpuDevice;
 pub const MAX_TEXTURE_STAGES: usize = 8;
 pub const TEXTURES_PER_GROUP: usize = 2;
 pub const MAX_TEXTURE_STAGE_GROUPS: usize = MAX_TEXTURE_STAGES.div_ceil(TEXTURES_PER_GROUP);
+
+// WGPU rebinds valid groups from the first group that changed through the end
+// of the layout. Keep material textures before the per-draw dynamic offsets.
+pub(crate) const MESH_TEXTURE_GROUP: u32 = 1;
+pub(crate) const MESH_COLOR_GROUP: u32 = MESH_TEXTURE_GROUP + MAX_TEXTURE_STAGE_GROUPS as u32;
+pub(crate) const MESH_UV_GROUP: u32 = MESH_COLOR_GROUP + 1;
+pub(crate) const MESH_MODEL_GROUP: u32 = MESH_UV_GROUP + 1;
+
+fn mesh_binding_order(source: &str) -> String {
+    // The shared WGSL also serves renderers that retain its authored layout.
+    // Remap only this pipeline's shader, once on a pipeline cache miss.
+    let mut output = String::with_capacity(source.len());
+    let mut parts = source.split("@group(");
+    output.push_str(parts.next().unwrap_or_default());
+    for part in parts {
+        let (slot, suffix) = part.split_once(')').expect("mesh shader binding syntax");
+        let slot = match slot {
+            "0" => 0,
+            "1" => MESH_MODEL_GROUP,
+            "2" => MESH_UV_GROUP,
+            "3" => MESH_TEXTURE_GROUP,
+            "4" => MESH_TEXTURE_GROUP + 1,
+            "5" => MESH_TEXTURE_GROUP + 2,
+            "6" => MESH_TEXTURE_GROUP + 3,
+            "7" => MESH_COLOR_GROUP,
+            _ => panic!("unexpected mesh shader bind group {slot}"),
+        };
+        write!(output, "@group({slot}){suffix}").expect("write to String");
+    }
+    output
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VertexFormat {
@@ -141,16 +173,19 @@ impl WgpuPipelineManager {
         // materials without it compile with a 0.0 threshold, which
         // `final_alpha < alpha_threshold` can never fire on (default
         // no-discard); materials with the bit keep the 96/255 reference.
+        let material_mesh = matches!(vertex_format, VertexFormat::Basic | VertexFormat::Skinned);
         let shader_source = gate_alpha_test_discard(&shader, shader_source);
+        let shader_source = if material_mesh {
+            std::borrow::Cow::Owned(mesh_binding_order(&shader_source))
+        } else {
+            shader_source
+        };
 
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("WW3D Shader Module"),
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
         });
 
-        // Bind group layouts:
-        // - Line shaders: 0 camera, 1 model+lighting
-        // - Mesh shaders: 0 camera, 1 model+lighting, 2 (uv or bones+uv), 3..6 textures, 7 colors
         let camera_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Camera BGL"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -244,11 +279,11 @@ impl WgpuPipelineManager {
                 ],
             })
         };
-        let group2_bgl = match vertex_format {
+        let uv_bgl = match vertex_format {
             VertexFormat::Line => None,
             VertexFormat::Skinned | VertexFormat::ProjectedShroudSkinned => Some(
                 device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Skinned Group2 BGL"),
+                    label: Some("Skinned UV and Bones BGL"),
                     entries: &[
                         wgpu::BindGroupLayoutEntry {
                             binding: 0,
@@ -369,15 +404,18 @@ impl WgpuPipelineManager {
             )
         };
 
-        let mut bgls: Vec<&wgpu::BindGroupLayout> = vec![&camera_bgl, &model_bgl];
-        if let Some(ref b) = group2_bgl {
-            bgls.push(b);
-        }
-        for texture_layout in &texture_bgls {
-            bgls.push(texture_layout);
-        }
-        if let Some(ref color_layout) = color_bgl {
-            bgls.push(color_layout);
+        let mut bgls = vec![&camera_bgl];
+        if material_mesh {
+            bgls.extend(&texture_bgls);
+            bgls.extend(color_bgl.iter());
+            bgls.extend(uv_bgl.iter());
+            bgls.push(&model_bgl);
+        } else {
+            // Lines and projected shroud retain their existing shader slots.
+            bgls.push(&model_bgl);
+            bgls.extend(uv_bgl.iter());
+            bgls.extend(&texture_bgls);
+            bgls.extend(color_bgl.iter());
         }
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

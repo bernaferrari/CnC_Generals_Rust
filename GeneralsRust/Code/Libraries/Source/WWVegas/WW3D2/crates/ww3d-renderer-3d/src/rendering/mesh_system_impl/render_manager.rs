@@ -1059,8 +1059,6 @@ impl MeshRenderManager {
             0,
             force_two_sided,
         );
-        let mut sorted_groups: Vec<Arc<wgpu::BindGroup>> = Vec::with_capacity(8);
-
         let pipeline_id = super::bind_cache::addr(&pipeline);
         let camera_binds = {
             let gpu = Arc::clone(&self.gpu_device);
@@ -1092,7 +1090,7 @@ impl MeshRenderManager {
         let model_binds = WgpuMaterialBinds::model(
             self.gpu_device.as_ref(),
             pipeline.as_ref(),
-            1,
+            MESH_MODEL_GROUP,
             &mesh.transform,
             render_info,
             stage_masks.mask,
@@ -1112,28 +1110,14 @@ impl MeshRenderManager {
             &mut self.model_groups,
         )?;
 
-        resources.set_pipeline(render_pass, Arc::clone(&pipeline));
-
         camera_binds
             .buffers
             .iter()
             .for_each(|buffer| resources.retain_buffer(Arc::clone(buffer)));
-        resources.set_bind_group(render_pass, 0, Arc::clone(&camera_binds.bind_group));
-        sorted_groups.push(Arc::clone(&camera_binds.bind_group));
-
         resources.retain_buffer(Arc::clone(&model_binds.model_buffer));
         resources.retain_buffer(Arc::clone(&model_binds.lighting_buffer));
-        resources.set_bind_group_with_offsets(
-            render_pass,
-            1,
-            Arc::clone(&model_binds.bind_group),
-            &model_binds.offsets,
-        );
-        sorted_groups.push(Arc::clone(&model_binds.bind_group));
-        let model_offsets = model_binds.offsets.to_vec();
 
-        let next_slot = 3u32;
-        if prepared.is_skinned {
+        let uv_group = if prepared.is_skinned {
             let identity_palette = [Mat4::IDENTITY];
             let palette = mesh
                 .bone_palette_view()
@@ -1144,7 +1128,7 @@ impl MeshRenderManager {
             let binds = WgpuMaterialBinds::skinned_group2(
                 self.gpu_device.as_ref(),
                 pipeline.as_ref(),
-                2,
+                MESH_UV_GROUP,
                 palette,
                 Some(pass),
                 render_info.time,
@@ -1152,21 +1136,19 @@ impl MeshRenderManager {
             )?;
             resources.retain_buffer(Arc::clone(&binds.bones_buffer));
             resources.retain_buffer(Arc::clone(&binds.uv_transform_buffer));
-            resources.set_bind_group(render_pass, 2, Arc::clone(&binds.bind_group));
-            sorted_groups.push(Arc::clone(&binds.bind_group));
+            binds.bind_group
         } else {
-            // Non-skinned shaders expect UV transform at group 2.
             let gpu = Arc::clone(&self.gpu_device);
             let key = super::bind_cache::UniformGroupKey {
                 pipeline: pipeline_id,
-                group: 2,
+                group: MESH_UV_GROUP,
                 contents: WgpuMaterialBinds::uv_transform_contents_hash(Some(pass), render_info.time),
             };
             let uv_transform_binds = self.bind_cache.per_pass_group(key, || {
                 WgpuMaterialBinds::uv_transform_in_arena(
                     gpu.as_ref(),
                     pipeline.as_ref(),
-                    2,
+                    MESH_UV_GROUP,
                     Some(pass),
                     render_info.time,
                     arena,
@@ -1180,29 +1162,14 @@ impl MeshRenderManager {
                 .buffers
                 .iter()
                 .for_each(|buffer| resources.retain_buffer(Arc::clone(buffer)));
-            resources.set_bind_group(render_pass, 2, Arc::clone(&uv_transform_binds.bind_group));
-            sorted_groups.push(Arc::clone(&uv_transform_binds.bind_group));
-        }
+            Arc::clone(&uv_transform_binds.bind_group)
+        };
 
-        let texture_bind_groups = self.create_texture_bind_groups(&pipeline, pass, next_slot);
-        for (offset, bind_group) in texture_bind_groups.iter().enumerate() {
-            resources.set_bind_group(
-                render_pass,
-                next_slot + offset as u32,
-                Arc::clone(bind_group),
-            );
-            sorted_groups.push(Arc::clone(bind_group));
-        }
-        let color_group_index = next_slot + texture_bind_groups.len() as u32;
-        let vertex_color = self.create_vertex_color_resources(&pipeline, pass, color_group_index);
+        let texture_bind_groups =
+            self.create_texture_bind_groups(&pipeline, pass, MESH_TEXTURE_GROUP);
+        let vertex_color = self.create_vertex_color_resources(&pipeline, pass, MESH_COLOR_GROUP);
         resources.retain_buffer(Arc::clone(&vertex_color.diffuse_buffer));
         resources.retain_buffer(Arc::clone(&vertex_color.illumination_buffer));
-        resources.set_bind_group(
-            render_pass,
-            color_group_index,
-            Arc::clone(&vertex_color.bind_group),
-        );
-        sorted_groups.push(Arc::clone(&vertex_color.bind_group));
 
         if pass
             .diffuse_vertex_colors
@@ -1227,8 +1194,12 @@ impl MeshRenderManager {
             // C++ Insert_Triangles keeps the world and view transforms the
             // node was drawn with; Flush_Sorting_Pool sorts by their product.
             let world_view = render_info.camera.get_cached_view_matrix() * mesh.transform;
-            // Group 1 (model) is the only dynamic-offset group.
-            let offsets = vec![Vec::new(), model_offsets];
+            let mut groups = Vec::with_capacity(MESH_MODEL_GROUP as usize + 1);
+            groups.push(Arc::clone(&camera_binds.bind_group));
+            groups.extend(texture_bind_groups);
+            groups.extend([vertex_color.bind_group, uv_group, model_binds.bind_group]);
+            let mut offsets = vec![Vec::new(); MESH_MODEL_GROUP as usize];
+            offsets.push(model_binds.offsets.to_vec());
             let posed_positions = if prepared.is_skinned {
                 let identity_palette = [Mat4::IDENTITY];
                 let palette = mesh.bone_palette_view()
@@ -1245,12 +1216,25 @@ impl MeshRenderManager {
                 prepared,
                 pass,
                 &pipeline,
-                sorted_groups,
+                groups,
                 offsets,
                 world_view,
                 posed_positions,
             );
         } else {
+            resources.set_pipeline(render_pass, pipeline);
+            resources.set_bind_group(render_pass, 0, Arc::clone(&camera_binds.bind_group));
+            for (offset, group) in texture_bind_groups.into_iter().enumerate() {
+                resources.set_bind_group(render_pass, MESH_TEXTURE_GROUP + offset as u32, group);
+            }
+            resources.set_bind_group(render_pass, MESH_COLOR_GROUP, vertex_color.bind_group);
+            resources.set_bind_group(render_pass, MESH_UV_GROUP, uv_group);
+            resources.set_bind_group_with_offsets(
+                render_pass,
+                MESH_MODEL_GROUP,
+                model_binds.bind_group,
+                &model_binds.offsets,
+            );
             self.issue_draw_call(prepared, pass, render_pass, &mesh.name);
         }
 
