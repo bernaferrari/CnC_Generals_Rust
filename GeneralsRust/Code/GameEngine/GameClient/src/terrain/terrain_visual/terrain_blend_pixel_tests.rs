@@ -425,6 +425,74 @@ fn live_terrain_more_than_sixteen_classes_preserve_both_blend_layers() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "requires a native GPU adapter"]
+fn three_way_blend_keeps_flat_terrain_directional_lighting() {
+    use crate::terrain::chunk::TerrainStaticLighting;
+    use crate::terrain::textures::BlendTileInfo;
+
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        .expect("three-way blend test requires a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("three-way blend test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+
+    let classes = [
+        ("LightingSnowA", [140, 160, 200]),
+        ("LightingSnowB", [170, 170, 200]),
+        ("LightingSnowC", [220, 180, 200]),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, (name, color))| {
+        (TerrainSourceTileClass {
+            first_tile: i as i32,
+            num_tiles: 1,
+            width: 1,
+            name: name.into(),
+        }, color)
+    })
+    .collect::<Vec<_>>();
+    let mut map = HeightMap::new(35, 4, 0.0, 1.0);
+    // Authored left-long diagonal as used by the Lone Eagle extra blend at
+    // source grid (212, 126). The camera fixture draws the equivalent cell
+    // at (32, 1), on the real chunk seam.
+    let mut primary = BlendTileInfo::new();
+    primary.blend_ndx = 4;
+    primary.left_diagonal = 1;
+    primary.inverted = 1;
+    primary.long_diagonal = 1;
+    let mut extra = primary.clone();
+    extra.blend_ndx = 8;
+    map.blended_tiles = vec![BlendTileInfo::new(), primary, extra];
+    map.blend_tile_ndxes[35 + 32] = 1;
+    map.extra_blend_tile_ndxes[35 + 32] = 2;
+    let lighting = TerrainStaticLighting {
+        lights: vec![(-Vec3::Y, [0.5, 0.45, 0.4])],
+        ambient: [0.2, 0.25, 0.3],
+        scorch_diffuse: [1.0; 3],
+    };
+    let mut visual = live_terrain_visual(&device, &queue, &classes, map, 1.0);
+    visual.admit_static_lighting(lighting);
+    visual.set_use_3way_terrain_blends(0);
+    let off = render_live_terrain_visual(&device, &queue, &mut visual);
+    visual.set_use_3way_terrain_blends(1);
+    let on = render_live_terrain_visual(&device, &queue, &mut visual);
+
+    let pixel = 4 * 256 + 19 * 4;
+    assert_eq!(off[pixel], 140, "the flat base receives the overhead light");
+    assert_eq!(
+        on[pixel], off[pixel],
+        "every authored texture uses blue=200, so the blend must preserve lit blue"
+    );
+    assert!(on[pixel + 2] > off[pixel + 2] + 25, "the extra layer must draw");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
 fn receiving_terrain_owners_render_their_own_live_lights_and_restore_static_color() {
     use crate::fx_list::{DisplayLightPulse, FxClientState};
     crate::test_support::ensure_ambient_host();

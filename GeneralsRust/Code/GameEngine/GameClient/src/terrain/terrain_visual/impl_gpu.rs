@@ -1190,9 +1190,18 @@ impl TerrainVisualImpl {
     ) {
         const COLOR_FLOOR: f32 = 0.35;
         for vertex in vertices {
-            let normal = height_map
-                .map(|height_map| height_map.get_normal_at(vertex.position[0], vertex.position[2]))
-                .unwrap_or(Vec3::Y);
+            let normal = height_map.map_or(Vec3::Y, |height_map| {
+                // W3DRoadBuffer.cpp updateSegLighting rounds each coordinate
+                // by adding 0.5 before truncating, then adds the map border.
+                let sample = |value: f32| {
+                    let index = (value / height_map.scale + 0.5) as i32;
+                    index.saturating_add(height_map.border_size).max(0) as u32
+                };
+                height_map.render_normal_at_sample(
+                    sample(vertex.position[0]),
+                    sample(vertex.position[2]),
+                )
+            });
             let lit =
                 Self::terrain_static_diffuse_from_normal(normal, global_lights, ambient_color);
             vertex.color = [
@@ -1490,7 +1499,7 @@ impl TerrainVisualImpl {
         let texture = Self::road_texture_path_candidates(name)
             .into_iter()
             .find_map(|path| {
-                self.load_texture_from_path(device, &path)
+                self.load_road_texture(device, &path)
                     .ok()
                     .map(|texture| (texture, path))
             });
@@ -1804,16 +1813,21 @@ impl TerrainVisualImpl {
                 if TerrainTextures::is_available_terrain_texture_path(&path)
                     || TerrainTextures::can_resolve_texture_path(&path)
                 {
-                    if let Ok(texture) = self.load_texture_from_path(device, &path) {
+                    if let Ok(texture) = self.load_road_texture(device, &path) {
                         return Some((texture, path));
                     }
                 }
-                if let Ok(texture) = self.load_texture_from_path(device, &path) {
+                if let Ok(texture) = self.load_road_texture(device, &path) {
                     return Some((texture, path));
                 }
             }
         }
         None
+    }
+
+    fn load_road_texture(&self, device: &wgpu::Device, path: &str) -> TerrainResult<wgpu::Texture> {
+        // W3DRoadBuffer.cpp RoadType::loadTexture requests MIP_LEVELS_3.
+        self.load_texture_from_path_with_mips(device, path, 3)
     }
 
     fn road_texture_name_candidates(&self) -> Vec<String> {
@@ -2577,17 +2591,7 @@ impl TerrainVisualImpl {
             .enumerate()
             .map(|(vertex_index, vertex)| {
                 let position = Vec3::from_array(vertex.position);
-                let normal = self
-                    .height_map
-                    .as_ref()
-                    .map(|height_map| height_map.get_normal_at(position.x, position.z))
-                    .unwrap_or(Vec3::Y);
-                let mut color = Self::terrain_static_diffuse_from_normal(
-                    normal,
-                    &lighting.lights,
-                    lighting.ambient,
-                );
-                color[3] = vertex.color[3];
+                let mut normal = Vec3::Y;
                 let mut uv = vertex.tex_coords;
                 let mut slot = 0;
                 if let Some(hm) = self.height_map.as_ref() {
@@ -2600,6 +2604,9 @@ impl TerrainVisualImpl {
                     let (x, y) = height_map_cell_at_world(
                         hm, origin[0] + hm.scale * 0.5, origin[1] + hm.scale * 0.5,
                     );
+                    let corner_x = u32::from(position.x > origin[0]);
+                    let corner_y = u32::from(position.z > origin[1]);
+                    normal = hm.render_normal_at_sample(x as u32 + corner_x, y as u32 + corner_y);
                     let index = hm.get_extra_blend_tile_index(x, y);
                     if index > 0 {
                         if let Some(blend) = hm.blended_tiles.get(index as usize) {
@@ -2620,6 +2627,12 @@ impl TerrainVisualImpl {
                 if let Some(slots) = tile_slots {
                     slot = slots[vertex_index / 6];
                 }
+                let mut color = Self::terrain_static_diffuse_from_normal(
+                    normal,
+                    &lighting.lights,
+                    lighting.ambient,
+                );
+                color[3] = vertex.color[3];
                 TerrainVertex {
                     position: vertex.position,
                     normal: [normal.x, normal.y, normal.z],
@@ -3440,6 +3453,42 @@ fn authored_road_texture_name(
 mod authored_road_texture_tests {
     use super::*;
     use game_engine::common::ini::ini_road::TerrainRoadCollection;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "requires a serialized native GPU"]
+    fn authored_road_textures_upload_three_mip_levels() {
+        crate::test_support::ensure_ambient_host();
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(
+            instance.request_adapter(&wgpu::RequestAdapterOptions::default()),
+        )
+        .expect("road texture test requires a GPU adapter");
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                .expect("road texture test requires a GPU device");
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("road_mip_fixture.tga");
+        image::RgbaImage::from_pixel(16, 8, image::Rgba([88u8, 72, 40, 223]))
+            .save_with_format(&path, image::ImageFormat::Tga)
+            .unwrap();
+        let name = path.to_str().unwrap();
+        let mut roads = TerrainRoadCollection::new();
+        roads.new_road(AsciiString::from("RoadMipFixture")).texture = AsciiString::from(name);
+        let mut visual = TerrainVisualImpl::new();
+        visual.admit_road_presentation(roads.presentation());
+        visual.queue = Some(Arc::new(queue));
+        visual.create_terrain_pipeline(&device).unwrap();
+        visual.create_road_pipeline(&device).unwrap();
+        visual.ensure_road_texture_bind_group(&device);
+        assert!(!visual.road_texture_is_fallback, "test TGA must resolve");
+        assert_eq!(visual.road_texture.as_ref().unwrap().mip_level_count(), 3);
+
+        visual.ensure_named_road_texture(&device, name);
+        let bound = &visual.road_named_bind_groups[&name.to_ascii_lowercase()];
+        assert_eq!(bound._texture.mip_level_count(), 3);
+    }
 
     #[test]
     fn each_source_road_and_synthetic_join_uses_its_own_texture() {

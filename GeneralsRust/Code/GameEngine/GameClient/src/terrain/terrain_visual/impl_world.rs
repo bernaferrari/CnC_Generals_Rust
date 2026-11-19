@@ -1229,13 +1229,22 @@ impl TerrainVisualImpl {
         device: &wgpu::Device,
         path: &str,
     ) -> TerrainResult<wgpu::Texture> {
+        self.load_texture_from_path_with_mips(device, path, 1)
+    }
+
+    fn load_texture_from_path_with_mips(
+        &self,
+        device: &wgpu::Device,
+        path: &str,
+        requested_levels: u32,
+    ) -> TerrainResult<wgpu::Texture> {
         let queue = self.queue.as_ref().ok_or_else(|| {
             TerrainError::GPUError("TerrainVisual queue not initialised for texture upload".into())
         })?;
 
-        let dyn_image = self.load_runtime_texture_image(path)?;
-        let rgba = dyn_image.to_rgba8();
+        let mut rgba = self.load_runtime_texture_image(path)?.into_rgba8();
         let (width, height) = rgba.dimensions();
+        let mip_level_count = requested_levels.min(width.max(height).ilog2() + 1);
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(&format!("Texture: {}", path)),
@@ -1244,7 +1253,7 @@ impl TerrainVisualImpl {
                 height,
                 depth_or_array_layers: 1,
             },
-            mip_level_count: 1,
+            mip_level_count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
@@ -1252,25 +1261,47 @@ impl TerrainVisualImpl {
             view_formats: &[],
         });
 
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &rgba,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * width),
-                rows_per_image: Some(height),
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
+        for mip_level in 0..mip_level_count {
+            let (width, height) = rgba.dimensions();
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &rgba,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * width),
+                    rows_per_image: Some(height),
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            if mip_level + 1 < mip_level_count {
+                // WW3D BitmapHandlerClass::Combine_A8R8G8B8 reduces each
+                // sample's RGBA channels before summing, including road alpha.
+                rgba = image::RgbaImage::from_fn((width / 2).max(1), (height / 2).max(1), |x, y| {
+                    let x0 = x * 2;
+                    let y0 = y * 2;
+                    let x1 = (x0 + 1).min(width - 1);
+                    let y1 = (y0 + 1).min(height - 1);
+                    let samples = [
+                        rgba.get_pixel(x0, y0),
+                        rgba.get_pixel(x1, y0),
+                        rgba.get_pixel(x0, y1),
+                        rgba.get_pixel(x1, y1),
+                    ];
+                    image::Rgba(std::array::from_fn(|channel| {
+                        samples.iter().map(|pixel| pixel[channel] >> 2).sum()
+                    }))
+                });
+            }
+        }
 
         Ok(texture)
     }

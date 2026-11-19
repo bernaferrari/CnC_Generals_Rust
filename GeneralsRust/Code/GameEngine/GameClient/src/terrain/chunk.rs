@@ -1524,15 +1524,13 @@ impl ChunkManager {
         if let Some((ix0, iz0)) = corner {
             let last_x = heightmap.width.saturating_sub(1);
             let last_z = heightmap.height.saturating_sub(1);
-            let run = 2.0 * heightmap.scale;
             chunk.sample_normals.reserve(samples_x * samples_z);
             for row in 0..samples_z as u32 {
                 for col in 0..samples_x as u32 {
                     let (ix, iz) = ((ix0 + col).min(last_x), (iz0 + row).min(last_z));
-                    let h = |x: u32, z: u32| heightmap.world_height_at_index(x, z);
-                    let dx = (h((ix + 1).min(last_x), iz) - h(ix.saturating_sub(1), iz)) / run;
-                    let dz = (h(ix, (iz + 1).min(last_z)) - h(ix, iz.saturating_sub(1))) / run;
-                    chunk.sample_normals.push(Vec3::new(-dx, 1.0, -dz).normalize());
+                    chunk
+                        .sample_normals
+                        .push(heightmap.render_normal_at_sample(ix, iz));
                 }
             }
         }

@@ -546,6 +546,23 @@ impl HeightMap {
         }
     }
 
+    /// Y-up normal used by the static diffuse calculation at a height sample
+    /// (C++ BaseHeightMap.cpp, getStaticDiffuse).
+    pub(crate) fn render_normal_at_sample(&self, x: u32, z: u32) -> Vec3 {
+        let last_x = self.width.saturating_sub(1);
+        let last_z = self.height.saturating_sub(1);
+        let x = x.min(last_x);
+        let z = z.min(last_z);
+        let run = 2.0 * self.scale;
+        let dx = (self.world_height_at_index((x + 1).min(last_x), z)
+            - self.world_height_at_index(x.saturating_sub(1), z))
+            / run;
+        let dz = (self.world_height_at_index(x, (z + 1).min(last_z))
+            - self.world_height_at_index(x, z.saturating_sub(1)))
+            / run;
+        Vec3::new(-dx, 1.0, -dz).normalize_or(Vec3::Y)
+    }
+
     /// Get the smoothed terrain normal at world coordinates.
     ///
     /// Matches C++ `BaseHeightMapRenderObjClass::getHeightMapHeight`
