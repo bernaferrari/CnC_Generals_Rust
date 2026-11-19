@@ -25,8 +25,22 @@ fn admit_retail_boot(source: &mut GameLogic) {
 }
 
 fn admit_skirmish_fixture(source: &mut GameLogic, map_name: &str, human: &str, china_ai: bool) {
+    // GameEngine::init mounts TheFileSystem (local + BIG) before GameLogic
+    // (GameEngine.cpp:281-329); SidesList::prepareForMP_or_Skirmish opens
+    // Data\\Scripts\\SkirmishScripts.scb through it (SidesList.cpp:487), which
+    // is what adds the AI factions' script Teams to the saved roster.
+    let _ = crate::subsystem_manager::SubsystemInterface::init(
+        &mut crate::subsystem_manager::FileSystemSubsystem::new(),
+    );
     if source.receiving_module_content.is_none() {
         admit_retail_boot(source);
+    } else if source.player_template_definitions.is_none() {
+        // The fixture authored its own Object content; the slots still name
+        // retail factions, so admit only the retail lobby catalogs.
+        crate::parallel_harness::RetailWorldDefinitions::load()
+            .expect("retail lobby catalogs for staged restore")
+            .admit_lobby_catalogs(source)
+            .expect("admit retail lobby catalogs");
     }
     // Real staged-map fixtures include the app's admitted retail grid policy.
     let rules = source
@@ -2657,9 +2671,9 @@ End
 }
 
 #[cfg(feature = "game_client")]
-struct StagedNativeGpuScope(ww3d_engine::SharedEngine);
+pub(super) struct StagedNativeGpuScope(ww3d_engine::SharedEngine);
 #[cfg(feature = "game_client")]
-fn staged_native_fixture_gpu() -> (StagedNativeGpuScope, GraphicsSystem, RenderPipeline) {
+pub(super) fn staged_native_fixture_gpu() -> (StagedNativeGpuScope, GraphicsSystem, RenderPipeline) {
     let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
@@ -2683,7 +2697,7 @@ fn staged_native_fixture_gpu() -> (StagedNativeGpuScope, GraphicsSystem, RenderP
     (StagedNativeGpuScope(engine), graphics, pipeline)
 }
 #[cfg(feature = "game_client")]
-fn discard_staged_native_fixture(
+pub(super) fn discard_staged_native_fixture(
     candidate: &mut super::super::map_native_admission::NativeMapCandidate,
     graphics: &mut GraphicsSystem,
     pipeline: &mut RenderPipeline,

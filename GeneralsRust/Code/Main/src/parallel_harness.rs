@@ -294,6 +294,15 @@ impl RetailWorldDefinitions {
         logic.set_ai_definition_base(self.ai_data.clone());
         Ok(())
     }
+
+    /// Only the lobby catalogs (PlayerTemplate.ini, Multiplayer.ini) for a
+    /// world whose Object content a fixture authored itself, so a Skirmish
+    /// slot can resolve its retail faction (GameLogic.cpp:1318-1319).
+    pub fn admit_lobby_catalogs(&self, logic: &mut GameLogic) -> Result<(), String> {
+        logic.admit_player_template_definitions(self.player_templates.clone())?;
+        logic.multiplayer_definitions = Some(Arc::clone(&self.multiplayer));
+        Ok(())
+    }
 }
 
 /// Inputs that identify one instance's match.

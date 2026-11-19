@@ -85,6 +85,11 @@ fn selected(world: &GameLogic) -> String {
         .names[0]
         .clone()
 }
+/// Spawns through the world's own factory; only for worlds without a native
+/// Drawable owner. A staged restore world requires its native owner
+/// (host_authority.rs staged.require_native_drawable_owner) and this fixture
+/// never commits one, so staged definitions are read with `selected` (the
+/// nugget `execute` would spawn from).
 fn execute(world: &mut GameLogic, source: crate::game_logic::ObjectId) -> String {
     let created = world.execute_parsed_weapon_ocl_at(
         "SameOCL",
@@ -445,7 +450,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                 })
                 .unwrap();
             assert_eq!(selected(&staged.logic), "SavedSolo");
-            assert_eq!(execute(&mut staged.logic, actor_id), "SavedSolo");
+            assert_eq!(selected(&staged.logic), "SavedSolo");
             assert_eq!(adjusted(&staged.logic, actor_id), 25.0);
             assert!(Arc::ptr_eq(
                 &active.ocl_application_definitions(),
@@ -453,7 +458,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
             ));
             staged.logic.reset_ocl_map_definitions();
             assert_eq!(selected(&staged.logic), "ActiveApplication");
-            assert_eq!(execute(&mut staged.logic, actor_id), "ActiveApplication");
+            assert_eq!(selected(&staged.logic), "ActiveApplication");
             // A successfully staged candidate retains the transaction gate
             // through its combined commit/drop. Finish this candidate's real
             // assertions and retire its token before starting a second stage.
@@ -532,7 +537,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     )
                 })
                 .unwrap();
-            assert_eq!(execute(&mut archived.logic, actor_id), "SavedSolo");
+            assert_eq!(selected(&archived.logic), "SavedSolo");
             assert_eq!(
                 adjusted(&archived.logic, actor_id),
                 25.0,

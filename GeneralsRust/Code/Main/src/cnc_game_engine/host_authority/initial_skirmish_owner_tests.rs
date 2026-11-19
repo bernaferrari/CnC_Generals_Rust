@@ -118,6 +118,72 @@ fn stage(
         &w.world_services,
     )
 }
+/// [`stage`] for a client save: its CHUNK_ParticleSystem companion needs the
+/// detached native presentation owner the application stages with (the same
+/// GPU receiver `staged_restore_tests` builds). The candidate is discarded
+/// once staged; these witnesses observe the restored logic world.
+#[cfg(feature = "game_client")]
+fn stage_native(
+    m: &mut SaveFileManager,
+    slot: &str,
+    w: &GameLogic,
+) -> Result<StagedRestoreWorld, RestoreStagingFailure> {
+    let (_gpu, mut graphics, mut pipeline) = super::staged_restore_tests::staged_native_fixture_gpu();
+    let mut native = super::super::map_native_admission::NativeMapCandidate::with_epoch(906);
+    let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+    let mut attempt = native
+        .attempt(
+            pipeline.borrow_native_draw_services(),
+            &mut graphics,
+            0,
+            super::super::native_view_effects::receiving_native_drawable_policy(),
+            &mut retirement,
+            None,
+        )
+        .unwrap();
+    let result = CnCGameEngine::stage_saved_world_for_restore_with_native(
+        m,
+        slot,
+        GameMode::Skirmish,
+        crate::save_load::CampaignMapContext::default().with_base_victory_rules(
+            std::sync::Arc::new(crate::game_logic::victory_conditions::MapVictoryRules::default()),
+        ),
+        RestoreTemplateCatalog::from_world(w),
+        &w.weapon_definition_base,
+        &w.projectile_definitions,
+        &w.ocl_application_definitions(),
+        w.ai_definitions.baseline(),
+        w.production_energy_baseline(),
+        w.combat_system.historic_damage_limit(),
+        w.physics_rules_baseline(),
+        w.effective_terrain_definitions(),
+        w.current_armor_definitions(),
+        w.session_view.camera.settings,
+        w.session_view.camera.clip_policy,
+        w.session_view.camera.shake_policy,
+        w.session_view.camera.movement_policy,
+        w.session_view.camera.input_policy,
+        &w.world_services,
+        Some(&mut attempt as &mut dyn crate::game_logic::NativeMapAdmission),
+    );
+    drop(attempt);
+    let mut staged = result?;
+    staged.native_map = native;
+    super::staged_restore_tests::discard_staged_native_fixture(
+        &mut staged.native_map,
+        &mut graphics,
+        &mut pipeline,
+    );
+    Ok(staged)
+}
+#[cfg(not(feature = "game_client"))]
+fn stage_native(
+    m: &mut SaveFileManager,
+    slot: &str,
+    w: &GameLogic,
+) -> Result<StagedRestoreWorld, RestoreStagingFailure> {
+    stage(m, slot, w)
+}
 fn rewrite_logic(path: &std::path::Path, change: impl FnOnce(&mut WorldSnapshot)) {
     let input = std::fs::read(path).unwrap();
     let mut pos = 0;
@@ -190,22 +256,21 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
             let initial = source.initial_skirmish_admission.as_ref().unwrap().clone();
             // Exercise the real SnapshotBuilder SINI branch with a nonunit
             // Drawable scale, not merely a default WorldSnapshot version tag.
-            let mut scale_template =
-                crate::game_logic::ThingTemplate::new("InitialAdmissionScaleActor");
-            scale_template
-                .add_kind_of(crate::game_logic::KindOf::Vehicle)
-                .set_health(100.0)
-                .set_asset_scale(2.0);
-            source
-                .templates
-                .insert("InitialAdmissionScaleActor".into(), scale_template);
+            // The retail-booted world spawns only admitted Objects (proxy
+            // templates cannot be created), so the scaled Drawable is a real
+            // retail vehicle carrying the per-instance scale a special power
+            // sets at runtime (special_powers.rs drawable_instance_scale).
             let scaled = source
                 .create_object_for_player(
-                    "InitialAdmissionScaleActor",
+                    "AmericaVehicleDozer",
                     0,
                     glam::Vec3::new(100.0, 0.0, 100.0),
                 )
                 .unwrap();
+            source
+                .host_object_mut(scaled)
+                .unwrap()
+                .drawable_instance_scale = 2.0;
             assert_eq!(
                 source.host_object(scaled).unwrap().drawable_instance_scale,
                 2.0
@@ -429,7 +494,7 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
             let mut saves = SaveFileManager::with_save_directory(dir.path());
             saves.init().unwrap();
             save(&mut saves, "client", &source);
-            let restored = stage(&mut saves, "client", &source).unwrap();
+            let restored = stage_native(&mut saves, "client", &source).unwrap();
             assert_eq!(
                 restored.logic.initial_skirmish_admission.as_deref(),
                 Some(initial.as_ref())
@@ -475,7 +540,9 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                 let n = u32::from_le_bytes(w.lifecycle_tail[end - 8..end - 4].try_into().unwrap())
                     as usize;
                 w.lifecycle_tail.truncate(end - 8 - n);
-                w.version = 28;
+                // The direct WorldSnapshot envelope accepts only the current
+                // version (validate_direct_world_snapshot_version), so the
+                // capsule-less save stays at the current version.
             });
             let crate::save_load::DecodedGameSave {
                 snapshot: original_snapshot,
@@ -528,7 +595,9 @@ fn rejected_initial_records_and_unknown_authored_definition_preserve_running_own
                 let n = u32::from_le_bytes(w.lifecycle_tail[end - 8..end - 4].try_into().unwrap())
                     as usize;
                 w.lifecycle_tail.truncate(end - 8 - n);
-                w.version = 28;
+                // The direct WorldSnapshot envelope accepts only the current
+                // version (validate_direct_world_snapshot_version), so the
+                // capsule-less save stays at the current version.
             });
             rewrite_logic(&saves.get_save_path("malformed"), |w| {
                 let end = w.lifecycle_tail.len();
@@ -739,7 +808,7 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
                     .unwrap()
                     .is_none()
             );
-            let restored = stage(&mut saves, "random_color", &source).unwrap();
+            let restored = stage_native(&mut saves, "random_color", &source).unwrap();
             assert_eq!(restored.logic.local_player_id(), Some(1));
             assert!(!restored.logic.is_local_player(0));
             assert!(restored.logic.is_local_player(1));
