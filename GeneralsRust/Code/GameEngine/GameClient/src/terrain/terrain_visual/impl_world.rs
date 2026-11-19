@@ -1242,12 +1242,95 @@ impl TerrainVisualImpl {
             TerrainError::GPUError("TerrainVisual queue not initialised for texture upload".into())
         })?;
 
-        let mut rgba = self.load_runtime_texture_image(path)?.into_rgba8();
+        for candidate in self.runtime_texture_candidates(path) {
+            let loaded = Self::read_runtime_texture_bytes(&candidate).and_then(|bytes| {
+                bytes
+                    .map(|bytes| {
+                        Self::upload_runtime_texture(
+                            device,
+                            queue,
+                            &candidate,
+                            &bytes,
+                            requested_levels,
+                        )
+                    })
+                    .transpose()
+            });
+            match loaded {
+                Ok(Some(texture)) => return Ok(texture),
+                Ok(None) => {}
+                Err(err) => warn!(
+                    "Skipping unreadable runtime texture '{}': {}",
+                    candidate.display(),
+                    err
+                ),
+            }
+        }
+        Err(TerrainError::TextureError(GameImageError::LoadError {
+            path: path.to_string(),
+            source: Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("runtime texture '{}' not found", path),
+            )),
+        }))
+    }
+
+    fn upload_runtime_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &Path,
+        bytes: &[u8],
+        requested_levels: u32,
+    ) -> TerrainResult<wgpu::Texture> {
+        use ww3d_assets::image::{DdsTextureType, load_dds_from_memory};
+        let label = path.to_string_lossy();
+        let extension = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(str::to_ascii_lowercase);
+        // WW3D TextureLoadTaskClass::Load_Compressed_Mipmap copies the
+        // source levels selected by RoadType::loadTexture (MIP_LEVELS_3).
+        if requested_levels > 1
+            && extension.as_deref() == Some("dds")
+            && let Ok(dds) = load_dds_from_memory(bytes)
+            && dds.texture_type == DdsTextureType::Texture2D
+            && let Some(compression) = dds.compression
+        {
+            return ww3d_renderer_3d::texture_system::upload_dds_levels(
+                device,
+                queue,
+                &label,
+                dds.width,
+                dds.height,
+                dds.mip_levels.min(requested_levels),
+                compression,
+                |level| dds.get_level_data(level),
+            )
+            .map_err(|err| TerrainError::GPUError(format!("upload DDS {label}: {err}")));
+        }
+
+        let decoded = match extension.as_deref() {
+            Some("tga") => image::load_from_memory_with_format(bytes, ImageFormat::Tga),
+            Some("dds") => image::load_from_memory_with_format(bytes, ImageFormat::Dds),
+            Some("png") => image::load_from_memory_with_format(bytes, ImageFormat::Png),
+            Some("jpg") | Some("jpeg") => {
+                image::load_from_memory_with_format(bytes, ImageFormat::Jpeg)
+            }
+            Some("bmp") => image::load_from_memory_with_format(bytes, ImageFormat::Bmp),
+            _ => image::load_from_memory(bytes),
+        }
+        .map_err(|err| {
+            TerrainError::TextureError(GameImageError::LoadError {
+                path: label.to_string(),
+                source: Box::new(err),
+            })
+        })?;
+        let mut rgba = decoded.into_rgba8();
         let (width, height) = rgba.dimensions();
         let mip_level_count = requested_levels.min(width.max(height).ilog2() + 1);
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&format!("Texture: {}", path)),
+            label: Some(&label),
             size: wgpu::Extent3d {
                 width,
                 height,
@@ -1306,77 +1389,22 @@ impl TerrainVisualImpl {
         Ok(texture)
     }
 
-    fn load_runtime_texture_image(&self, path: &str) -> TerrainResult<image::DynamicImage> {
-        for candidate in self.runtime_texture_candidates(path) {
-            match self.try_load_image_from_filesystem(&candidate) {
-                Ok(Some(image)) => return Ok(image),
-                Ok(None) => {}
-                Err(err) => {
-                    warn!(
-                        "Skipping undecodable skybox candidate '{}': {}",
-                        candidate.display(),
-                        err
-                    );
-                }
-            }
-        }
-
-        Err(TerrainError::TextureError(GameImageError::LoadError {
-            path: path.to_string(),
-            source: Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("runtime texture '{}' not found", path),
-            )),
-        }))
-    }
-
-    fn try_load_image_from_filesystem(
-        &self,
-        candidate: &Path,
-    ) -> TerrainResult<Option<image::DynamicImage>> {
+    fn read_runtime_texture_bytes(candidate: &Path) -> TerrainResult<Option<Vec<u8>>> {
         let resource_name = candidate.to_string_lossy().replace('\\', "/");
         let fs = get_file_system();
-        let bytes = {
-            let Ok(mut guard) = fs.lock() else {
-                return Ok(None);
-            };
-            let access = FileAccess::READ.combine(FileAccess::BINARY);
-            let Some(mut file) = guard.open_file(resource_name.as_str(), access) else {
-                return Ok(None);
-            };
-            match file.read_entire_and_close() {
-                Ok(bytes) => bytes,
-                Err(err) => {
-                    return Err(TerrainError::TextureError(GameImageError::LoadError {
-                        path: resource_name,
-                        source: Box::new(err),
-                    }));
-                }
-            }
+        let Ok(mut guard) = fs.lock() else {
+            return Ok(None);
         };
-
-        let extension = candidate
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_ascii_lowercase());
-        let decoded = match extension.as_deref() {
-            Some("tga") => image::load_from_memory_with_format(&bytes, ImageFormat::Tga),
-            Some("dds") => image::load_from_memory_with_format(&bytes, ImageFormat::Dds),
-            Some("png") => image::load_from_memory_with_format(&bytes, ImageFormat::Png),
-            Some("jpg") | Some("jpeg") => {
-                image::load_from_memory_with_format(&bytes, ImageFormat::Jpeg)
-            }
-            Some("bmp") => image::load_from_memory_with_format(&bytes, ImageFormat::Bmp),
-            _ => image::load_from_memory(&bytes),
-        }
-        .map_err(|err| {
+        let access = FileAccess::READ.combine(FileAccess::BINARY);
+        let Some(mut file) = guard.open_file(resource_name.as_str(), access) else {
+            return Ok(None);
+        };
+        file.read_entire_and_close().map(Some).map_err(|err| {
             TerrainError::TextureError(GameImageError::LoadError {
-                path: candidate.display().to_string(),
+                path: resource_name,
                 source: Box::new(err),
             })
-        })?;
-
-        Ok(Some(decoded))
+        })
     }
 
     fn runtime_texture_candidates(&self, path: &str) -> Vec<PathBuf> {
