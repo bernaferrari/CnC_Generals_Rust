@@ -814,22 +814,46 @@ impl TeamFactory {
     /// Snapshot one prototype's TeamInstanceList at the moment C++ Player::update
     /// reaches that prototype. A previous prototype's synchronous generic hook
     /// can create a team instance that the later prototype's live traversal sees.
-    pub(crate) fn generic_script_entries_for_prototype(
+    pub(crate) fn generic_script_teams_for_owned_prototype(
+        &self,
+        controller: u32,
+        prototype: &Arc<TeamPrototype>,
+    ) -> Vec<Arc<RwLock<Team>>> {
+        let name = prototype.get_name().as_str();
+        if self
+            .player_prototype_order
+            .get(&controller)
+            .is_some_and(|order| order.iter().any(|candidate| candidate == name))
+            && self
+                .prototypes
+                .get(name)
+                .is_some_and(|current| Arc::ptr_eq(current, prototype))
+        {
+            self.find_team_instances(name)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Revalidate only the pending instance after a synchronous hook has run.
+    pub(crate) fn owns_generic_instance(
         &self,
         prototype: &Arc<TeamPrototype>,
-    ) -> Vec<(Arc<TeamPrototype>, Arc<RwLock<Team>>)> {
+        team: &Arc<RwLock<Team>>,
+    ) -> bool {
         let name = prototype.get_name().as_str();
-        if !self
+        self
             .prototypes
             .get(name)
             .is_some_and(|current| Arc::ptr_eq(current, prototype))
-        {
-            return Vec::new();
-        }
-        self.find_team_instances(name)
-            .into_iter()
-            .map(|team| (Arc::clone(prototype), team))
-            .collect()
+            && self
+                .instance_order
+                .iter()
+                .filter_map(|id| self.teams.get(id))
+                .any(|current| {
+                    Arc::ptr_eq(current, team)
+                        && current.read().is_ok_and(|team| team.get_name() == name)
+                })
     }
 
     /// Restore the saved visitation sequence after validating every identity.

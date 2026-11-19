@@ -181,15 +181,12 @@ impl TeamFactoryHandle {
             // C++ opens each prototype's TeamInstanceList only when the
             // Player::update cursor reaches it. A prior hook can create an
             // instance for a later prototype during this same player pass.
-            if !self.owns_generic_prototype(controller, &prototype) {
-                continue;
-            }
-            let entries = self
+            let teams = self
                 .with_read_without_flushing(|factory| {
-                    factory.generic_script_entries_for_prototype(&prototype)
+                    factory.generic_script_teams_for_owned_prototype(controller, &prototype)
                 })
                 .unwrap_or_else(|error| error.into_inner());
-            for (_, team) in entries {
+            for team in teams {
                 let team_id = match team.read() {
                     Ok(team) => team.get_id(),
                     Err(error) => error.into_inner().get_id(),
@@ -324,28 +321,13 @@ impl TeamFactoryHandle {
         .unwrap_or_else(|error| error.into_inner())
     }
 
-    fn owns_generic_prototype(&self, controller: u32, prototype: &Arc<TeamPrototype>) -> bool {
-        self.with_read_without_flushing(|factory| {
-            factory
-                .owned_team_prototypes_for_controller(controller)
-                .iter()
-                .any(|current| Arc::ptr_eq(current, prototype))
-        })
-        .unwrap_or_else(|error| error.into_inner())
-    }
-
     fn owns_generic_instance(
         &self,
         prototype: &Arc<TeamPrototype>,
         team: &Arc<RwLock<Team>>,
     ) -> bool {
-        self.with_read_without_flushing(|factory| {
-            factory
-                .generic_script_entries_for_prototype(prototype)
-                .iter()
-                .any(|(_, current_team)| Arc::ptr_eq(current_team, team))
-        })
-        .unwrap_or_else(|error| error.into_inner())
+        self.with_read_without_flushing(|factory| factory.owns_generic_instance(prototype, team))
+            .unwrap_or_else(|error| error.into_inner())
     }
 
     /// Resolve a team without constructing `TeamFactoryGuard`: its Drop
