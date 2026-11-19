@@ -76,28 +76,30 @@ impl Drop for NativeProjectedDecals {
 }
 
 /// Ownerless accessor: clients reach their own `drawables.projected_decals`
-/// directly; only the cfg(test) fallback exists here.
+/// directly; only the test fallback (this crate's tests, or a caller crate's
+/// tests via `test-ambient-services`) exists here.
 pub(crate) fn with_projected_decals_mut<R>(
     f: impl FnOnce(&mut NativeProjectedDecals) -> R,
 ) -> Option<R> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-ambient-services"))]
     {
         return Some(TEST_PROJECTED_DECALS.with(|slot| f(&mut slot.borrow_mut())));
     }
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-ambient-services")))]
     {
         let _ = f;
         None
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-ambient-services"))]
 std::thread_local! {
     static TEST_PROJECTED_DECALS: std::cell::RefCell<NativeProjectedDecals> =
         std::cell::RefCell::new(NativeProjectedDecals::default());
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-ambient-services"))]
+#[allow(dead_code)]
 pub(crate) fn reset_test_projected_decals() {
     TEST_PROJECTED_DECALS.with(|slot| {
         let mut decals = slot.borrow_mut();

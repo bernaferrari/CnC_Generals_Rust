@@ -903,11 +903,13 @@ mod tests {
             let (player, economy_events) = logic.player_and_economy_events_mut(0).unwrap();
             player.do_bounty_for_kill(cost, economy_events)
         };
-        assert_eq!(bounty, 96);
+        // Player.cpp:2410 REAL_TO_INT_CEIL(480 * 0.2f): the retail PC24
+        // fast_float_ceil (BaseType.h) lands one above the integral 96.
+        assert_eq!(bounty, 97);
         let usa = logic.get_player(0).expect("usa");
-        assert_eq!(usa.statistics.money_earned(), 96);
-        assert_eq!(usa.resources.supplies, 1_096);
-        assert_eq!(usa.calculate_score() as u32, 96);
+        assert_eq!(usa.statistics.money_earned(), 97);
+        assert_eq!(usa.resources.supplies, 1_097);
+        assert_eq!(usa.calculate_score() as u32, 97);
     }
 
     pub(super) fn setup_zero_damage_transport(

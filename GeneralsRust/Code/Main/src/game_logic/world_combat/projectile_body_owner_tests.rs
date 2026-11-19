@@ -56,8 +56,11 @@ fn world_with_body(frame: u32, initial: f32, veteran: bool) -> (GameLogic, Objec
                 .is_some()
         );
     }
+    // C++ VeterancyGainCreate::onCreate only acts for a controlling player,
+    // which a projectile inherits from its launcher.
+    world.add_player(crate::game_logic::Player::new(0, Team::USA, "ProjectileOwner", true));
     let source = world
-        .create_object("OwnedProjectileSource", Team::USA, Vec3::ZERO)
+        .create_object_for_player("OwnedProjectileSource", 0, Vec3::ZERO)
         .unwrap();
     (world, source)
 }

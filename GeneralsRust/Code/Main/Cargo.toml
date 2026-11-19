@@ -475,6 +475,7 @@ path = "examples/run_exec_smoke.rs"
 tempfile = {workspace = true}
 game_engine = { path = "../GameEngine/Common", features = ["test-ambient-services"] }
 gamelogic = { path = "../GameEngine/GameLogic", features = ["test-ambient-services"] }
+game_client = { path = "../GameEngine/GameClient", package = "game-client-rust", features = ["test-ambient-services"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Media", "Win32_UI_WindowsAndMessaging"] }

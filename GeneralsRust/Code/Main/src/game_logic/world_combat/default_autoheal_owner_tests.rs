@@ -179,8 +179,17 @@ fn default_autoheal_bypasses_indestructible_and_delivers_healing_filtered_state_
     assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
     assert_eq!(object.last_damage_info_type, Some(DamageType::Healing));
     assert_eq!(object.last_damage_source, Some(id));
-    let effects = object.bone_fx_damage.as_ref().unwrap();
-    assert_eq!(effects.transitions, 1);
+    assert_eq!(object.bone_fx_damage.as_ref().unwrap().transitions, 1);
+    // C++ changeBodyDamageState only re-times the state; the effect itself
+    // fires from the BoneFXUpdate::update that follows (zero delay: same frame).
+    owner
+        .host_object_mut(id)
+        .unwrap()
+        .bone_fx_damage
+        .as_mut()
+        .unwrap()
+        .tick(19);
+    let effects = owner.host_object(id).unwrap().bone_fx_damage.as_ref().unwrap();
     assert_eq!(effects.pending.len(), 1);
     assert_eq!(
         effects.pending[0].fx_list.as_deref(),

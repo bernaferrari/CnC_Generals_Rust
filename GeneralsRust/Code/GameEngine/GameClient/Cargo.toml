@@ -191,6 +191,9 @@ debug_graphics = []
 benchmark = []
 internal = ["gamelogic/internal"]
 allow_surrender = []
+# Ownerless per-thread projected-decal manager for tests of callers (Main) that
+# exercise the detached/standalone RadiusDecal adapter without a receiving client.
+test-ambient-services = []
 
 # Platform-specific feature flags
 platform-native = ["platform-windows", "platform-linux", "platform-macos"]

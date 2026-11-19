@@ -561,6 +561,17 @@ impl HostBoneFxDamageData {
         kind: FireKind,
         slot_index: usize,
     ) {
+        // C++ doFXListAtBone/doOCLAtBone/doParticleSystemAtBone: an effect
+        // restricted by the last damage type is skipped (the caller still
+        // reschedules its timer).
+        let allowed = match kind {
+            FireKind::Fx => self.damage_type_allowed(self.authored.damage_fx_types),
+            FireKind::Ocl => self.damage_type_allowed(self.authored.damage_ocl_types),
+            FireKind::Psys => self.damage_type_allowed(self.authored.damage_particle_types),
+        };
+        if !allowed {
+            return;
+        }
         let name = slot.name.trim();
         let ev = match kind {
             FireKind::Fx => HostBoneFxEvent {
@@ -1475,8 +1486,12 @@ mod owned_body_frame_tests {
                 name: name.into(),
             });
         }
-        world.host_object_mut(id).unwrap().bone_fx_damage =
-            Some(HostBoneFxDamageData::from_authored(authored));
+        // C++ BoneFXUpdate::update re-inits every timer on its FIRST call
+        // (m_active == FALSE); a live Object has long since had that first
+        // update, so a damage-driven schedule is the one that stands.
+        let mut data = HostBoneFxDamageData::from_authored(authored);
+        data.active = true;
+        world.host_object_mut(id).unwrap().bone_fx_damage = Some(data);
         (world, id)
     }
     fn damage(world: &mut GameLogic, id: ObjectId, amount: f32, kind: DamageType) {

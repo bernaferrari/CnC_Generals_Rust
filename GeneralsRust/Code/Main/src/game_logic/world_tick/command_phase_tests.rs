@@ -244,12 +244,14 @@ fn source_prepare_updates_receiving_interpreter_and_rank_grants_only_humans() {
                 ),
             );
             receiving.admit_native_initial_rank_points(37);
-            assert_eq!(receiving.players[&0].skill_points, 37);
+            // Player.cpp:2439 addSkillPoints REAL_TO_INT_CEIL(modifier * 37):
+            // the retail fast_float_ceil lands one above an integral product.
+            assert_eq!(receiving.players[&0].skill_points, 38);
             assert_eq!(receiving.players[&1].skill_points, 0);
             receiving.prepare_native_command_mode(GameMode::Shell);
             receiving.admit_native_initial_rank_points(71);
             assert_eq!(
-                receiving.players[&0].skill_points, 37,
+                receiving.players[&0].skill_points, 38,
                 "Shell has no SP starting-rank grant"
             );
         },

@@ -385,8 +385,10 @@ End
         .create_object("__Hq60Source", Team::USA, Vec3::new(2.0, 0.0, 4.0))
         .expect("source");
 
+    // C++ VeterancyGainCreate::onCreate only acts for a controlling player.
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Hq60Owner", true));
     let baseline = logic
-        .create_object("Hq60Spawned", Team::USA, Vec3::new(20.0, 0.0, 4.0))
+        .create_object_for_player("Hq60Spawned", 0, Vec3::new(20.0, 0.0, 4.0))
         .expect("baseline");
     assert_eq!(
         logic.objects.get(&baseline).unwrap().experience.level,

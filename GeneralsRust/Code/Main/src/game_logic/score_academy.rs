@@ -425,7 +425,10 @@ mod tests {
         let snapshot = builder.create_world_snapshot(&actual).unwrap();
         let bytes = bincode_legacy::serialize(&snapshot).unwrap();
         let snapshot = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
-        let mut loaded = GameLogic::new();
+        // C++ loads the save onto the already-loaded map: TeamFactory::xfer
+        // requires every saved team prototype to exist, so the receiving
+        // world is set up with the same sides/teams before the restore.
+        let mut loaded = world(900);
         builder
             .restore_from_snapshot(&snapshot, &mut loaded)
             .unwrap();
