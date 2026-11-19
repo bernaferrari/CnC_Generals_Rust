@@ -30,11 +30,34 @@ fn ordinary_create(
     template: ThingTemplate,
     source: &str,
 ) -> (GameLogic, crate::game_logic::ObjectId) {
+    ordinary_create_with_weapons(template, source, "")
+}
+
+/// The same, with the Weapon.ini text this world's WeaponStore parsed (C++
+/// TheWeaponStore is filled from Weapon.ini before any Object is created).
+fn ordinary_create_with_weapons(
+    template: ThingTemplate,
+    source: &str,
+    weapon_ini: &str,
+) -> (GameLogic, crate::game_logic::ObjectId) {
     let name = template.name.clone();
     let mut world = GameLogic::new();
     world
         .admit_object_ini_sources([("ranger_primary_admission.ini".to_string(), source.to_string())])
         .expect("fixture Object content admitted before NewGame");
+    if !weapon_ini.is_empty() {
+        let mut rules = std::collections::HashMap::new();
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut rules,
+            weapon_ini,
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        );
+        world
+            .admit_receiving_weapon_snapshot(
+                rules.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
+            )
+            .expect("fixture Weapon content admitted before live Objects");
+    }
     let id = world
         .create_object(&name, Team::USA, Vec3::ZERO)
         .expect("ordinary Main creation of actual projected definition");
@@ -111,7 +134,11 @@ fn ranger_primary_admission_named_auto_choose_none_keeps_real_weapon() {
                 .expect("real named rule resolves before auto-choose suppression");
             assert_eq!(resolved.damage, 37.0);
             assert_eq!(resolved.range, 123.0);
-            let (world, id) = ordinary_create(template, &source);
+            let (world, id) = ordinary_create_with_weapons(
+                template,
+                &source,
+                "Weapon AuthoredPrimaryRangerRule\n  PrimaryDamage = 37\n  AttackRange = 123\n  DelayBetweenShots = 1000\n  WeaponSpeed = 30000000\n  ClipSize = 8\n  DamageType = SMALL_ARMS\n  AntiGround = Yes\n  ProjectileObject = NONE\nEnd\n",
+            );
             let object = world.host_object(id).unwrap();
             assert!(object.thing().template.primary_auto_choose_none);
             assert_eq!(
@@ -131,9 +158,9 @@ fn ranger_primary_admission_named_auto_choose_none_keeps_real_weapon() {
 }
 
 #[test]
-fn ranger_primary_admission_missing_rule_keeps_existing_fallback() {
+fn ranger_primary_admission_missing_rule_stays_unarmed() {
     isolated(
-        "ranger_primary_admission_tests::ranger_primary_admission_missing_rule_keeps_existing_fallback",
+        "ranger_primary_admission_tests::ranger_primary_admission_missing_rule_stays_unarmed",
         || {
             let _restore = RestoreStore::install();
             let (template, source) = parsed_ranger("MissingPrimaryRanger", "");
@@ -143,13 +170,10 @@ fn ranger_primary_admission_missing_rule_keeps_existing_fallback() {
             assert!(template.primary_weapon.is_none());
             let (world, id) = ordinary_create(template, &source);
             let object = world.host_object(id).unwrap();
-            let weapon = object
-                .weapon
-                .as_ref()
-                .expect("existing missing-authoring host fallback");
-            assert_eq!(weapon.damage, 5.0);
-            assert_eq!(weapon.range, 100.0);
-            assert!(object.can_attack());
+            // WeaponSet.cpp:279-320 allocates only authored getNth(slot): a Ranger
+            // whose WeaponSet authors nothing stays unarmed (no name fallback).
+            assert!(object.weapon.is_none());
+            assert!(!object.can_attack());
         },
     );
 }
