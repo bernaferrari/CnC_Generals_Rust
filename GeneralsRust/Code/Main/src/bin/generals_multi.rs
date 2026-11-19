@@ -22,12 +22,16 @@
 //! Exit codes: 0 every tile passed (or ran, if undecided), 1 a tile failed,
 //! 3 usage.
 
+#[cfg(not(target_arch = "wasm32"))]
 use generals_main::cnc_game_engine::multi_instance::{
     InstanceScenario, MultiInstanceOptions, e2e_suite, run_multi_instance,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn usage() -> ! {
     eprintln!(
         "usage: generals_multi [--instances N] [--scenario golden|shell|skirmish:<map>[:<faction>]|cmds:<a>;<b>]... \
@@ -39,6 +43,7 @@ fn usage() -> ! {
     std::process::exit(3);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn size(value: &str) -> (u32, u32) {
     value
         .split_once(['x', 'X'])
@@ -46,6 +51,7 @@ fn size(value: &str) -> (u32, u32) {
         .unwrap_or_else(|| usage())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn parse() -> MultiInstanceOptions {
     let mut options = MultiInstanceOptions::default();
     let mut scenarios = Vec::new();
@@ -135,20 +141,24 @@ fn parse() -> MultiInstanceOptions {
 }
 
 /// Resolve against the launch directory: the process later moves to the exe dir.
+#[cfg(not(target_arch = "wasm32"))]
 fn absolute(path: String) -> PathBuf {
     std::path::absolute(&path).unwrap_or_else(|_| PathBuf::from(path))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 trait HeadlessCheck {
     fn headless_without_shots(&self) -> bool;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl HeadlessCheck for MultiInstanceOptions {
     fn headless_without_shots(&self) -> bool {
         !self.windowed && self.shots_dir.is_none() && self.run_for.is_none()
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
@@ -212,4 +222,9 @@ async fn main() {
             std::process::exit(1);
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    panic!("generals_multi requires a native host");
 }

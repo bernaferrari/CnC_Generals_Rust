@@ -62,6 +62,7 @@ pub struct SharedRetailContent {
     retail_textures: Arc<Mutex<HashMap<String, SharedRetailTexture>>>,
     /// Uncompressed W3D TextureClasses built from a shared raw payload, keyed
     /// by lowercase name; valid only for that exact payload (pointer-equal).
+    #[cfg(not(target_arch = "wasm32"))]
     retail_texture_classes: Arc<
         Mutex<
             HashMap<
@@ -80,6 +81,7 @@ pub struct SharedRetailContent {
 #[derive(Clone)]
 pub(crate) struct SharedRetailTexture {
     pub(crate) raw: Arc<crate::assets::textures::RawTexture>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) gpu: Option<(wgpu::Device, crate::assets::textures::GPUTexture)>,
 }
 
@@ -153,12 +155,17 @@ impl SharedRetailContent {
         Arc::clone(
             &textures
                 .entry(key.to_string())
-                .or_insert(SharedRetailTexture { raw, gpu: None })
+                .or_insert(SharedRetailTexture {
+                    raw,
+                    #[cfg(not(target_arch = "wasm32"))]
+                    gpu: None,
+                })
                 .raw,
         )
     }
 
     /// The upload of a shared archive texture on exactly `device`, if any.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn retail_texture_gpu(
         &self,
         key: &str,
@@ -173,6 +180,7 @@ impl SharedRetailContent {
     }
 
     /// Publish the upload of a shared archive texture (first upload wins).
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn publish_retail_texture_gpu(
         &self,
         key: &str,
@@ -188,6 +196,7 @@ impl SharedRetailContent {
     }
 
     /// The TextureClass built from exactly `raw`, or build and publish one.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn retail_texture_class_or_build<E>(
         &self,
         key: &str,
@@ -212,6 +221,39 @@ impl SharedRetailContent {
                 Ok(class)
             }
         }
+    }
+
+    // WebGPU handles stay in the browser's existing asset and renderer caches.
+    // The application channel still shares the decoded raw content on wasm.
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn retail_texture_gpu(
+        &self,
+        _key: &str,
+        _device: &wgpu::Device,
+    ) -> Option<crate::assets::textures::GPUTexture> {
+        None
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn publish_retail_texture_gpu(
+        &self,
+        _key: &str,
+        _device: &wgpu::Device,
+        _gpu: &crate::assets::textures::GPUTexture,
+    ) {
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn retail_texture_class_or_build<E>(
+        &self,
+        _key: &str,
+        _raw: &Arc<crate::assets::textures::RawTexture>,
+        build: impl FnOnce() -> std::result::Result<
+            Arc<ww3d_renderer_3d::texture_system::TextureClass>,
+            E,
+        >,
+    ) -> std::result::Result<Arc<ww3d_renderer_3d::texture_system::TextureClass>, E> {
+        build()
     }
 
     fn begin_catalog_build(&self) -> std::sync::MutexGuard<'_, ()> {

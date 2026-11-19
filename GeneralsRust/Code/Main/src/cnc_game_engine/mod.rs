@@ -134,6 +134,7 @@ mod presentation_terrain_cache;
 mod quit_menu_bridge;
 mod retirement_guard;
 use retirement_guard::NativeBoundaryFailure;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod multi_instance;
 mod run_loop;
 mod runtime;
