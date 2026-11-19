@@ -925,7 +925,7 @@ impl TerrainVisualImpl {
             return Ok(());
         };
 
-        let mut road_meshes = Vec::new();
+        let mut road_batches = RoadMeshBatches::new(&device);
         let mut bridge_meshes = Vec::new();
         let authored_roads = &self.road_presentation;
         let height_map = self.height_map.as_ref();
@@ -935,10 +935,10 @@ impl TerrainVisualImpl {
                 .unwrap_or(0.0)
         };
         // C++ updateSegLighting shades with all lights admitted by this world.
-        let lighting = self.chunk_manager.static_lighting().clone();
+        let lighting = self.chunk_manager.static_lighting();
         let global_lights = &lighting.lights;
         let ambient_color = lighting.ambient;
-        let dynamic_lights = self.dynamic_lights.clone();
+        let dynamic_lights = &self.dynamic_lights;
 
         self.road_system
             .for_each_visible_overlay_source(|road, segment| {
@@ -982,7 +982,7 @@ impl TerrainVisualImpl {
                         &gpu_vertices,
                         &gpu_indices,
                     ) {
-                        mesh.texture_name = texture_name;
+                        mesh.texture_name = texture_name.to_owned();
                         bridge_meshes.push(mesh);
                     }
                     return;
@@ -1022,19 +1022,13 @@ impl TerrainVisualImpl {
                                 height_map,
                                 global_lights,
                                 ambient_color,
-                                &dynamic_lights,
+                                dynamic_lights,
                             );
-                            let gpu_indices: Vec<u32> =
-                                indices.iter().map(|index| *index as u32).collect();
-                            if let Some(mut mesh) = Self::upload_overlay_mesh(
-                                &device,
-                                "Road Mesh",
+                            road_batches.append(
+                                texture_name,
                                 &gpu_vertices,
-                                &gpu_indices,
-                            ) {
-                                mesh.texture_name = texture_name;
-                                road_meshes.push(mesh);
-                            }
+                                indices.iter().map(|&index| u32::from(index)),
+                            );
                             return;
                         }
                     }
@@ -1073,20 +1067,12 @@ impl TerrainVisualImpl {
                     height_map,
                     global_lights,
                     ambient_color,
-                    &dynamic_lights,
+                    dynamic_lights,
                 );
-                if let Some(mut mesh) = Self::upload_overlay_mesh(
-                    &device,
-                    "Road Mesh",
-                    &gpu_vertices,
-                    indices,
-                ) {
-                    mesh.texture_name = texture_name;
-                    road_meshes.push(mesh);
-                }
+                road_batches.append(texture_name, &gpu_vertices, indices.iter().copied());
             });
 
-        self.road_meshes = road_meshes;
+        self.road_meshes = road_batches.finish();
         self.bridge_meshes = bridge_meshes;
         let mut road_texture_names = Vec::new();
         for mesh in self.road_meshes.iter().chain(&self.bridge_meshes) {
@@ -3413,13 +3399,81 @@ fn pack_water_rgba_int(color: (f32, f32, f32, f32)) -> u32 {
     (a << 24) | (r << 16) | (g << 8) | b
 }
 
+/// Combine contiguous material runs without changing the triangle order of
+/// translucent road sections. The color and shroud passes replay these buffers.
+struct RoadMeshBatches<'a> {
+    device: &'a wgpu::Device,
+    meshes: Vec<GpuRoadMesh>,
+    vertices: Vec<RoadVertex>,
+    indices: Vec<u32>,
+    texture_name: String,
+    vertex_limit: usize,
+    index_limit: usize,
+}
+
+impl<'a> RoadMeshBatches<'a> {
+    fn new(device: &'a wgpu::Device) -> Self {
+        let max_bytes = device.limits().max_buffer_size;
+        let element_limit = |size: u64| (max_bytes / size).min(u64::from(u32::MAX)) as usize;
+        Self {
+            device,
+            meshes: Vec::new(),
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            texture_name: String::new(),
+            vertex_limit: element_limit(std::mem::size_of::<RoadVertex>() as u64),
+            index_limit: element_limit(std::mem::size_of::<u32>() as u64),
+        }
+    }
+
+    fn append(
+        &mut self,
+        texture_name: &str,
+        vertices: &[RoadVertex],
+        indices: impl ExactSizeIterator<Item = u32>,
+    ) {
+        if !self.vertices.is_empty()
+            && (!self.texture_name.eq_ignore_ascii_case(texture_name)
+                || self.vertices.len().saturating_add(vertices.len()) > self.vertex_limit
+                || self.indices.len().saturating_add(indices.len()) > self.index_limit)
+        {
+            self.flush();
+        }
+        if self.vertices.is_empty() {
+            self.texture_name = texture_name.to_owned();
+        }
+        let base = self.vertices.len() as u32;
+        self.vertices.extend_from_slice(vertices);
+        self.indices.extend(indices.map(|index| base + index));
+    }
+
+    fn flush(&mut self) {
+        if let Some(mut mesh) = TerrainVisualImpl::upload_overlay_mesh(
+            self.device,
+            "Road Mesh",
+            &self.vertices,
+            &self.indices,
+        ) {
+            mesh.texture_name = std::mem::take(&mut self.texture_name);
+            self.meshes.push(mesh);
+        }
+        self.vertices.clear();
+        self.indices.clear();
+    }
+
+    fn finish(mut self) -> Vec<GpuRoadMesh> {
+        self.flush();
+        self.meshes
+    }
+}
+
 /// Resolve the exact Roads.ini texture for a map road or bridge. Synthetic
 /// joins carry the source RoadTypeId, so they keep the same source art.
-fn authored_road_texture_name(
+fn authored_road_texture_name<'a>(
     road_name: &str,
     metadata: Option<&str>,
-    roads: &game_engine::common::ini::ini_road::TerrainRoadPresentation,
-) -> String {
+    roads: &'a game_engine::common::ini::ini_road::TerrainRoadPresentation,
+) -> &'a str {
     let road_type_id = metadata.and_then(|metadata| {
         metadata
             .split_whitespace()
@@ -3437,7 +3491,7 @@ fn authored_road_texture_name(
                 .iter()
                 .find(|bridge| bridge.name.eq_ignore_ascii_case(road_name))
         })
-        .map(|road| road.texture.as_str().trim().to_string())
+        .map(|road| road.texture.as_str().trim())
         .unwrap_or_default()
 }
 

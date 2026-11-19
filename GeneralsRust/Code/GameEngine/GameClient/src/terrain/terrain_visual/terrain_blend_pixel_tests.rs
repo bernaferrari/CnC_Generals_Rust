@@ -741,6 +741,185 @@ fn tight_road_curve_preserves_max_cell_height_over_a_slope() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "requires a native GPU adapter"]
+fn consecutive_road_textures_batch_with_identical_lit_and_shrouded_pixels() {
+    use crate::fx_list::{DisplayLightPulse, DisplayLightScene};
+    use game_engine::common::ini::ini_road::TerrainRoadCollection;
+
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("road batch test requires a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("road batch test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let directory = tempfile::tempdir().unwrap();
+    let primary = directory.path().join("Primary.tga");
+    let alias = directory.path().join("PrimaryAlias.tga");
+    let other = directory.path().join("Other.tga");
+    image::RgbaImage::from_fn(128, 512, |x, _| {
+        image::Rgba(if x < 64 {
+            [200, 30, 60, 160]
+        } else {
+            [20, 180, 90, 96]
+        })
+    })
+    .save_with_format(&primary, image::ImageFormat::Tga)
+    .unwrap();
+    std::fs::copy(&primary, &alias).unwrap();
+    image::RgbaImage::from_pixel(128, 512, image::Rgba([40, 60, 210, 160]))
+        .save_with_format(&other, image::ImageFormat::Tga)
+        .unwrap();
+
+    let segments = [
+        ("PrimaryFirst", [26.0, 0.0, 1.25], [40.0, 0.0, 1.25]),
+        ("PrimarySecond", [31.7, 0.0, 0.2], [31.7, 0.0, 3.8]),
+        ("Crossing", [29.0, 0.0, 0.75], [35.0, 0.0, 2.5]),
+        ("PrimaryLast", [26.5, 0.0, 1.57], [39.5, 0.0, 1.57]),
+        ("Invisible", [28.0, 0.0, 1.8], [37.0, 0.0, 1.8]),
+    ];
+    let roads = segments.map(|(name, start, end)| RuntimeRoadVisualSegment {
+        start,
+        end,
+        width: 1.4,
+        template_name: name.into(),
+        width_in_texture: 1.0,
+        road_type_id: 1,
+        start_is_angled: false,
+        start_is_join: false,
+        end_is_angled: false,
+        end_is_join: false,
+        curve_radius: 0.0,
+    });
+    let terrain = [(
+        TerrainSourceTileClass {
+            first_tile: 0,
+            num_tiles: 1,
+            width: 1,
+            name: "RoadGround".into(),
+        },
+        [255; 3],
+    )];
+    let mut visual = live_terrain_visual(
+        &device,
+        &queue,
+        &terrain,
+        HeightMap::new(64, 64, 0.0, 1.0),
+        0.5,
+    );
+    visual.create_road_pipeline(&device).unwrap();
+    visual.create_shroud_overlay_pipelines(&device).unwrap();
+    visual.set_runtime_map_road_segments(&roads, &[]).unwrap();
+    let mut invisible = None;
+    visual
+        .road_system
+        .for_each_visible_overlay_source(|road, _| {
+            if road.name == "Invisible" {
+                invisible = Some(road.id);
+            }
+        });
+    visual
+        .road_system
+        .get_road_mut(invisible.unwrap())
+        .unwrap()
+        .visible = false;
+
+    let mut scene = DisplayLightScene::default();
+    assert!(scene.create_pulse(DisplayLightPulse {
+        pos: [32.0, 1.5, 4.0],
+        color: [0.35, 0.0, 0.0],
+        inner_radius: 20.0,
+        outer_radius: 30.0,
+        increase_frames: 0,
+        decay_frames: 0,
+    }));
+    let transform = Mat4::from_cols_array_2d(&[
+        [0.5, 0.0, 0.0, 0.0],
+        [0.0, 0.0, -0.02, 0.0],
+        [0.0, 2.0, 0.0, 0.0],
+        [-16.0, -3.0, 0.5, 1.0],
+    ]);
+    let mut render = |split: bool| {
+        let mut definitions = TerrainRoadCollection::new();
+        let second = if split { &alias } else { &primary };
+        for ((name, _, _), path) in segments
+            .iter()
+            .zip([&primary, second, &other, &primary, &other])
+        {
+            definitions.new_road(AsciiString::from(*name)).texture =
+                AsciiString::from(path.to_str().unwrap());
+        }
+        visual.admit_road_presentation(definitions.presentation());
+        visual.clear_shroud_overlay();
+        let capture = |visual: &mut TerrainVisualImpl, frame| {
+            visual
+                .update_native(
+                    TerrainVisualMotion {
+                        frame,
+                        paused: false,
+                        gravity: 0.0,
+                        breeze: Default::default(),
+                    },
+                    None,
+                )
+                .unwrap();
+            render_live_terrain_visual_with_transform(&device, &queue, visual, transform)
+        };
+        visual.admit_dynamic_lights(&[]);
+        let unlit = capture(&mut visual, 0);
+        visual.admit_dynamic_lights(scene.lights());
+        let lit = capture(&mut visual, 1);
+        visual.set_shroud_overlay_r8(64, 64, 1.0, [0.0; 2], &[132; 64 * 64]);
+        let shrouded = capture(&mut visual, 2);
+        let materials = visual
+            .road_meshes
+            .iter()
+            .map(|mesh| mesh.texture_name.clone())
+            .collect::<Vec<_>>();
+        assert!(visual.road_texture_bind_group.is_some());
+        assert!(materials.iter().all(|name| visual
+            .road_named_bind_groups
+            .contains_key(&name.to_ascii_lowercase())));
+        let indices: u32 = visual.road_meshes.iter().map(|mesh| mesh.index_count).sum();
+        ([unlit, lit, shrouded], materials, indices)
+    };
+    let (split_pixels, split_materials, split_indices) = render(true);
+    let (batch_pixels, batch_materials, batch_indices) = render(false);
+    let pixel = 3 * 256 + 14 * 4;
+    let crossing = pixel..pixel + 4;
+    assert_ne!(
+        split_pixels[0][crossing.clone()],
+        split_pixels[1][crossing.clone()],
+        "active light must change the crossing"
+    );
+    assert_ne!(
+        split_pixels[1][crossing.clone()],
+        split_pixels[2][crossing],
+        "projected shroud must change the crossing"
+    );
+    assert_eq!(batch_indices, split_indices);
+    for (expected, actual) in split_pixels.iter().zip(batch_pixels.iter()) {
+        assert!(
+            expected == actual,
+            "road batches must leave the captured pixels unchanged"
+        );
+    }
+    assert_eq!(
+        split_materials.len(),
+        4,
+        "one draw per distinct consecutive material"
+    );
+    assert_eq!(
+        batch_materials,
+        [&primary, &other, &primary].map(|path| path.to_str().unwrap().to_owned())
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
 fn receiving_terrain_owners_render_their_own_live_lights_and_restore_static_color() {
     use crate::fx_list::{DisplayLightPulse, FxClientState};
     crate::test_support::ensure_ambient_host();
