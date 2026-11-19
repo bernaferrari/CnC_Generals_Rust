@@ -1449,6 +1449,10 @@ impl CnCGameEngine {
                 n
             },
             radar_capture_reference: self.runtime_radar_capture_reference(),
+            host_update_ms: 0.0,
+            host_render_ms: 0.0,
+            status_build_ms: 0.0,
+            present_period_ms: None,
             present_ms: self.render_pipeline.debug_last_present_ms(),
             present_collect_ms: self.render_pipeline.debug_last_collect_ms(),
             present_terrain_ms: self.render_pipeline.debug_last_terrain_ms(),

@@ -381,7 +381,16 @@ pub async fn run_cnc_game(
             }
 
             if let Some(bridge) = runtime_host_bridge.as_mut() {
-                let snapshot = engine.runtime_host_status_snapshot();
+                let status_started = Instant::now();
+                let mut snapshot = engine.runtime_host_status_snapshot();
+                snapshot.status_build_ms = status_started.elapsed().as_secs_f32() * 1000.0;
+                snapshot.host_update_ms = update_elapsed.as_secs_f32() * 1000.0;
+                snapshot.host_render_ms = render_elapsed.as_secs_f32() * 1000.0;
+                if !runtime_headless_mode {
+                    snapshot.present_period_ms = engine
+                        .live_present_interval()
+                        .map(|period| period.as_secs_f32() * 1000.0);
+                }
                 bridge.publish_runtime(&engine.ww3d, &snapshot);
             }
             Ok(())

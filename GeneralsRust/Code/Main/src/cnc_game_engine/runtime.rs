@@ -100,6 +100,11 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) radar_pixels: u32,
     /// Native radar terrain samples and actual LeftHUD draw rectangle.
     pub(super) radar_capture_reference: String,
+    /// CPU-side wall times from the event-loop driver, including its waits.
+    pub(super) host_update_ms: f32,
+    pub(super) host_render_ms: f32,
+    pub(super) status_build_ms: f32,
+    pub(super) present_period_ms: Option<f32>,
     /// Last present execute total ms (diagnostic).
     pub(super) present_ms: f32,
     pub(super) present_collect_ms: f32,
@@ -415,6 +420,10 @@ impl RuntimeHostBridge {
             fow_summary: String::new(),
             radar_pixels: 0,
             radar_capture_reference: String::new(),
+            host_update_ms: 0.0,
+            host_render_ms: 0.0,
+            status_build_ms: 0.0,
+            present_period_ms: None,
             present_ms: 0.0,
             present_collect_ms: 0.0,
             present_terrain_ms: 0.0,
@@ -615,6 +624,12 @@ impl RuntimeHostBridge {
         payload.push_str(&format!("fow_summary={}\n", snapshot.fow_summary));
         payload.push_str(&format!("radar_pixels={}\n", snapshot.radar_pixels));
         payload.push_str(&format!("radar_capture_reference={}\n", snapshot.radar_capture_reference));
+        payload.push_str(&format!("host_update_ms={:.3}\n", snapshot.host_update_ms));
+        payload.push_str(&format!("host_render_ms={:.3}\n", snapshot.host_render_ms));
+        payload.push_str(&format!("status_build_ms={:.3}\n", snapshot.status_build_ms));
+        if let Some(period) = snapshot.present_period_ms {
+            payload.push_str(&format!("present_period_ms={period:.3}\n"));
+        }
         payload.push_str(&format!("present_ms={:.3}\n", snapshot.present_ms));
         payload.push_str(&format!(
             "present_collect_ms={:.3}\n",
