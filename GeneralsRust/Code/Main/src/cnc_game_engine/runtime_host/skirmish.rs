@@ -756,7 +756,9 @@ impl CnCGameEngine {
         msg.append_integer_argument(mode_code);
         msg.append_integer_argument(1); // DIFFICULTY_NORMAL
         msg.append_integer_argument(0); // rank points
-        msg.append_integer_argument(30); // max fps residual
+        // Carry the launch rate into MSG_NEW_GAME. A hard-coded 30 here
+        // replaced the benchmark's -fps or -nofpslimit at match admission.
+        msg.append_integer_argument(self.fps_limiter.configured_rate());
 
         // Keep the map on this queued request when an earlier Shell command
         // defers its drain.

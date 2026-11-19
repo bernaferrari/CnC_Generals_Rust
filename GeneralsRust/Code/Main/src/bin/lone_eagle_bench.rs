@@ -183,7 +183,7 @@ fn run_mode(
 
     let mut command = Command::new(&exe);
     if windowed && std::env::var_os("LONE_EAGLE_BENCH_UNCAPPED").is_some() {
-        command.arg("-nofpslimit");
+        command.args(["-nofpslimit", "-novsync"]);
     }
     if let Some(assets_dir) = &options.assets_dir {
         command.env("GENERALS_ASSETS_DIR", assets_dir);

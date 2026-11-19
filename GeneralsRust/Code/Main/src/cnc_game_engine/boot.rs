@@ -456,7 +456,10 @@ impl CnCGameEngine {
         info!("🎨 Initializing GraphicsSystem (C++ SAGE equivalent)...");
         let graphics_timer = InitTimer::new("✅ GraphicsSystem initialized");
         let (device, queue, color_format, depth_format) = {
-            let eng = ww3d.lock();
+            let mut eng = ww3d.lock();
+            if command_line.has_option("novsync") {
+                eng.set_swap_interval(0);
+            }
             (
                 eng.device(),
                 eng.queue(),

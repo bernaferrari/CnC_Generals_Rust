@@ -228,7 +228,7 @@ impl CommandLineArgs {
                     "seed" | "netminplayers" | "playstats" | "forcebenchmark" | "nosizzle"
                     | "noshaders" | "particleedit" | "scriptdebug" | "wincursors"
                     | "constantdebug" | "showteamdot" | "nomovecamera" | "nodraw"
-                    | "jumptoframe" | "nomusic" | "noshellanim" | "noshellmap" => {}
+                    | "jumptoframe" | "nomusic" | "noshellanim" | "noshellmap" | "novsync" => {}
                     "server" => parsed.server_mode = true,
                     "client" => parsed.client_mode = true,
                     "port" => {
@@ -670,6 +670,7 @@ impl CommandLineArgs {
         println!("    -loglevel <LEVEL>      Set log level (error, warn, info, debug, trace)");
         println!("    -noaudio               Disable audio system");
         println!("    -novideo               Disable video system (server mode only)");
+        println!("    -novsync               Request unsynchronized window presentation");
         println!("    -dev, -developer       Enable developer mode");
         println!("    -quickstart            Skip intro videos and menus");
         println!("    -autoreplay            Automatically replay last game");
