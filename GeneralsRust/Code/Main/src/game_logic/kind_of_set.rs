@@ -11,6 +11,18 @@ use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+// Direct bit-index lookup preserves the established serialization order.
+const _: () = {
+    let kinds = KindOf::ALL_KIND_OF;
+    assert!(kinds.len() <= u128::BITS as usize);
+    assert!(kinds.len() == KindOf::ProducedAtHelipad as usize + 1);
+    let mut index = 0;
+    while index < kinds.len() {
+        assert!(kinds[index] as usize == index);
+        index += 1;
+    }
+};
+
 /// Typed fixed KindOf membership. Fits all host `KindOf` variants in one u128.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct KindOfSet {
@@ -63,8 +75,8 @@ impl KindOfSet {
 
     pub fn iter(&self) -> KindOfSetIter<'_> {
         KindOfSetIter {
-            bits: self.bits,
-            inner: KindOf::ALL_KIND_OF.iter(),
+            remaining: self.bits,
+            kinds: KindOf::ALL_KIND_OF,
         }
     }
 }
@@ -76,22 +88,29 @@ impl Hash for KindOfSet {
 }
 
 pub struct KindOfSetIter<'a> {
-    bits: u128,
-    inner: std::slice::Iter<'a, KindOf>,
+    remaining: u128,
+    kinds: &'a [KindOf],
 }
 
 impl<'a> Iterator for KindOfSetIter<'a> {
     type Item = &'a KindOf;
 
     fn next(&mut self) -> Option<Self::Item> {
-        for kind in self.inner.by_ref() {
-            if self.bits & KindOfSet::bit(*kind) != 0 {
-                return Some(kind);
-            }
+        if self.remaining == 0 {
+            return None;
         }
-        None
+        let index = self.remaining.trailing_zeros() as usize;
+        self.remaining &= self.remaining - 1;
+        Some(&self.kinds[index])
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.remaining.count_ones() as usize;
+        (len, Some(len))
     }
 }
+
+impl ExactSizeIterator for KindOfSetIter<'_> {}
 
 impl<'a> IntoIterator for &'a KindOfSet {
     type Item = &'a KindOf;
@@ -122,8 +141,7 @@ impl Extend<KindOf> for KindOfSet {
 
 impl Serialize for KindOfSet {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // Length-prefixed formats (bincode) need the element count up front;
-        // the filtering iterator has no exact size hint.
+        // Length-prefixed formats (bincode) need the element count up front.
         use serde::ser::SerializeSeq;
         let mut seq = serializer.serialize_seq(Some(self.len()))?;
         for kind in self {
@@ -170,6 +188,7 @@ mod tests {
             assert_eq!(bits.len(), hash.len());
         }
         assert_eq!(bits.len(), KindOf::ALL_KIND_OF.len());
+        assert!(bits.iter().eq(KindOf::ALL_KIND_OF));
         // Duplicate inserts are no-ops.
         for &kind in KindOf::ALL_KIND_OF {
             assert!(!bits.insert(kind));

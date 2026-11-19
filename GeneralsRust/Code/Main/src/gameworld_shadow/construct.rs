@@ -289,13 +289,14 @@ impl GameWorldShadow {
         // Bind identities before copying references so every target/container
         // resolves on the first observation, independent of object iteration order.
         for &oid in &obj_ids {
+            let mapped = self.host_to_entity.get(&oid.0).copied();
+            if mapped.is_some_and(|eid| self.world.world().entity(eid).is_some()) {
+                continue;
+            }
             let Some(obj) = logic.host_object(oid) else {
                 continue;
             };
-            if let Some(&eid) = self.host_to_entity.get(&oid.0) {
-                if self.world.world().entity(eid).is_some() {
-                    continue;
-                }
+            if let Some(eid) = mapped {
                 self.host_to_entity.remove(&oid.0);
                 self.entity_to_host.remove(&eid.get());
             }
@@ -305,17 +306,13 @@ impl GameWorldShadow {
             self.spawn_mapped(oid, obj, owner, transform, obj.health.current.max(0.0));
         }
         for oid in obj_ids {
-            self.refresh_mapped_from_host(logic, oid);
-        }
-
-        let mapped: Vec<ObjectId> = self.host_to_entity.keys().copied().map(ObjectId).collect();
-        for oid in mapped {
-            let Some(obj) = logic.host_objects().lookup(&oid) else {
+            let Some(obj) = logic.host_object(oid) else {
                 continue;
             };
             let Some(&eid) = self.host_to_entity.get(&oid.0) else {
                 continue;
             };
+            self.refresh_mapped_from_host(logic, oid, obj, eid);
             self.sync_weapon_slots_from_host(eid, obj);
         }
 
@@ -332,10 +329,14 @@ impl GameWorldShadow {
         // its indexed view after all IDs exist; never admit it back to Main.
         self.world.contain_roster_mut().clear();
         for (&host, object) in logic.host_objects().registered() {
+            let occupants = object.contained_unit_ids();
+            if occupants.is_empty() {
+                continue;
+            }
             let Some(&container) = self.host_to_entity.get(&host.0) else {
                 continue;
             };
-            for occupant in object.contained_units() {
+            for occupant in occupants {
                 if let Some(&occupant) = self.host_to_entity.get(&occupant.0) {
                     let _ = self.world.contain_roster_mut().enter(container, occupant);
                 }

@@ -7,13 +7,13 @@ use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
 
 impl GameWorldShadow {
-    pub(super) fn refresh_mapped_from_host(&mut self, logic: &GameLogic, oid: ObjectId) {
-        let Some(obj) = logic.host_object(oid) else {
-            return;
-        };
-        let Some(&eid) = self.host_to_entity.get(&oid.0) else {
-            return;
-        };
+    pub(super) fn refresh_mapped_from_host(
+        &mut self,
+        logic: &GameLogic,
+        oid: ObjectId,
+        obj: &crate::game_logic::Object,
+        eid: EntityId,
+    ) {
         let pos = obj.get_position();
         let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
         let owner = self.owner_for_host_object(logic, obj);
@@ -91,7 +91,7 @@ impl GameWorldShadow {
         e.guard_position = obj.active_guard_position().map(|p| [p.x, p.y, p.z]);
         e.guard_target_host = obj.active_guard_target().map(|id| id.0).unwrap_or(0);
         e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state());
-        e.occupant_count = obj.contained_units().len().min(u16::MAX as usize) as u16;
+        e.occupant_count = obj.contained_unit_ids().len().min(u16::MAX as usize) as u16;
         e.experience_points = obj.experience.current;
         e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
         e.stored_supplies = obj.stored_resources.supplies;
@@ -124,13 +124,11 @@ impl GameWorldShadow {
             .capture_power
             .special_power_type()
             .is_some_and(|power| logic.is_special_power_ready_for(oid, &power));
-        e.hacker_disable_building_capable = obj
-            .thing()
-            .template
-            .hacker_disable_building
-            .as_ref()
-            .is_some_and(|metadata| metadata.is_hacker_command());
-        e.hacker_disable_building_ready = logic.is_hacker_disable_building_ready(oid);
+        let hacker_disable_building = obj.thing().template.hacker_disable_building.as_ref();
+        e.hacker_disable_building_capable =
+            hacker_disable_building.is_some_and(|metadata| metadata.is_hacker_command());
+        e.hacker_disable_building_ready =
+            hacker_disable_building.is_some() && logic.is_hacker_disable_building_ready(oid);
         if let Some((template_name, template_id)) =
             Self::host_ready_structure_special_power_template(logic, obj)
         {
@@ -536,12 +534,15 @@ impl GameWorldShadow {
         e.last_fire_frame = obj.last_fire_frame;
         e.fire_intent_count = obj.fire_intent_count;
         e.has_weapon = obj.weapon.is_some();
+        e.leech_range_active_primary = obj.leech_range_active_primary;
+        e.leech_range_active_secondary = obj.leech_range_active_secondary;
         if let Some(w) = obj.weapon.as_ref() {
             e.weapon_damage = w.damage;
             e.weapon_range = w.range;
             e.weapon_min_range = w.min_range;
             e.weapon_reload_time = w.reload_time;
-            e.weapon_last_fire_time = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
+            e.weapon_clip_reload_time = w.clip_reload_time;
+            e.weapon_last_fire_time = w.last_fire_time;
             e.weapon_ammo = w.ammo.unwrap_or(u32::MAX);
             e.weapon_clip_size = w.clip_size;
             e.weapon_can_target_air = w.can_target_air;
@@ -552,6 +553,7 @@ impl GameWorldShadow {
             e.weapon_range = 0.0;
             e.weapon_min_range = 0.0;
             e.weapon_reload_time = 0.0;
+            e.weapon_clip_reload_time = 0.0;
             e.weapon_ammo = u32::MAX;
             e.weapon_clip_size = 0;
             e.weapon_can_target_air = false;
@@ -1368,7 +1370,7 @@ impl GameWorldShadow {
                                 == crate::game_logic::ContainModuleKind::InternetHack
                             && container.thing().template.contain_module.admission
                                 == crate::game_logic::ContainAdmission::MoneyHackerOnly
-                            && container.contained_units().contains(&oid)
+                            && container.contained_unit_ids().contains(&oid)
                             && logic.normal_enter_controller_matches(obj, container)
                     });
                 e.hacker_unit = true;

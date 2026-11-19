@@ -11,13 +11,19 @@ impl GameWorldShadow {
             WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY, WEAPON_SLOT_SECONDARY,
             WEAPON_SLOT_TERTIARY, WeaponSlotFacts,
         };
-        if let Some(entity) = self.world.world_mut().entity_mut(eid) {
-            entity.weapon_clip_reload_time = obj
-                .weapon
-                .as_ref()
-                .map_or(0.0, |weapon| weapon.clip_reload_time);
-            entity.leech_range_active_primary = obj.leech_range_active_primary;
-            entity.leech_range_active_secondary = obj.leech_range_active_secondary;
+        // Most objects have never carried a weapon. An absent observation
+        // only needs a write when it clears a previously present slot.
+        let previous = self
+            .world
+            .weapon_slots()
+            .slots(eid)
+            .map(|slots| slots.each_ref().map(|facts| facts.present));
+        if previous.is_none()
+            && obj.weapon.is_none()
+            && obj.secondary_weapon.is_none()
+            && obj.tertiary_weapon.is_none()
+        {
+            return;
         }
         let lock_slot = obj.weapon_lock_slot;
         let lock_ty = obj.weapon_lock_type as u8;
@@ -48,10 +54,12 @@ impl GameWorldShadow {
             (WEAPON_SLOT_MINE_CLEAR, None),
         ];
         for (slot, weapon) in pairs {
-            let f = facts(slot, weapon);
-            // Absence is an observation too: a retired weapon must not
-            // persist in the next presentation snapshot.
-            let _ = self.world.weapon_slots_mut().apply_slot(eid, slot, f);
+            if weapon.is_some() || previous.is_some_and(|row| row[slot as usize]) {
+                let _ = self
+                    .world
+                    .weapon_slots_mut()
+                    .apply_slot(eid, slot, facts(slot, weapon));
+            }
         }
     }
 }

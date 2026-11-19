@@ -41,17 +41,14 @@ const ESTABLISHED_KIND_PREFIX: &[KindOf] = &[
 ];
 
 pub(super) fn ordered_host_kind_facts(object: &Object) -> Vec<KindOf> {
-    let mut kinds = ESTABLISHED_KIND_PREFIX
-        .iter()
-        .copied()
-        .filter(|kind| object.is_kind_of(*kind))
-        .collect::<Vec<_>>();
-    kinds.extend(
-        KindOf::ALL_KIND_OF
-            .iter()
-            .copied()
-            .filter(|kind| object.is_kind_of(*kind) && !ESTABLISHED_KIND_PREFIX.contains(kind)),
-    );
+    let mut remaining = object.thing().template.kind_of;
+    let mut kinds = Vec::with_capacity(remaining.len());
+    for &kind in ESTABLISHED_KIND_PREFIX {
+        if remaining.remove(&kind) {
+            kinds.push(kind);
+        }
+    }
+    kinds.extend(remaining.iter().copied());
     kinds
 }
 
