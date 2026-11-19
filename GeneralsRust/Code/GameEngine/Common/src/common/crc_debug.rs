@@ -182,6 +182,11 @@ impl CrcDebugState {
 
 #[cfg(feature = "debug_crc")]
 impl CrcDebugConfig {
+    fn includes_frame(&self, frame: u32) -> bool {
+        self.first_frame_to_log >= 0
+            && (self.first_frame_to_log as u32..=self.last_frame_to_log).contains(&frame)
+    }
+
     fn apply_env_overrides(&mut self) {
         if let Ok(spec) = env::var("GENRUST_CRC_DEBUG") {
             for token in spec.split(',') {
@@ -294,6 +299,14 @@ impl CrcDebugBuffer {
         self.last_crc_debug_frame = 0;
         self.last_crc_debug_index = 0;
     }
+}
+
+/// CRCDebug.cpp walks from next - capacity after the ring has filled.
+#[cfg(feature = "debug_crc")]
+fn ordered_crc_lines(lines: &[String], next: usize, written: usize) -> impl Iterator<Item = &str> {
+    let (before_next, after_next) = lines.split_at(next);
+    let oldest = if written >= lines.len() { after_next } else { &[] };
+    oldest.iter().chain(before_next).map(String::as_str)
 }
 
 #[cfg(feature = "debug_crc")]
@@ -590,14 +603,10 @@ fn is_frame_ok_to_log() -> bool {
             return false;
         }
 
-        let current_frame = get_current_frame();
-
         is_in_game()
             && !is_in_shell_game()
             && !config.debug_ignore_sync_errors
-            && config.first_frame_to_log >= 0
-            && config.first_frame_to_log <= current_frame
-            && current_frame <= config.last_frame_to_log as i32
+            && config.includes_frame(time::frame())
     })
 }
 
@@ -652,16 +661,11 @@ pub fn output_crc_debug_lines() {
         let filename = format!("crcDebug{}.txt", machine_name);
 
         if let Ok(mut file) = File::create(&filename) {
-            let start = if buffer.num_debug_strings >= MAX_STRINGS {
-                buffer.next_debug_string.wrapping_sub(MAX_STRINGS)
-            } else {
-                0
-            };
-            let end = buffer.next_debug_string;
-
-            for i in start..end {
-                let index = (i + MAX_STRINGS) % MAX_STRINGS;
-                let line = &buffer.debug_strings[index];
+            for line in ordered_crc_lines(
+                &buffer.debug_strings,
+                buffer.next_debug_string,
+                buffer.num_debug_strings,
+            ) {
                 println!("{}", line);
                 writeln!(file, "{}", line).ok();
             }
@@ -676,20 +680,15 @@ pub fn output_crc_dump_lines() {
     with_crc_state(|state| {
         let buffer = state.buffer().borrow();
 
-        let start = if buffer.num_dump_strings >= MAX_STRINGS {
-            buffer.next_dump_string.wrapping_sub(MAX_STRINGS)
-        } else {
-            0
-        };
-        let end = buffer.next_dump_string;
-
-        for i in start..end {
-            let index = (i + MAX_STRINGS) % MAX_STRINGS;
-            let line = &buffer.dump_strings[index];
+        for line in ordered_crc_lines(
+            &buffer.dump_strings,
+            buffer.next_dump_string,
+            buffer.num_dump_strings,
+        ) {
             event!(
                 target: "crc_debug",
                 Level::DEBUG,
-                line = line.as_str(),
+                line = line,
                 "crc_dump"
             );
         }
@@ -1088,4 +1087,32 @@ pub fn replay_crc_interval() -> i32 {
         .crc_flags
         .replay_crc_interval
         .load(Ordering::Relaxed)
+}
+
+#[cfg(all(test, feature = "debug_crc"))]
+mod tests {
+    use super::{CrcDebugConfig, ordered_crc_lines};
+
+    #[test]
+    fn crc_logging_uses_inclusive_unsigned_frame_bounds() {
+        let mut config = CrcDebugConfig::default();
+        assert!(!config.includes_frame(0));
+        config.first_frame_to_log = 7;
+        assert!(!config.includes_frame(6));
+        assert!(config.includes_frame(7));
+        assert!(config.includes_frame(u32::MAX));
+        config.last_frame_to_log = 11;
+        assert!(config.includes_frame(11));
+        assert!(!config.includes_frame(12));
+    }
+
+    #[test]
+    fn crc_dump_keeps_the_latest_lines_in_original_write_order() {
+        let lines = ["five", "two", "three", "four"].map(String::from);
+        let ordered = |next, count| ordered_crc_lines(&lines, next, count).collect::<Vec<_>>();
+        assert!(ordered(0, 0).is_empty());
+        assert_eq!(ordered(2, 2), ["five", "two"]);
+        assert_eq!(ordered(0, 4), ["five", "two", "three", "four"]);
+        assert_eq!(ordered(1, 5), ["two", "three", "four", "five"]);
+    }
 }
