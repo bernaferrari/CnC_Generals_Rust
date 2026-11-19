@@ -110,7 +110,10 @@ fn firebase_exit_snaps_station_height_to_ground() {
     fb_t.contain_module = crate::game_logic::ContainModuleMetadata {
         kind: crate::game_logic::ContainModuleKind::Garrison,
         slots: Some(4),
-        is_enclosing_container: false,
+        // GarrisonContain::exitObjectViaDoor (GarrisonContain.cpp:1555-1559)
+        // snaps the station point to ground only for an enclosing container;
+        // a non-enclosing one just walks the occupant away from where it is.
+        is_enclosing_container: true,
         ..Default::default()
     };
     logic.templates.insert("AmericaFireBase".into(), fb_t);

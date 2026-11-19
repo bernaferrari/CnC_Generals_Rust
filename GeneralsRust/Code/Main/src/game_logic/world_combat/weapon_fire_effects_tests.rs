@@ -61,17 +61,30 @@ fn world(play_hidden: bool, suspend: u32) -> (GameLogic, ObjectId, ObjectId) {
         .unwrap();
     // The source's attack ability is its authored WeaponSet row (Object
     // can_attack reads the bound row, not the template's loose stats).
-    crate::fixture_content::arm_with_stats(
+    // The effects come from the bound native rule, so the row authors the same
+    // FireFX / FireOCL / PlayFXWhenStealthed the admitted definition carries.
+    let fire_lines = [
+        "FireFX = ReceivingFireFX".to_owned(),
+        "FireOCL = ReceivingFireOCL".to_owned(),
+        format!("PlayFXWhenStealthed = {}", if play_hidden { "Yes" } else { "No" }),
+    ];
+    let fire_lines: Vec<&str> = fire_lines.iter().map(String::as_str).collect();
+    crate::fixture_content::arm_with_slot_stats_and_fields(
         world.host_object_mut(source).unwrap(),
-        Weapon {
-            damage: 200.0,
-            range: 500.0,
-            reload_time: 0.0,
-            ammo: Some(3),
-            clip_size: 3,
-            last_fire_time: -10.0,
-            ..Default::default()
-        },
+        [
+            Some(Weapon {
+                damage: 200.0,
+                range: 500.0,
+                reload_time: 0.0,
+                ammo: Some(3),
+                clip_size: 3,
+                last_fire_time: -10.0,
+                ..Default::default()
+            }),
+            None,
+            None,
+        ],
+        [&fire_lines, &[], &[]],
     );
     let target = world
         .create_object_for_player("ReceivingEffectVictim", 2, Vec3::new(15.0, 0.0, 7.0))

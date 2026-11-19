@@ -185,8 +185,11 @@ End
     world
         .admit_weapon_content_snapshot(weapons.into_iter().collect(), &[])
         .expect("actual receiving radius weapon");
+    // RadiusDecal.cpp createRadiusDecal adds the OnlyVisibleToOwner decal only
+    // when the owner is the local player, so the attacker has a human owner.
+    world.add_player(crate::game_logic::Player::new(0, Team::USA, "RadiusClockOwner", true));
     let source = world
-        .create_object("GLAScudStormClockOwnerProbe", Team::USA, Vec3::ZERO)
+        .create_object_for_player("GLAScudStormClockOwnerProbe", 0, Vec3::ZERO)
         .unwrap();
     let target = world
         .create_object(

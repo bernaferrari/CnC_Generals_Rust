@@ -23,6 +23,11 @@ fn world_with_body(frame: u32, initial: f32, veteran: bool) -> (GameLogic, Objec
     )])
     .unwrap();
     let mut world = GameLogic::new();
+    // ActiveBody promotion reads the receiving GameData health table
+    // (retail HealthBonus_Veteran = 120%), not a default of 1.0.
+    world
+        .admit_combat_bonus_ini_sources(["GameData\nHealthBonus_Veteran = 120%\nEnd"])
+        .unwrap();
     world.admit_receiving_module_content(content).unwrap();
     world.frame = frame;
     for name in [

@@ -1601,6 +1601,9 @@ fn walk_unit_via_open_contain_exit_opens_and_closes_leftover_door() {
         1,
         "C++ default DoorOpenTime is 1 frame"
     );
+    // GameLogic::registerObject schedules a module's first update no earlier
+    // than frame 1, so OpenContain::update runs from frame 1 on.
+    logic.frame = 1;
     logic.update_support_states(&[transport, rider], 1.0 / 30.0);
     let bits = logic.host_object(transport).unwrap().model_condition_bits;
     assert_eq!(
