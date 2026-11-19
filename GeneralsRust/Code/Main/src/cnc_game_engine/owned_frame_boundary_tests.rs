@@ -275,6 +275,7 @@ fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
 
 fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentation_case() {
     use crate::fixture_content::FixtureObject;
+    use gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
     let (mut logic, _, mut shadow) = fixture_with(
         "OwnedFrameBuilder",
         100.0,
@@ -303,6 +304,8 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
     let dozer = logic
         .create_object("OwnedFrameDozer", Team::USA, Vec3::new(80.0, 0.0, 80.0))
         .expect("actual builder");
+    // DozerAIUpdate.cpp:2244-2267 selects only orders after frame zero.
+    advance_owned(&mut logic, Some(&mut shadow));
     let owner = logic.host_object(dozer).unwrap().owner_player_id.expect("builder owner");
     let id = logic
         .create_dozer_scaffold(
@@ -324,14 +327,21 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
             break;
         }
     }
+    let actor = logic.host_object(dozer).unwrap();
     assert!(
         logic.host_object(id).unwrap().construction_percent > 0.0,
-        "dozer never contributed BUILD progress: frame={} task_target={:?} dozer_pos={:?} scaffold_pos={:?} scaffold_under_construction={}",
+        "dozer never contributed BUILD progress: frame={} request={:?} ai={:?} build={:?} dozer_pos={:?} dock={:?}",
         logic.frame,
-        logic.host_object(dozer).unwrap().dozer_tasks.requests[0].target,
-        logic.host_object(dozer).unwrap().get_position(),
-        logic.host_object(id).unwrap().get_position(),
-        logic.host_object(id).unwrap().status.under_construction,
+        actor.dozer_tasks.requests[0],
+        actor.ai_state(),
+        actor.dozer_tasks.build_sub_task,
+        actor.get_position(),
+        actor.dozer_dock_action(),
+    );
+    assert_eq!(actor.ai_state(), crate::game_logic::AIState::Idle);
+    assert_eq!(
+        actor.dozer_tasks.build_sub_task,
+        DozerBuildSubTask::DoBuildAtDock
     );
     assert!(logic.host_object(id).unwrap().status.under_construction);
     assert!(!logic.construction_events.has_pending(id));
