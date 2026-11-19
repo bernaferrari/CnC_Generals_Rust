@@ -56,7 +56,6 @@ bit-vec = {workspace = true}
 criterion = {workspace = true, features = ["html_reports"]}
 proptest = {workspace = true}
 tempfile = {workspace = true}
-rand = {workspace = true}
 
 [[bench]]
 name = "zlib_benchmarks"

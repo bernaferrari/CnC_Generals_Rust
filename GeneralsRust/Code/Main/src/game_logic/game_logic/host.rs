@@ -1539,12 +1539,17 @@ impl GameLogic {
     #[cfg(test)]
     pub(crate) fn admit_retail_rank_catalog_for_test(&self) {
         use crate::game_logic::host_science_rank::RETAIL_RANK_TABLE;
+        let facts = self.receiving_module_content.as_ref().map(|content| content.science_facts());
         let mut ranks = self.world_services.common().ini.rank.write();
         ranks.init();
         for row in &RETAIL_RANK_TABLE {
             let mut rank = game_engine::common::ini::ini_rank::RankInfo::new();
             rank.skill_points_needed = row.skill_points_needed;
             rank.science_purchase_points_granted = row.science_purchase_points_granted as u32;
+            // SciencesGranted resolves through the world's admitted Science.ini.
+            if let Some(facts) = facts.as_ref() {
+                rank.sciences_granted = facts.science(row.science_granted).into_iter().collect();
+            }
             ranks.add_rank(rank).unwrap();
         }
     }

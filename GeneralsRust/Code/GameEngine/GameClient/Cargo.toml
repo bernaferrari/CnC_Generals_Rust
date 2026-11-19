@@ -42,7 +42,6 @@ bitflags = {workspace = true}
 once_cell = {workspace = true}
 parking_lot = { workspace = true }
 rand = { workspace = true }
-rand_distr = {workspace = true}
 reqwest = { workspace = true }
 
 # Serialization

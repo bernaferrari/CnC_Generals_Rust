@@ -1316,3 +1316,58 @@ pub(super) fn dozer_site_state(logic: &GameLogic, builder: ObjectId, site: Objec
         t.map(|o| o.get_position()),
     )
 }
+
+/// Text of an original retail `Data/INI/<relative>` file (INIZH.big extract).
+pub(super) fn retail_ini_text(relative: &str) -> String {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("Main crate must remain three levels below repository root");
+    let path = root
+        .join("windows_game/extracted_big_files_v2/INIZH/Data/INI")
+        .join(relative);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("read retail {}: {error}", path.display()))
+}
+
+/// Original retail Science.ini admitted as this world's science catalog: the
+/// receiving facts (host grants, ranks) and the world's own ScienceStore
+/// (core PLAYER_GRANT_SCIENCE / PLAYER_PURCHASE_SCIENCE lookup).
+pub(super) fn admit_retail_science_catalog(logic: &mut GameLogic) {
+    use game_engine::common::rts::science::{ScienceStore, get_science_store_mut};
+    use game_engine::common::thing::{
+        module_factory::ModuleFactory, receiving_module_content::ReceivingModuleContent,
+    };
+    let text = retail_ini_text("Science.ini");
+    logic
+        .receiving_module_content
+        .get_or_insert_with(|| ReceivingModuleContent::new(ModuleFactory::new()))
+        .admit_science_overrides(&[text.clone()])
+        .expect("retail Science.ini receiving definitions");
+    let mut store = ScienceStore::new();
+    store
+        .apply_override_text(&text)
+        .expect("retail Science.ini core store");
+    logic.with_own_services(|| {
+        *get_science_store_mut().expect("world ScienceStore") = store;
+    });
+}
+
+/// Original retail CommandButton.ini + CommandSet.ini admitted to this world
+/// (receiving action catalog and the shared control-bar catalog), after its
+/// science catalog, the order the shell loads them in.
+pub(super) fn admit_retail_command_catalog(logic: &mut GameLogic) {
+    admit_retail_science_catalog(logic);
+    for file in ["CommandButton.ini", "CommandSet.ini"] {
+        let text = retail_ini_text(file);
+        let mut ini = game_engine::common::ini::INI::new();
+        if let Some(content) = logic.receiving_module_content.as_ref() {
+            ini.set_receiving_science_names(content.science_facts());
+        }
+        ini.with_inline_source(&text, |ini| ini.parse_current_file())
+            .unwrap_or_else(|error| panic!("parse retail {file}: {error:?}"));
+        logic
+            .admit_fixture_command_action_source(&text)
+            .unwrap_or_else(|error| panic!("admit retail {file}: {error}"));
+    }
+}

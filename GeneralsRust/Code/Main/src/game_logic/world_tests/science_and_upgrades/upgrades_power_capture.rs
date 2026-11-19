@@ -275,7 +275,10 @@ fn host_upgrade_complete_anthrax_beta_and_toxin_shells() {
     tt.add_kind_of(KindOf::Vehicle).set_health(240.0);
     logic.templates.insert("GLAVehicleToxinTruck".into(), tt);
     let mut scud = ThingTemplate::new("GLAVehicleScudLauncher");
-    scud.add_kind_of(KindOf::Vehicle).set_health(180.0);
+    // The anthrax/toxin residual keys on the authored SCUD gun, not the name.
+    scud.add_kind_of(KindOf::Vehicle)
+        .set_health(180.0)
+        .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::SCUD_GUN_EXPLOSIVE);
     logic
         .templates
         .insert("GLAVehicleScudLauncher".into(), scud);
@@ -608,6 +611,8 @@ End
             .expect("paired retail and zero-bonus Object definitions"),
         )
         .expect("receiving overcharge module owner");
+    // The retail ChinaPowerPlantCommandSet / Command_Overcharge button.
+    super::super::helpers::admit_retail_command_catalog(&mut logic);
 
     // This keeps the old false positive shape (a China/power name plus
     // PowerPlant KindOf) but deliberately omits the parsed Behavior.
@@ -2524,15 +2529,15 @@ fn eva_beacon_detected_for_ally_placer_only() {
     // Local USA alliance 1
     let mut local = crate::game_logic::Player::new(0, Team::USA, "Local", true);
     local.alliance_team = 1;
-    logic.players.insert(0, local);
+    logic.add_player(local);
     // Ally China alliance 1
     let mut ally = crate::game_logic::Player::new(1, Team::China, "Ally", false);
     ally.alliance_team = 1;
-    logic.players.insert(1, ally);
+    logic.add_player(ally);
     // Enemy GLA alliance 2
     let mut enemy = crate::game_logic::Player::new(2, Team::GLA, "Enemy", false);
     enemy.alliance_team = 2;
-    logic.players.insert(2, enemy);
+    logic.add_player(enemy);
 
     // Ally place → EVA
     logic.try_eva_beacon_detected(1);
@@ -2719,6 +2724,7 @@ fn eva_upgrade_complete_and_general_level_up() {
     use crate::game_logic::host_science_rank::RANK2_SKILL_POINTS_NEEDED;
     use gamelogic::helpers::EvaEvent;
     let mut logic = GameLogic::new();
+    super::super::helpers::admit_retail_science_catalog(&mut logic);
     logic.admit_retail_rank_catalog_for_test();
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true));
     logic.try_eva_upgrade_complete(0);
@@ -2771,11 +2777,13 @@ fn grant_science_refuses_non_grantable_and_unknown() {
 fn player_grant_science_script_honors_is_grantable() {
     use crate::game_logic::Team;
     let mut logic = GameLogic::new();
+    // Original Science.ini: SCIENCE_PaladinTank IsGrantable = Yes, SCIENCE_Rank2 IsGrantable = No.
+    super::super::helpers::admit_retail_science_catalog(&mut logic);
     logic.scripts_loaded = true;
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"));
     let _ = gamelogic::scripting::take_host_science_action_requests();
     gamelogic::scripting::request_host_science_action("Local", "SCIENCE_PaladinTank", true);
-    gamelogic::scripting::request_host_science_action("Local", "SCIENCE_NonGrantableTest", true);
+    gamelogic::scripting::request_host_science_action("Local", "SCIENCE_Rank2", true);
     logic.evaluate_and_execute_scripts(0.0);
     let p = logic.players.get(&0).expect("p");
     assert!(
@@ -2783,7 +2791,7 @@ fn player_grant_science_script_honors_is_grantable() {
         "grantable science must apply on live host"
     );
     assert!(
-        !p.has_unlocked_science("SCIENCE_NonGrantableTest"),
+        !p.has_unlocked_science("SCIENCE_Rank2"),
         "PLAYER_GRANT_SCIENCE must honor IsGrantable"
     );
 }
@@ -2795,6 +2803,7 @@ fn player_grant_science_script_readies_shared_special_power() {
     use crate::game_logic::Team;
 
     let mut logic = GameLogic::new();
+    super::super::helpers::admit_retail_science_catalog(&mut logic);
     logic.scripts_loaded = true;
     let mut player =
         crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local");

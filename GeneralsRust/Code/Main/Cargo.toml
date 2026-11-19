@@ -120,7 +120,6 @@ rayon = {workspace = true}
 futures = {workspace = true}
 
 # Random number generation for AI behavior
-rand = {workspace = true}
 
 # Network dependencies
 serde = {workspace = true, features = ["derive", "rc"]}

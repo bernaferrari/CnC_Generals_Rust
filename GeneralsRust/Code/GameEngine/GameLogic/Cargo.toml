@@ -52,8 +52,6 @@ chrono = {workspace = true, features = ["serde"]}
 async-trait = {workspace = true}
 
 # Random number generation
-rand = {workspace = true}
-rand_distr = {workspace = true}
 
 # For AI pathfinding algorithms
 petgraph = {workspace = true}
