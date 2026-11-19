@@ -1368,12 +1368,17 @@ pub(super) fn admit_retail_science_catalog(logic: &mut GameLogic) {
 /// science catalog, the order the shell loads them in.
 pub(super) fn admit_retail_command_catalog(logic: &mut GameLogic) {
     admit_retail_science_catalog(logic);
+    let mut action_source = String::new();
     for file in ["CommandButton.ini", "CommandSet.ini"] {
         let text = retail_ini_text(file);
         // C++ INI::load into the owning engine's TheControlBar.
         logic.load_own_command_ini_for_test(&text);
-        logic
-            .admit_fixture_command_action_source(&text)
-            .unwrap_or_else(|error| panic!("admit retail {file}: {error}"));
+        action_source.push_str(&text);
+        action_source.push('\n');
     }
+    // One admission: each one rebuilds the receiving action catalog from its
+    // base, and CommandSet validation needs the CommandButtons beside it.
+    logic
+        .admit_fixture_command_action_source(&action_source)
+        .unwrap_or_else(|error| panic!("admit retail command catalog: {error}"));
 }
