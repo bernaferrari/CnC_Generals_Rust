@@ -226,37 +226,25 @@ impl GameLogic {
         particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
     ) {
         let frame = self.frame;
-        let snapshots: Vec<_> = self
-            .objects
-            .registered()
-            .map(|(id, obj)| {
-                (
-                    *id,
-                    obj.get_position(),
-                    obj.template_name.clone(),
-                    obj.thing()
-                        .template
-                        .model_name_for_conditions(obj.model_condition_bits),
-                    obj.thing().template.asset_scale,
-                    obj.get_orientation(),
-                    obj.model_condition_bits,
-                )
-            })
-            .collect();
         let mut bone_systems = self.combat_particles.active_bone_systems_by_owner();
         let mut body_poses: std::collections::HashMap<ObjectId, (glam::Vec3, f32)> =
-            std::collections::HashMap::with_capacity(snapshots.len());
-        for (id, pos, template, model, scale, yaw, bits) in snapshots {
+            std::collections::HashMap::with_capacity(self.objects.registered_len());
+        for (&id, obj) in self.objects.registered() {
+            let pos = obj.get_position();
+            let yaw = obj.get_orientation();
             body_poses.insert(id, (pos, yaw));
-            let bones = self.receiving_particle_sys_bones(&template, bits);
+            let bones =
+                self.receiving_particle_sys_bones(&obj.template_name, obj.model_condition_bits);
             let owned = bone_systems.remove(&id).unwrap_or_default();
             if bones.is_empty() && owned.is_empty() {
                 // Nothing authored and nothing live to retire.
                 continue;
             }
+            let template = &obj.thing().template;
+            let model = template.model_name_for_conditions(obj.model_condition_bits);
             let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
                 &model,
-                scale,
+                template.asset_scale,
                 yaw,
                 self.host_fx_object_is_shrouded(id.0),
             );
