@@ -57,14 +57,7 @@ impl W3DModel {
         Some(capture_controls)
     }
 
-    pub(crate) fn has_source_named_camera_bone(
-        &self,
-        bone_name: &str,
-    ) -> Result<bool, BonePoseUnavailable> {
-        Ok(self.source_named_camera_bone_index(bone_name)?.is_some())
-    }
-
-    fn source_named_camera_bone_index(
+    pub(crate) fn source_named_bone_index(
         &self,
         bone_name: &str,
     ) -> Result<Option<usize>, BonePoseUnavailable> {
@@ -120,8 +113,7 @@ impl W3DModel {
         asset_scale: f32,
         capture_controls: &[(i32, Mat4)],
     ) -> Result<Option<Mat4>, BonePoseUnavailable> {
-        use BonePoseUnavailable::*;
-        let Some(index) = self.source_named_camera_bone_index(bone_name)? else {
+        let Some(index) = self.source_named_bone_index(bone_name)? else {
             return Ok(None);
         };
         let globals = self.source_controlled_hierarchy_transforms(
@@ -130,45 +122,23 @@ impl W3DModel {
             asset_scale,
             capture_controls,
         )?;
+        Self::checked_source_bone_transform(&globals, index).map(Some)
+    }
+
+    pub(crate) fn checked_source_bone_transform(
+        globals: &[[f32; 16]],
+        index: usize,
+    ) -> Result<Mat4, BonePoseUnavailable> {
+        use BonePoseUnavailable::*;
         let source = globals.get(index).ok_or(InvalidHierarchy)?;
         let transform = Mat4::from_cols_array(source);
         if !Self::capture_control_transform_is_affine(transform) {
             return Err(InvalidPose);
         }
-        Ok(Some(transform))
-    }
-    pub(crate) fn source_controlled_hierarchy_valid(
-        &self,
-        animation_binding: Option<&W3dAnimationBinding>,
-        animation_frame: f32,
-        asset_scale: f32,
-        capture_controls: &[(i32, Mat4)],
-    ) -> Result<(), BonePoseUnavailable> {
-        // MeshClass has no Animatable3DObj hierarchy to validate. This does
-        // not turn a parsed unrelated HTree/clip into its live render object.
-        if self.hlods.is_empty()
-            && self.hmodels.is_empty()
-            && self.collections.is_empty()
-            && self.aggregates.is_empty()
-            && self.dist_lods.is_empty()
-            && !self.hlod_parse_failed
-        {
-            return if animation_binding.is_none() && capture_controls.is_empty() {
-                Ok(())
-            } else {
-                Err(BonePoseUnavailable::UnsupportedRenderObject)
-            };
-        }
-        self.source_controlled_hierarchy_transforms(
-            animation_binding,
-            animation_frame,
-            asset_scale,
-            capture_controls,
-        )
-        .map(|_| ())
+        Ok(transform)
     }
 
-    fn source_controlled_hierarchy_transforms(
+    pub(crate) fn source_controlled_hierarchy_transforms(
         &self,
         animation_binding: Option<&W3dAnimationBinding>,
         animation_frame: f32,

@@ -59,6 +59,7 @@ pub(super) struct InstalledDrawPose {
     pub(super) supported_controls: bool,
     pub(super) hierarchy_valid: bool,
     pub(super) sampled_frame: f32,
+    hierarchy_transforms: Vec<[f32; 16]>,
 }
 
 /// C++ `ModelConditionInfo::m_turrets[0]` and `[1]` yaw/pitch bone names.
@@ -128,6 +129,7 @@ impl InstalledDrawPose {
             supported_controls: draw_model.primary_turret.turret_fields_valid(),
             hierarchy_valid: false,
             sampled_frame: 0.,
+            hierarchy_transforms: Vec::new(),
         }
     }
     pub(super) fn with_asset_scale(mut self, instance_scale: Option<f32>) -> Self {
@@ -151,6 +153,15 @@ impl InstalledDrawPose {
         self.world = world;
         // Source Set_Transform invalidates even for equal matrices.
         self.hierarchy_valid = false;
+    }
+    fn resample_hierarchy(&mut self) -> Result<(), crate::assets::models::BonePoseUnavailable> {
+        self.hierarchy_transforms = self.model.source_controlled_hierarchy_transforms(
+            self.animation_binding.as_ref(),
+            self.sampled_frame,
+            self.asset_scale,
+            &self.controls,
+        )?;
+        Ok(())
     }
     fn install_controls(&mut self, controls: Vec<(i32, Mat4)>) {
         // Capture_Bone state persists until the render object is recreated.
@@ -356,12 +367,7 @@ impl ObjectVisualState {
             } else {
                 pose.sampled_frame = 0.;
             }
-            pose.model.source_controlled_hierarchy_valid(
-                pose.animation_binding.as_ref(),
-                pose.sampled_frame,
-                pose.asset_scale,
-                &pose.controls,
-            )?;
+            pose.resample_hierarchy()?;
             pose.hierarchy_valid = true;
         }
         Ok(pose.sampled_frame)
@@ -379,13 +385,13 @@ impl ObjectVisualState {
         };
         // Original Get_Bone_Index is before Get_Bone_Transform; unresolved names
         // write FULL source identity without advancing even an invalid tree.
-        if !pose
+        let Some(index) = pose
             .model
-            .has_source_named_camera_bone(bone_name)
+            .source_named_bone_index(bone_name)
             .map_err(Bone)?
-        {
+        else {
             return Ok(None);
-        }
+        };
         // Controls affect the transform, not the render object's bone topology.
         if !pose.supported_controls {
             return Err(UnsupportedSourceControls);
@@ -403,19 +409,14 @@ impl ObjectVisualState {
                 pose.sampled_frame = 0.;
             }
         }
-        let source = pose
-            .model
-            .source_named_bone_transform(
-                bone_name,
-                pose.animation_binding.as_ref(),
-                pose.sampled_frame,
-                pose.asset_scale,
-                &pose.controls,
-            )
-            .map_err(Bone)?
-            .ok_or(Bone(
-                crate::assets::models::BonePoseUnavailable::InvalidHierarchy,
-            ))?;
+        if !pose.hierarchy_valid || pose.hierarchy_transforms.is_empty() {
+            pose.resample_hierarchy().map_err(Bone)?;
+        }
+        let source = crate::assets::W3DModel::checked_source_bone_transform(
+            &pose.hierarchy_transforms,
+            index,
+        )
+        .map_err(Bone)?;
         pose.hierarchy_valid = true;
         Ok(Some(source))
     }

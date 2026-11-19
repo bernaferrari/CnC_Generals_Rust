@@ -198,6 +198,10 @@ fn installed_hierarchy_validity_controls_lazy_sync_not_refresh_or_sync_identity(
     // compressed-channel interpolation: ties-even selects raw key zero.
     assert_eq!(owner.animation.as_ref().unwrap().current_frame, 0.5);
     assert_eq!(first.w_axis.x, 0.);
+    let InstalledDrawObject::Ready(pose) = &owner.installed_draw_pose else {
+        panic!()
+    };
+    let first_hierarchy = pose.hierarchy_transforms.as_ptr();
     let observed = owner.clone();
     assert_eq!(owner.installed_camera_pose(1000, "CAMERA").unwrap(), first);
     assert_eq!(
@@ -207,9 +211,14 @@ fn installed_hierarchy_validity_controls_lazy_sync_not_refresh_or_sync_identity(
     let InstalledDrawObject::Ready(pose) = &mut owner.installed_draw_pose else {
         panic!()
     };
+    assert_eq!(pose.hierarchy_transforms.as_ptr(), first_hierarchy);
     pose.install_transform(Mat4::IDENTITY); // equal Set_Transform still invalidates
     let second = owner.installed_camera_pose(1000, "CAMERA").unwrap();
     assert!((second.w_axis.x - 10.).abs() < 1.0e-5);
+    let InstalledDrawObject::Ready(pose) = &owner.installed_draw_pose else {
+        panic!()
+    };
+    assert_ne!(pose.hierarchy_transforms.as_ptr(), first_hierarchy);
     assert_eq!(owner.installed_camera_pose(1000, "CAMERA").unwrap(), second);
 }
 
