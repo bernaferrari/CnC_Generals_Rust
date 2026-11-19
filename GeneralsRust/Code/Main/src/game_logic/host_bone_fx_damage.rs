@@ -979,28 +979,25 @@ impl crate::game_logic::GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         let now = self.frame as i32;
-        if let Some(object) = self.objects.get_mut(&id) {
+        let saved = {
+            let Some(object) = self.objects.get_mut(&id) else {
+                return Ok(());
+            };
             if object.bone_fx_damage.is_none() {
                 object.bone_fx_damage = HostBoneFxDamageData::from_template(&object.template_name);
             }
-            if let Some(bfx) = object.bone_fx_damage.as_mut() {
-                bfx.stamp_last_damage_type(object.last_damage_info_type);
-                if !bfx.active {
-                    bfx.init_times_with_random(now, &mut |lo, hi| {
-                        self.logic_random.next_real(lo, hi)
-                    });
-                    bfx.active = true;
-                }
+            let Some(bfx) = object.bone_fx_damage.as_mut() else {
+                return Ok(());
+            };
+            bfx.stamp_last_damage_type(object.last_damage_info_type);
+            if !bfx.active {
+                bfx.init_times_with_random(now, &mut |lo, hi| self.logic_random.next_real(lo, hi));
+                bfx.active = true;
             }
-        }
-        // Old host snapshots may contain already-admitted pending receipts.
-        // Consume them once; new source callbacks never populate this list.
-        let saved = self
-            .objects
-            .get_mut(&id)
-            .and_then(|object| object.bone_fx_damage.as_mut())
-            .map(|bfx| bfx.drain_pending())
-            .unwrap_or_default();
+            // Old snapshots may contain pending receipts. Consume them once
+            // before checking the current frame's authored schedule.
+            bfx.drain_pending()
+        };
         for event in saved {
             self.execute_owned_bone_fx_step(id, &event, effects)?;
         }
@@ -1580,7 +1577,7 @@ mod owned_body_frame_tests {
     }
 
     #[test]
-    fn actual_undead_body_second_life_recalculates_bone_fx_at_same_impact_frame() {
+    fn actual_undead_body_second_life_preserves_the_impact_bone_fx_schedule() {
         let (mut owner, id) = world(500);
         let (peer, peer_id) = world(900);
         assert_eq!(id, peer_id);
@@ -1599,11 +1596,19 @@ mod owned_body_frame_tests {
             body.ground_check_frame,
             500 + crate::game_logic::host_battle_bus::BATTLE_BUS_GROUND_CHECK_DELAY_FRAMES
         );
+        // UndeadBody first leaves 1 HP through attemptDamage. Its FULLY_HEAL
+        // then calls ActiveBody::internalChangeHealth, which updates visual
+        // damage state without notifying BoneFXDamage.
         assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
-        assert_eq!(deadline(&owner, id, HostBodyDamageType::Pristine), 507);
+        assert_eq!(deadline(&owner, id, HostBodyDamageType::Pristine), -1);
+        assert_eq!(deadline(&owner, id, HostBodyDamageType::ReallyDamaged), 505);
         assert_eq!(peer.host_object(peer_id).unwrap().health.current, 100.0);
         assert!(peer.host_object(peer_id).unwrap().battle_bus_body.is_none());
-        assert!(fire_due(&mut owner, id, 506).is_empty());
-        assert_eq!(fire_due(&mut owner, id, 507), vec!["BodyClockPristineFx"]);
+        assert!(fire_due(&mut owner, id, 504).is_empty());
+        assert_eq!(
+            fire_due(&mut owner, id, 505),
+            vec!["BodyClockReallyDamagedFx"]
+        );
+        assert!(fire_due(&mut owner, id, 507).is_empty());
     }
 }
