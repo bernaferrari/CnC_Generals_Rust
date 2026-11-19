@@ -25,22 +25,41 @@ impl crate::game_logic::ScriptUiEffects for ConstructionUi {
 }
 
 fn world() -> (GameLogic, ObjectId) {
+    use crate::fixture_content::{admit_fixture_objects, FixtureObject};
     let mut world = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "Command UI", true);
     player.resources.supplies = 1000;
     world.add_player(player);
-    let mut dozer = ThingTemplate::new("CommandUiDozer");
-    dozer.add_kind_of(KindOf::Dozer).set_health(200.);
-    world.templates.insert(dozer.name.clone(), dozer);
+    world.admit_default_locomotors_if_unadmitted();
+    // Authored content: the Build command's builder is a Dozer with a
+    // DozerAIUpdate, and the scaffold is an authored structure.
+    admit_fixture_objects(
+        &mut world,
+        &[
+            FixtureObject::new("CommandUiDozer")
+                .kind_of("VEHICLE DOZER SELECTABLE")
+                .health(200.)
+                .field("Locomotor = SET_NORMAL AmericaVehicleDozerLocomotor")
+                .dozer(),
+            FixtureObject::new("CommandUiScaffold")
+                .kind_of("STRUCTURE SELECTABLE")
+                .health(900.)
+                .build_cost(100),
+        ],
+    );
+    // The retail Build path only constructs what the builder's command set offers.
+    world
+        .admit_fixture_command_action_source(
+            "CommandButton CommandUiBuildButton\n Command = DOZER_CONSTRUCT\n Object = CommandUiScaffold\nEnd\nCommandSet CommandUiBuildSet\n 1 = CommandUiBuildButton\nEnd\n",
+        )
+        .expect("admit the dozer's construct button and set");
     let builder = world
         .create_object_for_player("CommandUiDozer", 0, Vec3::new(-200., 0., -200.))
         .unwrap();
-    let mut structure = ThingTemplate::new("CommandUiScaffold");
-    structure
-        .add_kind_of(KindOf::Structure)
-        .set_health(900.)
-        .set_cost(100, 0);
-    world.templates.insert(structure.name.clone(), structure);
+    world
+        .host_object_mut(builder)
+        .unwrap()
+        .command_set_override = Some("CommandUiBuildSet".into());
     (world, builder)
 }
 

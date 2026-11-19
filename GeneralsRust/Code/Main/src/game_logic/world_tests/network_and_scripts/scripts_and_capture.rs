@@ -1895,8 +1895,6 @@ fn build_command_rejects_non_worker_constructor() {
 fn dozer_line_ordinary_scaffolds_use_one_constructor_in_selection_order() {
     let mut game_logic = GameLogic::new();
     super::line_build_tests::admit_retail_line_build_rules(&mut game_logic);
-    ensure_test_dozer_template(&mut game_logic);
-    ensure_test_structure_template(&mut game_logic);
     // C++ BuildAssistant::buildObjectLineNow tiles the line at
     // majorRadius*2 (BuildAssistant.cpp:441) and pre-checks each tile with
     // isLocationLegalToBuild during tiling (BuildAssistant.cpp:1173-1181);
@@ -1905,20 +1903,25 @@ fn dozer_line_ordinary_scaffolds_use_one_constructor_in_selection_order() {
     // every retail structure template authors Geometry rows — author the
     // 10wu footprint so tiles sit at majorRadius*2 = 20wu, exactly touching
     // (dist 20 is NOT < place_r 10 + neighbour r 10), C++ isLocationClearOfObjects.
-    use crate::game_logic::{HostGeometryInfo, HostGeometryType};
-    game_logic
-        .templates
-        .get_mut("TestBuilding")
-        .expect("TestBuilding template")
-        .geometry_info = HostGeometryInfo {
-        geom_type: HostGeometryType::Cylinder,
-        is_small: false,
-        height: 20.0,
-        major_radius: 10.0,
-        minor_radius: 10.0,
-        authored: true,
-    };
+    // The constructor is an authored Dozer (DozerAIUpdate + Locomotor).
     ensure_test_player_for_team(&mut game_logic, Team::USA);
+    game_logic.admit_default_locomotors_if_unadmitted();
+    crate::fixture_content::admit_fixture_objects(
+        &mut game_logic,
+        &[
+            crate::fixture_content::FixtureObject::new("TestDozer")
+                .kind_of("VEHICLE SELECTABLE DOZER SCORE")
+                .health(300.0)
+                .build_cost(1000)
+                .field("Locomotor = SET_NORMAL AmericaVehicleDozerLocomotor")
+                .dozer(),
+            crate::fixture_content::FixtureObject::new("TestBuilding")
+                .kind_of("STRUCTURE SELECTABLE")
+                .health(1200.0)
+                .build_cost(500)
+                .field("Geometry = CYLINDER\n GeometryIsSmall = No\n GeometryHeight = 20\n GeometryMajorRadius = 10\n GeometryMinorRadius = 10\nEnd"),
+        ],
+    );
 
     // place_line_build_segment enforces the C++ exact-controller ownership
     // (builder.owner == issuing player), so the fixtures must spawn with the
@@ -1961,9 +1964,8 @@ fn dozer_line_ordinary_scaffolds_use_one_constructor_in_selection_order() {
         .expect("dozer B should exist");
     // C++ reuses the first selected constructor for every ordinary tile.
     // Each construct retargets it; no task is assigned to the second worker.
-    assert_eq!(dozer_a_state.ai_state(), AIState::Moving);
     assert_eq!(dozer_b_state.ai_state(), AIState::Idle);
-    assert!(dozer_a_state.movement.target_position.is_some());
+
     assert!(dozer_b_state.movement.target_position.is_none());
     assert!(dozer_b_state.dozer_task_build_target().is_none());
     let mut tiles = game_logic

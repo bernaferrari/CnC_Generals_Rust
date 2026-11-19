@@ -452,16 +452,16 @@ fn run_authored_short_build() -> (GameLogic, ObjectId, ObjectId, Vec3, Vec3, Opt
         }
     }
     // The Dozer machine's exit order reaches the unit on the frames right
-    // after the construction update finishes the building; keep the first
-    // obstacle it was told to ignore.
-    for _ in 0..5 {
-        if ignored.is_some() {
-            break;
-        }
+    // after the construction update finishes the building, and the ignore
+    // follows the live path request; keep the first obstacle it was told to
+    // ignore while the dozer walks off.
+    for _ in 0..40 {
         advance_logic_frames(&mut logic, 1);
-        ignored = logic.host_object(dozer).expect("dozer").ignored_obstacle_id;
+        let u = logic.host_object(dozer).expect("dozer");
+        if ignored.is_none() {
+            ignored = u.ignored_obstacle_id;
+        }
     }
-    advance_logic_frames(&mut logic, 35);
     (logic, pad_id, dozer, action, end_dock, path_end, ignored)
 }
 
@@ -500,10 +500,13 @@ fn simulation_step_finishes_a_short_build() {
 #[test]
 fn owned_construction_completion_walks_the_dozer_off_the_pad() {
     let (logic, pad_id, dozer, action, end_dock, path_end, ignored) = run_authored_short_build();
-    assert_eq!(
+    // C++ DozerAIUpdate.cpp:628-641: the completion exit is a plain
+    // aiMoveToPosition(end dock); only the approach (lines 203/210) ignores the
+    // building, so the finished pad is not an ignored obstacle on the way out.
+    assert_ne!(
         ignored,
         Some(pad_id),
-        "completion exit must ignore the finished building"
+        "the completion exit must not keep ignoring the finished building"
     );
     assert!(
         path_end.is_some_and(|p| p.distance(end_dock) < 15.0),

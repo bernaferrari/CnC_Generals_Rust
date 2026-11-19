@@ -108,41 +108,21 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
 
 #[test]
 fn dozer_bored_auto_repair_assigns_damaged_structure() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    // The Dozer machine (authored DozerAIUpdate) owns the bored-repair task.
     let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::USA, "USA", true));
-    let mut st = ThingTemplate::new("AmericaPowerPlant");
-    st.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSPower)
-        .set_health(1000.0);
-    logic.templates.insert("AmericaPowerPlant".into(), st);
-    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
-    dozer_t
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Worker)
-        .add_kind_of(KindOf::Dozer)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleDozer".into(), dozer_t);
+    logic.frame = 10;
+    super::super::helpers::ensure_admitted_dozer_content(&mut logic)
+        .expect("authored dozer content admits");
     let sid = logic
-        .create_object(
-            "AmericaPowerPlant",
-            Team::USA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("pp");
+        .create_object_for_player("TestBuilding", 0, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("damaged structure");
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_status_under_construction(false);
         o.construction_percent = 1.0;
         o.health.current = 400.0;
     }
     let did = logic
-        .create_object(
-            "AmericaVehicleDozer",
-            Team::USA,
-            glam::Vec3::new(5.0, 0.0, 0.0),
-        )
+        .create_object_for_player("TestDozer", 0, glam::Vec3::new(5.0, 0.0, 0.0))
         .expect("dozer");
     let frame = logic.frame;
     if let Some(o) = logic.host_object_mut(did) {
@@ -155,21 +135,15 @@ fn dozer_bored_auto_repair_assigns_damaged_structure() {
     }
     // Before bored time: no assign.
     logic.frame = 50;
-    logic.update_dozer_bored_repair();
+    logic.update_dozer_bored_repair().expect("bored repair update");
     assert_eq!(logic.host_object(did).unwrap().ai_state(), AIState::Idle);
-    // After bored time (150f).
-
+    assert_eq!(logic.host_object(did).unwrap().dozer_task_repair_target(), None);
+    // After bored time (150f) the dozer is handed the REPAIR task.
     logic.frame = 1 + crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
-    logic.update_dozer_bored_repair();
+    logic.update_dozer_bored_repair().expect("bored repair update");
     let d = logic.host_object(did).expect("d");
-    // Host residual association still stores the repair target.
-    assert_eq!(d.target, Some(sid));
+    assert_eq!(d.dozer_task_repair_target(), Some(sid));
     assert!(logic.honesty_dozer_bored_repair_ok());
-    // AI state last-write under AI_DECISION_AUTHORITY (default): host ai_state stays
-    // Idle; SetAIState(Repairing) is logged for GameWorld writeback.
-    {
-        assert_eq!(d.ai_state(), AIState::Repairing);
-    }
 }
 
 #[test]

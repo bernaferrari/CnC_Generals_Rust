@@ -59,24 +59,39 @@ fn unpause_special_power_upgrade_enables_capture() {
 #[test]
 fn helix_nuke_unpause_hits_helix_nuke_bomb_not_nuclear_missile() {
     use crate::command_system::SpecialPowerType;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("Nuke_ChinaVehicleHelix");
-    t.set_health(300.0);
-    t.add_kind_of(KindOf::Vehicle);
-    logic.templates.insert("Nuke_ChinaVehicleHelix".into(), t);
+    // Object::giveUpgrade does nothing for a missing UpgradeTemplate.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &mut logic,
+        "Nuke_Upgrade_HelixNukeBomb",
+        "PLAYER",
+        1000,
+        30,
+    );
+    // C++ pauses a power only through its authored module (StartsPaused) and
+    // resumes it through the authored UnpauseSpecialPowerUpgrade.
+    let helix = crate::fixture_content::FixtureObject::new("Nuke_ChinaVehicleHelix")
+        .kind_of("VEHICLE SELECTABLE")
+        .health(300.0)
+        .module("Behavior = SpecialAbility HelixNukeBombTag\n SpecialPowerTemplate = Nuke_SpecialAbilityHelixNukeBomb\n StartsPaused = Yes\nEnd")
+        .module("Behavior = UnpauseSpecialPowerUpgrade HelixNukeUnpauseTag\n SpecialPowerTemplate = Nuke_SpecialAbilityHelixNukeBomb\n TriggeredBy = Nuke_Upgrade_HelixNukeBomb\nEnd");
+    crate::fixture_content::admit_fixture_content_with_actions(
+        &mut logic,
+        &[helix],
+        &[],
+        "SpecialPower Nuke_SpecialAbilityHelixNukeBomb\n ReloadTime = 10000\nEnd\n",
+    );
+    ensure_test_player_for_team(&mut logic, Team::China);
     let id = logic
-        .create_object("Nuke_ChinaVehicleHelix", Team::China, glam::Vec3::ZERO)
+        .create_object_for_player("Nuke_ChinaVehicleHelix", 1, glam::Vec3::ZERO)
         .unwrap();
     let obj = logic.objects.get(&id).unwrap();
-    assert_eq!(
-        obj.special_power_paused
-            .get(&SpecialPowerType::HelixNukeBomb)
-            .copied()
-            .unwrap_or(0),
-        1,
-        "ctor StartsPaused must pause HelixNukeBomb once"
+    assert!(
+        obj.is_special_power_countdown_paused(&SpecialPowerType::HelixNukeBomb),
+        "ctor StartsPaused must pause HelixNukeBomb"
     );
+    let pauses: u32 = obj.authored_special_power_timers.values().map(|state| state.1).sum();
+    assert_eq!(pauses, 1, "ctor StartsPaused must pause the one authored power once");
     assert!(
         !obj.is_special_power_countdown_paused(&SpecialPowerType::NuclearMissile),
         "unpause path must not park NuclearMissile on a Helix"
@@ -85,26 +100,13 @@ fn helix_nuke_unpause_hits_helix_nuke_bomb_not_nuclear_missile() {
         !obj.is_special_power_countdown_paused(&SpecialPowerType::HelixNapalmBomb),
         "Nuke Helix must not pause the napalm bomb a Nuke general cannot unpause"
     );
-    let rem = obj
-        .special_power_cooldowns
-        .get(&SpecialPowerType::HelixNukeBomb)
-        .copied()
-        .unwrap_or(0.0);
-    assert!(
-        (rem - 10.0).abs() < 0.01,
-        "ctor startPowerRecharge must arm 10000ms ReloadTime, rem={rem}"
-    );
     logic.apply_upgrade_to_object(id, "Nuke_Upgrade_HelixNukeBomb");
     let obj = logic.objects.get(&id).unwrap();
     assert!(!obj.is_special_power_countdown_paused(&SpecialPowerType::HelixNukeBomb));
-    let rem = obj
-        .special_power_cooldowns
-        .get(&SpecialPowerType::HelixNukeBomb)
-        .copied()
-        .unwrap_or(0.0);
+    let rem = obj.special_power_countdown_seconds(&SpecialPowerType::HelixNukeBomb);
     assert!(
         (rem - 10.0).abs() < 0.01,
-        "unpause must keep remaining ReloadTime, rem={rem}"
+        "unpause must keep the ctor ReloadTime (10000ms), rem={rem}"
     );
 }
 
