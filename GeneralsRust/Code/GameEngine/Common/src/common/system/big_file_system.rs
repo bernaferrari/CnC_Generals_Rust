@@ -1138,6 +1138,9 @@ impl BigFileSystem {
             }
         }
 
+        if loaded_any {
+            self.rebuild_file_index();
+        }
         Ok(loaded_any)
     }
 
@@ -1171,7 +1174,6 @@ impl BigFileSystem {
             false
         };
 
-        self.rebuild_file_index();
         info!("BigFileSystem loaded archive {}", path.display());
         Ok(!was_existing || overwrite)
     }
@@ -1269,7 +1271,9 @@ impl BigFileSystem {
 
     /// Open a specific archive file
     pub fn open_archive_file<P: AsRef<Path>>(&mut self, filename: P) -> Result<(), io::Error> {
-        self.register_archive(filename.as_ref(), true).map(|_| ())
+        self.register_archive(filename.as_ref(), true)?;
+        self.rebuild_file_index();
+        Ok(())
     }
 
     /// Close a specific archive file
@@ -1773,5 +1777,40 @@ mod tests {
             .load_big_files_from_directory(dir.path().to_str().unwrap(), "support.BIG", false)
             .unwrap();
         assert_eq!(system_case.get_loaded_big_files().len(), 1);
+    }
+
+    #[test]
+    fn directory_mount_indexes_successes_in_order_despite_invalid_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("first.big");
+        let last = dir.path().join("third.big");
+        create_test_big_file(first.to_str().unwrap()).unwrap();
+        create_test_big_file(last.to_str().unwrap()).unwrap();
+        fs::write(dir.path().join("second.big"), b"invalid archive").unwrap();
+        let mut file = fs::OpenOptions::new().write(true).open(&last).unwrap();
+        file.seek(SeekFrom::Start(50)).unwrap();
+        file.write_all(b"Last Loaded").unwrap();
+        drop(file);
+
+        for (overwrite, expected) in [(false, "Hello World"), (true, "Last Loaded")] {
+            let mut system = BigFileSystem::new();
+            assert!(
+                system
+                    .load_big_files_from_directory(
+                        dir.path().to_str().unwrap(),
+                        "*.big",
+                        overwrite,
+                    )
+                    .unwrap()
+            );
+            assert_eq!(system.get_loaded_big_files().len(), 2);
+            let mut content = String::new();
+            system
+                .open_file("test.txt", 0)
+                .unwrap()
+                .read_to_string(&mut content)
+                .unwrap();
+            assert_eq!(content, expected);
+        }
     }
 }
