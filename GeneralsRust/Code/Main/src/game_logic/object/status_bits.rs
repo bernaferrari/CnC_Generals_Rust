@@ -313,10 +313,8 @@ impl Object {
         if name.eq_ignore_ascii_case("BOOBY_TRAPPED") {
             return self.status.booby_trapped;
         }
-        crate::game_logic::host_status_bits_upgrade::status_bits_has(
-            self.object_status_mask_for_queries(),
-            name,
-        )
+        // The three projected bits are handled above. All remaining bits use the stored mask.
+        crate::game_logic::host_status_bits_upgrade::status_bits_has(self.object_status_bits, name)
     }
 
     /// C++ FlammableUpdate tryToIgnite / update status + model + body setAflame.
