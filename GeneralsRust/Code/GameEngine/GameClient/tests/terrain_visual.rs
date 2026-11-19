@@ -5,10 +5,13 @@ use game_client_rust::{
         TreeModuleData, TreeRegion2D, TreeSphere, TreeTgaHeader, TreeTileImageSpec, TreeTypeMesh,
         blit_tree_tile_into_atlas, do_lighting, do_tree_atlas_mip, generate_box_mip_chain,
         height_map::HeightMap,
-        terrain_visual::{TerrainBibOwnerKind, TerrainSourceTileClass, TerrainVisualImpl},
+        terrain_visual::{
+            TerrainBibOwnerKind, TerrainSourceTileClass, TerrainVisualImpl, TerrainVisualMotion,
+        },
         textures::{BlendTileInfo, FLIPPED_MASK, TileData},
     },
 };
+use game_engine::common::common_services::CommonServicesScope;
 use glam::{Mat4, Vec2, Vec3};
 use image::{Rgba, RgbaImage};
 
@@ -45,6 +48,7 @@ fn loaded_visual_with_border() -> TerrainVisualImpl {
 
 #[test]
 fn raw_map_height_only_lowers_and_reads_logic_height() {
+    let _common = CommonServicesScope::new();
     let mut visual = loaded_visual_with_border();
     visual.debug_clear_dirty_chunks();
 
@@ -76,6 +80,7 @@ fn raw_map_height_returns_zero_without_loaded_logic_map() {
 
 #[test]
 fn terrain_tile_query_uses_logic_heightmap_packed_tile_indices() {
+    let _common = CommonServicesScope::new();
     let mut heightmap = HeightMap::new(6, 6, 255.0, 1.0);
     heightmap.border_size = 1;
     heightmap.tile_ndxes[(3 * 6 + 2) as usize] = 52;
@@ -90,6 +95,7 @@ fn terrain_tile_query_uses_logic_heightmap_packed_tile_indices() {
 
 #[test]
 fn terrain_color_query_uses_logic_heightmap_source_tile_mip_like_cpp() {
+    let _common = CommonServicesScope::new();
     let mut heightmap = HeightMap::new(6, 6, 255.0, 1.0);
     heightmap.border_size = 1;
     heightmap.tile_ndxes[(3 * 6 + 2) as usize] = 52;
@@ -115,6 +121,14 @@ fn terrain_color_query_uses_logic_heightmap_source_tile_mip_like_cpp() {
 
 #[test]
 fn leftover_radar_paint_source_samples_terrain_visual_tile_color() {
+    use game_client_rust::terrain::{
+        leftover_radar_bridge_at, leftover_radar_terrain_color_at,
+        terrain_visual::{init_terrain_visual, with_terrain_visual_mut},
+    };
+    use game_engine::common::system::radar::Coord3D;
+    use gamelogic::system::engine_stores::{new_world_services, with_world_services};
+
+    let _common = CommonServicesScope::new();
     let mut heightmap = HeightMap::new(6, 6, 255.0, 1.0);
     heightmap.border_size = 1;
     heightmap.tile_ndxes[(3 * 6 + 2) as usize] = 52;
@@ -134,24 +148,20 @@ fn leftover_radar_paint_source_samples_terrain_visual_tile_color() {
     tile.update_mips();
     visual.debug_set_source_tile(13, tile);
 
-    {
-        let mut guard = game_client_rust::terrain::terrain_visual::get_terrain_visual()
-            .expect("terrain visual lock");
-        *guard = Some(visual);
-    }
+    let world = new_world_services();
+    with_world_services(&world, || {
+        init_terrain_visual().expect("publish the receiving terrain visual");
+        with_terrain_visual_mut(|published| *published = Some(visual)).unwrap();
 
-    game_client_rust::terrain::ensure_radar_terrain_paint_source_registered();
-    let color = game_client_rust::terrain::leftover_radar_terrain_color_at(1.25, 2.75)
-        .expect("paint source must sample TheTerrainVisual");
-    assert_eq!(color, [192.0 / 255.0, 128.0 / 255.0, 64.0 / 255.0]);
+        let color = leftover_radar_terrain_color_at(1.25, 2.75)
+            .expect("paint source must sample TheTerrainVisual");
+        assert_eq!(color, [192.0 / 255.0, 128.0 / 255.0, 64.0 / 255.0]);
 
-    let none = game_client_rust::terrain::leftover_radar_bridge_at(
-        &game_engine::common::system::radar::Coord3D::new(1.25, 2.75, 0.0),
-    );
-    assert!(
-        none.is_none(),
-        "no intact leftover bridge object must not paint a span"
-    );
+        assert!(
+            leftover_radar_bridge_at(&Coord3D::new(1.25, 2.75, 0.0)).is_none(),
+            "no intact leftover bridge object must not paint a span"
+        );
+    });
 }
 
 #[test]
@@ -213,6 +223,7 @@ fn tile_blend_alpha_selection_matches_cpp_nonzero_inverted_flag() {
 
 #[test]
 fn terrain_source_tile_classes_load_tga_tiles_for_color_queries() {
+    let _common = CommonServicesScope::new();
     let temp = tempfile::tempdir().expect("tempdir");
     let tile_path = temp.path().join("terrain_tile.tga");
     let image = RgbaImage::from_pixel(64, 64, Rgba([192, 128, 64, 255]));
@@ -360,6 +371,7 @@ fn skybox_replace_does_not_abort_when_default_tga_faces_are_missing() {
 
 #[test]
 fn skybox_candidates_swap_tga_to_dds_and_search_art_and_map_dir() {
+    let _common = CommonServicesScope::new();
     // C++ DDSFileClass (ddsfile.cpp:33-37) rewrites .tga → .dds;
     // W3DFileSystem.cpp:197-201 looks in TGA_DIR_PATH ("Art/Textures/").
     let mut visual = TerrainVisualImpl::new();
@@ -418,6 +430,7 @@ fn skybox_candidates_swap_tga_to_dds_and_search_art_and_map_dir() {
 
 #[test]
 fn faction_bib_requires_loaded_heightmap_and_matches_cpp_corners() {
+    let _common = CommonServicesScope::new();
     let mut visual = TerrainVisualImpl::new();
     let transform = Mat4::from_translation(glam::Vec3::new(100.0, 200.0, 0.0));
 
@@ -465,6 +478,7 @@ fn faction_bib_requires_loaded_heightmap_and_matches_cpp_corners() {
 
 #[test]
 fn faction_bib_owner_replacement_removal_and_highlight_clear_match_cpp() {
+    let _common = CommonServicesScope::new();
     let mut visual = loaded_visual_with_border();
     let transform = Mat4::IDENTITY;
 
@@ -776,8 +790,18 @@ fn water_grid_velocity_only_applies_when_enabled_and_in_bounds() {
     assert_ne!(center_motion.status & 0x01, 0);
 }
 
+fn tree_motion() -> TerrainVisualMotion {
+    TerrainVisualMotion {
+        paused: false,
+        frame: 0,
+        breeze: Default::default(),
+        gravity: 0.0,
+    }
+}
+
 #[test]
 fn tree_vb_upload_uses_do_lighting_on_every_draw() {
+    let _common = CommonServicesScope::new();
     let mut visual = TerrainVisualImpl::new();
     visual.set_lighting(
         Some([0.0, -1.0, 0.0]),
@@ -839,7 +863,7 @@ fn tree_vb_upload_uses_do_lighting_on_every_draw() {
         )
         .unwrap();
 
-    visual.update_tree_meshes(Some(&mut Default::default()));
+    visual.update_tree_meshes_for_motion(tree_motion(), Some(&mut Default::default()));
 
     let lights = [game_client_rust::terrain::TreeObjectLight {
         ambient: [0.2, 0.1, 0.0],
@@ -858,13 +882,14 @@ fn tree_vb_upload_uses_do_lighting_on_every_draw() {
     assert_eq!(gpu[0].position, [10.0, 3.0, 20.0]);
 
     // Second draw still ships the doLighting VB (C++ dirty skip keeps last fill).
-    visual.update_tree_meshes(Some(&mut Default::default()));
+    visual.update_tree_meshes_for_motion(tree_motion(), Some(&mut Default::default()));
     assert_eq!(visual.last_tree_gpu_vertices()[0].diffuse, up);
     assert_eq!(visual.last_tree_gpu_vertices()[2].diffuse, side);
 }
 
 #[test]
 fn tree_atlas_mips_reach_terrain_visual_upload_path() {
+    let _common = CommonServicesScope::new();
     let mut visual = TerrainVisualImpl::new();
     visual
         .tree_buffer_mut()
@@ -895,7 +920,7 @@ fn tree_atlas_mips_reach_terrain_visual_upload_path() {
         visual.tree_buffer_mut().num_tiles() > 0,
         "actual packed source tiles must exist before draw"
     );
-    visual.update_tree_meshes(Some(&mut Default::default()));
+    visual.update_tree_meshes_for_motion(tree_motion(), Some(&mut Default::default()));
     let expected_len = visual.tree_buffer_mut().atlas_mips().len() - 1;
     let uploaded = visual.last_tree_atlas_mips();
     assert!(!uploaded.is_empty());
@@ -905,6 +930,7 @@ fn tree_atlas_mips_reach_terrain_visual_upload_path() {
 
 #[test]
 fn tree_atlas_live_draw_matches_cpp_blit_mip_and_lod() {
+    let _common = CommonServicesScope::new();
     let mut visual = TerrainVisualImpl::new();
     visual
         .tree_buffer_mut()
@@ -935,7 +961,7 @@ fn tree_atlas_live_draw_matches_cpp_blit_mip_and_lod() {
         visual.tree_buffer_mut().num_tiles() > 0,
         "actual packed source tiles must exist before draw"
     );
-    visual.update_tree_meshes(Some(&mut Default::default()));
+    visual.update_tree_meshes_for_motion(tree_motion(), Some(&mut Default::default()));
 
     let (width, height) = visual.tree_buffer_mut().texture_size();
     let loc = visual
