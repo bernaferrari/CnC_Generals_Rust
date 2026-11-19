@@ -187,6 +187,18 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
     } else {
         // Host player 1 may already exist; keep whatever name inject reads.
     }
+    // The team's roster is the world's own TeamFactory instance (C++
+    // Team::addMember); the owned driver reads membership from it.
+    {
+        let mut factory = logic.team_factory.lock().unwrap();
+        factory
+            .init_team("USA_RangerSquad".into(), "NamedOwner".into(), false, None)
+            .unwrap();
+        let team = factory.create_inactive_team("USA_RangerSquad").unwrap();
+        let mut team = team.write().unwrap();
+        team.set_active();
+        team.add_member(id.0);
+    }
     logic.initialize_receiving_named_cache_for_fixture();
     logic.inject_host_script_query_snapshot();
 
@@ -820,7 +832,23 @@ fn script_radar_event_reaches_ui_ping() {
 #[test]
 fn host_ai_rebind_after_world_wipe_keeps_players_cash_and_rebuilds() {
     let mut logic = GameLogic::new();
-    logic.admit_object_ini_sources(std::iter::empty()).unwrap();
+    // A map restores authored (admitted) Objects, never proxies the rebind
+    // installs: the faction CommandCenter and worker are admitted as startup
+    // content (locomotors and Objects before NewGame), like the retail INI.
+    crate::fixture_content::admit_fixture_content_with_actions(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("GLA_CommandCenter")
+                .kind_of("STRUCTURE COMMANDCENTER SELECTABLE")
+                .health(2000.0),
+            crate::fixture_content::FixtureObject::new("GLAInfantryWorker")
+                .kind_of("INFANTRY DOZER SELECTABLE")
+                .health(100.0)
+                .walker(),
+        ],
+        &[],
+        "",
+    );
     logic.start_new_game(GameMode::Skirmish).unwrap();
     logic.clear_all_players();
 
@@ -897,23 +925,8 @@ fn host_ai_rebind_after_world_wipe_keeps_players_cash_and_rebuilds() {
     // wiped world can never start it. Restore both at the AI's layout
     // anchor (base_center default Vec3::ZERO; pads at ±50/100 stay clear of
     // the +45 offset CC footprint), exactly as the map does.
-    // A map restores authored (admitted) Objects, never proxies the rebind
-    // installed: with receiving content the factory spawns only admitted
-    // definitions, so the map's CommandCenter and worker are authored here.
-    crate::fixture_content::admit_fixture_content_with_actions(
-        &mut logic,
-        &[
-            crate::fixture_content::FixtureObject::new("GLA_CommandCenter")
-                .kind_of("STRUCTURE COMMANDCENTER SELECTABLE")
-                .health(2000.0),
-            crate::fixture_content::FixtureObject::new("GLAInfantryWorker")
-                .kind_of("INFANTRY DOZER SELECTABLE")
-                .health(100.0)
-                .walker(),
-        ],
-        &[],
-        "",
-    );
+    // (The map's CommandCenter and worker are authored at the top of this
+    // test: with receiving content the factory spawns only admitted Objects.)
     logic
         .create_object_for_player_with_effects_checked(
             "GLA_CommandCenter",
