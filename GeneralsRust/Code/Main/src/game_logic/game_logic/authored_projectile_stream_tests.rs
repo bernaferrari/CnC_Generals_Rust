@@ -320,7 +320,12 @@ fn receiving_stream_launch_binding_survives_override_and_encoded_save_load() {
     )
     .unwrap();
     // Re-seed from live projectiles through the ordinary tick residual.
+    eprintln!("stream test: before re-seed tick frame {} projectiles {}", world.frame, world.combat_system.projectile_count());
+    for shot in world.combat_system.projectiles_snapshot() {
+        eprintln!("stream test: shot pos {:?} vel {:?} target {:?}", shot.position, shot.velocity, shot.target_id);
+    }
     let _ = world.update_with_dt(1.0 / 30.0);
+    eprintln!("stream test: after re-seed tick frame {} projectiles {} target hp {}", world.frame, world.combat_system.projectile_count(), world.objects[&target].health.current);
     let streams = world.projectile_stream_snapshot();
     assert_eq!(streams.len(), 1);
     assert_eq!(streams[0].0, source);
@@ -473,9 +478,15 @@ fn uranium_launch(world: &mut GameLogic, source: ObjectId, target: ObjectId) {
 }
 
 fn uranium_impact(world: &mut GameLogic, target: ObjectId) -> f32 {
+    let mut last = world.objects[&target].health.current;
     for _ in 0..300 {
         if world.combat_system.projectile_count() == 0 { break; }
         let _ = world.update_with_dt(1.0 / 30.0);
+        let now = world.objects[&target].health.current;
+        if now != last {
+            eprintln!("uranium_impact: frame {} damage {} projectiles_left {}", world.frame, last - now, world.combat_system.projectile_count());
+            last = now;
+        }
     }
     assert_eq!(world.combat_system.projectile_count(), 0, "shell must actually arrive");
     1000.0 - world.objects[&target].health.current
