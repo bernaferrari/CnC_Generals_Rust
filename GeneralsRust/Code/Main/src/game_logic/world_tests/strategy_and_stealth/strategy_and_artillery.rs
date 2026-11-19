@@ -53,6 +53,9 @@ fn force_attack_ground_can_damage_friendlies() {
 
     game_logic.update_combat(&[attacker_id, friendly_id], 1.0 / 60.0)
         .expect("ground attack combat update");
+    // update_combat accepts the shot; the production projectile phase then
+    // applies its (sub-frame) delivery.
+    game_logic.drain_pending_projectiles_into_combat();
 
     let health_after = game_logic
         .host_object(friendly_id)
@@ -524,35 +527,35 @@ fn path_follow_owned_by_update_movement_single_step() {
     // Path following is sole ownership of GameLogic::update_movement.
     // This unit test exercises the host integrator; GameWorld authority is off.
     let mut logic = GameLogic::new();
-    let id = ObjectId(9001);
-    let mut obj = Object::new_simple(
-        id,
-        crate::game_logic::ObjectType::Infantry,
-        "AmericaRanger".to_string(),
-    );
+    ensure_test_tank_template(&mut logic);
+    let id = logic
+        .create_object("TestTank", Team::USA, Vec3::ZERO)
+        .expect("tank with an admitted locomotor");
     let start = glam::Vec3::new(0.0, 0.0, 0.0);
-    obj.set_position(start);
-    obj.movement.set_path_coords(vec![
-        start, // C++ AIPathfind.cpp:9060 preserves the source node.
-        glam::Vec3::new(100.0, 0.0, 0.0),
-        glam::Vec3::new(200.0, 0.0, 0.0),
-    ]);
-    obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
-    obj.movement.max_speed = 30.0; // world units / second
-    // Reach max speed in one frame so distance ≈ max_speed * dt.
-    obj.movement.acceleration = 10_000.0;
-    logic.objects.insert(id, obj);
+    {
+        // The AI's path request leaves the cursor on the first goal node and
+        // the locomotor goal at that node (AIPathfind.cpp:9060 keeps the source).
+        let obj = logic.host_object_mut(id).expect("tank");
+        obj.movement.set_path_coords(vec![
+            start,
+            glam::Vec3::new(100.0, 0.0, 0.0),
+            glam::Vec3::new(200.0, 0.0, 0.0),
+        ]);
+        obj.movement.path_cursor = obj.movement.path.cursor_at_ordinal(1);
+        obj.movement.target_position = obj.movement.current_path_position();
+    }
 
-    logic.update_movement(&[id], LOGIC_FRAME_TIMESTEP);
+    logic.update_movement_for_test(&[id], LOGIC_FRAME_TIMESTEP);
 
-    let after = logic.objects.get(&id).expect("obj").get_position();
+    let after = logic.host_object(id).expect("obj").get_position();
     let dist = (after - start).length();
-    // One logic frame at 30 u/s ≈ 1.0 unit (LOGIC_FRAME_TIMESTEP = 1/30).
+    // The Locomotor owns speed and acceleration: one frame from rest moves the
+    // unit forward by a small step (Crusader tops out near 1 unit per frame).
     assert!(
-        dist > 0.5 && dist < 2.5,
-        "expected single-frame path step, got dist={dist} pos={after:?}"
+        dist > 0.0 && dist < 2.5,
+        "expected a single locomotor-limited step, got dist={dist} pos={after:?}"
     );
-    let movement = &logic.objects.get(&id).unwrap().movement;
+    let movement = &logic.host_object(id).unwrap().movement;
     assert_eq!(
         movement.path.cursor_ordinal(&movement.path_cursor),
         1,
@@ -2305,7 +2308,28 @@ fn combat_fire_without_kill_still_spawns_muzzle_particle() {
         let attacker = game_logic
             .host_object_mut(attacker_id)
             .expect("attacker exists");
-        arm_attacker_then_attack(attacker, target_id, 1.0);
+        // C++ plays a muzzle effect only from an authored FireFX: author one.
+        crate::fixture_content::arm_with_slot_stats_and_fields(
+            attacker,
+            [
+                Some(crate::game_logic::Weapon {
+                    damage: 1.0,
+                    range: 200.0,
+                    reload_time: 0.0,
+                    projectile_speed: 0.0,
+                    ..Default::default()
+                }),
+                None,
+                None,
+            ],
+            [&["FireFX = FX_FixtureMuzzleFlash"], &[], &[]],
+        );
+        attacker.attack_target(
+            target_id,
+            0,
+            &mut crate::game_logic::host_attack_log::AttackEvents::default(),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
     }
 
     game_logic.frame = 30;
@@ -2325,7 +2349,7 @@ fn combat_fire_without_kill_still_spawns_muzzle_particle() {
     let muzzle = game_logic
         .combat_particles()
         .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)[0];
-    assert_eq!(muzzle.template_name, "MuzzleFlash");
+    assert_eq!(muzzle.template_name, "FX_FixtureMuzzleFlash");
     assert_eq!(muzzle.source_object, Some(attacker_id));
 }
 
@@ -2428,12 +2452,6 @@ fn combat_fire_without_authored_fire_sound_queues_no_audio_token() {
         let (attacker, attack_events) = game_logic
             .host_object_and_attack_events_mut(attacker_id)
             .expect("attacker exists");
-        attacker.attack_target(
-            target_id,
-            0,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
         crate::fixture_content::arm_with_stats(
             attacker,
             crate::game_logic::Weapon {
@@ -2442,6 +2460,12 @@ fn combat_fire_without_authored_fire_sound_queues_no_audio_token() {
                 reload_time: 0.0,
                 ..Default::default()
             },
+        );
+        attacker.attack_target(
+            target_id,
+            0,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
     }
 
@@ -2477,12 +2501,6 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
         let (attacker, attack_events) = game_logic
             .host_object_and_attack_events_mut(attacker_id)
             .expect("attacker exists");
-        attacker.attack_target(
-            target_id,
-            0,
-            attack_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
         crate::fixture_content::arm_with_stats(
             attacker,
             crate::game_logic::Weapon {
@@ -2491,6 +2509,12 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
                 reload_time: 0.0,
                 ..Default::default()
             },
+        );
+        attacker.attack_target(
+            target_id,
+            0,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         assert!(attacker.set_weapon_barrel_count_for_slot(0, 3));
         attacker.weapon_barrel_states[0].current_barrel = 2;

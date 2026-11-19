@@ -1,6 +1,17 @@
 //! Behavior suite extracted from `superweapons_and_plans`.
 use super::*;
 
+/// Retail StrategyCenter TurretAI rests at NaturalTurretAngle/Pitch; a hand-built
+/// center authors no Turret, so place the instance's turret in that stated pose.
+fn rest_strategy_center_turret_at_natural_pose(logic: &mut GameLogic, sc_id: crate::game_logic::ObjectId) {
+    use crate::game_logic::host_strategy_center::{
+        STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+    };
+    let sc = logic.host_object_mut(sc_id).expect("strategy center");
+    sc.turret_ai.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+    sc.turret_ai.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+}
+
 #[test]
 fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
     use crate::game_logic::host_strategy_center::{
@@ -427,6 +438,7 @@ fn strategy_center_bombardment_turret_fire_residual() {
     let sc_id = game_logic
         .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("strategy center");
+    rest_strategy_center_turret_at_natural_pose(&mut game_logic, sc_id);
 
     // Without Bombardment: no StrategyCenterGun residual.
     {
@@ -631,6 +643,7 @@ fn strategy_center_gun_scatter_misses_infantry_residual() {
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("strategy center");
+    rest_strategy_center_turret_at_natural_pose(&mut logic, sc_id);
 
     let inf = logic
         .create_object(
@@ -1021,6 +1034,7 @@ fn strategy_center_battle_plan_door_animation_residual() {
     let sc_id = game_logic
         .create_object("AmericaStrategyCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("strategy center");
+    rest_strategy_center_turret_at_natural_pose(&mut game_logic, sc_id);
     let ally_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .expect("ally");
@@ -1852,6 +1866,14 @@ fn gps_scrambler_does_not_queue_superweapon_strike() {
         "SpecialPowerGPSScrambler",
         300,
     );
+    // C++ GrantStealth reaches only objects with Object::getStealth(): the
+    // vehicle needs an authored StealthUpdate (granted by special power).
+    game_logic.templates.get_mut("TestTank").unwrap().stealth_update =
+        Some(crate::game_logic::object::StealthUpdateData {
+            innate_stealth: false,
+            granted_by_special_power: true,
+            ..Default::default()
+        });
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
     if let Some(p) = game_logic.get_player_mut(2) {
         p.unlock_science("SCIENCE_GPSScrambler");
@@ -2386,6 +2408,13 @@ fn spy_satellite_destalths_units_in_scan() {
     logic.templates.insert("AmericaCommandCenter".into(), cc);
     let mut hero = crate::game_logic::ThingTemplate::new("GLAInfantryJarmenKell");
     hero.add_kind_of(KindOf::Infantry).set_health(120.0);
+    // C++ StealthDetectorUpdate::markAsDetected needs Object::getStealth(): the
+    // granted stealth is an authored StealthUpdate module.
+    hero.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        granted_by_special_power: true,
+        ..Default::default()
+    });
     logic.templates.insert("GLAInfantryJarmenKell".into(), hero);
     let cc_id = logic
         .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
