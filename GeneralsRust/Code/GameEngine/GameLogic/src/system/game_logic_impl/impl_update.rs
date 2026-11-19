@@ -1209,21 +1209,16 @@ impl GameLogic {
         let unlook_persist_frames = game_engine::common::global_data::read_safe()
             .map(|data| data.unlook_persist_duration)
             .unwrap_or(0);
-        let maintain = |object: &mut Object| {
-            let mut partition = partition.write().unwrap_or_else(|e| e.into_inner());
-            let mut shroud = shroud.lock().unwrap_or_else(|e| e.into_inner());
-            let mut spatial_objects = spatial_objects.write().unwrap_or_else(|e| e.into_inner());
-            let players_arc = crate::player::player_list();
-            let players = players_arc.read().unwrap_or_else(|e| e.into_inner());
-            object.handle_partition_cell_maintenance_borrowed(
-                &mut partition,
-                &mut shroud,
-                &mut spatial_objects,
-                &players,
-                frame,
-                unlook_persist_frames,
-            );
+        let players = crate::player::player_list();
+        let ctx = crate::system::world_ctx::ModuleCtx {
+            partition: &*partition,
+            shroud: &*shroud,
+            objects: &*spatial_objects,
+            players: &*players,
+            frame,
+            unlook_persist_frames,
         };
+        let maintain = |object: &mut Object| ctx.maintain_partition_cell(object);
         for obj_id in cell_changed {
             // C++ walks the live object list by pointer — no registry, no
             // lock (GameLogic.h:386-397). Mirror the collision loop above:
