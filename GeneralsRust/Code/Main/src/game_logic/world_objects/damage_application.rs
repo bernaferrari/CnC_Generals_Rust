@@ -1996,9 +1996,6 @@ impl GameLogic {
             }
         }
         #[cfg(feature = "game_client")]
-        let fx_operation_environment = self.observe_object_fx_environment();
-
-        #[cfg(feature = "game_client")]
         let player = self.local_player_id();
         let terrain = crate::game_logic::game_logic::FlightTerrainView {
             logical: Some(self.world_services.terrain().as_ref()),
@@ -2009,7 +2006,6 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let (events, retired) = {
             let shroud = self.world_services.shroud();
-            #[cfg(feature = "game_client")]
             let fx_operation_environment = self.observe_object_fx_environment();
             Self::with_object_fx_services(
                 &mut self.session_view,

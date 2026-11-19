@@ -56,6 +56,19 @@ impl crate::game_logic::GameLogic {
             .receiving_module_content
             .as_ref()
             .map(|content| content.shared_compatibility_templates());
+        let mut detected = HashSet::new();
+        let mut tunnel_counts = HashMap::new();
+        for object in self.host_objects().registered_values() {
+            if object.status.detected {
+                detected.insert(object.id);
+            }
+            if object.is_tunnel_network_style_container() {
+                tunnel_counts.insert(
+                    object.id,
+                    self.host_authoritative_occupant_count(object.id).unwrap_or(0),
+                );
+            }
+        }
         ObjectFxEnvironment {
             world_identity: std::sync::Arc::clone(&self.live_draw_playback_world),
             world_revision: self.host_visual_world_epoch(),
@@ -73,26 +86,8 @@ impl crate::game_logic::GameLogic {
                 ),
             ),
             local_team,
-            detected: self
-                .host_objects()
-                .registered_values()
-                .filter(|object| object.status.detected)
-                .map(|object| object.id)
-                .collect(),
-            tunnel_counts: self
-                .host_objects()
-                .registered_values()
-                .filter(|object| {
-                    object.is_tunnel_network_style_container()
-                })
-                .map(|object| {
-                    (
-                        object.id,
-                        self.host_authoritative_occupant_count(object.id)
-                            .unwrap_or(0),
-                    )
-                })
-                .collect(),
+            detected,
+            tunnel_counts,
             localities,
             drawings: self.fx_template_drawings(),
             things,
