@@ -1,14 +1,28 @@
 use super::*;
 
+/// Radar tests publish their own explicit `CommonServices` for the test's
+/// thread; they never rely on the `test-ambient-services` fallback.
+pub(super) fn with_test_services<R>(body: impl FnOnce() -> R) -> R {
+    use crate::common::common_services::{with_common_services, CommonServices};
+    let services = std::sync::Arc::new(CommonServices::new());
+    with_common_services(&services, || {
+        services.finish_bootstrap_after_publish();
+        body()
+    })
+}
+
 #[test]
 fn test_radar_system_creation() {
+    with_test_services(|| {
     let radar = RadarSystem::new();
     assert!(!radar.is_radar_hidden());
     assert!(!radar.is_radar_forced());
+    });
 }
 
 #[test]
 fn test_is_temporarily_hidden_matches_cpp_stealth_look() {
+    with_test_services(|| {
     let mut own = RadarObject::new(1);
     own.is_stealth = true;
     own.is_enemy = false;
@@ -62,19 +76,23 @@ fn test_is_temporarily_hidden_matches_cpp_stealth_look() {
         stealth_hidden.is_temporarily_hidden(),
         "C++ m_hiddenByStealth hides even without STEALTHLOOK_INVISIBLE"
     );
+    });
 }
 
 #[test]
 fn test_radar_priority_visibility() {
+    with_test_services(|| {
     assert!(!RadarPriorityType::Invalid.is_visible());
     assert!(!RadarPriorityType::NotOnRadar.is_visible());
     assert!(RadarPriorityType::Structure.is_visible());
     assert!(RadarPriorityType::Unit.is_visible());
     assert!(RadarPriorityType::LocalUnitOnly.is_visible());
+    });
 }
 
 #[test]
 fn test_set_shroud_level_from_partition_cell_maps_to_radar() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -106,10 +124,12 @@ fn test_set_shroud_level_from_partition_cell_maps_to_radar() {
         CellShroudStatus::Fogged,
         "partition cell 10 is not radar cell 10"
     );
+    });
 }
 
 #[test]
 fn offset_partition_cells_paint_the_matching_local_radar_pixels() {
+    with_test_services(|| {
     for origin in [[-140.0, 480.0], [960.0, -400.0]] {
         let mut radar = RadarSystem::new();
         radar.new_map(
@@ -142,10 +162,12 @@ fn offset_partition_cells_paint_the_matching_local_radar_pixels() {
             CellShroudStatus::Clear,
         );
     }
+    });
 }
 
 #[test]
 fn test_world_to_radar_conversion() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -157,10 +179,12 @@ fn test_world_to_radar_conversion() {
     let radar_pos = radar.world_to_radar(&world).unwrap();
     assert_eq!(radar_pos.x, 64); // Middle of 128x128 radar
     assert_eq!(radar_pos.y, 64);
+    });
 }
 
 #[test]
 fn test_radar_to_world_conversion() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -172,10 +196,12 @@ fn test_radar_to_world_conversion() {
     let world = radar.radar_to_world(&radar_pos).unwrap();
     assert!((world.x - 512.0).abs() < 1.0);
     assert!((world.y - 512.0).abs() < 1.0);
+    });
 }
 
 #[test]
 fn test_new_map_builds_initial_terrain_texture_like_w3d() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
 
     radar.new_map(
@@ -191,10 +217,12 @@ fn test_new_map_builds_initial_terrain_texture_like_w3d() {
             .chunks_exact(4)
             .all(|pixel| pixel[3] == 255)
     );
+    });
 }
 
 #[test]
 fn test_build_terrain_texture_uses_cpp_call_site_height_order() {
+    with_test_services(|| {
     // C++ W3DRadar.cpp:1177 passes (z, getTerrainAverageZ(), mapHi.z, mapLo.z).
     // Retail therefore darkens from map-max, not around the average.
     let mut radar = RadarSystem::new();
@@ -226,10 +254,12 @@ fn test_build_terrain_texture_uses_cpp_call_site_height_order() {
         (got[0] - old_leftover[0]).abs() > 0.02,
         "must not use leftover (hi, avg, lo) order {old_leftover:?}"
     );
+    });
 }
 
 #[test]
 fn test_legal_radar_point_matches_w3d_bounds() {
+    with_test_services(|| {
     assert!(legal_radar_point(0, 0));
     assert!(legal_radar_point(
         RADAR_CELL_WIDTH as i32 - 1,
@@ -239,10 +269,12 @@ fn test_legal_radar_point_matches_w3d_bounds() {
     assert!(!legal_radar_point(0, -1));
     assert!(!legal_radar_point(RADAR_CELL_WIDTH as i32, 0));
     assert!(!legal_radar_point(0, RADAR_CELL_HEIGHT as i32));
+    });
 }
 
 #[test]
 fn test_radar_to_pixel_matches_w3d_inverted_y_mapping() {
+    with_test_services(|| {
     let upper_left_x = 10;
     let upper_left_y = 20;
     let width = 256;
@@ -278,10 +310,12 @@ fn test_radar_to_pixel_matches_w3d_inverted_y_mapping() {
         ),
         ICoord2D::new(138, 83)
     );
+    });
 }
 
 #[test]
 fn test_radar_draw_positions_letterboxes_wide_maps() {
+    with_test_services(|| {
     let extent = Region3D {
         lo: Coord3D::new(0.0, 0.0, 0.0),
         hi: Coord3D::new(2000.0, 1000.0, 0.0),
@@ -291,10 +325,12 @@ fn test_radar_draw_positions_letterboxes_wide_maps() {
 
     assert_eq!(ul, ICoord2D::new(10, 45));
     assert_eq!(lr, ICoord2D::new(110, 95));
+    });
 }
 
 #[test]
 fn test_radar_draw_positions_pillarboxes_tall_maps() {
+    with_test_services(|| {
     let extent = Region3D {
         lo: Coord3D::new(0.0, 0.0, 0.0),
         hi: Coord3D::new(1000.0, 2000.0, 0.0),
@@ -304,10 +340,12 @@ fn test_radar_draw_positions_pillarboxes_tall_maps() {
 
     assert_eq!(ul, ICoord2D::new(35, 20));
     assert_eq!(lr, ICoord2D::new(85, 120));
+    });
 }
 
 #[test]
 fn test_interpolate_color_for_height_matches_w3d_lighting() {
+    with_test_services(|| {
     let base = [0.2, 0.4, 0.6];
 
     let lighter = interpolate_color_for_height(base, 75.0, 100.0, 50.0, 0.0);
@@ -319,17 +357,21 @@ fn test_interpolate_color_for_height_matches_w3d_lighting() {
     assert!((darker[0] - 0.14).abs() < 0.0001);
     assert!((darker[1] - 0.28).abs() < 0.0001);
     assert!((darker[2] - 0.42).abs() < 0.0001);
+    });
 }
 
 #[test]
 fn test_interpolate_color_for_height_handles_flat_w3d_ranges() {
+    with_test_services(|| {
     let color = interpolate_color_for_height([0.5, 0.5, 0.5], 10.0, 10.0, 10.0, 10.0);
     assert!(color.iter().all(|channel| channel.is_finite()));
     assert!(color.iter().all(|channel| (0.0..=1.0).contains(channel)));
+    });
 }
 
 #[test]
 fn test_generic_radar_event_marker_matches_w3d_triangle_at_create_frame() {
+    with_test_services(|| {
     let event = RadarEvent {
         active: true,
         create_frame: 10,
@@ -354,10 +396,12 @@ fn test_generic_radar_event_marker_matches_w3d_triangle_at_create_frame() {
     );
     assert_eq!(marker.color1.a, 200);
     assert_eq!(marker.color2.a, 180);
+    });
 }
 
 #[test]
 fn test_beacon_radar_event_marker_matches_w3d_size_and_fade() {
+    with_test_services(|| {
     let event = RadarEvent {
         active: true,
         create_frame: 10,
@@ -374,10 +418,12 @@ fn test_beacon_radar_event_marker_matches_w3d_size_and_fade() {
     assert_eq!(marker.size, 6);
     assert_eq!(marker.color1.a, 100);
     assert_eq!(marker.color2.a, 90);
+    });
 }
 
 #[test]
 fn test_world_to_radar_respects_nonzero_map_origin() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(256.0, 128.0, 0.0),
@@ -389,10 +435,12 @@ fn test_world_to_radar_respects_nonzero_map_origin() {
     let radar_pos = radar.world_to_radar(&world).unwrap();
     assert_eq!(radar_pos.x, 64);
     assert_eq!(radar_pos.y, 64);
+    });
 }
 
 #[test]
 fn test_radar_to_world_uses_sampled_cell_height_when_available() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     let mut terrain = Vec::with_capacity((RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize);
     for _ in 0..(RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) {
@@ -413,10 +461,12 @@ fn test_radar_to_world_uses_sampled_cell_height_when_available() {
         .radar_to_world(&ICoord2D::new(target_x as i32, target_y as i32))
         .unwrap();
     assert!((world.z - 77.0).abs() < f32::EPSILON);
+    });
 }
 
 #[test]
 fn test_radar_event_creation() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -430,10 +480,12 @@ fn test_radar_event_creation() {
     let active_events = radar.get_active_events();
     assert_eq!(active_events.len(), 1);
     assert_eq!(active_events[0].event_type, RadarEventType::UnderAttack);
+    });
 }
 
 #[test]
 fn last_event_loc_skips_beacon_pulse_like_cpp() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -453,10 +505,12 @@ fn last_event_loc_skips_beacon_pulse_like_cpp() {
     assert!((last.x - 111.0).abs() < f32::EPSILON);
     assert!((last.y - 222.0).abs() < f32::EPSILON);
     assert!((last.z - 7.0).abs() < f32::EPSILON);
+    });
 }
 
 #[test]
 fn test_radar_event_expiration() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -476,10 +530,12 @@ fn test_radar_event_expiration() {
     // Update past expiration (1 second = 30 frames)
     radar.update(35);
     assert_eq!(radar.get_active_events().len(), 0);
+    });
 }
 
 #[test]
 fn test_radar_event_created_at_frame_zero_does_not_expire() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -496,10 +552,12 @@ fn test_radar_event_created_at_frame_zero_does_not_expire() {
 
     // C++ Radar::update only expires events whose createFrame is nonzero.
     assert_eq!(radar.get_active_events().len(), 1);
+    });
 }
 
 #[test]
 fn queued_terrain_refresh_ignores_earlier_frame_without_underflow() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -514,10 +572,12 @@ fn queued_terrain_refresh_ignores_earlier_frame_without_underflow() {
     radar.update(50);
 
     assert!(!radar.is_terrain_dirty());
+    });
 }
 
 #[test]
 fn test_add_remove_object() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -536,10 +596,12 @@ fn test_add_remove_object() {
 
     radar.remove_object(1);
     assert_eq!(radar.object_list.len(), 0);
+    });
 }
 
 #[test]
 fn test_remove_object_searches_local_and_regular_lists() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -565,10 +627,12 @@ fn test_remove_object_searches_local_and_regular_lists() {
     assert!(radar.remove_object(1));
     assert_eq!(radar.local_object_list.len(), 0);
     assert_eq!(radar.object_list.len(), 0);
+    });
 }
 
 #[test]
 fn test_remove_object_survives_priority_insert_shifts() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -592,18 +656,22 @@ fn test_remove_object_survives_priority_insert_shifts() {
     assert!(radar.remove_object(1));
     assert_eq!(radar.object_list.len(), 1);
     assert_eq!(radar.object_list[0].object_id, 2);
+    });
 }
 
 #[test]
 fn test_event_colors() {
+    with_test_services(|| {
     let (color1, _color2) = RadarEventType::UnderAttack.get_colors();
     assert_eq!(color1.r, 255);
     assert_eq!(color1.g, 0);
     assert_eq!(color1.b, 0);
+    });
 }
 
 #[test]
 fn test_shroud_management() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -622,10 +690,12 @@ fn test_shroud_management() {
     radar.clear_shroud();
     assert_eq!(radar.get_shroud_level(64, 64), CellShroudStatus::Clear);
     assert!(radar.is_shroud_cleared());
+    });
 }
 
 #[test]
 fn test_shroud_texture_matches_w3d_alpha_levels() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -645,10 +715,12 @@ fn test_shroud_texture_matches_w3d_alpha_levels() {
     assert_eq!(&texture[0..4], &[0, 0, 0, 0]);
     assert_eq!(&texture[4..8], &[0, 0, 0, 127]);
     assert_eq!(&texture[8..12], &[0, 0, 0, 255]);
+    });
 }
 
 #[test]
 fn test_object_overlay_texture_matches_w3d_2x2_blip_shape() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -673,10 +745,12 @@ fn test_object_overlay_texture_matches_w3d_2x2_blip_shape() {
     assert_eq!(pixel(11, 21), &[0x11, 0x22, 0x33, 0xAA]);
     assert_eq!(pixel(11, 20), &[0x11, 0x22, 0x33, 0xAA]);
     assert_eq!(pixel(9, 20), &[0, 0, 0, 0]);
+    });
 }
 
 #[test]
 fn test_object_overlay_texture_skips_fogged_and_nonlocal_local_only_blips() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -715,10 +789,12 @@ fn test_object_overlay_texture_skips_fogged_and_nonlocal_local_only_blips() {
     assert_eq!(pixel(10, 20), &[0, 0, 0, 0]);
     assert_eq!(pixel(30, 40), &[0, 0, 0, 0]);
     assert_eq!(pixel(50, 60), &[0, 0x00, 0xFF, 0xFF]);
+    });
 }
 
 #[test]
 fn test_object_overlay_texture_twinkles_revealed_stealth_blips() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -744,10 +820,12 @@ fn test_object_overlay_texture_twinkles_revealed_stealth_blips() {
     assert_eq!(pixel_at_frame(0), vec![0x11, 0x22, 0x33, 32]);
     assert_eq!(pixel_at_frame(15), vec![0x11, 0x22, 0x33, 32]);
     assert_eq!(pixel_at_frame(29), vec![0x11, 0x22, 0x33, 240]);
+    });
 }
 
 #[test]
 fn test_object_overlay_texture_skips_enemy_undetected_undisguised_stealth_blip() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -768,10 +846,12 @@ fn test_object_overlay_texture_skips_enemy_undetected_undisguised_stealth_blip()
     let texture = radar.build_object_overlay_texture_rgba_at_frame(0);
     let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
     assert_eq!(&texture[idx..idx + 4], &[0, 0, 0, 0]);
+    });
 }
 
 #[test]
 fn test_object_overlay_texture_draws_detected_or_disguised_enemy_stealth_blips() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -808,10 +888,12 @@ fn test_object_overlay_texture_draws_detected_or_disguised_enemy_stealth_blips()
 
     assert_eq!(pixel(10, 20), &[0x11, 0x22, 0x33, 32]);
     assert_eq!(pixel(30, 40), &[0x44, 0x55, 0x66, 32]);
+    });
 }
 
 #[test]
 fn test_object_overlay_texture_draws_own_unrevealed_stealth_blip() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -832,10 +914,12 @@ fn test_object_overlay_texture_draws_own_unrevealed_stealth_blip() {
     let texture = radar.build_object_overlay_texture_rgba_at_frame(0);
     let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
     assert_eq!(&texture[idx..idx + 4], &[0x11, 0x22, 0x33, 32]);
+    });
 }
 
 #[test]
 fn test_object_overlay_texture_draws_detector_revealed_enemy_stealth_blip() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -858,10 +942,12 @@ fn test_object_overlay_texture_draws_detector_revealed_enemy_stealth_blip() {
     let texture = radar.build_object_overlay_texture_rgba_at_frame(0);
     let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
     assert_eq!(&texture[idx..idx + 4], &[0x11, 0x22, 0x33, 32]);
+    });
 }
 
 #[test]
 fn test_object_overlay_texture_draws_non_enemy_revealed_stealth_blip() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -881,20 +967,24 @@ fn test_object_overlay_texture_draws_non_enemy_revealed_stealth_blip() {
     let texture = radar.build_object_overlay_texture_rgba_at_frame(0);
     let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
     assert_eq!(&texture[idx..idx + 4], &[0x11, 0x22, 0x33, 32]);
+    });
 }
 
 #[test]
 fn test_w3d_object_overlay_refresh_cadence_matches_cpp() {
+    with_test_services(|| {
     assert!(should_refresh_w3d_object_overlay(0));
     assert!(!should_refresh_w3d_object_overlay(1));
     assert!(!should_refresh_w3d_object_overlay(5));
     assert!(should_refresh_w3d_object_overlay(6));
     assert!(should_refresh_w3d_object_overlay(12));
     assert!(!should_refresh_w3d_object_overlay(17));
+    });
 }
 
 #[test]
 fn test_draw_events_chirp_requires_radar_online() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -922,10 +1012,12 @@ fn test_draw_events_chirp_requires_radar_online() {
         online.iter().any(|e| e.active && e.sound_played),
         "RadarEvent chirp plays on the first visible drawEvents frame"
     );
+    });
 }
 
 #[test]
 fn test_object_overlay_draws_partial_clear_fog_edge_blips() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -950,10 +1042,12 @@ fn test_object_overlay_draws_partial_clear_fog_edge_blips() {
         &[0xFF, 0x00, 0x00, 0xFF],
         "C++ skip only when getShroudedStatus > OBJECTSHROUD_PARTIAL_CLEAR"
     );
+    });
 }
 
 #[test]
 fn test_object_overlay_unhides_local_unit_only_for_defeated_or_observer() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -989,10 +1083,12 @@ fn test_object_overlay_unhides_local_unit_only_for_defeated_or_observer() {
         vec![0x00, 0xFF, 0x00, 0xFF],
         "defeated/observer local must unhide LOCAL_UNIT_ONLY"
     );
+    });
 }
 
 #[test]
 fn test_object_overlay_unhides_enemy_stealth_for_defeated_or_observer() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1032,10 +1128,12 @@ fn test_object_overlay_unhides_enemy_stealth_for_defeated_or_observer() {
         vec![0xFF, 0x00, 0x00, 0x20],
         "defeated/observer local must see enemy stealth as VISIBLE_FRIENDLY"
     );
+    });
 }
 
 #[test]
 fn test_observer_overlay_still_hides_drawable_hidden_objects() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1066,10 +1164,12 @@ fn test_observer_overlay_still_hides_drawable_hidden_objects() {
             "observer radar must still hide effectively hidden drawables"
         );
     }
+    });
 }
 
 #[test]
 fn test_hero_reticle_rects_match_w3d_icon_positioning() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1095,10 +1195,12 @@ fn test_hero_reticle_rects_match_w3d_icon_positioning() {
             y2: 88,
         }]
     );
+    });
 }
 
 #[test]
 fn test_cached_hero_reticle_ids_use_current_position_like_w3d_pointers() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1122,10 +1224,12 @@ fn test_cached_hero_reticle_ids_use_current_position_like_w3d_pointers() {
 
     assert_eq!(rects[0].x1, 65);
     assert_eq!(rects[0].y1, 78);
+    });
 }
 
 #[test]
 fn test_hero_reticle_rects_only_use_visible_local_heroes() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1159,10 +1263,12 @@ fn test_hero_reticle_rects_only_use_visible_local_heroes() {
     let rects = radar.build_hero_reticle_rects(0, 0, 128, 128, 20, 10);
 
     assert_eq!(rects.len(), 1);
+    });
 }
 
 #[test]
 fn test_view_box_lines_match_w3d_radar_conversion_and_colors() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1201,10 +1307,12 @@ fn test_view_box_lines_match_w3d_radar_conversion_and_colors() {
     assert_eq!(lines[2].end, ICoord2D::new(32, 31));
     assert_eq!(lines[3].start, ICoord2D::new(32, 31));
     assert_eq!(lines[3].end, ICoord2D::new(32, 95));
+    });
 }
 
 #[test]
 fn test_view_box_lines_clip_to_full_radar_window() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1240,10 +1348,12 @@ fn test_view_box_lines_clip_to_full_radar_window() {
             && line.start.y <= 128
             && line.end.y <= 128
     }));
+    });
 }
 
 #[test]
 fn test_shroud_circle() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1262,10 +1372,12 @@ fn test_shroud_circle() {
         radar.get_shroud_level(center_radar.x, center_radar.y),
         CellShroudStatus::Clear
     );
+    });
 }
 
 #[test]
 fn test_stealth_detection() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1299,10 +1411,12 @@ fn test_stealth_detection() {
         .filter(|obj| obj.is_stealth && obj.stealth_revealed)
         .count();
     assert_eq!(revealed_count, 1);
+    });
 }
 
 #[test]
 fn test_radar_range_detection() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1325,10 +1439,12 @@ fn test_radar_range_detection() {
     // Position out of range
     let out_of_range = Coord3D::new(700.0, 700.0, 0.0);
     assert!(!radar.is_position_in_radar_range(&out_of_range, 0));
+    });
 }
 
 #[test]
 fn test_stealth_events() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1347,10 +1463,12 @@ fn test_stealth_events() {
     // C++ precedence quirk: far-away same-type events still throttle for 10s.
     let far_loc = Coord3D::new(500.0, 500.0, 0.0);
     assert!(!radar.try_stealth_discovered_event(&far_loc));
+    });
 }
 
 #[test]
 fn test_visible_objects_filtering() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1375,10 +1493,12 @@ fn test_visible_objects_filtering() {
     // Should only get visible objects
     assert_eq!(radar.get_visible_objects().len(), 1);
     assert_eq!(radar.get_all_objects().count(), 2);
+    });
 }
 
 #[test]
 fn test_refresh_terrain_uses_sampled_height_gradient() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     let sample_count = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
     let mut samples = Vec::with_capacity(sample_count);
@@ -1402,10 +1522,12 @@ fn test_refresh_terrain_uses_sampled_height_gradient() {
 
     assert_ne!(left[0], right[0]);
     assert_ne!(left[1], right[1]);
+    });
 }
 
 #[test]
 fn test_refresh_terrain_tints_water_cells_blue() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     let sample_count = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
     let mut samples = Vec::with_capacity(sample_count);
@@ -1424,10 +1546,12 @@ fn test_refresh_terrain_tints_water_cells_blue() {
     let first = &tex[0..4];
 
     assert!(first[2] > first[0]);
+    });
 }
 
 #[test]
 fn test_examine_object() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1448,12 +1572,14 @@ fn test_examine_object() {
 
     // Should still have 1 object
     assert_eq!(radar.get_all_objects().count(), 1);
+    });
 }
 
 // ===== New comprehensive radar tests =====
 
 #[test]
 fn test_gps_satellite_activation() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1479,10 +1605,12 @@ fn test_gps_satellite_activation() {
     // Update to expiration
     radar.update(900);
     assert!(!radar.is_gps_active());
+    });
 }
 
 #[test]
 fn test_radar_scan_activation() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1512,10 +1640,12 @@ fn test_radar_scan_activation() {
     // Update past expiration
     radar.update(301);
     assert_eq!(radar.get_active_radar_scans(player_id).len(), 0);
+    });
 }
 
 #[test]
 fn test_radar_jamming() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1545,10 +1675,12 @@ fn test_radar_jamming() {
     // Remove jammer
     radar.remove_jamming_source(100);
     assert!(radar.jamming_sources.is_empty());
+    });
 }
 
 #[test]
 fn test_radar_power_states() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1575,10 +1707,12 @@ fn test_radar_power_states() {
     // Re-enable power
     radar.set_radar_powered(1, true);
     assert!(radar.has_operational_radar(0));
+    });
 }
 
 #[test]
 fn test_radar_emp_disable() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1604,10 +1738,12 @@ fn test_radar_emp_disable() {
     // EMP expires
     radar.enable_radar_object(1);
     assert!(radar.has_operational_radar(0));
+    });
 }
 
 #[test]
 fn test_radar_object_operational_check() {
+    with_test_services(|| {
     let mut obj = RadarObject::new(1);
     obj.is_radar_provider = true;
     obj.is_powered = true;
@@ -1626,10 +1762,12 @@ fn test_radar_object_operational_check() {
     assert!(!obj.is_radar_operational());
     obj.enable_radar();
     assert!(obj.is_radar_operational());
+    });
 }
 
 #[test]
 fn test_radar_scan_expiration() {
+    with_test_services(|| {
     let scan = RadarScan::new(
         Coord3D::new(100.0, 100.0, 0.0),
         300.0,
@@ -1642,10 +1780,12 @@ fn test_radar_scan_expiration() {
     assert!(!scan.is_expired(99));
     assert!(scan.is_expired(100));
     assert!(scan.is_expired(150));
+    });
 }
 
 #[test]
 fn test_jamming_source_range() {
+    with_test_services(|| {
     let jammer = JammingSource::new(1, Coord3D::new(500.0, 500.0, 0.0), 200.0, 1);
 
     // Position inside radius
@@ -1655,10 +1795,12 @@ fn test_jamming_source_range() {
     // Position outside radius
     let outside = Coord3D::new(800.0, 800.0, 0.0);
     assert!(!jammer.is_position_jammed(&outside));
+    });
 }
 
 #[test]
 fn test_jamming_update_on_objects() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1685,10 +1827,12 @@ fn test_jamming_update_on_objects() {
         .map(|o| o.is_jammed)
         .unwrap_or(false);
     assert!(obj_jammed);
+    });
 }
 
 #[test]
 fn test_shroud_status_visibility() {
+    with_test_services(|| {
     assert!(CellShroudStatus::Clear.is_visible());
     assert!(CellShroudStatus::Fogged.is_visible());
     assert!(!CellShroudStatus::Shrouded.is_visible());
@@ -1696,10 +1840,12 @@ fn test_shroud_status_visibility() {
     assert!(CellShroudStatus::Clear.is_explored());
     assert!(CellShroudStatus::Fogged.is_explored());
     assert!(!CellShroudStatus::Shrouded.is_explored());
+    });
 }
 
 #[test]
 fn try_event_throttles_inactive_history_for_ten_seconds() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1715,10 +1861,12 @@ fn try_event_throttles_inactive_history_for_ten_seconds() {
     assert!(!radar.try_event(RadarEventType::UnderAttack, &loc));
     radar.update(400);
     assert!(radar.try_event(RadarEventType::UnderAttack, &loc));
+    });
 }
 
 #[test]
 fn try_event_uses_unsigned_age_when_frame_rolls_back() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1743,10 +1891,12 @@ fn try_event_uses_unsigned_age_when_frame_rolls_back() {
         radar.try_event(RadarEventType::UnderAttack, &loc),
         "unsigned currentFrame - createFrame wraps to an age beyond 300 frames"
     );
+    });
 }
 
 #[test]
 fn try_event_uses_unsigned_age_across_u32_frame_wrap() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1778,10 +1928,12 @@ fn try_event_uses_unsigned_age_across_u32_frame_wrap() {
         radar.try_event(RadarEventType::UnderAttack, &loc),
         "unsigned age across u32 frame wrap is 351 and must not throttle"
     );
+    });
 }
 
 #[test]
 fn try_event_cpp_precedence_throttles_map_wide() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1795,10 +1947,12 @@ fn try_event_cpp_precedence_throttles_map_wide() {
     assert!(!radar.try_event(RadarEventType::UnderAttack, &far));
     radar.update(400);
     assert!(radar.try_event(RadarEventType::UnderAttack, &far));
+    });
 }
 
 #[test]
 fn add_object_inserts_at_head_of_priority_section() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1819,10 +1973,12 @@ fn add_object_inserts_at_head_of_priority_section() {
     // C++ inserts at the head of the Unit section.
     assert_eq!(radar.object_list[0].object_id, 2);
     assert_eq!(radar.object_list[1].object_id, 1);
+    });
 }
 
 #[test]
 fn overlay_draws_local_last_so_own_blips_win_shared_cells() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1848,10 +2004,12 @@ fn overlay_draws_local_last_so_own_blips_win_shared_cells() {
     let texture = radar.build_object_overlay_texture_rgba();
     let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
     assert_eq!(&texture[idx..idx + 4], &[0x00, 0x00, 0xFF, 0xFF]);
+    });
 }
 
 #[test]
 fn try_infiltration_without_local_victim_is_fail_closed() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1877,10 +2035,12 @@ fn try_infiltration_without_local_victim_is_fail_closed() {
     };
     radar.try_infiltration_event_for(&loc, Some(&local));
     assert!(radar.get_last_event_loc().is_some());
+    });
 }
 
 #[test]
 fn try_under_attack_creates_under_attack_event() {
+    with_test_services(|| {
     let mut radar = RadarSystem::new();
     radar.new_map(
         Coord3D::new(0.0, 0.0, 0.0),
@@ -1891,10 +2051,12 @@ fn try_under_attack_creates_under_attack_event() {
     assert!(radar.try_under_attack_event_for(&loc, None));
     assert_eq!(radar.get_last_event_loc(), Some(loc));
     assert!(!radar.try_under_attack_event_for(&loc, None));
+    });
 }
 
 #[test]
 fn under_attack_glow_and_eva_go_to_the_victims_owner() {
+    with_test_services(|| {
     #[derive(Default)]
     struct Owner {
         glows: u32,
@@ -1939,10 +2101,12 @@ fn under_attack_glow_and_eva_go_to_the_victims_owner() {
     assert_eq!(owner.eva, vec!["EVA_BaseUnderAttack".to_string()]);
     // C++ Radar.cpp:1168: the attack sound plays in the victim's engine.
     assert_eq!(owner.audio, vec!["RadarStructureUnderAttackSound".to_string()]);
+    });
 }
 
 #[test]
 fn test_paint_shroud_from_partition_cells_cache_matches_full_repaint() {
+    with_test_services(|| {
     let new_radar = || {
         let mut radar = RadarSystem::new();
         radar.new_map(
@@ -1984,4 +2148,5 @@ fn test_paint_shroud_from_partition_cells_cache_matches_full_repaint() {
     );
     cached.paint_shroud_from_partition_cells(w, h, 40.0, [0.0, 0.0], &statuses);
     assert_eq!(cached.shroud_grid, fresh.shroud_grid);
+    });
 }

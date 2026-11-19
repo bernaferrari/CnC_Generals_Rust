@@ -12,6 +12,7 @@ fn radar_on_flat_map() -> RadarSystem {
 
 #[test]
 fn queued_refresh_repaints_once_after_strict_three_second_boundary() {
+    super::tests::with_test_services(|| {
     let mut radar = radar_on_flat_map();
     radar.update(10);
     radar.create_event(
@@ -42,10 +43,12 @@ fn queued_refresh_repaints_once_after_strict_three_second_boundary() {
         1,
         "refresh does not clear the event ring"
     );
+    });
 }
 
 #[test]
 fn explicit_refresh_cancels_a_pending_delayed_refresh() {
+    super::tests::with_test_services(|| {
     let mut radar = radar_on_flat_map();
     radar.update(10);
     radar.queue_terrain_refresh();
@@ -53,19 +56,23 @@ fn explicit_refresh_cancels_a_pending_delayed_refresh() {
     let after_explicit = radar.terrain_generation();
     radar.update(101);
     assert_eq!(radar.terrain_generation(), after_explicit);
+    });
 }
 
 #[test]
 fn frame_zero_refresh_request_uses_cpp_inactive_sentinel() {
+    super::tests::with_test_services(|| {
     let mut radar = radar_on_flat_map();
     radar.queue_terrain_refresh();
     let before = radar.terrain_generation();
     radar.update(91);
     assert_eq!(radar.terrain_generation(), before);
+    });
 }
 
 #[test]
 fn later_refresh_request_restarts_delay_without_repeated_rebuilds() {
+    super::tests::with_test_services(|| {
     let mut radar = radar_on_flat_map();
     radar.update(10);
     radar.queue_terrain_refresh();
@@ -79,10 +86,12 @@ fn later_refresh_request_restarts_delay_without_repeated_rebuilds() {
     assert_eq!(radar.terrain_generation(), before + 1);
     radar.update(172);
     assert_eq!(radar.terrain_generation(), before + 1);
+    });
 }
 
 #[test]
 fn direct_texture_rebuild_does_not_consume_a_pending_refresh() {
+    super::tests::with_test_services(|| {
     let mut radar = radar_on_flat_map();
     radar.update(10);
     radar.queue_terrain_refresh();
@@ -90,10 +99,12 @@ fn direct_texture_rebuild_does_not_consume_a_pending_refresh() {
     let after_build = radar.terrain_generation();
     radar.update(101);
     assert_eq!(radar.terrain_generation(), after_build + 1);
+    });
 }
 
 #[test]
 fn terrain_resample_preserves_cpp_new_map_averages_and_events() {
+    super::tests::with_test_services(|| {
     struct ChangedTerrain;
     impl RadarMapSource for ChangedTerrain {
         fn map_extent(&self) -> Option<(Coord3D, Coord3D)> {
@@ -143,10 +154,12 @@ fn terrain_resample_preserves_cpp_new_map_averages_and_events() {
     assert_eq!(radar.water_average_z, 20.0);
     assert_eq!(radar.get_active_events().len(), 1);
     assert_eq!(radar.get_last_event_loc().unwrap().x, 40.0);
+    });
 }
 
 #[test]
 fn resample_uses_one_source_grid_instead_of_scalar_callbacks() {
+    super::tests::with_test_services(|| {
     struct BulkSource;
     impl RadarMapSource for BulkSource {
         fn map_extent(&self) -> Option<(Coord3D, Coord3D)> {
@@ -168,10 +181,12 @@ fn resample_uses_one_source_grid_instead_of_scalar_callbacks() {
             .iter()
             .all(|s| s.height == 30.0 && !s.is_water)
     );
+    });
 }
 
 #[test]
 fn default_grid_preserves_scalar_coordinates_missing_cells_and_row_order() {
+    super::tests::with_test_services(|| {
     struct SparseSource;
     impl RadarMapSource for SparseSource {
         fn map_extent(&self) -> Option<(Coord3D, Coord3D)> {
@@ -198,4 +213,5 @@ fn default_grid_preserves_scalar_coordinates_missing_cells_and_row_order() {
             source.sample_cell(x, y).unwrap_or((0.0, false))
         );
     }
+    });
 }
