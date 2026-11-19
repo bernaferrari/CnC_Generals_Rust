@@ -2079,6 +2079,8 @@ fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
     // upgrade contract under test (same class as the BlackLotus capture
     // fixture in pilots_and_movement).
     game_logic.add_player(Player::new(0, Team::USA, "USA", false));
+    // Object::defect needs the building's concrete owner as well.
+    game_logic.add_player(Player::new(2, Team::GLA, "GLA", false));
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
 
