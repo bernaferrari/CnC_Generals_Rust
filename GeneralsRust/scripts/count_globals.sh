@@ -15,6 +15,8 @@ import os, re, sys, json, collections
 
 root = sys.argv[1]
 want_json = "--json" in sys.argv[1:]
+# The seal audit needs coverage for each file and does not allow budget exceptions.
+want_inventory = "--inventory-json" in sys.argv[1:]
 with_cfg_test = "--with-cfg-test" in sys.argv[1:]
 compare = None
 for i, a in enumerate(sys.argv):
@@ -333,6 +335,15 @@ for _, _rel in roots_expanded:
 
 counts = collections.OrderedDict((k, 0) for k in roots)
 details = collections.defaultdict(list)
+inventory = {}
+
+
+def record_global(label, path, symbol, allowed):
+    if want_inventory:
+        inventory[path].append(symbol)
+    if not allowed:
+        counts[label] += 1
+        details[label].append(f"{path}:{symbol}")
 
 # Rust requires `#[global_allocator]` to be a `static`. If such a static is
 # only the process allocator entry (stateless, or process-level alloc stats),
@@ -381,6 +392,9 @@ for label, rel in roots_expanded:
             path = os.path.join(dirpath, fn)
             text = open(path, encoding="utf-8", errors="ignore").read()
             test_body = cfg_test_depths(text)
+            rel_file = f"{rel_dir}/{fn}"
+            if want_inventory:
+                inventory[rel_file] = []
             for m in pat_tls.finditer(text):
                 line = text.rfind("\n", 0, m.start()) + 1
                 if text[line : line + 8].lstrip().startswith("//"):
@@ -390,11 +404,7 @@ for label, rel in roots_expanded:
                     or (not with_cfg_test and item_has_cfg_test_attr(text, m.start()))
                 ):
                     continue
-                tls_key = f"{rel_dir}/{fn}"
-                if tls_key in ALLOWED_TLS_EXCEPTIONS:
-                    continue
-                counts[label] += 1
-                details[label].append(f"{rel_dir}/{fn}:thread_local!")
+                record_global(label, rel_file, "thread_local!", rel_file in ALLOWED_TLS_EXCEPTIONS)
             for m in pat_static.finditer(text):
                 line = text.rfind("\n", 0, m.start()) + 1
                 head = text[line : m.end()]
@@ -411,11 +421,9 @@ for label, rel in roots_expanded:
                         or (not with_cfg_test and item_has_cfg_test_attr(text, m.start()))
                         or (not with_cfg_test and inside_cfg_test_thread_local(text, m.start()))
                         or inside_any_thread_local(text, m.start())
-                        or name in ALLOWED_STATIC_EXCEPTIONS
                     ):
                         continue
-                    counts[label] += 1
-                    details[label].append(f"{rel_dir}/{fn}:{name}")
+                    record_global(label, rel_file, name, name in ALLOWED_STATIC_EXCEPTIONS)
 
             for m in pat_lazy_ref.finditer(text):
                 line = text.rfind("\n", 0, m.start()) + 1
@@ -427,13 +435,13 @@ for label, rel in roots_expanded:
                 if (
                     m.start() in test_body
                     or (not with_cfg_test and item_has_cfg_test_attr(text, m.start()))
-                    or name in ALLOWED_STATIC_EXCEPTIONS
                 ):
                     continue
-                counts[label] += 1
-                details[label].append(f"{rel_dir}/{fn}:{name} (lazy_static)")
+                record_global(label, rel_file, f"{name} (lazy_static)", name in ALLOWED_STATIC_EXCEPTIONS)
 
-if want_json:
+if want_inventory:
+    print(json.dumps(inventory, sort_keys=True))
+elif want_json:
     print(json.dumps(dict(counts), indent=2, sort_keys=True))
 else:
     print(

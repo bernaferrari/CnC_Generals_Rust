@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 python3 - "$ROOT" <<'PY'
-import os, re, sys, json
+import json, os, re, subprocess, sys
 
 root = sys.argv[1]
 toml_path = os.path.join(root, "sealed_modules.toml")
@@ -33,11 +33,6 @@ for raw in text.splitlines():
 if current and "path" in current:
     modules.append(current)
 
-pat_static = re.compile(
-    r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?static[ \t]+(?:mut[ \t]+|ref[ \t]+)?(\w+)[ \t]*:[ \t]*([^;=]+)"
-)
-pat_tls = re.compile(r"(?m)^[ \t]*thread_local!\s*\{")
-mut_ty = re.compile(r"\b(Mutex|RwLock|Atomic\w+|RefCell|Cell)\b")
 # Stub markers: todo!/unimplemented! macros, and common placeholder phrases.
 pat_stub = re.compile(
     r"(?m)(?:\btodo!\s*(?:\(|$)|"
@@ -53,6 +48,12 @@ failed = False
 if not modules:
     print("sealed_modules.toml: no modules sealed yet (ok)")
     sys.exit(0)
+
+scanner = os.path.join(root, "scripts", "count_globals.sh")
+scan = subprocess.run([scanner, "--inventory-json"], stdout=subprocess.PIPE, text=True)
+if scan.returncode:
+    sys.exit(scan.returncode)
+globals_by_file = json.loads(scan.stdout)
 
 for mod in modules:
     rel = mod["path"].strip().strip("/")
@@ -81,21 +82,11 @@ for mod in modules:
     for path in files:
         src = open(path, encoding="utf-8", errors="ignore").read()
         rel_file = os.path.relpath(path, root).replace("\\", "/")
-        for m in pat_tls.finditer(src):
-            line = src.rfind("\n", 0, m.start()) + 1
-            if src[line : line + 8].lstrip().startswith("//"):
-                continue
-            lineno = src.count("\n", 0, m.start()) + 1
-            globals_hits.append(f"{rel_file}:{lineno}:thread_local!")
-        for m in pat_static.finditer(src):
-            line = src.rfind("\n", 0, m.start()) + 1
-            head = src[line : m.end()]
-            if head.lstrip().startswith("//"):
-                continue
-            name, ty = m.group(1), m.group(2)
-            if re.search(r"\bstatic\s+mut\b", head) or mut_ty.search(ty):
-                lineno = src.count("\n", 0, m.start()) + 1
-                globals_hits.append(f"{rel_file}:{lineno}:{name}")
+        if rel_file not in globals_by_file:
+            print(f"FAIL: sealed file missing from global scan: {rel_file}", file=sys.stderr)
+            failed = True
+        else:
+            globals_hits.extend(f"{rel_file}:{symbol}" for symbol in globals_by_file[rel_file])
         # Stub scan: ignore pure comment lines
         for m in pat_stub.finditer(src):
             line_start = src.rfind("\n", 0, m.start()) + 1

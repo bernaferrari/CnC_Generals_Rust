@@ -259,11 +259,6 @@ cpp = "GeneralsMD/Code/GameEngine/Source/Common/Thing/Thing.cpp"
 note = "Terrain height/underwater/align providers in LazyLock bag; 0 file globals."
 
 [[module]]
-path = "Code/GameEngine/Common/src/common/crc_debug.rs"
-cpp = "GeneralsMD/Code/GameEngine/Source/Common/CRCDebug.cpp"
-note = "CRC flags on CommonServices; debug state LazyLock bag; 0 file globals."
-
-[[module]]
 path = "Code/GameEngine/Common/src/common/rts/team.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/Common/RTS/Team.cpp"
 note = "TeamFactory/sink/waypoint slots opaque LazyLock; 0 counted globals."
