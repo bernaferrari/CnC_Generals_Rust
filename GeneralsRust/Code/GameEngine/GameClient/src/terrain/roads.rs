@@ -996,10 +996,12 @@ impl RoadSegment {
         let curve_radius = self
             .runtime_texture_override_f32("CurveRadius")
             .unwrap_or(Self::CORNER_RADIUS);
-        let mut v_offset = 255.0 / 512.0;
-        if (curve_radius - Self::TIGHT_CORNER_RADIUS).abs() <= 0.05 {
-            v_offset = 425.0 / 512.0;
-        }
+        let tight_corner = curve_radius == Self::TIGHT_CORNER_RADIUS;
+        let v_offset = if tight_corner {
+            425.0 / 512.0
+        } else {
+            255.0 / 512.0
+        };
         let u_offset = 4.0 / 512.0;
         let scale = self.width.max(0.1);
         let width_in_texture = self
@@ -1016,7 +1018,7 @@ impl RoadSegment {
         let mut top_right = bottom_right + road_normal * 2.0;
         let mut top_left = bottom_left + road_normal * 2.0;
 
-        if (curve_radius - Self::TIGHT_CORNER_RADIUS).abs() <= 0.05 {
+        if tight_corner {
             bottom_right = bottom_left + road_vector * 0.5;
             top_right = bottom_right + road_normal * 2.0;
             top_left = bottom_left + road_normal * 2.0;

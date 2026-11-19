@@ -565,6 +565,97 @@ fn lone_eagle_road_miter_fills_exterior_gap_pixels() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "requires a native GPU adapter"]
+fn lone_eagle_tight_road_curve_draws_the_authored_atlas_row() {
+    use game_engine::common::ini::ini_road::TerrainRoadCollection;
+
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("road curve test requires a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("road curve test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let directory = tempfile::tempdir().unwrap();
+    let texture_path = directory.path().join("RoadCurveWitness.tga");
+    let normal = [190, 45, 50, 255];
+    let tight = [40, 185, 55, 255];
+    image::RgbaImage::from_fn(128, 512, |_, y| {
+        image::Rgba(match y {
+            190..=315 => normal, // C++ normal curve row, 255/512
+            355..=470 => tight,  // C++ tight curve row, 425/512
+            _ => [110, 110, 110, 255],
+        })
+    })
+    .save_with_format(&texture_path, image::ImageFormat::Tga)
+    .unwrap();
+    let mut definitions = TerrainRoadCollection::new();
+    let road = definitions.new_road(AsciiString::from("RoadCurveWitness"));
+    road.texture = AsciiString::from(texture_path.to_str().unwrap());
+    let road_type_id = road.id;
+
+    let mut roads = super::tests::lone_eagle_road_curve_segments();
+    let origin = roads[0].start;
+    for road in &mut roads {
+        for endpoint in [&mut road.start, &mut road.end] {
+            endpoint[0] = 40.0 + (endpoint[0] - origin[0]) * 0.1;
+            endpoint[2] = 40.0 + (endpoint[2] - origin[2]) * 0.1;
+        }
+        road.width *= 0.1;
+        road.road_type_id = road_type_id;
+        road.template_name = "RoadCurveWitness".into();
+    }
+    let terrain = [(
+        TerrainSourceTileClass {
+            first_tile: 0,
+            num_tiles: 1,
+            width: 1,
+            name: "CurveWhiteGround".into(),
+        },
+        [255; 3],
+    )];
+    let mut visual = live_terrain_visual(
+        &device,
+        &queue,
+        &terrain,
+        HeightMap::new(64, 64, 0.0, 1.0),
+        1.0,
+    );
+    visual.create_road_pipeline(&device).unwrap();
+    visual.admit_road_presentation(definitions.presentation());
+    visual.set_runtime_map_road_segments(&roads, &[]).unwrap();
+    visual
+        .update_native(
+            TerrainVisualMotion {
+                frame: 0,
+                paused: false,
+                gravity: 0.0,
+                breeze: Default::default(),
+            },
+            None,
+        )
+        .unwrap();
+    let transform = Mat4::from_cols_array_2d(&[
+        [5.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0],
+        [0.0, 5.0, 0.0, 0.0],
+        [-200.0, -207.25, 0.5, 1.0],
+    ]);
+    let pixels = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+    // Retail world (3179.58, 1940.74), sampled inside the generated curve
+    // and beyond both adjoining straight strips.
+    let pixel = 2 * 256 + 19 * 4;
+    assert_eq!(
+        &pixels[pixel..pixel + 4],
+        &[tight[2], tight[1], tight[0], tight[3]]
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
 fn receiving_terrain_owners_render_their_own_live_lights_and_restore_static_color() {
     use crate::fx_list::{DisplayLightPulse, FxClientState};
     crate::test_support::ensure_ambient_host();

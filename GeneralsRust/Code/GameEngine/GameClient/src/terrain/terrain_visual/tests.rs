@@ -511,6 +511,65 @@ mod tests {
         assert!((Vec2::from_array(start.bottom) - Vec2::new(3116.991, 2183.639_6)).length() < 0.002);
     }
 
+    pub(super) fn lone_eagle_road_curve_segments() -> [RuntimeRoadVisualSegment; 2] {
+        // From Lone Eagle's DirtRoadSnow chain after C++ endpoint ordering.
+        let corner = [3179.144_5, 0.0, 1925.486_1];
+        let mut outgoing =
+            runtime_road_segment(corner, [3088.018_1, 0.0, 2180.012_7], 60.0, 0.95, 1, false);
+        let mut incoming =
+            runtime_road_segment([3038.509, 0.0, 1749.812_5], corner, 60.0, 0.95, 1, false);
+        outgoing.curve_radius = 0.5;
+        incoming.curve_radius = 0.5;
+        [outgoing, incoming]
+    }
+
+    #[test]
+    fn lone_eagle_tight_road_curve_keeps_cpp_footprint() {
+        crate::test_support::ensure_ambient_host();
+        let mut visual = TerrainVisualImpl::new();
+        visual
+            .set_runtime_map_road_segments(&lone_eagle_road_curve_segments(), &[])
+            .unwrap();
+        visual
+            .update_native(
+                TerrainVisualMotion {
+                    frame: 0,
+                    paused: false,
+                    gravity: 0.0,
+                    breeze: Default::default(),
+                },
+                None,
+            )
+            .unwrap();
+        let mut bottom_left = Vec::new();
+        visual
+            .road_system
+            .for_each_visible_overlay_source(|_, segment| {
+                if segment
+                    .properties
+                    .texture_override
+                    .as_ref()
+                    .is_some_and(|metadata| metadata.contains("Kind=CURVE"))
+                {
+                    let vertex = &segment.geometry.as_ref().unwrap().vertices[0];
+                    bottom_left.push(Vec2::new(vertex.position[0], vertex.position[2]));
+                }
+            });
+        // W3DRoadBuffer::insertCurveSegmentAt then loadCurve, using width 60,
+        // width-in-texture 0.95, and the two authored tight endpoint flags.
+        let cpp_bottom_left = [
+            Vec2::new(3205.397_7, 1919.000_2),
+            Vec2::new(3192.394_8, 1891.874),
+        ];
+        assert_eq!(bottom_left.len(), cpp_bottom_left.len());
+        for (actual, expected) in bottom_left.into_iter().zip(cpp_bottom_left) {
+            assert!(
+                (actual - expected).length() < 0.005,
+                "{actual:?} vs {expected:?}"
+            );
+        }
+    }
+
     #[test]
     fn alpha_join_synthesis_scales_texture_width_not_road_width_like_cpp() {
         crate::test_support::ensure_ambient_host();

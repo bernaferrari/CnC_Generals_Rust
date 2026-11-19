@@ -890,9 +890,10 @@ impl TerrainVisualImpl {
                 let topology = endpoint_topology.get(index).copied().unwrap_or_default();
                 segment.properties.w3d_miters = miters.get(index).copied().unwrap_or([None; 2]);
                 segment.properties.texture_override = Some(format!(
-                    "RoadTypeId={} WidthInTexture={:.3} Kind={}",
+                    "RoadTypeId={} WidthInTexture={:.3} CurveRadius={} Kind={}",
                     road_segment.road_type_id,
                     road_segment.width_in_texture.max(0.0),
+                    road_segment.curve_radius,
                     if road_segment.template_name == "__SYNTH_TEE__" {
                         "TEE"
                     } else if road_segment.template_name == "__SYNTH_FOUR_WAY__" {
