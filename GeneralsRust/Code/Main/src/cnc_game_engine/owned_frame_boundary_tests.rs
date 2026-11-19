@@ -287,9 +287,16 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
     crate::fixture_content::admit_retail_production_energy_rules(&mut logic);
     // C++ Energy returns zero production for an unpowered player even when
     // consumption is zero. Supply a real plant for this full-frame witness.
-    logic
+    let plant = logic
         .create_object("OwnedFramePower", Team::USA, Vec3::new(40.0, 0.0, 40.0))
         .expect("actual power admission");
+    // A plant under construction supplies no energy (Energy.cpp only counts
+    // completed buildings), so the builder's grid would stay empty; complete it.
+    {
+        let plant = logic.host_object_mut(plant).expect("plant");
+        plant.set_status_under_construction(false);
+        plant.construction_percent = 1.0;
+    }
     // The real BUILD request (DozerAIUpdate.cpp:1948-2008 newTask): the
     // builder places an authored scaffold and its own DozerAIUpdate enters
     // the construction phase; no target/AI state is written by hand.
