@@ -1429,7 +1429,7 @@ impl GameLogic {
             object.prepare_owned_position_tree_reaction(
                 position,
                 frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 trigger_position,
             )
         });
@@ -1465,7 +1465,7 @@ impl GameLogic {
             braking,
             surface_y,
             Some(trigger_position),
-            &mut effects.reborrow_for_object(&mut self.partition_manager),
+            &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         if let Some(reaction) = step.reaction.take() {
             if !self.complete_owned_position_reaction(id, reaction, effects) {
@@ -1521,7 +1521,7 @@ impl GameLogic {
                 dt,
                 frame,
                 surface_y,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 &self.host_trigger_world,
                 &self.team_factory,
             );

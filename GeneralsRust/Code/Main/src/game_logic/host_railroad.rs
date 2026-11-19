@@ -1173,7 +1173,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.set_orientation_with_effects(
                     heading,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
             }
         }

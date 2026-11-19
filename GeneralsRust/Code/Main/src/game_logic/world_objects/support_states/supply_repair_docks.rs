@@ -812,7 +812,7 @@ impl GameLogic {
                                     ),
                                     self.frame,
                                     &mut crate::game_logic::ScriptPresentationEffects::default()
-                                        .reborrow_for_object(&mut self.partition_manager),
+                                        .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                                 );
                             }
                             self.path_approach_with_state(docker_id, dest, AIState::Gathering);

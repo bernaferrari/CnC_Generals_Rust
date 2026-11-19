@@ -156,7 +156,7 @@ fn explicit_pose_owner_ignores_stale_object_attachments_case() {
         .objects
         .get_mut(&id)
         .unwrap()
-        .attach_host_trigger_world(&foreign.host_trigger_world, &foreign.team_factory);
+        .attach_team_factory(&foreign.team_factory);
     let mut effects = crate::game_logic::ScriptPresentationEffects::default();
     {
         let GameLogic {
@@ -211,7 +211,7 @@ fn owned_position_completion_uses_receiving_trigger_world_case() {
         .objects
         .get_mut(&id)
         .unwrap()
-        .attach_host_trigger_world(&foreign.host_trigger_world, &foreign.team_factory);
+        .attach_team_factory(&foreign.team_factory);
 
     assert!(receiving.set_owned_object_position_with_effects(
         id,

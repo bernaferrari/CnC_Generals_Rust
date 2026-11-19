@@ -190,7 +190,7 @@ impl GameLogic {
             if let Some(height) = self.terrain_height_at(destination) { destination.y = height; }
             let has_ai = self.objects[&rider].has_ai_update_interface();
             self.objects.get_mut(&rider).unwrap()
-                .set_orientation_with_effects(angle, &mut effects.reborrow_for_object(&mut self.partition_manager));
+                .set_orientation_with_effects(angle, &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world));
             self.set_owned_object_position_with_effects(
                 rider, if has_ai { position } else { destination }, self.frame, effects,
             );
@@ -1443,7 +1443,7 @@ impl GameLogic {
                         &mut self.movement_events.writer(self.frame),
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                         self.frame,
-                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                        &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                     );
                     unit.allow_to_fall = previous_allow_to_fall;
                     let mut path = vec![start, door_end, door_end];
@@ -1459,7 +1459,7 @@ impl GameLogic {
                         &mut self.movement_events.writer(self.frame),
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                         self.frame,
-                        &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                        &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                     );
                     unit.movement.set_path_coords(vec![start, door_end]);
                     unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);

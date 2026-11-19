@@ -1801,6 +1801,7 @@ impl CnCGameEngine {
             pristine_bones: Some(self.application_assets.as_ref()),
             script_events: None,
             partition: None,
+            trigger_world: None,
             audio: audio.as_mut().map(|service| service.receiver()),
             terrain: terrain
                 .map(|terrain| terrain as &mut dyn crate::game_logic::NativeTerrainEffects),

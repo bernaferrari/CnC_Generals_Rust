@@ -461,7 +461,7 @@ impl GameLogic {
                             continue;
                         }
                         let Some(obj) = self.objects.get_mut(&object_id) else { continue };
-                        obj.set_orientation_with_effects(ori + d_roll, &mut presentation_effects.reborrow_for_object(&mut self.partition_manager));
+                        obj.set_orientation_with_effects(ori + d_roll, &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world));
                         obj.apply_jet_death_phase(event);
                         topple_kill = done;
                         final_death_destroy = done;
@@ -490,7 +490,7 @@ impl GameLogic {
                             continue;
                         }
                         let Some(obj) = self.objects.get_mut(&object_id) else { continue };
-                        obj.set_orientation_with_effects(ori + dori, &mut presentation_effects.reborrow_for_object(&mut self.partition_manager));
+                        obj.set_orientation_with_effects(ori + dori, &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world));
                         obj.apply_heli_death_phase(event);
                         topple_kill = done;
                         final_death_destroy = done;

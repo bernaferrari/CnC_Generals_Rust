@@ -337,7 +337,6 @@ impl Object {
         Self {
             thing: Thing::new(template),
             id,
-            host_trigger_world: Default::default(),
             team_factory: Default::default(),
             team,
             owner_player_id: None,
@@ -1175,7 +1174,6 @@ impl Object {
         Self {
             thing: Thing::new(template),
             id,
-            host_trigger_world: Default::default(),
             team_factory: Default::default(),
             team,
             owner_player_id: None,

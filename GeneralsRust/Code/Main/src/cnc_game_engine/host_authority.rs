@@ -1069,6 +1069,7 @@ impl CnCGameEngine {
                     pristine_bones: Some(self.application_assets.as_ref()),
                     script_events: None,
                     partition: None,
+                    trigger_world: None,
                     audio: None,
                     ui: None,
                     view: None,

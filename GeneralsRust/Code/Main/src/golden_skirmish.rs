@@ -1338,7 +1338,7 @@ fn fight_enemies_with_rangers(
                 pulled_this_round = true;
                 for (i, rid) in live.iter().enumerate() {
                     let frame = logic.get_frame();
-                    if let Some((r, partition)) = logic.host_object_and_partition_mut(*rid) {
+                    if let Some((r, partition, trigger)) = logic.host_object_partition_and_trigger_mut(*rid) {
                         if r.is_alive() {
                             let d = horiz_distance(r.get_position(), ep);
                             let wr = r.weapon.as_ref().map(|w| w.range).unwrap_or(100.0);
@@ -1349,7 +1349,7 @@ fn fight_enemies_with_rangers(
                                 r.set_position_with_partition_owner(
                                     pull,
                                     frame,
-                                    &mut Default::default(),
+                                    &mut crate::game_logic::ScriptPresentationEffects { trigger_world: Some(trigger), ..Default::default() },
                                     partition,
                                 );
                             }
@@ -1806,14 +1806,14 @@ fn run_map_world_skirmish(
             if let Some(ep) = logic.host_object(tid).map(|o| o.get_position()) {
                 for (i, rid) in production_rangers.iter().enumerate() {
                     let frame = logic.get_frame();
-                    if let Some((r, partition)) = logic.host_object_and_partition_mut(*rid) {
+                    if let Some((r, partition, trigger)) = logic.host_object_partition_and_trigger_mut(*rid) {
                         if r.is_alive() {
                             let mut p = ep + Vec3::new(22.0 + i as f32 * 2.0, 0.0, 4.0);
                             p.y = ep.y;
                             r.set_position_with_partition_owner(
                                 p,
                                 frame,
-                                &mut Default::default(),
+                                &mut crate::game_logic::ScriptPresentationEffects { trigger_world: Some(trigger), ..Default::default() },
                                 partition,
                             );
                         }
@@ -1938,14 +1938,14 @@ fn run_map_world_skirmish(
                 if let Some(ep) = logic.host_object(focus).map(|o| o.get_position()) {
                     for (i, rid) in live.iter().enumerate() {
                         let frame = logic.get_frame();
-                        if let Some((r, partition)) = logic.host_object_and_partition_mut(*rid) {
+                        if let Some((r, partition, trigger)) = logic.host_object_partition_and_trigger_mut(*rid) {
                             if r.is_alive() {
                                 let mut pos = ep + Vec3::new(20.0 + i as f32 * 2.0, 0.0, 3.0);
                                 pos.y = ep.y;
                                 r.set_position_with_partition_owner(
                                     pos,
                                     frame,
-                                    &mut Default::default(),
+                                    &mut crate::game_logic::ScriptPresentationEffects { trigger_world: Some(trigger), ..Default::default() },
                                     partition,
                                 );
                             }
@@ -2392,9 +2392,9 @@ mod tests {
         let dozer = find_human_dozer(&logic).expect("starting dozer");
         // Dozer spawn after load needs one vision push for its new position.
         let frame = logic.get_frame();
-        if let Some((d, partition)) = logic.host_object_and_partition_mut(dozer) {
+        if let Some((d, partition, trigger)) = logic.host_object_partition_and_trigger_mut(dozer) {
             let p = d.get_position();
-            d.set_position_with_partition_owner(p, frame, &mut Default::default(), partition);
+            d.set_position_with_partition_owner(p, frame, &mut crate::game_logic::ScriptPresentationEffects { trigger_world: Some(trigger), ..Default::default() }, partition);
         }
         logic.update();
         logic.headless_camera_view_offer(33).unwrap(); // apply vision for post-load spawned dozer

@@ -155,6 +155,7 @@ impl GameLogic {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             script_events: None,
             partition: None,
+            trigger_world: None,
             audio: None,
             terrain: None,
             ui: ui

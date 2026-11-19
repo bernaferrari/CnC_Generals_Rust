@@ -1876,7 +1876,7 @@ impl GameLogic {
                 self.physics_definitions.effective,
                 self.physics_definitions.base.gravity,
             );
-            object.attach_host_trigger_world(&self.host_trigger_world, &self.team_factory);
+            object.attach_team_factory(&self.team_factory);
             object.owner_player_id = owner_player_id;
             if let Some((team_name, team_id, _)) = initial_team {
                 object.team_instance_name = team_name.to_owned();

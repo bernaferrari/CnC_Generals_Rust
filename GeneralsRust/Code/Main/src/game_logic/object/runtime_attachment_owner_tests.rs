@@ -81,7 +81,6 @@ fn detached_object_clone_pose_preserves_same_id_source_partition_and_trigger_own
     let source_position = source.host_object(id).unwrap().get_position();
     let mut detached = source.host_object(id).unwrap().clone();
     assert!(detached.partition_namespace.is_detached_clone());
-    assert!(detached.host_trigger_world.upgrade().is_none());
     detached.set_position(Vec3::new(820.0, 3.0, 840.0));
     detached.set_orientation(0.75);
     detached.set_transform_matrix(glam::Mat4::from_translation(Vec3::new(920.0, 4.0, 940.0)));
@@ -146,7 +145,6 @@ fn actual_clone_admission_rebinds_runtime_attachments_with_new_birth_and_clean_s
         &admitted.visual_draw_identity_token
     ));
     assert!(!admitted.partition_last_affect_applied);
-    assert!(admitted.host_trigger_world.upgrade().is_some());
     receiver.set_fixture_object_position(id, Vec3::new(550.0, 0.0, 570.0));
     receiver.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     assert_eq!(
@@ -172,7 +170,6 @@ fn physical_retirement_detaches_runtime_leases_before_returning_object() {
         .unwrap();
     assert!(source.host_object(id).is_none());
     assert!(retired.partition_namespace.upgrade().is_none());
-    assert!(retired.host_trigger_world.upgrade().is_none());
     let partition = partition_bytes(&source);
     let trigger = trigger_bytes(&source);
     retired.set_position(Vec3::new(1180.0, 5.0, 1190.0));
@@ -209,7 +206,6 @@ fn encoded_lifecycle_continuation_moves_same_birth_attachment_rights_without_tou
         &identity
     ));
     assert!(!installed.partition_namespace.is_detached_clone());
-    assert!(installed.host_trigger_world.upgrade().is_some());
     assert_eq!(partition_bytes(&owner), partition_before);
     owner.set_fixture_object_position(id, Vec3::new(520.0, 0.0, 540.0));
     owner.update_owned_partition_with_effects(&mut Default::default()).unwrap();

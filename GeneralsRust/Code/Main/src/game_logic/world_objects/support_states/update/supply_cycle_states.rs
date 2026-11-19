@@ -633,7 +633,7 @@ impl GameLogic {
                                 &mut self.queued_audio_events,
                             ),
                             self.frame,
-                            &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                         );
                         obj.supply_truck_state = SupplyTruckState::Wanting;
                         obj.supply_truck_next_dock_action_frame = 0;

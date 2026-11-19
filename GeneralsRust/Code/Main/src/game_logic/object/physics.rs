@@ -2006,7 +2006,7 @@ impl Object {
                 !reaction.has_tree_fx(),
                 "registered Thrust orientation requires its receiving World"
             );
-            self.finish_position_reaction(reaction);
+            self.finish_position_reaction_with_team_factory(reaction, None, effects.trigger_world);
         }
         self.finish_thrust_force(step.force, frame);
     }
@@ -2570,7 +2570,7 @@ impl crate::game_logic::GameLogic {
             let reaction = self.objects.get_mut(&id)?.prepare_owned_transform_tree_reaction(
                 transform,
                 frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 trigger_position,
             );
             if !self.complete_owned_position_reaction(id, reaction, effects) {

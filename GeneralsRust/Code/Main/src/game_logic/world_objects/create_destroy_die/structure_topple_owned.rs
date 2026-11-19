@@ -155,7 +155,7 @@ impl GameLogic {
             if let Some(object) = self.objects.get_mut(&id) {
                 object.apply_owned_structure_topple_rotation(
                     self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
             }
         }
@@ -168,7 +168,7 @@ impl GameLogic {
             if let Some(object) = self.objects.get_mut(&id) {
                 object.finish_owned_structure_topple_pose(
                     self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
             }
             if let Some(data) = self

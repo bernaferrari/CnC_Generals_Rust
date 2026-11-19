@@ -27,12 +27,7 @@ impl PositionReaction {
 use super::*;
 
 impl Object {
-    pub(crate) fn attach_host_trigger_world(
-        &mut self,
-        world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
-        teams: &gamelogic::team::TeamFactoryHandle,
-    ) {
-        self.host_trigger_world.bind(world);
+    pub(crate) fn attach_team_factory(&mut self, teams: &gamelogic::team::TeamFactoryHandle) {
         self.team_factory.bind(teams);
     }
 
@@ -66,7 +61,6 @@ impl Object {
             return Err("lifecycle attachment transfer changed Object lifetime");
         }
         self.partition_namespace = std::mem::take(&mut original.partition_namespace);
-        self.host_trigger_world = std::mem::take(&mut original.host_trigger_world);
         self.team_factory.take_from(&mut original.team_factory);
         Ok(())
     }
@@ -323,7 +317,8 @@ impl Object {
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) {
         let reaction = self.prepare_position_reaction(old_position, frame, effects, false);
-        self.finish_position_reaction_with_team_factory(reaction, team_factory);
+        let trigger_world = effects.trigger_world;
+        self.finish_position_reaction_with_team_factory(reaction, team_factory, trigger_world);
     }
 
     fn prepare_position_reaction(
@@ -385,15 +380,16 @@ impl Object {
     }
 
     pub(in crate::game_logic) fn finish_position_reaction(&mut self, reaction: PositionReaction) {
-        self.finish_position_reaction_with_team_factory(reaction, None);
+        self.finish_position_reaction_with_team_factory(reaction, None, None);
     }
 
-    fn finish_position_reaction_with_team_factory(
+    pub(in crate::game_logic) fn finish_position_reaction_with_team_factory(
         &mut self,
         reaction: PositionReaction,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+        trigger_world: Option<&std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
     ) {
-        if let Some(team_id) = self.finish_position_reaction_with_trigger_owner(reaction, None) {
+        if let Some(team_id) = self.finish_position_reaction_with_trigger_owner(reaction, trigger_world) {
             if let Some(team_factory) = team_factory {
                 team_factory.mark_team_entered_exited(team_id);
             } else {
@@ -427,17 +423,6 @@ impl Object {
         let team =
             (!self.team_instance_name.is_empty()).then_some(self.team_instance_name.as_str());
         let edge = if let Some(world) = trigger_owner {
-            let mut world = world.lock().unwrap_or_else(|error| error.into_inner());
-            let frame = world.current_frame();
-            world.update_object_flags_and_report(
-                self.id.0,
-                reaction.position.x,
-                reaction.position.z,
-                frame,
-                false,
-                team,
-            )
-        } else if let Some(world) = self.host_trigger_world.upgrade() {
             let mut world = world.lock().unwrap_or_else(|error| error.into_inner());
             let frame = world.current_frame();
             world.update_object_flags_and_report(
@@ -1749,7 +1734,7 @@ impl crate::game_logic::GameLogic {
             object.prepare_owned_transform_tree_reaction(
                 transform,
                 frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 trigger_position,
             )
         };
@@ -1911,7 +1896,7 @@ impl crate::game_logic::GameLogic {
             object.prepare_owned_position_tree_reaction(
                 position,
                 frame,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 trigger_position,
             )
         };

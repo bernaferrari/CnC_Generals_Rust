@@ -1061,13 +1061,16 @@ impl GameLogic {
     #[cfg(test)]
     pub(crate) fn set_fixture_object_position(&mut self, id: ObjectId, position: Vec3) {
         let frame = self.frame;
-        let (object, partition) = self
-            .host_object_and_partition_mut(id)
+        let (object, partition, trigger) = self
+            .host_object_partition_and_trigger_mut(id)
             .expect("fixture Object");
         object.set_position_with_partition_owner(
             position,
             frame,
-            &mut Default::default(),
+            &mut crate::game_logic::ScriptPresentationEffects {
+                trigger_world: Some(trigger),
+                ..Default::default()
+            },
             partition,
         );
     }
@@ -1125,7 +1128,7 @@ impl GameLogic {
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             self.frame,
-            &mut effects.reborrow_for_object(&mut self.partition_manager),
+            &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         true
     }
@@ -1178,6 +1181,24 @@ impl GameLogic {
     )> {
         let _ = self.host_object_mut(id)?;
         Some((self.objects.get_mut(&id)?, &mut self.partition_manager))
+    }
+
+    /// `host_object_and_partition_mut` plus the world's trigger-edge state, for
+    /// pose changes that must report trigger edges to this world.
+    pub(crate) fn host_object_partition_and_trigger_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut Object,
+        &mut crate::game_logic::partition_manager::PartitionManager,
+        &std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+    )> {
+        let _ = self.host_object_mut(id)?;
+        Some((
+            self.objects.get_mut(&id)?,
+            &mut self.partition_manager,
+            &*self.host_trigger_world,
+        ))
     }
 
     /// Same named-unit observation as host_objects_mut, with a disjoint owner loan.
@@ -1421,7 +1442,7 @@ impl GameLogic {
                         &mut self.attack_events,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                         self.frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                     );
                 }
                 // AIGroup issues the attack order; locomotion advances on later updates.

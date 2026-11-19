@@ -659,7 +659,7 @@ impl GameLogic {
                     },
                     self.frame,
                     &mut crate::game_logic::ScriptPresentationEffects::default()
-                        .reborrow_for_object(&mut self.partition_manager),
+                        .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                     true,
                 )
             },
@@ -710,7 +710,7 @@ impl GameLogic {
                     },
                     self.frame,
                     &mut crate::game_logic::ScriptPresentationEffects::default()
-                        .reborrow_for_object(&mut self.partition_manager),
+                        .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                     true,
                 )
         };
@@ -1650,7 +1650,7 @@ impl GameLogic {
                 let _ = child.apply_shock_wave_impulse_with_operation(
                     force,
                     self.frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
             }
             self.combat_system.queue_under_attack_if_dealt(
@@ -2230,7 +2230,7 @@ impl GameLogic {
                     let _ = victim.apply_shock_wave_impulse_with_operation(
                         force,
                         self.frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                     );
                 }
             }

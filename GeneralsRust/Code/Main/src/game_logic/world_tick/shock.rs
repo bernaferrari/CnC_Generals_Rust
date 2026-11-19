@@ -503,7 +503,7 @@ impl GameLogic {
                     force,
                     self.frame,
                     &mut crate::game_logic::ScriptPresentationEffects::default()
-                        .reborrow_for_object(&mut self.partition_manager),
+                        .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 ) {
                     n = n.saturating_add(1);
                 }

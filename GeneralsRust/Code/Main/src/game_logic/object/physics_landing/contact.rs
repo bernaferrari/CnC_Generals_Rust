@@ -1015,7 +1015,7 @@ impl crate::game_logic::GameLogic {
                 frame,
                 self.locomotor_definitions.receiving(),
                 Some(trigger_position),
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             match next {

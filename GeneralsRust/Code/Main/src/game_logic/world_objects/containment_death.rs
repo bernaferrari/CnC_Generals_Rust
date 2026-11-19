@@ -356,7 +356,7 @@ impl GameLogic {
             // OpenContain.cpp694 sets the scatter facing before setPosition700.
             rider.set_orientation_with_effects(
                 orientation,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
         }
         if !self.set_owned_object_position_with_effects(rider_id, position, self.frame, effects) {

@@ -84,7 +84,6 @@ impl GameLogic {
             &std::sync::Arc::downgrade(&object.visual_draw_identity_token),
         );
         object.partition_namespace = Default::default();
-        object.host_trigger_world = Default::default();
         object.team_factory.clear();
         // Object.cpp635-640 module destruction, after actor Drawable/team/
         // partition teardown and before script destruction notification.

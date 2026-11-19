@@ -198,6 +198,7 @@ fn actual_authored_input_resets_receiving_native_fields_before_next_action_witho
             let mut effects = ScriptPresentationEffects {
                 script_events: None,
                 partition: None,
+                trigger_world: None,
                 audio: None,
                 terrain: None,
                 ui: Some(&mut observer),
@@ -275,6 +276,7 @@ fn missing_native_input_capability_rejects_without_ambient_handler_or_owner_writ
     let mut effects = ScriptPresentationEffects {
         script_events: None,
         partition: None,
+        trigger_world: None,
         audio: None,
         terrain: None,
         ui: Some(&mut observer),

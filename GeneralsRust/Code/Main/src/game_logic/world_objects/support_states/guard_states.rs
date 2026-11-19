@@ -823,7 +823,7 @@ impl GameLogic {
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     self.frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
                 o.set_ai_state(
                     AIState::Entering,

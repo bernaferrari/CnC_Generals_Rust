@@ -312,7 +312,7 @@ impl GameLogic {
                         &mut self.attack_events,
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                         self.frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                     );
                     if !matches!(
                         attacker.ai_state(),
@@ -339,7 +339,7 @@ impl GameLogic {
                         slot,
                         max_step,
                         self.frame,
-                        &mut effects.reborrow_for_object(&mut self.partition_manager),
+                        &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                     )
                 } else {
                     true
@@ -402,7 +402,7 @@ impl GameLogic {
                                 &mut self.queued_audio_events,
                             ),
                             self.frame,
-                            &mut effects.reborrow_for_object(&mut self.partition_manager),
+                            &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                         );
                         if !matches!(
                             attacker.ai_state(),
@@ -463,7 +463,7 @@ impl GameLogic {
                                     &mut self.queued_audio_events,
                                 ),
                                 self.frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                             );
                             let entered_attack = !matches!(
                                 attacker.ai_state(),

@@ -170,6 +170,7 @@ impl GameLogic {
             pristine_bones: None,
             script_events: None,
             partition: None,
+            trigger_world: None,
             audio: None,
             terrain: None,
             ui: ui

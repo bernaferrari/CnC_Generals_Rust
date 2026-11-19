@@ -321,7 +321,7 @@ impl GameLogic {
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     self.frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
             } else {
                 return Ok(false);
@@ -385,7 +385,7 @@ impl GameLogic {
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             self.frame,
-            &mut effects.reborrow_for_object(&mut self.partition_manager),
+            &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         unit.set_force_attack(true);
         if unit.weapon.is_some() {
@@ -451,7 +451,7 @@ impl GameLogic {
             &mut self.attack_events,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             self.frame,
-            &mut effects.reborrow_for_object(&mut self.partition_manager),
+            &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         unit.set_force_attack(true);
         drop(unit);

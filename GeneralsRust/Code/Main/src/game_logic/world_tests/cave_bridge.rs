@@ -484,7 +484,7 @@ fn bridge_scaffold_pose_uses_receiving_world_after_same_id_attachment_mismatch()
     receiving
         .host_object_mut(scaffold_id)
         .unwrap()
-        .attach_host_trigger_world(&foreign.host_trigger_world, &foreign.team_factory);
+        .attach_team_factory(&foreign.team_factory);
 
     for _ in 0..300 {
         receiving.sync_host_bridge_rubble_and_scaffolds();

@@ -18,7 +18,7 @@ impl GameLogic {
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             self.frame,
             &mut crate::game_logic::ScriptPresentationEffects::default()
-                .reborrow_for_object(&mut self.partition_manager),
+                .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         let can_construct = unit.can_construct();
         if can_construct {
@@ -61,7 +61,7 @@ impl GameLogic {
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             frame,
             &mut crate::game_logic::ScriptPresentationEffects::default()
-                .reborrow_for_object(&mut self.partition_manager),
+                .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         Ok(true)
     }
@@ -85,7 +85,7 @@ impl GameLogic {
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             self.frame,
             &mut crate::game_logic::ScriptPresentationEffects::default()
-                .reborrow_for_object(&mut self.partition_manager),
+                .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         unit.capture_channel = None;
         unit.set_status_using_ability(false);
@@ -124,7 +124,7 @@ impl GameLogic {
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             self.frame,
             &mut crate::game_logic::ScriptPresentationEffects::default()
-                .reborrow_for_object(&mut self.partition_manager),
+                .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         unit.hacker_disable_channel = Some(crate::game_logic::HackerDisableChannelState::new(
             target,
@@ -257,7 +257,7 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
                 &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
+                    .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
             unit.set_ai_state(
                 AIState::ReturningResources,
@@ -307,7 +307,7 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
                 &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
+                    .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
             unit.set_ai_state(
                 AIState::Gathering,
@@ -348,7 +348,7 @@ impl GameLogic {
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             self.frame,
             &mut crate::game_logic::ScriptPresentationEffects::default()
-                .reborrow_for_object(&mut self.partition_manager),
+                .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         unit.set_ai_state(
             AIState::Docking,
@@ -703,7 +703,7 @@ impl GameLogic {
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             self.frame,
             &mut crate::game_logic::ScriptPresentationEffects::default()
-                .reborrow_for_object(&mut self.partition_manager),
+                .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
         );
         unit.set_ai_state(
             AIState::Entering,
@@ -832,7 +832,7 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
                 &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
+                    .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
             unit.set_max_shots_to_fire(max_shots_to_fire);
             true

@@ -286,7 +286,7 @@ impl GameLogic {
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     self.frame,
                     &mut crate::game_logic::ScriptPresentationEffects::default()
-                        .reborrow_for_object(&mut self.partition_manager),
+                        .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
                 pilot.set_status_pilot_did_move_to_base(false);
                 pilot.set_ai_state(
@@ -1107,7 +1107,7 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
                 &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
+                    .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
         }
         self.path_approach_with_state(unit_id, pad_pos, AIState::SeekingHealing);
@@ -1415,7 +1415,7 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
                 &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
+                    .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
             obj.target_location = None;
         }

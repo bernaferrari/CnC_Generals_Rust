@@ -296,7 +296,7 @@ impl GameLogic {
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
             let entered_attack = !matches!(
                 attacker.ai_state(),
@@ -760,7 +760,7 @@ impl GameLogic {
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
             let entered_attack = !matches!(
                 attacker.ai_state(),

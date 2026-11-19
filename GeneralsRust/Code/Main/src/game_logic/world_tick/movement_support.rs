@@ -2631,7 +2631,7 @@ impl GameLogic {
                             let reaction = obj.prepare_owned_position_tree_reaction(
                                 new_position,
                                 pose_frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                                 trigger_position,
                             );
                             let _ = obj;
@@ -2680,7 +2680,7 @@ impl GameLogic {
                                 let reaction = obj.prepare_owned_position_tree_reaction(
                                     cheated,
                                     pose_frame,
-                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                    &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                                     trigger_position,
                                 );
                                 let _ = obj;
@@ -2726,7 +2726,7 @@ impl GameLogic {
                                 let reaction = obj.prepare_owned_position_tree_reaction(
                                     stepped,
                                     pose_frame,
-                                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                    &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                                     trigger_position,
                                 );
                                 let _ = obj;
@@ -3078,7 +3078,7 @@ impl GameLogic {
                             let reaction = obj.prepare_owned_position_tree_reaction(
                                 position,
                                 pose_frame,
-                                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                                &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                                 trigger_position,
                             );
                             let _ = obj;

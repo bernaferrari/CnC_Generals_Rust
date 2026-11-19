@@ -379,7 +379,7 @@ impl GameLogic {
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.set_orientation_with_effects(
                     orient,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
                 jet.set_ai_state(
                     AIState::Idle,
@@ -749,7 +749,7 @@ impl GameLogic {
             jet.producer_id = Some(carrier_id);
             jet.set_orientation_with_effects(
                 orient,
-                &mut effects.reborrow_for_object(&mut self.partition_manager),
+                &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
         }
         self.flight_deck_exit_object_via_door(carrier_id, jet_id, effects);
@@ -1069,7 +1069,7 @@ impl GameLogic {
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                         self.frame,
                         &mut crate::game_logic::ScriptPresentationEffects::default()
-                            .reborrow_for_object(&mut self.partition_manager),
+                            .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                     );
                 }
             }
@@ -1081,7 +1081,7 @@ impl GameLogic {
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     self.frame,
                     &mut crate::game_logic::ScriptPresentationEffects::default()
-                        .reborrow_for_object(&mut self.partition_manager),
+                        .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
                 jet.set_ai_state(
                     AIState::AttackMoving,
@@ -1097,7 +1097,7 @@ impl GameLogic {
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     self.frame,
                     &mut crate::game_logic::ScriptPresentationEffects::default()
-                        .reborrow_for_object(&mut self.partition_manager),
+                        .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
                 jet.set_ai_state(
                     AIState::Entering,

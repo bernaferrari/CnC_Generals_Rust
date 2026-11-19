@@ -419,13 +419,6 @@ pub struct Object {
     /// Unique identifier
     pub id: ObjectId,
 
-    /// Weak handle to this object's owning Main world trigger state. Objects
-    /// update membership during pose changes, while the `GameLogic` field is
-    /// the sole strong owner and reset/save boundary.
-    #[serde(skip)]
-    pub(super) host_trigger_world: runtime_attachment::RuntimeAttachment<
-        std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
-    >,
     /// Explicit receiving team factory used at the synchronous trigger-edge
     /// callback. Observation clones are detached until world admission.
     #[serde(skip)]

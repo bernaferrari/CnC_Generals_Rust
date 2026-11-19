@@ -117,7 +117,7 @@ impl GameLogic {
                 .prepare_owned_transform_tree_reaction(
                     transform,
                     self.frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                     trigger_position,
                 );
             self.complete_owned_position_reaction(rider_id, reaction, effects)

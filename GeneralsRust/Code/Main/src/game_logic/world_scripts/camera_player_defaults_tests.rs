@@ -145,6 +145,7 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
         let mut effects = ScriptPresentationEffects {
             script_events: None,
             partition: None,
+            trigger_world: None,
             audio: None,
             terrain: None,
             ui: None,
@@ -234,6 +235,7 @@ fn short_mmb_defaults_keep_first_setter_motion_then_cancel_second_and_sample_pos
             .admit_short_mmb_defaults(&mut ScriptPresentationEffects {
                 script_events: None,
                 partition: None,
+                trigger_world: None,
                 audio: None,
                 terrain: None,
                 ui: None,
@@ -282,6 +284,7 @@ fn reset_and_mmb_default_share_minimum_hag_floor_without_mutating_peer() {
         .admit_short_mmb_defaults(&mut ScriptPresentationEffects {
             script_events: None,
             partition: None,
+            trigger_world: None,
             audio: None,
             terrain: None,
             ui: None,

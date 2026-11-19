@@ -180,7 +180,7 @@ impl GameLogic {
                     ground_slot,
                     max_step,
                     self.frame,
-                    &mut effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 )
             } else {
                 true

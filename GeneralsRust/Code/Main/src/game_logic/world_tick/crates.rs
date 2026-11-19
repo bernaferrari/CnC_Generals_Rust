@@ -1275,7 +1275,7 @@ impl GameLogic {
                                 ),
                                 self.frame,
                                 &mut crate::game_logic::ScriptPresentationEffects::default()
-                                    .reborrow_for_object(&mut self.partition_manager),
+                                    .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                             );
                         }
                     }
@@ -1377,7 +1377,7 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
                 &mut crate::game_logic::ScriptPresentationEffects::default()
-                    .reborrow_for_object(&mut self.partition_manager),
+                    .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
             unit.ignored_obstacle_id = Some(crawler_id);
             unit.last_command_source = HUNT_CMD_FROM_AI;

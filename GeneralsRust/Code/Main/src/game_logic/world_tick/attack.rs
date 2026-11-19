@@ -142,7 +142,7 @@ impl GameLogic {
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
                 entered_attack = u.unit_ai_runtime.current_leaf_state() != AIState::Attacking;
                 if entered_attack {
@@ -535,7 +535,7 @@ impl GameLogic {
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
             u.set_status_attacking(true);
             entered_attack = !matches!(
@@ -2205,7 +2205,7 @@ impl GameLogic {
                     &mut self.attack_events,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
                 {}
                 let Some(slot) = u.selected_weapon_slot() else {
@@ -2216,7 +2216,7 @@ impl GameLogic {
                     slot,
                     max_turn_rad.max(0.05),
                     self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                    &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
                 let range_ok = u.is_within_attack_range_pos_for_slot_with_solo_set(
                     slot,
@@ -2408,7 +2408,7 @@ impl GameLogic {
                 &mut self.attack_events,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
             );
             let entered_attack = !matches!(
                 u.ai_state(),
@@ -2450,7 +2450,7 @@ impl GameLogic {
                     .map(|_| &self.projectile_definitions),
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 self.frame,
-                &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 &self.solo_weapon_bonus_set,
                 rates,
                 bonuses,

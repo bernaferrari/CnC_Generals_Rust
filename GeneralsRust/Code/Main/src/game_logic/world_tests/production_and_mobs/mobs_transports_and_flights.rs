@@ -3392,7 +3392,7 @@ fn a10_transport_pose_uses_the_receiving_world_after_id_collision() {
     receiving
         .host_object_mut(receiving_jet)
         .expect("receiving transport")
-        .attach_host_trigger_world(&peer.host_trigger_world, &peer.team_factory);
+        .attach_team_factory(&peer.team_factory);
 
     receiving.frame = 1;
     receiving.update_a10_strike_flights();

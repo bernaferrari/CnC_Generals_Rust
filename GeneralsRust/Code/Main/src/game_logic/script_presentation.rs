@@ -659,6 +659,10 @@ pub(crate) struct ScriptPresentationEffects<'a> {
     /// Present only around an Object operation after split borrowing the
     /// driving GameLogic fields; never retained across an &mut GameLogic call.
     pub(crate) partition: Option<&'a mut crate::game_logic::partition_manager::PartitionManager>,
+    /// The driving world's trigger-edge state, lent for the same operation as
+    /// `partition` (Object pose changes report trigger edges here; Objects hold
+    /// no handle to their world).
+    pub(crate) trigger_world: Option<&'a std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
 }
 impl ScriptPresentationEffects<'_> {
     /// Reject an invalid supplied native mode before the driving world starts
@@ -693,8 +697,21 @@ impl ScriptPresentationEffects<'_> {
         local
     }
 
+    /// `reborrow_for_object` plus the driving world's trigger state.
+    pub(crate) fn reborrow_for_world<'a>(
+        &'a mut self,
+        partition: &'a mut crate::game_logic::partition_manager::PartitionManager,
+        trigger_world: &'a std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+    ) -> ScriptPresentationEffects<'a> {
+        let mut local = self.reborrow();
+        local.partition = Some(partition);
+        local.trigger_world = Some(trigger_world);
+        local
+    }
+
     pub(crate) fn reborrow(&mut self) -> ScriptPresentationEffects<'_> {
         ScriptPresentationEffects {
+            trigger_world: self.trigger_world,
             script_events: self.script_events,
             pristine_bones: self.pristine_bones,
             partition: self.partition.as_deref_mut(),

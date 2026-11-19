@@ -692,7 +692,7 @@ impl GameLogic {
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     self.frame,
                     &mut crate::game_logic::ScriptPresentationEffects::default()
-                        .reborrow_for_object(&mut self.partition_manager),
+                        .reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world),
                 );
                 o.turret_ai.turret_mood_target = true;
                 o.turret_ai.turret_idle_scanning = false;

@@ -2355,7 +2355,7 @@ fn airfield_takeoff_releases_parking_slot() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             0,
             &mut crate::game_logic::ScriptPresentationEffects::default()
-                .reborrow_for_object(&mut logic.partition_manager),
+                .reborrow_for_world(&mut logic.partition_manager, &logic.host_trigger_world),
         );
     }
     assert!(logic.release_jet_from_airfield_parking(jet_id));
