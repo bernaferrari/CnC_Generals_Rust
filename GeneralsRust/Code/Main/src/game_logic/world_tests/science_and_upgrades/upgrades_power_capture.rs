@@ -245,7 +245,7 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         .expect("completed paradrop");
     assert!(
         !mission.spawned_unit_ids.is_empty(),
-        "paradrop spawned nothing: rangers_alive={:?} mission={:?} plan_template_in_store={} direct_create={:?} frame={}",
+        "paradrop spawned nothing: rangers_alive={:?} mission={:?} plan_template_in_store={} frame={}",
         logic
             .objects
             .registered()
@@ -254,13 +254,6 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
             .collect::<Vec<_>>(),
         logic.host_paradrops.get(paradrop_id),
         logic.templates.contains_key(crate::game_logic::host_paradrop::AMERICA_RANGER_TEMPLATE),
-        logic
-            .create_object_for_player(
-                crate::game_logic::host_paradrop::AMERICA_RANGER_TEMPLATE,
-                0,
-                Vec3::new(200.0, 120.0, 0.0)
-            )
-            .is_some(),
         logic.frame
     );
     assert!(mission.spawned_unit_ids.iter().all(|id| {
