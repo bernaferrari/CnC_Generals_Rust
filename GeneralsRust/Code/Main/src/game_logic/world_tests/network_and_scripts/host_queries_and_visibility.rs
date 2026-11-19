@@ -163,15 +163,9 @@ fn host_named_unit_found_with_empty_object_registry() {
 
 #[test]
 fn live_executor_named_team_conditions_use_host_snapshot() {
-    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
-
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
     use gamelogic::scripting::engine::get_named_object_tracker;
-    use gamelogic::scripting::executor::{
-        ScriptConditionEvaluator, ScriptConditionResult, ScriptContext,
-    };
-    use std::sync::{Arc, RwLock};
 
     assert!(OBJECT_REGISTRY.is_empty());
     get_named_object_tracker().clear().unwrap();
@@ -196,61 +190,37 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
     logic.initialize_receiving_named_cache_for_fixture();
     logic.inject_host_script_query_snapshot();
 
-    // inject_host_script_query_snapshot published on this world's own services;
-    // the evaluator must read them, not the ambient (unbound) ones.
-    logic.with_own_services(|| {
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
-        let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
-
-        let mut created = Condition::new(ConditionType::NamedCreated);
-        created
-            .add_parameter(Parameter::with_string(
-                ParameterType::Unit,
-                "MapNamedScout".into(),
-            ))
+    let condition = |kind, parameter_type, name: &str| {
+        let mut condition = Condition::new(kind);
+        condition
+            .add_parameter(Parameter::with_string(parameter_type, name.into()))
             .unwrap();
-        assert_eq!(
-            evaluator.evaluate_condition(&mut created).unwrap(),
-            ScriptConditionResult::True
-        );
+        condition
+    };
+    // Each condition runs through this world's own script engine and host
+    // driver (the production evaluation path), not a driverless evaluator
+    // bound to whatever world happens to be published.
+    assert!(logic.owned_script_condition_for_test(condition(
+        ConditionType::NamedCreated,
+        ParameterType::Unit,
+        "MapNamedScout"
+    )));
+    assert!(!logic.owned_script_condition_for_test(condition(
+        ConditionType::NamedTotallyDead,
+        ParameterType::Unit,
+        "MapNamedScout"
+    )));
+    assert!(!logic.owned_script_condition_for_test(condition(
+        ConditionType::TeamDestroyed,
+        ParameterType::Team,
+        "USA_RangerSquad"
+    )));
+    assert!(logic.owned_script_condition_for_test(condition(
+        ConditionType::TeamHasUnits,
+        ParameterType::Team,
+        "USA_RangerSquad"
+    )));
 
-        let mut totally_dead = Condition::new(ConditionType::NamedTotallyDead);
-        totally_dead
-            .add_parameter(Parameter::with_string(
-                ParameterType::Unit,
-                "MapNamedScout".into(),
-            ))
-            .unwrap();
-        assert_eq!(
-            evaluator.evaluate_condition(&mut totally_dead).unwrap(),
-            ScriptConditionResult::False
-        );
-
-        let mut destroyed = Condition::new(ConditionType::TeamDestroyed);
-        destroyed
-            .add_parameter(Parameter::with_string(
-                ParameterType::Team,
-                "USA_RangerSquad".into(),
-            ))
-            .unwrap();
-        assert_eq!(
-            evaluator.evaluate_condition(&mut destroyed).unwrap(),
-            ScriptConditionResult::False
-        );
-
-        let mut has_units = Condition::new(ConditionType::TeamHasUnits);
-        has_units
-            .add_parameter(Parameter::with_string(
-                ParameterType::Team,
-                "USA_RangerSquad".into(),
-            ))
-            .unwrap();
-        assert_eq!(
-            evaluator.evaluate_condition(&mut has_units).unwrap(),
-            ScriptConditionResult::True
-        );
-
-    });
     get_named_object_tracker().clear().unwrap();
 }
 
@@ -927,6 +897,23 @@ fn host_ai_rebind_after_world_wipe_keeps_players_cash_and_rebuilds() {
     // wiped world can never start it. Restore both at the AI's layout
     // anchor (base_center default Vec3::ZERO; pads at ±50/100 stay clear of
     // the +45 offset CC footprint), exactly as the map does.
+    // A map restores authored (admitted) Objects, never proxies the rebind
+    // installed: with receiving content the factory spawns only admitted
+    // definitions, so the map's CommandCenter and worker are authored here.
+    crate::fixture_content::admit_fixture_content_with_actions(
+        &mut logic,
+        &[
+            crate::fixture_content::FixtureObject::new("GLA_CommandCenter")
+                .kind_of("STRUCTURE COMMANDCENTER SELECTABLE")
+                .health(2000.0),
+            crate::fixture_content::FixtureObject::new("GLAInfantryWorker")
+                .kind_of("INFANTRY DOZER SELECTABLE")
+                .health(100.0)
+                .walker(),
+        ],
+        &[],
+        "",
+    );
     logic
         .create_object_for_player_with_effects_checked(
             "GLA_CommandCenter",
