@@ -295,8 +295,7 @@ impl<'a> BorrowedAiWorld<'a> {
             garrisonable,
             self.services.frame,
             self.services.unlook_persist_frames,
-        )
-        .expect("admitted native partition services");
+        );
         object.handle_partition_cell_maintenance_with_services(&mut services);
     }
 }

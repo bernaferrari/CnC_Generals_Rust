@@ -1199,9 +1199,9 @@ impl GameLogic {
         // (PartitionManager.cpp:2052-2062) — the movement-driven shroud
         // look/unlook driver. Deferred here so no object read guard is held
         // while `handle_partition_cell_maintenance` mutates the object.
-        // Explicit borrowed owners (this world's partition manager + the
-        // shroud/object-manager/player-list stores); an object whose borrowed
-        // route cannot be admitted keeps the legacy bridge for that call.
+        // Explicit borrowed owners: this world's partition manager, shroud,
+        // object index and player list, locked (blocking, never try-locked)
+        // per object. One route, so timing never depends on lock contention.
         let partition = Arc::clone(&self.partition);
         let shroud = get_shroud_manager();
         let spatial_objects = crate::object_manager::get_object_manager();
@@ -1210,19 +1210,19 @@ impl GameLogic {
             .map(|data| data.unlook_persist_duration)
             .unwrap_or(0);
         let maintain = |object: &mut Object| {
-            let borrowed = match partition.write() {
-                Ok(mut partition) => object.handle_partition_cell_maintenance_borrowed(
-                    &mut partition,
-                    &shroud,
-                    &spatial_objects,
-                    frame,
-                    unlook_persist_frames,
-                ),
-                Err(_) => false,
-            };
-            if !borrowed {
-                object.handle_partition_cell_maintenance();
-            }
+            let mut partition = partition.write().unwrap_or_else(|e| e.into_inner());
+            let mut shroud = shroud.lock().unwrap_or_else(|e| e.into_inner());
+            let mut spatial_objects = spatial_objects.write().unwrap_or_else(|e| e.into_inner());
+            let players_arc = crate::player::player_list();
+            let players = players_arc.read().unwrap_or_else(|e| e.into_inner());
+            object.handle_partition_cell_maintenance_borrowed(
+                &mut partition,
+                &mut shroud,
+                &mut spatial_objects,
+                &players,
+                frame,
+                unlook_persist_frames,
+            );
         };
         for obj_id in cell_changed {
             // C++ walks the live object list by pointer — no registry, no

@@ -104,12 +104,9 @@ impl<'a> ObjectPartitionServices<'a> {
         container_garrisonable: bool,
         frame: u32,
         unlook_persist_frames: u32,
-    ) -> Result<Self, String> {
-        if !shroud.has_shroud_grid() {
-            return Err("partition vision requires an admitted shroud grid".into());
-        }
-        Ok(Self {
-            masks: VisionMasks::capture(controller, players)?,
+    ) -> Self {
+        Self {
+            masks: VisionMasks::capture(controller, players).unwrap_or_default(),
             owners: VisionOwners::Borrowed {
                 partition,
                 shroud,
@@ -119,7 +116,7 @@ impl<'a> ObjectPartitionServices<'a> {
             },
             container_garrisonable,
             look_enabled: true,
-        })
+        }
     }
 
     fn partition(&mut self) -> Option<&mut PartitionManager> {
@@ -338,56 +335,41 @@ impl Object {
 
     /// `Object::onPartitionCellChange` with explicitly borrowed owners (the
     /// `GameLogic::update` drain of `PartitionManager::take_cell_changed_events`).
-    /// Runs the identical phase algorithm as the legacy bridge, inline and in
-    /// the same frame — no timing difference. Returns `false` WITHOUT having
-    /// touched anything when the borrowed route cannot be admitted (reset in
-    /// progress, no shroud grid, object manager busy, player list locked);
-    /// the caller then keeps using the legacy bridge for that object.
+    /// Unconditional: the caller has already locked this world's partition
+    /// manager, shroud, object index and player list, and the phases run inline
+    /// in the same frame. No admission branch decides between routes (C++ has
+    /// one route); only game state does: `look` is disabled while the object
+    /// registry is empty, exactly as the ambient route.
     pub fn handle_partition_cell_maintenance_borrowed(
         &mut self,
         partition: &mut PartitionManager,
-        shroud: &std::sync::Mutex<ShroudManager>,
-        objects: &RwLock<ObjectManager>,
+        shroud: &mut ShroudManager,
+        objects: &mut ObjectManager,
+        players: &crate::player::PlayerList,
         frame: u32,
         unlook_persist_frames: u32,
-    ) -> bool {
-        if dual_world_registry_unavailable() || crate::object_manager::is_resetting() {
-            return false;
-        }
-        let Ok(mut shroud) = shroud.lock() else {
-            return false;
-        };
-        if !shroud.has_shroud_grid() {
-            return false;
-        }
-        let Ok(mut objects) = objects.try_write() else {
-            return false;
-        };
-        let players_arc = player_list();
-        let Ok(players) = players_arc.read() else {
-            return false;
-        };
+    ) {
         let controller = self.get_controlling_player();
-        let controller_guard = controller.as_ref().and_then(|player| player.read().ok());
+        let controller_guard = controller
+            .as_ref()
+            .map(|player| player.read().unwrap_or_else(|e| e.into_inner()));
         let admitted_controller = match (&controller, &controller_guard) {
             (Some(identity), Some(guard)) => Some((identity, &**guard)),
             _ => None,
         };
         let garrisonable = self.partition_container_garrisonable();
-        let Ok(mut services) = ObjectPartitionServices::new(
+        let mut services = ObjectPartitionServices::new(
             partition,
-            &mut shroud,
-            &mut objects,
-            &players,
+            shroud,
+            objects,
+            players,
             admitted_controller,
             garrisonable,
             frame,
             unlook_persist_frames,
-        ) else {
-            return false;
-        };
+        );
+        services.look_enabled = !dual_world_registry_unavailable();
         self.partition_maintenance(&mut services);
-        true
     }
 
     pub fn handle_partition_cell_maintenance_with_services(
