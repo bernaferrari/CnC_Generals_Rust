@@ -688,27 +688,6 @@ impl GameLogic {
             }
             // C++ TransitionDamageFX + FXListDie → FXList::doFXObj / doFXPos.
             {
-                let (pos, yaw, model, scale) = self
-                    .objects
-                    .get(&object_id)
-                    .map(|o| {
-                        (
-                            o.get_position(),
-                            o.get_orientation(),
-                            o.thing()
-                                .template
-                                .model_name_for_conditions(o.model_condition_bits),
-                            o.thing().template.asset_scale,
-                        )
-                    })
-                    .unwrap_or((glam::Vec3::ZERO, 0.0, String::new(), 1.0));
-                // Keep an incarnation receipt across each synchronous effect.
-                // A callback may remove the victim; a later queued slot must
-                // not silently bind to a different object with the same ID.
-                let transition_owner_identity = self
-                    .objects
-                    .get(&object_id)
-                    .map(|object| self.live_draw_playback_identity(object));
                 let (transition_evs, death_fx, death_audio, death_audio_stop, death_killer) =
                     if let Some(o) = self.objects.get_mut(&object_id) {
                         let te = o.take_pending_transition_damage_fx();
@@ -719,6 +698,27 @@ impl GameLogic {
                     } else {
                         (Vec::new(), None, None, false, None)
                     };
+                let has_effects = !transition_evs.is_empty() || death_fx.is_some() || death_audio.is_some();
+                // Draining the fields above changes neither pose nor Draw state.
+                // Capture both before the first synchronous effect can change
+                // the Object or replace its allocation under the same ID.
+                let (pos, yaw, model, scale, transition_owner_identity) = has_effects
+                    .then(|| self.objects.get(&object_id))
+                    .flatten()
+                    .map(|object| {
+                        let template = &object.thing().template;
+                        let model = transition_evs.iter().any(|event| !event.particles.is_empty())
+                            .then(|| template.model_name_for_conditions(object.model_condition_bits))
+                            .unwrap_or_default();
+                        (
+                            object.get_position(),
+                            object.get_orientation(),
+                            model,
+                            template.asset_scale,
+                            Some(self.live_draw_playback_identity(object)),
+                        )
+                    })
+                    .unwrap_or((glam::Vec3::ZERO, 0.0, String::new(), 1.0, None));
                 for ev in transition_evs {
                     if let Some(a) = ev.audio_name {
                         self.queue_audio_event(
