@@ -412,11 +412,13 @@ mod tests {
 
     #[test]
     fn skirmish_command_falls_back_to_the_map_name() {
-        let cmds = InstanceScenario::golden().menu_commands(None);
-        assert_eq!(
-            cmds,
-            vec!["start_game|mode=skirmish|map=Lone Eagle".to_string()]
-        );
+        let empty = tempfile::tempdir().unwrap();
+        let map = empty.path().join("Uninstalled Fixture.map").display().to_string();
+        let scenario = InstanceScenario::Skirmish {
+            map: map.clone(),
+            faction: None,
+        };
+        assert_eq!(scenario.menu_commands(None), vec![format!("start_game|mode=skirmish|map={map}")]);
     }
 
     #[test]
