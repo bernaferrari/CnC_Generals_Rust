@@ -804,9 +804,14 @@ impl ProjectedShroudCache {
                 && source.height == grid.height
                 && source.cell_size.to_bits() == grid.cell_size.to_bits()
                 && source.world_origin_xy.map(f32::to_bits) == grid.world_origin_xy.map(f32::to_bits)
-                && projection.metadata == metadata
             {
-                return projection.clone();
+                let mut previous_levels = projection.metadata;
+                previous_levels.shroud_color_rgb = metadata.shroud_color_rgb;
+                if projection.active && previous_levels == metadata {
+                    let mut projected = projection.clone();
+                    projected.metadata = metadata;
+                    return projected;
+                }
             }
         }
         let projection = ProjectedShroudSnapshot::from_grid(grid, metadata);
@@ -1630,6 +1635,25 @@ mod host_fow_fail_open_tests {
         assert_eq!(peer.status(object), ObjectShroudStatus::PartialClear);
         assert_eq!(peer.visibility(object), ObjectVisibility::FULLY_VISIBLE);
         assert_eq!(peer.status(unknown), ObjectShroudStatus::Clear);
+    }
+
+    #[test]
+    fn projected_cache_reuses_scalar_texels_when_only_shroud_tint_changes() {
+        let grid = PresentationFowGrid::from_snapshot(2, 2, 40.0, vec![2, 1, 2, 0]);
+        let mut cache = ProjectedShroudCache::default();
+        let mut metadata = ProjectedShroudMetadata::default();
+        let original = cache.snapshot(&grid, metadata);
+
+        metadata.shroud_color_rgb = [96, 215, 126];
+        let tinted = cache.snapshot(&grid, metadata);
+        assert!(Arc::ptr_eq(&original.texels, &tinted.texels));
+        assert_eq!(tinted, ProjectedShroudSnapshot::from_grid(&grid, metadata));
+        assert_ne!(tinted.content_fingerprint(), original.content_fingerprint());
+
+        metadata.fog_alpha = 92;
+        let dimmed = cache.snapshot(&grid, metadata);
+        assert!(!Arc::ptr_eq(&tinted.texels, &dimmed.texels));
+        assert_eq!(dimmed, ProjectedShroudSnapshot::from_grid(&grid, metadata));
     }
 
     #[test]

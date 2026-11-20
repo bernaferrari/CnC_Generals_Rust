@@ -81,15 +81,22 @@ impl ProjectedShroudUploadPlan {
         snapshot: &ProjectedShroudSnapshot,
         resident: Option<ProjectedShroudTextureState>,
     ) -> Self {
-        let Some(extent) = snapshot.texture_extent() else {
+        let target = snapshot.texture_extent().map(|extent| ProjectedShroudTextureState {
+            extent,
+            texture_fingerprint: snapshot.texture_fingerprint(),
+        });
+        Self::for_texture(target, resident)
+    }
+
+    fn for_texture(
+        target: Option<ProjectedShroudTextureState>,
+        resident: Option<ProjectedShroudTextureState>,
+    ) -> Self {
+        let Some(target) = target else {
             return Self {
                 action: ProjectedShroudUploadAction::Deactivate,
                 target: None,
             };
-        };
-        let target = ProjectedShroudTextureState {
-            extent,
-            texture_fingerprint: snapshot.texture_fingerprint(),
         };
         let action = match resident {
             None => ProjectedShroudUploadAction::AllocateAndWrite,
@@ -124,6 +131,9 @@ struct ProjectedShroudGpuTexture {
 pub struct ProjectedShroudGpuUploader {
     texture: Option<ProjectedShroudGpuTexture>,
     resident: Option<ProjectedShroudTextureState>,
+    // The native terrain path shares its GPU texture with the model pass.
+    // Keep this CPU byte identity even without an uploader-owned GPU resource.
+    fingerprinted_texels: Option<(Arc<[u8]>, ProjectedShroudTextureState)>,
     allocation_count: u64,
     upload_count: u64,
 }
@@ -133,6 +143,7 @@ impl Default for ProjectedShroudGpuUploader {
         Self {
             texture: None,
             resident: None,
+            fingerprinted_texels: None,
             allocation_count: 0,
             upload_count: 0,
         }
@@ -151,11 +162,11 @@ impl ProjectedShroudGpuUploader {
         queue: &wgpu::Queue,
         snapshot: &ProjectedShroudSnapshot,
     ) -> ProjectedShroudUploadPlan {
-        let plan = ProjectedShroudUploadPlan::for_snapshot(snapshot, self.resident);
+        let target = self.snapshot_texture_state(snapshot);
+        let plan = ProjectedShroudUploadPlan::for_texture(target, self.resident);
         match plan.action {
             ProjectedShroudUploadAction::Deactivate => {
-                self.texture = None;
-                self.resident = None;
+                self.clear();
             }
             ProjectedShroudUploadAction::AllocateAndWrite => {
                 let target = plan.target.expect("active projection has a texture target");
@@ -174,6 +185,24 @@ impl ProjectedShroudGpuUploader {
             ProjectedShroudUploadAction::Unchanged => {}
         }
         plan
+    }
+
+    fn snapshot_texture_state(
+        &mut self,
+        snapshot: &ProjectedShroudSnapshot,
+    ) -> Option<ProjectedShroudTextureState> {
+        let extent = snapshot.texture_extent()?;
+        if let Some((texels, state)) = &self.fingerprinted_texels {
+            if state.extent == extent && Arc::ptr_eq(texels, &snapshot.texels) {
+                return Some(*state);
+            }
+        }
+        let state = ProjectedShroudTextureState {
+            extent,
+            texture_fingerprint: snapshot.texture_fingerprint(),
+        };
+        self.fingerprinted_texels = Some((snapshot.texels.clone(), state));
+        Some(state)
     }
 
     fn create_texture(device: &wgpu::Device, extent: (u32, u32)) -> ProjectedShroudGpuTexture {
@@ -304,12 +333,10 @@ impl ProjectedShroudGpuUploader {
         view: &Arc<wgpu::TextureView>,
         sampler: &Arc<wgpu::Sampler>,
     ) -> Option<FrozenProjectedShroudTexture> {
-        let target = ProjectedShroudTextureState {
-            extent: snapshot.texture_extent()?,
-            texture_fingerprint: snapshot.texture_fingerprint(),
-        };
+        let target = self.snapshot_texture_state(snapshot)?;
         let binding = Self::binding_for_resources(snapshot, target, view, sampler)?;
-        self.clear();
+        self.texture = None;
+        self.resident = None;
         Some(binding)
     }
 
@@ -352,6 +379,7 @@ impl ProjectedShroudGpuUploader {
     pub fn clear(&mut self) {
         self.texture = None;
         self.resident = None;
+        self.fingerprinted_texels = None;
     }
 }
 
@@ -437,6 +465,31 @@ mod tests {
         );
         assert_eq!(plan.action, ProjectedShroudUploadAction::Deactivate);
         assert_eq!(plan.target, None);
+    }
+
+    #[test]
+    fn repeated_receiving_payload_keeps_one_texture_fingerprint() {
+        let mut uploader = ProjectedShroudGpuUploader::default();
+        let clear = snapshot(2, 2, vec![2, 1, 0, 2]);
+        let first = uploader.snapshot_texture_state(&clear).unwrap();
+        let mut projected = clear.clone();
+        projected.draw_origin_xy = [80.0, 140.0];
+        projected.metadata.shroud_color_rgb = [123, 34, 245];
+        assert_eq!(uploader.snapshot_texture_state(&projected), Some(first));
+
+        Arc::make_mut(&mut projected.texels)[0] ^= 1;
+        let changed = uploader.snapshot_texture_state(&projected).unwrap();
+        assert_eq!(changed.extent, first.extent);
+        assert_ne!(changed.texture_fingerprint, first.texture_fingerprint);
+        assert_eq!(changed.texture_fingerprint, projected.texture_fingerprint());
+        assert_eq!(uploader.snapshot_texture_state(&clear), Some(first));
+
+        uploader.clear();
+        assert!(uploader.fingerprinted_texels.is_none());
+        assert_eq!(
+            uploader.snapshot_texture_state(&ProjectedShroudSnapshot::inactive()),
+            None,
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]
