@@ -393,6 +393,7 @@ pub struct OverlayGpuState {
     pub cloud_map: crate::terrain::textures::CloudMapTexture,
     pub last_sway_version: i32,
     polygon_water_mesh_stamp: Option<PolygonWaterMeshStamp>,
+    polygon_water_indices: HashMap<PolygonWaterTopology, wgpu::Buffer>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,6 +401,52 @@ struct PolygonWaterMeshStamp {
     river_phase: u32,
     diffuse: u32,
     feather: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum PolygonWaterTopology {
+    Trapezoid { columns: u32, rows: u32 },
+    River { rectangles: u32 },
+}
+
+impl PolygonWaterTopology {
+    fn index_count(self) -> u32 {
+        match self {
+            Self::Trapezoid { columns, rows } => (columns - 1) * (rows - 1) * 6,
+            Self::River { rectangles } => rectangles * 6,
+        }
+    }
+
+    fn indices(self) -> Vec<u32> {
+        let mut indices = Vec::with_capacity(self.index_count() as usize);
+        match self {
+            Self::Trapezoid { columns, rows } => {
+                for row in 0..rows - 1 {
+                    for column in 0..columns - 1 {
+                        let top_left = row * columns + column;
+                        let bottom_left = top_left + columns;
+                        let bottom_right = bottom_left + 1;
+                        let top_right = top_left + 1;
+                        indices.extend_from_slice(&[
+                            top_left,
+                            bottom_right,
+                            bottom_left,
+                            top_left,
+                            top_right,
+                            bottom_right,
+                        ]);
+                    }
+                }
+            }
+            Self::River { rectangles } => {
+                for row in 0..rectangles {
+                    let base = row * 2;
+                    indices.extend_from_slice(&[base, base + 1, base + 3, base, base + 3, base + 2]);
+                }
+            }
+        }
+        indices
+    }
 }
 
 #[derive(Default)]

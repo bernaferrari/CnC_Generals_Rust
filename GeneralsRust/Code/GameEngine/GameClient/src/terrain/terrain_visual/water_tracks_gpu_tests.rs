@@ -62,6 +62,166 @@ fn unchanged_water_and_shoreline_keep_their_gpu_buffers() {
 }
 
 #[test]
+#[ignore = "requires native GPU and the mounted retail map and textures"]
+fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
+    use game_engine::common::ini::ini::INILoadType;
+    use game_engine::common::ini::ini_water::WaterDefinitions;
+    use game_engine::common::system::big_file_system::{BigArchiveBackend, BigFileSystem};
+    use game_engine::common::system::file_system::get_file_system;
+    use game_engine::common::system::subsystem_interface::SubsystemInterface;
+    use gamelogic::system::map_loader::MapLoader;
+    use std::io::Read;
+
+    let retail = std::env::var_os("GENERALS_ASSETS_DIR").expect("retail Zero Hour assets required");
+    let base = std::env::var_os("GENERALS_BASE_DIR").expect("retail Generals textures required");
+    let mut maps = BigFileSystem::new();
+    maps.open_archive_file(Path::new(&retail).join("Data/MapsZH.big"))
+        .unwrap();
+    let mut bytes = Vec::new();
+    maps.open_file("Maps/Lone Eagle/Lone Eagle.map", 0)
+        .unwrap()
+        .read_to_end(&mut bytes)
+        .unwrap();
+    let mut ini_archive = BigFileSystem::new();
+    ini_archive
+        .open_archive_file(Path::new(&retail).join("Data/INIZH.big"))
+        .unwrap();
+    let mut water_ini = String::new();
+    ini_archive
+        .open_file("Data/INI/Water.ini", 0)
+        .unwrap()
+        .read_to_string(&mut water_ini)
+        .unwrap();
+    let source = tempfile::tempdir().unwrap();
+    std::fs::hard_link(
+        Path::new(&base).join("Data/Textures.big"),
+        source.path().join("Textures.big"),
+    )
+    .unwrap();
+    let world = gamelogic::system::engine_stores::new_world_services();
+    gamelogic::system::engine_stores::with_world_services(&world, || {
+        let mut backend = BigArchiveBackend::new();
+        backend.add_search_path(source.path());
+        {
+            let files = get_file_system();
+            let mut files = files.lock().unwrap();
+            files.register_backend(Box::new(backend));
+            files.init().unwrap();
+        }
+
+        let mut loader = MapLoader::new();
+        loader.load_runtime_support_from_bytes(&bytes).unwrap();
+        let areas: Vec<_> = loader
+            .to_map_data()
+            .polygon_triggers
+            .iter()
+            .filter(|trigger| trigger.is_water_area() && trigger.get_num_points() > 2)
+            .map(|trigger| TerrainWaterArea {
+                points: (0..trigger.get_num_points())
+                    .map(|index| {
+                        let p = trigger.get_point(index).unwrap();
+                        // The native receiving terrain uses Y-up, like the Main delivery.
+                        [p.x as f32, p.z as f32, p.y as f32]
+                    })
+                    .collect(),
+                is_river: trigger.is_river(),
+                river_start: trigger.get_river_start(),
+            })
+            .collect();
+        assert_eq!(areas.len(), 3);
+        assert_eq!(areas.iter().filter(|area| area.is_river).count(), 2);
+        let (min, max) = areas.iter().flat_map(|area| &area.points).fold(
+            (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
+            |(min, max), p| {
+                let v = Vec2::new(p[0], p[2]);
+                (min.min(v), max.max(v))
+            },
+        );
+
+        let (device, queue) = native_water_test_device();
+        let mut visual = TerrainVisualImpl::new();
+        let water = WaterDefinitions::default()
+            .overlay_ini_text(&water_ini, INILoadType::Overwrite)
+            .unwrap()
+            .presentation();
+        assert!(water.setting_at(visual.water_rules().time_of_day).surface_color.3 > 0.0);
+        visual.admit_water_presentation(&water).unwrap();
+        visual
+            .init_gpu_resources(device.clone(), queue.clone())
+            .unwrap();
+        assert!(
+            visual.river_gpu.river_tex.as_ref().unwrap().width() > 1,
+            "the native polygon shader must bind the mounted TWWater01 art",
+        );
+        set_water_test_camera(
+            &mut visual,
+            &device,
+            min - Vec2::splat(20.0),
+            max + Vec2::splat(20.0),
+        );
+        visual.set_map_water_areas(areas.clone());
+        visual.sync_river_params();
+        let phase_0 = read_water_pixels(&visual, &device, &queue, true);
+        assert!(
+            phase_0.chunks_exact(4).any(|pixel| pixel[..3] != [0; 3]),
+            "the native polygon pass must paint the installed map geometry",
+        );
+        let retained = std::mem::take(&mut visual.polygon_water_meshes);
+        assert!(!retained.is_empty());
+        let mut fingerprints = vec![crc32fast::hash(&phase_0)];
+        let mut index_reuse_per_phase = Vec::new();
+        for phase in [0.002, 0.004, 0.2, 0.474] {
+            visual.overlay.river_v_origin = phase;
+            visual.sync_river_params();
+            visual.sync_polygon_water_meshes(&device).unwrap();
+            assert_eq!(visual.polygon_water_meshes.len(), retained.len());
+            let mut same_indices = 0;
+            for (mesh, initial) in visual.polygon_water_meshes.iter().zip(&retained) {
+                assert_ne!(mesh.vertex_buffer, initial.vertex_buffer);
+                assert_eq!(
+                    (mesh.index_count, mesh.river),
+                    (initial.index_count, initial.river)
+                );
+                same_indices += usize::from(mesh.index_buffer == initial.index_buffer);
+            }
+            index_reuse_per_phase.push(same_indices);
+            fingerprints.push(crc32fast::hash(&read_water_pixels(
+                &visual, &device, &queue, true,
+            )));
+        }
+        assert!(
+            fingerprints.windows(2).any(|a| a[0] != a[1]),
+            "native pixels witness active wave phase changes"
+        );
+        // An earlier recorded mesh can remain alive while later animation advances.
+        let latest = std::mem::replace(&mut visual.polygon_water_meshes, retained);
+        visual.overlay.river_v_origin = 0.0;
+        visual.sync_river_params();
+        assert_eq!(read_water_pixels(&visual, &device, &queue, true), phase_0);
+        let retained = std::mem::replace(&mut visual.polygon_water_meshes, latest);
+
+        visual.set_map_water_areas(Vec::new());
+        assert!(visual.polygon_water_meshes.is_empty());
+        let source_count = areas.len();
+        visual.set_map_water_areas(areas);
+        assert_eq!(visual.polygon_water_meshes.len(), retained.len());
+        assert!(
+            visual
+                .polygon_water_meshes
+                .iter()
+                .zip(&retained)
+                .all(|(mesh, initial)| mesh.index_buffer != initial.index_buffer)
+        );
+        let index_bytes: u64 = retained.iter().map(|mesh| mesh.index_buffer.size()).sum();
+        eprintln!(
+            "Lone Eagle {source_count} water areas and {} GPU meshes ({index_bytes} index bytes), retained indices {index_reuse_per_phase:?}, phase CRC32 {fingerprints:08x?}",
+            retained.len()
+        );
+        assert_eq!(index_reuse_per_phase, vec![retained.len(); 4]);
+    });
+}
+
+#[test]
 #[ignore = "requires a serialized native GPU"]
 fn adjacent_water_tracks_preserve_ordered_color_and_shroud_pixels() {
     let (device, queue) = native_water_test_device();

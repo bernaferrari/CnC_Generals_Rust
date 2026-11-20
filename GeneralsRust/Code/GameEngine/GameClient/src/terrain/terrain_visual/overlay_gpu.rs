@@ -210,6 +210,7 @@ impl TerrainVisualImpl {
     pub fn set_map_water_areas(&mut self, areas: Vec<TerrainWaterArea>) {
         self.overlay.water_areas = areas;
         self.overlay.polygon_water_mesh_stamp = None;
+        self.overlay.polygon_water_indices.clear();
         self.overlay.overlays_dirty = true;
         if let Some(device) = self.device.clone() {
             let _ = self.sync_polygon_water_meshes(device.as_ref());
@@ -547,6 +548,7 @@ impl TerrainVisualImpl {
         if self.overlay.water_areas.is_empty() {
             self.polygon_water_meshes.clear();
             self.overlay.polygon_water_mesh_stamp = None;
+            self.overlay.polygon_water_indices.clear();
             return Ok(());
         }
         let feather = self.water_rules.feather_water.max(0);
@@ -567,19 +569,17 @@ impl TerrainVisualImpl {
                 continue;
             }
             if area.is_river {
-                let (verts, indices) =
-                    bake_river_strip(&area.points, area.river_start, river_v, diffuse);
-                if verts.is_empty() || indices.is_empty() {
+                let Some((vertices, topology)) =
+                    bake_river_strip(&area.points, area.river_start, river_v, diffuse)
+                else {
                     continue;
-                }
-                let gpu = fill_water_gpu_upload_vertices(&verts);
-                if let Some(mut mesh) =
-                    Self::upload_water_overlay(device, "Polygon Water", &gpu, &indices)
-                {
-                    mesh.jba = true;
-                    mesh.river = true;
-                    self.polygon_water_meshes.push(mesh);
-                }
+                };
+                self.polygon_water_meshes.push(Self::upload_polygon_water(
+                    device,
+                    &mut self.overlay.polygon_water_indices,
+                    &vertices,
+                    topology,
+                ));
                 continue;
             }
             let n = area.points.len();
@@ -600,18 +600,14 @@ impl TerrainVisualImpl {
                     } else {
                         0.0
                     };
-                    let (verts, indices) =
+                    let (vertices, topology) =
                         bake_trapezoid_water(&quad, z_off, river_v, diffuse, feather);
-                    if verts.is_empty() || indices.is_empty() {
-                        continue;
-                    }
-                    let gpu = fill_water_gpu_upload_vertices(&verts);
-                    if let Some(mut mesh) =
-                        Self::upload_water_overlay(device, "Polygon Water", &gpu, &indices)
-                    {
-                        mesh.jba = true;
-                        self.polygon_water_meshes.push(mesh);
-                    }
+                    self.polygon_water_meshes.push(Self::upload_polygon_water(
+                        device,
+                        &mut self.overlay.polygon_water_indices,
+                        &vertices,
+                        topology,
+                    ));
                 }
                 k += 2;
             }
@@ -620,31 +616,35 @@ impl TerrainVisualImpl {
         Ok(())
     }
 
-    fn upload_water_overlay(
+    fn upload_polygon_water(
         device: &wgpu::Device,
-        label: &str,
-        vertices: &[WaterGpuVertex],
-        indices: &[u32],
-    ) -> Option<GpuWaterPlane> {
-        if vertices.is_empty() || indices.is_empty() {
-            return None;
-        }
-        Some(GpuWaterPlane {
+        cached_indices: &mut HashMap<PolygonWaterTopology, wgpu::Buffer>,
+        vertices: &[crate::terrain::SeaPatchVertex],
+        topology: PolygonWaterTopology,
+    ) -> GpuWaterPlane {
+        let gpu_vertices = fill_water_gpu_upload_vertices(vertices);
+        // Animation moves the vertices. The exact grid and bank triangles
+        // depend on topology and remain immutable across submitted frames.
+        let index_buffer = cached_indices.entry(topology).or_insert_with(|| {
+            let indices = topology.indices();
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Polygon water indices"),
+                contents: cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            })
+        });
+        GpuWaterPlane {
             vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(label),
-                contents: cast_slice(vertices),
+                label: Some("Polygon water vertices"),
+                contents: cast_slice(&gpu_vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             }),
-            index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(label),
-                contents: cast_slice(indices),
-                usage: wgpu::BufferUsages::INDEX,
-            }),
-            index_count: indices.len() as u32,
+            index_buffer: index_buffer.clone(),
+            index_count: topology.index_count(),
             texture_name: String::new(),
-            jba: false,
-            river: false,
-        })
+            jba: true,
+            river: matches!(topology, PolygonWaterTopology::River { .. }),
+        }
     }
 
     fn upload_bib_meshes(&mut self) {
@@ -1269,7 +1269,7 @@ fn bake_trapezoid_water(
     v_origin: f32,
     diffuse: u32,
     feather: i32,
-) -> (Vec<crate::terrain::SeaPatchVertex>, Vec<u32>) {
+) -> (Vec<crate::terrain::SeaPatchVertex>, PolygonWaterTopology) {
     let origin = Vec3::new(points[0][0], points[0][1] + z_off, points[0][2]);
     let p1 = Vec3::new(points[1][0], points[1][1], points[1][2]);
     let p2 = Vec3::new(points[2][0], points[2][1], points[2][2]);
@@ -1343,18 +1343,13 @@ fn bake_trapezoid_water(
             });
         }
     }
-    let mut indices = Vec::new();
-    let stride = u_count as u32;
-    for j in 0..(v_count - 1) as u32 {
-        for i in 0..(u_count - 1) as u32 {
-            let i0 = j * stride + i;
-            let i1 = (j + 1) * stride + i + 1;
-            let i2 = (j + 1) * stride + i;
-            let i3 = j * stride + i + 1;
-            indices.extend_from_slice(&[i0, i1, i2, i0, i3, i1]);
-        }
-    }
-    (verts, indices)
+    (
+        verts,
+        PolygonWaterTopology::Trapezoid {
+            columns: u_count as u32,
+            rows: v_count as u32,
+        },
+    )
 }
 
 /// C++ `WaterRenderObjClass::drawRiverWater` — bank pairs from `riverStart`.
@@ -1363,18 +1358,18 @@ fn bake_river_strip(
     river_start: i32,
     v_origin: f32,
     diffuse: u32,
-) -> (Vec<crate::terrain::SeaPatchVertex>, Vec<u32>) {
+) -> Option<(Vec<crate::terrain::SeaPatchVertex>, PolygonWaterTopology)> {
     let n = points.len();
     if n < 4 {
-        return (Vec::new(), Vec::new());
+        return None;
     }
     if river_start < 0 || river_start as usize >= n.saturating_sub(1) {
-        return (Vec::new(), Vec::new());
+        return None;
     }
     let pair_count = n / 2;
     let rectangle_count = pair_count.saturating_sub(1);
     if rectangle_count == 0 {
-        return (Vec::new(), Vec::new());
+        return None;
     }
     let mut total_len = 0.0f32;
     let mut end_len = 0.0f32;
@@ -1430,12 +1425,12 @@ fn bake_river_strip(
             tv: wobble,
         });
     }
-    let mut indices = Vec::with_capacity(rectangle_count * 6);
-    for i in 0..rectangle_count {
-        let b = (i * 2) as u32;
-        indices.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
-    }
-    (verts, indices)
+    Some((
+        verts,
+        PolygonWaterTopology::River {
+            rectangles: rectangle_count as u32,
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -1451,9 +1446,12 @@ mod overlay_gpu_tests {
             [80.0, 14.0, 80.0],
             [0.0, 16.0, 80.0],
         ];
-        let (verts, indices) = bake_trapezoid_water(&points, 0.0, 0.0, 0xffff_ffff, 0);
+        let (verts, topology) = bake_trapezoid_water(&points, 0.0, 0.0, 0xffff_ffff, 0);
         assert!(!verts.is_empty());
-        assert!(!indices.is_empty());
+        assert_eq!(
+            topology.indices(),
+            [0, 4, 3, 0, 1, 4, 1, 5, 4, 1, 2, 5, 3, 7, 6, 3, 4, 7, 4, 8, 7, 4, 5, 8],
+        );
         assert!(
             (verts[0].y - 10.0).abs() < 1.0e-3,
             "lake verts must keep authored Z, not flatten to water_position_z; y={}",
@@ -1486,9 +1484,9 @@ mod overlay_gpu_tests {
             [40.0, 6.0, 20.0],
             [40.0, 6.0, 0.0],
         ];
-        let (verts, indices) = bake_river_strip(&points, 0, 0.0, 0xffff_ffff);
+        let (verts, topology) = bake_river_strip(&points, 0, 0.0, 0xffff_ffff).unwrap();
         assert_eq!(verts.len(), 4);
-        assert_eq!(indices.len(), 6);
+        assert_eq!(topology.indices(), [0, 1, 3, 0, 3, 2]);
         assert!(
             verts
                 .iter()

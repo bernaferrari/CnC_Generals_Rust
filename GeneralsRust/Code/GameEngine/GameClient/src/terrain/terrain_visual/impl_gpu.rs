@@ -12,6 +12,7 @@ impl TerrainVisualImpl {
         self.shoreline_meshes.clear();
         self.polygon_water_meshes.clear();
         self.overlay.polygon_water_mesh_stamp = None;
+        self.overlay.polygon_water_indices.clear();
         self.overlay.overlays_dirty = true;
         self.terrain_material_bind_groups.clear();
         self.chunk_texture_bindings.clear();
