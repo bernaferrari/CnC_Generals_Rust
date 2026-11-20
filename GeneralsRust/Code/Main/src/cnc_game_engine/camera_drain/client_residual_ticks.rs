@@ -485,11 +485,18 @@ impl CnCGameEngine {
         };
         // Preserve observer identities during fixed steps. The presentation
         // copies the final Main state after the batch.
+        let timed = self.runtime_host_update_timings.is_some();
+        let logic_started = timed.then(Instant::now);
         let mut observer_slot = self.gameworld_shadow.take();
         let result =
             self.host_run_fast_forward_loop(dt, ff_steps, step_budget, observer_slot.as_mut());
         // Restore the real observer owner on success and failure.
         self.gameworld_shadow = observer_slot.take();
+        if let Some((timings, started)) =
+            self.runtime_host_update_timings.as_mut().zip(logic_started)
+        {
+            timings.fixed_logic = started.elapsed();
+        }
         result?;
         // Script FPS applied from presentation residual after snapshot build (below).
         // Live take remains for boot path when no frame is produced this tick.
@@ -524,12 +531,24 @@ impl CnCGameEngine {
         }
 
         // Wave 589: presentation finalize residual via helper (build + audio + FX).
+        let publish_started = timed.then(Instant::now);
         self.host_finalize_presentation_after_logic()?;
+        if let Some((timings, started)) =
+            self.runtime_host_update_timings.as_mut().zip(publish_started)
+        {
+            timings.publish_frame = started.elapsed();
+        }
 
         #[cfg(feature = "game_client")]
         {
+            let shell_started = timed.then(Instant::now);
             // Wave 586: GameClient presentation shell residual via helper.
             self.host_tick_game_client_presentation_shell();
+            if let Some((timings, started)) =
+                self.runtime_host_update_timings.as_mut().zip(shell_started)
+            {
+                timings.client_shell = started.elapsed();
+            }
         }
         Ok(())
     }

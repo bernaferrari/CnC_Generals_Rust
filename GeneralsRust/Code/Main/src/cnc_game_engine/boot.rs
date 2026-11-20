@@ -1214,6 +1214,7 @@ impl CnCGameEngine {
             runtime_host_headless,
             golden_capture: super::golden_capture::GoldenCapture::from_env(),
             runtime_host_active,
+            runtime_host_update_timings: None,
             runtime_host_base_ui_screen: None,
             runtime_host_ui_screen_override: None,
             runtime_host_saw_skirmish_menu: false,

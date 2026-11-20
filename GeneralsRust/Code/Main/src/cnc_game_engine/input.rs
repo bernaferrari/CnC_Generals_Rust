@@ -1680,6 +1680,8 @@ impl CnCGameEngine {
     }
 
     pub(super) fn update_internal(&mut self, dt: f32) -> Result<(), String> {
+        self.runtime_host_update_timings = (self.runtime_host_active && !self.runtime_host_headless)
+            .then(super::runtime::RuntimeUpdateTimings::default);
         // Process any pending state transitions first
         self.process_state_transitions()?;
 
@@ -1839,12 +1841,16 @@ impl CnCGameEngine {
             }
         }
 
+        let hud_started = self.runtime_host_update_timings.is_some().then(Instant::now);
         // Wave 598: InGame HUD presentation residual via host helper.
         self.host_apply_ingame_hud_from_presentation(dt);
         // Wave 600: post-HUD camera/audio/UI/popup-music residual via host helper.
         self.host_tick_post_presentation_client_residuals(visual_dt, dt);
         // Wave 599: defeat/alliance/victory broadcast residual via host helper.
         self.host_broadcast_match_outcome_residuals();
+        if let Some((timings, started)) = self.runtime_host_update_timings.as_mut().zip(hud_started) {
+            timings.hud_and_post_update = started.elapsed();
+        }
         Ok(())
     }
 

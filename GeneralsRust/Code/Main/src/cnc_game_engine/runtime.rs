@@ -12,6 +12,15 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+/// Wall-clock phases of one windowed runtime-host update.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct RuntimeUpdateTimings {
+    pub(super) fixed_logic: Duration,
+    pub(super) publish_frame: Duration,
+    pub(super) client_shell: Duration,
+    pub(super) hud_and_post_update: Duration,
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct RuntimeHostSnapshot {
     pub(super) state: String,
@@ -102,6 +111,7 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) radar_capture_reference: String,
     /// CPU-side wall times from the event-loop driver, including its waits.
     pub(super) host_update_ms: f32,
+    pub(super) host_update_timings: Option<RuntimeUpdateTimings>,
     pub(super) host_render_ms: f32,
     pub(super) status_build_ms: f32,
     pub(super) present_period_ms: Option<f32>,
@@ -421,6 +431,7 @@ impl RuntimeHostBridge {
             radar_pixels: 0,
             radar_capture_reference: String::new(),
             host_update_ms: 0.0,
+            host_update_timings: None,
             host_render_ms: 0.0,
             status_build_ms: 0.0,
             present_period_ms: None,
@@ -625,6 +636,17 @@ impl RuntimeHostBridge {
         payload.push_str(&format!("radar_pixels={}\n", snapshot.radar_pixels));
         payload.push_str(&format!("radar_capture_reference={}\n", snapshot.radar_capture_reference));
         payload.push_str(&format!("host_update_ms={:.3}\n", snapshot.host_update_ms));
+        if let Some(timings) = snapshot.host_update_timings {
+            for (key, duration) in [
+                ("host_fixed_logic_ms", timings.fixed_logic),
+                ("host_publish_frame_ms", timings.publish_frame),
+                ("host_client_shell_ms", timings.client_shell),
+                ("host_hud_and_post_update_ms", timings.hud_and_post_update),
+            ] {
+                let ms = duration.as_secs_f32() * 1000.0;
+                payload.push_str(&format!("{key}={ms:.3}\n"));
+            }
+        }
         payload.push_str(&format!("host_render_ms={:.3}\n", snapshot.host_render_ms));
         payload.push_str(&format!("status_build_ms={:.3}\n", snapshot.status_build_ms));
         if let Some(period) = snapshot.present_period_ms {

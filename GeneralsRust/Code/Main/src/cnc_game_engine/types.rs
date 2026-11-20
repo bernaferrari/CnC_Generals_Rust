@@ -1172,6 +1172,7 @@ pub struct CnCGameEngine {
     pub(crate) golden_capture: Option<super::golden_capture::GoldenCapture>,
     /// True when `--runtime_host` is set (headless or windowed). Host cmds/status.
     pub(crate) runtime_host_active: bool,
+    pub(super) runtime_host_update_timings: Option<super::runtime::RuntimeUpdateTimings>,
     pub(crate) runtime_host_base_ui_screen: Option<String>,
     pub(crate) runtime_host_ui_screen_override: Option<String>,
     /// Sticky: open_skirmish_menu / Skirmish UI was entered this host session.
