@@ -1,7 +1,7 @@
 //! Lone Eagle performance baseline: headless N-tick sim + windowed N-frame present.
 //!
-//! Writes `GeneralsRust/docs/lone_eagle_perf_baseline.md` and prints a summary.
-//! Optional macOS `sample` capture lands beside the docs file when available.
+//! Writes the baseline under `LONE_EAGLE_BENCH_OUTPUT_DIR` or `GeneralsRust/docs`.
+//! Set `LONE_EAGLE_BENCH_SAMPLE=1` to include a macOS call stack capture.
 
 use generals_main::executable_smoke::{lone_eagle_map_on_disk, SmokeOptions};
 use std::collections::BTreeMap;
@@ -182,9 +182,18 @@ fn run_mode(
     };
 
     let mut command = Command::new(&exe);
-    if windowed && std::env::var_os("LONE_EAGLE_BENCH_UNCAPPED").is_some() {
-        command.args(["-nofpslimit", "-novsync"]);
+    if windowed {
+        if let Ok(value) = std::env::var("LONE_EAGLE_BENCH_FPS") {
+            let fps = value
+                .parse::<std::num::NonZeroU32>()
+                .map_err(|_| "LONE_EAGLE_BENCH_FPS must be a positive integer".to_string())?;
+            command.arg(format!("-fps={fps}")).arg("-novsync");
+        } else if std::env::var_os("LONE_EAGLE_BENCH_UNCAPPED").is_some() {
+            command.args(["-nofpslimit", "-novsync"]);
+        }
     }
+    let capture_sample = windowed
+        && std::env::var_os("LONE_EAGLE_BENCH_SAMPLE").is_some_and(|value| value == "1");
     if let Some(assets_dir) = &options.assets_dir {
         command.env("GENERALS_ASSETS_DIR", assets_dir);
     } else {
@@ -299,8 +308,8 @@ fn run_mode(
                                 start_logic = snap.logic_frame;
                                 start_frame = frame;
                                 last_timed_frame = frame;
-                                // Fire a macOS sample while measuring when available.
-                                if launch == "windowed" {
+                                // A sampling process can alter the timing run.
+                                if capture_sample {
                                     if let Ok(sample) = which_sample() {
                                         let out = docs_dir.join(format!(
                                             "lone_eagle_bench_{launch}_sample.txt"
@@ -534,7 +543,13 @@ fn main() {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Lone Eagle".to_string());
     eprintln!("lone_eagle_bench: map={map}");
-    let docs_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs");
+    let docs_dir = std::env::var_os("LONE_EAGLE_BENCH_OUTPUT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs"));
+    if let Err(error) = fs::create_dir_all(&docs_dir) {
+        eprintln!("lone_eagle_bench: cannot create {} ({error})", docs_dir.display());
+        std::process::exit(1);
+    }
     let docs_path = docs_dir.join("lone_eagle_perf_baseline.md");
     let mut rows = Vec::new();
     let mut notes = String::new();
@@ -553,8 +568,10 @@ fn main() {
     ) {
         Ok(r) => {
             eprintln!(
-                "lone_eagle_bench: windowed ms/frame={:.3} present_ms={:.3} (collect={:.3} terrain={:.3} forward={:.3}) radar_pixels={}",
+                "lone_eagle_bench: windowed ms/frame={:.3} fps={:.2} logic_hz={:.2} present_ms={:.3} (collect={:.3} terrain={:.3} forward={:.3}) radar_pixels={}",
                 r.ms_per_frame,
+                1000.0 / r.ms_per_frame,
+                1000.0 / r.ms_per_tick,
                 r.avg_present_ms,
                 r.avg_collect_ms,
                 r.avg_terrain_ms,
