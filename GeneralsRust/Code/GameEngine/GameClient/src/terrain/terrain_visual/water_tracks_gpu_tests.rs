@@ -1314,14 +1314,17 @@ fn mounted_wake_dds_is_bound_before_first_native_water_draw() {
     // its R8 texture is available to both native and Draw consumers.
     let cell_size = (bounds.1 - bounds.0).max_element() + 1.0;
     let origin = (bounds.0 - Vec2::splat(cell_size)).to_array();
-    let cells = [160; 4];
-    visual.set_projected_shroud_overlay_r8(2, 2, cell_size, origin, [128, 255, 0], &cells);
-    assert!(
-        visual
-            .matching_shroud_sampling_resources(&device, (2, 2), &cells)
-            .is_none()
-    );
+    let tint = [128, 255, 0];
+    let cells: Arc<[u8]> = Arc::from([160; 4]);
+    visual.set_projected_shroud_overlay_r8(2, 2, cell_size, origin, tint, &cells);
     assert_eq!(visual.sync_shroud_dest_texture(), cells.len());
+    let borrowed_frame = read_water_pixels(&visual, &device, &queue, true);
+    visual.set_shared_projected_shroud_overlay_r8(2, 2, cell_size, origin, tint, &cells);
+    assert!(
+        std::ptr::eq(visual.overlay.shroud_cells.as_ref(), cells.as_ref()),
+        "the native receiver must retain the presentation's frozen shroud allocation"
+    );
+    assert_eq!(visual.sync_shroud_dest_texture(), 0);
     let (view, sampler) = visual
         .matching_shroud_sampling_resources(&device, (2, 2), &cells)
         .unwrap();
@@ -1346,6 +1349,11 @@ fn mounted_wake_dds_is_bound_before_first_native_water_draw() {
     );
 
     let tinted = read_water_pixels(&visual, &device, &queue, true);
+    assert_eq!(tinted, borrowed_frame);
+    eprintln!(
+        "mounted shared and borrowed R8 frame CRC32 {:08x}",
+        crc32fast::hash(&tinted)
+    );
     assert_ne!(tinted, pixels_without_mips);
     for (base, shaded) in pixels_without_mips
         .chunks_exact(4)
@@ -1359,6 +1367,32 @@ fn mounted_wake_dds_is_bound_before_first_native_water_draw() {
             );
         }
     }
+
+    // A standalone mutable caller separates storage only when a cell changes.
+    visual.set_shroud_level(0, 0, 160);
+    assert!(Arc::ptr_eq(&visual.overlay.shroud_cells, &cells));
+    visual.set_shroud_level(0, 0, 159);
+    assert_eq!(&*cells, &[160; 4]);
+    assert!(
+        visual
+            .matching_shroud_sampling_resources(&device, (2, 2), &cells)
+            .is_none()
+    );
+    assert_eq!(visual.sync_shroud_dest_texture(), cells.len());
+    assert!(
+        visual
+            .matching_shroud_sampling_resources(&device, (2, 2), &cells)
+            .is_none()
+    );
+    assert!(
+        visual
+            .matching_shroud_sampling_resources(&device, (2, 2), &[159, 160, 160, 160])
+            .is_some()
+    );
+    visual.set_shared_projected_shroud_overlay_r8(2, 2, cell_size, origin, tint, &cells);
+    assert!(Arc::ptr_eq(&visual.overlay.shroud_cells, &cells));
+    assert_eq!(visual.sync_shroud_dest_texture(), cells.len());
+    assert_eq!(read_water_pixels(&visual, &device, &queue, true), tinted);
 }
 
 fn set_water_test_camera(

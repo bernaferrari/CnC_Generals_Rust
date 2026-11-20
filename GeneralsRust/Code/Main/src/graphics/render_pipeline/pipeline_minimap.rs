@@ -448,13 +448,13 @@ impl RenderPipeline {
                 let cell_size = projection.cell_size_xy[0];
                 // The native mask origin includes W3D's leading border texel.
                 let origin = projection.draw_origin_xy.map(|origin| origin - cell_size);
-                visual.set_projected_shroud_overlay_r8(
+                visual.set_shared_projected_shroud_overlay_r8(
                     projection.texture_width as i32,
                     projection.texture_height as i32,
                     cell_size,
                     origin,
                     projection.metadata.shroud_color_rgb,
-                    projection.texels.as_ref(),
+                    &projection.texels,
                 );
             } else {
                 visual.clear_shroud_overlay();

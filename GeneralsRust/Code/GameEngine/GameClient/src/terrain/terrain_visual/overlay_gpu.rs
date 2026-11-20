@@ -89,9 +89,11 @@ impl TerrainVisualImpl {
             return;
         }
         let idx = (cell_y * self.overlay.shroud_width + cell_x) as usize;
-        if let Some(slot) = self.overlay.shroud_cells.get_mut(idx) {
-            self.shroud_gpu.dirty |= *slot != alpha;
-            *slot = alpha;
+        if let Some(&current) = self.overlay.shroud_cells.get(idx) {
+            if current != alpha {
+                Arc::make_mut(&mut self.overlay.shroud_cells)[idx] = alpha;
+                self.shroud_gpu.dirty = true;
+            }
             self.overlay.overlays_dirty = true;
         }
     }
@@ -110,7 +112,8 @@ impl TerrainVisualImpl {
         self.overlay.shroud_cell_size = cell_size.max(1.0);
         self.overlay.shroud_origin = origin;
         self.overlay.shroud_tint = None;
-        self.overlay.shroud_cells = vec![255u8; (width as usize).saturating_mul(height as usize)];
+        self.overlay.shroud_cells =
+            vec![255u8; (width as usize).saturating_mul(height as usize)].into();
         self.shroud_gpu.dirty = true;
     }
 
@@ -122,7 +125,9 @@ impl TerrainVisualImpl {
             || self.overlay.shroud_cell_size != 0.0
             || self.overlay.shroud_origin != [0.0; 2]
             || self.overlay.shroud_tint.is_some();
-        self.overlay.shroud_cells.clear();
+        if !self.overlay.shroud_cells.is_empty() {
+            self.overlay.shroud_cells = Arc::default();
+        }
         self.overlay.shroud_width = 0;
         self.overlay.shroud_height = 0;
         self.overlay.shroud_cell_size = 0.0;
@@ -132,12 +137,9 @@ impl TerrainVisualImpl {
 
     /// Bulk-replace the shroud overlay from a presentation R8 payload.
     ///
-    /// Live feed path (per presentation frame, `RenderPipeline::
-    /// update_minimap_fow_texture`): an identical payload is a no-op, and a
-    /// same-size update reuses the existing cell buffer — only the shroud
-    /// state changes, which `sync_shroud_dest_texture` uploads on the next
-    /// terrain update. C++ `W3DShroud` replays terrain geometry with its
-    /// destination texture; a fog update must preserve static chunk meshes.
+    /// An identical payload leaves the destination texture unchanged. A
+    /// changed mask uploads on the next terrain update, preserving static
+    /// chunk meshes as C++ `W3DShroud` replays the terrain geometry.
     /// Oversized payloads are truncated; undersized payloads are
     /// rejected (fail-open: previous overlay state retained).
     pub fn set_shroud_overlay_r8(
@@ -161,34 +163,67 @@ impl TerrainVisualImpl {
         tint: [u8; 3],
         data: &[u8],
     ) {
-        let width = width.max(0);
-        let height = height.max(0);
+        self.set_projected_shroud_cells([width, height], cell_size, origin, tint, data, None);
+    }
+
+    /// Retain the frozen mask shared by terrain and Draw during presentation.
+    pub fn set_shared_projected_shroud_overlay_r8(
+        &mut self,
+        width: i32,
+        height: i32,
+        cell_size: f32,
+        origin: [f32; 2],
+        tint: [u8; 3],
+        data: &Arc<[u8]>,
+    ) {
+        self.set_projected_shroud_cells([width, height], cell_size, origin, tint, data, Some(data));
+    }
+
+    fn set_projected_shroud_cells(
+        &mut self,
+        [width, height]: [i32; 2],
+        cell_size: f32,
+        origin: [f32; 2],
+        tint: [u8; 3],
+        data: &[u8],
+        shared: Option<&Arc<[u8]>>,
+    ) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
         let expected = (width as usize).saturating_mul(height as usize);
-        if width == 0 || height == 0 || expected == 0 || data.len() < expected {
+        let Some(cells) = data.get(..expected) else {
             return;
-        }
+        };
+        let current = self.overlay.shroud_cells.as_ref();
+        let same_allocation = std::ptr::eq(current, cells);
+        let same_cells = same_allocation || current == cells;
+        let cell_size = cell_size.max(1.0);
         let tint = (tint != [255; 3]).then_some(tint);
-        let same_size = self.overlay.shroud_width == width
-            && self.overlay.shroud_height == height
-            && self.overlay.shroud_cells.len() == expected;
-        if same_size
-            && self.overlay.shroud_cell_size == cell_size.max(1.0)
-            && self.overlay.shroud_origin == origin
-            && self.overlay.shroud_cells.as_slice() == &data[..expected]
-        {
-            self.shroud_gpu.dirty |= self.overlay.shroud_tint != tint;
-            self.overlay.shroud_tint = tint;
-            return;
+        self.shroud_gpu.dirty |= !same_cells
+            || self.overlay.shroud_width != width
+            || self.overlay.shroud_height != height
+            || self.overlay.shroud_cell_size != cell_size
+            || self.overlay.shroud_origin != origin
+            || self.overlay.shroud_tint != tint;
+        if !same_allocation {
+            if let Some(shared) = shared.filter(|shared| shared.len() == expected) {
+                self.overlay.shroud_cells = Arc::clone(shared);
+            } else if !same_cells {
+                if let Some(writable) = Arc::get_mut(&mut self.overlay.shroud_cells)
+                    .filter(|writable| writable.len() == expected)
+                {
+                    writable.copy_from_slice(cells);
+                } else {
+                    self.overlay.shroud_cells = Arc::from(cells);
+                }
+            }
         }
-        if !same_size {
-            self.init_shroud_overlay(width, height, cell_size, origin);
-        } else {
-            self.overlay.shroud_cell_size = cell_size.max(1.0);
-            self.overlay.shroud_origin = origin;
-        }
-        self.overlay.shroud_cells[..expected].copy_from_slice(&data[..expected]);
+        self.overlay.shroud_width = width;
+        self.overlay.shroud_height = height;
+        self.overlay.shroud_cell_size = cell_size;
+        self.overlay.shroud_origin = origin;
         self.overlay.shroud_tint = tint;
-        self.shroud_gpu.dirty = true;
     }
 
     pub fn shroud_alpha_at_world(&self, world_x: f32, world_z: f32) -> f32 {

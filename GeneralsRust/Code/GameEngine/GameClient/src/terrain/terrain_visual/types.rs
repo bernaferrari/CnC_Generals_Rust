@@ -380,7 +380,7 @@ pub struct OverlayGpuState {
     pub shoreline_tiles: Vec<crate::terrain::ShoreLineTile>,
     pub water_areas: Vec<TerrainWaterArea>,
     pub smudges: Vec<TerrainSmudge>,
-    pub shroud_cells: Vec<u8>,
+    pub shroud_cells: Arc<[u8]>,
     pub shroud_width: i32,
     pub shroud_height: i32,
     pub shroud_cell_size: f32,

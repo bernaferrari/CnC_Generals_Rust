@@ -341,7 +341,10 @@ fn terrain_shroud_draw_uses_frozen_border_levels_and_tint() {
         border_alpha: 80,
     };
     frame.projected_shroud = ProjectedShroudSnapshot::from_grid(&frame.fow_grid, metadata);
+    let original_mask = std::sync::Arc::downgrade(&frame.projected_shroud.texels);
+    assert_eq!(original_mask.strong_count(), 1);
     let paint_shroud = paint(&mut render, Some(frame.clone()));
+    assert_eq!(original_mask.strong_count(), 3);
 
     let check = |pixels: &[[u8; 4]], x: usize, y: usize, fog: u8, fully_lit_weight: f32| {
         let index = x + y * 64;
@@ -371,6 +374,9 @@ fn terrain_shroud_draw_uses_frozen_border_levels_and_tint() {
     metadata.border_alpha = 196;
     frame.projected_shroud = ProjectedShroudSnapshot::from_grid(&frame.fow_grid, metadata);
     let changed_border = paint(&mut render, Some(frame.clone()));
+    assert_eq!(original_mask.strong_count(), 0);
+    let changed_mask = std::sync::Arc::downgrade(&frame.projected_shroud.texels);
+    assert_eq!(changed_mask.strong_count(), 3);
     check(&changed_border, 8, 24, 196, 0.0);
     assert_eq!(changed_border[24 + 24 * 64], paint_shroud[24 + 24 * 64]);
 
@@ -421,9 +427,13 @@ fn terrain_shroud_draw_uses_frozen_border_levels_and_tint() {
 
     frame.fow_shell_bypass = true;
     assert_eq!(paint(&mut render, Some(frame.clone())), baseline);
+    assert!(draw_forward_shroud(&mut render, &mut graphics, None).is_none());
+    assert_eq!(changed_mask.strong_count(), 2);
     frame.fow_shell_bypass = false;
     assert_eq!(paint(&mut render, Some(frame)), changed_border);
+    assert_eq!(changed_mask.strong_count(), 2);
     assert_eq!(paint(&mut render, None), baseline);
+    assert_eq!(changed_mask.strong_count(), 0);
     assert!(draw_forward_shroud(&mut render, &mut graphics, None).is_none());
 }
 

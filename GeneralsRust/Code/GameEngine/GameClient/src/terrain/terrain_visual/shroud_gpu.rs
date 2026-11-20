@@ -227,11 +227,12 @@ impl TerrainVisualImpl {
         // WGPU object IDs can compare equal across independent instances.
         // Match the device owner actually shared with the render pipeline.
         let receiving_device = self.device.as_ref()?;
+        let current = self.overlay.shroud_cells.as_ref();
         if !Arc::ptr_eq(receiving_device, device)
             || self.shroud_gpu.dirty
             || self.shroud_gpu.bind_group.is_none()
             || (texture.width(), texture.height()) != extent
-            || self.overlay.shroud_cells.as_slice() != cells
+            || (!std::ptr::eq(current, cells) && current != cells)
         {
             return None;
         }
@@ -266,7 +267,7 @@ impl TerrainVisualImpl {
         } else if let Some(full_grid) = cells.get(..texel_count) {
             std::borrow::Cow::Borrowed(full_grid)
         } else {
-            let mut padded = cells.clone();
+            let mut padded = cells.to_vec();
             padded.resize(texel_count, 255);
             std::borrow::Cow::Owned(padded)
         };
