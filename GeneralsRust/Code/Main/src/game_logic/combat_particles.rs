@@ -1413,7 +1413,7 @@ impl CombatParticleRegistry {
     /// reconciliation, so following them after that loop is the same result.
     pub(crate) fn follow_attached_body_particles_for(
         &mut self,
-        poses: &HashMap<ObjectId, (Vec3, f32)>,
+        objects: &super::HostObjectStore,
     ) {
         for entry in self.systems.values_mut() {
             if !entry.active
@@ -1426,11 +1426,17 @@ impl CombatParticleRegistry {
             {
                 continue;
             }
-            let Some((position, yaw)) = entry.source_object.and_then(|owner| poses.get(&owner))
+            let Some(object) = entry
+                .source_object
+                .and_then(|owner| objects.get_registered(&owner))
             else {
                 continue;
             };
-            entry.position = rotate_yaw_host(*position, *yaw, entry.attach_offset);
+            entry.position = rotate_yaw_host(
+                object.get_position(),
+                object.get_orientation(),
+                entry.attach_offset,
+            );
         }
     }
 

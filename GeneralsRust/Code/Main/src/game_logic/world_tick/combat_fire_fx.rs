@@ -227,12 +227,7 @@ impl GameLogic {
     ) {
         let frame = self.frame;
         let mut bone_systems = self.combat_particles.active_bone_systems_by_owner();
-        let mut body_poses: std::collections::HashMap<ObjectId, (glam::Vec3, f32)> =
-            std::collections::HashMap::with_capacity(self.objects.registered_len());
         for (&id, obj) in self.objects.registered() {
-            let pos = obj.get_position();
-            let yaw = obj.get_orientation();
-            body_poses.insert(id, (pos, yaw));
             let bones =
                 self.receiving_particle_sys_bones(&obj.template_name, obj.model_condition_bits);
             let owned = bone_systems.remove(&id).unwrap_or_default();
@@ -241,11 +236,12 @@ impl GameLogic {
                 continue;
             }
             let template = &obj.thing().template;
+            let pos = obj.get_position();
             let model = template.model_name_for_conditions(obj.model_condition_bits);
             let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::with_visibility(
                 &model,
                 template.asset_scale,
-                yaw,
+                obj.get_orientation(),
                 self.host_fx_object_is_shrouded(id.0),
             );
             let source = particle_owner
@@ -277,7 +273,7 @@ impl GameLogic {
         // ActiveBody replaces its auto particles at its own visual and
         // AFLAME callbacks, not by reconciling Body state each frame.
         self.combat_particles
-            .follow_attached_body_particles_for(&body_poses);
+            .follow_attached_body_particles_for(&self.objects);
     }
 }
 
@@ -335,6 +331,48 @@ mod particle_sys_bone_owner_tests {
                 .receiving_particle_sys_bones("RepairVehiclesInAreaMarker", 0)
                 .is_empty(),
             "admitted empty definitions do not select legacy global or name fallback"
+        );
+    }
+
+    #[test]
+    fn live_body_particles_follow_only_registered_owners() {
+        use crate::game_logic::combat_particles::CombatParticleKind;
+
+        let mut world = world_with_empty_receiving_template("AttachedActor");
+        let owner = ObjectId(16);
+        let position = glam::Vec3::new(15.0, 4.0, 7.0);
+        let offset = glam::Vec3::X;
+        let mut actor = Object::new(ThingTemplate::new("AttachedActor"), owner, Team::USA);
+        actor.set_position(position);
+        let receipt = world.objects.admit_constructor_lookup(actor).unwrap();
+        let particle = world
+            .combat_particles
+            .attach_named_to_object_local(
+                owner,
+                glam::Vec3::ZERO,
+                0.0,
+                offset,
+                1,
+                "DisabledEffectBinaryShower0",
+                CombatParticleKind::DisableFx,
+                None,
+                &mut (),
+            )
+            .unwrap();
+
+        world.sync_live_state_particles(&mut ());
+        assert_eq!(
+            world.combat_particles.get(particle).unwrap().position,
+            offset,
+        );
+
+        world.objects.register_constructor_lookup(&receipt).unwrap();
+        world.objects.suspend_ordinary_lookup_for_reset();
+        assert!(world.objects.lookup(&owner).is_none());
+        world.sync_live_state_particles(&mut ());
+        assert_eq!(
+            world.combat_particles.get(particle).unwrap().position,
+            position + offset,
         );
     }
 }

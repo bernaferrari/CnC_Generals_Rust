@@ -69,6 +69,15 @@ impl HostObjectStore {
         self.map.get(id)
     }
 
+    /// Random access to the linked Object list, including during lookup reset.
+    pub(in crate::game_logic) fn get_registered(&self, id: &ObjectId) -> Option<&Object> {
+        let object = self.map.get(id)?;
+        if self.has_unregistered_lookup() && !self.registration_order.contains(id) {
+            return None;
+        }
+        Some(object)
+    }
+
     pub fn lookup(&self, id: &ObjectId) -> Option<&Object> {
         if self
             .ordinary_lookup_hidden_ids
