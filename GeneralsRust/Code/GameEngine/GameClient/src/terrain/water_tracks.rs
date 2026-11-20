@@ -800,7 +800,7 @@ impl WaterTracksRenderSystem {
         self.batch_start = 0xffff;
 
         let mut output = WaterTracksFlush::default();
-        for &handle in &self.used.clone() {
+        for &handle in &self.used {
             if self.batch_start
                 >= WATER_VB_PAGES * self.strip_size_x * self.strip_size_y
                     - self.strip_size_x * self.strip_size_y

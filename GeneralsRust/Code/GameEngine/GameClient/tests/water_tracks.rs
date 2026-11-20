@@ -1,12 +1,13 @@
 use game_client_rust::terrain::{
     WATER_TRACK_WAVE_INFO, WaterTrackHeightProvider, WaterTrackSaveRecord, WaterTrackType,
     WaterTracksRenderSystem,
+    terrain_visual::TerrainVisualImpl,
     water_tracks::{
         WaterTrackWakError, decode_wak_records, encode_wak_records, water_track_strip_indices,
         water_track_wak_path,
     },
 };
-use glam::Vec2;
+use glam::{Mat4, Vec2, Vec3};
 
 struct FlatWater;
 
@@ -18,6 +19,60 @@ impl WaterTrackHeightProvider for FlatWater {
 
 fn approx_eq(a: f32, b: f32) {
     assert!((a - b).abs() < 0.001, "{a} != {b}");
+}
+
+#[test]
+fn terrain_flush_samples_a_rotated_water_grid_and_falls_back_to_the_sea_plane() {
+    let mut terrain = TerrainVisualImpl::new();
+    for start in [Vec2::new(10.0, 20.0), Vec2::new(210.0, 220.0)] {
+        let tracks = terrain.water_tracks_mut();
+        let handle = tracks.bind_track(WaterTrackType::Pond).unwrap();
+        tracks.track_mut(handle).unwrap().init(
+            18.0,
+            28.0,
+            start,
+            start + Vec2::Y,
+            "wave256.tga",
+            0,
+        );
+    }
+    let initial_tracks = terrain.water_tracks_mut().clone();
+    let flush = |terrain: &mut TerrainVisualImpl| {
+        *terrain.water_tracks_mut() = initial_tracks.clone();
+        terrain.flush_water_tracks();
+        terrain.last_water_tracks_flush().clone()
+    };
+    let sea_plane = flush(&mut terrain);
+    assert_eq!(sea_plane.ranges.len(), 2);
+    assert_eq!(sea_plane.vertices.len(), 8);
+    let tail = sea_plane.vertices[0];
+    let angle = std::f32::consts::FRAC_PI_2;
+    let rotated_cell = Mat4::from_rotation_z(angle).transform_point3(Vec3::new(25.0, 35.0, 0.0));
+    terrain.set_water_grid_resolution(8.0, 8.0, 10.0);
+    terrain.set_water_grid_height_clamps(-20.0, 20.0);
+    terrain.set_water_attenuation_factors(1.0, 0.0, 0.0, 0.0);
+    terrain.set_water_transform(
+        angle,
+        tail.x - rotated_cell.x,
+        tail.y - rotated_cell.y,
+        17.0,
+    );
+    assert!(terrain.change_water_height(tail.x, tail.y, 6.0));
+
+    assert_eq!(flush(&mut terrain), sea_plane);
+    terrain.enable_water_grid(true);
+    let mut expected = sea_plane.clone();
+    for vertex in &mut expected.vertices[..4] {
+        vertex.z = 24.5;
+    }
+    assert_eq!(flush(&mut terrain), expected);
+
+    terrain.set_water_grid_resolution(0.0, 8.0, 10.0);
+    assert_eq!(flush(&mut terrain), sea_plane);
+
+    terrain.set_water_grid_resolution(8.0, 8.0, 10.0);
+    terrain.set_water_transform_matrix(Mat4::from_scale(Vec3::ZERO));
+    assert_eq!(flush(&mut terrain), sea_plane);
 }
 
 #[test]

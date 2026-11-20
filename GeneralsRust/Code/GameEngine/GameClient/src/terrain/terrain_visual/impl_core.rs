@@ -686,26 +686,23 @@ impl TerrainVisualImpl {
 
     /// C++ `WaterTracksRenderSystem::flush` from the live water record.
     pub fn flush_water_tracks(&mut self) {
-        struct SampledWaterHeight {
+        struct SampledWaterHeight<'a> {
             water_y: f32,
-            grid_enabled: bool,
-            grid: WaterGridCpuState,
+            grid: Option<&'a WaterGridCpuState>,
+            world_to_grid: std::cell::OnceCell<Mat4>,
         }
-        impl crate::terrain::WaterTrackHeightProvider for SampledWaterHeight {
+        impl crate::terrain::WaterTrackHeightProvider for SampledWaterHeight<'_> {
             fn water_height(&self, x: f32, y: f32) -> f32 {
-                if self.grid_enabled {
-                    let (cells_x, cells_y, cell_size) = self.grid.resolution;
-                    if cells_x >= 1.0 && cells_y >= 1.0 && cell_size > 0.0 {
-                        let local = self
-                            .grid
-                            .transform
-                            .inverse()
-                            .transform_point3(glam::Vec3::new(x, y, 0.0));
-                        let gx = (local.x / cell_size) as i32;
-                        let gy = (local.y / cell_size) as i32;
-                        if let Some(delta) = self.grid.height_deltas.get(&(gx, gy)) {
-                            return self.grid.transform.w_axis.z + *delta;
-                        }
+                if let Some(grid) = self.grid {
+                    let cell_size = grid.resolution.2;
+                    let local = self
+                        .world_to_grid
+                        .get_or_init(|| grid.transform.inverse())
+                        .transform_point3(Vec3::new(x, y, 0.0));
+                    let gx = (local.x / cell_size) as i32;
+                    let gy = (local.y / cell_size) as i32;
+                    if let Some(delta) = grid.height_deltas.get(&(gx, gy)) {
+                        return grid.transform.w_axis.z + *delta;
                     }
                 }
                 self.water_y
@@ -715,22 +712,23 @@ impl TerrainVisualImpl {
         let transparent_depth = self.water_presentation.transparent_water_depth;
         self.water_tracks
             .set_render_enabled(show_soft, transparent_depth);
-        let water_y = self.water_rules.position[2];
+        let (cells_x, cells_y, cell_size) = self.water_grid.resolution;
+        let use_grid =
+            self.water_grid_enabled && cells_x >= 1.0 && cells_y >= 1.0 && cell_size > 0.0;
         let flush = self.water_tracks.flush(&SampledWaterHeight {
-            water_y,
-            grid_enabled: self.water_grid_enabled,
-            grid: self.water_grid.clone(),
+            water_y: self.water_rules.position[2],
+            grid: use_grid.then_some(&self.water_grid),
+            world_to_grid: std::cell::OnceCell::new(),
         });
+        self.upload_water_track_meshes(&flush);
         self.last_water_tracks_flush = flush;
-        self.upload_water_track_meshes();
     }
 
-    fn upload_water_track_meshes(&mut self) {
+    fn upload_water_track_meshes(&mut self, flush: &crate::terrain::WaterTracksFlush) {
         let Some(device) = self.device.as_ref().cloned() else {
             self.water_track_meshes.clear();
             return;
         };
-        let flush = self.last_water_tracks_flush.clone();
         if flush.vertices.is_empty() || flush.indices.is_empty() {
             self.water_track_meshes.clear();
             return;
