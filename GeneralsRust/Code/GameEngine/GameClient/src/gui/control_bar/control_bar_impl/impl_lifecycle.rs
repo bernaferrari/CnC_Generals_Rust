@@ -278,9 +278,6 @@ impl ControlBar {
             receiving_manager,
             effects,
         );
-        crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks_receiving(
-            receiving_manager,
-        );
         self.update_body(
             delta_time,
             false,

@@ -39,38 +39,6 @@ pub fn ensure_control_bar_wnd_draw_callbacks_receiving(
     })(receiving_manager);
 }
 
-pub fn ensure_control_bar_wnd_draw_callbacks_for_owner(
-    owner: &crate::gui::window_manager::WindowManagerOwner,
-) {
-    ensure_scheme_draw_registered();
-    owner.with_manager(|wm| {
-        let assign = |name: &str,
-                      cb: fn(
-            &GameWindow,
-            &WindowInstanceData,
-            &mut crate::gui::window_draw_context::WindowDrawContext<'_>,
-        )| {
-            if let Some(win) = wm.find_window_by_name(name) {
-                win.borrow_mut().set_draw_callback(cb);
-            }
-        };
-        assign(
-            "ControlBar.wnd:BackgroundMarker",
-            w3d_command_bar_background_draw,
-        );
-        assign(
-            "ControlBar.wnd:ForegroundMarker",
-            w3d_command_bar_foreground_draw,
-        );
-        assign("ControlBar.wnd:PowerWindow", w3d_power_draw);
-        if let Some(window) = wm.find_window_by_name("ControlBar.wnd:LeftHUD") {
-            window.borrow_mut().set_radar_draw_callback();
-        }
-        assign("ControlBar.wnd:RightHUD", w3d_right_hud_draw);
-        assign("ControlBar.wnd:GeneralsExp", w3d_command_bar_gen_exp_draw);
-    });
-}
-
 /// C++ W3DControlBar.cpp reads BackgroundMarker for both scheme layers.
 /// During `draw_all`, the window manager is mutably borrowed, so a fresh
 /// global lookup can fail closed; the callback window's parent owns the

@@ -94,13 +94,9 @@ impl<'a> NativeUiDraw<'a> {
         let mut cleanup = UiFrameCleanup::new(&mut *self.renderer);
         let renderer = &mut *cleanup.renderer;
         // C++ creates the ControlBar during gameplay UI initialization. A
-        // repaint consumes that tree; it must not construct windows or invoke
-        // lifecycle callbacks at the display refresh rate.
+        // repaint uses the draw callbacks installed when that tree was loaded.
         let (width, height) = renderer.screen_size();
         let target_size = frame.size();
-        game_client::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks_for_owner(
-            self.windows,
-        );
         // W3DInGameUI.cpp:388-391: issued-order hints precede winRepaint.
         if let Some(camera) = radar {
             for hint in &self.hints {
