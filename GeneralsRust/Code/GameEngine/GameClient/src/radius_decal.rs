@@ -119,8 +119,7 @@ impl ShadowDecal {
 #[derive(Clone, Debug)]
 pub struct ShadowHandle(Arc<Mutex<ShadowDecal>>);
 
-/// One completed presentation terrain decal, applied by a receiving client's
-/// borrowed projected-shadow owner.
+/// One completed terrain decal for the receiving presentation frame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiveTerrainDecalSpec {
     pub texture: String,
@@ -128,6 +127,37 @@ pub struct LiveTerrainDecalSpec {
     pub position: [Real; 3],
     pub color: [u8; 3],
     pub opacity: Real,
+}
+
+impl LiveTerrainDecalSpec {
+    pub(crate) fn into_render_item(self) -> Option<DecalRenderItem> {
+        let Self {
+            texture,
+            radius,
+            position,
+            color,
+            opacity,
+        } = self;
+        let size = (radius * 2.0).max(0.0);
+        let opacity = real_to_int(opacity.clamp(0.0, 1.0) * 255.0) as f32 / 255.0;
+        if texture.is_empty() || size <= 0.0 || opacity <= 0.0 {
+            return None;
+        }
+        let color = u32::from_be_bytes([0, color[0], color[1], color[2]]);
+        // addDecal derives its UV offset from zero authored offset and 1/size.
+        let uv_offset = 0.0 * (1.0 / size);
+        Some(DecalRenderItem {
+            position: Vec3::from_array(position),
+            size,
+            size_x: size,
+            size_y: size,
+            rotation: 0.0,
+            color: argb_u32_to_rgba(color, opacity),
+            texture_name: texture,
+            shadow_type: SHADOW_ALPHA_DECAL,
+            uv_offset: [uv_offset; 2],
+        })
+    }
 }
 
 impl ShadowHandle {

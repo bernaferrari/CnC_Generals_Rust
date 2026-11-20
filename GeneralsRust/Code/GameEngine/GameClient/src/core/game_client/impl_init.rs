@@ -422,7 +422,6 @@ impl GameClient {
         self.retire_native_drawable_particles(None)?;
         self.drawables
             .finish_native_retirement_with_device(self.native_audio_device.as_ref())?;
-        self.drawables.clear_live_terrain_decal_handles();
         self.invalidate_presentation_shell();
         for drawable in self.drawables.drawable_map.values_mut() {
             drawable.reset_volatile_shroud_state();

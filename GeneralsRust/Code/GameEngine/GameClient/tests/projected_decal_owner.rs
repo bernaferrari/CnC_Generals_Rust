@@ -13,39 +13,304 @@ fn spec(x: f32) -> LiveTerrainDecalSpec {
 
 #[test]
 fn live_terrain_decals_remain_on_their_receiving_client() {
-    let mut first = GameClient::new().unwrap();
-    let mut second = GameClient::new().unwrap();
-    first
-        .borrow_native_drawable_owner()
-        .replace_live_terrain_decals(&[spec(10.0)]);
-    second
-        .borrow_native_drawable_owner()
-        .replace_live_terrain_decals(&[spec(20.0)]);
+    use gamelogic::system::engine_stores::{new_world_services, with_world_services};
 
-    let first_items = first
-        .borrow_native_drawable_owner()
-        .collect_projected_decal_items(false);
-    let second_items = second
-        .borrow_native_drawable_owner()
-        .collect_projected_decal_items(false);
+    let first_world = new_world_services();
+    let second_world = new_world_services();
+    let mut first = with_world_services(&first_world, || GameClient::new().unwrap());
+    let mut second = with_world_services(&second_world, || GameClient::new().unwrap());
+    let first_items = first.collect_native_radius_render_items([spec(10.0)]);
+    let second_items = second.collect_native_radius_render_items([spec(20.0)]);
+
     assert_eq!(first_items.len(), 1);
     assert_eq!(second_items.len(), 1);
     assert_eq!(first_items[0].texture_name, "same-name.tga");
     assert_eq!(first_items[0].position.x, 10.0);
     assert_eq!(second_items[0].position.x, 20.0);
+    assert!(first.collect_native_radius_render_items([]).is_empty());
+    assert_eq!(second_items[0].position.x, 20.0);
+    let next_second = second.collect_native_radius_render_items([spec(21.0)]);
+    assert_eq!(next_second.len(), 1);
+    assert_eq!(next_second[0].position.x, 21.0);
+}
 
-    first
-        .borrow_native_drawable_owner()
-        .replace_live_terrain_decals(&[]);
-    assert!(
-        first
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires serialized native GPU and mounted retail texture archive"]
+fn receiving_live_decal_rows_keep_pixels_and_remove_absent_casters() {
+    use game_client_rust::display::image::load_image_from_engine_filesystem;
+    use game_client_rust::effects::particle_renderer::{ParticleRenderer, ParticleUniforms};
+    use game_client_rust::radius_decal::{
+        ProjectedShadowManager, enqueue_delivery_decal_argb_with_owner,
+    };
+    use game_engine::common::system::big_file_system::BigArchiveBackend;
+    use game_engine::common::system::file_system::get_file_system;
+    use game_engine::common::system::subsystem_interface::SubsystemInterface;
+    use gamelogic::system::engine_stores::{new_world_services, with_world_services};
+    use std::path::Path;
+    use std::sync::Arc;
+
+    let base = std::env::var_os("GENERALS_BASE_DIR").expect("mounted retail base required");
+    let source = tempfile::tempdir().unwrap();
+    std::fs::hard_link(
+        Path::new(&base).join("Data/Textures.big"),
+        source.path().join("Textures.big"),
+    )
+    .unwrap();
+    let world = new_world_services();
+    with_world_services(&world, || {
+        let mut backend = BigArchiveBackend::new();
+        backend.add_search_path(source.path());
+        {
+            let files = get_file_system();
+            let mut files = files.lock().unwrap();
+            files.register_backend(Box::new(backend));
+            files.init().unwrap();
+        }
+        for name in ["EXHorde.tga", "EXJunkCrate.tga"] {
+            let image = load_image_from_engine_filesystem(name).unwrap();
+            assert_eq!((image.width(), image.height()), (128, 128));
+        }
+
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let (device, queue) = (Arc::new(device), Arc::new(queue));
+        let mut renderer = ParticleRenderer::new(
+            Arc::clone(&device),
+            Arc::clone(&queue),
+            wgpu::TextureFormat::Bgra8Unorm,
+        )
+        .unwrap();
+        let uniforms = ParticleUniforms {
+            screen_size: [32.0, 32.0],
+            ..Default::default()
+        };
+
+        let mut client = GameClient::new().unwrap();
+        let persistent = client
             .borrow_native_drawable_owner()
-            .collect_projected_decal_items(false)
-            .is_empty()
+            .allocate_projected_radius("EXHordeB", 0.7, [-0.16, 0.1, 0.0], 0x0050_D077, 0.87)
+            .unwrap();
+        let live = [
+            LiveTerrainDecalSpec {
+                texture: "EXHorde".into(),
+                radius: 0.58,
+                position: [0.1, -0.1, 0.0],
+                color: [185, 90, 40],
+                opacity: 0.63,
+            },
+            LiveTerrainDecalSpec {
+                texture: "EXJunkCrate".into(),
+                radius: 0.5,
+                position: [0.24, 0.05, 0.0],
+                color: [60, 110, 210],
+                opacity: 0.71,
+            },
+        ];
+
+        let legacy_rows = |fixed: bool, dynamic: &[LiveTerrainDecalSpec]| {
+            let mut manager = ProjectedShadowManager::new();
+            if fixed {
+                enqueue_delivery_decal_argb_with_owner(
+                    &mut manager,
+                    "EXHordeB",
+                    0.7,
+                    -0.16,
+                    0.1,
+                    0.0,
+                    0x0050_D077,
+                    0.87,
+                )
+                .unwrap();
+            }
+            for spec in dynamic {
+                let color = u32::from_be_bytes([0, spec.color[0], spec.color[1], spec.color[2]]);
+                enqueue_delivery_decal_argb_with_owner(
+                    &mut manager,
+                    &spec.texture,
+                    spec.radius,
+                    spec.position[0],
+                    spec.position[1],
+                    spec.position[2],
+                    color,
+                    spec.opacity,
+                )
+                .unwrap();
+            }
+            manager.collect_render_items_with_policy(false)
+        };
+        let mut draw = |items: &[game_client_rust::effects::decals::DecalRenderItem]| {
+            read_projected_decal_pixels(&mut renderer, &device, &queue, items, &uniforms)
+        };
+
+        let mut specs = live.to_vec();
+        specs.extend([
+            LiveTerrainDecalSpec {
+                opacity: 0.001,
+                ..live[0].clone()
+            },
+            LiveTerrainDecalSpec {
+                radius: f32::NAN,
+                ..live[0].clone()
+            },
+            LiveTerrainDecalSpec {
+                texture: String::new(),
+                ..live[0].clone()
+            },
+        ]);
+        let texture_storage = specs[0].texture.as_ptr();
+        let full = client.collect_native_radius_render_items(specs);
+        assert_eq!(full.len(), 3);
+        assert_eq!(
+            full.iter()
+                .map(|item| item.texture_name.as_str())
+                .collect::<Vec<_>>(),
+            ["EXHordeB", "EXHorde", "EXJunkCrate"]
+        );
+        let full_pixels = draw(&full);
+        assert_eq!(full_pixels, draw(&legacy_rows(true, &live)));
+        let mut missing_texture = full.clone();
+        missing_texture[1].texture_name = "missing-owner-decal-probe.tga".into();
+        assert_ne!(full_pixels, draw(&missing_texture));
+        assert_eq!(
+            full[1].texture_name.as_ptr(),
+            texture_storage,
+            "the receiving draw row should retain the frame's texture allocation"
+        );
+        assert_eq!(
+            client
+                .borrow_native_drawable_owner()
+                .collect_projected_decal_items(false)
+                .len(),
+            1
+        );
+
+        let updated = client.collect_native_radius_render_items(vec![live[0].clone()]);
+        assert_eq!(updated.len(), 2);
+        let updated_pixels = draw(&updated);
+        assert_eq!(updated_pixels, draw(&legacy_rows(true, &live[..1])));
+        assert_ne!(full_pixels, updated_pixels);
+
+        persistent.release();
+        let only_live = client.collect_native_radius_render_items(vec![live[0].clone()]);
+        assert_eq!(only_live.len(), 1);
+        let live_pixels = draw(&only_live);
+        assert_eq!(live_pixels, draw(&legacy_rows(false, &live[..1])));
+        let cleared = client.collect_native_radius_render_items(Vec::new());
+        assert!(cleared.is_empty());
+        assert_ne!(live_pixels, draw(&cleared));
+        eprintln!(
+            "mounted decal row handoffs 3→2→1→0, RGBA CRCs {:08x} {:08x} {:08x}",
+            crc32fast::hash(&full_pixels),
+            crc32fast::hash(&updated_pixels),
+            crc32fast::hash(&live_pixels)
+        );
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn read_projected_decal_pixels(
+    renderer: &mut game_client_rust::effects::particle_renderer::ParticleRenderer,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    items: &[game_client_rust::effects::decals::DecalRenderItem],
+    uniforms: &game_client_rust::effects::particle_renderer::ParticleUniforms,
+) -> Vec<u8> {
+    let size = wgpu::Extent3d {
+        width: 32,
+        height: 32,
+        depth_or_array_layers: 1,
+    };
+    let attachment = |format, usage| {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+            view_formats: &[],
+        })
+    };
+    let color = attachment(
+        wgpu::TextureFormat::Bgra8Unorm,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
     );
-    let second_after_first_release = second
-        .borrow_native_drawable_owner()
-        .collect_projected_decal_items(false);
-    assert_eq!(second_after_first_release.len(), 1);
-    assert_eq!(second_after_first_release[0].position.x, 20.0);
+    let depth = attachment(
+        ww3d_gpu::SCENE_DEPTH_FORMAT,
+        wgpu::TextureUsages::RENDER_ATTACHMENT,
+    );
+    let color_view = color.create_view(&Default::default());
+    let depth_view = depth.create_view(&Default::default());
+    let output = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 256 * u64::from(size.height),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    renderer.begin_effects_frame();
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &color_view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.05,
+                        g: 0.06,
+                        b: 0.07,
+                        a: 1.0,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &depth_view,
+                stencil_ops: None,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Discard,
+                }),
+            }),
+            ..Default::default()
+        });
+        renderer.record_decals(&mut pass, items, uniforms);
+    }
+    encoder.copy_texture_to_buffer(
+        color.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &output,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(256),
+                rows_per_image: Some(size.height),
+            },
+        },
+        size,
+    );
+    let submission = queue.submit([encoder.finish()]);
+    let (mapped, wait) = std::sync::mpsc::channel();
+    output
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            mapped.send(result).unwrap()
+        });
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(submission),
+            timeout: None,
+        })
+        .unwrap();
+    wait.recv().unwrap().unwrap();
+    let pixels = output.slice(..).get_mapped_range().unwrap();
+    pixels
+        .chunks_exact(256)
+        .flat_map(|row| row[..(4 * size.width) as usize].iter().copied())
+        .collect()
 }

@@ -1448,34 +1448,6 @@ impl GameClient {
 }
 
 impl NativeDrawableOwner<'_> {
-    /// Replace the Main presentation frame's live terrain decal roster on this
-    /// receiving DrawableWorld. Preserve the legacy release-before-create and
-    /// input visitation order while keeping every handle on this client's
-    /// projected-shadow manager.
-    pub fn replace_live_terrain_decals(
-        &mut self,
-        specs: &[crate::radius_decal::LiveTerrainDecalSpec],
-    ) {
-        self.drawables.clear_live_terrain_decal_handles();
-        for spec in specs {
-            let color = ((spec.color[0] as u32) << 16)
-                | ((spec.color[1] as u32) << 8)
-                | spec.color[2] as u32;
-            if let Some(handle) = crate::radius_decal::enqueue_delivery_decal_argb_with_owner(
-                &mut self.drawables.projected_decals.manager,
-                &spec.texture,
-                spec.radius,
-                spec.position[0],
-                spec.position[1],
-                spec.position[2],
-                color,
-                spec.opacity,
-            ) {
-                self.drawables.live_terrain_decal_handles.push(handle);
-            }
-        }
-    }
-
     pub fn collect_projected_decal_items(
         &self,
         use_shadow_decals: bool,
@@ -1510,18 +1482,19 @@ impl NativeDrawableOwner<'_> {
 }
 
 impl GameClient {
-    /// Immutable render input from this actual client's live projected owner.
-    /// Current native production allocates Radius addDecal resources here;
-    /// model-shadow callbacks remain a separately held migration.
+    /// Freeze the receiving client's radius handles and this frame's terrain decals.
     pub fn collect_native_radius_render_items(
         &mut self,
+        live: impl IntoIterator<Item = crate::radius_decal::LiveTerrainDecalSpec>,
     ) -> Vec<crate::effects::decals::DecalRenderItem> {
-        // Completed logic released only its own handles. Compact this manager
-        // before freezing frame output; no legacy manager is involved.
-        self.drawables.projected_decals.manager.cleanup();
-        self.drawables
-            .projected_decals
-            .manager
-            .collect_render_items_with_policy(false)
+        let manager = &mut self.drawables.projected_decals.manager;
+        manager.cleanup();
+        let mut items = manager.collect_render_items_with_policy(false);
+        // The old receiving update appended fresh live rows in this order.
+        items.extend(
+            live.into_iter()
+                .filter_map(crate::radius_decal::LiveTerrainDecalSpec::into_render_item),
+        );
+        items
     }
 }

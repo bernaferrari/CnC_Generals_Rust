@@ -2227,20 +2227,16 @@ impl CnCGameEngine {
                     )
                 })
                 .unwrap_or_default();
-            let native_specs: Vec<_> = live_terrain_decals
-                .into_iter()
-                .map(|spec| game_client::radius_decal::LiveTerrainDecalSpec {
+            let native_specs = live_terrain_decals.into_iter().map(|spec| {
+                game_client::radius_decal::LiveTerrainDecalSpec {
                     texture: spec.texture,
                     radius: spec.radius,
                     position: spec.position,
                     color: spec.color,
                     opacity: spec.opacity,
-                })
-                .collect();
-            self.game_client
-                .borrow_native_drawable_owner()
-                .replace_live_terrain_decals(&native_specs);
-            self.game_client.collect_native_radius_render_items()
+                }
+            });
+            self.game_client.collect_native_radius_render_items(native_specs)
         };
         #[cfg(feature = "game_client")]
         let prepared_particles = self.render_pipeline.capture_native_particles(
