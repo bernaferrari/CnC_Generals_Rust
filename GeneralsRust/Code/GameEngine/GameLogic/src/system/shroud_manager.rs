@@ -16,6 +16,7 @@ mod scalar_queries;
 mod shroud_boundary;
 use game_engine::common::discrete_circle::DiscreteCircle;
 use crate::common::{Coord3D, KindOf, ObjectID, ObjectShroudStatus};
+use crate::object::collide::partition_shroud::PartitionCellShroudCounts;
 use crate::object_manager::get_object_manager;
 use crate::player::PLAYER_INDEX_INVALID;
 use crate::weapon::WeaponStore;
@@ -175,6 +176,12 @@ impl Default for CellShroudLevel {
 }
 
 impl CellShroudLevel {
+    fn count(&self, counts: &mut PartitionCellShroudCounts) {
+        counts.total += 1;
+        counts.shrouded += usize::from(self.current_shroud == 1);
+        counts.fogged += usize::from(self.current_shroud == 0);
+    }
+
     /// Get the shroud status for this cell
     /// Matches C++ PartitionCell::getShroudStatusForPlayer()
     fn get_shroud_status(&self) -> ShroudState {
@@ -1175,24 +1182,21 @@ impl ShroudManager {
         &self,
         player_id: u32,
         cells: &[(i32, i32)],
-    ) -> crate::object::collide::partition_shroud::PartitionCellShroudCounts {
-        use crate::object::collide::partition_shroud::PartitionCellShroudCounts;
+    ) -> PartitionCellShroudCounts {
+        let mut counts = PartitionCellShroudCounts::default();
         let Some(grid) = self.shroud_grid.as_ref() else {
-            return PartitionCellShroudCounts::default();
+            return counts;
         };
-        if player_id as usize >= MAX_PLAYER_COUNT {
-            return PartitionCellShroudCounts::default();
+        let player = player_id as usize;
+        if player >= MAX_PLAYER_COUNT {
+            return counts;
         }
-        let on_map = cells.iter().copied().filter(|&(x, y)| {
-            x >= 0 && y >= 0 && (x as usize) < grid.width && (y as usize) < grid.height
-        });
-        PartitionCellShroudCounts::sample(on_map, |x, y| {
-            match grid.get_cell_state(player_id as usize, x as usize, y as usize) {
-                ShroudState::Hidden => CellShroudStatus::Shrouded,
-                ShroudState::Explored => CellShroudStatus::Fogged,
-                ShroudState::Visible => CellShroudStatus::Clear,
+        for &(x, y) in cells {
+            if let Some(cell) = grid.get_cell(x as usize, y as usize) {
+                cell.shroud_levels[player].count(&mut counts);
             }
-        })
+        }
+        counts
     }
 
     /// Compact per-cell shroud state for one player (row-major `y * width + x`).
