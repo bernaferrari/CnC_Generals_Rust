@@ -10,9 +10,9 @@
 //! before translucent ones, the `DoShadows(stencil)` slot of
 //! `RTS3DScene::Flush`.
 //!
-//! Silhouettes are recomputed on the CPU each frame from a per-model edge
-//! table built once (welded positions, so UV seams do not count as edges);
-//! skinned meshes are skipped (their pose lives on the GPU).
+//! Silhouettes come from welded per-model edge tables. The uploaded world-space
+//! volume is reused for the same ordered caster transforms and sun direction.
+//! Skinned meshes are skipped (their pose lives on the GPU).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -147,8 +147,26 @@ pub(super) struct ShadowVolumeRenderer {
     uniform: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     vertices: Option<(wgpu::Buffer, u64)>,
+    uploaded_casters: Vec<(usize, [u32; 16])>,
+    uploaded_light: Option<[u32; 3]>,
+    uploaded_vertex_count: usize,
+    scratch_vertices: Vec<[f32; 4]>,
     /// Keyed by model address; the Arc keeps the address from being reused.
-    edge_meshes: HashMap<usize, (Arc<MeshModelClass>, Arc<EdgeMesh>)>,
+    edge_meshes: HashMap<usize, (Arc<MeshModelClass>, EdgeMesh)>,
+}
+
+fn shadow_volume_model(mesh: &MeshClass) -> Option<&Arc<MeshModelClass>> {
+    if mesh.is_hidden || mesh.is_animation_hidden {
+        return None;
+    }
+    mesh.model.as_ref().filter(|model| model.vertex_influences.is_empty())
+}
+
+fn caster_geometry_key(mesh: &MeshClass, model: &Arc<MeshModelClass>) -> (usize, [u32; 16]) {
+    (
+        Arc::as_ptr(model) as usize,
+        mesh.transform.to_cols_array().map(f32::to_bits),
+    )
 }
 
 const SHADER: &str = r#"
@@ -323,6 +341,10 @@ impl ShadowVolumeRenderer {
             uniform,
             bind_group,
             vertices: None,
+            uploaded_casters: Vec::new(),
+            uploaded_light: None,
+            uploaded_vertex_count: 0,
+            scratch_vertices: Vec::new(),
             edge_meshes: HashMap::new(),
         }
     }
@@ -342,46 +364,50 @@ impl ShadowVolumeRenderer {
         if casters.is_empty() || light_dir == Vec3::ZERO {
             return 0;
         }
-        let mut vertices: Vec<[f32; 4]> = Vec::new();
-        for mesh in casters {
-            if mesh.is_hidden || mesh.is_animation_hidden {
-                continue;
+        let light = light_dir.to_array().map(f32::to_bits);
+        let eligible = || {
+            casters.iter().filter_map(|mesh| shadow_volume_model(mesh).map(|model| (mesh, model)))
+        };
+        if self.uploaded_light != Some(light)
+            || !eligible()
+                .map(|(mesh, model)| caster_geometry_key(mesh, model))
+                .eq(self.uploaded_casters.iter().copied())
+        {
+            self.uploaded_casters.clear();
+            self.scratch_vertices.clear();
+            for (mesh, model) in eligible() {
+                let key = caster_geometry_key(mesh, model);
+                let (_, edges) = self.edge_meshes.entry(key.0)
+                    .or_insert_with(|| (Arc::clone(model), EdgeMesh::build(model)));
+                edges.extrude(&mesh.transform, light_dir, &mut self.scratch_vertices);
+                self.uploaded_casters.push(key);
             }
-            let Some(model) = mesh.model.as_ref() else {
-                continue;
-            };
-            if !model.vertex_influences.is_empty() {
-                continue;
+            self.uploaded_light = Some(light);
+            self.uploaded_vertex_count = self.scratch_vertices.len();
+            let bytes: &[u8] = bytemuck::cast_slice(&self.scratch_vertices);
+            let needed = bytes.len() as u64;
+            if needed != 0 {
+                if self.vertices.as_ref().is_none_or(|(_, cap)| *cap < needed) {
+                    let capacity = needed.next_power_of_two();
+                    self.vertices = Some((
+                        device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("shadow_volume_vertices"),
+                            size: capacity,
+                            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        }),
+                        capacity,
+                    ));
+                }
+                queue.write_buffer(&self.vertices.as_ref().expect("volume buffer").0, 0, bytes);
             }
-            let key = Arc::as_ptr(model) as usize;
-            let edges = Arc::clone(
-                &self
-                    .edge_meshes
-                    .entry(key)
-                    .or_insert_with(|| (Arc::clone(model), Arc::new(EdgeMesh::build(model))))
-                    .1,
-            );
-            edges.extrude(&mesh.transform, light_dir, &mut vertices);
         }
-        if vertices.is_empty() {
+        let vertex_count = self.uploaded_vertex_count;
+        if vertex_count == 0 {
             return 0;
         }
-        let bytes: &[u8] = bytemuck::cast_slice(&vertices);
-        let needed = bytes.len() as u64;
-        if self.vertices.as_ref().is_none_or(|(_, cap)| *cap < needed) {
-            let capacity = needed.next_power_of_two();
-            self.vertices = Some((
-                device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("shadow_volume_vertices"),
-                    size: capacity,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }),
-                capacity,
-            ));
-        }
+        let needed = (vertex_count * std::mem::size_of::<[f32; 4]>()) as u64;
         let (buffer, _) = self.vertices.as_ref().expect("volume buffer");
-        queue.write_buffer(buffer, 0, bytes);
         let mut uniform = [0.0f32; 20];
         uniform[..16].copy_from_slice(&view_proj.to_cols_array());
         uniform[16..].copy_from_slice(&SHADOW_COLOR);
@@ -391,10 +417,10 @@ impl ShadowVolumeRenderer {
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_pipeline(&self.volume_pipeline);
         pass.set_vertex_buffer(0, buffer.slice(..needed));
-        pass.draw(0..vertices.len() as u32, 0..1);
+        pass.draw(0..vertex_count as u32, 0..1);
         pass.set_pipeline(&self.fill_pipeline);
         pass.draw(0..3, 0..1);
-        (vertices.len() / 6) as u32
+        (vertex_count / 6) as u32
     }
 }
 
@@ -532,8 +558,19 @@ mod tests {
         );
         // Identity projects the near volume wall outside clip space and the
         // other to depth 1/8. The center pixel intersects only that wall.
-        let casters = [Arc::new(mesh)];
-        for (receiver, shade) in [(0.25, 160), (0.0625, 255), (0.125, 160)] {
+        let base_transform = mesh.transform;
+        let mut casters = [Arc::new(mesh)];
+        let cases = [
+            (0.25, 160, 0.0, false),
+            (0.0625, 255, 0.0, true),
+            (0.125, 160, 0.0, true),
+            (0.25, 255, 2.0, false),
+            (0.25, 160, 0.0, false),
+        ];
+        for (receiver, shade, offset, reuse) in cases {
+            Arc::get_mut(&mut casters[0]).unwrap().transform =
+                Mat4::from_translation(Vec3::X * offset) * base_transform;
+            renderer.scratch_vertices.clear();
             let mut encoder = device.create_command_encoder(&Default::default());
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -573,6 +610,7 @@ mod tests {
                     ),
                     4
                 );
+                assert_eq!(renderer.scratch_vertices.is_empty(), reuse);
             }
             encoder.copy_texture_to_buffer(
                 color.as_image_copy(),
