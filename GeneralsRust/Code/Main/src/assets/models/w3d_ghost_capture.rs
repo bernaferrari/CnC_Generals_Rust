@@ -79,7 +79,7 @@ impl W3DModel {
             }
             (RenderObjectClass::Mesh, Vec::new())
         } else {
-            let (hlod, lod, _) = self.rigid_hlod_static_lod_context()?;
+            let (hlod, lod, hierarchy) = self.rigid_hlod_static_lod_context()?;
             if hlod
                 .aggregates
                 .as_ref()
@@ -87,13 +87,20 @@ impl W3DModel {
             {
                 return None;
             }
+            // Each mesh resolves to its first authored child. Keep the first
+            // flattened mesh for that child, then capture in HLOD child order.
+            let mut meshes_by_child = vec![None; lod.subobjects.len()];
+            for (mesh_index, mesh) in self.meshes.iter().enumerate() {
+                if let Some((child_index, _)) =
+                    Self::find_rigid_hlod_child_for_mesh(hlod, lod, mesh, hierarchy.pivots.len())
+                {
+                    meshes_by_child[child_index].get_or_insert(mesh_index);
+                }
+            }
+
             let mut children = Vec::with_capacity(lod.subobjects.len());
-            for child in &lod.subobjects {
-                let mesh_index = self.meshes.iter().enumerate().find_map(|(index, _)| {
-                    self.rigid_hlod_subobject_for_mesh(index)
-                        .is_some_and(|(source, _)| std::ptr::eq(source, child))
-                        .then_some(index)
-                })?;
+            for (child, mesh_index) in lod.subobjects.iter().zip(meshes_by_child) {
+                let mesh_index = mesh_index?;
                 let mesh = &self.meshes[mesh_index];
                 if Self::mesh_declares_skin(mesh) {
                     return None;
@@ -195,6 +202,58 @@ mod tests {
             model.meshes.push(mesh);
         }
         model
+    }
+
+    fn capture_indexed_meshes(model: &W3DModel) -> Option<RenderObjectState> {
+        model.capture_native_ghost_with_mesh_pose(
+            Mat4::IDENTITY,
+            1.0,
+            0,
+            false,
+            &|index| Some((Mat4::from_translation(Vec3::X * index as f32), true)),
+            &[],
+            &[],
+            false,
+        )
+    }
+
+    #[test]
+    fn native_capture_keeps_the_first_matching_mesh_in_authored_child_order() {
+        let mut model = model();
+        let mut later_body = model.meshes[0].clone();
+        later_body.name = "body".into();
+        model.meshes.reverse();
+        model.meshes.push(later_body);
+
+        let captured = capture_indexed_meshes(&model).unwrap();
+        let children = captured
+            .sub_objects
+            .iter()
+            .map(|child| {
+                (
+                    child.name.as_str(),
+                    child.transform.to_logic_matrix().w_axis.x,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            children,
+            [("BUILDING.BODY", 1.0), ("BUILDING.MUZZLEFX", 0.0)]
+        );
+    }
+
+    #[test]
+    fn native_capture_rejects_ambiguous_children_and_an_invalid_first_matching_bone() {
+        let mut model = model();
+        let lod = &mut model.hlods[0].lods[0];
+        let mut duplicate = lod.subobjects[0].clone();
+        duplicate.name = duplicate.name.to_ascii_lowercase();
+        lod.subobjects.push(duplicate);
+        assert!(capture_indexed_meshes(&model).is_none());
+
+        model.hlods[0].lods[0].subobjects[0].bone_index = u32::MAX;
+        assert!(model.rigid_hlod_subobject_for_mesh(0).is_none());
+        assert!(capture_indexed_meshes(&model).is_none());
     }
 
     #[test]

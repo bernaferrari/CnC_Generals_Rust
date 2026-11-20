@@ -1028,7 +1028,8 @@ impl W3DModel {
                     Some((hlod, lod, transforms, animation))
                 })
                 .as_ref()?;
-            let (_, bone_index) = Self::find_rigid_hlod_mesh(hlod, lod, mesh, transforms.len())?;
+            let (_, bone_index) =
+                Self::find_rigid_hlod_child_for_mesh(hlod, lod, mesh, transforms.len())?;
             let visible = match animation {
                 Some(animation) => animation.visibility_for_pivot(bone_index, animation_frame)?,
                 None => true,
@@ -1475,27 +1476,28 @@ impl W3DModel {
     ) -> Option<(&W3dHlodSubObject, usize)> {
         let (hlod, lod, hierarchy) = self.rigid_hlod_static_lod_context()?;
 
-        Self::find_rigid_hlod_mesh(
+        let (child_index, bone_index) = Self::find_rigid_hlod_child_for_mesh(
             hlod,
             lod,
             self.meshes.get(mesh_index)?,
             hierarchy.pivots.len(),
-        )
+        )?;
+        Some((&lod.subobjects[child_index], bone_index))
     }
 
-    fn find_rigid_hlod_mesh<'a>(
+    pub(super) fn find_rigid_hlod_child_for_mesh(
         hlod: &W3dHlod,
-        lod: &'a W3dHlodLod,
+        lod: &W3dHlodLod,
         mesh: &W3DMesh,
         bone_count: usize,
-    ) -> Option<(&'a W3dHlodSubObject, usize)> {
+    ) -> Option<(usize, usize)> {
         let container = mesh.container_name.as_bytes();
         if container.is_empty()
             || !mesh.container_name.eq_ignore_ascii_case(hlod.name.as_str())
         {
             return None;
         }
-        let subobject = lod.subobjects.iter().find(|subobject| {
+        let child_index = lod.subobjects.iter().position(|subobject| {
             let Some((prefix, leaf)) = subobject.name.as_bytes().split_at_checked(container.len())
             else {
                 return false;
@@ -1506,8 +1508,8 @@ impl W3DModel {
                     .is_some_and(|leaf| leaf.eq_ignore_ascii_case(mesh.name.as_bytes()))
         })?;
 
-        let bone_index = usize::try_from(subobject.bone_index).ok()?;
-        (bone_index < bone_count).then_some((subobject, bone_index))
+        let bone_index = usize::try_from(lod.subobjects[child_index].bone_index).ok()?;
+        (bone_index < bone_count).then_some((child_index, bone_index))
     }
 
     /// C++ `HLodClass` construction starts from `CurLod == 0`, calls
