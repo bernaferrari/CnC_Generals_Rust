@@ -124,10 +124,10 @@ fn sentry_requires_real_deploy_then_weapon_windup_and_commits_one_delayed_shot()
     game.try_sentry_drone_residual_fire(SOURCE);
     assert_eq!(ammo(&game), Some(1));
     assert_eq!(game.sentry_drone_residual_auto_fires, 1);
-    game.frame = 57;
+    game.frame = 58;
     game.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&game), 100.0);
-    game.frame = 58;
+    game.frame = 59;
     game.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&game), 63.0);
     assert_eq!(delayed(&game), 0);
@@ -192,10 +192,10 @@ fn hellfire_projectileless_variant_consumes_once_and_deals_damage_at_impact_phas
     );
     assert_eq!(ammo(&game), Some(1));
     assert_eq!(game.hellfire_drone_residual_auto_fires, 1);
-    game.frame = 40;
+    game.frame = 41;
     game.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&game), 100.0);
-    game.frame = 41;
+    game.frame = 42;
     game.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&game), 63.0);
     game.apply_owned_projectileless_delayed_damage().unwrap();

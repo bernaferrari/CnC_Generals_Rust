@@ -306,11 +306,11 @@ fn fire_at_projectileless_keeps_identity_in_receiving_pending_queue() {
         "materialization must not publish a second native delivery"
     );
     assert_eq!(objects[&ObjectId(2)].health.current, 100.0);
-    // C++ Weapon.cpp:1055-1063 ceil travel frames: 100/10, due at frame3+10.
+    // Weapon.cpp:1060 converts the exact 100/10 travel to 11 frames.
     apply_ready_projectileless_delayed_damage(
         &mut combat,
         &mut objects,
-        12,
+        13,
         None,
         &mut health_events,
         &mut _ownership_output,
@@ -319,7 +319,7 @@ fn fire_at_projectileless_keeps_identity_in_receiving_pending_queue() {
     apply_ready_projectileless_delayed_damage(
         &mut combat,
         &mut objects,
-        13,
+        14,
         None,
         &mut health_events,
         &mut _ownership_output,
@@ -331,7 +331,7 @@ fn fire_at_projectileless_keeps_identity_in_receiving_pending_queue() {
     apply_ready_projectileless_delayed_damage(
         &mut combat,
         &mut objects,
-        13,
+        14,
         None,
         &mut health_events,
         &mut _ownership_output,

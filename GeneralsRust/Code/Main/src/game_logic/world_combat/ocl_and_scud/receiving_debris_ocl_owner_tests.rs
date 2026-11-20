@@ -145,6 +145,7 @@ fn helix_portable_rider_fires_its_own_weapon_without_passenger_upgrade() {
                 reload_time: 0.1,
                 range: 150.0,
                 damage: 10.0,
+                projectile_speed: 200.0,
                 ..Default::default()
             },
         );
@@ -153,12 +154,25 @@ fn helix_portable_rider_fires_its_own_weapon_without_passenger_upgrade() {
     victim.add_kind_of(crate::game_logic::KindOf::Infantry)
         .add_kind_of(crate::game_logic::KindOf::Attackable).set_health(100.0);
     world.templates.insert(victim.name.clone(), victim);
-    let target = world.create_object("HelixRiderTarget", Team::USA, Vec3::new(20.0, 0.0, 0.0)).unwrap();
+    let target = world
+        .create_object("HelixRiderTarget", Team::USA, Vec3::new(21.0, 0.0, 0.0))
+        .unwrap();
     let before = world.host_object(target).unwrap().health.current;
     world.set_current_frame(30);
     world.try_transport_passenger_residual_fire(rider);
-    assert!(world.host_object(target).unwrap().health.current < before);
+    let weapon = world.host_object(rider).unwrap().weapon_slot(0).unwrap();
+    assert_eq!(weapon.last_fire_frame, 30);
     assert!(!world.host_object(helix).unwrap().passengers_allowed_to_fire);
+    assert_eq!(world.host_object(target).unwrap().health.current, before);
+
+    // Projectileless damage travels 21 units in 3.15 logic frames at the
+    // authored speed. Weapon.cpp queues it for the fourth frame.
+    world.set_current_frame(33);
+    world.apply_owned_projectileless_delayed_damage().unwrap();
+    assert_eq!(world.host_object(target).unwrap().health.current, before);
+    world.set_current_frame(34);
+    world.apply_owned_projectileless_delayed_damage().unwrap();
+    assert_eq!(world.host_object(target).unwrap().health.current, before - 10.0);
 }
 
 #[test]

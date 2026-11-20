@@ -530,7 +530,8 @@ fn test_projectileless_weapon_queues_delayed_damage() {
     );
 
     assert_eq!(count, 1);
-    assert_eq!(delay_frame, current_frame + 10);
+    // Weapon.cpp applies REAL_TO_INT_CEIL to the exact 100 / 10 travel time.
+    assert_eq!(delay_frame, current_frame + 11);
     assert_eq!(queued_source, source_id);
     assert_eq!(queued_victim, target_id);
     assert_eq!(queued_pos, target_pos);

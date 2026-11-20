@@ -3039,8 +3039,8 @@ pub(in crate::game_logic) mod tests {
         );
         assert_eq!(live_projectileless_delayed_count_for_test(&combat), 1);
 
-        // C++ Weapon.cpp:1006: 100 units / parsed 10 units/frame = 10 frames.
-        // Damage must still be pending immediately before frame 20 + 10.
+        // The parsed 300 * (1/30f) is one float beyond 10.0. With the
+        // original REAL_TO_INT_CEIL bias, 100 / that speed still gives 10 frames.
         apply_ready_projectileless_delayed_damage(
             &mut combat,
             &mut objects,

@@ -251,7 +251,7 @@ fn handle_projectileless_pending(
             damage_id,
         });
     }
-    let delay_whole_frames = delay_in_frames.ceil() as u32;
+    let delay_whole_frames = game_engine::base_type::real_to_int_ceil(delay_in_frames) as u32;
     let when = frame.wrapping_add(delay_whole_frames);
     queue_live_projectileless_delayed(combat, when, pending, damage_pos, damage_id);
     None

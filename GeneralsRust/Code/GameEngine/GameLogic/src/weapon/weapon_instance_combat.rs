@@ -81,7 +81,7 @@ impl Weapon {
             source_obj_id, source_pos, target_obj_id, target_position, speed, bonus,
             inflict_damage, borrowed_source,
             |template, position, delay, source, victim, bonus| {
-                let when = TheGameLogic::get_frame().saturating_add(delay);
+                let when = TheGameLogic::get_frame().wrapping_add(delay);
                 let result = with_weapon_store_mut(|store| {
                     store.set_delayed_damage(template, position, when, source, victim, bonus);
                 });
@@ -140,7 +140,7 @@ impl Weapon {
             return Ok(());
         }
 
-        let delay_whole_frames = delay_in_frames.ceil() as u32;
+        let delay_whole_frames = game_engine::base_type::real_to_int_ceil(delay_in_frames) as u32;
         queue(
             &self.template,
             &damage_position,

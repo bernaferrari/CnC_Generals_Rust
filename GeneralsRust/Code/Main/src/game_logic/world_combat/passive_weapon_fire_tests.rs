@@ -203,14 +203,14 @@ fn real_passive_secondary_preserves_container_state_and_delays_damage_from_actua
         assert_ne!(source.weapon_barrel_cursor_for_snapshot(1), barrel);
         assert_eq!(health(&game), hp);
         assert_eq!(delayed(&game), 1);
-        game.frame = 39;
+        game.frame = 40;
         game.apply_owned_projectileless_delayed_damage().unwrap();
         assert_eq!(
             health(&game),
             hp,
-            "90 / 9 is ten logic frames from supplied muzzle"
+            "REAL_TO_INT_CEIL converts the exact 90 / 9 travel to 11 frames"
         );
-        game.frame = 40;
+        game.frame = 41;
         game.apply_owned_projectileless_delayed_damage().unwrap();
         assert_eq!(health(&game), hp - 37.0);
         assert_eq!(delayed(&game), 0);
@@ -296,7 +296,7 @@ fn shipping_transport_passenger_driver_uses_owned_delayed_discharge() {
     );
     assert_eq!(health(&game), hp);
     assert_eq!(delayed(&game), 1);
-    game.frame = 40;
+    game.frame = 41;
     game.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&game), hp - 37.0);
 }
@@ -354,10 +354,10 @@ fn normal_encoded_save_restores_selected_passive_slot_and_delayed_damage_once() 
         Some(1)
     );
     assert_eq!(delayed(&restored), 1);
-    restored.frame = 39;
+    restored.frame = 40;
     restored.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&restored), hp);
-    restored.frame = 40;
+    restored.frame = 41;
     restored.apply_owned_projectileless_delayed_damage().unwrap();
     assert_eq!(health(&restored), hp - 37.0);
     restored.apply_owned_projectileless_delayed_damage().unwrap();

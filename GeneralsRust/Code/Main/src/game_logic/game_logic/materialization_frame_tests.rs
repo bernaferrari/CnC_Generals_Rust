@@ -254,15 +254,15 @@ fn delayed_projectileless_due_frame_belongs_to_materializing_world() {
         live_projectileless_delayed_count_for_test(&first.combat_system),
         1
     );
-    apply(&mut first, 102);
+    apply(&mut first, 103);
     assert_eq!(
         first.objects[&target].health.current, hp,
-        "three-frame travel is not due early"
+        "REAL_TO_INT_CEIL keeps exact three-frame travel pending at owner frame 103"
     );
-    apply(&mut first, 103);
+    apply(&mut first, 104);
     assert!(
         first.objects[&target].health.current < hp,
-        "damage is due at owner frame100+3"
+        "damage is due at receiving frame 100 plus the four-frame converted delay"
     );
     assert_eq!(
         live_projectileless_delayed_count_for_test(&first.combat_system),
