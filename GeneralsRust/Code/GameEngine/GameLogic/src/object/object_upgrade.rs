@@ -640,6 +640,16 @@ impl Object {
         completed_player_upgrades: UpgradeMaskType,
         radar_grant: &mut dyn FnMut(&mut Object, bool),
     ) {
+        self.give_upgrade_with_loading_state(upgrade, completed_player_upgrades, None, radar_grant);
+    }
+
+    pub(crate) fn give_upgrade_with_loading_state(
+        &mut self,
+        upgrade: &UpgradeTemplate,
+        completed_player_upgrades: UpgradeMaskType,
+        loading_map: Option<bool>,
+        radar_grant: &mut dyn FnMut(&mut Object, bool),
+    ) {
         self.object_upgrades_completed
             .insert(UpgradeMaskType::from_bits_retain(upgrade.mask().bits()));
         if self
@@ -649,8 +659,9 @@ impl Object {
         {
             return;
         }
-        self.apply_upgrade_modules_with_radar(
+        self.apply_upgrade_modules_with_loading_state(
             completed_player_upgrades | self.object_upgrades_completed,
+            loading_map,
             radar_grant,
         );
     }
@@ -743,6 +754,15 @@ impl Object {
         mask: UpgradeMaskType,
         radar_grant: &mut dyn FnMut(&mut Object, bool),
     ) {
+        self.apply_upgrade_modules_with_loading_state(mask, None, radar_grant);
+    }
+
+    pub(crate) fn apply_upgrade_modules_with_loading_state(
+        &mut self,
+        mask: UpgradeMaskType,
+        loading_map: Option<bool>,
+        radar_grant: &mut dyn FnMut(&mut Object, bool),
+    ) {
         if mask.is_empty() {
             return;
         }
@@ -795,7 +815,7 @@ impl Object {
                     PreparedUpgrade::Radar(data) => radar_grant(self, data.read().is_disable_proof()),
                     PreparedUpgrade::StatusBits(data) => data.read().apply_to_object(self),
                     PreparedUpgrade::Armor(data) => data.read().apply_to_object(self),
-                    PreparedUpgrade::MaxHealth(data) => data.read().apply_to_object(self),
+                    PreparedUpgrade::MaxHealth(data) => data.read().apply_to_object(self, loading_map),
                     PreparedUpgrade::ExperienceScalar(data) => data.read().apply_to_object(self),
                     PreparedUpgrade::WeaponBonus(data) => data.read().apply_to_object(self),
                     PreparedUpgrade::SubObjects(_) | PreparedUpgrade::PassengersFire(_) => {}

@@ -89,9 +89,9 @@ pub struct MaxHealthUpgrade {
 
 impl MaxHealthUpgradeModuleData {
     /// C++ MaxHealthUpgrade.cpp:56-68. The caller already borrows the actual owner.
-    pub(crate) fn apply_to_object(&self, owner: &mut Object) {
+    pub(crate) fn apply_to_object(&self, owner: &mut Object, loading_map: Option<bool>) {
         owner
-            .add_body_max_health_with_owner(self.add_max_health, self.change_type)
+            .add_body_max_health_with_owner(self.add_max_health, self.change_type, loading_map)
             .expect("max health upgrade could not update body");
     }
 }

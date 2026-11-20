@@ -751,7 +751,15 @@ impl GameLogic {
     }
 
     pub fn is_loading_map(&self) -> Bool {
-        self.loading_map || crate::helpers::TheGameLogic::is_start_new_game_requested()
+        self.loading_map || self.owning_world_services().map_or_else(
+            crate::helpers::TheGameLogic::is_start_new_game_requested,
+            |world| {
+                world
+                    .session_flags()
+                    .start_new_game_requested
+                    .load(std::sync::atomic::Ordering::Relaxed)
+            },
+        )
     }
 
     /// Complete the heavy new-game initialization path.

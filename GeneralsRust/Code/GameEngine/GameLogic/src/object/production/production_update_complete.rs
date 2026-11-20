@@ -1427,6 +1427,7 @@ impl ProductionUpdateComplete {
                                     &mut obj,
                                     upgrade.as_ref(),
                                     player_mask,
+                                    None,
                                     &mut |owner, proof| {
                                         player
                                             .write()

@@ -547,6 +547,7 @@ impl Drawable {
         drawable: &Arc<RwLock<Self>>,
         new_state: BodyDamageType,
         owner: &crate::object::Object,
+        loading_map: Option<Bool>,
     ) {
         let (modules, conditions, facts) = {
             let mut draw = drawable.write().expect("health Drawable poisoned");
@@ -558,7 +559,7 @@ impl Drawable {
             )
         };
         Self::dispatch_model_condition_state(modules, conditions, &facts);
-        if !TheGameLogic::is_loading_map() {
+        if !loading_map.unwrap_or_else(TheGameLogic::is_loading_map) {
             drawable
                 .write()
                 .expect("ambient Drawable poisoned")

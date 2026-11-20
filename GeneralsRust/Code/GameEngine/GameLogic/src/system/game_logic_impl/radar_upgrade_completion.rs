@@ -87,10 +87,14 @@ impl UpgradeCompletionServices for OwnedUpgradeCompletionServices<'_> {
                     }
                     let mut player = player.write().expect("upgrade fanout player poisoned");
                     let frame = logic.frame;
-                    object.apply_upgrade_modules_with_radar(mask, &mut |owner, proof| {
-                        player.add_radar_owned(proof, self.radar);
-                        owner.extend_radar_at(frame);
-                    });
+                    object.apply_upgrade_modules_with_loading_state(
+                        mask,
+                        Some(logic.is_loading_map()),
+                        &mut |owner, proof| {
+                            player.add_radar_owned(proof, self.radar);
+                            owner.extend_radar_at(frame);
+                        },
+                    );
                 }
             }
         }
@@ -178,6 +182,7 @@ impl GameLogic {
             &mut owner,
             upgrade,
             completed,
+            Some(self.is_loading_map()),
             &mut |owner, proof| {
                 player.add_radar_owned(proof, services);
                 owner.extend_radar_at(frame);

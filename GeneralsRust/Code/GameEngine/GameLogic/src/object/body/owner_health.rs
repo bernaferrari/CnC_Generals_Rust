@@ -101,6 +101,7 @@ impl Object {
         &mut self,
         addition: f32,
         kind: MaxHealthChangeType,
+        loading_map: Option<bool>,
     ) -> BodyResult<()> {
         let Some(body) = self.get_body_module() else {
             return Ok(());
@@ -111,7 +112,7 @@ impl Object {
             let operation = body.begin_owner_max_health_change(max_health, kind)?;
             (max_health, operation)
         };
-        self.finish_body_max_health_with_owner(&body, max_health, operation)
+        self.finish_body_max_health_with_owner(&body, max_health, operation, loading_map)
     }
 
     /// Absolute map max-health assignment; preserve the map adapter's
@@ -130,7 +131,7 @@ impl Object {
             };
             body.begin_owner_max_health_change(max_health, kind)?
         };
-        self.finish_body_max_health_with_owner(&body, max_health, operation)
+        self.finish_body_max_health_with_owner(&body, max_health, operation, None)
     }
 
     fn finish_body_max_health_with_owner(
@@ -138,16 +139,17 @@ impl Object {
         body: &Body,
         max_health: f32,
         operation: OwnerMaxHealthChange,
+        loading_map: Option<bool>,
     ) -> BodyResult<()> {
         let OwnerMaxHealthChange::Active { first_delta } = operation else {
             return Ok(());
         };
         if let Some(delta) = first_delta {
-            self.change_body_health_with_owner(body, delta)?;
+            self.change_body_health_with_owner(body, delta, loading_map)?;
         }
         let now = body.lock().expect("max health body poisoned").get_health();
         if now > max_health {
-            self.change_body_health_with_owner(body, max_health - now)?;
+            self.change_body_health_with_owner(body, max_health - now, loading_map)?;
         }
         Ok(())
     }
@@ -169,7 +171,7 @@ impl Object {
             body.set_initial_health_for_borrowed_owner(initial_percent, is_structure)?
         };
         if let Some(transition) = transition {
-            self.finish_body_health_transition_with_owner(&body, transition)?;
+            self.finish_body_health_transition_with_owner(&body, transition, None)?;
         }
         Ok(())
     }
@@ -191,23 +193,29 @@ impl Object {
                 Err(error) => return Err(error),
             }
         };
-        self.finish_body_health_transition_with_owner(&body, transition)
+        self.finish_body_health_transition_with_owner(&body, transition, None)
     }
 
-    fn change_body_health_with_owner(&mut self, body: &Body, delta: f32) -> BodyResult<()> {
+    fn change_body_health_with_owner(
+        &mut self,
+        body: &Body,
+        delta: f32,
+        loading_map: Option<bool>,
+    ) -> BodyResult<()> {
         // Facts come from the live driving Object, never an ID lookup.
         let is_structure = self.is_structure();
         let transition = body
             .lock()
             .expect("health body poisoned")
             .change_health_for_borrowed_owner(delta, is_structure)?;
-        self.finish_body_health_transition_with_owner(body, transition)
+        self.finish_body_health_transition_with_owner(body, transition, loading_map)
     }
 
     fn finish_body_health_transition_with_owner(
         &mut self,
         body: &Body,
         transition: OwnerHealthTransition,
+        loading_map: Option<bool>,
     ) -> BodyResult<()> {
         // C++ setCorrectDamageState updates the structure footprint and pose
         // before testing the construction status and notifying its drawable.
@@ -222,6 +230,7 @@ impl Object {
                     &drawable,
                     transition.damage_state,
                     self,
+                    loading_map,
                 );
             }
             self.rebuild_body_particles_with_owner(body);

@@ -392,6 +392,144 @@ fn authored_radar_load_restores_concrete_phase_and_keeps_wake_bits_and_wire() {
 }
 
 #[test]
+fn installed_max_health_production_reacts_on_the_borrowed_loading_world() {
+    #[cfg(not(target_arch = "wasm32"))]
+    if !matches!(
+        crate::test_process::run_bounded(
+            concat!(
+                module_path!(),
+                "::installed_max_health_production_reacts_on_the_borrowed_loading_world"
+            )
+            .strip_prefix("gamelogic::")
+            .unwrap(),
+            "GENERALS_MAX_HEALTH_PRODUCTION_LOADING_CHILD",
+        ),
+        crate::test_process::TestProcess::Child,
+    ) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::system::game_logic::{OwnedUpgradeCompletionServices, get_game_logic};
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+
+    const UPGRADE: &str = "Upgrade_ProductionLoadingBody";
+    let admit = || {
+        assert!(ensure_thing_factory_exists());
+        if get_module_factory().unwrap().is_none() {
+            init_module_factory().unwrap();
+        }
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        let mut ini = game_engine::common::ini::INI::new();
+        crate::upgrade::center::with_upgrade_center_mut(|center| {
+            ini.with_inline_source(
+                "Upgrade Upgrade_ProductionLoadingBody\n Type = OBJECT\nEnd",
+                |ini| {
+                    ini.read_line()?;
+                    center.parse_upgrade_definition(ini)
+                },
+            )
+            .unwrap();
+        });
+        let source = "
+            Object ProductionLoadingBody
+                KindOf = STRUCTURE IMMOBILE
+                Body = ActiveBody Health
+                    MaxHealth = 100
+                    InitialHealth = 100
+                End
+                Behavior = ProductionUpdate Producer
+                End
+                Behavior = MaxHealthUpgrade RaiseHealth
+                    TriggeredBy = Upgrade_ProductionLoadingBody
+                    AddMaxHealth = 50
+                    ChangeType = FULLY_HEAL
+                End
+            End
+        ";
+        assert_eq!(
+            get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(source),
+            1
+        );
+        let team = Arc::new(RwLock::new(crate::team::Team::new("BodyTeam".into(), 71)));
+        team.write().unwrap().set_controlling_player_id(Some(0));
+        let mut player = Player::new(0);
+        player.set_default_team(Some(Arc::clone(&team)));
+        player.add_power_production(1);
+        let player = Arc::new(RwLock::new(player));
+        let services = crate::system::engine_stores::active_services();
+        services.players().write().unwrap().add_player(Arc::clone(&player));
+        let template = TheThingFactory::find_template("ProductionLoadingBody").unwrap();
+        let owner = TheThingFactory::get()
+            .unwrap()
+            .new_object_with_team_handle(template, team)
+            .unwrap();
+        let id = owner.read().unwrap().get_id();
+        let drawable = Arc::new(RwLock::new(Drawable::new(
+            210, id, String::new(), DrawableType::Static,
+        )));
+        owner.write().unwrap().set_drawable(Some(Arc::clone(&drawable)));
+        let body = owner.read().unwrap().get_body_module().unwrap();
+        body.lock().unwrap().set_initial_health(25).unwrap();
+        assert_eq!(body.lock().unwrap().get_health(), 25.0);
+        assert!(drawable.read().unwrap().get_model_conditions().intersects(
+            ModelConditionFlags::DAMAGED | ModelConditionFlags::REALLYDAMAGED
+        ));
+        (owner, drawable, player)
+    };
+
+    let receiving_world = new_for_world();
+    let peer_world = new_for_world();
+    let (receiving, drawable, player) = with_active_stores(&receiving_world, admit);
+    let (peer, peer_drawable, peer_player) = with_active_stores(&peer_world, admit);
+    let id = receiving.read().unwrap().get_id();
+    assert_eq!(peer.read().unwrap().get_id(), id);
+    let peer_flags = peer_drawable.read().unwrap().get_model_conditions();
+    let complete_upgrade = |player, loading_map| {
+        let center = crate::upgrade::center::with_upgrade_center(Clone::clone);
+        let mut scripts = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+        let mut radar = EdgeServices::default();
+        let mut players = crate::player::PlayerList::new();
+        players.add_player(player);
+        let mut services = OwnedUpgradeCompletionServices {
+            players: &players,
+            upgrades: &center,
+            scripts: &mut scripts,
+            radar: &mut radar,
+            audio: &mut |_| {},
+        };
+        let logic = get_game_logic();
+        let mut logic = logic.lock().unwrap();
+        logic.set_loading_map(loading_map);
+        logic
+            .queue_object_upgrade_owned(id, UPGRADE.into(), 10, 1, 0)
+            .unwrap();
+        logic
+            .update_with_upgrade_services(20, &mut services, || None)
+            .unwrap();
+        assert!(scripts.is_upgrade_complete(0, UPGRADE, false, id));
+    };
+    with_active_stores(&receiving_world, || {
+        complete_upgrade(player, true);
+    });
+    assert_eq!(receiving.read().unwrap().get_health(), 150.0);
+    assert_eq!(receiving.read().unwrap().get_max_health(), 150.0);
+    assert!(!drawable.read().unwrap().get_model_conditions().intersects(
+        ModelConditionFlags::DAMAGED | ModelConditionFlags::REALLYDAMAGED
+    ));
+    assert_eq!(peer.read().unwrap().get_health(), 25.0);
+    assert_eq!(peer.read().unwrap().get_max_health(), 100.0);
+    assert_eq!(peer_drawable.read().unwrap().get_model_conditions(), peer_flags);
+    with_active_stores(&peer_world, || {
+        complete_upgrade(peer_player, false);
+    });
+    assert_eq!(peer.read().unwrap().get_health(), 150.0);
+    assert!(!peer_drawable.read().unwrap().get_model_conditions().intersects(
+        ModelConditionFlags::DAMAGED | ModelConditionFlags::REALLYDAMAGED
+    ));
+}
+
+#[test]
 fn installed_production_completion_owns_grant_clock_notification_and_continuation() {
         let _serial_test_lock = crate::test_sync::lock();
     use crate::system::game_logic::OwnedUpgradeCompletionServices;

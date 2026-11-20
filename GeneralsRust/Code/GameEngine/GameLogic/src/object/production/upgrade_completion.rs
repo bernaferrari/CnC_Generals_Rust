@@ -10,7 +10,8 @@ pub(crate) fn grant_object_upgrade(
     owner: &mut Object,
     upgrade: &UpgradeTemplate,
     completed_player_upgrades: UpgradeMaskType,
+    loading_map: Option<bool>,
     radar_grant: &mut dyn FnMut(&mut Object, bool),
 ) {
-    owner.give_upgrade_with_radar(upgrade, completed_player_upgrades, radar_grant);
+    owner.give_upgrade_with_loading_state(upgrade, completed_player_upgrades, loading_map, radar_grant);
 }
