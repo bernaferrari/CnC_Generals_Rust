@@ -153,14 +153,14 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
             visual.river_gpu.river_tex.as_ref().unwrap().width() > 1,
             "the native polygon shader must bind the mounted TWWater01 art",
         );
-        set_water_test_camera(
-            &mut visual,
-            &device,
-            min - Vec2::splat(20.0),
-            max + Vec2::splat(20.0),
-        );
+        let min = min - Vec2::splat(20.0);
+        let max = max + Vec2::splat(20.0);
+        set_water_test_camera(&mut visual, &device, min, max);
         visual.set_map_water_areas(areas.clone());
-        visual.sync_river_params();
+        assert!(
+            !visual.sync_river_params(),
+            "new buffers contain the current phase"
+        );
         let phase_0 = read_water_pixels(&visual, &device, &queue, true);
         assert!(
             phase_0.chunks_exact(4).any(|pixel| pixel[..3] != [0; 3]),
@@ -170,9 +170,11 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
         assert!(!retained.is_empty());
         let mut fingerprints = vec![crc32fast::hash(&phase_0)];
         let mut index_reuse_per_phase = Vec::new();
+        let mut repeated_uploads = (0..4).filter(|_| visual.sync_river_params()).count();
         for phase in [0.002, 0.004, 0.2, 0.474] {
             visual.overlay.river_v_origin = phase;
-            visual.sync_river_params();
+            assert!(visual.sync_river_params());
+            repeated_uploads += (0..4).filter(|_| visual.sync_river_params()).count();
             visual.sync_polygon_water_meshes(&device).unwrap();
             assert_eq!(visual.polygon_water_meshes.len(), retained.len());
             let mut same_indices = 0;
@@ -196,7 +198,7 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
         // An earlier recorded mesh can remain alive while later animation advances.
         let latest = std::mem::replace(&mut visual.polygon_water_meshes, retained);
         visual.overlay.river_v_origin = 0.0;
-        visual.sync_river_params();
+        assert!(visual.sync_river_params());
         assert_eq!(read_water_pixels(&visual, &device, &queue, true), phase_0);
         let retained = std::mem::replace(&mut visual.polygon_water_meshes, latest);
 
@@ -218,6 +220,58 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
             retained.len()
         );
         assert_eq!(index_reuse_per_phase, vec![retained.len(); 4]);
+
+        let original_groups = [
+            visual.river_gpu.bind_group.clone(),
+            visual.river_gpu.trapezoid_bind_group.clone(),
+        ];
+        let original_params = [
+            visual.river_gpu.params.clone(),
+            visual.river_gpu.trapezoid_params.clone(),
+        ];
+        visual.ensure_named_water_bind_group(&device, "Wave256.tga");
+        let named_wake = visual.water_named_bind_groups["Wave256.tga"].bind_group.clone();
+        visual
+            .init_gpu_resources(device.clone(), queue.clone())
+            .unwrap();
+        set_water_test_camera(&mut visual, &device, min, max);
+        visual.rebuild_all_overlays();
+        assert!(
+            !visual.sync_river_params(),
+            "recreated buffers contain the current phase"
+        );
+        assert_eq!(
+            visual.water_named_bind_groups["Wave256.tga"].bind_group,
+            named_wake
+        );
+        let rebound_groups = [
+            visual.river_gpu.bind_group.as_ref() != original_groups[0].as_ref(),
+            visual.river_gpu.trapezoid_bind_group.as_ref() != original_groups[1].as_ref(),
+        ];
+        assert_ne!(visual.river_gpu.params, original_params[0]);
+        assert_ne!(visual.river_gpu.trapezoid_params, original_params[1]);
+        let reinitialized_pixels = read_water_pixels(&visual, &device, &queue, true);
+        eprintln!(
+            "Lone Eagle river parameter updates on 20 unchanged presents: {repeated_uploads}, groups rebound to recreated buffers: {rebound_groups:?}, reinitialized phase CRC32 {:08x}",
+            crc32fast::hash(&reinitialized_pixels),
+        );
+        assert_eq!((repeated_uploads, rebound_groups), (0, [true; 2]));
+        assert_eq!(reinitialized_pixels, phase_0);
+
+        let (replacement_device, replacement_queue) = native_water_test_device();
+        visual
+            .init_gpu_resources(replacement_device.clone(), replacement_queue.clone())
+            .unwrap();
+        assert!(visual.water_named_bind_groups.is_empty());
+        visual.ensure_named_water_bind_group(&replacement_device, "Wave256.tga");
+        assert!(visual.water_named_bind_groups.contains_key("Wave256.tga"));
+        set_water_test_camera(&mut visual, &replacement_device, min, max);
+        visual.rebuild_all_overlays();
+        assert!(!visual.sync_river_params());
+        assert_eq!(
+            read_water_pixels(&visual, &replacement_device, &replacement_queue, true),
+            phase_0
+        );
     });
 }
 

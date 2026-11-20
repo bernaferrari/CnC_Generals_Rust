@@ -3,7 +3,9 @@
 const RIVER_NOISE_REPEAT: f32 = 1.0 / 16.0;
 const RIVER_REFLECTION: f32 = 0.1;
 
-
+fn river_params(phase: f32, is_trapezoid: f32) -> [f32; 4] {
+    [phase, RIVER_NOISE_REPEAT, RIVER_REFLECTION, is_trapezoid]
+}
 
 impl TerrainVisualImpl {
     fn create_river_pipeline(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
@@ -118,16 +120,20 @@ impl TerrainVisualImpl {
             },
         ));
         self.river_gpu.bind_layout = Some(bind_layout);
-        let make_params = |label: &str| {
-            device.create_buffer(&wgpu::BufferDescriptor {
+        let phase = self.overlay.river_v_origin;
+        let make_params = |label: &str, is_trapezoid| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(label),
-                size: 16,
+                contents: bytemuck::bytes_of(&river_params(phase, is_trapezoid)),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
             })
         };
-        self.river_gpu.params = Some(make_params("JBA river params"));
-        self.river_gpu.trapezoid_params = Some(make_params("JBA trapezoid params"));
+        self.river_gpu.params = Some(make_params("JBA river params", 0.0));
+        self.river_gpu.trapezoid_params = Some(make_params("JBA trapezoid params", 1.0));
+        self.river_gpu.uploaded_phase = Some(phase.to_bits());
+        // Both groups retain the buffers they were made with.
+        self.river_gpu.bind_group = None;
+        self.river_gpu.trapezoid_bind_group = None;
         Ok(())
     }
 
@@ -242,23 +248,24 @@ impl TerrainVisualImpl {
         self.river_gpu.trapezoid_bind_group = Some(trapezoid_bind);
     }
 
-    fn sync_river_params(&self) {
-        let Some(queue) = self.queue.as_ref() else {
-            return;
+    /// Upload the new phase to both materials. Returns whether writes were queued.
+    fn sync_river_params(&mut self) -> bool {
+        let phase = self.overlay.river_v_origin;
+        if self.river_gpu.uploaded_phase == Some(phase.to_bits()) {
+            return false;
+        }
+        let (Some(queue), Some(river), Some(trapezoid)) = (
+            self.queue.as_ref(),
+            self.river_gpu.params.as_ref(),
+            self.river_gpu.trapezoid_params.as_ref(),
+        ) else {
+            return false;
         };
-        let write = |buf: Option<&wgpu::Buffer>, is_trapezoid: f32| {
-            if let Some(buf) = buf {
-                let params = [
-                    self.overlay.river_v_origin,
-                    RIVER_NOISE_REPEAT,
-                    RIVER_REFLECTION,
-                    is_trapezoid,
-                ];
-                queue.write_buffer(buf, 0, bytemuck::cast_slice(&params));
-            }
-        };
-        write(self.river_gpu.params.as_ref(), 0.0);
-        write(self.river_gpu.trapezoid_params.as_ref(), 1.0);
+        for (buffer, is_trapezoid) in [(river, 0.0), (trapezoid, 1.0)] {
+            queue.write_buffer(buffer, 0, bytemuck::bytes_of(&river_params(phase, is_trapezoid)));
+        }
+        self.river_gpu.uploaded_phase = Some(phase.to_bits());
+        true
     }
 
     fn load_first_available_named_texture(

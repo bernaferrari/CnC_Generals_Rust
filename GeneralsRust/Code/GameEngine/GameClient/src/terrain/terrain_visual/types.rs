@@ -480,6 +480,7 @@ struct RiverGpuState {
     trapezoid_bind_group: Option<BindGroup>,
     params: Option<Buffer>,
     trapezoid_params: Option<Buffer>,
+    uploaded_phase: Option<u32>,
     river_tex: Option<Texture>,
     sparkle_tex: Option<Texture>,
     noise_tex: Option<Texture>,

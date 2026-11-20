@@ -7,6 +7,17 @@ impl TerrainVisualImpl {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
     ) -> TerrainResult<()> {
+        if self
+            .device
+            .as_ref()
+            .is_some_and(|current| !Arc::ptr_eq(current, &device))
+        {
+            self.water_sampler = None;
+            self.water_texture = None;
+            self.water_texture_bind_group = None;
+            self.water_texture_search_exhausted = false;
+            self.water_named_bind_groups.clear();
+        }
         self.device = Some(Arc::clone(&device));
         self.queue = Some(Arc::clone(&queue));
         self.shoreline_meshes.clear();
