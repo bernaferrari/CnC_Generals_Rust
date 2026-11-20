@@ -6,6 +6,7 @@ use super::super::{CnCGameEngine, GameState, StartupLoadState};
 use super::scenario::InstanceScenario;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -246,6 +247,7 @@ pub struct InstanceHandle {
     scenario: InstanceScenario,
     shared: Arc<Shared>,
     thread: Option<JoinHandle<()>>,
+    boot_admission: Option<Receiver<()>>,
     /// Attached gate driver of this tile, if any.
     driver: Option<JoinHandle<()>>,
 }
@@ -260,12 +262,13 @@ impl InstanceHandle {
         });
         let thread_shared = Arc::clone(&shared);
         let exit_cell = spawn.bridge.as_ref().map(|b| Arc::clone(&b.exit));
+        let (boot_admitted, boot_admission) = mpsc::channel();
         let thread = std::thread::Builder::new()
             .name(format!("generals-instance-{index}"))
             .stack_size(INSTANCE_THREAD_STACK)
             .spawn(move || {
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    run_instance(spawn, &thread_shared)
+                    run_instance(spawn, &thread_shared, boot_admitted)
                 }));
                 let phase = match outcome {
                     Ok(Ok(())) => InstancePhase::Finished,
@@ -293,22 +296,32 @@ impl InstanceHandle {
             scenario,
             shared,
             thread: Some(thread),
+            boot_admission: Some(boot_admission),
             driver: None,
         })
     }
 
-    /// Run `drive` on its own thread; its verdict becomes the tile's.
+    /// Run `drive` on its own thread after this engine obtains a boot slot.
+    /// A queued tile's gate timeout starts when its own boot can begin.
     pub fn attach_driver(
         &mut self,
         drive: impl FnOnce() -> Verdict + Send + 'static,
     ) -> std::io::Result<()> {
         let shared = Arc::clone(&self.shared);
         let index = self.index;
+        let boot_admission = self
+            .boot_admission
+            .take()
+            .ok_or_else(|| std::io::Error::other("instance already has an attached driver"))?;
         self.driver = Some(
             std::thread::Builder::new()
                 .name(format!("generals-instance-{index}-driver"))
                 .spawn(move || {
-                    let verdict = drive();
+                    let verdict = if boot_admission.recv().is_ok() {
+                        drive()
+                    } else {
+                        Verdict::Fail("instance stopped before its boot slot was available".into())
+                    };
                     log::info!("instance {index} verdict: {} {}", verdict.name(), verdict.detail());
                     shared.update(|s| s.verdict = verdict);
                 })?,
@@ -397,7 +410,11 @@ fn instance_argv(spawn: &InstanceSpawn) -> Vec<String> {
     argv
 }
 
-fn run_instance(spawn: InstanceSpawn, shared: &Shared) -> Result<(), String> {
+fn run_instance(
+    spawn: InstanceSpawn,
+    shared: &Shared,
+    boot_admitted: Sender<()>,
+) -> Result<(), String> {
     let _runtime = spawn.runtime.as_ref().map(tokio::runtime::Handle::enter);
     // This thread's own service bags; nothing published here is visible to
     // any other instance (docs/instance_binding.md, rule 2).
@@ -433,6 +450,8 @@ fn run_instance(spawn: InstanceSpawn, shared: &Shared) -> Result<(), String> {
         return Ok(());
     };
     let boot_started = Instant::now();
+    let _ = boot_admitted.send(());
+    drop(boot_admitted);
     let window = Arc::clone(&spawn.window);
     let gpu = spawn.gpu.clone();
     let (mut engine, mut services) = pollster::block_on(async move {
@@ -648,4 +667,41 @@ fn copy_frame_to_tile(engine: &CnCGameEngine, gpu: &ww3d_engine::HostGpu, tile: 
         });
     encoder.copy_texture_to_texture(color.as_image_copy(), tile.as_image_copy(), extent);
     gpu.queue.submit([encoder.finish()]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attached_gate_waits_for_its_receiving_boot_slot() {
+        let (admit, boot_admission) = mpsc::channel();
+        let (gate_entered, observe_gate) = mpsc::channel();
+        let scenario = InstanceScenario::Shell;
+        let mut instance = InstanceHandle {
+            index: 0,
+            shared: Arc::new(Shared {
+                status: Mutex::new(InstanceStatus::new(0, &scenario)),
+                stop: AtomicBool::new(false),
+            }),
+            scenario,
+            thread: None,
+            boot_admission: Some(boot_admission),
+            driver: None,
+        };
+        instance
+            .attach_driver(move || {
+                gate_entered.send(()).unwrap();
+                Verdict::Pass("attached gate ran".into())
+            })
+            .unwrap();
+
+        assert_eq!(
+            observe_gate.recv_timeout(Duration::from_millis(25)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        );
+        admit.send(()).unwrap();
+        assert_eq!(instance.join().verdict, Verdict::Pass("attached gate ran".into()));
+        assert_eq!(observe_gate.try_recv(), Ok(()));
+    }
 }
