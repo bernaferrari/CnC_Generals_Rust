@@ -879,21 +879,13 @@ impl MinefieldBehavior {
             }
         }
 
-        if self.virtual_mines_remaining == 0 && self.regenerates {
-            if let Some(owner) = self.owner() {
-                if let Some(body) = owner
-                    .read()
-                    .ok()
-                    .and_then(|object| object.get_body_module())
-                {
-                    if let Ok(mut body) = body.lock() {
-                        let health = body.get_health();
-                        if health < MIN_HEALTH {
-                            let _ = body.internal_change_health(MIN_HEALTH - health);
-                        }
-                    }
-                }
-            }
+        if self.virtual_mines_remaining == 0
+            && self.regenerates
+            && let Some(owner) = self.owner()
+            && let Ok(mut object) = owner.write()
+        {
+            // MinefieldBehavior.cpp:473–481 revives this Body and Object together.
+            let _ = object.restore_minimum_body_health_with_owner(MIN_HEALTH);
         }
         self.set_depleted_visuals(self.virtual_mines_remaining == 0);
     }
@@ -1659,6 +1651,102 @@ mod tests {
                 .set_producer(Some(&producer.read().unwrap()));
             [dozer, mine, producer]
         })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn mounted_regrowth_floor_revives_only_its_receiving_owner() {
+        use crate::object::body::BodyDamageContext;
+        use crate::system::engine_stores::EngineStores;
+        use crate::system::game_logic::get_game_logic;
+        use crate::test_process::{TestProcess, run_bounded};
+
+        const NAME: &str = concat!(module_path!(), "::mounted_regrowth_floor_revives_only_its_receiving_owner");
+        if let TestProcess::ParentVerified = run_bounded(
+            NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+            "GENERALS_MINEFIELD_FLOOR_OWNER_CHILD",
+        ) {
+            return;
+        }
+
+        let mount = |world: &Arc<EngineStores>| {
+            with_active_stores(world, || {
+                get_game_logic().lock().unwrap().set_current_frame(38);
+                let template = install_mine_template();
+                let mine = TheThingFactory::get()
+                    .unwrap()
+                    .new_object_optional_team(template, None)
+                    .unwrap();
+                let mut actor = mine.write().unwrap();
+                let body = actor.get_body_module().unwrap();
+                let mut damage = DamageInfo::with_simple(
+                    actor.get_max_health(),
+                    INVALID_ID,
+                    DamageType::Unresistable,
+                    DeathType::Normal,
+                );
+                damage.input.kill = true;
+                body.lock()
+                    .unwrap()
+                    .attempt_damage_with_context(
+                        &mut damage,
+                        &BodyDamageContext {
+                            owner_is_preferred_source: false,
+                        },
+                    )
+                    .unwrap();
+                // ActiveBody.cpp:1226 sets the dead flag before onDamage.
+                assert_eq!(actor.get_health(), 0.0);
+                actor.set_effectively_dead(true);
+                drop(actor);
+                (mine, damage)
+            })
+        };
+        let driving = new_for_world();
+        let peer = new_for_world();
+        let (mine, mut damage) = mount(&driving);
+        let (peer_mine, _) = mount(&peer);
+        let id = mine.read().unwrap().get_id();
+        assert_eq!(peer_mine.read().unwrap().get_id(), id);
+        let callback = mine
+            .read()
+            .unwrap()
+            .module_by_name(&"MinefieldBehavior".into())
+            .unwrap();
+        let deliver = |info: &mut DamageInfo| {
+            callback
+                .with_module_downcast::<MinefieldBehaviorModule, _, _>(|module| {
+                    module.behavior_mut().on_damage(info).unwrap();
+                })
+                .unwrap();
+        };
+        let check_peer = || {
+            let peer_mine = peer_mine.read().unwrap();
+            assert_eq!(peer_mine.get_health(), 0.0);
+            assert!(peer_mine.is_effectively_dead());
+            assert!(!peer_mine.test_status(ObjectStatusTypes::Masked));
+        };
+
+        with_active_stores(&peer, || deliver(&mut damage));
+        {
+            let mine = mine.read().unwrap();
+            assert_eq!(mine.get_health(), MIN_HEALTH);
+            assert!(!mine.is_effectively_dead());
+            assert!(mine.test_status(ObjectStatusTypes::Masked));
+        }
+        check_peer();
+
+        with_active_stores(&driving, || {
+            let logic = get_game_logic();
+            let mut logic = logic.lock().unwrap();
+            logic.destroy_object(id);
+            logic.cleanup_dead_objects().unwrap();
+            assert!(logic.find_object_by_id(id).is_none());
+        });
+        assert_eq!(mine.read().unwrap().get_id(), INVALID_ID);
+        assert!(mine.read().unwrap().get_body_module().is_none());
+        with_active_stores(&peer, || deliver(&mut damage));
+        check_peer();
     }
 
     #[test]

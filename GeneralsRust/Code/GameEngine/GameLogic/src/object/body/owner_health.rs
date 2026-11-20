@@ -196,6 +196,25 @@ impl Object {
         self.finish_body_health_transition_with_owner(&body, transition, None)
     }
 
+    pub(in crate::object) fn restore_minimum_body_health_with_owner(
+        &mut self,
+        minimum: f32,
+    ) -> BodyResult<()> {
+        let Some(body) = self.get_body_module() else {
+            return Ok(());
+        };
+        let transition = {
+            let mut body = body.lock().map_err(|_| BodyError::OperationNotSupported)?;
+            let health = body.get_health();
+            if health < minimum {
+                body.change_health_for_borrowed_owner(minimum - health, self.is_structure())?
+            } else {
+                return Ok(());
+            }
+        };
+        self.finish_body_health_transition_with_owner(&body, transition, None)
+    }
+
     fn change_body_health_with_owner(
         &mut self,
         body: &Body,
