@@ -29,7 +29,6 @@ struct TrigTables {
     acos: Vec<f32>,
     asin: Vec<f32>,
     sin: Vec<f32>,
-    inv_sin: Vec<f32>,
 }
 
 static TRIG_TABLES: OnceLock<TrigTables> = OnceLock::new();
@@ -84,18 +83,15 @@ impl WWMath {
         }
 
         let mut sin = vec![0.0; SIN_TABLE_SIZE];
-        let mut inv_sin = vec![0.0; SIN_TABLE_SIZE];
-        for a in 0..SIN_TABLE_SIZE {
+        for (a, sample) in sin.iter_mut().enumerate() {
             let cv = a as f32 * 2.0 * PI / SIN_TABLE_SIZE as f32;
-            sin[a] = cv.sin();
-            inv_sin[a] = if a > 0 { 1.0 / sin[a] } else { FLOAT_MAX };
+            *sample = cv.sin();
         }
 
         TrigTables {
             acos,
             asin,
             sin,
-            inv_sin,
         }
     }
 
@@ -113,10 +109,6 @@ impl WWMath {
 
     fn sin_table() -> &'static [f32] {
         Self::trig_tables().sin.as_slice()
-    }
-
-    fn inv_sin_table() -> &'static [f32] {
-        Self::trig_tables().inv_sin.as_slice()
     }
 
     /// Shutdown the WWMath subsystem
@@ -396,99 +388,57 @@ impl WWMath {
         !x.is_nan() && !x.is_infinite()
     }
 
-    /// Fast table-based sine function
+    /// Interpolate the original periodic sine table at an angle in radians.
     pub fn fast_sin(val: f32) -> f32 {
-        Self::ensure_initialized();
-
-        let index = val * SIN_TABLE_SIZE as f32 / (2.0 * PI);
-
-        let idx0 = Self::float_to_int_floor(index) as usize;
-        let idx1 = idx0 + 1;
-        let frac = index - idx0 as f32;
-
-        let idx0 = idx0 & (SIN_TABLE_SIZE - 1);
-        let idx1 = idx1 & (SIN_TABLE_SIZE - 1);
+        let index = val * (SIN_TABLE_SIZE as f32 / (2.0 * PI));
+        let base = Self::float_to_int_floor(index);
+        // Compute the fraction while the floor index is still signed.
+        let frac = index - base as f32;
+        let idx0 = base as usize & (SIN_TABLE_SIZE - 1);
+        let idx1 = (idx0 + 1) & (SIN_TABLE_SIZE - 1);
 
         let sin_table = Self::sin_table();
         (1.0 - frac) * sin_table[idx0] + frac * sin_table[idx1]
     }
 
-    /// Fast table-based cosine function
+    /// Interpolate the same table with the original quarter-turn offset.
     pub fn fast_cos(val: f32) -> f32 {
         Self::fast_sin(val + PI * 0.5)
     }
 
-    /// Fast table-based inverse sine function
+    /// Reciprocal of the interpolated sine, as in the original active branch.
     pub fn fast_inv_sin(val: f32) -> f32 {
-        Self::ensure_initialized();
-        let index = val * SIN_TABLE_SIZE as f32 / (2.0 * PI);
-        let idx = Self::float_to_int_floor(index) as usize & (SIN_TABLE_SIZE - 1);
-        // Near 0 the table stores FLOAT_MAX; fall back to division for that bin.
-        let table_val = Self::inv_sin_table()[idx];
-        if table_val >= FLOAT_MAX * 0.5 {
-            1.0 / Self::fast_sin(val)
-        } else {
-            table_val
-        }
+        1.0 / Self::fast_sin(val)
     }
 
-    /// Fast table-based inverse cosine function
+    /// Reciprocal of the interpolated cosine.
     pub fn fast_inv_cos(val: f32) -> f32 {
         1.0 / Self::fast_cos(val)
     }
 
-    /// Fast table-based arc cosine function
+    /// Interpolate the original arc-cosine table, using acos at the endpoints.
     pub fn fast_acos(val: f32) -> f32 {
-        Self::ensure_initialized();
-
-        // Near -1 and +1, the table becomes too inaccurate
         if Self::fabs(val) > 0.975 {
             return Self::acos(val);
         }
-
-        let scaled_val = val * (ARC_TABLE_SIZE as f32 / 2.0);
-
-        let idx0 = Self::float_to_int_floor(scaled_val) as usize;
-        let idx1 = idx0 + 1;
-        let frac = scaled_val - idx0 as f32;
-
-        let idx0 = idx0 + ARC_TABLE_SIZE / 2;
-        let idx1 = idx1 + ARC_TABLE_SIZE / 2;
-
-        // Bounds check
-        if idx0 >= ARC_TABLE_SIZE || idx1 >= ARC_TABLE_SIZE {
-            return Self::acos(val);
-        }
-
-        let acos_table = Self::acos_table();
-        (1.0 - frac) * acos_table[idx0] + frac * acos_table[idx1]
+        Self::interpolate_arc_table(val, Self::acos_table())
     }
 
-    /// Fast table-based arc sine function
+    /// Interpolate the original arc-sine table, using asin at the endpoints.
     pub fn fast_asin(val: f32) -> f32 {
-        Self::ensure_initialized();
-
-        // Near -1 and +1, the table becomes too inaccurate
         if Self::fabs(val) > 0.975 {
             return Self::asin(val);
         }
+        Self::interpolate_arc_table(val, Self::asin_table())
+    }
 
-        let scaled_val = val * (ARC_TABLE_SIZE as f32 / 2.0);
-
-        let idx0 = Self::float_to_int_floor(scaled_val) as usize;
-        let idx1 = idx0 + 1;
-        let frac = scaled_val - idx0 as f32;
-
-        let idx0 = idx0 + ARC_TABLE_SIZE / 2;
-        let idx1 = idx1 + ARC_TABLE_SIZE / 2;
-
-        // Bounds check
-        if idx0 >= ARC_TABLE_SIZE || idx1 >= ARC_TABLE_SIZE {
-            return Self::asin(val);
-        }
-
-        let asin_table = Self::asin_table();
-        (1.0 - frac) * asin_table[idx0] + frac * asin_table[idx1]
+    fn interpolate_arc_table(val: f32, table: &[f32]) -> f32 {
+        const MIDPOINT: i32 = ARC_TABLE_SIZE as i32 / 2;
+        let scaled = val * MIDPOINT as f32;
+        let base = Self::float_to_int_floor(scaled);
+        let frac = scaled - base as f32;
+        let idx0 = (base + MIDPOINT) as usize;
+        (1.0 - frac) * table[idx0] + frac * table[idx0 + 1]
     }
 
     /// Convert radians to degrees
@@ -529,11 +479,6 @@ impl WWMath {
         let (next, bits) = Self::extract_msvc_rand_12bit(rng.state);
         rng.state = next;
         (bits as f32) / 0xFFF as f32
-    }
-
-    /// Ensure lookup tables are initialized
-    fn ensure_initialized() {
-        Self::init();
     }
 
     /// Convert float to its bit representation as int
