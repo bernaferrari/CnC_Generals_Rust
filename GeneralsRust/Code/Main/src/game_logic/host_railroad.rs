@@ -243,47 +243,45 @@ fn alnum_lower_contains_any(s: &str, needles: &[&[u8]]) -> bool {
         .any(|needle| folded.windows(needle.len()).any(|w| w == *needle))
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RailroadTemplateRole {
+    Locomotive,
+    Carriage,
+}
+
+fn railroad_template_role(template_name: &str) -> Option<RailroadTemplateRole> {
+    if !alnum_lower_contains_any(template_name, &[b"train", b"locomotive", b"carriage"]) {
+        return None;
+    }
+    let name = alnum_lower(template_name);
+    if name.contains("transport") || name.contains("railed") {
+        return None;
+    }
+    if name.contains("trainengine") || name.contains("locomotive") {
+        return Some(RailroadTemplateRole::Locomotive);
+    }
+    (name.contains("traincar")
+        || name.contains("traincoal")
+        || name.contains("traintanker")
+        || name.contains("traincaboose")
+        || name.contains("carriage")
+        || (name.contains("train")
+            && (name.contains("car") || name.contains("coal") || name.contains("tanker"))))
+        .then_some(RailroadTemplateRole::Carriage)
+}
+
 /// C++ `IsLocomotive = Yes` name residual (no KINDOF_TRAIN in retail).
 pub fn is_railroad_locomotive_template(template_name: &str) -> bool {
-    // Accepting names contain "trainengine" or "locomotive" once folded;
-    // these run per object per frame, so reject the rest without allocating.
-    if !alnum_lower_contains_any(template_name, &[b"train", b"locomotive"]) {
-        return false;
-    }
-    let n = alnum_lower(template_name);
-    if n.is_empty() {
-        return false;
-    }
-    if n.contains("transport") || n.contains("railed") {
-        return false;
-    }
-    n.contains("trainengine") || n.contains("locomotive")
+    railroad_template_role(template_name) == Some(RailroadTemplateRole::Locomotive)
 }
 
 /// Map-placed / INI carriage residual.
 pub fn is_railroad_carriage_template(template_name: &str) -> bool {
-    // Every accepting form contains "train" or "carriage" once folded.
-    if !alnum_lower_contains_any(template_name, &[b"train", b"carriage"]) {
-        return false;
-    }
-    let n = alnum_lower(template_name);
-    if n.is_empty() || is_railroad_locomotive_template(template_name) {
-        return false;
-    }
-    if n.contains("transport") || n.contains("railed") {
-        return false;
-    }
-    n.contains("traincar")
-        || n.contains("traincoal")
-        || n.contains("traintanker")
-        || n.contains("traincaboose")
-        || n.contains("carriage")
-        || (n.contains("train")
-            && (n.contains("car") || n.contains("coal") || n.contains("tanker")))
+    railroad_template_role(template_name) == Some(RailroadTemplateRole::Carriage)
 }
 
 pub fn is_railroad_template(template_name: &str) -> bool {
-    is_railroad_locomotive_template(template_name) || is_railroad_carriage_template(template_name)
+    railroad_template_role(template_name).is_some()
 }
 
 /// C++ `RailroadBehavior::ConductorState`.
@@ -874,7 +872,10 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let pose_frame = self.frame;
-        let living: Vec<(ObjectId, String, Vec3, bool)> = self
+        // Keep the C++ list traversal order. Borrow each compatibility name
+        // and classify it once, even when many live Objects share it.
+        let mut template_roles = game_engine::common::fast_hash::FxHashMap::default();
+        let living: Vec<_> = self
             .objects
             .registered()
             .filter_map(|(id, obj)| {
@@ -884,17 +885,14 @@ impl GameLogic {
                 if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
                     return None;
                 }
-                if !is_railroad_template(&obj.template_name)
-                    && self.with_railroad_registry(|r| r.get(*id).is_none())
-                {
+                let name = obj.template_name.as_str();
+                let role = *template_roles
+                    .entry(name)
+                    .or_insert_with(|| railroad_template_role(name));
+                if role.is_none() && self.railroad.get(*id).is_none() {
                     return None;
                 }
-                Some((
-                    *id,
-                    obj.template_name.clone(),
-                    obj.get_position(),
-                    is_railroad_locomotive_template(&obj.template_name),
-                ))
+                Some((*id, obj.get_position(), role))
             })
             .collect();
 
@@ -905,18 +903,19 @@ impl GameLogic {
         let terrain_snaps = self.owned_railroad_waypoints();
 
         // Ensure cars + load tracks (C++ loadTrackData once per locomotive).
-        for (id, _name, pos, is_loco) in &living {
+        for (id, pos, role) in &living {
+            let locomotive = *role == Some(RailroadTemplateRole::Locomotive);
             self.with_railroad_registry_mut(|reg| {
-                let injected = if *is_loco {
+                let injected = if locomotive {
                     reg.injected_tracks.get(id).cloned()
                 } else {
                     None
                 };
-                let car = reg.ensure_car(*id, *is_loco);
+                let car = reg.ensure_car(*id, locomotive);
                 if car.track_data_loaded {
                     return;
                 }
-                if *is_loco {
+                if locomotive {
                     car.track = injected.or_else(|| load_track_near(*pos, &terrain_snaps));
                 }
                 car.track_data_loaded = true;
@@ -927,8 +926,8 @@ impl GameLogic {
         let loco_tracks: Vec<(ObjectId, HostTrainTrack)> = self.with_railroad_registry(|reg| {
             living
                 .iter()
-                .filter_map(|(id, _, _, is_loco)| {
-                    if !*is_loco {
+                .filter_map(|(id, _, role)| {
+                    if *role != Some(RailroadTemplateRole::Locomotive) {
                         return None;
                     }
                     reg.get(*id).and_then(|c| c.track.clone()).map(|t| (*id, t))
@@ -940,8 +939,8 @@ impl GameLogic {
             .with_railroad_registry(|reg| {
                 living
                     .iter()
-                    .filter_map(|(id, _, pos, is_loco)| {
-                        if !*is_loco {
+                    .filter_map(|(id, pos, role)| {
+                        if *role != Some(RailroadTemplateRole::Locomotive) {
                             return None;
                         }
                         let car = reg.get(*id)?;
@@ -965,11 +964,11 @@ impl GameLogic {
             if trailer.is_none() {
                 let max_r = hitch_r * 2.0;
                 let mut best: Option<(ObjectId, f32)> = None;
-                for (oid, name, pos, is_loco) in &living {
-                    if *oid == loco_id || *is_loco {
+                for (oid, pos, role) in &living {
+                    if *oid == loco_id || *role == Some(RailroadTemplateRole::Locomotive) {
                         continue;
                     }
-                    if !is_railroad_carriage_template(name)
+                    if *role != Some(RailroadTemplateRole::Carriage)
                         && self.with_railroad_registry(|r| {
                             r.get(*oid).map(|c| c.is_locomotive).unwrap_or(true)
                         })
@@ -1054,7 +1053,9 @@ impl GameLogic {
         // Tick locomotives (lead cars) then pull the hitch chain.
         let loco_ids: Vec<ObjectId> = living
             .iter()
-            .filter_map(|(id, _, _, is_loco)| is_loco.then_some(*id))
+            .filter_map(|(id, _, role)| {
+                (*role == Some(RailroadTemplateRole::Locomotive)).then_some(*id)
+            })
             .collect();
 
         let mut poses: Vec<(ObjectId, Vec3, f32)> = Vec::new();
@@ -1311,11 +1312,10 @@ impl GameLogic {
             let Some(object) = self.objects.get(&id) else {
                 return;
             };
-            if !is_railroad_template(&object.template_name) {
+            let Some(role) = railroad_template_role(&object.template_name) else {
                 return;
-            }
-            self.railroad
-                .ensure_car(id, is_railroad_locomotive_template(&object.template_name));
+            };
+            self.railroad.ensure_car(id, role == RailroadTemplateRole::Locomotive);
         }
         self.railroad
             .get_mut(id)

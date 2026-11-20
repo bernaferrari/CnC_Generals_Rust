@@ -481,9 +481,6 @@ impl GameLogic {
         after_damage_fx: impl FnOnce(&mut Self, ObjectId),
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<OwnedDamageResult>> {
-        #[cfg(feature = "game_client")]
-        let fx_operation_environment = self.observe_object_fx_environment();
-
         let mut receiving_effects = effects.reborrow();
         if let Some(interpreter) = context.topple_interpreter() {
             receiving_effects.script_events =
@@ -666,8 +663,6 @@ impl GameLogic {
         );
         #[cfg(not(feature = "game_client"))]
         let mut application: DamageApplication = {
-            #[cfg(feature = "game_client")]
-            let fx_operation_environment = self.observe_object_fx_environment();
             let body_particle_player = callback_player;
             #[cfg(not(feature = "game_client"))]
             let mut body_particles =
@@ -898,8 +893,6 @@ impl GameLogic {
             // Captured callbacks own the actual source-order walk. Do not
             // replay the single-weapon compatibility latch afterward.
             if !healing {
-                #[cfg(feature = "game_client")]
-                let fx_operation_environment = self.observe_object_fx_environment();
                 if let Some(object) = self.objects.get_mut(&victim_id) {
                     let _ = object.take_pending_fire_when_damaged_weapon();
                 }
@@ -912,8 +905,6 @@ impl GameLogic {
                         // Body state is this hit's state, before bridge/state/Die
                         // callbacks. A callback may reenter even with zero hits.
                         reaction_callback_ran = true;
-                        #[cfg(feature = "game_client")]
-                        let fx_operation_environment = self.observe_object_fx_environment();
                         let _ = self
                             .objects
                             .get_mut(&victim_id)
@@ -925,8 +916,6 @@ impl GameLogic {
                             effects,
                         )?;
                     }
-                    #[cfg(feature = "game_client")]
-                    let fx_operation_environment = self.observe_object_fx_environment();
                 } else if let Some(weapon) = self
                     .objects
                     .get_mut(&victim_id)
@@ -1062,8 +1051,6 @@ impl GameLogic {
                 },
             );
         }
-        #[cfg(feature = "game_client")]
-        let fx_operation_environment = self.observe_object_fx_environment();
         #[cfg(not(feature = "game_client"))]
         let mut transition_yield = None;
         #[cfg(not(feature = "game_client"))]
@@ -1280,8 +1267,6 @@ impl GameLogic {
         );
         #[cfg(not(feature = "game_client"))]
         let after_fx = {
-            #[cfg(feature = "game_client")]
-            let fx_operation_environment = self.observe_object_fx_environment();
             let body_particle_player = self.local_player_id();
             #[cfg(not(feature = "game_client"))]
             let mut body_particles =
@@ -1386,8 +1371,6 @@ impl GameLogic {
         );
         #[cfg(not(feature = "game_client"))]
         let destroyed = {
-            #[cfg(feature = "game_client")]
-            let fx_operation_environment = self.observe_object_fx_environment();
             let victim = self
                 .objects
                 .get_mut(&victim_id)

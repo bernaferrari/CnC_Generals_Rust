@@ -113,9 +113,23 @@ impl GameLogic {
         };
         let dimensions = [width, height];
         let partition = self.partition_manager.matching_shroud_grid(origin, dimensions, cell_size);
+        // Relationship does not change during this shroud pass. Freeze the
+        // viewer-to-controller relation once per player pair in the same order
+        // as the footprint mixing loop. An absent controller is Neutral.
+        let player_count = player_ids.len();
+        let mut neutral_relationships = Vec::with_capacity(player_count * player_count);
+        for &controller in &player_ids {
+            neutral_relationships.extend(player_ids.iter().map(|&viewer| {
+                self.player_relationship(viewer, controller) == Relationship::Neutral
+            }));
+        }
         for (look, object) in observations {
             let id = look.id;
             let owner = object.controller;
+            let neutral_by_viewer = owner.and_then(|id| player_ids.binary_search(&id).ok()).map(|index| {
+                let start = index * player_count;
+                &neutral_relationships[start..start + player_count]
+            });
             let x = look.position.x;
             let z = look.position.z;
             let computed;
@@ -138,7 +152,7 @@ impl GameLogic {
                 };
                 computed.as_slice()
             };
-            for &pid in &player_ids {
+            for (viewer, &pid) in player_ids.iter().enumerate() {
                 if object.always_visible || object.contained {
                     shroud_mgr.set_host_object_shroud_status(pid, id.0, ObjectShroudStatus::Clear);
                     shroud_mgr.mark_host_object_seen(pid, id.0);
@@ -163,10 +177,7 @@ impl GameLogic {
                 // unlooks and immediate shroud-cover changes.
                 let counts = shroud_mgr.count_footprint_cells(pid, cells);
                 let ever = shroud_mgr.host_object_ever_seen(pid, id.0);
-                let relationship_neutral = match owner {
-                    Some(oid) => self.player_relationship(pid, oid) == Relationship::Neutral,
-                    None => true,
-                };
+                let relationship_neutral = neutral_by_viewer.is_none_or(|relations| relations[viewer]);
                 let (status, ever_now) = mix_object_shroud_from_cells(
                     counts.total,
                     counts.shrouded,
