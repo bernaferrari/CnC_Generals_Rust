@@ -226,24 +226,6 @@ fn freeze_host_player_power(logic: &GameLogic, local_player_id: u32) -> (i32, i3
     )
 }
 
-/// C++ `Object::getControllingPlayer` for PublicTimer ownership.
-/// Prefer persistent `owner_player_id`; faction-only leftovers match only
-/// when that team has exactly one living host player.
-fn superweapon_object_owned_by_player(
-    obj: &crate::game_logic::Object,
-    player: &crate::game_logic::Player,
-    logic: &GameLogic,
-) -> bool {
-    match obj.owner_player_id {
-        Some(id) => id == player.id,
-        None => {
-            obj.team == player.team
-                && player.team != Team::Neutral
-                && logic.unique_player_id_for_team(player.team) == Some(player.id)
-        }
-    }
-}
-
 /// C++ InGameUI SuperweaponInfo name + `m_color` (player color).
 /// Local rows stay unadorned; enemy/ally rows carry relationship + `#RRGGBB`.
 fn public_timer_row_name(
@@ -1322,39 +1304,51 @@ impl PresentationFrame {
         // and per-info m_hiddenByScript. Sell keeps the row until destroy.
         let mut superweapon_timers: Vec<PresentationSuperweaponTimer> = Vec::new();
         if logic.peek_script_superweapon_display_enabled() {
+            use game_engine::common::fast_hash::FxHashMap;
+
             let hidden_objects = logic.peek_script_superweapon_hidden_objects();
+            let mut modules_by_owner: FxHashMap<u32, Vec<_>> = FxHashMap::default();
+            let mut owner_by_team = FxHashMap::default();
+            for obj in logic.host_objects().registered_values() {
+                if obj.authored_public_timer_registered.is_empty()
+                    || !obj.is_alive()
+                    || obj.status.under_construction
+                    || hidden_objects.contains(&obj.id)
+                    || !(obj.is_kind_of(KindOf::Structure) || obj.is_kind_of(KindOf::FSSuperweapon))
+                {
+                    continue;
+                }
+                // C++ registers a timer with the object's controlling player.
+                // Team-only objects from old saves need one unambiguous owner.
+                let owner = obj.owner_player_id.or_else(|| {
+                    *owner_by_team
+                        .entry(obj.team)
+                        .or_insert_with(|| logic.unique_player_id_for_team(obj.team))
+                });
+                let Some(owner) = owner else { continue };
+                for module in &obj.thing().template.special_power_modules {
+                    if module.public_timer
+                        && obj.authored_public_timer_registered.contains(&module.source_index)
+                        && !obj.authored_public_timer_hidden_by_science.contains(&module.source_index)
+                    {
+                        modules_by_owner.entry(owner).or_default().push((obj, module));
+                    }
+                }
+            }
             let mut player_ids: Vec<u32> = logic.get_players().keys().copied().collect();
             player_ids.sort_unstable();
             for pid in player_ids {
                 let Some(p) = logic.get_player(pid) else {
                     continue;
                 };
+                let Some(owned_structure_modules) = modules_by_owner.get(&p.id) else {
+                    continue;
+                };
                 let is_local = pid == local_player_id;
                 let rel = logic.player_relationship(local_player_id, pid);
-                let owned_structure_modules: Vec<_> = logic
-                    .host_objects()
-                    .registered_values()
-                    .filter(|o| {
-                        superweapon_object_owned_by_player(o, p, logic)
-                            && o.is_alive()
-                            && !o.status.under_construction
-                            && !hidden_objects.contains(&o.id)
-                            && (o.is_kind_of(crate::game_logic::KindOf::Structure)
-                                || o.is_kind_of(crate::game_logic::KindOf::FSSuperweapon))
-                    })
-                    .flat_map(|obj| {
-                        obj.thing()
-                            .template
-                            .special_power_modules
-                            .iter()
-                            .filter(|module| module.public_timer
-                                && obj.authored_public_timer_registered.contains(&module.source_index))
-                            .map(move |module| (obj, module))
-                    })
-                    .collect();
                 let mut shared_seen = std::collections::HashSet::new();
-                for (obj, module) in owned_structure_modules {
-                    if obj.authored_public_timer_hidden_by_science.contains(&module.source_index) {
+                for &(obj, module) in owned_structure_modules {
+                    if obj.owner_player_id.is_none() && obj.team != p.team {
                         continue;
                     }
                     let template_key = module.special_power_template.to_ascii_lowercase();
@@ -2721,6 +2715,33 @@ mod sw_hud_tests {
             (remaining("ParticleCannon#1") - 77.0).abs() < 1e-5,
             "enemy remaining must come from player 1's shared frame"
         );
+    }
+
+    #[test]
+    fn ownerless_public_timer_uses_only_the_unique_living_faction_player() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "Local", true));
+        logic.add_player(Player::new(1, Team::USA, "Same faction", false));
+        let ownerless = spawn_sw(
+            &mut logic, "LegacyTimer", 0, SpecialPowerType::ParticleCannon, false, 17.0,
+        );
+        logic.host_object_mut(ownerless).unwrap().owner_player_id = None;
+        spawn_sw(
+            &mut logic, "OwnedTimer", 1, SpecialPowerType::ParticleCannon, false, 29.0,
+        );
+
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        assert_eq!(frame.superweapon_timers.len(), 1);
+        assert_eq!(frame.superweapon_timers[0].template_name, "SuperweaponOwnedTimer");
+        assert_eq!(frame.superweapon_timers[0].remaining, 29.0);
+
+        logic.get_player_mut(1).unwrap().is_alive = false;
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        assert_eq!(frame.superweapon_timers.len(), 2);
+        let legacy = frame.superweapon_timers.iter()
+            .find(|timer| timer.template_name == "SuperweaponLegacyTimer").unwrap();
+        assert_eq!(legacy.power_key, "ParticleCannon");
+        assert_eq!(legacy.remaining, 17.0);
     }
 
     #[test]
