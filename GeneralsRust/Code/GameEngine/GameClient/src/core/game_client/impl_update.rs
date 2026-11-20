@@ -2174,24 +2174,26 @@ impl GameClient {
         // Presentation gameplay SFX is dispatched by Main via
         // PresentationFrame::dispatch_audio_events_direct before this shell tick.
 
-        // C++ GameClient.cpp:632-657 — GhostObjectManager::updateOrphanedObjects.
-        if let Some(world) = world.as_deref_mut() {
-            if !freeze_time {
+        // GameClient.cpp:632-700 admits orphan and Drawable Client Update
+        // only on an unfrozen Client frame. Zero delta still ticks the timers.
+        if !freeze_time {
+            if let Some(world) = world {
                 world.update_orphaned_ghosts()?;
+                let time_of_day = world.ambient_time_of_day();
+                let mut locality = |object_id| world.ambient_locality(object_id);
+                let mut ambient = crate::drawable::drawable::NativeAmbientUpdate::new(
+                    time_of_day,
+                    &mut locality,
+                );
+                self.update_drawables_local_with_ambient(
+                    visual_delta,
+                    particle_frames,
+                    &mut ambient,
+                )?;
+            } else {
+                self.update_orphaned_w3d_ghosts_if_unfrozen(false);
+                self.update_drawables_local(visual_delta, particle_frames)?;
             }
-        } else {
-            self.update_orphaned_w3d_ghosts_if_unfrozen(freeze_time);
-        }
-
-        // Local drawable client modules only (no OBJECT_REGISTRY shroud bind).
-        // Eva residual runs via update_post_draw_ui (no dual OS input ownership).
-        if let Some(world) = world.as_deref_mut() {
-            let time_of_day = world.ambient_time_of_day();
-            let mut locality = |object_id| world.ambient_locality(object_id);
-            let mut ambient = crate::drawable::drawable::NativeAmbientUpdate::new(time_of_day, &mut locality);
-            self.update_drawables_local_with_ambient(visual_delta, particle_frames, &mut ambient)?;
-        } else {
-            self.update_drawables_local(visual_delta, particle_frames)?;
         }
         if self.should_skip_visual_updates_for_no_draw() {
             self.rendered_object_count = 0;

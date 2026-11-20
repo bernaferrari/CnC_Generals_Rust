@@ -64,6 +64,198 @@ fn native_visual_time_is_instance_scoped_and_repeated_frame_is_consumed_once() {
     );
 }
 #[test]
+fn native_client_shell_advances_drawable_timers_only_on_fresh_unfrozen_client_frames() {
+    use crate::gui::game_window::{WindowMessage, WindowMsgHandled, write_input_focus_response};
+
+    crate::test_support::ensure_ambient_host();
+    #[derive(Default)]
+    struct ReceivingWorld {
+        frozen: bool,
+        orphan_updates: usize,
+    }
+    impl NativeClientWorld for ReceivingWorld {
+        fn visual_time(&mut self) -> GameClientResult<NativeVisualTime> {
+            Ok(NativeVisualTime {
+                frozen: self.frozen,
+                visual_speed: 1.,
+            })
+        }
+
+        fn update_orphaned_ghosts(&mut self) -> GameClientResult<()> {
+            self.orphan_updates += 1;
+            Ok(())
+        }
+
+        fn ambient_time_of_day(&self) -> Option<TimeOfDay> {
+            None
+        }
+
+        fn ambient_locality(
+            &mut self,
+            _: Option<u32>,
+        ) -> game_engine::common::audio::AudioSubmissionLocality {
+            unreachable!("the fixture has no ambient audio")
+        }
+    }
+
+    let mut receiver = client(300);
+    receiver
+        .window_manager_owner()
+        .shell_handle()
+        .init()
+        .unwrap();
+    receiver.subsystem_manager.window_manager_initialized = true;
+    let mut peer = client(300);
+    let template = ThingTemplate::new();
+    let id = receiver.create_drawable_from_template(&template).unwrap();
+    let expiring = receiver.create_drawable_from_template(&template).unwrap();
+    assert_eq!(peer.create_drawable_from_template(&template).unwrap(), id);
+
+    let get_drawable = |client: &mut GameClient, id| {
+        let drawable = client.find_drawable_by_id_mut(id).unwrap();
+        (
+            drawable.get_tint_color(),
+            drawable
+                .as_any()
+                .downcast_ref::<BasicDrawable>()
+                .unwrap()
+                .get_explicit_opacity(),
+        )
+    };
+    let mut world = ReceivingWorld::default();
+    let draw = receiver
+        .find_drawable_by_id_mut(id)
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<BasicDrawable>()
+        .unwrap();
+    draw.color_flash_envelope(Some(Vector3::new(-1., 0.5, 0.75)), 9999, 4, 1);
+    draw.fade_in(4);
+    receiver
+        .find_drawable_by_id_mut(expiring)
+        .unwrap()
+        .as_any_mut()
+        .downcast_mut::<BasicDrawable>()
+        .unwrap()
+        .set_expiration_frame(10);
+
+    let advance = |receiver: &mut GameClient,
+                   world: &mut ReceivingWorld,
+                   client_frame,
+                   logic_frame| {
+        receiver.set_frame(client_frame);
+        receiver.message_stream_mut().clear_messages();
+        let prepared = receiver
+            .try_begin_presentation_shell_with_owned_visual_time_and_ambient(
+                1.0 / 120.0,
+                NativeParticleFrames {
+                    logic_frame,
+                    client_frame,
+                },
+                &[],
+                0,
+                world,
+            )
+            .unwrap();
+        assert!(prepared.display_requested());
+        assert!(receiver.message_stream().get_messages().iter().any(|message| {
+            matches!(message.get_type(), GameMessageType::FrameTick(frame) if *frame == client_frame)
+        }));
+        let frozen = prepared.frozen;
+        receiver
+            .finish_presentation_shell_with_native_views(
+                prepared,
+                &[],
+                &[],
+                NativeDrawPhase {
+                    draw_drawables: false,
+                    update_particles: false,
+                },
+            )
+            .unwrap();
+        frozen
+    };
+
+    assert!(!advance(&mut receiver, &mut world, 300, 8));
+    let first = (Vector3::new(-0.25, 0.125, 0.1875), 0.);
+    assert_eq!(get_drawable(&mut receiver, id), first);
+    assert_eq!(world.orphan_updates, 1);
+
+    let windows = receiver.window_manager_owner();
+    windows.with_manager(|manager| {
+        let window = manager
+            .test_create_window_with_id(None, 0, 0, 40, 40, 703)
+            .unwrap();
+        window
+            .borrow_mut()
+            .set_system_callback(|_, message, data1, data2| {
+                if message == WindowMessage::InputFocus {
+                    return write_input_focus_response(data1, data2, data1 != 0);
+                }
+                WindowMsgHandled::Ignored
+            });
+        manager.request_focus(703);
+    });
+
+    assert!(advance(&mut receiver, &mut world, 300, 9));
+    assert_eq!(
+        windows
+            .with_manager_ref(|manager| manager.get_focus().map(|window| window.borrow().get_id())),
+        Some(703),
+        "deferred WindowManager work still runs on a repeat",
+    );
+    assert_eq!(
+        get_drawable(&mut receiver, id),
+        first,
+        "same Client frame must not advance the native Drawable tint or opacity",
+    );
+    assert_eq!(world.orphan_updates, 1);
+
+    world.frozen = true;
+    assert!(advance(&mut receiver, &mut world, 301, 10));
+    assert!(
+        receiver.find_drawable_by_id(expiring).is_some(),
+        "frozen Drawable deadline is deferred"
+    );
+    assert_eq!(get_drawable(&mut receiver, id), first);
+    assert_eq!(world.orphan_updates, 1);
+
+    world.frozen = false;
+    assert!(
+        receiver
+            .try_begin_presentation_shell_with_owned_visual_time_and_ambient(
+                1.0 / 120.0,
+                NativeParticleFrames {
+                    logic_frame: 10,
+                    client_frame: 300
+                },
+                &[],
+                0,
+                &mut world,
+            )
+            .is_err()
+    );
+    assert!(advance(&mut receiver, &mut world, 301, 10));
+    assert_eq!(get_drawable(&mut receiver, id), first);
+    assert!(
+        receiver.find_drawable_by_id(expiring).is_some(),
+        "the frozen Client offer consumed its frame"
+    );
+
+    assert!(!advance(&mut receiver, &mut world, 302, 10));
+    assert_eq!(
+        get_drawable(&mut receiver, id),
+        (Vector3::new(-0.5, 0.25, 0.375), 0.25)
+    );
+    assert!(
+        receiver.find_drawable_by_id(expiring).is_none(),
+        "opening the Client gate permits Logic expiry"
+    );
+    assert_eq!(world.orphan_updates, 2);
+    assert_eq!(get_drawable(&mut peer, id), (Vector3::zero(), 1.));
+}
+
+#[test]
 fn invalid_visual_speed_does_not_consume_receiving_frame() {
     crate::test_support::ensure_ambient_host();
     let mut client = client(93);
@@ -173,11 +365,11 @@ fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
 mod delta_drawable;
 
 #[test]
-fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isolation() {
+fn actual_prefix_delivers_receiving_scaled_delta_and_skips_repeated_update() {
     crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
-        "actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isolation",
+        "actual_prefix_delivers_receiving_scaled_delta_and_skips_repeated_update",
     ) {
         return;
     }
@@ -226,7 +418,7 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
             }
         }, 0)
         .unwrap();
-    assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5, 0.]);
+    assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5]);
     // Dropping/reconstructing a peer cannot reset the receiving frame marker.
     drop(b);
     let peer = client(151);
@@ -240,7 +432,7 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
             }
         }, 0)
         .unwrap();
-    assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5, 0., 0.04_f32 * 2.5]);
+    assert_eq!(deltas(&a, aid), [0.04_f32 * 2.5, 0.04_f32 * 2.5]);
     assert_eq!(peer.last_visual_time_frame, u32::MAX);
 }
 
