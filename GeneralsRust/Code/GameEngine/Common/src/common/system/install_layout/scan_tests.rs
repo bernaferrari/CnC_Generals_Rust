@@ -215,7 +215,7 @@ fn indexed_scan_matches_old_outputs_and_enumerates_each_visited_directory_once()
             .any(|path| { path.ends_with("visible-a/visible-b/visible-c/beyond-depth") })
     );
 
-    let roots = [root.to_path_buf()];
+    let roots = [root.to_path_buf(), root.join("visible-a")];
     assert_eq!(
         extracted_asset_roots_from(&roots),
         old_extracted_asset_roots_from(&roots),
@@ -225,7 +225,7 @@ fn indexed_scan_matches_old_outputs_and_enumerates_each_visited_directory_once()
     let mut failed_reads = Vec::new();
     let direct_only = scan_from_with(root, MAX_SCAN_DEPTH, |dir| {
         failed_reads.push(dir.to_path_buf());
-        None
+        None::<Vec<super::scan::ScannedEntry>>
     });
     assert_eq!(failed_reads, [root.to_path_buf()]);
     let direct_installs = if MARKER_BIGS.iter().any(|name| root.join(name).is_file()) {

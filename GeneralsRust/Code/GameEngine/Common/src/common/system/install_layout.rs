@@ -156,37 +156,32 @@ fn find_dir_case_insensitive(dir: &Path, name: &str) -> Option<PathBuf> {
     None
 }
 
-fn dir_looks_like_zh_install(dir: &Path) -> bool {
-    MARKER_BIGS
-        .iter()
-        .any(|name| find_file_case_insensitive(dir, name).is_some())
-}
-
 /// Zero Hour install dirs that actually contain `.big` archives.
 pub fn zh_install_roots() -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
+    let mut scan = scan::DirectoryScan::default();
 
     for root in discovery_roots() {
-        if dir_looks_like_zh_install(&root) {
+        if scan.looks_like_install(&root) {
             push_unique(&mut out, &mut seen, root.clone());
         }
         for name in RETAIL_DIR_NAMES {
             let candidate = root.join(name);
-            if dir_looks_like_zh_install(&candidate) {
+            if scan.looks_like_install(&candidate) {
                 push_unique(&mut out, &mut seen, candidate.clone());
             }
             let data = candidate.join("Data");
-            if dir_looks_like_zh_install(&data) {
+            if scan.looks_like_install(&data) {
                 push_unique(&mut out, &mut seen, data);
             }
         }
         let data = root.join("Data");
-        if dir_looks_like_zh_install(&data) {
+        if scan.looks_like_install(&data) {
             push_unique(&mut out, &mut seen, data);
         }
 
-        let (installs, _) = scan::scan_from(&root, MAX_SCAN_DEPTH);
+        let (installs, _) = scan.scan_from(&root, MAX_SCAN_DEPTH);
         for install in installs {
             push_unique(&mut out, &mut seen, install);
         }
@@ -203,8 +198,9 @@ pub fn extracted_asset_roots() -> Vec<PathBuf> {
 fn extracted_asset_roots_from(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
+    let mut scan = scan::DirectoryScan::default();
     for root in roots {
-        let (_, extracted) = scan::scan_from(root, MAX_SCAN_DEPTH);
+        let (_, extracted) = scan.scan_from(root, MAX_SCAN_DEPTH);
         for path in extracted {
             push_unique(&mut out, &mut seen, path);
         }
