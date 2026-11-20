@@ -1701,26 +1701,20 @@ pub(in super::super) fn apply_logic_player_list_relationships(
     }
 }
 
-pub(in super::super) fn load_multiplayer_scripts_scb() -> Option<ScriptList> {
+pub(in super::super) fn load_multiplayer_scripts_scb(
+    files: &std::sync::Mutex<game_engine::common::system::file_system::FileSystem>,
+) -> Option<ScriptList> {
     use game_engine::common::system::DataChunkInput;
     use game_engine::common::system::file::FileAccess;
-    use game_engine::common::system::file_system::get_file_system;
     use gamelogic::scripting::core::{ScriptListReadInfo, parse_player_scripts_list_chunk};
 
     const VIRTUAL: &str = "Data\\Scripts\\MultiplayerScripts.scb";
-    let data = {
-        let fs = get_file_system();
-        let mut guard = fs.lock().ok()?;
-        let mut file = guard.open_file(VIRTUAL, FileAccess::READ.combine(FileAccess::BINARY))?;
-        file.read_entire_and_close().ok()
-    }
-    .or_else(|| {
-        const CANDIDATES: &[&str] = &[
-            "windows_game/Command & Conquer Generals Zero Hour/Data/Scripts/MultiplayerScripts.scb",
-            "Data/Scripts/MultiplayerScripts.scb",
-        ];
-        CANDIDATES.iter().find_map(|path| std::fs::read(path).ok())
-    })?;
+    let data = files
+        .lock()
+        .ok()?
+        .open_mounted_file(VIRTUAL, FileAccess::READ.combine(FileAccess::BINARY))?
+        .read_entire_and_close()
+        .ok()?;
     let mut input = DataChunkInput::new(data);
     let mut read_info = ScriptListReadInfo::default();
     input.register_parser("PlayerScriptsList", "", parse_player_scripts_list_chunk);

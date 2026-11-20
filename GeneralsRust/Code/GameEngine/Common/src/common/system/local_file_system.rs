@@ -360,17 +360,17 @@ impl FileSystemBackend for LocalFileSystem {
         // No ongoing updates needed for local file system
     }
 
-    fn open_file(&mut self, filename: &str, access: FileAccess) -> Option<Box<dyn File>> {
-        if let Some(file_path) = self.find_file_path(filename) {
-            let mut local_file = LocalFile::new();
-            if local_file
-                .open(file_path.to_string_lossy().as_ref(), access)
-                .is_ok()
-            {
-                return Some(Box::new(local_file));
-            }
-        }
+    fn open_mounted_file(&mut self, filename: &str, access: FileAccess) -> Option<Box<dyn File>> {
+        let path = self.find_file_path(filename)?;
+        let mut file = LocalFile::new();
+        file.open(path.to_string_lossy().as_ref(), access).ok()?;
+        Some(Box::new(file))
+    }
 
+    fn open_file(&mut self, filename: &str, access: FileAccess) -> Option<Box<dyn File>> {
+        if let Some(file) = self.open_mounted_file(filename, access) {
+            return Some(file);
+        }
         if access.contains(FileAccess::WRITE) || !access.contains(FileAccess::READ) {
             return None;
         }
@@ -867,9 +867,9 @@ mod tests {
         };
         use std::io::{Seek, Write};
 
-        let dir = PathBuf::from("test_local_archive_miss");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir)?;
+        let _application = crate::common::common_services::CommonServicesScope::new();
+        let dir = std::env::temp_dir().join(format!("generals-local-archive-miss-{}", std::process::id()));
+        fs::create_dir(&dir)?;
         let big_path = dir.join("probe.big");
         let name = "zh-local-miss-probe.txt";
         {
@@ -893,6 +893,10 @@ mod tests {
         get_archive_file_system()
             .expect("archive singleton")
             .open_archive_file(big_path.to_string_lossy().as_ref())?;
+
+        let mut receiving = crate::common::system::file_system::FileSystem::new();
+        receiving.ensure_backend(LocalFileSystem::new);
+        assert!(receiving.open_mounted_file(name, FileAccess::READ).is_none());
 
         let mut backend = LocalFileSystem::new();
         assert!(backend.does_file_exist(name));

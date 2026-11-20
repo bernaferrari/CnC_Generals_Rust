@@ -588,7 +588,8 @@ if let Ok(mut list) = __arc_bind.write() {
         if !self.install_multiplayer_scripts {
             return;
         }
-        let Some(scripts) = load_multiplayer_scripts_scb() else {
+        let files = &self.world_services.common().application.file_system;
+        let Some(scripts) = load_multiplayer_scripts_scb(files) else {
             return;
         };
         let mut next = scripts.get_script();
@@ -1869,4 +1870,57 @@ fn replay_observer_colors(
         .first()
         .map(|color| (rgb(color.get_color()), rgb(color.night_color)))
         .unwrap_or(((170, 170, 170), (170, 170, 170)))
+}
+
+#[cfg(test)]
+mod replay_script_file_tests {
+    use super::*;
+    use game_engine::common::{
+        common_services::CommonServicesScope,
+        system::{DataChunkOutput, local_file_system::LocalFileSystem},
+    };
+
+    fn replay_with_victory_script(name: &str) -> (tempfile::TempDir, GameLogic) {
+        let root = tempfile::tempdir().unwrap();
+        let scripts = root.path().join("Data/Scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        let mut chunks = DataChunkOutput::new();
+        chunks.open_data_chunk("PlayerScriptsList", 1);
+        chunks.open_data_chunk("ScriptList", 1);
+        chunks.open_data_chunk("Script", 2);
+        for text in [name, "", "", ""] {
+            chunks.write_ascii_string(text);
+        }
+        for value in [0, 0, 1, 1, 1, 0] {
+            chunks.write_byte(value);
+        }
+        chunks.write_int(0);
+        for _ in 0..3 {
+            chunks.close_data_chunk();
+        }
+        std::fs::write(scripts.join("MultiplayerScripts.scb"), chunks.into_ckmp_bytes()).unwrap();
+
+        let app = CommonServicesScope::new();
+        let mut files = app.services().application.file_system.lock().unwrap();
+        files.ensure_backend(LocalFileSystem::new).add_search_path(root.path());
+        drop(files);
+        let mut world = GameLogic::new();
+        world.set_install_multiplayer_scripts(true);
+        (root, world)
+    }
+
+    #[test]
+    fn replay_victory_scripts_resolve_through_each_receiving_application() {
+        let (_own_files, mut own) = replay_with_victory_script("Own replay victory");
+        let (_peer_files, mut peer) = replay_with_victory_script("Peer replay victory");
+        assert!(!std::sync::Arc::ptr_eq(
+            &own.world_services.common().application.file_system,
+            &peer.world_services.common().application.file_system,
+        ));
+
+        peer.with_own_services(|| own.install_multiplayer_scripts_if_needed());
+        own.with_own_services(|| peer.install_multiplayer_scripts_if_needed());
+        assert_eq!(own.loaded_script_names(), ["Own replay victory"]);
+        assert_eq!(peer.loaded_script_names(), ["Peer replay victory"]);
+    }
 }

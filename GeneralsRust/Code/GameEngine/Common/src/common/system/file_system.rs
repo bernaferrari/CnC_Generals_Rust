@@ -112,6 +112,11 @@ pub trait FileSystemBackend: Send + Sync + Any {
     /// Open a file through this backend
     fn open_file(&mut self, filename: &str, access: FileAccess) -> Option<Box<dyn File>>;
 
+    /// Resolve using this backend's mounted content.
+    fn open_mounted_file(&mut self, filename: &str, access: FileAccess) -> Option<Box<dyn File>> {
+        self.open_file(filename, access)
+    }
+
     /// Check if a file exists in this backend
     fn does_file_exist(&self, filename: &str) -> bool;
 
@@ -220,6 +225,18 @@ impl FileSystem {
             }
         }
         None
+    }
+
+    /// Open through this application's mounts in their established order.
+    /// Local files do not consult the legacy thread's archive here.
+    pub fn open_mounted_file(
+        &mut self,
+        filename: &str,
+        access: FileAccess,
+    ) -> Option<Box<dyn File>> {
+        self.backends
+            .iter_mut()
+            .find_map(|backend| backend.open_mounted_file(filename, access))
     }
 
     /// C++ `FileSystem::areMusicFilesOnCD`.
