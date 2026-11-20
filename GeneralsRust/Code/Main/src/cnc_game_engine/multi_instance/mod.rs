@@ -177,22 +177,20 @@ impl MultiInstanceReport {
 pub fn process_rss() -> (u64, u64) {
     #[cfg(target_os = "macos")]
     {
-        // SAFETY: task_info with MACH_TASK_BASIC_INFO writes at most `count`
-        // integers into the zeroed, correctly sized struct.
+        let mut info = std::mem::MaybeUninit::<libc::mach_task_basic_info>::uninit();
+        let info_count = (std::mem::size_of::<libc::mach_task_basic_info>()
+            / std::mem::size_of::<libc::natural_t>())
+            as libc::mach_msg_type_number_t;
+        let mut count = info_count;
+        // SAFETY: MACH_TASK_BASIC_INFO accepts a writable buffer of exactly
+        // this Mach ABI type and count. The current task port is borrowed.
+        // Both fields are read only after Mach reports a fully written buffer.
         unsafe {
-            let mut info: libc::mach_task_basic_info = std::mem::zeroed();
-            let mut count = (std::mem::size_of::<libc::mach_task_basic_info>()
-                / std::mem::size_of::<libc::natural_t>())
-                as libc::mach_msg_type_number_t;
             #[allow(deprecated)]
             let task = libc::mach_task_self();
-            let kr = libc::task_info(
-                task,
-                libc::MACH_TASK_BASIC_INFO,
-                (&mut info as *mut libc::mach_task_basic_info).cast(),
-                &mut count,
-            );
-            if kr == libc::KERN_SUCCESS {
+            let kr = libc::task_info(task, libc::MACH_TASK_BASIC_INFO, info.as_mut_ptr().cast(), &mut count);
+            if kr == libc::KERN_SUCCESS && count == info_count {
+                let info = info.assume_init();
                 return (info.resident_size, info.resident_size_max);
             }
         }

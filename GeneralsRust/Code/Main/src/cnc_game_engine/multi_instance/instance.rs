@@ -415,8 +415,10 @@ fn run_instance(spawn: InstanceSpawn, shared: &Shared) -> Result<(), String> {
 
     std::fs::create_dir_all(&spawn.userdata)
         .map_err(|e| format!("userdata {}: {e}", spawn.userdata.display()))?;
-    let args = crate::command_line::CommandLineArgs::parse_from_args(instance_argv(&spawn))
+    let mut args = crate::command_line::CommandLineArgs::parse_from_args(instance_argv(&spawn))
         .map_err(|e| format!("command line: {e}"))?;
+    // The grid drives the native WND shell on each receiving engine.
+    args.enable_runtime_host_wnd();
     *crate::main_services::main_services()
         .command_line_args
         .lock()
@@ -609,13 +611,18 @@ fn drive_instance(
 
 /// CPU time consumed so far by the calling thread.
 fn thread_cpu_time() -> Duration {
-    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-    // SAFETY: `ts` is a valid out-pointer for the duration of the call.
-    let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
-    if rc != 0 {
-        return Duration::ZERO;
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        use rustix::time::{ClockId, DynamicClockId, clock_gettime_dynamic};
+
+        clock_gettime_dynamic(DynamicClockId::Known(ClockId::ThreadCPUTime))
+            .map(|ts| Duration::new(ts.tv_sec.max(0) as u64, ts.tv_nsec.clamp(0, 999_999_999) as u32))
+            .unwrap_or_default()
     }
-    Duration::new(ts.tv_sec.max(0) as u64, ts.tv_nsec.clamp(0, 999_999_999) as u32)
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        Duration::ZERO
+    }
 }
 
 /// Copy the engine's finished off-screen frame into its grid tile. Both live

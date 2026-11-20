@@ -53,13 +53,11 @@ impl CnCGameEngine {
         // execute_pending_actions → parse Menus/SkirmishGameOptionsMenu.wnd (~900KB)
         // and stalls the runtime-host frame forever. Use latch_only + soft override
         // on headless; interactive keeps the full GBM_SELECTED path.
-        let env_soft = std::env::var("GENERALS_RUNTIME_HOST_WND")
-            .map(|v| v == "0" || v.eq_ignore_ascii_case("false"))
-            .unwrap_or(false);
+        let soft_ui = !self.command_line.use_runtime_host_wnd();
         let mut main_menu_skirmish_wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            if self.runtime_host_headless || env_soft {
+            if self.runtime_host_headless || soft_ui {
                 // Latch-only residual (C++ ButtonSkirmish GBM_SELECTED outcomes)
                 // without pending PushShellScreen / WND parse.
                 main_menu_skirmish_wnd_ok = self.with_receiving_menu_effects(|effects| {
@@ -68,7 +66,7 @@ impl CnCGameEngine {
                 self.set_runtime_host_ui_screen_override(Some("Skirmish"));
                 // Best-effort stack push without re-entering MainMenu system().
                 // Skip if already on a Skirmish layout to avoid double-parse stalls.
-                if !env_soft {
+                if !soft_ui {
                     let top = self
                         .game_client
                         .window_manager_owner()
@@ -128,7 +126,7 @@ impl CnCGameEngine {
         }
         #[cfg(not(feature = "game_client"))]
         {
-            let _ = env_soft;
+            let _ = soft_ui;
             self.set_runtime_host_ui_screen_override(Some("Skirmish"));
         }
         // Sticky residual: smoke polls may miss one-frame Skirmish ui_screen
@@ -229,9 +227,7 @@ impl CnCGameEngine {
                     .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                     .unwrap_or(false)
             } else {
-                std::env::var("GENERALS_RUNTIME_HOST_WND")
-                    .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
-                    .unwrap_or(true)
+                self.command_line.use_runtime_host_wnd()
             };
             // Headless always runs latch peels; interactive needs layout when WND on.
             let run_wnd_latches = push_wnd_layout || self.runtime_host_headless;

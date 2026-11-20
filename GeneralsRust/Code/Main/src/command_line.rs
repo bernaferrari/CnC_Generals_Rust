@@ -69,9 +69,18 @@ pub struct CommandLineArgs {
     /// Last explicit startup window mode flag from command line order.
     /// `Some(true)` => windowed, `Some(false)` => fullscreen.
     window_mode_override: Option<bool>,
+    runtime_host_soft_ui: bool,
 }
 
 impl CommandLineArgs {
+    pub(crate) fn use_runtime_host_wnd(&self) -> bool {
+        !self.runtime_host_soft_ui
+    }
+
+    pub(crate) fn enable_runtime_host_wnd(&mut self) {
+        self.runtime_host_soft_ui = false;
+    }
+
     /// Parse command line arguments from environment
     pub fn parse() -> Result<Self> {
         let args = Self::startup_args();
@@ -101,6 +110,8 @@ impl CommandLineArgs {
     pub fn parse_from_args(args: Vec<String>) -> Result<Self> {
         let mut parsed = Self {
             raw_args: args.clone(),
+            runtime_host_soft_ui: env::var("GENERALS_RUNTIME_HOST_WND")
+                .is_ok_and(|v| v == "0" || v.eq_ignore_ascii_case("false")),
             ..Default::default()
         };
 

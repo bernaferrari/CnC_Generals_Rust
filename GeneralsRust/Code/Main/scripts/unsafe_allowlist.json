@@ -256,6 +256,10 @@
       "constructs": 1,
       "undocumented": 0
     },
+    "Code/Main/src/cnc_game_engine/multi_instance/mod.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
     "Code/Main/src/cnc_game_engine/selection_hud.rs": {
       "constructs": 4,
       "undocumented": 0

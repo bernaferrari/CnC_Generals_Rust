@@ -1040,11 +1040,11 @@ mod tests {
             std::ffi::OsStr::new("1"),
             || {
                 assert!(
-                    !executable_host_ok_from_residuals(true, false),
+                    !executable_host_ok_from_residuals(runtime_host_wnd_enabled(), true, false),
                     "WND path must not claim host_ok without shell_wnd residual"
                 );
-                assert!(executable_host_ok_from_residuals(true, true));
-                assert!(!executable_host_ok_from_residuals(false, true));
+                assert!(executable_host_ok_from_residuals(runtime_host_wnd_enabled(), true, true));
+                assert!(!executable_host_ok_from_residuals(runtime_host_wnd_enabled(), false, true));
             },
         );
         isolated_environment_case(
@@ -1054,9 +1054,16 @@ mod tests {
             std::ffi::OsStr::new("0"),
             || {
                 assert!(
-                    executable_host_ok_from_residuals(true, false),
+                    executable_host_ok_from_residuals(runtime_host_wnd_enabled(), true, false),
                     "WND-off path allows host_ok without shell residual"
                 );
+                let ordinary = crate::command_line::CommandLineArgs::parse_from_args(vec!["generals".into()])
+                    .expect("regular startup");
+                let mut attached = ordinary.clone();
+                attached.enable_runtime_host_wnd();
+                assert!(attached.use_runtime_host_wnd());
+                assert!(!ordinary.use_runtime_host_wnd());
+                assert_eq!(std::env::var("GENERALS_RUNTIME_HOST_WND").unwrap(), "0");
             },
         );
         assert_eq!(

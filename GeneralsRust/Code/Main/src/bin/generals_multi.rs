@@ -190,9 +190,6 @@ async fn main() {
     {
         let _ = std::env::set_current_dir(dir);
     }
-    // SAFETY: set before any instance thread exists; process configuration,
-    // identical for every instance (runtime-host WND shell, as golden_capture).
-    unsafe { std::env::set_var("GENERALS_RUNTIME_HOST_WND", "1") };
     let event_loop = generals_main::win_main::create_host_event_loop(!options.windowed)
         .unwrap_or_else(|e| {
             eprintln!("generals_multi: event loop: {e}");

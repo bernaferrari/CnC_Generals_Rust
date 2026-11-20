@@ -4523,6 +4523,7 @@ dependencies = [
  "rayon",
  "rodio",
  "rodio_compat",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "tempfile",

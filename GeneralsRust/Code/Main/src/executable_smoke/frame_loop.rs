@@ -8,6 +8,7 @@
 /// locals; every field starts at its original zero value via `Default`.
 #[derive(Default)]
 struct SmokeRunState {
+    allow_soft_menu: bool,
     screenshot_path: Option<PathBuf>,
     gameplay_step: u8,
     saw_select_ok: bool,
@@ -195,6 +196,13 @@ struct SmokeRunState {
     windowed_gameplay_order_sent: bool,
 }
 
+impl SmokeRunState {
+    fn host_ok_from_residuals(&self, reached_ingame: bool, shell_wnd_ok: bool) -> bool {
+        executable_host_ok_from_residuals(!self.allow_soft_menu, reached_ingame, shell_wnd_ok)
+    }
+}
+
+
 fn run_executable_smoke_once(
     timeout: Duration,
     started: Instant,
@@ -239,6 +247,8 @@ fn run_smoke_session(
     } = boot;
 
     let mut st = SmokeRunState {
+        // Attached instances explicitly drive their receiving WND shell.
+        allow_soft_menu: !matches!(&child, SmokeHost::Attached(_)) && !runtime_host_wnd_enabled(),
         screenshot_path,
         boot_shell_menu_goal: matches!(driver, SmokeDriver::MenuOnly),
         map_load_goal: matches!(driver, SmokeDriver::MapLoadOnly),
@@ -456,7 +466,7 @@ fn smoke_wall_budget_exceeded(
             result.construct_cmd_ok = st.saw_construct_ok;
             result.train_cmd_ok = st.saw_train_ok;
             result.executable_host_ok =
-                !stalled && executable_host_ok_from_residuals(true, result.shell_wnd_ok);
+                !stalled && st.host_ok_from_residuals(true, result.shell_wnd_ok);
             result.status = if stalled {
                 "ingame_stalled".into()
             } else if result.executable_host_ok {
@@ -517,7 +527,7 @@ fn smoke_wall_budget_exceeded(
         } else {
             result.shell_wnd_ok = st.saw_shell_wnd_ok;
             result.executable_host_ok =
-                executable_host_ok_from_residuals(result.reached_menu, result.shell_wnd_ok);
+                st.host_ok_from_residuals(result.reached_menu, result.shell_wnd_ok);
             result.status = "timeout".into();
             result.detail = format!(
                 "timeout after {:?} last_state={} menu={} ingame={} frames={} phase={} shell_wnd={}",
@@ -557,7 +567,7 @@ fn smoke_child_exited_early(
         result.shell_wnd_ok = st.saw_shell_wnd_ok;
         if result.reached_ingame && status.success() {
             result.executable_host_ok =
-                executable_host_ok_from_residuals(true, result.shell_wnd_ok);
+                st.host_ok_from_residuals(true, result.shell_wnd_ok);
             result.status = if result.executable_host_ok {
                 "success".into()
             } else {
@@ -853,7 +863,7 @@ fn smoke_phase_wait_menu(
     let live_main_menu_ready = live_main_menu_wnd_ready(snap);
     let manual_observer = launch == ExecutableSmokeLaunch::Windowed
         && driver == SmokeDriver::ManualObserver;
-    let ready = if manual_observer || !runtime_host_wnd_enabled() {
+    let ready = if manual_observer || st.allow_soft_menu {
         startup_fallback_ready
     } else {
         live_main_menu_ready
@@ -1272,7 +1282,7 @@ fn smoke_phase_wait_clean_exit(
             );
         } else if result.reached_ingame {
             result.executable_host_ok =
-                executable_host_ok_from_residuals(true, result.shell_wnd_ok);
+                st.host_ok_from_residuals(true, result.shell_wnd_ok);
             result.status = if result.executable_host_ok {
                 "success".into()
             } else {
@@ -1323,7 +1333,7 @@ fn smoke_phase_wait_clean_exit(
         child.kill();
         if result.reached_ingame {
             result.executable_host_ok =
-                executable_host_ok_from_residuals(true, result.shell_wnd_ok);
+                st.host_ok_from_residuals(true, result.shell_wnd_ok);
             result.status = if result.executable_host_ok {
                 "success_forced_exit".into()
             } else {
@@ -1450,7 +1460,7 @@ fn smoke_phase_wait_clean_exit(
             );
         }
         result.shell_wnd_ok = st.saw_shell_wnd_ok;
-        result.executable_host_ok = executable_host_ok_from_residuals(
+        result.executable_host_ok = st.host_ok_from_residuals(
             result.reached_menu || result.reached_ingame,
             result.shell_wnd_ok,
         );

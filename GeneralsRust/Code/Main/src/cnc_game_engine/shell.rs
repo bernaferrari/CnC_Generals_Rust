@@ -25,10 +25,7 @@ impl CnCGameEngine {
         {
             // GENERALS_RUNTIME_HOST_WND=0 keeps soft UI override without shell push.
             // Executable smoke defaults to WND=1 so ButtonStart residual can run.
-            let push_wnd = std::env::var("GENERALS_RUNTIME_HOST_WND")
-                .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
-                .unwrap_or(true);
-            if push_wnd {
+            if self.command_line.use_runtime_host_wnd() {
                 self.show_shell_menu()?;
                 let push_result = self
                     .with_receiving_menu_shell(|shell, effects| {

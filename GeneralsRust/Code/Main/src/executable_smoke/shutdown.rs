@@ -122,13 +122,10 @@ fn runtime_host_wnd_enabled() -> bool {
 }
 
 /// When WND push is enabled, limited host_ok also requires shell_wnd residual.
-fn executable_host_ok_from_residuals(reached_ingame: bool, shell_wnd_ok: bool) -> bool {
-    if !reached_ingame {
-        return false;
-    }
-    if runtime_host_wnd_enabled() {
-        shell_wnd_ok
-    } else {
-        true
-    }
+fn executable_host_ok_from_residuals(
+    wnd_enabled: bool,
+    reached_ingame: bool,
+    shell_wnd_ok: bool,
+) -> bool {
+    reached_ingame && (!wnd_enabled || shell_wnd_ok)
 }
