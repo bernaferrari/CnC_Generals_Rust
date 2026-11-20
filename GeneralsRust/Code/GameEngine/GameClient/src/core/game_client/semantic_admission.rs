@@ -269,9 +269,7 @@ impl NativeDrawableOwner<'_> {
                     "native condition query has no receiving BasicDrawable".into(),
                 )
             })?;
-        let flags = drawable.get_model_condition_flags();
-        Ok((0..128.min(flags.get_bit_names().len()))
-            .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i)))
+        Ok(drawable.get_model_condition_flags().low_bits())
     }
 
     /// Actual receiving Drawable::setInstanceMatrix; no Object pose restamping.
@@ -631,10 +629,10 @@ impl NativeDrawableOwner<'_> {
                 observe(PresentationDrawableMutation::TerrainPropAdded { source: e, request })?;
             }
             GameClient::stamp_presentation_object_residual(drawable, e, !semantic_lifetime);
-            let flags = drawable.get_model_condition_flags();
-            let bits = (0..128.min(flags.get_bit_names().len()))
-                .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i));
-            observe(PresentationDrawableMutation::ConditionsMarked { source: e, bits })?;
+            observe(PresentationDrawableMutation::ConditionsMarked {
+                source: e,
+                bits: drawable.get_model_condition_flags().low_bits(),
+            })?;
             let native_laser = GameClient::owned_laser_count(drawable) == 1;
             GameClient::bind_owned_laser_module(drawable, id);
             if native_laser {

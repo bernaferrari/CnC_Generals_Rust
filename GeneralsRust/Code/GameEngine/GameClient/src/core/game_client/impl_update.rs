@@ -967,12 +967,9 @@ impl GameClient {
                             }
                         }
                         Self::stamp_presentation_object_residual(basic, &e, true);
-                        let flags = basic.get_model_condition_flags();
-                        let bits = (0..128.min(flags.get_bit_names().len()))
-                            .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i));
                         observe(PresentationDrawableMutation::ConditionsMarked {
                             source: &e,
-                            bits,
+                            bits: basic.get_model_condition_flags().low_bits(),
                         });
                     }
                     updated = updated.saturating_add(1);

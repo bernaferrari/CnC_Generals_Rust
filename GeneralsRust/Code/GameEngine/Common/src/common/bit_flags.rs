@@ -508,6 +508,16 @@ impl BitFlags {
         self.bits != before
     }
 
+    /// Return bits 0 through 127 in their original flag index order.
+    #[inline]
+    pub fn low_bits(&self) -> u128 {
+        let mut value = 0;
+        for (index, block) in self.bits.blocks().take(4).enumerate() {
+            value |= u128::from(block) << (index * u32::BITS as usize);
+        }
+        value
+    }
+
     /// Assign every bit `i < 128` selected by `mask` from `value`, leaving
     /// other bits untouched, and report whether any bit changed. Equivalent to
     /// `clear_and_set_changed(mask, value & mask)` without building two
@@ -515,14 +525,7 @@ impl BitFlags {
     pub fn assign_low_bits_changed(&mut self, mask: u128, value: u128) -> bool {
         let n = self.bits.len().min(128);
         let mask = if n == 128 { mask } else { mask & ((1u128 << n) - 1) };
-        let mut current = 0u128;
-        let block_bits = u32::BITS as usize;
-        for (k, block) in self.bits.blocks().enumerate() {
-            if k * block_bits >= 128 {
-                break;
-            }
-            current |= u128::from(block) << (k * block_bits);
-        }
+        let current = self.low_bits();
         let next = (current & !mask) | (value & mask);
         let mut diff = (current ^ next) & mask;
         if diff == 0 {
@@ -676,6 +679,21 @@ mod tests {
             let slow_changed = slow.clear_and_set_changed(&clr, &set);
             assert_eq!(fast.assign_low_bits_changed(mask, value), slow_changed);
             assert_eq!(fast, slow);
+        }
+    }
+
+    #[test]
+    fn low_bits_matches_individual_flags_at_every_word_boundary() {
+        static NAMES: [&str; 160] = ["FLAG"; 160];
+        for len in [0, 1, 31, 32, 33, 63, 64, 65, 96, 127, 128, 129, 160] {
+            let mut flags = BitFlags::new(&NAMES[..len]);
+            for index in 0..len {
+                flags.set(index, index % 3 != 2);
+            }
+            let scalar = (0..128).fold(0, |bits, index| {
+                bits | (u128::from(flags.test(index)) << index)
+            });
+            assert_eq!(flags.low_bits(), scalar, "{len} flags");
         }
     }
 

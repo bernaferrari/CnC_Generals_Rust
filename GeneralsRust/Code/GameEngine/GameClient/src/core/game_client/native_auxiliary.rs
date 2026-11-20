@@ -123,11 +123,7 @@ impl NativeDrawableOwner<'_> {
             shroud_object: basic.shroud_status_object_id(),
             opacity: basic.get_opacity(),
             scale: basic.get_instance_scale(),
-            condition_bits: {
-                let flags = basic.get_model_condition_flags();
-                (0..128.min(flags.get_bit_names().len()))
-                    .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i))
-            },
+            condition_bits: basic.get_model_condition_flags().low_bits(),
         }))
     }
 
@@ -242,12 +238,9 @@ impl NativeDrawableOwner<'_> {
                         birth.loading_map, birth.in_load_game, tod,
                     );
                 }
-                let flags = draw.get_model_condition_flags();
-                let bits = (0..128.min(flags.get_bit_names().len()))
-                    .fold(0u128, |bits, i| bits | ((flags.test(i) as u128) << i));
                 observe(NativeAuxiliaryMutation::ConditionsMarked {
                     receipt: &receipt,
-                    bits,
+                    bits: draw.get_model_condition_flags().low_bits(),
                 })?;
                 Ok(())
             }));
