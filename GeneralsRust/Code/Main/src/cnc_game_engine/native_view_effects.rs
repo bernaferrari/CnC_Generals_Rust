@@ -613,6 +613,7 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
                     PresentationDrawableMutation::Destroyed {
                         host_epoch: self.host_epoch,
                         object_id: key.object_id,
+                        terrain_tracks: &[],
                     },
                     &render,
                     self.graphics,

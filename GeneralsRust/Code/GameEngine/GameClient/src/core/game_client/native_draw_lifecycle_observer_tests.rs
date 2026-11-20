@@ -70,7 +70,9 @@ fn native_mirror_observer_admits_creation_and_both_transform_phases_before_first
                 PresentationDrawableMutation::Destroyed {
                     object_id,
                     host_epoch,
+                    terrain_tracks,
                 } => {
+                    assert!(terrain_tracks.is_empty());
                     assert_eq!((host_epoch, object_id), (19, 42));
                     phases.push("destroy");
                 }

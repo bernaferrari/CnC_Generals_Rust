@@ -761,6 +761,7 @@ impl NativeDrawableOwner<'_> {
                 observe(PresentationDrawableMutation::Destroyed {
                     host_epoch: e.host_epoch,
                     object_id: e.object_id,
+                    terrain_tracks: &[],
                 })
             } else {
                 Ok(())

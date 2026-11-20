@@ -33,6 +33,13 @@ impl RenderPipeline {
             self.receive_native_prop(source.host_epoch, request);
             return;
         }
+        if let PresentationDrawableMutation::Destroyed { terrain_tracks, .. } = &mutation
+            && let Some(terrain) = self.native_terrain.as_mut()
+        {
+            for binding in *terrain_tracks {
+                terrain.retire_terrain_track(binding);
+            }
+        }
         self.borrow_native_installed_poses()
             .receive_native_drawable_mutation(mutation, source, graphics);
         self.flush_native_props();

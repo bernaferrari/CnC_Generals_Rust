@@ -315,6 +315,7 @@ pub enum PresentationDrawableMutation<'a> {
     Destroyed {
         host_epoch: u64,
         object_id: u32,
+        terrain_tracks: &'a [gamelogic::object::draw::client_visual::NativeTerrainTrackBinding],
     },
 }
 impl PresentationDrawableMutation<'_> {

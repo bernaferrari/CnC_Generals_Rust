@@ -16,6 +16,21 @@ const TRACK_WIDTH: f32 = 18.573_772;
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_tank_factory_binds_before_placement_and_client_reset_retires_own_marks() {
+    exercise_stock_tank_track_retirement(Retirement::Reset);
+}
+
+#[test]
+#[ignore = "requires mounted retail sources and native WGPU"]
+fn retail_disguise_replacement_detaches_only_the_old_drawable_track() {
+    exercise_stock_tank_track_retirement(Retirement::Disguise);
+}
+
+enum Retirement {
+    Reset,
+    Disguise,
+}
+
+fn exercise_stock_tank_track_retirement(retirement: Retirement) {
     let install = std::path::PathBuf::from(std::env::var_os("GENERALS_BASE_DIR").unwrap());
     let mut archive = ArchiveFileSystem::new();
     archive
@@ -132,7 +147,7 @@ fn retail_tank_factory_binds_before_placement_and_client_reset_retires_own_marks
             }
         },
     );
-    {
+    let edges_before = {
         let terrain = render.native_terrain().unwrap();
         let tracks = terrain.terrain_tracks();
         let edges = tracks
@@ -151,32 +166,122 @@ fn retail_tank_factory_binds_before_placement_and_client_reset_retires_own_marks
                 ((edge.endpoint_pos[0] - edge.endpoint_pos[1]).length() - TRACK_WIDTH).abs() < 1e-5
             );
         }
+        edges
+    };
+    match retirement {
+        Retirement::Disguise => {
+            replace_with_retail_disguise(&mut world, &mut client, &mut render, &mut graphics, id);
+        }
+        Retirement::Reset => {
+            assert!(
+                render
+                    .retire_native_drawables_after_client_reset(
+                        &client.borrow_native_drawable_owner()
+                    )
+                    .is_err()
+            );
+            assert!(
+                render
+                    .native_terrain()
+                    .unwrap()
+                    .receives_terrain_track(&receipt)
+            );
+            client.reset().unwrap();
+            render
+                .retire_native_drawables_after_client_reset(&client.borrow_native_drawable_owner())
+                .unwrap();
+        }
     }
-    assert!(
-        render
-            .retire_native_drawables_after_client_reset(&client.borrow_native_drawable_owner())
-            .is_err()
-    );
-    assert!(
-        render
-            .native_terrain()
-            .unwrap()
-            .receives_terrain_track(&receipt)
-    );
-    client.reset().unwrap();
-    render
-        .retire_native_drawables_after_client_reset(&client.borrow_native_drawable_owner())
-        .unwrap();
     let terrain = render.native_terrain().unwrap();
     assert!(!terrain.receives_terrain_track(&receipt));
     let track = terrain.terrain_tracks().track(receipt.slot()).unwrap();
     assert!(!track.bound());
-    assert_eq!(track.active_edge_count(), 2);
+    assert_eq!(
+        track.active_edges(terrain.terrain_tracks().config().max_tank_track_edges),
+        edges_before,
+    );
+    if matches!(retirement, Retirement::Disguise) {
+        let tracks = render.native_terrain_mut().unwrap().terrain_tracks_mut();
+        let end = 1234 + tracks.config().max_tank_track_fade_delay;
+        tracks.update(end);
+        tracks.update(end + 1);
+        assert_eq!(tracks.track(receipt.slot()).unwrap().active_edge_count(), 0);
+    }
     assert!(
         peer_render
             .native_terrain()
             .unwrap()
             .receives_terrain_track(&peer_receipt)
+    );
+}
+
+fn replace_with_retail_disguise(
+    world: &mut GameLogic,
+    client: &mut GameClient,
+    render: &mut RenderPipeline,
+    graphics: &mut GraphicsSystem,
+    id: ObjectId,
+) {
+    const DISGUISE: &str = "AmericaInfantryRanger";
+    let old = client
+        .borrow_native_drawable_owner()
+        .binding_key(EPOCH, id.0)
+        .unwrap();
+    let mut entry = world
+        .current_native_factory_drawable_source(id, EPOCH, 0)
+        .unwrap()
+        .drawable;
+    let object = world.host_object_mut(id).unwrap();
+    object.status.disguised = true;
+    object.disguise_as_template = Some(DISGUISE.into());
+
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(world, 0);
+    let replacement = frame
+        .direct_host_drawables
+        .iter()
+        .find(|direct| direct.object.id == id)
+        .unwrap();
+    assert_eq!(replacement.visual_template_name, DISGUISE);
+    entry.visual_template_name = replacement.visual_template_name.clone();
+    entry.module_admission = replacement
+        .receiving_client_template
+        .as_ref()
+        .unwrap()
+        .client_admission();
+    let source = frame
+        .native_resident_drawable_inputs()
+        .into_iter()
+        .find(|input| input.id == id)
+        .unwrap();
+    let identity = source.draw_playback_identity.as_ref().unwrap();
+    let policy = receiving_native_drawable_policy_for(world);
+    let content = world.receiving_module_content.as_mut().unwrap();
+
+    let (created, _, _) = client
+        .sync_presentation_drawables_observed_with_content(
+            [entry],
+            1234,
+            content.module_factory_mut(),
+            policy,
+            |event| {
+                render.receive_native_drawable_mutation(event, Some(&source), graphics);
+            },
+        )
+        .unwrap();
+    assert_eq!(created, 1);
+    let mut drawables = client.borrow_native_drawable_owner();
+    let new = drawables.binding_key(EPOCH, id.0).unwrap();
+    assert_ne!(old, new);
+    render.admit_native_drawable_binding(identity, new).unwrap();
+    assert!(
+        drawables
+            .terrain_track_bindings_for_retirement(new)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        world.host_object(id).unwrap().get_template().name,
+        "ChinaTankBattleMaster"
     );
 }
 

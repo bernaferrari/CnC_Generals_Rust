@@ -917,6 +917,7 @@ impl GameClient {
                         observe(PresentationDrawableMutation::Destroyed {
                             host_epoch: e.host_epoch,
                             object_id: e.object_id,
+                            terrain_tracks: &[],
                         });
                         if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
                             observe(PresentationDrawableMutation::Creating {
@@ -997,13 +998,14 @@ impl GameClient {
                         .and_then(|drawable| drawable.as_any().downcast_ref::<BasicDrawable>())
                         .map(BasicDrawable::material_pass_opacity);
                 }
-                // Destruction must succeed before displacing any identity or
-                // creating its replacement; failure keeps the installed owner.
-                self.destroy_drawable(drawable_id)?;
-                observe(PresentationDrawableMutation::Destroyed {
-                    host_epoch: e.host_epoch,
-                    object_id: e.object_id,
-                });
+                // The successor is created only after complete destruction of
+                // the installed Client Drawable.
+                self.destroy_presentation_drawable_observed(
+                    drawable_id,
+                    e.host_epoch,
+                    e.object_id,
+                    &mut observe,
+                )?;
                 if self
                     .drawables
                     .drawable_object_map
@@ -1066,6 +1068,34 @@ impl GameClient {
         Ok((created, updated, pruned))
     }
 
+    /// Hand off the old ModelDraw's terrain handles at physical Client removal,
+    /// before the renderer constructs a replacement for the same Object.
+    fn destroy_presentation_drawable_observed(
+        &mut self,
+        drawable_id: DrawableId,
+        host_epoch: u64,
+        object_id: u32,
+        observe: &mut impl FnMut(PresentationDrawableMutation<'_>),
+    ) -> GameClientResult<()> {
+        let terrain_tracks = self
+            .drawables
+            .drawable_map
+            .get_mut(&drawable_id)
+            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<BasicDrawable>())
+            .map_or_else(Vec::new, BasicDrawable::receiving_track_bindings);
+        let result = self.destroy_drawable(drawable_id);
+        // Preflight failures keep the previous owner. If teardown reports a
+        // later error after removal, its receiver still has to retire.
+        if !self.drawables.drawable_map.contains_key(&drawable_id) {
+            observe(PresentationDrawableMutation::Destroyed {
+                host_epoch,
+                object_id,
+                terrain_tracks: &terrain_tracks,
+            });
+        }
+        result
+    }
+
     /// Destroy presentation-direct Drawables and their bindings, reporting
     /// each to the native observers as the sync's prune does.
     fn destroy_presentation_bindings(
@@ -1075,11 +1105,12 @@ impl GameClient {
     ) -> GameClientResult<usize> {
         let mut pruned = 0usize;
         for (drawable_id, binding_key) in stale {
-            self.destroy_drawable(drawable_id)?;
-            observe(PresentationDrawableMutation::Destroyed {
-                host_epoch: binding_key.host_epoch,
-                object_id: binding_key.object_id,
-            });
+            self.destroy_presentation_drawable_observed(
+                drawable_id,
+                binding_key.host_epoch,
+                binding_key.object_id,
+                observe,
+            )?;
             if self
                 .drawables
                 .drawable_object_map
