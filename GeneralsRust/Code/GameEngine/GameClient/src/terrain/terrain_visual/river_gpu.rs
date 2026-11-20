@@ -149,10 +149,10 @@ impl TerrainVisualImpl {
         };
         // C++ m_riverTexture is standing water; extras are named TGA assets.
         let river_tex = self
-            .load_first_available_named_texture(device, &["TWWater01.tga", "TWWater01.dds"])
+            .load_first_available_named_texture(device, &["TWWater01.tga", "TWWater01.dds"], 1)
             .unwrap_or_else(|| Self::create_fallback_water_texture(device, queue.as_ref()));
         let sparkle = self
-            .load_first_available_named_texture(device, &["WaterSurfaceBubbles.tga"])
+            .load_first_available_named_texture(device, &["WaterSurfaceBubbles.tga"], 1)
             .unwrap_or_else(|| {
                 Self::create_solid_rgba_texture(
                     device,
@@ -162,7 +162,7 @@ impl TerrainVisualImpl {
                 )
             });
         let noise = self
-            .load_first_available_named_texture(device, &["Noise0000.tga"])
+            .load_first_available_named_texture(device, &["Noise0000.tga"], 1)
             .unwrap_or_else(|| {
                 Self::create_solid_rgba_texture(
                     device,
@@ -172,7 +172,7 @@ impl TerrainVisualImpl {
                 )
             });
         let edge = self
-            .load_first_available_named_texture(device, &["TWAlphaEdge.tga"])
+            .load_first_available_named_texture(device, &["TWAlphaEdge.tga"], 1)
             .unwrap_or_else(|| {
                 Self::create_solid_rgba_texture(
                     device,
@@ -265,10 +265,11 @@ impl TerrainVisualImpl {
         &self,
         device: &wgpu::Device,
         names: &[&str],
+        mip_levels: u32,
     ) -> Option<wgpu::Texture> {
         for name in names {
             for path in Self::water_texture_path_candidates(name) {
-                if let Ok(texture) = self.load_texture_from_path(device, &path) {
+                if let Ok(texture) = self.load_texture_from_path_with_mips(device, &path, mip_levels) {
                     return Some(texture);
                 }
             }
@@ -318,6 +319,45 @@ impl TerrainVisualImpl {
         texture
     }
 
+    /// Resolve the mounted stage-zero wake materials before the receiving
+    /// map's first water draw. The W3D texture loader prefers a DDS sibling
+    /// and WaterTracksObj::init requests all levels retained by DDSFileClass.
+    pub fn hydrate_mounted_water_track_textures(
+        &mut self,
+        mut read_texture: impl FnMut(&str) -> Option<Vec<u8>>,
+    ) {
+        let (Some(device), Some(queue), Some(layout)) = (
+            self.device.as_ref(),
+            self.queue.as_ref(),
+            self.water_texture_bind_group_layout.as_ref(),
+        ) else {
+            return;
+        };
+        let mut seen = HashSet::new();
+        let mut textures = Vec::new();
+        for name in self.water_tracks.active_texture_names() {
+            if !seen.insert(name) || self.water_named_bind_groups.contains_key(name) {
+                continue;
+            }
+            let path = name.replace('\\', "/");
+            let texture = ["dds", "tga"].into_iter().find_map(|extension| {
+                let candidate = Path::new(&path).with_extension(extension);
+                let bytes = read_texture(candidate.to_str()?)?;
+                Self::upload_runtime_texture(device, queue, &candidate, &bytes, u32::MAX).ok()
+            });
+            if let Some(texture) = texture {
+                textures.push((name.to_owned(), texture));
+            }
+        }
+        if !textures.is_empty() {
+            let device = Arc::clone(device);
+            let layout = Arc::clone(layout);
+            for (name, texture) in textures {
+                self.bind_water_track_texture(&device, &layout, &name, texture);
+            }
+        }
+    }
+
     fn ensure_named_water_bind_group(&mut self, device: &wgpu::Device, name: &str) {
         if name.is_empty() || self.water_named_bind_groups.contains_key(name) {
             return;
@@ -329,7 +369,7 @@ impl TerrainVisualImpl {
             return;
         };
         let texture = self
-            .load_first_available_named_texture(device, &[name])
+            .load_first_available_named_texture(device, &[name], u32::MAX)
             .unwrap_or_else(|| {
                 Self::create_solid_rgba_texture(
                     device,
@@ -338,8 +378,18 @@ impl TerrainVisualImpl {
                     "wave256 fallback",
                 )
             });
-        if self.water_sampler.is_none() {
-            self.water_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+        self.bind_water_track_texture(device, &layout, name, texture);
+    }
+
+    fn bind_water_track_texture(
+        &mut self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        name: &str,
+        texture: wgpu::Texture,
+    ) {
+        let sampler = self.water_sampler.get_or_insert_with(|| {
+            device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("Water Track Sampler"),
                 address_mode_u: wgpu::AddressMode::Repeat,
                 address_mode_v: wgpu::AddressMode::Repeat,
@@ -348,15 +398,12 @@ impl TerrainVisualImpl {
                 min_filter: wgpu::FilterMode::Linear,
                 mipmap_filter: wgpu::MipmapFilterMode::Linear,
                 ..Default::default()
-            }));
-        }
-        let Some(sampler) = self.water_sampler.as_ref() else {
-            return;
-        };
+            })
+        });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Water track named bind"),
-            layout: layout.as_ref(),
+            layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,

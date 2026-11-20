@@ -1124,6 +1124,23 @@ impl AssetManager {
         (language, mod_path)
     }
 
+    /// GameFileClass::Set_Name checks localized images before base texture art.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn read_terrain_wake_texture(&mut self, filename: &str) -> Option<Vec<u8>> {
+        use game_engine::common::system::file_system::paths::TGA_DIR_PATH;
+
+        let path = format!("{TGA_DIR_PATH}{filename}");
+        let language = self.language.trim();
+        if !language.is_empty()
+            && let Ok(bytes) = self
+                .archive_system
+                .open_file_sync(&format!("Data/{language}/{path}"))
+        {
+            return Some(bytes);
+        }
+        self.archive_system.open_file_sync(&path).ok()
+    }
+
     fn language_specific_paths(&self) -> Vec<PathBuf> {
         let lang = self.language.trim();
         if lang.is_empty() {

@@ -1364,6 +1364,16 @@ impl CnCGameEngine {
             }
         }
 
+        #[cfg(feature = "game_client")]
+        if let Some(visual) = render_pipeline.native_terrain_mut() {
+            visual.hydrate_mounted_water_track_textures(|filename| {
+                application_assets
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .read_terrain_wake_texture(filename)
+            });
+        }
+
         // C++ WaterRenderObjClass::renderWater traverses the map's authored
         // PolygonTrigger water areas. This runs after both hint and frozen
         // runtime-heightmap hydration, including rematch and save restore.

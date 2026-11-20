@@ -160,6 +160,10 @@ pub const WATER_TRACK_WAVE_INFO: [WaterTrackWaveInfo; 6] = [
     WaterTrackWaveInfo::zero("Stationary"),
 ];
 
+pub(super) fn resolved_water_track_texture_name(name: &str) -> &str {
+    if name.is_empty() { "wave256.tga" } else { name }
+}
+
 /// Water-height provider used by the CPU geometry port.
 pub trait WaterTrackHeightProvider {
     /// Return water height for the sampled world position.
@@ -613,6 +617,12 @@ impl WaterTracksRenderSystem {
 
     pub fn used_handles(&self) -> &[usize] {
         &self.used
+    }
+
+    pub(super) fn active_texture_names(&self) -> impl Iterator<Item = &str> {
+        self.used.iter().map(|&handle| {
+            resolved_water_track_texture_name(&self.tracks[handle].texture_name)
+        })
     }
 
     pub fn free_count(&self) -> usize {

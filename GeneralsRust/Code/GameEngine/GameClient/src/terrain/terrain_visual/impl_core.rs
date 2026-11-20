@@ -733,9 +733,7 @@ impl TerrainVisualImpl {
             self.water_track_meshes.clear();
             return;
         }
-        fn texture_name(name: &str) -> &str {
-            if name.is_empty() { "wave256.tga" } else { name }
-        }
+        use crate::terrain::water_tracks::resolved_water_track_texture_name;
 
         fn gpu_vertex(v: &crate::terrain::water_tracks::WaterTrackVertex) -> WaterGpuVertex {
             let rgba = crate::terrain::unpack_bgra_rgba(v.diffuse);
@@ -756,7 +754,7 @@ impl TerrainVisualImpl {
             if !gpu_indices.is_empty() {
                 meshes.push(self.upload_water_track_run(
                     &device,
-                    texture_name(""),
+                    resolved_water_track_texture_name(""),
                     &gpu_vertices,
                     &gpu_indices,
                 ));
@@ -767,10 +765,10 @@ impl TerrainVisualImpl {
             // Group consecutive draws of the same resolved texture. Expand
             // each strip independently so neither its winding nor the order of
             // overlapping color and shroud primitives changes.
-            for run in flush
-                .ranges
-                .chunk_by(|a, b| texture_name(&a.texture_name) == texture_name(&b.texture_name))
-            {
+            for run in flush.ranges.chunk_by(|a, b| {
+                resolved_water_track_texture_name(&a.texture_name)
+                    == resolved_water_track_texture_name(&b.texture_name)
+            }) {
                 gpu_vertices.clear();
                 gpu_indices.clear();
                 for range in run {
@@ -800,7 +798,7 @@ impl TerrainVisualImpl {
                 if !gpu_indices.is_empty() {
                     meshes.push(self.upload_water_track_run(
                         &device,
-                        texture_name(&run[0].texture_name),
+                        resolved_water_track_texture_name(&run[0].texture_name),
                         &gpu_vertices,
                         &gpu_indices,
                     ));
