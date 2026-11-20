@@ -219,10 +219,16 @@ impl CombatParticleRegistry {
         self.systems.values().filter(|s| s.active)
     }
 
+    pub(crate) fn systems_in_id_order(
+        &self,
+    ) -> impl ExactSizeIterator<Item = &CombatParticleSystemEntry> {
+        let mut systems: Vec<_> = self.systems.values().collect();
+        systems.sort_by_key(|system| system.id);
+        systems.into_iter()
+    }
+
     pub fn systems_snapshot(&self) -> Vec<CombatParticleSystemEntry> {
-        let mut v: Vec<_> = self.systems.values().cloned().collect();
-        v.sort_by_key(|s| s.id);
-        v
+        self.systems_in_id_order().cloned().collect()
     }
 
     pub fn systems_of_kind(&self, kind: CombatParticleKind) -> Vec<&CombatParticleSystemEntry> {
@@ -2035,12 +2041,19 @@ mod tests {
             Some(ObjectId(1)),
             None,
         );
+        let later = reg.spawn(CombatParticleKind::DeathExplosion, Vec3::ONE, 13, None, None);
         let snap = reg.systems_snapshot();
         let next = reg.next_id();
 
         let mut loaded = CombatParticleRegistry::new();
-        loaded.restore_from_snapshot(next, snap).unwrap();
-        assert_eq!(loaded.active_count(), 1);
+        loaded
+            .restore_from_snapshot(next, snap.iter().rev().cloned())
+            .unwrap();
+        assert_eq!(loaded.active_count(), 2);
+        assert_eq!(loaded.systems_snapshot(), snap);
+        let entries: Vec<_> = loaded.systems_in_id_order().collect();
+        assert_eq!([entries[0].id, entries[1].id], [id, later]);
+        assert!(std::ptr::eq(entries[0], loaded.get(id).unwrap()));
         let entry = loaded.get(id).expect("restored system");
         assert!(entry.active);
         assert_eq!(entry.kind, CombatParticleKind::WeaponMuzzleFlash);

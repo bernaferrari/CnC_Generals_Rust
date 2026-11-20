@@ -1626,8 +1626,7 @@ impl PresentationFrame {
         // Combat particle residual: freeze host registry for client/presentation observe.
         let particle_systems: Vec<PresentationParticleSystem> = logic
             .combat_particles()
-            .systems_snapshot()
-            .iter()
+            .systems_in_id_order()
             .map(PresentationParticleSystem::from_combat_entry)
             .collect();
 

@@ -18,9 +18,9 @@ fn invalid() -> SaveLoadError {
 }
 
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
-    let entries = world.combat_particles().systems_snapshot();
-    let records = entries
-        .iter()
+    let records = world
+        .combat_particles()
+        .systems_in_id_order()
         .filter(|entry| entry.active && entry.attachment.is_some())
         .collect::<Vec<_>>();
     let count = u32::try_from(records.len()).map_err(|_| invalid())?;
