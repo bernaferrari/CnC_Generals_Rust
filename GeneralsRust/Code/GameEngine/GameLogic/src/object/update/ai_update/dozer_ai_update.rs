@@ -1187,6 +1187,42 @@ impl DozerAIUpdate {
         Some(action(&mut *parent))
     }
 
+    fn advance_build_dock(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        parent: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<bool, String> {
+        if self.task_owner.build_sub_task == DozerBuildSubTask::DoBuildAtDock {
+            return Ok(true);
+        }
+        let selecting = self.task_owner.build_sub_task == DozerBuildSubTask::SelectBuildDockLocation;
+        let dock = if selecting {
+            self.get_dock_point(DozerTask::Build, DozerDockPoint::Action)
+        } else {
+            None
+        };
+        let action = Self::with_action_parent(owner, parent, |ai| -> Result<bool, String> {
+            if selecting {
+                if let Some(dock) = dock {
+                    let mut command = crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::MoveToPosition,
+                        CommandSourceType::FromAi,
+                    );
+                    command.pos = dock;
+                    ai.execute_command(&command).map_err(|error| error.to_string())?;
+                }
+                self.task_owner.build_sub_task = DozerBuildSubTask::MovingToBuildDockLocation;
+            }
+            Ok(ai.is_idle())
+        });
+        // Keep the compatibility path for isolated action callers without a parent.
+        let at_dock = action.unwrap_or(Ok(true))?;
+        if at_dock {
+            self.task_owner.build_sub_task = DozerBuildSubTask::DoBuildAtDock;
+        }
+        Ok(at_dock)
+    }
+
     fn update_dozer_task(
         &mut self,
         parent: Option<&mut dyn AIUpdateInterface>,
@@ -1287,12 +1323,17 @@ impl DozerAIUpdate {
                     return;
                 }
                 if distance <= tolerance * tolerance {
-                    if task.task_type == DozerTask::Build && let Ok(mut target) = target.write() {
-                        let _ = target.clear_and_set_model_condition_flags(
-                            ModelConditionFlags::AWAITING_CONSTRUCTION,
-                            ModelConditionFlags::PARTIALLY_CONSTRUCTED
-                                | ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED,
-                        );
+                    if task.task_type == DozerTask::Build {
+                        if let Ok(mut target) = target.write() {
+                            let _ = target.clear_and_set_model_condition_flags(
+                                ModelConditionFlags::AWAITING_CONSTRUCTION,
+                                ModelConditionFlags::PARTIALLY_CONSTRUCTED
+                                    | ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED,
+                            );
+                        }
+                        // DozerAIUpdate.cpp:421–440 resets the distinct Action
+                        // dock stage on entry, before its first update.
+                        self.task_owner.build_sub_task = DozerBuildSubTask::SelectBuildDockLocation;
                     }
                     self.action_state = DozerActionState::DoAction;
                 } else if Self::with_action_parent(&owner, parent, |ai| ai.is_idle()).unwrap_or(false) {
@@ -1365,9 +1406,15 @@ impl DozerAIUpdate {
                     }
                 }
                 DozerTask::Build => {
-                    if Self::with_action_parent(&owner, parent, |ai| !ai.is_idle()).unwrap_or(false) {
-                        self.dozer_task = Some(task);
-                        return;
+                    // DozerAIUpdate.cpp:481–510 issues the Action dock as a
+                    // separate inherited move, even when it matches Start.
+                    match self.advance_build_dock(&owner, parent) {
+                        Ok(true) => {}
+                        result => {
+                            failure = result.err();
+                            self.dozer_task = Some(task);
+                            return;
+                        }
                     }
                     if target_builder_id != INVALID_ID && target_builder_id != self.object_id {
                         self.internal_task_complete(DozerTask::Build);
@@ -1741,6 +1788,11 @@ impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
     fn construction_move_for_test(&self) -> Option<(Coord3D, bool)> {
         let dock = self.get_dock_point(DozerTask::Build, DozerDockPoint::Start)?;
         Some((dock, self.action_state == DozerActionState::MoveToActionPos))
+    }
+
+    #[cfg(test)]
+    fn build_dock_sub_task_for_test(&self) -> DozerBuildSubTask {
+        self.get_build_sub_task()
     }
 
     fn validate_owned_snapshot(&self) -> Result<(), String> {

@@ -1315,8 +1315,19 @@ fn admit_physical_construction_builder(
                 End
                 Locomotor = SET_NORMAL PhysicalConstructionGround
             End
+            Object PhysicalConstructionSite
+                KindOf = STRUCTURE IMMOBILE
+                Geometry = CYLINDER
+                GeometryMajorRadius = 8
+                GeometryHeight = 9
+                BuildTime = 10.0
+                Body = StructureBody Health
+                    MaxHealth = 100
+                    InitialHealth = 100
+                End
+            End
         ");
-        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(&definitions), 1);
+        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(&definitions), 2);
         let template = TheThingFactory::find_template("PhysicalConstructor").unwrap();
         let actor = TheThingFactory::get().unwrap().new_object_with_team_handle(template, team).unwrap();
         let mut object = actor.write().unwrap();
@@ -1395,6 +1406,95 @@ fn installed_dozer_motive_force_wakes_physics_without_postponing_its_due_frame()
     assert_eq!(worker_physics.accumulated_force_acceleration(), Coord3D::ZERO);
     assert!(!worker_physics.access().unwrap().is_motive_at(40).unwrap());
     assert_eq!(peer.game_logic_mutex().lock().unwrap().sleepy_entry_for(&worker_proxy), Some((builder_id, 90)));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn installed_dozer_arrives_and_contributes_at_its_ignored_scaffold() {
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+
+    const NAME: &str = concat!(module_path!(), "::installed_dozer_arrives_and_contributes_at_its_ignored_scaffold");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_INSTALLED_DOZER_CONTACT_CHILD",
+    ) {
+        return;
+    }
+
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    let dozer = admit_physical_construction_builder(&receiving, false);
+    let worker = admit_physical_construction_builder(&peer, true);
+    let builder = dozer.read().unwrap().get_id();
+    assert_eq!(worker.read().unwrap().get_id(), builder);
+    let worker_pose = *worker.read().unwrap().get_position();
+    let place = |world: &Arc<EngineStores>, builder, x| with_active_stores(world, || {
+        GameLogicBuildAssistantBackend.build_object_now(
+            builder, "PhysicalConstructionSite", &BuildPosition { x, y: 105., z: 0. }, 0., 0,
+        ).unwrap()
+    });
+    let site_id = place(&receiving, Some(builder), 290.);
+    assert_eq!(place(&peer, None, 205.), site_id);
+    let peer_site = peer.game_logic_mutex().lock().unwrap().find_object_by_id(site_id).unwrap();
+    let parent = dozer.read().unwrap().get_ai_update_interface().unwrap();
+    let mut parent_state = parent.lock().unwrap();
+    let (dock, _) = parent_state.get_dozer_ai_update_interface_mut().unwrap()
+        .construction_move_for_test().unwrap();
+    drop(parent_state);
+    let pathfinder = receiving.ai().read().unwrap().pathfinder().unwrap();
+
+    with_active_stores(&receiving, || {
+        let logic = receiving.game_logic_mutex();
+        let site = logic.lock().unwrap().find_object_by_id(site_id).unwrap();
+        let mut contribution = None;
+        let mut action_path_frame = None;
+        for frame in 38..120 {
+            logic.lock().unwrap().set_current_frame(frame.into());
+            // The installed AI precedes the actual scheduler's Physics and
+            // partition contact phases, as selected by its C++ update phase.
+            let (build_dock, idle) = {
+                let mut ai = parent.lock().unwrap();
+                ai.update().unwrap();
+                let build_dock = ai.get_dozer_ai_update_interface_mut().unwrap()
+                    .build_dock_sub_task_for_test();
+                (build_dock, ai.is_idle())
+            };
+            let progress = site.read().unwrap().get_construction_percent();
+            if build_dock == DozerBuildSubTask::MovingToBuildDockLocation {
+                assert_eq!(progress, 0.0);
+                assert!(!idle);
+                if pathfinder.write().unwrap().pathfinding_system_mut().pending_path_request_count() > 0 {
+                    action_path_frame.get_or_insert(frame);
+                }
+            }
+            logic.lock().unwrap().update(frame, || None).unwrap();
+            let position = *dozer.read().unwrap().get_position();
+            if frame == 60 {
+                assert!((145.0..155.0).contains(&position.x), "{position:?}");
+            }
+            if progress > 0.0 {
+                assert!(idle);
+                assert_eq!(build_dock, DozerBuildSubTask::DoBuildAtDock);
+                assert!(position.distance(dock) < 2.0, "{position:?}, dock {dock:?}");
+                contribution = Some((frame, position, progress));
+                break;
+            }
+        }
+        let (frame, position, progress) = contribution.expect("real Dozer did not reach its build dock");
+        assert!((75..100).contains(&frame), "frame {frame}, position {position:?}");
+        let action_path_frame = action_path_frame.expect("Action dock issues its own receiving path request");
+        assert!(action_path_frame > 39 && action_path_frame < frame);
+        assert!((progress - 1.0 / 300.0).abs() < 0.00001);
+        assert_eq!(site.read().unwrap().get_builder_id(), builder);
+    });
+
+    assert_eq!(*worker.read().unwrap().get_position(), worker_pose);
+    let peer_site = peer_site.read().unwrap();
+    assert_eq!(peer_site.get_builder_id(), INVALID_ID);
+    assert_eq!(peer_site.get_construction_percent(), 0.0);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

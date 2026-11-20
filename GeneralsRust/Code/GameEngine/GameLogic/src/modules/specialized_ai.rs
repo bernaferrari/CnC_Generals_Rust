@@ -107,6 +107,13 @@ pub trait DozerAIUpdateInterface: Send + Sync {
         None
     }
 
+    #[cfg(test)]
+    fn build_dock_sub_task_for_test(
+        &self,
+    ) -> crate::object::update::ai_update::dozer_ai_update::DozerBuildSubTask {
+        crate::object::update::ai_update::dozer_ai_update::DozerBuildSubTask::SelectBuildDockLocation
+    }
+
     fn validate_owned_snapshot(&self) -> Result<(), String> {
         Err("Dozer owned snapshot unavailable".into())
     }
