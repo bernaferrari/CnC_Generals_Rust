@@ -44,14 +44,22 @@ fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_sele
     map.height = 8;
     map.heightmap = vec![40; 64];
     logical.try_load_map_geometry(map).unwrap();
-    // Hold the published compatibility visual unavailable for the whole effect.
-    let global = game_client::terrain::terrain_visual::get_terrain_visual().unwrap();
-    logical.set_raw_map_height_with_effects(1, 1, -1, &mut |change| {
-        a.native_terrain_mut().unwrap().apply_accepted_height(
-            change.sample_x,
-            change.sample_y,
-            change.raw_height,
-        );
+    // Install a foreign compatibility visual and hold its guard across the
+    // real height change. A callback that selected it would block.
+    let compatibility = gamelogic::system::engine_stores::new_for_world();
+    gamelogic::system::engine_stores::with_active_stores(&compatibility, || {
+        use game_client::terrain::terrain_visual::{get_terrain_visual, init_terrain_visual};
+        init_terrain_visual().unwrap();
+        let mut foreign = get_terrain_visual().unwrap();
+        *foreign = Some(visual(120));
+        logical.set_raw_map_height_with_effects(1, 1, -1, &mut |change| {
+            a.native_terrain_mut().unwrap().apply_accepted_height(
+                change.sample_x,
+                change.sample_y,
+                change.raw_height,
+            );
+        });
+        assert_eq!(foreign.as_ref().unwrap().get_raw_map_height(1, 1), 120);
     });
     assert_eq!(logical.logic_height_map_bytes()[9], 255);
     assert_eq!(
@@ -62,7 +70,6 @@ fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_sele
     assert_eq!(b.native_terrain().unwrap().get_raw_map_height(1, 1), 80);
     b.clear_native_terrain();
     assert_eq!(a.native_terrain().unwrap().get_raw_map_height(1, 1), 255);
-    drop(global);
     assert!(
         a.native_terrain_mut()
             .unwrap()
