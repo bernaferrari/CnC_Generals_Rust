@@ -1099,6 +1099,39 @@ fn projected_unit_shadow_multiplies_source_color_on_native_terrain() {
         pixels
     );
 
+    // Main admits a position before the Draw visit supplies the final
+    // oriented model matrix. A stationary actor can repeat that handoff.
+    let rotated = caster.transform * Mat4::from_rotation_y(0.55);
+    visual.retain_projected_unit_shadow_casters(|_| Some(rotated));
+    let first_rotated_bytes = visual.update_projected_unit_shadow_meshes();
+    assert!(first_rotated_bytes > 0);
+    let oriented_pixels = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+    assert_ne!(oriented_pixels, pixels);
+    let repeated_rotated_bytes = (0..20)
+        .map(|_| {
+            assert_eq!(
+                visual.admit_projected_unit_shadows(vec![caster.clone()], |_| {
+                    panic!("resident shadow texture should not be reloaded")
+                }),
+                casters
+            );
+            assert!(visual.has_projected_unit_shadow_inputs());
+            visual.retain_projected_unit_shadow_casters(|_| Some(rotated));
+            visual.update_projected_unit_shadow_meshes()
+        })
+        .sum::<usize>();
+    eprintln!(
+        "oriented authored decal CRC32 {:08x}, initial {first_rotated_bytes} bytes, 20 repeated Draw poses {repeated_rotated_bytes} bytes",
+        crc32fast::hash(&oriented_pixels)
+    );
+    assert_eq!(repeated_rotated_bytes, 0);
+    assert_eq!(
+        render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform),
+        oriented_pixels
+    );
+    visual.retain_projected_unit_shadow_casters(|_| Some(caster.transform));
+    assert!(visual.update_projected_unit_shadow_meshes() > 0);
+
     let moved = Mat4::from_translation(Vec3::new(34.5, 0.0, 1.5));
     visual.retain_projected_unit_shadow_casters(|id| (id == caster.object_id).then_some(moved));
     let move_bytes = visual.update_projected_unit_shadow_meshes();

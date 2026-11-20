@@ -25,6 +25,7 @@ struct ProjectedShadowGpu {
     sampler: wgpu::Sampler,
     textures: HashMap<String, Option<BindGroup>>,
     inputs: Vec<ProjectedUnitShadow>,
+    pending_inputs: Option<Vec<ProjectedUnitShadow>>,
     geometry_draw_window: Option<([i32; 2], [i32; 2])>,
     vertices: Vec<ProjectedShadowVertex>,
     indices: Vec<u32>,
@@ -121,6 +122,7 @@ impl ProjectedShadowGpu {
             sampler,
             textures: HashMap::new(),
             inputs: Vec::new(),
+            pending_inputs: None,
             geometry_draw_window: None,
             vertices: Vec::new(),
             indices: Vec::new(),
@@ -169,6 +171,7 @@ impl TerrainVisualImpl {
         if inputs.is_empty() {
             if let Some(gpu) = self.projected_shadow_gpu.as_mut() {
                 gpu.inputs.clear();
+                gpu.pending_inputs = None;
                 gpu.geometry_draw_window = None;
                 gpu.batches.clear();
             }
@@ -216,17 +219,16 @@ impl TerrainVisualImpl {
             bound.is_some()
         });
         let casters = inputs.iter().map(|shadow| shadow.object_id).collect();
-        if gpu.inputs != inputs {
-            gpu.inputs = inputs;
-            gpu.geometry_draw_window = None;
-        }
+        // Selection needs resident texture identities before Draw can supply
+        // each surviving caster's final model matrix.
+        gpu.pending_inputs = Some(inputs);
         casters
     }
 
     pub fn has_projected_unit_shadow_inputs(&self) -> bool {
         self.projected_shadow_gpu
             .as_ref()
-            .is_some_and(|gpu| !gpu.inputs.is_empty())
+            .is_some_and(|gpu| !gpu.pending_inputs.as_ref().unwrap_or(&gpu.inputs).is_empty())
     }
 
     pub fn retain_projected_unit_shadow_casters(
@@ -234,8 +236,10 @@ impl TerrainVisualImpl {
         mut transform: impl FnMut(u32) -> Option<Mat4>,
     ) {
         if let Some(gpu) = self.projected_shadow_gpu.as_mut() {
+            let pending = gpu.pending_inputs.is_some();
+            let inputs = gpu.pending_inputs.as_mut().unwrap_or(&mut gpu.inputs);
             let mut changed = false;
-            gpu.inputs.retain_mut(|shadow| {
+            inputs.retain_mut(|shadow| {
                 let Some(current) = transform(shadow.object_id) else {
                     changed = true;
                     return false;
@@ -246,7 +250,7 @@ impl TerrainVisualImpl {
                 }
                 true
             });
-            if changed {
+            if changed && !pending {
                 gpu.geometry_draw_window = None;
             }
         }
@@ -269,6 +273,12 @@ impl TerrainVisualImpl {
         ) else {
             return 0;
         };
+        if let Some(inputs) = gpu.pending_inputs.take()
+            && inputs != gpu.inputs
+        {
+            gpu.inputs = inputs;
+            gpu.geometry_draw_window = None;
+        }
         let start = [self.draw_origin_x, self.draw_origin_y];
         let end = [
             (start[0] + self.draw_width - 1).min(map.width as i32 - 1),
