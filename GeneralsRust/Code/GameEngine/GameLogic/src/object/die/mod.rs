@@ -602,6 +602,12 @@ impl DieModuleWrapper {
         self.die_module.as_mut().as_any_mut().downcast_mut()
     }
 
+    pub(crate) fn destroy_die_applicable(&self, owner: &Object, damage: &DamageInfo) -> Option<bool> {
+        let destroy = self.die_module.as_ref().as_any().downcast_ref::<DestroyDie>()?;
+        debug_assert_eq!(self.object_id, owner.get_id());
+        Some(destroy.is_applicable(owner, damage))
+    }
+
     pub(crate) fn on_rebuild_hole_die_with_owner(
         &mut self,
         owner: &mut Object,

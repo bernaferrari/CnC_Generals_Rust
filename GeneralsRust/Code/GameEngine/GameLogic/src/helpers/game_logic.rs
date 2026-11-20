@@ -64,6 +64,13 @@ impl TheGameLogic {
         Ok(())
     }
 
+    /// C++ DestroyDie passes its existing victim pointer to GameLogic.
+    pub(crate) fn destroy_borrowed_object(object: &mut crate::object::Object) {
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            logic.destroy_object_with_borrowed_owner(object);
+        }
+    }
+
     /// Destroy object by id (mirrors C++ overload used by behavior modules)
     pub fn destroy_object_by_id(
         object_id: ObjectID,

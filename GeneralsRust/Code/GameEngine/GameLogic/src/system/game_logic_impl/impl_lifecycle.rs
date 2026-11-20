@@ -522,41 +522,62 @@ impl GameLogic {
         let Some(obj_arc) = self.objects.get(&object_id).cloned() else {
             return;
         };
-        // Keep this exact object alive through callbacks without borrowing the
-        // map across their synchronous changes to the driving GameLogic.
-        {
-            let behaviors = {
-                match obj_arc.read() {
-                    Ok(obj) => {
-                        if obj.is_destroyed() {
-                            return;
-                        }
-                        obj.get_behavior_modules()
-                    }
-                    Err(_) => Vec::new(),
-                }
-            };
-            // C++ callbacks run before the destroyed bit and may access their
-            // owner. Hold module state, but never the object's write guard.
-            for mut behavior in behaviors {
-                if let Ok(mut module) = behavior.access() {
-                    if let Some(destroy) = module.get_destroy() {
-                        destroy.on_destroy(object_id);
-                    }
-                }
-            }
-            if let Ok(mut obj) = obj_arc.write() {
-                // C++ immediately sets OBJECT_STATUS_DESTROYED so same-frame
-                // isDestroyed() checks stop firing/pathing.
-                obj.set_status(ObjectStatusTypes::Destroyed.into(), true);
-                if let Some(ai) = obj.get_ai_update_interface() {
-                    if let Ok(mut ai) = ai.lock() {
-                        ai.set_locomotor_goal_none();
-                        ai.destroy_path();
-                    }
+        self.destroy_admitted_object(
+            object_id,
+            &mut crate::object::DeleteOwner::Handle(&obj_arc),
+            radar,
+        );
+    }
+
+    pub(crate) fn destroy_object_with_borrowed_owner(&mut self, object: &mut Object) {
+        let object_id = object.get_id();
+        let same_world = object
+            .owning_world_services()
+            .zip(self.owning_world_services())
+            .is_some_and(|(parent, receiving)| Arc::ptr_eq(&parent, &receiving));
+        if same_world && self.contains_object_id(object_id) {
+            self.destroy_admitted_object(
+                object_id,
+                &mut crate::object::DeleteOwner::Borrowed(object),
+                None,
+            );
+        }
+    }
+
+    fn destroy_admitted_object(
+        &mut self,
+        object_id: ObjectID,
+        owner: &mut crate::object::DeleteOwner<'_>,
+        radar: Option<(
+            &crate::player::PlayerList,
+            &mut dyn crate::player::RadarEdgeServices,
+        )>,
+    ) {
+        let behaviors = match owner.with_ref(|object| {
+            (!object.is_destroyed()).then(|| object.get_behavior_modules())
+        }) {
+            Some(Some(behaviors)) => behaviors,
+            Some(None) => return,
+            None => Vec::new(),
+        };
+        // C++ callbacks run before the destroyed bit. The handle path
+        // releases the object guard before notification.
+        for mut behavior in behaviors {
+            if let Ok(mut module) = behavior.access() {
+                if let Some(destroy) = module.get_destroy() {
+                    destroy.on_destroy(object_id);
                 }
             }
         }
+        owner.with_mut(|object| {
+            object.set_status(ObjectStatusTypes::Destroyed.into(), true);
+            if let Some(ai) = object.get_ai_update_interface() {
+                if let Ok(mut ai) = ai.lock() {
+                    ai.set_locomotor_goal_none();
+                    ai.destroy_path();
+                }
+            }
+        });
 
         // Queue for destruction at end of frame
         if !self.dead_objects.contains(&object_id) {
@@ -568,20 +589,18 @@ impl GameLogic {
         // obj->onDestroy() then remove WALK_ON_TOP_OF_WALL from the pathfinder
         // and mark the control bar dirty for local special-power objects.
         // Do not split onDestroy across destroyObject / processDestroyList.
-        Object::on_destroy_from_handle_with_radar_services(
-            &obj_arc,
+        Object::on_destroy_with_owner(
+            owner,
             radar,
             Some(&mut GameLogicDeletionServices { logic: self }),
         );
-        let (is_wall, has_special_power, is_local) = if let Ok(obj) = obj_arc.read() {
-            (
-                obj.is_kind_of(KindOf::WalkOnTopOfWall),
-                obj.has_any_special_power(),
-                obj.is_locally_controlled(),
-            )
-        } else {
-            (false, false, false)
-        };
+        let (is_wall, has_special_power, is_local) = owner
+            .with_ref(|object| (
+                object.is_kind_of(KindOf::WalkOnTopOfWall),
+                object.has_any_special_power(),
+                object.is_locally_controlled(),
+            ))
+            .unwrap_or_default();
 
         if is_wall {
             if let Some(owner) = self.pathfinding_owner.as_ref() {

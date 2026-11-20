@@ -32,6 +32,10 @@ impl DestroyDie {
     pub fn get_module_name() -> &'static str {
         "DestroyDie"
     }
+
+    pub(super) fn is_applicable(&self, object: &Object, damage: &DamageInfo) -> bool {
+        self.is_die_applicable(object, damage, &self.base.module_data.read().die_mux_data)
+    }
 }
 
 impl DieModuleInterface for DestroyDie {
@@ -39,7 +43,7 @@ impl DieModuleInterface for DestroyDie {
     /// (Matches C++ DestroyDie::onDie)
     fn on_die(&mut self, object: &mut Object, damage_info: &DamageInfo) {
         // Check if this die module should activate
-        if !self.is_die_applicable(object, damage_info, &self.base.module_data.read().die_mux_data) {
+        if !self.is_applicable(object, damage_info) {
             return;
         }
 

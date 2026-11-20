@@ -2486,6 +2486,7 @@ mod init;
 mod object_combat;
 mod object_impl_imports;
 mod object_lifecycle;
+pub(crate) use object_lifecycle::DeleteOwner;
 mod object_modules;
 mod object_owned_death;
 mod object_partition_services;

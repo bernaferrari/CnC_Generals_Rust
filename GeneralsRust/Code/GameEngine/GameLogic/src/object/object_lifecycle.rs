@@ -9,13 +9,20 @@ use super::*;
 
 /// Synchronous access to the same object during deletion. The GameLogic path
 /// releases its object guard before callbacks that resolve their owner.
-enum DeleteOwner<'a> {
+pub(crate) enum DeleteOwner<'a> {
     Borrowed(&'a mut Object),
     Handle(&'a Arc<RwLock<Object>>),
 }
 
 impl DeleteOwner<'_> {
-    fn with_mut<R>(&mut self, operation: impl FnOnce(&mut Object) -> R) -> Option<R> {
+    pub(crate) fn with_ref<R>(&self, operation: impl FnOnce(&Object) -> R) -> Option<R> {
+        match self {
+            Self::Borrowed(object) => Some(operation(object)),
+            Self::Handle(handle) => handle.read().ok().map(|object| operation(&object)),
+        }
+    }
+
+    pub(crate) fn with_mut<R>(&mut self, operation: impl FnOnce(&mut Object) -> R) -> Option<R> {
         match self {
             Self::Borrowed(object) => Some(operation(object)),
             Self::Handle(handle) => handle.write().ok().map(|mut object| operation(&mut object)),
@@ -580,40 +587,40 @@ impl Object {
     /// C++ Object::onDestroy: notify modules immediately, retaining their
     /// state and the client association until processDestroyList deletes us.
     pub fn on_destroy(&mut self) {
-        if self.lifecycle != ObjectLifecycle::Alive {
-            return;
+        Self::on_destroy_with_owner(&mut DeleteOwner::Borrowed(self), None, None);
+    }
+
+    /// Preserve C++ synchronous onDelete order on the still-admitted parent.
+    pub(crate) fn on_destroy_with_owner(
+        owner: &mut DeleteOwner<'_>,
+        radar: Option<(
+            &crate::player::PlayerList,
+            &mut dyn crate::player::RadarEdgeServices,
+        )>,
+        deletion: Option<&mut (dyn super::ObjectDeletionServices + '_)>,
+    ) {
+        let marked_destroyed = owner.with_mut(|object| {
+            if object.lifecycle != ObjectLifecycle::Alive {
+                return false;
+            }
+            object.lifecycle = ObjectLifecycle::DestroyNotified;
+            object.status.set_status(ObjectStatusTypes::Destroyed);
+            true
+        });
+        if marked_destroyed == Some(true) {
+            Self::run_on_delete_callbacks(owner, radar, deletion);
         }
-        self.lifecycle = ObjectLifecycle::DestroyNotified;
-        self.status.set_status(ObjectStatusTypes::Destroyed);
-        self.on_destroy_internal();
     }
 
-    /// GameLogic owns this canonical handle. Preserve C++ synchronous onDelete
-    /// order while allowing each callback to borrow the still-admitted owner.
-    pub(crate) fn on_destroy_from_handle(handle: &Arc<RwLock<Object>>) {
-        Self::on_destroy_from_handle_with_radar_services(handle, None, None);
-    }
-
-    pub(crate) fn on_destroy_from_handle_with_radar_services(
-        handle: &Arc<RwLock<Object>>,
+    fn run_on_delete_callbacks(
+        owner: &mut DeleteOwner<'_>,
         mut radar: Option<(
             &crate::player::PlayerList,
             &mut dyn crate::player::RadarEdgeServices,
         )>,
         mut deletion: Option<&mut (dyn super::ObjectDeletionServices + '_)>,
     ) {
-        {
-            let Ok(mut object) = handle.write() else {
-                return;
-            };
-            if object.lifecycle != ObjectLifecycle::Alive {
-                return;
-            }
-            object.lifecycle = ObjectLifecycle::DestroyNotified;
-            object.status.set_status(ObjectStatusTypes::Destroyed);
-        }
-        let mut owner = DeleteOwner::Handle(handle);
-        release_destroy_container(&mut owner);
+        release_destroy_container(owner);
         let Some(modules) = owner.with_mut(|object| object.modules.clone()) else {
             return;
         };
@@ -657,7 +664,7 @@ impl Object {
                 }
             }
             entry.with_module(|module| {
-                notify_deleted_module(module, &mut owner, deletion.as_deref_mut())
+                notify_deleted_module(module, owner, deletion.as_deref_mut())
             });
         }
         // Object.cpp:741 removes the object's look after onDelete callbacks.
@@ -868,21 +875,9 @@ impl Object {
 
     /// Internal destroy routine that performs per-object module cleanup
     /// without touching the global `GameLogic` instance directly.
+    #[cfg(test)]
     pub(crate) fn on_destroy_internal(&mut self) {
-        // C++ counterpart releases containment before running module onDelete.
-        // Keep sibling modules discoverable during synchronous onDelete.
-        // These temporary handles do not extend the owning object's lifetime.
-        let mut owner = DeleteOwner::Borrowed(self);
-        release_destroy_container(&mut owner);
-        let modules = owner
-            .with_mut(|object| object.modules.clone())
-            .expect("borrowed owner");
-        for entry in modules {
-            entry.with_module(|module| notify_deleted_module(module, &mut owner, None));
-        }
-        // Match C++ Object::onDestroy -> handlePartitionCellMaintenance.
-        // This clears partition/shroud/value/threat bookkeeping before the object is fully removed.
-        self.handle_partition_cell_maintenance();
+        Self::run_on_delete_callbacks(&mut DeleteOwner::Borrowed(self), None, None);
     }
 
     // Core identification methods
@@ -1549,18 +1544,28 @@ impl Object {
                 }
                 continue;
             }
-            entry.with_module(|module| {
-                if let (Some(mut die_module), Some(damage)) = (module_die_kind(module), damage_info) {
-                    // RebuildHoleExposeDie.cpp receives getObject() from the
-                    // current onDie dispatch. This parent is already borrowed.
-                    if let DieModuleKindMut::Wrapper(wrapper) = &mut die_module
-                        && wrapper.on_rebuild_hole_die_with_owner(self, damage)
-                    {
-                        return;
+            let destroy = entry.with_module(|module| {
+                let (Some(mut die_module), Some(damage)) = (module_die_kind(module), damage_info)
+                else {
+                    return false;
+                };
+                if let DieModuleKindMut::Wrapper(wrapper) = &mut die_module {
+                    if let Some(applies) = wrapper.destroy_die_applicable(self, damage) {
+                        return applies;
                     }
-                    let _ = die_module.into_interface().on_die(damage);
+                    // RebuildHoleExposeDie.cpp receives the current parent.
+                    if wrapper.on_rebuild_hole_die_with_owner(self, damage) {
+                        return false;
+                    }
                 }
+                let _ = die_module.into_interface().on_die(damage);
+                false
             });
+            if destroy {
+                // GameLogic immediately runs onDestroy/onDelete, which can
+                // inspect every mounted module, including this DestroyDie.
+                TheGameLogic::destroy_borrowed_object(self);
+            }
         }
         // Unauthored helper fixtures have no tag to visit. Factory-installed
         // containment always took its original authored position above.

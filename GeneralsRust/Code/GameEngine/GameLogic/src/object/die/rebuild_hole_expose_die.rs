@@ -414,11 +414,12 @@ mod tests {
             return;
         }
 
-        lethal_rebuild_hole_case(false);
-        lethal_rebuild_hole_case(true);
+        lethal_rebuild_hole_case(false, false);
+        lethal_rebuild_hole_case(true, false);
+        lethal_rebuild_hole_case(true, true);
     }
 
-    fn lethal_rebuild_hole_case(transfer_attackers: bool) {
+    fn lethal_rebuild_hole_case(transfer_attackers: bool, destroy_before_rebuild: bool) {
         use crate::common::Coord3D;
         use crate::player::{Player, PlayerTemplate, PlayerType};
         use crate::scripting::engine::get_named_object_tracker;
@@ -481,10 +482,20 @@ Object RebuildFirer
 End
 "#;
             // An omitted TransferAttackers field selects the stock default.
-            let overrides = fixture_ini.replace("        TransferAttackers = No\n", "");
-            let fixture_ini = if transfer_attackers { &overrides } else { fixture_ini };
+            let mut fixture_ini = fixture_ini.to_owned();
+            if transfer_attackers {
+                fixture_ini = fixture_ini.replace("        TransferAttackers = No\n", "");
+            }
+            if destroy_before_rebuild {
+                // The following real authored callback can create its hole
+                // only after DestroyDie sets DESTROYED in this same dispatch.
+                fixture_ini = fixture_ini.replace(
+                    "    Behavior = RebuildHoleExposeDie Expose\n",
+                    "    Behavior = DestroyDie Remove\n    End\n    Behavior = RebuildHoleExposeDie Expose\n        RequiredStatus = DESTROYED\n",
+                );
+            }
             assert_eq!(
-                get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(fixture_ini),
+                get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(&fixture_ini),
                 3
             );
             let mut playable = PlayerTemplate::new("RebuildPlayer".into());
@@ -547,8 +558,11 @@ End
             let gun = Arc::new(gun);
 
             WeaponStore::create_and_fire_temp_weapon_at_target(&gun, source_id, target_id).unwrap();
-            WeaponStore::create_and_fire_temp_weapon_at_target(&gun, source_id, target_id).unwrap();
+            if !destroy_before_rebuild {
+                WeaponStore::create_and_fire_temp_weapon_at_target(&gun, source_id, target_id).unwrap();
+            }
             assert_eq!(target.read().unwrap().get_health(), 0.0);
+            assert_eq!(target.read().unwrap().is_destroyed(), destroy_before_rebuild);
             let holes: Vec<_> = world.services().object_registry().get_all_objects()
                 .into_iter().filter(|actor| {
                     actor.read().unwrap().get_template().get_name().as_str() == "RebuildHoleFixture"
@@ -579,11 +593,19 @@ End
             assert_eq!(hole.get_next_object_id(), Some(target_id));
             assert_eq!(hole.get_prev_object_id(), None);
             assert_eq!(target.read().unwrap().get_prev_object_id(), Some(hole_id));
-            let logic = get_game_logic().lock().unwrap();
+            drop(hole);
+            let mut logic = get_game_logic().lock().unwrap();
             assert_eq!(logic.get_first_object_id(), Some(hole_id));
             assert_eq!(logic.get_all_object_ids(), &[hole_id, target_id, source_id]);
+            if destroy_before_rebuild {
+                logic.cleanup_dead_objects().unwrap();
+                assert_eq!(logic.get_all_object_ids(), &[hole_id, source_id]);
+                assert!(world.services().object_registry().get_object(target_id).is_none());
+                assert_eq!(holes[0].read().unwrap().get_next_object_id(), Some(source_id));
+            }
         });
         assert_eq!(peer_target.read().unwrap().get_health(), 100.0);
+        assert!(!peer_target.read().unwrap().is_destroyed());
         assert_eq!(peer_target.read().unwrap().get_prev_object_id(), None);
         assert_eq!(peer_ai.lock().unwrap().get_current_victim(), Some(target_id));
         with_active_stores(&peer, || {
