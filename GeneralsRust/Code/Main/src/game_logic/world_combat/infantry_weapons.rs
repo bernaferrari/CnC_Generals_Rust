@@ -2217,13 +2217,10 @@ impl GameLogic {
                     if *oid == id || !o.is_alive() {
                         continue;
                     }
-                    if !o.is_targetable_by_enemy_of(team) {
-                        continue;
-                    }
                     let op = o.get_position();
                     let dx = op.x - pos.x;
                     let dz = op.z - pos.z;
-                    if (dx * dx + dz * dz).sqrt() <= vision {
+                    if (dx * dx + dz * dz).sqrt() <= vision && o.is_targetable_by_enemy_of(team) {
                         found = true;
                         break;
                     }
