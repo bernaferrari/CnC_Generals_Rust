@@ -659,11 +659,230 @@ fn test_find_objects_in_radius_returns_empty_for_empty_world() {
     let weapon = create_test_weapon();
     let center = Coord3D::new(0.0, 0.0, 0.0);
 
-    let result = weapon.snapshot_radius_targets(INVALID_OBJECT_ID, &center, 100.0, None);
+    let world = crate::system::engine_stores::active_services();
+    let result = weapon.snapshot_radius_targets(&world, INVALID_OBJECT_ID, &center, 100.0, None);
     assert!(result.is_ok(), "find_objects_in_radius should not error");
 
     let objects = result.unwrap();
     assert_eq!(objects.len(), 0, "Should find no objects in empty world");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
+    use crate::common::Relationship;
+    use crate::helpers::TheThingFactory;
+    use crate::object::Object;
+    use crate::player::Player;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::system::game_logic::get_game_logic;
+    use crate::team::Team;
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::{
+        ensure_thing_factory_exists, get_thing_factory,
+    };
+
+    const NAME: &str = concat!(
+        module_path!(),
+        "::fired_radius_preserves_snapshotted_actor_identity_across_damage"
+    );
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_NATIVE_SPLASH_ACTOR_IDENTITY_CHILD",
+    ) {
+        return;
+    }
+
+    fn mount(world: &Arc<EngineStores>, name: &str) -> (Arc<RwLock<Object>>, Arc<RwLock<Object>>) {
+        with_active_stores(world, || {
+            assert!(ensure_thing_factory_exists());
+            if get_module_factory().unwrap().is_none() {
+                init_module_factory().unwrap();
+            }
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            crate::initialize_weapon_store().unwrap();
+            crate::weapon::with_weapon_store_mut(|store| {
+                let mut blast = WeaponTemplate::new("BorrowedPositionalBlast".into());
+                blast.primary_damage = 10.0;
+                blast.primary_damage_radius = 12.0;
+                blast.attack_range = 100.0;
+                blast.weapon_speed = 99999.0;
+                blast.min_weapon_speed = 99999.0;
+                blast.clip_size = 2;
+                blast.damage_type = crate::damage::DamageType::Unresistable;
+                blast.affects_mask = WeaponAffectsMask::new(WeaponAffectsMask::ENEMIES);
+                store.add_weapon_template(blast);
+            })
+            .unwrap();
+            let definitions = format!(
+                r#"
+    Object {name}
+        KindOf = VEHICLE
+        Geometry = CYLINDER
+        GeometryMajorRadius = 2
+        GeometryHeight = 4
+        Body = ActiveBody Health
+            MaxHealth = 100
+            InitialHealth = 100
+        End
+        WeaponSet
+            Conditions = None
+            Weapon = PRIMARY BorrowedPositionalBlast
+        End
+    End
+    Object BorrowedPositionalVictim
+        KindOf = STRUCTURE IMMOBILE
+        Geometry = CYLINDER
+        GeometryMajorRadius = 2
+        GeometryHeight = 4
+        Body = StructureBody Health
+            MaxHealth = 100
+            InitialHealth = 100
+        End
+    End
+    "#
+            );
+            assert_eq!(
+                get_thing_factory()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .load_ini_text(&definitions),
+                2
+            );
+            let make_team = |index, opponent| {
+                let team = Arc::new(RwLock::new(Team::new(
+                    format!("BlastTeam{index}").into(),
+                    400 + index as u32,
+                )));
+                team.write().unwrap().set_controlling_player_id(Some(index));
+                let mut player = Player::new(index as i32);
+                player.set_default_team(Some(Arc::clone(&team)));
+                player.set_player_relationship_by_index(opponent, Relationship::Enemies);
+                world
+                    .services()
+                    .players()
+                    .write()
+                    .unwrap()
+                    .add_player(Arc::new(RwLock::new(player)));
+                team
+            };
+            let own = make_team(0, 1);
+            let enemy = make_team(1, 0);
+            let logic = get_game_logic();
+            logic.lock().unwrap().set_current_frame(37);
+            let factory = TheThingFactory::get().unwrap();
+            let source = factory
+                .new_object_with_team_handle(TheThingFactory::find_template(name).unwrap(), own)
+                .unwrap();
+            let victim = factory
+                .new_object_with_team_handle(
+                    TheThingFactory::find_template("BorrowedPositionalVictim").unwrap(),
+                    enemy,
+                )
+                .unwrap();
+            source
+                .write()
+                .unwrap()
+                .set_position(&Coord3D::new(55., 105., 0.))
+                .unwrap();
+            victim
+                .write()
+                .unwrap()
+                .set_position(&Coord3D::new(105., 105., 0.))
+                .unwrap();
+            logic.lock().unwrap().update(38, || None).unwrap();
+            assert!(source.read().unwrap().get_current_weapon().is_some());
+            (source, victim)
+        })
+    }
+
+    let driving = new_for_world();
+    let peer = new_for_world();
+    let (source, victim) = mount(&driving, "ReceivingPositionalSource");
+    let (peer_source, peer_victim) = mount(&peer, "ForeignPositionalSource");
+    let source_id = source.read().unwrap().get_id();
+    let victim_id = victim.read().unwrap().get_id();
+    assert_eq!(peer_source.read().unwrap().get_id(), source_id);
+    assert_eq!(peer_victim.read().unwrap().get_id(), victim_id);
+    let impact = Coord3D::new(105.0, 105.0, 0.0);
+    let template = {
+        let source = source.read().unwrap();
+        let (weapon, _) = source.get_current_weapon().unwrap();
+        Arc::clone(&weapon.template)
+    };
+    let shoot = || {
+        with_active_stores(&driving, || {
+            WeaponStore::create_and_fire_temp_weapon_at_pos(&template, source_id, &impact)
+                .unwrap();
+        })
+    };
+    shoot();
+    assert_eq!(victim.read().unwrap().get_health(), 90.0);
+    assert_eq!(peer_victim.read().unwrap().get_health(), 100.0);
+
+    // The peer still has a target at the impact while the real owner does not.
+    with_active_stores(&driving, || {
+        victim
+            .write()
+            .unwrap()
+            .set_position(&Coord3D::new(225.0, 225.0, 0.0))
+            .unwrap();
+        get_game_logic()
+            .lock()
+            .unwrap()
+            .update(39, || None)
+            .unwrap();
+    });
+    shoot();
+    assert_eq!(victim.read().unwrap().get_health(), 90.0);
+    assert_eq!(peer_victim.read().unwrap().get_health(), 100.0);
+
+    // A checked candidate keeps its actual identity across removal/replacement.
+    with_active_stores(&driving, || {
+        victim.write().unwrap().set_position(&impact).unwrap();
+        get_game_logic()
+            .lock()
+            .unwrap()
+            .update(40, || None)
+            .unwrap();
+        let snapshot = {
+            let source = source.read().unwrap();
+            let (weapon, _) = source.get_current_weapon().unwrap();
+            weapon
+                .snapshot_radius_targets(
+                    driving.services(),
+                    source_id,
+                    &impact,
+                    12.0,
+                    Some(&source),
+                )
+                .unwrap()
+                .into_iter()
+                .find(|target| target.id == victim_id)
+                .unwrap()
+        };
+        assert!(
+            snapshot
+                .live_registered(driving.services())
+                .is_some_and(|actor| Arc::ptr_eq(actor, &victim))
+        );
+        let mut logic = get_game_logic().lock().unwrap();
+        logic.destroy_object(victim_id);
+        logic.cleanup_dead_objects().unwrap();
+        assert!(snapshot.live_registered(driving.services()).is_none());
+        let replacement = Arc::new(RwLock::new(Object::new_test(victim_id, 100.0)));
+        logic.register_object(Arc::clone(&replacement)).unwrap();
+        assert!(
+            logic
+                .find_object_by_id(victim_id)
+                .is_some_and(|actor| Arc::ptr_eq(&actor, &replacement))
+        );
+        assert!(snapshot.live_registered(driving.services()).is_none());
+        assert_eq!(replacement.read().unwrap().get_health(), 100.0);
+    });
+    assert_eq!(peer_victim.read().unwrap().get_health(), 100.0);
 }
 
 #[test]
@@ -1017,9 +1236,12 @@ fn kills_self_dies_on_zero_secondary_radius_damage() {
         // amount. Ordinary bystanders still receive zero secondary damage.
         // Each 5-unit sphere is 15 units from the blast after shrinking.
         let impact = Coord3D::new(125.0, 105.0, 0.0);
-        let mut targets = weapon
-            .snapshot_radius_targets(source_id, &impact, 30.0, None)
-            .unwrap();
+        let mut targets: Vec<_> = weapon
+            .snapshot_radius_targets(world.services(), source_id, &impact, 30.0, None)
+            .unwrap()
+            .into_iter()
+            .map(|target| (target.id, target.distance_squared))
+            .collect();
         targets.sort_unstable_by_key(|(id, _)| *id);
         assert_eq!(targets, [(source_id, 225.0), (target_id, 225.0)]);
         let damage = weapon

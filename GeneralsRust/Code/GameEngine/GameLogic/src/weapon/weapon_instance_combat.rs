@@ -15,9 +15,11 @@ use crate::helpers::{
     get_game_logic_random_value_real,
 };
 use crate::modules::CountermeasuresBehaviorInterface;
+use crate::object::Object;
 use crate::object::collide::GameObject;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::update::MissileAIUpdateModuleData;
+use crate::system::engine_stores::{WorldServices, try_active_services};
 use crate::system::game_logic::TheObjectFactory;
 use crate::weapon::projectile_launch_cast::{
     ProjectileLaunchKindMut, module_projectile_launch_kind,
@@ -41,6 +43,24 @@ pub(crate) struct SourceFireFx {
     pub stealth_suppressed: bool,
     pub drawable: Option<Arc<RwLock<crate::object::drawable::Drawable>>>,
     pub pose: Option<crate::object::draw::draw_module::WeaponFireFxSource>,
+}
+
+pub(crate) struct RadiusDamageTarget {
+    pub(crate) id: ObjectId,
+    pub(crate) distance_squared: f32,
+    /// The firing Object is already borrowed by Object::fireCurrentWeapon.
+    registered: Option<Arc<RwLock<Object>>>,
+}
+
+impl RadiusDamageTarget {
+    pub(super) fn live_registered(&self, world: &WorldServices) -> Option<&Arc<RwLock<Object>>> {
+        let observed = self.registered.as_ref()?;
+        world
+            .object_registry()
+            .get_object(self.id)
+            .is_some_and(|current| Arc::ptr_eq(&current, observed))
+            .then_some(observed)
+    }
 }
 
 impl Weapon {
@@ -487,26 +507,30 @@ impl Weapon {
             // A second read of the same RwLock hangs when the blast includes it.
             drop(source_guard);
             drop(damage_source_guard);
+            let Some(world) = try_active_services() else {
+                return Ok(0);
+            };
             let targets = self.snapshot_radius_targets(
+                &world,
                 source_obj_id,
                 &impact_pos,
                 max_radius,
                 borrowed_source.as_deref(),
             )?;
 
-            for (obj_id, distance_squared) in targets {
+            for target in targets {
+                let obj_id = target.id;
                 let borrowed_victim = borrowed_source
                     .as_deref()
                     .filter(|source| source.get_id() == obj_id);
-                let victim_arc = if borrowed_victim.is_none() {
-                    TheGameLogic::find_object_by_id(obj_id)
-                } else {
-                    None
-                };
-                let victim_lease = victim_arc.as_ref().and_then(|arc| arc.try_read().ok());
+                let victim_arc = target.live_registered(&world);
+                let victim_lease = victim_arc.and_then(|actor| actor.try_read().ok());
                 let Some(victim_guard) = borrowed_victim.or(victim_lease.as_deref()) else {
                     continue;
                 };
+                if victim_guard.get_id() != obj_id {
+                    continue;
+                }
                 let obj_pos = *victim_guard.get_position();
                 let source_now = if borrowed_source.is_some() || obj_id == source_obj_id {
                     None
@@ -625,7 +649,7 @@ impl Weapon {
                 }
 
                 let damage_amount = self.calculate_radius_damage_falloff(
-                    distance_squared,
+                    target.distance_squared,
                     primary_radius,
                     secondary_radius,
                     self.template.get_primary_damage(bonus),
@@ -659,11 +683,22 @@ impl Weapon {
                     }
 
                     drop(victim_lease);
-                    if let Ok(actual_damage) = self.apply_damage_to_object_with_source(
-                        obj_id,
-                        &mut target_damage_info,
-                        borrowed_source.as_deref_mut(),
-                    ) {
+                    let actual_damage = if let Some(victim) = victim_arc
+                        && self.caller_source(obj_id).is_none()
+                    {
+                        victim.write().ok().and_then(|mut victim| {
+                            victim.attempt_damage(&mut target_damage_info).ok()?;
+                            Some(target_damage_info.output.actual_damage_dealt)
+                        })
+                    } else {
+                        self.apply_damage_to_object_with_source(
+                            obj_id,
+                            &mut target_damage_info,
+                            borrowed_source.as_deref_mut(),
+                        )
+                        .ok()
+                    };
+                    if let Some(actual_damage) = actual_damage {
                         total_damage += actual_damage as u32;
                     }
                 }
@@ -1592,18 +1627,16 @@ impl Weapon {
         source_obj_id
     }
 
-    /// Weapon.cpp:1281–1284 captures the hit list and the 3D sphere distance
-    /// before any victim callback can move or remove another object.
+    /// Weapon.cpp:1281–1284 captures victim identity and 3D sphere distance
+    /// before any hit callback can move or remove another object.
     pub(crate) fn snapshot_radius_targets(
         &self,
+        world: &WorldServices,
         source_obj_id: ObjectId,
         center: &Coord3D,
         radius: f32,
         borrowed_source: Option<&crate::object::Object>,
-    ) -> Result<Vec<(ObjectId, f32)>, WeaponError> {
-        let Some(world) = crate::system::engine_stores::try_active_services() else {
-            return Ok(Vec::new());
-        };
+    ) -> Result<Vec<RadiusDamageTarget>, WeaponError> {
         // Mounted collision populates these COIs. Core's separate GameLogic
         // centre index tracks positions without the original COI traversal.
         let candidates = world.logic_managers().partition
@@ -1643,7 +1676,12 @@ impl Weapon {
                     center_squared
                 };
                 // PartitionManager.cpp:903 uses an open outer boundary.
-                (distance_squared < radius_squared).then_some((id, distance_squared))
+                drop(lease);
+                (distance_squared < radius_squared).then_some(RadiusDamageTarget {
+                    id,
+                    distance_squared,
+                    registered: stored,
+                })
             })
             .collect())
     }
