@@ -43,7 +43,7 @@ impl RenderPipeline {
         let mut records = Vec::new();
         {
             let mut poses = self.borrow_native_installed_poses();
-            for model in selected {
+            for model in selected.iter() {
                 let index = model.module_index;
                 let state = poses
                     .drawable_visual_states

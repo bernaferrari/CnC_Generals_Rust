@@ -385,7 +385,7 @@ impl NativeInstalledPoseLoan<'_> {
                     model.module_index,
                 ))
                 .ok_or(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle)?;
-            state.mark_native_condition(source.condition_bits, model);
+            state.mark_native_condition(source.condition_bits, &model);
         }
         self.consume_native_camera_conditions(
             crate::game_logic::ObjectId(identity.object_id()),

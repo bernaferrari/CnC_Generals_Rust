@@ -411,7 +411,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                     return;
                 };
                 let world = Mat4::from_cols_array_2d(&initial_transform.elements).transpose();
-                for model in models {
+                for model in models.iter() {
                     let index = model.module_index;
                     let state = self
                         .drawable_visual_states
@@ -423,7 +423,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                         source.mesh_scale.is_finite().then_some(source.mesh_scale);
                     state.native_condition_bits = Some(0);
                     state.native_drawable_transform = world;
-                    state.native_pending_condition = Some(model);
+                    state.native_pending_condition = Some(model.clone());
                     self.install_native_condition_for_owner(owner, index, world, sync_ms, graphics);
                 }
             }
@@ -461,7 +461,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                     }
                     return;
                 };
-                for model in models {
+                for model in models.iter() {
                     let state = self
                         .drawable_visual_states
                         .entry((owner, model.module_index))
@@ -792,11 +792,11 @@ impl ObjectVisualState {
     pub(super) fn mark_native_condition(
         &mut self,
         bits: u128,
-        selected: crate::assets::AuthoredDrawModel,
+        selected: &crate::assets::AuthoredDrawModel,
     ) {
         if self.native_condition_bits != Some(bits) || !self.native_condition_supported {
             self.native_condition_bits = Some(bits);
-            self.native_pending_condition = Some(selected);
+            self.native_pending_condition = Some(selected.clone());
         }
     }
 
@@ -843,7 +843,7 @@ mod condition_recovery_tests {
         };
         let peer = state.clone();
         state.native_instance_scale = None;
-        state.mark_native_condition(1, next.clone());
+        state.mark_native_condition(1, &next);
         assert!(state.take_native_condition_to_install().is_none());
         assert!(!state.native_condition_supported);
         assert!(matches!(
@@ -854,7 +854,7 @@ mod condition_recovery_tests {
         state.native_instance_scale = Some(1.0);
         // Main's actual GameClient observer emits ConditionsMarked every sync.
         // No bit change, recreation, or alternate camera is needed to recover.
-        state.mark_native_condition(1, next.clone());
+        state.mark_native_condition(1, &next);
         assert_eq!(state.take_native_condition_to_install(), Some(next));
         assert!(
             !state.native_condition_supported,

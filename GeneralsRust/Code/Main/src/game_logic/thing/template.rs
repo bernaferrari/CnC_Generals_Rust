@@ -129,8 +129,8 @@ impl ReceivingDrawModels {
     pub(crate) fn native_render_draws(
         &self,
         bits: u128,
-    ) -> std::result::Result<Vec<crate::assets::AuthoredDrawModel>, ()> {
-        Ok(self.native_render_selection(bits)?.native.to_vec())
+    ) -> std::result::Result<Arc<[AuthoredDrawModel]>, ()> {
+        Ok(self.native_render_selection(bits)?.native)
     }
 
     fn native_render_selection(&self, bits: u128) -> std::result::Result<DrawSelection, ()> {
@@ -2383,6 +2383,14 @@ mod authored_model_identity_tests {
         assert!(first.get_model_name().is_empty());
         assert!(crate::assets::model_key_from_template(None, &first).is_empty());
         let bits = 1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_DAMAGED;
+        let receiving = first.receiving_draw_models_ref().unwrap();
+        let no_model = receiving.native_render_draws(0).unwrap();
+        assert_eq!(no_model.len(), 1);
+        assert!(no_model[0].model_key.is_empty());
+        assert!(Arc::ptr_eq(&no_model, &receiving.native_render_draws(0).unwrap()));
+        let damaged = receiving.native_render_draws(bits).unwrap();
+        assert_eq!(damaged[0].model_key, "DamagedActual");
+        assert!(Arc::ptr_eq(&damaged, &receiving.native_render_draws(bits).unwrap()));
         assert!(
             first
                 .authored_draw_models_for_conditions(0)
