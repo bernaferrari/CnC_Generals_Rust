@@ -79,7 +79,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.water_grid_mesh = None;
         self.polygon_water_meshes.clear();
         self.bib_meshes.clear();
-        self.tank_track_meshes.clear();
+        self.tank_track_draws = TankTrackDraws::default();
         self.snow_mesh = None;
         self.smudge_mesh = None;
         self.flat_lod_meshes.clear();

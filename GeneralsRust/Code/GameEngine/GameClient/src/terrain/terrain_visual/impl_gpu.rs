@@ -20,6 +20,7 @@ impl TerrainVisualImpl {
         self.skybox_textures = [None, None, None, None, None];
         self.road_named_bind_groups.clear();
         self.projected_shadow_gpu = None;
+        self.tank_track_draws = TankTrackDraws::default();
         self.road_texture = None;
         self.road_sampler = None;
         self.road_texture_bind_group = None;
@@ -1233,6 +1234,7 @@ impl TerrainVisualImpl {
         self.record_extra_blend_pass(pass);
         self.record_road_draws(pass);
         self.record_overlay_draws(pass);
+        self.record_tank_track_draws(pass);
         // C++ HeightMap.cpp:2138-2144 replays terrain after roads and tracks
         // with W3DShroud's projected destination texture. Keep the base mesh
         // independent of changing fog cells and darken the road depth itself.
@@ -2656,7 +2658,7 @@ impl TerrainVisualImpl {
             self.extra_blend_index_buffer = None;
             return;
         }
-        Self::write_extra_blend_buffer(
+        Self::write_reusable_terrain_buffer(
             &device,
             self.queue.as_deref(),
             &mut self.extra_blend_position_buffer,
@@ -2732,7 +2734,7 @@ impl TerrainVisualImpl {
             &self.extra_blend_draw_mesh,
             (!tile_slots.is_empty()).then_some(tile_slots.as_slice()),
         );
-        Self::write_extra_blend_buffer(
+        Self::write_reusable_terrain_buffer(
             &device,
             self.queue.as_deref(),
             &mut self.extra_blend_vertex_buffer,
@@ -2740,7 +2742,7 @@ impl TerrainVisualImpl {
             cast_slice(&gpu_vertices),
             wgpu::BufferUsages::VERTEX,
         );
-        Self::write_extra_blend_buffer(
+        Self::write_reusable_terrain_buffer(
             &device,
             self.queue.as_deref(),
             &mut self.extra_blend_index_buffer,
@@ -2750,7 +2752,7 @@ impl TerrainVisualImpl {
         );
     }
 
-    fn write_extra_blend_buffer(
+    fn write_reusable_terrain_buffer(
         device: &wgpu::Device,
         queue: Option<&wgpu::Queue>,
         buffer: &mut Option<wgpu::Buffer>,

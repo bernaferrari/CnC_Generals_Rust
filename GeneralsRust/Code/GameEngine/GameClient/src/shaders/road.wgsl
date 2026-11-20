@@ -62,3 +62,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let alpha = clamp(in.road_width, 0.0, 1.0) * tex.a;
     return vec4<f32>(lit * albedo, alpha);
 }
+
+@fragment
+fn fs_tank_track(in: VertexOutput) -> @location(0) vec4<f32> {
+    // W3DTerrainTracks uses SC_ALPHA with the authored texture and diffuse.
+    let tex = textureSample(road_texture, road_sampler, in.tex_coords);
+    return tex * vec4<f32>(in.color, in.road_width);
+}

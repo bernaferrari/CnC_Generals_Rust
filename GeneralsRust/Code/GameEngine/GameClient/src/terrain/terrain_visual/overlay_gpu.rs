@@ -45,7 +45,7 @@ impl TerrainVisualImpl {
     /// C++ `setTerrainTracksDetail` + HeightMap flush of tread strips.
     pub fn rebuild_tank_tracks(&mut self) {
         self.set_terrain_tracks_detail();
-        self.upload_tank_track_meshes();
+        self.tank_track_draws.flush.ranges.clear();
     }
 
     /// C++ `BaseHeightMapRenderObjClass::unitMoved`.
@@ -826,33 +826,6 @@ impl TerrainVisualImpl {
         }
     }
 
-    fn upload_tank_track_meshes(&mut self) {
-        let Some(device) = self.device.clone() else {
-            self.tank_track_meshes.clear();
-            return;
-        };
-        if self.height_map.is_none() {
-            self.tank_track_meshes.clear();
-            return;
-        }
-        let flush = self.terrain_tracks.flush(0xffff_ffff);
-        if flush.vertices.is_empty() || flush.indices.is_empty() {
-            self.tank_track_meshes.clear();
-            return;
-        }
-        let gpu: Vec<OverlayGpuVertex> = flush
-            .vertices
-            .iter()
-            .map(|v| OverlayGpuVertex::from_cpp_xyzduv(v.x, v.y, v.z, v.diffuse, v.u1, v.v1))
-            .collect();
-        let indices: Vec<u32> = flush.indices.iter().map(|i| *i as u32).collect();
-        self.tank_track_meshes =
-            Self::upload_overlay_mesh(device.as_ref(), "Tank Tracks", &gpu, &indices)
-                .into_iter()
-                .collect();
-    }
-
-
     fn upload_snow_mesh(
         &mut self,
         camera: Option<&snow_camera::SnowCamera>,
@@ -1042,9 +1015,8 @@ impl TerrainVisualImpl {
             return;
         };
         let extra: Vec<&GpuRoadMesh> = self
-            .tank_track_meshes
+            .prop_meshes
             .iter()
-            .chain(self.prop_meshes.iter())
             .chain(self.flat_lod_meshes.iter())
             .chain(self.smudge_mesh.iter())
             .collect();
@@ -1107,7 +1079,6 @@ impl TerrainVisualImpl {
         }
         self.upload_bib_meshes();
         self.upload_prop_meshes();
-        self.upload_tank_track_meshes();
         self.upload_smudge_mesh();
         self.upload_flat_lod_meshes();
         self.overlay.overlays_dirty = false;

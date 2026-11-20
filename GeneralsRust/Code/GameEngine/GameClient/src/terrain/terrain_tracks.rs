@@ -533,7 +533,7 @@ impl TerrainTracksRenderObjClassSystem {
                     index = 0;
                 }
                 let mut diff = 1.0
-                    - (sync_time - track.edges[index].time_added) as f32
+                    - sync_time.wrapping_sub(track.edges[index].time_added) as f32
                         / self.config.max_tank_track_fade_delay as f32;
                 if diff < 0.0 {
                     diff = 0.0;
@@ -561,8 +561,37 @@ impl TerrainTracksRenderObjClassSystem {
     /// C++ `flush`, CPU vertex/index construction.
     pub fn flush(&mut self, diffuse_light: u32) -> TerrainTracksFlush {
         let mut flush = TerrainTracksFlush::default();
-        if self.edges_to_flush < 2 {
-            return flush;
+        self.flush_into(diffuse_light, &mut flush);
+        flush
+    }
+
+    /// Native terrain has no separate WW3D track render-object traversal.
+    /// Track objects are forced visible by C++ init, and the original
+    /// Render callback counts edges before the terrain's flush.
+    pub(crate) fn prepare_visible_draws(
+        &mut self,
+        diffuse_light: u32,
+        flush: &mut TerrainTracksFlush,
+    ) {
+        self.edges_to_flush = if self.config.make_track_marks {
+            self.used_modules
+                .iter()
+                .map(|&handle| &self.tracks[handle])
+                .filter(|track| track.really_visible && track.active_edge_count >= 2)
+                .map(|track| track.active_edge_count)
+                .sum()
+        } else {
+            0
+        };
+        self.flush_into(diffuse_light, flush);
+    }
+
+    fn flush_into(&mut self, diffuse_light: u32, flush: &mut TerrainTracksFlush) {
+        flush.vertices.clear();
+        flush.indices.clear();
+        flush.ranges.clear();
+        if std::mem::take(&mut self.edges_to_flush) < 2 {
+            return;
         }
 
         let num_faded_edges = (self.config.max_tank_track_edges
@@ -623,9 +652,6 @@ impl TerrainTracksRenderObjClassSystem {
                 texture_name: track.texture_name.clone(),
             });
         }
-
-        self.edges_to_flush = 0;
-        flush
     }
 
     /// C++ `Reset`.
@@ -780,6 +806,44 @@ mod tests {
         assert_eq!(flush.ranges[0].texture_name, "tracks.tga");
         assert_eq!(flush.vertices[0].diffuse & 0x00ff_ffff, 0x0012_3456);
         assert!(system.flush(0x0012_3456).vertices.is_empty());
+    }
+
+    #[test]
+    fn native_track_draw_flush_uses_used_order_and_wrapping_sync_time() {
+        let ground = FlatTerrain;
+        let mut tracks = TerrainTracksRenderObjClassSystem::new(config());
+        let a = tracks.bind_track(4.0, 10.0, "first.tga").unwrap();
+        let b = tracks.bind_track(4.0, 10.0, "second.tga").unwrap();
+        let stamp = i32::MAX - 20;
+        for handle in [a, b] {
+            for x in [0.0, 20.0, 40.0, 60.0] {
+                tracks.add_edge_to_track(handle, &ground, x, 0.0, stamp);
+            }
+        }
+        let mut flush = TerrainTracksFlush::default();
+        tracks.prepare_visible_draws(0x0012_3456, &mut flush);
+        assert_eq!(
+            flush
+                .ranges
+                .iter()
+                .map(|range| range.handle)
+                .collect::<Vec<_>>(),
+            [b, a],
+        );
+        assert_eq!(flush.vertices.last().unwrap().diffuse, 0xff12_3456);
+
+        tracks.track_mut(b).unwrap().set_really_visible(false);
+        tracks.update(stamp.wrapping_add(50));
+        tracks.prepare_visible_draws(0x0012_3456, &mut flush);
+        assert_eq!(flush.ranges.len(), 1);
+        assert_eq!(flush.ranges[0].handle, a);
+        assert_eq!(flush.vertices.last().unwrap().diffuse, 0x7f12_3456);
+
+        tracks.config.make_track_marks = false;
+        tracks.prepare_visible_draws(0x0012_3456, &mut flush);
+        assert!(flush.ranges.is_empty());
+        assert!(flush.vertices.is_empty());
+        assert!(flush.indices.is_empty());
     }
 
     #[test]

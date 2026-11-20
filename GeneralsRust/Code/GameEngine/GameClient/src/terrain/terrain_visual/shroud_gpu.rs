@@ -357,7 +357,7 @@ impl TerrainVisualImpl {
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
 
-        // Rust road/track geometry writes depth, unlike the C++ shared
+        // Rust road geometry writes depth, unlike the C++ shared
         // terrain shroud replay. Replaying those exact buffers at equal depth
         // applies fog to their visible pixels without darkening them twice.
         pass.set_pipeline(road_pipeline);
@@ -368,7 +368,6 @@ impl TerrainVisualImpl {
             .iter()
             .chain(self.bridge_meshes.iter())
             .chain(self.scorch_meshes.iter())
-            .chain(self.tank_track_meshes.iter())
             .chain(self.prop_meshes.iter())
             .chain(self.flat_lod_meshes.iter())
             .chain(self.smudge_mesh.iter());

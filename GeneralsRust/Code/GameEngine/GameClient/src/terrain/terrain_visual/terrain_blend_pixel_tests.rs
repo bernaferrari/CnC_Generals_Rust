@@ -1083,3 +1083,89 @@ fn projected_unit_shadow_multiplies_source_color_on_native_terrain() {
     let sample = 4 * 256 + 16 * 4;
     assert_eq!(&hidden[sample..sample + 4], &[200, 200, 200, 255]);
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
+fn authored_tank_tracks_draw_in_used_order_and_fade_on_the_receiving_clock() {
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("tank track test requires a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("tank track test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let classes = [(
+        TerrainSourceTileClass {
+            first_tile: 0,
+            num_tiles: 1,
+            width: 1,
+            name: "TrackReceiver".to_owned(),
+        },
+        [200; 3],
+    )];
+    let mut visual = live_terrain_visual(
+        &device,
+        &queue,
+        &classes,
+        HeightMap::new(64, 64, 0.0, 1.0),
+        1.0,
+    );
+    visual.admit_static_lighting(crate::terrain::chunk::TerrainStaticLighting {
+        lights: Vec::new(),
+        ambient: [1.0; 3],
+        scorch_diffuse: [0.0; 3],
+    });
+    visual.create_road_pipeline(&device).unwrap();
+    visual.ensure_road_texture_bind_group(&device);
+    visual.set_terrain_tracks_detail_with_config(TerrainTracksConfig {
+        max_tank_track_fade_delay: 100,
+        ..TerrainTracksConfig::default()
+    });
+    for name in ["RedTrack.tga", "BlueTrack.tga"] {
+        let handle = visual.terrain_tracks_mut().bind_track(0.5, 10.0, name).unwrap();
+        for x in [0.5, 11.5, 22.5, 33.5, 44.5, 55.5] {
+            visual.add_track_edge(handle, x, 1.5, 1000);
+        }
+    }
+    let tga = |color| {
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(4, 4, image::Rgba(color))
+            .write_to(&mut encoded, image::ImageFormat::Tga)
+            .unwrap();
+        encoded.into_inner()
+    };
+    let red = tga([255, 0, 0, 128]);
+    let blue = tga([0, 0, 255, 128]);
+    let read = |path: &str| match path {
+        "Art/Textures/redtrack.tga" => Some(red.clone()),
+        "Art/Textures/bluetrack.tga" => Some(blue.clone()),
+        _ => None,
+    };
+    let view = Mat4::from_cols_array_2d(&[
+        [0.125, 0.0, 0.0, 0.0],
+        [0.0, 0.0, -0.02, 0.0],
+        [0.0, 2.0, 0.0, 0.0],
+        [-5.0625, -3.0, 0.5, 1.0],
+    ]);
+    let sample = 4 * 256 + 16 * 4;
+    let assert_pixel = |pixels: &[u8], expected: [u8; 4]| {
+        let actual = &pixels[sample..sample + 4];
+        assert!(
+            actual.iter().zip(expected).all(|(&a, b)| a.abs_diff(b) <= 1),
+            "expected BGRA {expected:?}, got {actual:?}",
+        );
+        assert_eq!(&pixels[64..68], &[200, 200, 200, 255]);
+    };
+    visual.prepare_tank_track_draws(read);
+    let initial = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, view);
+    // C++ bind inserts at the head of the used list. Blue blends first.
+    assert_pixel(&initial, [113, 50, 178, 255]);
+    visual.age_tank_tracks(1050);
+    visual.prepare_tank_track_draws(|_| panic!("resident track art was opened again"));
+    let faded = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, view);
+    assert_pixel(&faded, [160, 113, 176, 255]);
+}

@@ -494,6 +494,12 @@ impl RenderPipeline {
                 terrain_visual.update_native(motion, None)
             })
             .map_err(|e| anyhow::anyhow!("terrain visual update failed: {}", e))?;
+            if let Some(assets) = &self.forward_pass.application_assets {
+                terrain_visual.prepare_tank_track_draws(|path| {
+                    assets.lock().unwrap_or_else(|error| error.into_inner())
+                        .archive_file_system_mut().open_file_sync(path).ok()
+                });
+            }
             let terrain_update_elapsed = terrain_update_started.elapsed();
 
             let chunk_count = terrain_visual.chunk_draw_count();

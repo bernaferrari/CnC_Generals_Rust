@@ -484,9 +484,9 @@ impl TerrainVisualImpl {
         });
         self.road_texture_bind_group_layout = Some(texture_layout);
 
-        self.road_pipeline = Some(
+        let ground_overlay_pipeline = |label, fragment, write_depth| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Road Pipeline"),
+                label: Some(label),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
@@ -496,7 +496,7 @@ impl TerrainVisualImpl {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs_main"),
+                    entry_point: Some(fragment),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Bgra8Unorm,
@@ -515,7 +515,7 @@ impl TerrainVisualImpl {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TERRAIN_PIPELINES_DEPTH_FORMAT,
-                    depth_write_enabled: Some(true),
+                    depth_write_enabled: Some(write_depth),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual), // Roads should render on top of terrain
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
@@ -527,8 +527,14 @@ impl TerrainVisualImpl {
                 },
                 multiview_mask: None,
                 cache: None,
-            }),
-        );
+            })
+        };
+        self.road_pipeline = Some(ground_overlay_pipeline("Road Pipeline", "fs_main", true));
+        self.tank_track_pipeline = Some(ground_overlay_pipeline(
+            "Tank Track Pipeline",
+            "fs_tank_track",
+            false,
+        ));
         self.snow_pipeline = Some(
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Snow Pipeline"),

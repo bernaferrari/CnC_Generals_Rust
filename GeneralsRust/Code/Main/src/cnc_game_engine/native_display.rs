@@ -291,6 +291,18 @@ impl CnCGameEngine {
                 replay_frame,
             })?;
         if decision.sync {
+            #[cfg(feature = "game_client")]
+            if let Some(terrain) = self.render_pipeline.native_terrain_mut() {
+                let load_screen_render = self.game_logic.world_services.common().system
+                    .runtime_global_data.read().load_screen_render;
+                if !load_screen_render {
+                    // W3DDisplay updates tracks at the previous WW3D clock
+                    // before publishing this Display's Sync.
+                    terrain.age_tank_tracks(
+                        decision.sync_time_ms.wrapping_sub(decision.frame_time_ms),
+                    );
+                }
+            }
             self.render_pipeline
                 .observe_animation_sync(decision.sync_time_ms);
         }
