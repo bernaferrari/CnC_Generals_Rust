@@ -61,6 +61,11 @@ cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/lineseg.cpp"
 note = "Executable original portable geometry comparison; one cached length and six caller-owned RNG draws. Rust initializes defaults and returns zero values for failed intersections."
 
 [[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/normal_cone.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/normalcone.h"
+note = "Executable original portable comparison of ordered cone edges, dot products and merges. A degenerate cross product returns the center dot where C++ reads unwritten outputs."
+
+[[module]]
 path = "Code/GameEngine/Common/src/common/game_lod.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/Common/GameLOD.cpp"
 note = "Probe/test overrides owned on GameLODManager; dead SlowDeath TLS cache removed; 8->0 process globals."

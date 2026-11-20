@@ -163,41 +163,36 @@ impl NormalCone {
             return;
         }
 
-        // Get the two normals found in the cone which are coplanar to the input
-        if let Some((length, normal1, normal2, dot1, dot2)) =
+        let Some((length, normal1, normal2, dot1, dot2)) =
             self.get_coplanar_normals_and_dots(input)
-        {
-            if length <= EPSILON {
-                return;
-            }
-
-            // Test the case where the current center has a lower dot than either of the coplanar normals.
-            // If true, this means that the object now represents a complete sphere with normals facing every
-            // direction.
-            if (dot0 < dot1) && (dot0 < dot2) {
-                self.angle = -1.0;
-                return;
-            }
-
-            // The smaller of the dot values indicates which of the two coplanar normals to use
-            // for averaging into the new center normal.
-            let new_center = if dot1 < dot2 {
-                *input + normal1
-            } else {
-                *input + normal2
-            };
-
-            let new_angle = dot1.min(dot2);
-
-            // If the angle is < 0, reverse the direction of the averaged normal since we have constructed
-            // something more like a sphere with a cone shape taken out of it (a negative cone).
-            if new_angle < EPSILON {
-                self.center = -new_center.normalize();
-            } else {
-                self.center = new_center.normalize();
-            }
-            self.angle = new_angle;
+        else {
+            return;
+        };
+        if length <= EPSILON {
+            return;
         }
+
+        if dot0 < dot1 && dot0 < dot2 {
+            self.angle = -1.0;
+            return;
+        }
+
+        // The original selects the direction and cosine together, including
+        // the second result when the dots compare equal.
+        let (normal, angle) = if dot1 < dot2 {
+            (normal1, dot1)
+        } else {
+            (normal2, dot2)
+        };
+        let mut center = *input + normal;
+        if angle < EPSILON {
+            center = -center;
+        }
+        let squared_length = center.length_squared();
+        if squared_length != 0.0 {
+            center *= 1.0 / squared_length.sqrt();
+        }
+        self.set(center, angle);
     }
 
     /// Merge another normal cone into this cone.
@@ -244,8 +239,9 @@ impl NormalCone {
 
         // Get the two normals found in the cone which are coplanar to the input
         if let Some((_, _, _, dot1, dot2)) = self.get_coplanar_normals_and_dots(input) {
-            dot1.min(dot2)
+            if dot1 < dot2 { dot1 } else { dot2 }
         } else {
+            // The C++ fallback reads unwritten dots after a degenerate cross product.
             dot0
         }
     }

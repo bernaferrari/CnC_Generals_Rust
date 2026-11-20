@@ -47,3 +47,18 @@ fn nearly_opposite_merge_keeps_cone_below_cpp_cross_length_threshold() {
     assert_eq!(cone.center, Vector3::Z);
     assert_eq!(cone.angle, 1.0);
 }
+
+#[test]
+fn normal_and_cone_merges_follow_the_original_edge_order() {
+    // Outputs from normalcone.h using W3D's portable Matrix3x3 and Vector3.
+    let mut single = NormalCone::from_direction(Vector3::Z);
+    single.merge_normal(&Vector3::new(0.6, 0.8, 0.0));
+    assert!((single.center - Vector3::new(-0.424_264_07, -0.565_685_45, -0.707_106_77)).length()
+        < CPP_EPSILON);
+    assert_eq!(single.angle, 0.0);
+
+    let mut cone = NormalCone::new(Vector3::Z, 0.5);
+    cone.merge_cone(&NormalCone::new(Vector3::X, 0.4));
+    assert!((cone.center - Vector3::new(0.760_405_84, 0.0, 0.649_448_16)).length() < CPP_EPSILON);
+    assert!((cone.angle - -0.987_688_3).abs() < CPP_EPSILON);
+}
