@@ -390,19 +390,14 @@ impl ObjectDefinition {
         Some(if found { first.unwrap_or_default().to_owned() } else { String::new() })
     }
 
-    /// Walk the selected Named condition state of every selectable module in
-    /// source order. `None` = no selectable module; `Some(false)` = a module
-    /// cannot be faithfully selected, so the whole selection fails closed.
+    /// Visit named states in source order. The caller discards any partial
+    /// output when the returned status rejects the full selection.
     fn visit_selected_named_draw_states<'m>(
         modules: &'m [DrawModuleDefinition],
         condition_bits: u128,
         mut visit: impl FnMut(u32, u32, &'m DrawModuleDefinition, &'m DrawConditionStateDefinition),
     ) -> Option<bool> {
         let mut found_selectable_module = false;
-        // At most one pick per module; reserve once instead of growing.
-        let mut picks: Vec<(u32, u32, &'m DrawModuleDefinition, &'m DrawConditionStateDefinition)> =
-            Vec::with_capacity(modules.len());
-
         for (module_index, module) in modules.iter().enumerate() {
             if !module.has_selectable_condition_states() {
                 continue;
@@ -431,16 +426,10 @@ impl ObjectDefinition {
             let AuthoredConditionModel::Named(_) = &state.model else {
                 continue;
             };
-            picks.push((module_index, condition_state_index, module, state));
-        }
-
-        if !found_selectable_module {
-            return None;
-        }
-        for (module_index, condition_state_index, module, state) in picks {
             visit(module_index, condition_state_index, module, state);
         }
-        Some(true)
+
+        found_selectable_module.then_some(true)
     }
 
     /// Constructor/condition ownership for the same selectable render modules
