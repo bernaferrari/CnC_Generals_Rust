@@ -619,6 +619,14 @@ impl GameLogic {
         }
     }
 
+    /// C++ W3DRadar reads the live Object after ThingFactory return and placement.
+    pub(in super::super) fn host_radar_observe_object_position(&mut self, id: ObjectId) {
+        if let Some(object) = self.objects.get_registered(&id) {
+            self.radar
+                .set_object_world_position(id.0, host_to_radar_coord(object.get_position()));
+        }
+    }
+
     /// C++ `TheRadar->removeObject` from Object dtor / destroy list.
     pub(in super::super) fn host_radar_remove_object(&mut self, id: ObjectId) {
         {

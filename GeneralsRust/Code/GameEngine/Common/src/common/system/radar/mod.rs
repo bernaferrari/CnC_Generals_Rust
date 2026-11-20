@@ -1294,6 +1294,22 @@ impl RadarSystem {
         true
     }
 
+    /// Observe the position of an already registered actor.
+    pub fn set_object_world_position(&mut self, object_id: u32, position: Coord3D) {
+        let radar_position = self.world_to_radar(&position);
+        if let Some(object) = self
+            .local_object_list
+            .iter_mut()
+            .chain(self.object_list.iter_mut())
+            .find(|object| object.object_id == object_id)
+        {
+            object.world_pos = position;
+            if let Some(radar_position) = radar_position {
+                object.radar_pos = radar_position;
+            }
+        }
+    }
+
     /// Remove object from radar (matches C++ Radar::removeObject)
     pub fn remove_object(&mut self, object_id: u32) -> bool {
         if let Some(index) = self

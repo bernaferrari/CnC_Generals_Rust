@@ -2669,6 +2669,7 @@ impl GameLogic {
                     "Object {id} disappeared during factory placement"
                 )));
             }
+            self.host_radar_observe_object_position(id);
             if crate::game_logic::host_bridge_behavior::is_bridge_span_template(template_name) {
                 let object = self
                     .objects
