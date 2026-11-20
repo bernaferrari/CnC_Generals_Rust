@@ -287,29 +287,40 @@ impl NativeDrawableOwner<'_> {
         }))
     }
 
-    pub fn advance_installed_model_tracks(
+    /// Read receiving logic only once an installed module owns a track to move.
+    pub fn advance_installed_model_tracks<L>(
         &mut self,
-        key: PresentationDirectDrawableBindingKey,
+        host_epoch: u64,
+        object_id: u32,
         terrain: &mut crate::terrain::terrain_visual::TerrainVisualImpl,
-        logic: &gamelogic::terrain::TerrainLogic,
+        read_logic: impl FnOnce(PresentationDirectDrawableBindingKey) -> Option<L>,
         position: glam::Vec3,
         layer: gamelogic::path::PathfindLayerEnum,
         stealthed: bool,
         stamp: i32,
         gravity: f32,
-    ) {
-        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+    ) where
+        L: std::ops::Deref<Target = gamelogic::terrain::TerrainLogic>,
+    {
+        let Some(key) = self.binding_key(host_epoch, object_id) else {
             return;
-        }
+        };
         let Some(drawable) = self.drawables.drawable_map.get_mut(&key.drawable_id)
             .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::drawable::BasicDrawable>())
         else {
             return;
         };
+        let mut read_logic = Some(read_logic);
+        let mut logic = None;
         drawable.visit_receiving_tracks(|binding, shrouded| {
-            terrain.apply_receiving_track_motion(
-                binding, logic, position, layer, stamp, shrouded || stealthed, gravity,
-            );
+            if let Some(read_logic) = read_logic.take() {
+                logic = read_logic(key);
+            }
+            if let Some(logic) = logic.as_deref() {
+                terrain.apply_receiving_track_motion(
+                    binding, logic, position, layer, stamp, shrouded || stealthed, gravity,
+                );
+            }
         });
     }
 

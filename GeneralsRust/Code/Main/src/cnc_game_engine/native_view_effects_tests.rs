@@ -832,11 +832,16 @@ fn actual_tank_track_retires_with_its_own_drawable_and_keeps_the_peer() {
         model("CameraModel", 0.0),
     );
     let name = "StrictTrackTank";
+    let trackless_name = "StrictTracklessActor";
     let make_world = || {
         let mut world = GameLogic::new();
         let source = "Object StrictTrackTank\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nDraw = W3DTankDraw TrackTag\nDefaultConditionState\nModel = CameraModel\nEnd\nTrackMarks = EXTnkTrack.tga\nEnd\nEnd\n";
+        let trackless = "Object StrictTracklessActor\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nDraw = W3DModelDraw ModelTag\nDefaultConditionState\nModel = CameraModel\nEnd\nEnd\nEnd\n";
         world.admit_receiving_module_content(
-            crate::assets::ReceivingObjectContent::from_sources([("track-test.ini".into(), source.into())])
+            crate::assets::ReceivingObjectContent::from_sources([
+                ("track-test.ini".into(), source.into()),
+                ("trackless-test.ini".into(), trackless.into()),
+            ])
                 .unwrap(),
         ).unwrap();
         world.require_native_drawable_owner();
@@ -877,9 +882,37 @@ fn actual_tank_track_retires_with_its_own_drawable_and_keeps_the_peer() {
         assert_eq!(bindings.len(), 1);
         bindings.pop().unwrap()
     };
+    let trackless_id = birth_physical_retirement_actor(
+        &mut world,
+        trackless_name,
+        Vec3::new(50.0, 0.0, 50.0),
+        &mut client,
+        &mut pipeline,
+        &mut graphics,
+        EPOCH,
+    );
     let mut terrain = TerrainVisualImpl::new();
     let mut peer_terrain = TerrainVisualImpl::new();
     let local_binding = bind(&mut client, &mut terrain);
+    for (actor, expected_queries) in [(trackless_id, 0), (id, 1)] {
+        let mut logic_queries = 0;
+        client.borrow_native_drawable_owner().advance_installed_model_tracks(
+            EPOCH,
+            actor.0,
+            &mut terrain,
+            |key| {
+                assert_eq!(key.object_id, actor.0);
+                logic_queries += 1;
+                Some(world.world_services.terrain().read().unwrap())
+            },
+            Vec3::new(20.0, 20.0, 10.0),
+            gamelogic::path::PathfindLayerEnum::Ground,
+            false,
+            1234,
+            world.host_object(actor).unwrap().physics_gravity(),
+        );
+        assert_eq!(logic_queries, expected_queries);
+    }
     let peer_binding = bind(&mut peer_client, &mut peer_terrain);
     assert_eq!(local_binding.slot(), peer_binding.slot());
     assert!(!terrain.receives_terrain_track(&peer_binding));

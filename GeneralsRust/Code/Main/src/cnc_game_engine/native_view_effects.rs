@@ -539,18 +539,16 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
         logic: &std::sync::RwLock<gamelogic::terrain::TerrainLogic>,
     ) {
-        let Some(key) = self.drawables.binding_key(self.host_epoch, identity.object_id()) else {
-            return;
-        };
-        if self.poses.validate_object_retirement(identity, key).is_err() {
-            return;
-        }
-        let logic = logic.read().unwrap_or_else(|poisoned| poisoned.into_inner());
         let position = object.get_position();
+        let poses = &self.poses;
         self.drawables.advance_installed_model_tracks(
-            key,
+            self.host_epoch,
+            identity.object_id(),
             terrain,
-            &logic,
+            |key| {
+                poses.validate_object_retirement(identity, key).ok()?;
+                Some(logic.read().unwrap_or_else(|poisoned| poisoned.into_inner()))
+            },
             Vec3::new(position.x, position.z, position.y),
             gamelogic::path::PathfindLayerEnum::from_u32(u32::from(object.pathfind_layer)),
             object.status.stealthed,
