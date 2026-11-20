@@ -1,6 +1,13 @@
 //! Host tick `impl GameLogic` — `physics`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+fn stun_surface_at(terrain: &gamelogic::terrain::TerrainLogic, pos: glam::Vec3) -> (bool, bool) {
+    (
+        terrain.is_cliff_cell(pos.x, pos.z),
+        terrain.is_underwater(pos.x, pos.z, None, None),
+    )
+}
+
 impl GameLogic {
     /// C++ Weapon ContinueAttackRange residual (AIStates attack transfer).
     ///
@@ -148,32 +155,23 @@ impl GameLogic {
     /// Refresh underwater/cliff cells. C++ never damages on dry→wet walk-in;
     /// DAMAGE_WATER only runs from leftover setWaterHeight rise (`apply_water_rise_damage`).
     pub fn refresh_surface_cells_and_water_edge_damage(&mut self, _edge_damage: f32) -> u32 {
-        let ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
-        for id in ids {
-            let pos = match self.objects.get(&id) {
-                Some(o) => o.get_position(),
-                None => continue,
-            };
-            let (_cliff, water) = self.sample_stun_surface_at(pos);
-            let Some(obj) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            obj.cell_is_cliff = _cliff;
-            obj.cell_is_underwater = water;
-        }
+        let terrain = self.world_services.terrain().read().ok();
+        self.objects.for_each_registered_mut(|object| {
+            let (cliff, water) = terrain.as_deref().map_or((false, false), |terrain| {
+                stun_surface_at(terrain, object.get_position())
+            });
+            object.cell_is_cliff = cliff;
+            object.cell_is_underwater = water;
+        });
         0
     }
 
     pub(crate) fn sample_stun_surface_at(&self, pos: glam::Vec3) -> (bool, bool) {
         // Logical water belongs to this session, even when a presentation
         // TerrainData copy or another world's Core registry is available.
-        if let Ok(terrain) = self.world_services.terrain().read() {
-            return (
-                terrain.is_cliff_cell(pos.x, pos.z),
-                terrain.is_underwater(pos.x, pos.z, None, None),
-            );
-        }
-        (false, false)
+        self.world_services.terrain().read().map_or((false, false), |terrain| {
+            stun_surface_at(&terrain, pos)
+        })
     }
 
     /// Advance Physics stun residual on all shocked units.

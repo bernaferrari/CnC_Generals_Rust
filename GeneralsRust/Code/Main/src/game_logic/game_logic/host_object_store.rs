@@ -127,6 +127,13 @@ impl HostObjectStore {
         self.registered_mut().map(|(_, object)| object)
     }
 
+    /// Visit registered Objects in linked-list order with one mutable loan at a time.
+    pub(in crate::game_logic) fn for_each_registered_mut(&mut self, mut visit: impl FnMut(&mut Object)) {
+        for id in &self.registration_order {
+            visit(self.map.get_mut(id).expect("registered Object exists"));
+        }
+    }
+
     /// IDs in C++ `getFirstObject` / `getNextObject` order.
     pub fn ordered_ids(&self) -> &[ObjectId] {
         &self.registration_order
@@ -590,7 +597,14 @@ mod lookup_registration_tests {
             actor.health.current = 4.0;
         }
         assert_eq!(seen, [ObjectId(1), ObjectId(3)]);
+        seen.clear();
+        store.for_each_registered_mut(|actor| {
+            seen.push(actor.id);
+            actor.health.current = 3.0;
+        });
+        assert_eq!(seen, [ObjectId(1), ObjectId(3)]);
         assert_ne!(store[&ObjectId(7)].health.current, 4.0);
+        assert_ne!(store[&ObjectId(7)].health.current, 3.0);
     }
     #[test]
     fn unfinished_world_constructor_rejects_save_reset_and_map_replacement_without_mutation() {

@@ -1075,6 +1075,9 @@ fn tick_shock_stun_all_samples_terrain_surface() {
         o.shock_stun_frames = 10;
         o.cell_is_underwater = false;
         logic.objects.insert(id, o);
+        logic.refresh_surface_cells_and_water_edge_damage(0.0);
+        assert!(logic.objects.get(&id).unwrap().cell_is_underwater);
+        logic.objects.get_mut(&id).unwrap().cell_is_underwater = false;
         logic.tick_shock_stun_all();
         let o = logic.objects.get(&id).expect("obj");
         assert!(

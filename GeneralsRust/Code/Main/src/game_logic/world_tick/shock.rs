@@ -347,9 +347,9 @@ impl GameLogic {
                 o.advance_physics_overlap_frame();
             }
         }
-        for o in self.objects.registered_values_mut() {
-            o.landing_splat_done = false;
-        }
+        self.objects.for_each_registered_mut(|object| {
+            object.landing_splat_done = false;
+        });
         Ok(handled)
     }
 
