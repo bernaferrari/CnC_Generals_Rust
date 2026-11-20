@@ -716,6 +716,18 @@ fn dozer_completion_callback_keeps_same_id_peer_structure_and_footprint_untouche
     let driving = crate::system::engine_stores::new_for_world();
     let peer = crate::system::engine_stores::new_for_world();
     let roster = player_list();
+    let driving_frame = 37;
+    let peer_initial_script_frame = 174;
+    for (world, frame, script_frame) in [
+        (&driving, driving_frame, 13),
+        (&peer, 251, peer_initial_script_frame),
+    ] {
+        world.game_logic_mutex().lock().unwrap().set_current_frame(frame);
+        let engine = crate::scripting::engine::ScriptEngine::new_with_services(world.services())
+            .unwrap();
+        engine.set_frame_object_count_changed(script_frame);
+        *world.services().scripts().engine().write().unwrap() = Some(engine);
+    }
     let position = crate::common::Coord3D::new(105.0, 105.0, 0.0);
     let peer_position = crate::common::Coord3D::new(255.0, 255.0, 0.0);
     let mut geometry = crate::common::GeometryInfo::default();
@@ -744,7 +756,7 @@ fn dozer_completion_callback_keeps_same_id_peer_structure_and_footprint_untouche
     );
     other_structure.set_construction_percent(25.0);
     let other_structure = Arc::new(RwLock::new(other_structure));
-    let mut peer_logic = crate::system::game_logic::GameLogic::new();
+    let peer_logic = peer.game_logic_mutex();
     let driving_path = driving.ai().read().unwrap().pathfinder().unwrap();
     let peer_path = peer.ai().read().unwrap().pathfinder().unwrap();
     driving_path.write().unwrap().reset_with_size(40, 40);
@@ -755,11 +767,13 @@ fn dozer_completion_callback_keeps_same_id_peer_structure_and_footprint_untouche
         .add_object_to_pathfind_map(&other_structure.read().unwrap())
         .unwrap();
     crate::system::engine_stores::with_active_stores(&peer, || {
-        peer_logic.register_object(other_structure.clone()).unwrap();
+        let mut logic = peer_logic.lock().unwrap();
+        logic.register_object(other_structure.clone()).unwrap();
         assert!(Arc::ptr_eq(
-            &peer_logic.find_object_by_id(id).unwrap(),
+            &logic.find_object_by_id(id).unwrap(),
             &other_structure,
         ));
+        drop(logic);
         assert!(Arc::ptr_eq(
             &crate::object::registry::OBJECT_REGISTRY.get_object(id).unwrap(),
             &other_structure,
@@ -791,10 +805,22 @@ fn dozer_completion_callback_keeps_same_id_peer_structure_and_footprint_untouche
         peer_path.read().unwrap().get_cell_type_at(&peer_position),
         Some(PathfindCellType::Obstacle)
     );
+    let script_frame = |world: &crate::system::engine_stores::EngineStores| {
+        world.services().scripts().engine().read().unwrap().as_ref().unwrap()
+            .get_frame_object_count_changed()
+    };
+    // Read before retirement, which has its own original script invalidation.
+    let observed_script_frames = (script_frame(&driving), script_frame(&peer));
     crate::system::engine_stores::with_active_stores(&peer, || {
-        peer_logic.destroy_object(id);
-        peer_logic.cleanup_dead_objects().unwrap();
+        let mut logic = peer_logic.lock().unwrap();
+        logic.destroy_object(id);
+        logic.cleanup_dead_objects().unwrap();
     });
+    assert_eq!(
+        observed_script_frames,
+        (driving_frame as u32, peer_initial_script_frame),
+        "C++ completion invalidates the receiving ScriptEngine at the receiving frame",
+    );
 }
 
 /// A real create-module callback probes both manager loans without waiting if

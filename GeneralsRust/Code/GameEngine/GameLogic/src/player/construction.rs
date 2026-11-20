@@ -39,9 +39,25 @@ impl Player {
         is_rebuild: Bool,
     ) -> Result<(), String> {
         // No caller-held player/object guard may span these reentrant phases.
-        crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
-
-        let structure_id = structure.read().map_err(|error| format!("construction object: {error}"))?.get_id();
+        let (structure_id, structure_world) = {
+            let structure = structure
+                .read()
+                .map_err(|error| format!("construction object: {error}"))?;
+            (structure.get_id(), structure.owning_world_services())
+        };
+        // Player.cpp:1640 invalidates the receiving interpreter before the
+        // footprint and AI callbacks. ScriptEngine.cpp:7785 only stamps its
+        // frame; the next script update owns the named-object cache rebuild.
+        if let Some(world) = structure_world.as_ref() {
+            let frame = world.logic_frame();
+            if let Ok(slot) = world.scripts().engine().read()
+                && let Some(engine) = slot.as_ref()
+            {
+                engine.set_frame_object_count_changed(frame);
+            }
+        } else {
+            crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
+        }
 
         // C++ Player.cpp:1644-1645: remove then insert the full footprint on
         // the runtime that admitted this structure, before reentrant phases.
@@ -102,7 +118,6 @@ impl Player {
         }
 
         // C++ TheControlBar/TheEva of the GameEngine that owns the structure.
-        let structure_world = structure.read().ok().and_then(|guard| guard.owning_world_services());
         crate::control_bar::mark_ui_dirty_from(structure_world.as_ref());
 
         let local_player = structure_world.as_ref().and_then(|world| {
