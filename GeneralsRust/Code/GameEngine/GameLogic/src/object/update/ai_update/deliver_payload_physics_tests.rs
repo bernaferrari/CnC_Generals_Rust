@@ -490,52 +490,61 @@ impl crate::object_creation_list::ObjectCreationNugget for HealthAtFireOcl {
 
 #[test]
 fn held_weapon_damage_preserves_fire_ocl_before_owned_self_damage() {
-    let _lock = crate::test_sync::lock();
-    let aircraft = RegisteredAircraft::new(93_562);
-    let health_at_ocl = Arc::new(Mutex::new(Vec::new()));
-    let mut fire_ocl = crate::object_creation_list::ObjectCreationList::new();
-    fire_ocl.add_nugget(Arc::new(HealthAtFireOcl {
-        health: health_at_ocl.clone(),
-    }));
-    let mut template = WeaponTemplate::new("DeliveryStrafingWeapon".into());
-    template.clip_size = 2;
-    template.reload_type = crate::weapon::WeaponReloadType::NoReload;
-    template.attack_range = 1_000.0;
-    template.primary_damage = 25.0;
-    template.primary_damage_radius = 10.0;
-    template.affects_mask = crate::weapon::WeaponAffectsMask::new(
-        crate::weapon::WeaponAffectsMask::SELF | crate::weapon::WeaponAffectsMask::ALLIES,
-    );
-    template.fire_ocl[0] = Some(Arc::new(fire_ocl));
-    let mut object = aircraft.owner.write().unwrap();
-    let mut set = WeaponTemplateSet::new();
-    set.set_weapon_template(WeaponSlotType::Primary, Arc::new(template));
-    object.weapon_set.add_weapon_template_set(set);
-    object.refresh_weapon_set().unwrap();
-    let weapon = object
-        .get_weapon_in_slot_mut(WeaponSlotType::Primary)
-        .unwrap();
-    weapon.set_clip_percent_full(1.0, true);
-    weapon.set_status(WeaponStatus::ReadyToFire);
-    let source_position = *object.get_position();
-    object
-        .fire_current_weapon_at_position(&source_position)
-        .unwrap();
-    assert_eq!(object.get_health(), 75.0);
-    assert_eq!(
-        *health_at_ocl.lock().unwrap(),
-        vec![100.0],
-        "CPP FireOCL precedes immediate damage; owned damage still precedes tracker dispatch"
-    );
-    let weapon = object
-        .get_weapon_in_slot_mut(WeaponSlotType::Primary)
-        .unwrap();
-    assert!(
-        weapon.take_pending_self_damage().is_none(),
-        "owned self damage is not queued"
-    );
-    assert!(
-        weapon.caller_source(aircraft.id).is_none(),
-        "transient source cleared after shot"
-    );
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+
+    let world = new_for_world();
+    with_active_stores(&world, || {
+        let aircraft = RegisteredAircraft::new(93_562);
+        world
+            .game_logic_mutex()
+            .lock()
+            .unwrap()
+            .register_object_with_partition(aircraft.id, &aircraft.owner);
+        let health_at_ocl = Arc::new(Mutex::new(Vec::new()));
+        let mut fire_ocl = crate::object_creation_list::ObjectCreationList::new();
+        fire_ocl.add_nugget(Arc::new(HealthAtFireOcl {
+            health: health_at_ocl.clone(),
+        }));
+        let mut template = WeaponTemplate::new("DeliveryStrafingWeapon".into());
+        template.clip_size = 2;
+        template.reload_type = crate::weapon::WeaponReloadType::NoReload;
+        template.attack_range = 1_000.0;
+        template.primary_damage = 25.0;
+        template.primary_damage_radius = 10.0;
+        template.affects_mask = crate::weapon::WeaponAffectsMask::new(
+            crate::weapon::WeaponAffectsMask::SELF | crate::weapon::WeaponAffectsMask::ALLIES,
+        );
+        template.fire_ocl[0] = Some(Arc::new(fire_ocl));
+        let mut object = aircraft.owner.write().unwrap();
+        let mut set = WeaponTemplateSet::new();
+        set.set_weapon_template(WeaponSlotType::Primary, Arc::new(template));
+        object.weapon_set.add_weapon_template_set(set);
+        object.refresh_weapon_set().unwrap();
+        let weapon = object
+            .get_weapon_in_slot_mut(WeaponSlotType::Primary)
+            .unwrap();
+        weapon.set_clip_percent_full(1.0, true);
+        weapon.set_status(WeaponStatus::ReadyToFire);
+        let source_position = *object.get_position();
+        object
+            .fire_current_weapon_at_position(&source_position)
+            .unwrap();
+        assert_eq!(object.get_health(), 75.0);
+        assert_eq!(
+            *health_at_ocl.lock().unwrap(),
+            vec![100.0],
+            "CPP FireOCL precedes immediate damage; owned damage still precedes tracker dispatch"
+        );
+        let weapon = object
+            .get_weapon_in_slot_mut(WeaponSlotType::Primary)
+            .unwrap();
+        assert!(
+            weapon.take_pending_self_damage().is_none(),
+            "owned self damage is not queued"
+        );
+        assert!(
+            weapon.caller_source(aircraft.id).is_none(),
+            "transient source cleared after shot"
+        );
+    });
 }

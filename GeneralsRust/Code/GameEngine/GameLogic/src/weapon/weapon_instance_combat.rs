@@ -487,14 +487,14 @@ impl Weapon {
             // A second read of the same RwLock hangs when the blast includes it.
             drop(source_guard);
             drop(damage_source_guard);
-            let targets = self.find_objects_in_radius_with_source(
+            let targets = self.snapshot_radius_targets(
                 source_obj_id,
                 &impact_pos,
                 max_radius,
                 borrowed_source.as_deref(),
             )?;
 
-            for (obj_id, obj_pos, _relationship) in targets {
+            for (obj_id, distance_squared) in targets {
                 let borrowed_victim = borrowed_source
                     .as_deref()
                     .filter(|source| source.get_id() == obj_id);
@@ -507,6 +507,7 @@ impl Weapon {
                 let Some(victim_guard) = borrowed_victim.or(victim_lease.as_deref()) else {
                     continue;
                 };
+                let obj_pos = *victim_guard.get_position();
                 let source_now = if borrowed_source.is_some() || obj_id == source_obj_id {
                     None
                 } else {
@@ -623,32 +624,8 @@ impl Weapon {
                     }
                 }
 
-                // Calculate distance and damage falloff
-                let stored = crate::object::collide::partition_manager::world_partition_manager()
-                    .try_read()
-                    .ok()
-                    .and_then(|pm| pm.get_object_info(obj_id));
-                let distance = if let Some((pos, geom)) = stored.as_ref() {
-                    crate::object::collide::partition_distance::distance_from_position(
-                        &impact_pos,
-                        pos,
-                        geom,
-                        crate::object::collide::partition_distance::DistanceCalculationType::FromBoundingSphere3D,
-                    )
-                } else {
-                    let splash_geom = crate::object::Object::collision_geometry_from_bounds(
-                        victim_guard.get_geometry_info(),
-                        None,
-                    );
-                    crate::object::collide::partition_distance::distance_from_position(
-                        &impact_pos,
-                        victim_guard.get_position(),
-                        &splash_geom,
-                        crate::object::collide::partition_distance::DistanceCalculationType::FromBoundingSphere3D,
-                    )
-                };
                 let damage_amount = self.calculate_radius_damage_falloff(
-                    distance,
+                    distance_squared,
                     primary_radius,
                     secondary_radius,
                     self.template.get_primary_damage(bonus),
@@ -754,16 +731,16 @@ impl Weapon {
     /// C++ Reference: Weapon.cpp (damage calculation logic)
     pub(crate) fn calculate_radius_damage_falloff(
         &self,
-        distance: f32,
+        distance_squared: f32,
         primary_radius: f32,
         secondary_radius: f32,
         primary_damage: f32,
         secondary_damage: f32,
     ) -> f32 {
-        if distance <= primary_radius {
+        if distance_squared <= primary_radius * primary_radius {
             // Within primary radius - full damage
             primary_damage
-        } else if distance <= secondary_radius {
+        } else if distance_squared <= secondary_radius * secondary_radius {
             // Between primary and secondary - secondary damage
             secondary_damage
         } else {
@@ -1615,96 +1592,60 @@ impl Weapon {
         source_obj_id
     }
 
-    /// Find objects in radius - queries spatial partition for objects in blast radius
-    /// Returns (object_id, position, relationship_flags) for all objects in area
-    pub(crate) fn find_objects_in_radius(
-        &self,
-        source_obj_id: ObjectId,
-        center: &Coord3D,
-        radius: f32,
-    ) -> Result<Vec<(ObjectId, Coord3D, u32)>, WeaponError> {
-        self.find_objects_in_radius_with_source(source_obj_id, center, radius, None)
-    }
-
-    pub(crate) fn find_objects_in_radius_with_source(
+    /// Weapon.cpp:1281–1284 captures the hit list and the 3D sphere distance
+    /// before any victim callback can move or remove another object.
+    pub(crate) fn snapshot_radius_targets(
         &self,
         source_obj_id: ObjectId,
         center: &Coord3D,
         radius: f32,
         borrowed_source: Option<&crate::object::Object>,
-    ) -> Result<Vec<(ObjectId, Coord3D, u32)>, WeaponError> {
-        // Wave 265: empty dual-world → Ok(empty).
-        if dual_world_registry_unavailable() {
+    ) -> Result<Vec<(ObjectId, f32)>, WeaponError> {
+        let Some(world) = crate::system::engine_stores::try_active_services() else {
             return Ok(Vec::new());
-        }
-
-        use crate::object::collide::partition_distance::{DistanceCalculationType, within_radius};
-        use crate::object::registry::OBJECT_REGISTRY;
-
-        // C++ Weapon.cpp:71 FROM_BOUNDINGSPHERE_3D, not a 2D center test.
-        let object_ids = OBJECT_REGISTRY.get_all_object_ids();
-        let mut results = Vec::new();
-        for obj_id in object_ids {
-            let stored = crate::object::collide::partition_manager::world_partition_manager()
-                .try_read()
-                .ok()
-                .and_then(|pm| pm.get_object_info(obj_id));
-            let pos = if let Some((pos, geom)) = stored {
-                if within_radius(
-                    center,
-                    &pos,
-                    &geom,
-                    radius,
-                    DistanceCalculationType::FromBoundingSphere3D,
-                ) {
-                    Some(pos)
+        };
+        // Mounted collision populates these COIs. Core's separate GameLogic
+        // centre index tracks positions without the original COI traversal.
+        let candidates = world.logic_managers().partition
+            .try_read()
+            .map_err(|error| {
+                WeaponError::SystemError(format!("Blast partition unavailable: {error}"))
+            })?
+            .ordered_search_candidates(center, radius);
+        let radius_squared = radius * radius;
+        let source = borrowed_source.filter(|source| source.get_id() == source_obj_id);
+        // The partition walks the first occurrence of every COI. The C++
+        // iterator prepends each match and ITER_FASTEST skips the sort.
+        Ok(candidates
+            .into_iter()
+            .rev()
+            .filter_map(|id| {
+                let borrowed = source.filter(|actor| actor.get_id() == id);
+                let stored = if borrowed.is_none() {
+                    world.object_registry().get_object(id)
                 } else {
                     None
-                }
-            } else if let Some(source) = borrowed_source
-                .filter(|source| source.get_id() == source_obj_id && source.get_id() == obj_id)
-            {
-                let pos = *source.get_position();
-                let geom = crate::object::Object::collision_geometry_from_bounds(
-                    source.get_geometry_info(),
-                    None,
-                );
-                within_radius(
-                    center,
-                    &pos,
-                    &geom,
-                    radius,
-                    DistanceCalculationType::FromBoundingSphere3D,
-                )
-                .then_some(pos)
-            } else {
-                OBJECT_REGISTRY
-                    .with_object(obj_id, |obj| {
-                        let pos = *obj.get_position();
-                        let geom = crate::object::Object::collision_geometry_from_bounds(
-                            obj.get_geometry_info(),
-                            None,
-                        );
-                        if !within_radius(
-                            center,
-                            &pos,
-                            &geom,
-                            radius,
-                            DistanceCalculationType::FromBoundingSphere3D,
-                        ) {
-                            return None;
-                        }
-                        Some(pos)
-                    })
-                    .flatten()
-            };
-            let Some(pos) = pos else {
-                continue;
-            };
-            results.push((obj_id, pos, 0));
-        }
-
-        Ok(results)
+                };
+                let lease = stored.as_ref().and_then(|actor| actor.try_read().ok());
+                let actor = borrowed.or(lease.as_deref())?;
+                let geometry = actor.get_geometry_info();
+                let delta = geometry.get_center_position(actor.get_position()) - *center;
+                let center_squared = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+                let sphere = geometry.get_bounding_sphere_radius();
+                let distance_squared = if sphere > 0.0 {
+                    let distance = center_squared.sqrt() - sphere;
+                    if distance <= 0.0 {
+                        0.0
+                    } else {
+                        distance * distance
+                    }
+                } else {
+                    center_squared
+                };
+                // PartitionManager.cpp:903 uses an open outer boundary.
+                (distance_squared < radius_squared).then_some((id, distance_squared))
+            })
+            .collect())
     }
 
     fn apply_damage_to_object_with_source(

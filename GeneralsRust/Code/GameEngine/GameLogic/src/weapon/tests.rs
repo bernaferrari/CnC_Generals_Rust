@@ -69,39 +69,6 @@ impl Drop for HistoricWeaponFixture {
     }
 }
 
-struct RestorePlayerList {
-    players: Vec<Arc<RwLock<crate::player::Player>>>,
-    local_player_index: i32,
-}
-
-impl RestorePlayerList {
-    fn with_player(player: Arc<RwLock<crate::player::Player>>) -> Self {
-        let __player_list_arc = crate::player::player_list();
-        let mut list = __player_list_arc.write().unwrap();
-        let previous = Self {
-            players: list.iter().cloned().collect(),
-            local_player_index: list.get_local_player_index(),
-        };
-        list.clear();
-        list.add_player(player);
-        list.set_local_player_index(0);
-        previous
-    }
-}
-
-impl Drop for RestorePlayerList {
-    fn drop(&mut self) {
-        let __player_list_arc = crate::player::player_list();
-            let mut list = __player_list_arc.write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        list.clear();
-        for player in self.players.drain(..) {
-            list.add_player(player);
-        }
-        list.set_local_player_index(self.local_player_index);
-    }
-}
-
 #[test]
 fn test_weapon_bonus() {
     let mut bonus = WeaponBonus::new();
@@ -367,7 +334,7 @@ fn test_radius_damage_falloff_within_primary() {
     let template = WeaponTemplate::new("TestWeapon".to_string());
     let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
 
-    let damage = weapon.calculate_radius_damage_falloff(5.0, 10.0, 20.0, 100.0, 50.0);
+    let damage = weapon.calculate_radius_damage_falloff(25.0, 10.0, 20.0, 100.0, 50.0);
 
     // Within primary radius - should get full primary damage
     assert_eq!(damage, 100.0);
@@ -378,7 +345,7 @@ fn test_radius_damage_falloff_between_radii() {
     let template = WeaponTemplate::new("TestWeapon".to_string());
     let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
 
-    let damage = weapon.calculate_radius_damage_falloff(15.0, 10.0, 20.0, 100.0, 50.0);
+    let damage = weapon.calculate_radius_damage_falloff(225.0, 10.0, 20.0, 100.0, 50.0);
 
     // Between primary and secondary the C++-style behavior uses secondary damage.
     assert_eq!(damage, 50.0);
@@ -389,7 +356,7 @@ fn test_radius_damage_falloff_outside_radius() {
     let template = WeaponTemplate::new("TestWeapon".to_string());
     let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
 
-    let damage = weapon.calculate_radius_damage_falloff(25.0, 10.0, 20.0, 100.0, 50.0);
+    let damage = weapon.calculate_radius_damage_falloff(625.0, 10.0, 20.0, 100.0, 50.0);
 
     // Outside secondary radius - should get zero damage
     assert_eq!(damage, 0.0);
@@ -692,11 +659,129 @@ fn test_find_objects_in_radius_returns_empty_for_empty_world() {
     let weapon = create_test_weapon();
     let center = Coord3D::new(0.0, 0.0, 0.0);
 
-    let result = weapon.find_objects_in_radius(INVALID_OBJECT_ID, &center, 100.0);
+    let result = weapon.snapshot_radius_targets(INVALID_OBJECT_ID, &center, 100.0, None);
     assert!(result.is_ok(), "find_objects_in_radius should not error");
 
     let objects = result.unwrap();
     assert_eq!(objects.len(), 0, "Should find no objects in empty world");
+}
+
+#[test]
+fn fired_splash_uses_cpp_partition_order_and_open_3d_outer_boundary() {
+    use crate::helpers::TheThingFactory;
+    use crate::scripting::engine::get_event_manager;
+    use crate::scripting::events::{EventFilter, GameEventType};
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::team::Team;
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::{
+        ensure_thing_factory_exists, get_thing_factory,
+    };
+
+    let world = new_for_world();
+    with_active_stores(&world, || {
+        assert!(ensure_thing_factory_exists());
+        if get_module_factory().unwrap().is_none() {
+            init_module_factory().unwrap();
+        }
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        initialize_weapon_store().unwrap();
+        assert_eq!(
+            get_thing_factory()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .load_ini_text(
+                    "Object RealBlastSphere
+                    KindOf = IMMOBILE
+                    Geometry = SPHERE
+                    GeometryMajorRadius = 3
+                    Body = ActiveBody Health
+                        MaxHealth = 100
+                        InitialHealth = 100
+                    End
+                End",
+                ),
+            1,
+        );
+        let template = TheThingFactory::find_template("RealBlastSphere").unwrap();
+        let team = Arc::new(RwLock::new(Team::new("BlastTeam".into(), 12)));
+        let spawn = |position| {
+            let object = TheThingFactory::get()
+                .unwrap()
+                .new_object_with_team_handle(Arc::clone(&template), Arc::clone(&team))
+                .unwrap();
+            object.write().unwrap().set_position(&position).unwrap();
+            object
+        };
+        let center = Coord3D::new(105.0, 105.0, 0.0);
+        let source = spawn(center);
+        let primary = spawn(Coord3D::new(109.0, 105.0, 0.0));
+        let secondary = spawn(Coord3D::new(115.0, 105.0, 0.0));
+        let edge = spawn(Coord3D::new(116.0, 105.0, 0.0));
+        let above = spawn(Coord3D::new(105.0, 105.0, 11.0));
+        let outside = spawn(Coord3D::new(117.0, 105.0, 0.0));
+        let off_partition = spawn(center);
+        let off_partition_id = off_partition.read().unwrap().get_id();
+        world
+            .services()
+            .logic_managers()
+            .partition
+            .write()
+            .unwrap()
+            .unregister_object(off_partition_id)
+            .unwrap();
+        assert!(world.services().object_registry().contains(off_partition_id));
+        // Reinsert the older object at the head of its COI list. The C++
+        // iterator reverses that visitation, so it hits the newer object first.
+        primary
+            .write()
+            .unwrap()
+            .set_position(&Coord3D::new(112.0, 105.0, 0.0))
+            .unwrap();
+
+        let source_id = source.read().unwrap().get_id();
+        let mut blast = WeaponTemplate::new("ActualBoundaryBlast".into());
+        blast.primary_damage = 20.0;
+        blast.primary_damage_radius = 4.0;
+        blast.secondary_damage = 10.0;
+        blast.secondary_damage_radius = 8.0;
+        blast.weapon_speed = 99999.0;
+        blast.min_weapon_speed = 99999.0;
+        blast.damage_type = crate::damage::DamageType::Unresistable;
+        blast.affects_mask = WeaponAffectsMask::new(
+            WeaponAffectsMask::ALLIES | WeaponAffectsMask::ENEMIES | WeaponAffectsMask::NEUTRALS,
+        );
+        WeaponStore::create_and_fire_temp_weapon_at_pos(&Arc::new(blast), source_id, &center)
+            .unwrap();
+
+        assert_eq!(primary.read().unwrap().get_health(), 80.0);
+        assert_eq!(secondary.read().unwrap().get_health(), 90.0);
+        for actor in [&source, &edge, &above, &outside, &off_partition] {
+            assert_eq!(actor.read().unwrap().get_health(), 100.0);
+        }
+
+        let filter = EventFilter {
+            event_types: vec![GameEventType::UnitDamaged],
+            ..Default::default()
+        };
+        let events = get_event_manager();
+        let damaged = futures::executor::block_on(async {
+            events.process_events().await.unwrap();
+            events.query_history(&filter, 3).await.unwrap()
+        });
+        assert_eq!(
+            damaged
+                .iter()
+                .rev()
+                .map(|event| event.source_object)
+                .collect::<Vec<_>>(),
+            [
+                Some(secondary.read().unwrap().get_id()),
+                Some(primary.read().unwrap().get_id()),
+            ],
+        );
+    });
 }
 
 #[test]
@@ -731,7 +816,7 @@ fn test_radius_damage_falloff_calculation() {
 
     // Test 2: Distance at primary radius = full primary damage
     let damage = weapon.calculate_radius_damage_falloff(
-        50.0, // distance at primary radius
+        50.0 * 50.0, // squared distance at primary radius
         50.0, 100.0, 100.0, 50.0,
     );
     assert_eq!(
@@ -741,7 +826,7 @@ fn test_radius_damage_falloff_calculation() {
 
     // Test 3: Distance between radii = secondary damage
     let damage = weapon.calculate_radius_damage_falloff(
-        75.0, // distance = halfway between primary and secondary
+        75.0 * 75.0, // squared distance halfway between primary and secondary
         50.0, 100.0, 100.0, 50.0,
     );
     assert!(
@@ -751,7 +836,7 @@ fn test_radius_damage_falloff_calculation() {
 
     // Test 4: Distance beyond secondary = no damage
     let damage = weapon.calculate_radius_damage_falloff(
-        150.0, // distance beyond secondary
+        150.0 * 150.0, // squared distance beyond secondary
         50.0, 100.0, 100.0, 50.0,
     );
     assert_eq!(damage, 0.0, "Damage beyond secondary radius should be zero");
@@ -825,148 +910,176 @@ fn test_deal_damage_radius() {
 
 #[test]
 fn kills_self_dies_on_zero_secondary_radius_damage() {
-    let _guard = weapon_range_test_guard();
-    crate::object::registry::OBJECT_REGISTRY.clear();
+    use crate::helpers::TheThingFactory;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
 
-    let register_at = |mut object: crate::object::Object, id, x| {
-        object
-            .set_position(&Coord3D::new(x, 0.0, 0.0))
-            .expect("set object position");
-        let mut geometry = crate::common::GeometryInfo::default();
-        geometry.set_bounds(crate::common::AABox {
-            min: Coord3D::new(-5.0, 0.0, 0.0),
-            max: Coord3D::new(5.0, 0.0, 0.0),
-        });
-        object.set_geometry_info(geometry);
+    let world = new_for_world();
+    with_active_stores(&world, || {
+        assert!(ensure_thing_factory_exists());
+        if get_module_factory().unwrap().is_none() {
+            init_module_factory().unwrap();
+        }
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        assert_eq!(
+            get_thing_factory()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .load_ini_text(
+                    "Object SelfKillSource
+                    KindOf = VEHICLE SCORE
+                    Geometry = SPHERE
+                    GeometryMajorRadius = 5
+                    Body = ActiveBody Health
+                        MaxHealth = 100
+                        InitialHealth = 100
+                    End
+                End
+                Object SelfKillBystander
+                    KindOf = IMMOBILE
+                    Geometry = SPHERE
+                    GeometryMajorRadius = 5
+                    Body = ActiveBody Health
+                        MaxHealth = 100
+                        InitialHealth = 100
+                    End
+                End",
+                ),
+            2,
+        );
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        let mut player_template = crate::player::PlayerTemplate::new("SelfKillPlayable".to_string());
+        player_template.playable = true;
+        player.write().unwrap().init(Arc::new(player_template));
+        {
+            let mut players = world.services().players().write().unwrap();
+            players.add_player(Arc::clone(&player));
+            players.set_local_player_index(0);
+        }
+        let team = Arc::new(RwLock::new(crate::team::Team::new(
+            "SelfKillTeam".into(),
+            96_000,
+        )));
+        team.write().unwrap().set_controlling_player_id(Some(0));
 
-        let object = Arc::new(RwLock::new(object));
-        crate::object::registry::OBJECT_REGISTRY.register_object(id, &object);
-        object
-    };
+        let neutral_team = Arc::new(RwLock::new(crate::team::Team::new(
+            "BystanderTeam".into(),
+            96_001,
+        )));
+        let spawn = |name, team, x| {
+            let template = TheThingFactory::find_template(name).unwrap();
+            let object = TheThingFactory::get()
+                .unwrap()
+                .new_object_with_team_handle(template, team)
+                .unwrap();
+            object
+                .write()
+                .unwrap()
+                .set_position(&Coord3D::new(x, 105.0, 0.0))
+                .unwrap();
+            object
+        };
+        let source = spawn("SelfKillSource", team, 105.0);
+        let target = spawn("SelfKillBystander", neutral_team, 145.0);
+        let source_id = source.read().unwrap().get_id();
+        let target_id = target.read().unwrap().get_id();
+        assert_eq!(
+            source.read().unwrap().get_controlling_player_id(),
+            Some(0),
+            "source must resolve to the playable owner used by the kill-score path"
+        );
+        let lost_before = player
+            .read()
+            .unwrap()
+            .get_score_keeper()
+            .get_total_units_lost();
+        let destroyed_before = player
+            .read()
+            .unwrap()
+            .get_score_keeper()
+            .get_total_units_destroyed();
 
-    // The blast center is 20 units from both object centers. Their 5-unit
-    // bounding spheres therefore lie outside the primary radius but inside
-    // the secondary radius, exactly as the C++ range iterator requires.
-    let source_id = 96_001;
-    let target_id = 96_002;
+        let mut weapon = create_test_weapon();
+        let template = Arc::make_mut(&mut weapon.template);
+        template.primary_damage = 100.0;
+        template.primary_damage_radius = 5.0;
+        template.secondary_damage = 0.0;
+        template.secondary_damage_radius = 30.0;
+        template.damage_type = DamageType::Flame;
+        template.death_type = crate::damage::DeathType::Burned;
+        template.affects_mask =
+            WeaponAffectsMask::new(WeaponAffectsMask::KILLS_SELF | WeaponAffectsMask::NEUTRALS);
 
-    let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
-    let mut player_template = crate::player::PlayerTemplate::new("SelfKillPlayable".to_string());
-    player_template.playable = true;
-    player.write().unwrap().init(Arc::new(player_template));
-    let _restore_players = RestorePlayerList::with_player(Arc::clone(&player));
-    let team = Arc::new(RwLock::new(crate::team::Team::new(
-        "SelfKillTeam".into(),
-        96_000,
-    )));
-    team.write().unwrap().set_controlling_player_id(Some(0));
+        // C++ Weapon.cpp:1438-1453 sets huge damage for KILLS_SELF after the
+        // secondary-radius hit is selected, regardless of its configured zero
+        // amount. Ordinary bystanders still receive zero secondary damage.
+        // Each 5-unit sphere is 15 units from the blast after shrinking.
+        let impact = Coord3D::new(125.0, 105.0, 0.0);
+        let mut targets = weapon
+            .snapshot_radius_targets(source_id, &impact, 30.0, None)
+            .unwrap();
+        targets.sort_unstable_by_key(|(id, _)| *id);
+        assert_eq!(targets, [(source_id, 225.0), (target_id, 225.0)]);
+        let damage = weapon
+            .deal_damage_internal(
+                source_id,
+                None,
+                &impact,
+                &WeaponBonus::default(),
+                false,
+            )
+            .expect("apply radius damage");
 
-    let mut source_template = crate::common::DefaultThingTemplate::new("SelfKillSource".into());
-    source_template.add_kind_of(crate::common::KindOf::Vehicle);
-    source_template.add_kind_of(crate::common::KindOf::Score);
-    let source = register_at(
-        crate::object::Object::new_test_from_template(source_id, 100.0, Arc::new(source_template)),
-        source_id,
-        0.0,
-    );
-    source
-        .write()
-        .unwrap()
-        .set_team(Some(team))
-        .expect("assign playable source team");
-    let target = register_at(
-        crate::object::Object::new_test(target_id, 100.0),
-        target_id,
-        40.0,
-    );
-    assert!(crate::object::registry::OBJECT_REGISTRY.contains(source_id));
-    assert!(crate::object::registry::OBJECT_REGISTRY.contains(target_id));
-    assert_eq!(
-        source.read().unwrap().get_controlling_player_id(),
-        Some(0),
-        "source must resolve to the playable owner used by the kill-score path"
-    );
-    let lost_before = player
-        .read()
-        .unwrap()
-        .get_score_keeper()
-        .get_total_units_lost();
-    let destroyed_before = player
-        .read()
-        .unwrap()
-        .get_score_keeper()
-        .get_total_units_destroyed();
+        let source = source.read().expect("source read lock");
+        assert!(
+            source.is_effectively_dead(),
+            "KILLS_SELF source with {} health must die after {damage} returned damage",
+            source.get_health()
+        );
+        assert_eq!(
+            source.get_health(),
+            0.0,
+            "self-kill must exhaust hull health"
+        );
+        assert_eq!(
+            source.get_last_death_type(),
+            Some(crate::damage::DeathType::Burned),
+            "self-kill must preserve the weapon's authored death type"
+        );
+        let expected_source_template = source.get_template().get_name().as_str().to_string();
+        let recorded_source_template = source
+            .get_last_damage_info()
+            .and_then(|info| info.input.source_template)
+            .map(|template| template.get_name().as_str().to_string());
+        assert_eq!(
+            recorded_source_template,
+            Some(expected_source_template),
+            "self-sourced damage must retain the actual source template"
+        );
+        drop(source);
+        let score = player.read().unwrap();
+        assert_eq!(
+            score.get_score_keeper().get_total_units_lost(),
+            lost_before + 1,
+            "self-kill must record exactly one playable owner loss"
+        );
+        assert_eq!(
+            score.get_score_keeper().get_total_units_destroyed(),
+            destroyed_before,
+            "self-kill must not award attacker destruction credit"
+        );
+        drop(score);
 
-    let mut weapon = create_test_weapon();
-    let template = Arc::make_mut(&mut weapon.template);
-    template.primary_damage = 100.0;
-    template.primary_damage_radius = 5.0;
-    template.secondary_damage = 0.0;
-    template.secondary_damage_radius = 30.0;
-    template.damage_type = DamageType::Flame;
-    template.death_type = crate::damage::DeathType::Burned;
-    template.affects_mask =
-        WeaponAffectsMask::new(WeaponAffectsMask::KILLS_SELF | WeaponAffectsMask::NEUTRALS);
-
-    // C++ Weapon.cpp:1438-1453 sets huge damage for KILLS_SELF after the
-    // secondary-radius hit is selected, regardless of its configured zero
-    // amount. Ordinary bystanders still receive zero secondary damage.
-    weapon
-        .deal_damage_internal(
-            source_id,
-            None,
-            &Coord3D::new(20.0, 0.0, 0.0),
-            &WeaponBonus::default(),
-            false,
-        )
-        .expect("apply radius damage");
-
-    let source = source.read().expect("source read lock");
-    assert!(source.is_effectively_dead(), "KILLS_SELF source must die");
-    assert_eq!(
-        source.get_health(),
-        0.0,
-        "self-kill must exhaust hull health"
-    );
-    assert_eq!(
-        source.get_last_death_type(),
-        Some(crate::damage::DeathType::Burned),
-        "self-kill must preserve the weapon's authored death type"
-    );
-    let expected_source_template = source.get_template().get_name().as_str().to_string();
-    let recorded_source_template = source
-        .get_last_damage_info()
-        .and_then(|info| info.input.source_template)
-        .map(|template| template.get_name().as_str().to_string());
-    assert_eq!(
-        recorded_source_template,
-        Some(expected_source_template),
-        "self-sourced damage must retain the actual source template"
-    );
-    drop(source);
-    let score = player.read().unwrap();
-    assert_eq!(
-        score.get_score_keeper().get_total_units_lost(),
-        lost_before + 1,
-        "self-kill must record exactly one playable owner loss"
-    );
-    assert_eq!(
-        score.get_score_keeper().get_total_units_destroyed(),
-        destroyed_before,
-        "self-kill must not award attacker destruction credit"
-    );
-    drop(score);
-
-    let target = target.read().expect("target read lock");
-    assert_eq!(
-        target.get_health(),
-        100.0,
-        "zero-secondary-damage bystander must remain unchanged"
-    );
-    assert!(!target.is_destroyed());
-    drop(target);
-
-    crate::object::registry::OBJECT_REGISTRY.clear();
+        let target = target.read().expect("target read lock");
+        assert_eq!(
+            target.get_health(),
+            100.0,
+            "zero-secondary-damage bystander must remain unchanged"
+        );
+        assert!(!target.is_destroyed());
+    });
 }
 
 #[test]

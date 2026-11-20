@@ -11,15 +11,19 @@ impl PartitionManager {
     ) -> Vec<ObjectId> {
         let center = CellCoord::from_world_pos(position);
         let max_radius = super::super::partition_coi::world_to_cell_dist(range.max(0.0));
+        let cell_size = f64::from(PARTITION_CELL_SIZE);
         let mut cells = self
             .cells
             .keys()
             .filter_map(|cell| {
                 let dx = cell.x - center.x;
                 let dy = cell.y - center.y;
-                let gap_x = f64::from((dx.abs() - 1).max(0));
-                let gap_y = f64::from((dy.abs() - 1).max(0));
-                let radius = (gap_x * gap_x + gap_y * gap_y).sqrt().ceil() as i32;
+                let gap_x = f64::from((dx.abs() - 1).max(0)) * cell_size;
+                let gap_y = f64::from((dy.abs() - 1).max(0)) * cell_size;
+                let gap = ((gap_x * gap_x + gap_y * gap_y) as f32).sqrt();
+                // calcMinRadius uses sqrtf before the original REAL_TO_INT_CEIL.
+                let radius =
+                    game_engine::base_type::real_to_int_ceil((f64::from(gap) / cell_size) as f32);
                 (range >= HUGE_DIST || radius <= max_radius).then_some((radius, dy, dx, *cell))
             })
             .collect::<Vec<_>>();
@@ -59,6 +63,8 @@ mod tests {
         for (coord, ids) in [
             (CellCoord { x: 0, y: 0 }, vec![90, 4]),
             (CellCoord { x: -1, y: -1 }, vec![71]),
+            (CellCoord { x: -2, y: -2 }, vec![6]),
+            (CellCoord { x: -2, y: -1 }, vec![15]),
             (CellCoord { x: 2, y: 0 }, vec![8]),
         ] {
             let mut cell = PartitionCell::new();
@@ -72,8 +78,15 @@ mod tests {
             [71, 4, 90]
         );
         assert_eq!(
+            partition.ordered_search_candidates(
+                &Coord3D::new(1.0, 1.0, 0.0),
+                PARTITION_CELL_SIZE - 1.0,
+            ),
+            [71, 4, 90]
+        );
+        assert_eq!(
             partition.ordered_search_candidates(&Coord3D::new(1.0, 1.0, 0.0), PARTITION_CELL_SIZE),
-            [71, 4, 90, 8]
+            [71, 4, 90, 6, 15, 8]
         );
         assert!(
             PartitionManager::new()
