@@ -5,6 +5,22 @@ use crate::command_executor::CommandExecutor;
 use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
 use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content_with_actions};
 use crate::save_load::SnapshotBuilder;
+use game_engine::common::system::DataChunkOutput;
+
+fn special_construct_minimal_map_bytes() -> Vec<u8> {
+    let mut map = DataChunkOutput::new();
+    map.open_data_chunk("HeightMapData", 3);
+    for value in [21, 21, 1, 441] {
+        map.write_int(value);
+    }
+    for _ in 0..441 {
+        map.write_byte(8);
+    }
+    map.close_data_chunk();
+    map.open_data_chunk("ObjectsList", 3);
+    map.close_data_chunk();
+    map.into_ckmp_bytes()
+}
 
 #[track_caller]
 fn command(world: &mut GameLogic, units: &[ObjectId], kind: CommandType) {
@@ -134,43 +150,57 @@ End
 }
 
 fn special_power_construct_world(power_name: &str) -> (GameLogic, ObjectId) {
+    const PLAYER_ID: u32 = 42;
+    let root = tempfile::tempdir().unwrap();
+    let map_path = root.path().join("SpecialConstruct.map");
+    std::fs::write(&map_path, special_construct_minimal_map_bytes()).unwrap();
     let mut world = GameLogic::new();
-    let mut player = Player::new(0, Team::GLA, "SpecialConstruct", true);
+    let enum_name = match power_name {
+        "SupW_SuperweaponNeutronMissile" => "SUPW_SPECIAL_NEUTRON_MISSILE",
+        "SupW_SuperweaponParticleUplinkCannon" => "SUPW_SPECIAL_PARTICLE_UPLINK_CANNON",
+        _ => panic!("unexpected fixture special power: {power_name}"),
+    };
+    let definitions = format!(
+        "SpecialPower {power_name}\n Enum = {enum_name}\n ReloadTime = 0\nEnd\n\
+         CommandButton SessionSpecialConstruct\n Command = SPECIAL_POWER_CONSTRUCT\n Object = SpecialConstructTarget\n SpecialPower = {power_name}\nEnd\n\
+         CommandSet SessionSpecialConstructSet\n 1 = SessionSpecialConstruct\nEnd\n\
+         Object SpecialConstructTarget\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody TargetBody\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n\
+         Object SpecialConstructProducer\n KindOf = STRUCTURE SELECTABLE IMMOBILE\n CommandSet = SessionSpecialConstructSet\n Body = ActiveBody ProducerBody\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = ProductionUpdate ProducerProduction\n End\nEnd\n"
+    );
+    let (map_ini, object_ini) = definitions
+        .split_once("Object SpecialConstructTarget\n")
+        .expect("fixture object definitions split from map actions");
+    std::fs::write(root.path().join("Map.ini"), map_ini).unwrap();
+    world
+        .admit_object_ini_sources([(
+            "Object.ini".into(),
+            format!("Object SpecialConstructTarget\n{object_ini}"),
+        )])
+        .unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
+    assert!(world.load_map(map_path.to_str().unwrap()));
+    let mut player = Player::new(PLAYER_ID, Team::GLA, "SpecialConstruct", true);
     player.resources.supplies = 10_000;
     player.power_available = 100;
     player.resources.power = 100;
     world.add_player(player);
-
-    let mut producer_template = ThingTemplate::new("SpecialConstructProducer");
-    producer_template
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Immobile)
-        .set_health(1000.0);
-    producer_template.always_visible = true;
-    world
-        .templates
-        .insert(producer_template.name.clone(), producer_template);
-    let mut target = ThingTemplate::new("SpecialConstructTarget");
-    target
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(1000.0);
-    target.always_visible = true;
-    world.templates.insert(target.name.clone(), target);
-
-    world
-        .admit_fixture_command_action_source(&format!(
-            "CommandButton SessionSpecialConstruct\n Command = SPECIAL_POWER_CONSTRUCT\n Object = SpecialConstructTarget\n SpecialPower = {power_name}\nEnd\nCommandSet SessionSpecialConstructSet\n 1 = SessionSpecialConstruct\nEnd\n"
-        ))
-        .unwrap();
     let producer = world
-        .create_object_for_player("SpecialConstructProducer", 0, Vec3::new(20.0, 0.0, 20.0))
+        .create_object_for_player(
+            "SpecialConstructProducer",
+            PLAYER_ID,
+            Vec3::new(20.0, 0.0, 20.0),
+        )
         .unwrap();
+    let power_type = match enum_name {
+        "SUPW_SPECIAL_NEUTRON_MISSILE" => {
+            crate::command_system::SpecialPowerType::SuperweaponNeutronMissile
+        }
+        _ => crate::command_system::SpecialPowerType::SuperweaponParticleCannon,
+    };
     world
         .host_object_mut(producer)
         .unwrap()
-        .command_set_override = Some("SessionSpecialConstructSet".into());
+        .set_special_power_ready_seconds(&power_type, 0.0);
     (world, producer)
 }
 
