@@ -141,7 +141,11 @@ impl WgpuPipelineManager {
             VertexFormat::Line => include_str!("../shader_system/line.wgsl").into(),
             VertexFormat::Skinned => include_str!("../shader_system/skinned.wgsl").into(),
             VertexFormat::ProjectedShroudSkinned => {
-                include_str!("../shader_system/projected_shroud_skinned.wgsl").into()
+                concat!(
+                    include_str!("../shader_system/projected_shroud_skinned.wgsl"),
+                    include_str!("../shader_system/projected_shroud_fragment.wgsl"),
+                )
+                .into()
             }
             VertexFormat::Basic => {
                 if shader.get_src_blend_func() == SrcBlendFuncType::SrcAlpha
@@ -161,7 +165,11 @@ impl WgpuPipelineManager {
                 }
             }
             VertexFormat::ProjectedShroudBasic => {
-                include_str!("../shader_system/projected_shroud_basic.wgsl").into()
+                concat!(
+                    include_str!("../shader_system/projected_shroud_basic.wgsl"),
+                    include_str!("../shader_system/projected_shroud_fragment.wgsl"),
+                )
+                .into()
             }
         };
         // C++ parity: W3D applies the alpha test only when the ShaderClass
@@ -683,15 +691,61 @@ mod tests {
         );
     }
 
-    /// Render one projected pass into a one-pixel target and read it back.
-    ///
-    /// This is intentionally a tiny, renderer-owned target rather than a
-    /// The real mesh-to-shroud transition multiplies the destination by the
-    /// frozen R8 level with the ordinary material still bound at its slot.
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     #[ignore = "requires a native GPU adapter"]
     fn projected_shroud_headless_target_is_multiplied_by_frozen_level() {
+        let rigid = read_projected_shroud_pixels(false, [255; 3]);
+        let skinned = read_projected_shroud_pixels(true, [255; 3]);
+        let dark = [102, 51, 26, 255];
+        let midpoint = [153, 77, 38, 255];
+        let clear = [204, 102, 51, 255];
+        eprintln!("default-white shroud {rigid:?}");
+        assert_eq!(rigid, skinned);
+        assert_projected_shroud_pixels(rigid, [dark, dark, midpoint, clear, clear]);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "requires a native GPU adapter"]
+    fn projected_shroud_rigid_filters_authored_tint_before_sampling() {
+        check_tinted_projected_shroud(false);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "requires a native GPU adapter"]
+    fn projected_shroud_skinned_filters_authored_tint_before_sampling() {
+        check_tinted_projected_shroud(true);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn check_tinted_projected_shroud(skinned: bool) {
+        let pixels = read_projected_shroud_pixels(skinned, [64, 128, 192]);
+        // C++ W3DShroud writes the authored RGB factor into each fogged texel and
+        // stores white for a clear texel. Compare against decoded RGB565
+        // at both texel centers, the midpoint, and the clamped edges.
+        let dark = [26, 26, 20, 255];
+        let midpoint = [115, 64, 35, 255];
+        let clear = [204, 102, 51, 255];
+        eprintln!("authored-tint shroud (skinned={skinned}) {pixels:?}");
+        assert_projected_shroud_pixels(pixels, [dark, dark, midpoint, clear, clear]);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn assert_projected_shroud_pixels(actual: [[u8; 4]; 5], expected: [[u8; 4]; 5]) {
+        for (actual, expected) in actual.into_iter().zip(expected) {
+            assert!(
+                actual.into_iter().zip(expected).all(|(a, b)| a.abs_diff(b) <= 1),
+                "projected pass color {actual:?}, expected {expected:?}"
+            );
+        }
+    }
+
+    // Object material bindings above the projected pass prefix remain active,
+    // just as in the real mesh-to-projected-shroud transition.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn read_projected_shroud_pixels(skinned: bool, tint: [u8; 3]) -> [[u8; 4]; 5] {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
         let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
             .expect("native shroud regression GPU adapter");
@@ -712,14 +766,19 @@ mod tests {
         let gpu = Arc::new(GpuDevice::from_shared(device.clone(), queue.clone()));
         let mut manager = WgpuPipelineManager::new(gpu);
         let shader = ProjectedShroudMaterialPassContract::CXX.shader();
+        let vertex_format = if skinned {
+            VertexFormat::ProjectedShroudSkinned
+        } else {
+            VertexFormat::ProjectedShroudBasic
+        };
         let pipeline = manager.get_or_create(
             &shader,
             0,
-            false,
+            skinned,
             false,
             false,
             wgpu::PrimitiveTopology::TriangleList,
-            VertexFormat::ProjectedShroudBasic,
+            vertex_format,
             wgpu::TextureFormat::Rgba8Unorm,
             Some(wgpu::TextureFormat::Depth32Float),
             0,
@@ -756,7 +815,7 @@ mod tests {
         let color = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("projected-shroud-color"),
             size: wgpu::Extent3d {
-                width: 1,
+                width: 5,
                 height: 1,
                 depth_or_array_layers: 1,
             },
@@ -771,7 +830,7 @@ mod tests {
         let depth = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("projected-shroud-depth"),
             size: wgpu::Extent3d {
-                width: 1,
+                width: 5,
                 height: 1,
                 depth_or_array_layers: 1,
             },
@@ -787,7 +846,7 @@ mod tests {
         let shroud = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("projected-shroud-r8"),
             size: wgpu::Extent3d {
-                width: 1,
+                width: 2,
                 height: 1,
                 depth_or_array_layers: 1,
             },
@@ -805,14 +864,14 @@ mod tests {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &[128],
+            &[128, 255],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(1),
+                bytes_per_row: Some(2),
                 rows_per_image: Some(1),
             },
             wgpu::Extent3d {
-                width: 1,
+                width: 2,
                 height: 1,
                 depth_or_array_layers: 1,
             },
@@ -856,8 +915,8 @@ mod tests {
             ..Default::default()
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 
@@ -876,8 +935,10 @@ mod tests {
             model[base + 10] = 1.0f32.to_bits();
             model[base + 15] = 1.0f32.to_bits();
         }
-        model[40..44].copy_from_slice(&[1.0f32, 1.0, 0.0, 0.0].map(f32::to_bits));
-        model[52..56].copy_from_slice(&[1.0f32, 1.0, 1.0, 1.0].map(f32::to_bits));
+        // Across five pixels, U is [0, 0.25, 0.5, 0.75, 1].
+        model[40..44].copy_from_slice(&[0.625f32, 0.0, 0.5, 0.5].map(f32::to_bits));
+        model[52..55].copy_from_slice(&tint.map(|channel| (f32::from(channel) / 255.0).to_bits()));
+        model[55] = 1.0f32.to_bits();
         model[56..60].copy_from_slice(&[1.0f32, 1.0, 1.0, 0.0].map(f32::to_bits));
         let uv = [0u32; 16];
 
@@ -965,13 +1026,29 @@ mod tests {
                 },
             ],
         });
+        let bones = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("projected-shroud-identity-bone"),
+            contents: bytemuck::cast_slice(&model[..16]),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let uv_only = [wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uv_buffer.as_entire_binding(),
+        }];
+        let uv_and_bones = [
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: bones.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: uv_buffer.as_entire_binding(),
+            },
+        ];
         let uv_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("projected-shroud-uv-group"),
             layout: &pipeline.get_bind_group_layout(2),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uv_buffer.as_entire_binding(),
-            }],
+            entries: if skinned { &uv_and_bones } else { &uv_only },
         });
         let texture_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("projected-shroud-texture-group"),
@@ -1004,11 +1081,15 @@ mod tests {
             ],
         });
 
-        let mut vertices = Vec::with_capacity(3 * 14);
+        let mut vertices = Vec::with_capacity(3 * if skinned { 22 } else { 14 });
         for position in [[-1.0f32, -1.0, 0.5], [3.0, -1.0, 0.5], [-1.0, 3.0, 0.5]] {
             vertices.extend_from_slice(&position);
             vertices.extend_from_slice(&[0.0, 0.0, 1.0]);
             vertices.extend_from_slice(&[0.0; 8]);
+            if skinned {
+                vertices.extend_from_slice(&[0.0; 4]); // bone index 0 in each lane
+                vertices.extend_from_slice(&[1.0, 0.0, 0.0, 0.0]);
+            }
         }
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("projected-shroud-triangle"),
@@ -1084,7 +1165,7 @@ mod tests {
                 },
             },
             wgpu::Extent3d {
-                width: 1,
+                width: 5,
                 height: 1,
                 depth_or_array_layers: 1,
             },
@@ -1101,18 +1182,12 @@ mod tests {
             .expect("readback callback")
             .expect("readback map");
         let bytes = slice.get_mapped_range().expect("buffer map");
-        let expected = [102u8, 51u8, 26u8, 255u8];
-        assert!(
-            bytes[..4]
-                .iter()
-                .zip(expected)
-                .all(|(actual, expected)| (*actual as i16 - expected as i16).abs() <= 2),
-            "projected pass output {:?} did not multiply destination {:?}",
-            &bytes[..4],
-            expected
-        );
+        let pixels = std::array::from_fn(|index| {
+            bytes[index * 4..(index + 1) * 4].try_into().unwrap()
+        });
         drop(bytes);
         readback.unmap();
+        pixels
     }
 }
 

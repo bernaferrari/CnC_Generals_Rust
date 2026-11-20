@@ -637,13 +637,11 @@ fn projected_shroud_draw_is_after_authored_passes_for_rigid_and_skinned_meshes()
     assert!(source.contains("ProjectedShroudMaterialPassContract::CXX"));
     assert!(source.contains("create_projected_shroud_bind_group"));
 
-    let rigid = include_str!("../shader_system/projected_shroud_basic.wgsl");
+    let fragment = include_str!("../shader_system/projected_shroud_fragment.wgsl");
+    assert!(fragment.contains("world_position.xz"));
+    assert!(fragment.contains("textureSample(shroud_texture"));
+    assert!(fragment.contains("model.material_diffuse"));
     let skinned = include_str!("../shader_system/projected_shroud_skinned.wgsl");
-    for shader in [rigid, skinned] {
-        assert!(shader.contains("world_position.xz"));
-        assert!(shader.contains("textureSample(shroud_texture"));
-        assert!(shader.contains("model.material_diffuse"));
-    }
     // The skinned shroud shader declares `bones` as a bare
     // `array<mat4x4<f32>>` storage (indexed `bones[bone_index]`), not a
     // wrapper struct — assert that actual contract.

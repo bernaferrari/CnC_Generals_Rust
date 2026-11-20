@@ -48,12 +48,6 @@ var<uniform> model: ModelUniform;
 @group(2) @binding(0)
 var<uniform> uv_transform: UVTransformUniform;
 
-// Texture stage 0 is the immutable presentation-owned R8 shroud snapshot.
-@group(3) @binding(0)
-var shroud_texture: texture_2d<f32>;
-@group(3) @binding(2)
-var shroud_sampler: sampler;
-
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
@@ -75,18 +69,4 @@ fn vs_main(vertex: VertexInput) -> VertexOutput {
     out.clip_position = camera.view_proj * world;
     out.world_position = world.xyz;
     return out;
-}
-
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let projection = model.material_diffuse;
-    let uv = input.world_position.xz * projection.xy + projection.zw;
-    let level = textureSample(shroud_texture, shroud_sampler, uv).r;
-    let tint = model.material_overrides.rgb;
-
-    // W3DShroud::setShroudLevel forces a level of 255 to white, while all
-    // other levels are level * GlobalData::m_shroudColor.  The R8 snapshot
-    // carries the level and the frozen tint separately.
-    let factor = select(level * tint, vec3<f32>(1.0), level >= (254.5 / 255.0));
-    return vec4<f32>(factor, 1.0);
 }
