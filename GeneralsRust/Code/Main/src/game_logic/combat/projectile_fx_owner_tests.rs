@@ -193,7 +193,9 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
         module_path!(),
         "native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation",
         || {
-            for eligible in [false, true] {
+            for (eligible, intended_target) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
                 let mut owner = world();
                 admit_shake(&mut owner);
                 let building = ObjectId(2);
@@ -213,6 +215,7 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
                     "Bunker".into(),
                 );
                 bunker.set_position(pos);
+                bunker.template_mut().add_kind_of(crate::game_logic::KindOf::Structure);
                 bunker.template_mut().contain_module.kind =
                     crate::game_logic::ContainModuleKind::Garrison;
                 bunker.template_mut().garrison_contain_max = Some(5);
@@ -232,9 +235,12 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
                     1.,
                     DamageType::Unresistable,
                     ObjectId(800),
-                    Some(building),
+                    intended_target.then_some(building),
                 );
                 p.speed = 0.;
+                p.projectile_collides =
+                    crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_STRUCTURES
+                        | crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES;
                 p.flight = Some(HostProjectileFlight::Dumb(HostDumbProjectileFlight {
                     garrison_hit_kill_count: if eligible { 1 } else { 0 },
                     garrison_hit_kill_fx: "FX_ReceivingProjectile".into(),

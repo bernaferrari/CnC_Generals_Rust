@@ -880,16 +880,6 @@ mod tests {
         assert!((t.y - 30.0).abs() < f32::EPSILON);
         assert!((t.z - 20.0).abs() < f32::EPSILON);
     }
-
-    #[test]
-    fn garrison_hit_kill_fx_uses_do_fx_obj_on_building() {
-        // The two collision branches moved with the actual flight step;
-        // resolution owns only the shared doFXObj helper.
-
-        let mut windows = 0usize;
-
-        assert_eq!(windows, 2, "structure and target garrison paths");
-    }
 }
 
 #[cfg(test)]
@@ -897,7 +887,7 @@ mod emission_player_owner_tests {
     use super::*;
     use crate::game_logic::{GameLogic, ObjectId, Player, Team, ThingTemplate};
     use gamelogic::common::types::ObjectShroudStatus;
-    fn world(status: ObjectShroudStatus) -> (GameLogic, ObjectId) {
+    fn world(status: ObjectShroudStatus, position: Vec3) -> (GameLogic, ObjectId) {
         let mut world = GameLogic::new();
         world.add_player(Player::new(1, Team::USA, "SameLocal", true));
         let template = ThingTemplate::new("FxEmissionPlayerOwnerProbe");
@@ -906,7 +896,7 @@ mod emission_player_owner_tests {
             .create_object(
                 "FxEmissionPlayerOwnerProbe",
                 Team::USA,
-                Vec3::new(11.0, 0.0, 22.0),
+                position,
             )
             .unwrap();
         world.host_object_mut(id).unwrap().owner_player_id = Some(1);
@@ -916,19 +906,15 @@ mod emission_player_owner_tests {
         drop(shroud);
         (world, id)
     }
-    fn emit(world: &mut GameLogic, id: ObjectId) -> gamelogic::helpers::HostFxObjectPose {
-        world.spawn_emp_sparks_on_victim(id, 30, &mut ());
-        gamelogic::helpers::host_fx_object_pose(id.0)
-            .expect("actual particle create publishes its attachment pose")
-    }
     #[test]
     fn standalone_pose_publication_borrows_receiving_shroud_for_same_id_worlds() {
         crate::game_logic::game_logic::pose_owner_tests::isolated_at(
             module_path!(),
             "standalone_pose_publication_borrows_receiving_shroud_for_same_id_worlds",
             || {
-                let (source, id) = world(ObjectShroudStatus::Clear);
-                let (peer, peer_id) = world(ObjectShroudStatus::Fogged);
+                let position = Vec3::new(11., 0., 22.);
+                let (source, id) = world(ObjectShroudStatus::Clear, position);
+                let (peer, peer_id) = world(ObjectShroudStatus::Fogged, position);
                 assert_eq!(id, peer_id);
 
                 let publish = |world: &GameLogic| {
@@ -949,52 +935,138 @@ mod emission_player_owner_tests {
     }
 
     #[test]
+    #[cfg(feature = "game_client")]
     fn actual_emp_attachment_observes_each_receiving_world_and_encoded_restore() {
+        use crate::game_logic::CombatParticleKind;
+        use game_client::effects::particle_manager::GameClientRandomVariable;
+        use game_client::effects::{ParticleSystemManager, ParticleSystemTemplate};
+        use std::sync::Arc;
+
+        fn particles() -> ParticleSystemManager {
+            let name = crate::game_logic::host_emp_pulse::EMP_SPHEROID_DISABLE_FX;
+            let mut manager = ParticleSystemManager::new();
+            let mut template = ParticleSystemTemplate::new(name.to_string());
+            template.info_mut().burst_count = GameClientRandomVariable::new(0., 0.);
+            manager.register_template(Arc::new(template));
+            manager.finish_definition_admission();
+            manager
+        }
+
+        fn emit(
+            world: &mut GameLogic,
+            particles: &mut ParticleSystemManager,
+            id: ObjectId,
+        ) -> (u32, Vec3) {
+            world.spawn_emp_sparks_on_victim(id, 300, particles);
+            let entry = world
+                .combat_particles()
+                .systems_of_kind(CombatParticleKind::DisableFx)
+                .into_iter()
+                .filter(|entry| entry.source_object == Some(id))
+                .min_by_key(|entry| entry.id)
+                .expect("EMPUpdate created a spark on its victim");
+            let client = entry.client_system_id.expect("receiving spark binding");
+            particles.find_particle_system_mut(client).unwrap().set_initial_delay(0);
+            let offset = entry.attach_offset;
+            (client, Vec3::new(offset.x, offset.z, offset.y))
+        }
+
+        fn observe(
+            world: &mut GameLogic,
+            particles: &mut ParticleSystemManager,
+            id: ObjectId,
+            client: u32,
+            frame: u32,
+        ) -> (Vec3, bool) {
+            world.with_native_particle_object_lifecycle(|lifecycle, _, _| {
+                particles.update_with_object_lifecycle(1, frame, frame, lifecycle);
+            });
+            let system = particles.find_particle_system(client).unwrap();
+            assert_eq!(system.attached_object(), Some(id.0));
+            (system.position(), system.is_shrouded())
+        }
+
         crate::game_logic::game_logic::pose_owner_tests::isolated_at(
             module_path!(),
             "actual_emp_attachment_observes_each_receiving_world_and_encoded_restore",
             || {
-                let (mut source, id) = world(ObjectShroudStatus::Clear);
-                let (mut peer, peer_id) = world(ObjectShroudStatus::Fogged);
+                let position = Vec3::new(11., 0., 22.);
+                let (mut source, id) = world(ObjectShroudStatus::Clear, position);
+                let (mut peer, peer_id) = world(ObjectShroudStatus::Fogged, Vec3::new(31., 4., 42.));
                 assert_eq!(id, peer_id);
-                {
-                    let __arc_bind = gamelogic::player::ThePlayerList();
+                let mut source_particles = particles();
+                let mut peer_particles = particles();
+                let (client, offset) = emit(&mut source, &mut source_particles, id);
+                let (peer_client, peer_offset) = emit(&mut peer, &mut peer_particles, peer_id);
+                assert_eq!(client, peer_client);
+                let source_position = Vec3::new(11., 22., 0.) + offset;
+                let peer_position = Vec3::new(31., 42., 4.) + peer_offset;
+                assert_eq!(
+                    observe(&mut source, &mut source_particles, id, client, 1),
+                    (source_position, false),
+                );
+                assert_eq!(
+                    observe(&mut peer, &mut peer_particles, id, client, 1),
+                    (peer_position, true),
+                );
 
-                    let mut foreign = __arc_bind.write().unwrap();
-                    foreign.clear();
-                    foreign.set_local_player_index(77);
-                }
-                assert!(!emit(&mut source, id).is_shrouded);
-                assert!(emit(&mut peer, id).is_shrouded);
-                // A change immediately before another emission must be visible in that operation.
                 source
                     .world_services
                     .shroud()
                     .lock()
                     .unwrap()
                     .set_host_object_shroud_status(1, id.0, ObjectShroudStatus::Shrouded);
-                assert!(emit(&mut source, id).is_shrouded);
+                assert_eq!(
+                    observe(&mut source, &mut source_particles, id, client, 2),
+                    (source_position, true),
+                );
                 source
                     .world_services
                     .shroud()
                     .lock()
                     .unwrap()
                     .set_host_object_shroud_status(1, id.0, ObjectShroudStatus::Clear);
-                assert!(!emit(&mut source, id).is_shrouded);
+                assert_eq!(
+                    observe(&mut source, &mut source_particles, id, client, 3),
+                    (source_position, false),
+                );
                 let builder = crate::save_load::SnapshotBuilder::new();
                 let saved = builder.create_world_snapshot(&source).unwrap();
                 let bytes = bincode_legacy::serialize(&saved).unwrap();
                 let saved = crate::save_load::decode_bincode_world_snapshot(&bytes).unwrap();
-                let (mut restored, prepared_id) = world(ObjectShroudStatus::Clear);
+                let client_bytes = source_particles.capture_xfer_bytes().unwrap();
+                let (mut restored, prepared_id) = world(ObjectShroudStatus::Clear, position);
                 assert_eq!(prepared_id, id);
                 restored.templates = source.templates.clone();
                 builder
                     .restore_from_snapshot(&saved, &mut restored)
                     .unwrap();
-                assert!(!emit(&mut restored, id).is_shrouded);
+                let mut restored_particles = particles();
+                let receipt = restored_particles
+                    .restore_xfer_bytes(&client_bytes)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    restored
+                        .combat_particles_mut()
+                        .adopt_loaded_client_systems(&restored_particles, &receipt)
+                        .unwrap(),
+                    source_particles.system_count(),
+                );
+                peer.combat_particles_mut()
+                    .clear_with_client_manager_checked(&mut peer_particles)
+                    .unwrap();
                 peer.reset();
-                assert!(!emit(&mut source, id).is_shrouded);
-                assert!(!emit(&mut restored, id).is_shrouded);
+                assert_eq!(peer.combat_particles().active_count(), 0);
+                assert!(peer_particles.find_particle_system(peer_client).unwrap().is_destroyed());
+                assert_eq!(
+                    observe(&mut source, &mut source_particles, id, client, 4),
+                    (source_position, false),
+                );
+                assert_eq!(
+                    observe(&mut restored, &mut restored_particles, id, client, 4),
+                    (source_position, false),
+                );
             },
         );
     }
