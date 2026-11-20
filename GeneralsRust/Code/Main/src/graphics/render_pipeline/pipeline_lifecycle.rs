@@ -66,6 +66,7 @@ impl RenderPipeline {
             camera_fade_resources: Default::default(),
             #[cfg(feature = "game_client")]
             selection_renderer_cache: Default::default(),
+            occlusion_overlay_pipeline: None,
             minimap_renderer: None, // Will be initialized when needed
             minimap_base_needs_refresh: false,
             heightmap_path_hint: None,

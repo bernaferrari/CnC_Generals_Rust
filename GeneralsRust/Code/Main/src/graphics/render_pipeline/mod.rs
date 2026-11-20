@@ -698,6 +698,9 @@ pub struct RenderPipeline {
     /// Frame callbacks clone the Arc so in-flight draws retain their resources.
     selection_renderer_cache: crate::graphics::selection_renderer::SelectionRendererCache,
 
+    pub(super) occlusion_overlay_pipeline:
+        Option<Arc<crate::graphics::occlusion_bridge::OcclusionOverlayPipeline>>,
+
     // Minimap FOW renderer
     minimap_renderer: Option<MinimapTextureRenderer>,
     minimap_base_needs_refresh: bool,

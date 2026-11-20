@@ -232,45 +232,36 @@ fn fs_main(@location(0) vertex_color: vec4<f32>) -> @location(0) vec4<f32> {
 }
 ";
 
-struct OcclusionOverlayRenderer {
+/// Device-specific immutable resources shared by this pipeline's occlusion draws.
+pub(super) struct OcclusionOverlayPipeline {
     device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    depth_format: wgpu::TextureFormat,
+    uniform_bind_group_layout: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
-    uniform_buffer: wgpu::Buffer,
-    uniform_bind_group: wgpu::BindGroup,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. Every field is a wgpu handle (`Arc<Device>`,
-// `Arc<Queue>`, `RenderPipeline`, `Buffer`, `BindGroup`), `Rc`-backed and
-// `!Send`/`!Sync` on the web backend — but wasm32 has no threads, so they can
-// never cross a thread boundary. The impl only satisfies the bounds of the
-// cached global owning the renderer. Native keeps the auto traits.
-unsafe impl Send for OcclusionOverlayRenderer {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&OcclusionOverlayRenderer` is never accessed from two threads and the
-// handles' `!Sync` default is unreachable.
-unsafe impl Sync for OcclusionOverlayRenderer {}
+impl OcclusionOverlayPipeline {
+    fn get_or_create(
+        cached: &mut Option<Arc<Self>>,
+        device: Arc<wgpu::Device>,
+        depth_format: wgpu::TextureFormat,
+    ) -> Arc<Self> {
+        if let Some(pipeline) = cached
+            && Arc::ptr_eq(&pipeline.device, &device)
+            && pipeline.depth_format == depth_format
+        {
+            return Arc::clone(pipeline);
+        }
 
-impl OcclusionOverlayRenderer {
-    fn new(engine: &ww3d_engine::SharedEngine) -> Option<Self> {
-        let eng = engine.lock();
-        let device = eng.device();
-        let queue = eng.queue();
-        let depth_format = eng
-            .depth_format()
-            .unwrap_or(ww3d_gpu::SCENE_DEPTH_FORMAT);
+        let pipeline = Arc::new(Self::new(device, depth_format));
+        *cached = Some(Arc::clone(&pipeline));
+        pipeline
+    }
 
+    fn new(device: Arc<wgpu::Device>, depth_format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("occluded_player_color_shader"),
             source: wgpu::ShaderSource::Wgsl(OVERLAY_SHADER.into()),
-        });
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("occluded_player_view_proj_ubo"),
-            size: 64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
         });
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -286,14 +277,6 @@ impl OcclusionOverlayRenderer {
                     count: None,
                 }],
             });
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("occluded_player_uniform_bg"),
-            layout: &uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("occluded_player_pipeline_layout"),
             bind_group_layouts: &[Some(&uniform_bind_group_layout)],
@@ -355,13 +338,46 @@ impl OcclusionOverlayRenderer {
             multiview_mask: None,
             cache: None,
         });
-        Some(Self {
+        Self {
             device,
-            queue,
+            depth_format,
+            uniform_bind_group_layout,
             pipeline,
+        }
+    }
+}
+
+struct OcclusionOverlayDraw {
+    gpu: Arc<OcclusionOverlayPipeline>,
+    queue: Arc<wgpu::Queue>,
+    uniform_buffer: wgpu::Buffer,
+    uniform_bind_group: wgpu::BindGroup,
+}
+
+impl OcclusionOverlayDraw {
+    fn new(gpu: Arc<OcclusionOverlayPipeline>, queue: Arc<wgpu::Queue>) -> Self {
+        // Multiple views queued for one submission must have separate uniforms.
+        let device = &gpu.device;
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("occluded_player_view_proj_ubo"),
+            size: 64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("occluded_player_uniform_bg"),
+            layout: &gpu.uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+        Self {
+            gpu,
+            queue,
             uniform_buffer,
             uniform_bind_group,
-        })
+        }
     }
 
     fn draw(
@@ -393,13 +409,14 @@ impl OcclusionOverlayRenderer {
             return;
         }
         let vertex_buffer = self
+            .gpu
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("occluded_player_color_verts"),
                 contents: bytemuck::cast_slice(&vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_pipeline(&self.gpu.pipeline);
         render_pass.set_bind_group(0, Some(&self.uniform_bind_group), &[]);
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         render_pass.draw(0..(vertices.len() / 7) as u32, 0..1);
@@ -458,21 +475,40 @@ pub fn enqueue_occluded_player_color_pass(
     let Some(frame) = presentation else {
         return;
     };
-    let mut overlays = classify_from_presentation(camera_position, frame);
+    let overlays = classify_from_presentation(camera_position, frame);
     if overlays.is_empty() {
         return;
     }
-    let engine = pipeline.forward_pass.renderer.engine.clone();
-    let Some(renderer) = OcclusionOverlayRenderer::new(&engine) else {
-        return;
+    let (device, queue, depth_format) = {
+        let engine = pipeline.forward_pass.renderer.engine.lock();
+        (
+            engine.device(),
+            engine.queue(),
+            engine
+                .depth_format()
+                .unwrap_or(ww3d_gpu::SCENE_DEPTH_FORMAT),
+        )
     };
-    let renderer = Arc::new(renderer);
+    let gpu = OcclusionOverlayPipeline::get_or_create(
+        &mut pipeline.occlusion_overlay_pipeline,
+        device,
+        depth_format,
+    );
+    let draw = OcclusionOverlayDraw::new(gpu, queue);
     let view_proj = *projection_matrix * *view_matrix;
-    pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::OccludedStencil, move |gpu_frame| {
-        // The occlusion overlay shares the frame's scene pass (plan R12).
-        renderer.draw(gpu_frame.scene_pass(), &view_proj, camera_position, &overlays);
-        Ok(())
-    });
+    pipeline.enqueue_frame_work(
+        ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::OccludedStencil,
+        move |gpu_frame| {
+            // The occlusion overlay shares the frame's scene pass (plan R12).
+            draw.draw(
+                gpu_frame.scene_pass(),
+                &view_proj,
+                camera_position,
+                &overlays,
+            );
+            Ok(())
+        },
+    );
 }
 
 #[cfg(test)]
