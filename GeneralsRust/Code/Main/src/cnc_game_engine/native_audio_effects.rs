@@ -34,15 +34,16 @@ impl<'a> NativeAudioService<'a> {
         &mut self,
         observation: game_engine::common::audio::game_audio::AudioViewObservation,
         visible: &mut dyn FnMut(&game_engine::common::audio::audio_event_rts::Coord3D) -> bool,
-        objects: &[(
+        lookup: impl FnMut(
             u32,
-            std::sync::Weak<()>,
+            &std::sync::Weak<()>,
+        ) -> Option<(
             game_engine::common::audio::audio_event_rts::Coord3D,
             i32,
-        )],
+        )>,
     ) {
         if let Ok(mut device) = self.device.lock() {
-            device.refresh_receiving_object_audio_positions(self.receipts, objects);
+            device.refresh_receiving_object_audio_positions(self.receipts, lookup);
             device.update_with_view(observation, visible);
         }
     }

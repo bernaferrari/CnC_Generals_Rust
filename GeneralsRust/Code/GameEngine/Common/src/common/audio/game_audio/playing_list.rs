@@ -48,15 +48,14 @@ impl AudioManager {
         }
     }
 
-    /// Advance attached object sounds from one receiving world's immutable
-    /// spatial snapshot. Handles are the receiving session's admission receipts;
-    /// same numeric object IDs in another world cannot update these events.
+    /// Advance attached sounds by borrowing only the objects their owner
+    /// admitted. The lookup validates both the numeric ID and its lifetime.
     pub fn refresh_receiving_object_audio_positions(
         &mut self,
         receipts: &[AudioHandle],
-        objects: &[(ObjectId, Weak<()>, Coord3D, Int)],
+        mut lookup: impl FnMut(ObjectId, &Weak<()>) -> Option<(Coord3D, Int)>,
     ) {
-        let refresh = |event: &mut AudioEventRts| {
+        let mut refresh = |event: &mut AudioEventRts| {
             if !receipts.contains(&event.get_playing_handle())
                 || event.owner_type != super::super::audio_event_rts::OwnerType::Object
             {
@@ -65,13 +64,9 @@ impl AudioManager {
             let Some(identity) = event.receiving_object_identity.as_ref() else {
                 return;
             };
-            if let Some((_, _, position, player_index)) =
-                objects.iter().find(|(id, candidate, _, _)| {
-                    *id == event.object_id && Weak::ptr_eq(identity, candidate)
-                })
-            {
-                event.position_of_audio = *position;
-                event.player_index = *player_index;
+            if let Some((position, player_index)) = lookup(event.object_id, identity) {
+                event.position_of_audio = position;
+                event.player_index = player_index;
             } else {
                 // The admitted lifetime left this world or its ID was reused.
                 // Preserve the last observed point, as C++ attached audio does.

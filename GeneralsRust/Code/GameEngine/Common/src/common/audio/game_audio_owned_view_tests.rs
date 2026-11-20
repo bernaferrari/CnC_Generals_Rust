@@ -24,6 +24,7 @@ fn attached_receipts_refresh_moving_positions_from_their_receiving_object_birth(
     ) {
         return;
     }
+    let _services = crate::common::common_services::CommonServicesScope::new();
     assert!(
         crate::common::audio::audio_event_rts::register_audio_event_owner_resolver(Arc::new(
             ForeignAttachedAudioOwner
@@ -72,10 +73,12 @@ fn attached_receipts_refresh_moving_positions_from_their_receiving_object_birth(
         y: 120.,
         z: 130.,
     };
-    manager.refresh_receiving_object_audio_positions(
-        &[1001],
-        &[(77, Arc::downgrade(&owner_birth), owner_position, 6)],
-    );
+    let owner_identity = Arc::downgrade(&owner_birth);
+    manager.refresh_receiving_object_audio_positions(&[1001], |id, birth| {
+        assert_eq!(id, 77);
+        assert!(Weak::ptr_eq(birth, &owner_identity));
+        Some((owner_position, 6))
+    });
     assert_eq!(
         miles_event_world_position(manager.active_audio_events.get(&1001).unwrap()),
         owner_position,
@@ -130,10 +133,12 @@ fn attached_receipts_refresh_moving_positions_from_their_receiving_object_birth(
         y: -120.,
         z: -130.,
     };
-    manager.refresh_receiving_object_audio_positions(
-        &[1002],
-        &[(77, Arc::downgrade(&peer_birth), peer_position, 9)],
-    );
+    let peer_identity = Arc::downgrade(&peer_birth);
+    manager.refresh_receiving_object_audio_positions(&[1002], |id, birth| {
+        assert_eq!(id, 77);
+        assert!(Weak::ptr_eq(birth, &peer_identity));
+        Some((peer_position, 9))
+    });
     assert_eq!(
         miles_event_world_position(manager.active_audio_events.get(&1002).unwrap()),
         peer_position,
@@ -149,10 +154,10 @@ fn attached_receipts_refresh_moving_positions_from_their_receiving_object_birth(
     );
 
     let replacement_birth = Arc::new(());
-    manager.refresh_receiving_object_audio_positions(
-        &[1001],
-        &[(77, Arc::downgrade(&replacement_birth), Coord3D::ZERO, 10)],
-    );
+    let replacement_identity = Arc::downgrade(&replacement_birth);
+    manager.refresh_receiving_object_audio_positions(&[1001], |id, birth| {
+        (id == 77 && Weak::ptr_eq(birth, &replacement_identity)).then_some((Coord3D::ZERO, 10))
+    });
     let retired = manager.active_audio_events.get_mut(&1001).unwrap();
     assert!(retired.is_dead(), "ID reuse retires the old attached event");
     assert_eq!(
