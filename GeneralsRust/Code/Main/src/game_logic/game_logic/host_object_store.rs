@@ -9,7 +9,8 @@ mod registered_order;
 
 #[derive(Debug, Default)]
 pub struct HostObjectStore {
-    map: game_engine::common::fast_hash::FxHashMap<ObjectId, Object>,
+    // Keep the ID table compact and retire each Object in its original allocation.
+    map: game_engine::common::fast_hash::FxHashMap<ObjectId, Box<Object>>,
     registration_order: Vec<ObjectId>,
     // A mutable Object loan can change weapon or passenger observations even
     // during input/script work with no advancement of the simulation frame.
@@ -74,7 +75,7 @@ impl HostObjectStore {
     /// ignores reset's ordinary-ID-lookup mask so internal Object lifecycle
     /// callbacks can keep operating on the linked teardown roster.
     pub(crate) fn get(&self, id: &ObjectId) -> Option<&Object> {
-        self.map.get(id)
+        self.map.get(id).map(Box::as_ref)
     }
 
     /// Random access to the linked Object list, including during lookup reset.
@@ -83,7 +84,7 @@ impl HostObjectStore {
         if self.has_unregistered_lookup() && !self.registration_order.contains(id) {
             return None;
         }
-        Some(object)
+        Some(object.as_ref())
     }
 
     pub fn lookup(&self, id: &ObjectId) -> Option<&Object> {
@@ -94,7 +95,7 @@ impl HostObjectStore {
         {
             None
         } else {
-            self.map.get(id)
+            self.get(id)
         }
     }
 
@@ -150,7 +151,7 @@ impl HostObjectStore {
     }
 
     /// Internal storage operation; callers must validate the new lifetime first.
-    pub(crate) fn admit(&mut self, id: ObjectId, object: Object) -> Option<Object> {
+    pub(crate) fn admit(&mut self, id: ObjectId, object: Object) {
         #[cfg(feature = "game_client")]
         assert!(
             object.jet_ai.lockon_runtime.is_none(),
@@ -165,7 +166,7 @@ impl HostObjectStore {
         if let Some(hidden) = self.ordinary_lookup_hidden_ids.as_mut() {
             hidden.remove(&id);
         }
-        self.map.insert(id, object)
+        self.map.insert(id, Box::new(object));
     }
 
     /// Fixture-only permissive insertion; production births use checked admission.
@@ -176,10 +177,15 @@ impl HostObjectStore {
         if !self.map.contains_key(&id) {
             self.registration_order.insert(0, id);
         }
-        self.map.insert(id, object)
+        self.map.insert(id, Box::new(object)).map(|object| *object)
     }
 
+    #[cfg(test)]
     pub(crate) fn remove(&mut self, id: &ObjectId) -> Option<Object> {
+        self.remove_owned(id).map(|object| *object)
+    }
+
+    pub(crate) fn remove_owned(&mut self, id: &ObjectId) -> Option<Box<Object>> {
         let object = self.map.remove(id)?;
         self.mark_objects_mutably_accessed();
         self.registration_order.retain(|existing| existing != id);
@@ -205,7 +211,7 @@ impl HostObjectStore {
             .map(|failure| failure.object.as_ref())
     }
 
-    pub(crate) fn retain_failed_retirement(&mut self, object: Object, reason: String) {
+    pub(crate) fn retain_failed_retirement(&mut self, object: Box<Object>, reason: String) {
         assert!(
             self.failed_retirement.is_none(),
             "a failed retirement is terminal"
@@ -214,17 +220,14 @@ impl HostObjectStore {
             !self.map.contains_key(&object.id),
             "a retiring Object is not live"
         );
-        self.failed_retirement = Some(FailedObjectRetirement {
-            object: Box::new(object),
-            reason,
-        });
+        self.failed_retirement = Some(FailedObjectRetirement { object, reason });
     }
 
     /// Mutable stable owner storage access; ordinary ID resolution must use
     /// `lookup_mut` so reset callback visibility follows C++ `m_objVector`.
     pub(crate) fn get_mut(&mut self, id: &ObjectId) -> Option<&mut Object> {
         self.mark_objects_mutably_accessed();
-        self.map.get_mut(id)
+        self.map.get_mut(id).map(Box::as_mut)
     }
 
     pub(crate) fn lookup_mut(&mut self, id: &ObjectId) -> Option<&mut Object> {
@@ -246,7 +249,7 @@ impl HostObjectStore {
         keys: [&ObjectId; N],
     ) -> [Option<&mut Object>; N] {
         self.mark_objects_mutably_accessed();
-        self.map.get_disjoint_mut(keys)
+        self.map.get_disjoint_mut(keys).map(|object| object.map(Box::as_mut))
     }
 }
 
@@ -329,6 +332,24 @@ mod tests {
         assert!(store.ordered_ids().is_empty());
         store.insert(ObjectId(90), object(90));
         assert_eq!(store.ordered_ids(), &[ObjectId(90)]);
+    }
+
+    #[test]
+    fn retirement_keeps_the_object_allocation_through_index_growth() {
+        let mut store = HostObjectStore::new();
+        let original = ObjectId(2);
+        store.admit(original, object(original.0));
+        let actor = std::ptr::from_ref(store.get(&original).unwrap());
+        for id in 3..48 {
+            store.admit(ObjectId(id), object(id));
+        }
+
+        assert_eq!(actor, std::ptr::from_ref(store.get(&original).unwrap()));
+        let retired = store.remove_owned(&original).unwrap();
+        assert_eq!(actor, std::ptr::from_ref(retired.as_ref()));
+        assert!(store.lookup(&original).is_none());
+        assert_eq!(store.ordered_ids().first(), Some(&ObjectId(47)));
+        assert_eq!(store.ordered_ids().last(), Some(&ObjectId(3)));
     }
 
     #[test]
@@ -435,7 +456,8 @@ impl<'a> HostObjectRead<'a> {
                 self.store
                     .map
                     .get(id)
-                    .expect("registered Object missing from lookup"),
+                    .expect("registered Object missing from lookup")
+                    .as_ref(),
             )
         })
     }
@@ -502,7 +524,7 @@ impl HostObjectStore {
             actor: std::sync::Arc::downgrade(&object.visual_draw_identity_token),
         };
         self.mark_objects_mutably_accessed();
-        self.map.insert(object.id, object);
+        self.map.insert(object.id, Box::new(object));
         Ok(receipt)
     }
 
@@ -551,6 +573,7 @@ impl HostObjectStore {
     pub fn registered_mut(&mut self) -> impl Iterator<Item = (&ObjectId, &mut Object)> {
         self.mark_objects_mutably_accessed();
         registered_order::registered_mut(&mut self.map, &self.registration_order)
+            .map(|(id, object)| (id, object.as_mut()))
     }
 }
 

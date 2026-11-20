@@ -20,7 +20,7 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<Option<Object>> {
+    ) -> gamelogic::GameLogicResult<Option<Box<Object>>> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }
@@ -33,7 +33,7 @@ impl GameLogic {
         // RadarUpgrade::onDelete belongs to the still-installed phase. This
         // defensive admission is idempotent when onDelete already consumed it.
         self.remove_host_radar_provider(id);
-        let Some(mut object) = self.objects.remove(&id) else {
+        let Some(mut object) = self.objects.remove_owned(&id) else {
             return Ok(None);
         };
         // Object::~Object first removes its pathfinder entries after unlinking.
