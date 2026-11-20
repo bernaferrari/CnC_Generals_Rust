@@ -533,14 +533,16 @@ impl MinefieldBehavior {
 
     /// MinefieldBehavior.cpp:515–534 uses the normal body damage path so
     /// AutoHeal sees the loss. The mine's own callback ignores this damage.
-    fn apply_disarm_damage(object: &mut GameObject) {
+    fn apply_disarm_damage(object: &mut GameObject) -> bool {
+        let prior_health = object.get_health();
         let mut damage = DamageInfo::with_simple(
-            object.get_health() - MIN_HEALTH,
+            prior_health - MIN_HEALTH,
             object.get_id(),
             DamageType::Unresistable,
             DeathType::None,
         );
         let _ = object.attempt_damage(&mut damage);
+        object.get_health() < prior_health
     }
 
     pub fn disarm(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1102,7 +1104,11 @@ impl MinefieldBehaviorModule {
 
     /// Run an installed LandMineInterface disarm with no module guard crossing
     /// normal body damage or GameLogic's synchronous deletion callbacks.
-    pub(crate) fn disarm_installed(entry: &BehaviorModuleHandle, owner: &Arc<RwLock<GameObject>>) {
+    pub(crate) fn disarm_installed(
+        entry: &BehaviorModuleHandle,
+        owner: &Arc<RwLock<GameObject>>,
+        on_damage: Option<&mut crate::weapon::DisarmDamageReaction<'_>>,
+    ) {
         let Some(regenerates) = entry.with_module_downcast::<Self, _, _>(|module| {
             let regenerates = module.behavior.regenerates;
             if regenerates {
@@ -1127,8 +1133,13 @@ impl MinefieldBehaviorModule {
             return;
         }
 
-        if let Ok(mut mine) = owner.write() {
-            MinefieldBehavior::apply_disarm_damage(&mut mine);
+        let damaged = owner
+            .write()
+            .is_ok_and(|mut mine| MinefieldBehavior::apply_disarm_damage(&mut mine));
+        // C++ MinefieldBehavior.cpp:515–534 keeps the mine's own damage
+        // callback suppressed while AutoHeal reacts to actual Body loss.
+        if damaged && let Some(on_damage) = on_damage {
+            on_damage(owner);
         }
         entry.with_module_downcast::<Self, _, _>(|module| {
             module.behavior.ignore_damage = false;
@@ -1493,10 +1504,10 @@ mod tests {
     }
 
     #[test]
-    fn scheduled_minefield_healing_unmasks_when_first_virtual_mine_regrows() {
+    fn mounted_disarm_restarts_auto_heal_and_regrows_first_virtual_mine() {
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
-            "object::behavior::minefield_behavior::tests::scheduled_minefield_healing_unmasks_when_first_virtual_mine_regrows",
+            "object::behavior::minefield_behavior::tests::mounted_disarm_restarts_auto_heal_and_regrows_first_virtual_mine",
             "GENERALS_MINEFIELD_REGROWTH_CHILD",
         ) {
             return;
@@ -1640,17 +1651,31 @@ mod tests {
             disarm.clip_reload_time = 120;
             let source = dozer.read().unwrap().get_id();
             let victim = mine.read().unwrap().get_id();
-            WeaponStore::create_and_fire_temp_weapon_at_target(&Arc::new(disarm), source, victim)
-                .unwrap();
+            let disarm = Arc::new(disarm);
+            WeaponStore::create_and_fire_temp_weapon_at_target(&disarm, source, victim).unwrap();
             let (floor, _, count, masked, rubble, destroyed) = observe(&mine);
             assert!((floor - 0.1).abs() < 0.0001);
             assert_eq!((count, masked, rubble, destroyed), (0, true, true, false));
 
-            // Exercise ordinary scheduler, Body and Minefield delivery. The separate
-            // DISARM damage-to-AutoHeal wake bridge must supply this same deadline.
-            mine.read()
+            let auto_heal = mine
+                .read()
                 .unwrap()
-                .reschedule_named_update("AutoHealBehavior", 487);
+                .module_by_name(&"AutoHealBehavior".into())
+                .unwrap();
+            let observe_wake = || {
+                auto_heal
+                    .with_module_downcast::<AutoHealBehaviorModule, _, _>(|heal| {
+                        let heal = heal.behavior();
+                        (heal.last_wake_sleep(), heal.next_call_frame_and_phase >> 2)
+                    })
+                    .unwrap()
+            };
+            assert_eq!(observe_wake(), (Some(UpdateSleepTime::Frames(450)), 487));
+            // At MIN_HEALTH a repeated disarm cannot lower Body health and
+            // must leave the previous onDamage deadline intact.
+            get_game_logic().lock().unwrap().set_current_frame(38);
+            WeaponStore::create_and_fire_temp_weapon_at_target(&disarm, source, victim).unwrap();
+            assert_eq!(observe_wake(), (Some(UpdateSleepTime::Frames(450)), 487));
             dozer
                 .write()
                 .unwrap()

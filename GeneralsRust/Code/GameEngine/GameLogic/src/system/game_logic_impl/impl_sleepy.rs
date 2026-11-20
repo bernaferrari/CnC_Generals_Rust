@@ -497,6 +497,40 @@ impl GameLogic {
         Ok(())
     }
 
+    /// Deliver the installed AutoHeal onDamage wake for this actual mine.
+    /// The firing operation has released the Actor and Body before lending us
+    /// the scheduler. AutoHealBehavior.cpp:136–155 changes the existing registration.
+    pub(crate) fn wake_auto_heal_after_disarm(&mut self, owner: &Arc<RwLock<Object>>) {
+        use crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule;
+
+        let registrations = {
+            let Ok(actor) = owner.read() else {
+                return;
+            };
+            if !self
+                .objects
+                .get(&actor.get_id())
+                .is_some_and(|actual| Arc::ptr_eq(actual, owner))
+            {
+                return;
+            }
+            actor.auto_heal_damage_registrations().collect::<Vec<_>>()
+        };
+        for (entry, proxy) in registrations {
+            if self.validate_owned_update_wake(&proxy).is_err() {
+                continue;
+            }
+            let wake = entry.with_module_downcast::<AutoHealBehaviorModule, _, _>(|module| {
+                module.behavior_mut().on_damage_at_owned(self.frame)
+            }).flatten();
+            if let Some(wake) = wake {
+                // The damage callback released the installed entry, which the
+                // existing heap proxy needs to record its new packed wake.
+                awaken_registered_update(&mut self.sleepy_updates, &proxy, self.frame, wake);
+            }
+        }
+    }
+
     pub fn friend_awaken_update_module(
         &mut self,
         module: &UpdateModulePtr,

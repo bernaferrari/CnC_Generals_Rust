@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+use super::DisarmDamageReaction;
 use crate::common::Coord3D;
 use crate::common::LOGICFRAMES_PER_SECOND;
 use crate::common::Relationship;
@@ -426,6 +427,7 @@ impl Weapon {
             false,
             true,
             borrowed_source,
+            None,
         )? {
             return Ok(self.apply_post_fire_state(source, current_frame, &bonus));
         }
@@ -470,6 +472,7 @@ impl Weapon {
             true,
             true,
             borrowed_source,
+            None,
         )? {
             return Ok(self.apply_post_fire_state(source, current_frame, &bonus));
         }
@@ -612,6 +615,7 @@ impl Weapon {
             false,
             true,
             borrowed_source,
+            None,
         )?;
         if !fired {
             return Ok(self.apply_post_fire_state(source_id, current_frame, &bonus));
@@ -1804,6 +1808,15 @@ impl Weapon {
         source_obj_id: ObjectId,
         target_obj_id: ObjectId,
     ) -> Result<(), WeaponError> {
+        self.fire_with_disarm_damage(source_obj_id, target_obj_id, None)
+    }
+
+    pub(crate) fn fire_with_disarm_damage(
+        &mut self,
+        source_obj_id: ObjectId,
+        target_obj_id: ObjectId,
+        disarm_damage: Option<&mut DisarmDamageReaction<'_>>,
+    ) -> Result<(), WeaponError> {
         // Get current frame from game logic
         let current_frame = TheGameLogic::get_frame();
 
@@ -1820,7 +1833,7 @@ impl Weapon {
         let bonus = self.compute_bonus(source_obj_id, WeaponBonusConditionFlags::new());
 
         // Call private fire weapon
-        if !self.private_fire_weapon(
+        if !self.private_fire_weapon_with_source(
             source_obj_id,
             Some(target_obj_id),
             None,
@@ -1828,6 +1841,8 @@ impl Weapon {
             false,
             false,
             true,
+            None,
+            disarm_damage,
         )? {
             let _ = self.apply_post_fire_state(source_obj_id, current_frame, &bonus);
         }
@@ -1937,6 +1952,7 @@ impl Weapon {
         source_id: ObjectId,
         victim_id: ObjectId,
         borrowed_source: Option<&crate::object::Object>,
+        on_damage: Option<&mut DisarmDamageReaction<'_>>,
     ) {
         use crate::object::behavior::minefield_behavior::MinefieldBehaviorModule;
         use crate::object::registry::OBJECT_REGISTRY;
@@ -1984,7 +2000,7 @@ impl Weapon {
             entry.with_module_downcast::<MinefieldBehaviorModule, _, _>(|_| ()).is_some()
         }) {
             play_disarm_fx();
-            MinefieldBehaviorModule::disarm_installed(&entry, &victim);
+            MinefieldBehaviorModule::disarm_installed(&entry, &victim, on_damage);
             found = true;
         } else {
             // Keep the standalone LandMineInterface adapter on its existing path.
@@ -2038,6 +2054,7 @@ impl Weapon {
             ignore_ranges,
             inflict_damage,
             None,
+            None,
         )
     }
 
@@ -2051,6 +2068,7 @@ impl Weapon {
         ignore_ranges: bool,
         inflict_damage: bool,
         mut borrowed_source: Option<&mut crate::object::Object>,
+        disarm_damage: Option<&mut DisarmDamageReaction<'_>>,
     ) -> Result<bool, WeaponError> {
         if self.template.get_request_assist_range() > 0.0 {
             if let Some(victim) = target_obj_id {
@@ -2072,7 +2090,12 @@ impl Weapon {
                 // BETWEEN_FIRING_SHOTS). The wrapper turns a still-ReadyToFire
                 // weapon into a public false, and a reload into true.
                 if let Some(victim) = target_obj_id {
-                    self.disarm_target(source_obj_id, victim, borrowed_source.as_deref());
+                    self.disarm_target(
+                        source_obj_id,
+                        victim,
+                        borrowed_source.as_deref(),
+                        disarm_damage,
+                    );
                 }
                 self.max_shot_count -= 1;
                 if self.ammo_in_clip > 0 {

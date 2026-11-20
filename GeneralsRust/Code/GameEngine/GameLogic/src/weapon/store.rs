@@ -425,13 +425,23 @@ impl WeaponStore {
         target: Option<ObjectId>,
         position: Option<&Coord3D>,
     ) -> GameLogicResult<()> {
+        Self::fire_temporary_weapon(template, source, target, position, None)
+    }
+
+    fn fire_temporary_weapon(
+        template: &Arc<WeaponTemplate>,
+        source: ObjectId,
+        target: Option<ObjectId>,
+        position: Option<&Coord3D>,
+        on_disarm_damage: Option<&mut super::DisarmDamageReaction<'_>>,
+    ) -> GameLogicResult<()> {
         let mut temp_weapon = Weapon::new(Arc::clone(template), WeaponSlotType::Primary);
         temp_weapon.load_ammo_now(source)?;
 
         match (target, position) {
             (Some(target_id), None) => {
                 temp_weapon
-                    .fire_weapon_at_object(source, target_id)
+                    .fire_with_disarm_damage(source, target_id, on_disarm_damage)
                     .map_err(|err| GameLogicError::ModuleError(err.to_string()))?;
             }
             (None, Some(pos)) => {
@@ -533,7 +543,18 @@ impl WeaponStore {
         source: ObjectId,
         target: ObjectId,
     ) -> GameLogicResult<()> {
-        Self::create_and_fire_temp_weapon(template, source, Some(target), None)
+        // This target entry runs as its own firing operation. Lend the
+        // receiving GameLogic after Body and Actor callbacks have returned.
+        let mut on_disarm_damage = |victim: &Arc<std::sync::RwLock<crate::object::Object>>| {
+            let world = victim.read().ok().and_then(|victim| victim.owning_world_services());
+            if let Some(world) = world
+                && let Some(logic) = world.object_registry().owning_logic()
+                && let Ok(mut logic) = logic.lock()
+            {
+                logic.wake_auto_heal_after_disarm(victim);
+            }
+        };
+        Self::fire_temporary_weapon(template, source, Some(target), None, Some(&mut on_disarm_damage))
     }
 
     pub fn handle_projectile_detonation_at_pos(

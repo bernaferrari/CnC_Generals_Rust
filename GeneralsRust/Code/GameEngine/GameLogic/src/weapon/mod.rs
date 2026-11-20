@@ -51,6 +51,10 @@ pub use store::{
 pub use template::WeaponTemplate;
 pub use weapon_instance::Weapon;
 
+/// Callback lent by the caller that owns the wake schedule for a disarmed mine.
+pub(crate) type DisarmDamageReaction<'a> =
+    dyn FnMut(&std::sync::Arc<std::sync::RwLock<crate::object::Object>>) + 'a;
+
 pub(crate) use helpers::{
     EFFECTIVELY_UNLIMITED_CLIP_AMMO, ammo_count_for_clip_size, dual_world_registry_unavailable,
     map_common_bonus_flags, map_weapon_slot_to_common, weapon_slot_from_u32, weapon_slot_to_u32,

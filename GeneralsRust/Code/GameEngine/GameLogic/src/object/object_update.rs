@@ -343,6 +343,25 @@ impl Object {
             .collect()
     }
 
+    /// Loan the mounted AutoHeal entry and its own wake proxy in registration order.
+    pub(crate) fn auto_heal_damage_registrations(
+        &self,
+    ) -> impl Iterator<Item = (BehaviorModuleHandle, UpdateModulePtr)> + '_ {
+        self.update_module_registrations
+            .iter()
+            .filter_map(|registration| {
+                if !registration
+                    .module_name
+                    .as_str()
+                    .eq_ignore_ascii_case("AutoHealBehavior")
+                {
+                    return None;
+                }
+                let entry = self.modules.get(registration.module_index?)?;
+                Some((BehaviorModuleHandle::new(Arc::clone(entry)), Arc::clone(&registration.module)))
+            })
+    }
+
     /// Live update-module proxies registered at object create (C++ behavior modules).
     pub fn update_module_registrations(
         &self,
