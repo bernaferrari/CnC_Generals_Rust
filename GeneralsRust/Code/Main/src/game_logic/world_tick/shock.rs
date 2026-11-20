@@ -125,23 +125,25 @@ impl GameLogic {
             }
             out
         };
-        let physics_ids: std::collections::HashMap<_, _> = ground_heights
-            .iter()
-            .map(|(id, birth, _)| (*id, birth.clone()))
-            .collect();
-        for (id, o) in self.objects.registered_mut() {
-            o.clear_blocked_frame_state();
-            o.tick_move_away_state(self.locomotor_definitions.receiving());
-            o.tick_temporary_move_overlay(
-                self.frame,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+        // The terrain reads above and this force pass visit the same receiving
+        // registrations in order. Per-object work here cannot add or retire
+        // Objects, so the sampled actors can be consumed as a subsequence.
+        let mut physics_due = ground_heights.iter().peekable();
+        let frame = self.frame;
+        let locomotors = self.locomotor_definitions.receiving();
+        let events = &mut self.queued_audio_events;
+        self.objects.for_each_registered_entry_mut(|id, object| {
+            object.clear_blocked_frame_state();
+            object.tick_move_away_state(locomotors);
+            object.tick_temporary_move_overlay(
+                frame,
+                &mut crate::game_logic::ObjectAudio::queue(events),
             );
-            if physics_ids.get(id).is_some_and(|birth| {
-                birth.ptr_eq(&std::sync::Arc::downgrade(&o.visual_draw_identity_token))
-            }) {
-                o.integrate_physics_force_phase(self.frame);
+            if physics_due.next_if(|entry| entry.0 == id).is_some() {
+                object.integrate_physics_force_phase(frame);
             }
-        }
+        });
+        debug_assert!(physics_due.next().is_none());
         let snap_ids: Vec<ObjectId> = self
             .objects
             .registered()
@@ -155,9 +157,10 @@ impl GameLogic {
         }
         for (id, birth, ground_y) in ground_heights {
             if !self.objects.get(&id).is_some_and(|object| {
-                birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
+                std::ptr::eq(
+                    birth.as_ptr(),
+                    std::sync::Arc::as_ptr(&object.visual_draw_identity_token),
+                )
             }) {
                 continue;
             }

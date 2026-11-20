@@ -139,9 +139,16 @@ impl HostObjectStore {
 
     /// Visit registered Objects in linked-list order with one mutable loan at a time.
     pub(in crate::game_logic) fn for_each_registered_mut(&mut self, mut visit: impl FnMut(&mut Object)) {
+        self.for_each_registered_entry_mut(|_, object| visit(object));
+    }
+
+    pub(in crate::game_logic) fn for_each_registered_entry_mut(
+        &mut self,
+        mut visit: impl FnMut(ObjectId, &mut Object),
+    ) {
         self.mark_objects_mutably_accessed();
-        for id in &self.registration_order {
-            visit(self.map.get_mut(id).expect("registered Object exists"));
+        for &id in &self.registration_order {
+            visit(id, self.map.get_mut(&id).expect("registered Object exists"));
         }
     }
 
