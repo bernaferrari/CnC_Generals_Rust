@@ -154,3 +154,136 @@ fn wake_heights(visual: &TerrainVisualImpl) -> [f32; 3] {
     }
     heights
 }
+
+#[test]
+#[ignore = "requires native WGPU to record and retain a real scene"]
+fn motion_blur_retained_scene_does_not_advance_the_receiving_wake() {
+    use crate::assets::AssetManager;
+    use crate::graphics::{GraphicsSystem, render_pipeline::RenderPipeline};
+    use crate::presentation_frame::{PresentationFrame, camera::viewport::TacticalViewport};
+    use game_client::core::game_client::GameClient;
+    use game_client::display::view::{FilterMode, FilterType, Vector2};
+    use game_client::render_bridge::RenderBridge;
+    use game_client::snow::SnowRenderState;
+    use game_client::terrain::height_map::HeightMap;
+    use std::rc::Rc;
+
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .expect("native retained water fixture needs a headless renderer");
+    let (device, queue, color_format, depth_format) = {
+        let engine = engine.lock();
+        (engine.device(), engine.queue(), engine.color_format(), engine.depth_format())
+    };
+    let mut graphics = GraphicsSystem::new(device, queue, color_format, depth_format).unwrap();
+    let make_visual = || {
+        let mut visual = TerrainVisualImpl::new();
+        visual
+            .load_heightmap_from_data(HeightMap::new(8, 8, 159.375, 10.), None, None)
+            .unwrap();
+        visual.water_tracks_mut().add_wave_from_info(
+            WaterTrackType::Pond,
+            Vec2::new(33.0, 40.0),
+            Vec2::new(57.0, 40.0),
+            false,
+        );
+        visual
+    };
+    let mut first = GameLogic::new();
+    let mut peer = GameLogic::new();
+    for world in [&mut first, &mut peer] {
+        let mut map = gamelogic::system::map_loader::MapData::new();
+        map.width = 8;
+        map.height = 8;
+        map.heightmap = vec![0; 64];
+        world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
+        world.session_view.filter.set_filter(FilterType::MotionBlur);
+        world.session_view.filter.set_mode(FilterMode::MBInAndOutAlpha);
+    }
+    let mut first_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let viewport = TacticalViewport::for_display(32, 32).unwrap();
+    first_pipeline.set_tactical_3d_viewport(viewport);
+    peer_pipeline.set_tactical_3d_viewport(viewport);
+    first_pipeline.install_native_terrain_cpu(Some(first.with_own_services(make_visual)));
+    peer_pipeline.install_native_terrain_cpu(Some(peer.with_own_services(make_visual)));
+    let mut first_client = first.with_own_services(|| GameClient::new().unwrap());
+    let mut peer_client = peer.with_own_services(|| GameClient::new().unwrap());
+    let mut bridge = RenderBridge::new();
+    let snow = SnowRenderState { manager: Default::default(), definition: Default::default() };
+    let assets = first.with_own_services(|| AssetManager::new().unwrap());
+    let elapsed = |pipeline: &mut RenderPipeline| {
+        let wakes = pipeline.native_terrain_mut().unwrap().water_tracks_mut();
+        assert_eq!(wakes.used_handles().len(), 1);
+        wakes.track(wakes.used_handles()[0]).unwrap().elapsed_ms()
+    };
+    let mut offer = |world: &mut GameLogic,
+                     pipeline: &mut RenderPipeline,
+                     client: &mut GameClient,
+                     frame: u32| {
+        world.with_own_services_mut(|world| {
+            world.set_current_frame(u64::from(frame));
+            let presentation = Rc::new(PresentationFrame::build_from_logic(world, 0));
+            pipeline.set_presentation_frame(Some(presentation));
+            let mut modes = crate::cnc_game_engine::mouse::LookAtHostModes::default();
+            let mut receiver = super::NativeFrameReceiver {
+                audio: None,
+                world,
+                drawables: client.borrow_native_drawable_owner(),
+                look_at_modes: &mut modes,
+                world_bounds: (Vec3::ZERO, Vec3::splat(70.0)),
+                slave_source: None,
+                slave_binding_key: None,
+                host_epoch: 19,
+                local_player_id: 0,
+                assets: &assets,
+                logic_frame: frame,
+            };
+            pipeline
+                .execute(
+                    &mut graphics,
+                    &mut bridge,
+                    &Mat4::IDENTITY,
+                    &Mat4::IDENTITY,
+                    Vec3::ZERO,
+                    0.0,
+                    false,
+                    0,
+                    false,
+                    &mut receiver,
+                    Vec::new(),
+                    None,
+                    &snow,
+                    Vec2::ZERO,
+                    frame,
+                    None,
+                )
+                .unwrap();
+        });
+        (elapsed(pipeline), engine.lock().last_frame_stats().render_passes)
+    };
+
+    let fresh = offer(&mut first, &mut first_pipeline, &mut first_client, 1);
+    assert_eq!(fresh.0, 33.0);
+    assert!(first.session_view.filter.skip_render());
+    let retained = offer(&mut first, &mut first_pipeline, &mut first_client, 2);
+    assert!(retained.1 < fresh.1, "retained frame must suppress the actual scene pass");
+
+    // The same filter skip state cannot reuse a capture from another layout owner.
+    peer.session_view.filter.post_render(1, Vector2::zero());
+    assert!(peer.session_view.filter.skip_render());
+    let missing = offer(&mut peer, &mut peer_pipeline, &mut peer_client, 2);
+    assert_eq!(missing, fresh);
+    assert_eq!(elapsed(&mut first_pipeline), retained.0);
+
+    first.session_view.filter.set_mode(FilterMode::MBInAndOutAlpha);
+    assert!(!first.session_view.filter.skip_render());
+    let resumed = offer(&mut first, &mut first_pipeline, &mut first_client, 3);
+    eprintln!("native wakes (elapsed_ms, render_passes) fresh={fresh:?} retained={retained:?} peer={missing:?} resumed={resumed:?}");
+    assert_eq!(retained.0, fresh.0, "a retained scene offers no water draw");
+    assert_eq!(resumed, (66.0, fresh.1));
+    assert_eq!(elapsed(&mut peer_pipeline), 33.0);
+}

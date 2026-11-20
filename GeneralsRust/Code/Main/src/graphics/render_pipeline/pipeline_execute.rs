@@ -442,6 +442,19 @@ impl RenderPipeline {
         }
 
         #[cfg(feature = "game_client")]
+        let skip_filter_scene = native_receiver.view_filter().filter()
+            == game_client::display::view::FilterType::MotionBlur
+            && native_receiver.view_filter().skip_render()
+            && {
+                let (width, height) = self.forward_pass.renderer.engine.lock().surface_size();
+                self.view_filter_resources.has_scene_capture_for(
+                    width,
+                    height,
+                    graphics_system.color_format(),
+                )
+            };
+
+        #[cfg(feature = "game_client")]
         if render_world_scene {
             // CPU-admitted maps must own GPU pipelines before TerrainGround,
             // otherwise record_chunk_draws only paints the skybox clear/gradient.
@@ -490,6 +503,7 @@ impl RenderPipeline {
                 snow,
                 tree_receipt.as_ref(),
                 native_receiver,
+                !skip_filter_scene,
             )?;
             terrain_elapsed = terrain_started.elapsed();
         }
@@ -519,18 +533,6 @@ impl RenderPipeline {
                 .map(|frame| frame.camera_fade)
                 .unwrap_or_default()
         };
-        #[cfg(feature = "game_client")]
-        let skip_filter_scene = native_receiver.view_filter().filter()
-            == game_client::display::view::FilterType::MotionBlur
-            && native_receiver.view_filter().skip_render()
-            && {
-                let (width, height) = self.forward_pass.renderer.engine.lock().surface_size();
-                self.view_filter_resources.has_scene_capture_for(
-                    width,
-                    height,
-                    graphics_system.color_format(),
-                )
-            };
         #[cfg(feature = "game_client")]
         if skip_filter_scene {
             // Reusing an image is not a new accepted draw of its ghost objects.

@@ -405,13 +405,14 @@ impl RenderPipeline {
         snow: &game_client::snow::SnowRenderState,
         tree_receipt: Option<&game_client::terrain::TreeCpuDrawReceipt>,
         receiver: &dyn NativeFrameRenderReceiver,
+        draw_water_tracks: bool,
     ) -> Result<()> {
         self.update_and_enqueue_terrain_pass_observed(
             view,
             projection,
             snow,
             None,
-            Some((tree_receipt, receiver)),
+            Some((tree_receipt, receiver, draw_water_tracks)),
         )
     }
     #[cfg(feature = "game_client")]
@@ -440,6 +441,7 @@ impl RenderPipeline {
         native_after_tree: Option<(
             Option<&game_client::terrain::TreeCpuDrawReceipt>,
             &dyn NativeFrameRenderReceiver,
+            bool,
         )>,
     ) -> Result<()> {
         static LOGGED_ZERO_TERRAIN_CHUNKS: std::sync::OnceLock<()> = std::sync::OnceLock::new();
@@ -465,7 +467,7 @@ impl RenderPipeline {
             let client_projection_matrix =
                 Mat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
             let terrain_render_started = Instant::now();
-            (if let Some((tree_receipt, _)) = native_after_tree {
+            (if let Some((tree_receipt, _, _)) = native_after_tree {
                 terrain_visual.render_native_y_up_after_tree_cpu(
                     &client_view_matrix,
                     &client_projection_matrix,
@@ -489,11 +491,19 @@ impl RenderPipeline {
             .map_err(|e| anyhow::anyhow!("terrain visual render state update failed: {}", e))?;
             let terrain_render_elapsed = terrain_render_started.elapsed();
             let terrain_update_started = Instant::now();
-            (if let Some((tree_receipt, receiver)) = native_after_tree {
+            (if let Some((tree_receipt, receiver, draw_water_tracks)) = native_after_tree {
                 terrain_visual.update_native_after_tree_cpu_with_water_tracks(
                     motion,
                     tree_receipt,
-                    Some(&mut |visual| receiver.flush_water_tracks(visual)),
+                    Some(&mut |visual| {
+                        // W3DView skips the water render and wake clock while
+                        // MotionBlur uses the previous scene capture.
+                        if draw_water_tracks {
+                            receiver.flush_water_tracks(visual)
+                        } else {
+                            Ok(())
+                        }
+                    }),
                 )
             } else {
                 terrain_visual.update_native(motion, None)
