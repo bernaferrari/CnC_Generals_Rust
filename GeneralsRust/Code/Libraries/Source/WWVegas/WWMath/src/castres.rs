@@ -1,18 +1,19 @@
-//! Cast result structure - matches C++ CastResultStruct
-//!
-//! Used to store the results of ray casting operations
+//! Results of a volume or ray cast from `WWMath/castres.h`.
 
 use crate::Vector3;
 
-/// Ray casting flags - matches C++ TRI_RAYCAST_FLAG_* constants
+/// Triangle ray-cast result bits from `WWMath/tri.h`.
 pub mod raycast_flags {
+    /// No additional intersection flags.
     pub const NONE: u8 = 0x00;
+    /// The intersection lies on a triangle edge.
     pub const HIT_EDGE: u8 = 0x01;
+    /// The ray starts within the triangle.
     pub const START_IN_TRI: u8 = 0x02;
 }
 
-/// Cast result structure - matches C++ CastResultStruct
-/// Note: This is separate from the collision CastResult to avoid naming conflicts
+/// Cast output with the field layout of the original 32-bit game.
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CastResultStruct {
     /// Whether the start position is considered "bad" (inside the geometry)
@@ -30,26 +31,21 @@ pub struct CastResultStruct {
 }
 
 impl CastResultStruct {
-    /// Create a new cast result with default values
-    pub fn new() -> Self {
+    /// Create the default result with no contact point requested.
+    pub const fn new() -> Self {
         Self {
             start_bad: false,
             fraction: 1.0,
-            normal: Vector3::new(0.0, 0.0, 0.0),
+            normal: Vector3::ZERO,
             surface_type: 0,
             compute_contact_point: false,
-            contact_point: Vector3::new(0.0, 0.0, 0.0),
+            contact_point: Vector3::ZERO,
         }
     }
 
-    /// Reset the cast result to default values - matches C++ Reset()
+    /// Reset every field, including the optional contact point request.
     pub fn reset(&mut self) {
-        self.start_bad = false;
-        self.fraction = 1.0;
-        self.normal = Vector3::new(0.0, 0.0, 0.0);
-        self.surface_type = 0;
-        self.compute_contact_point = false;
-        self.contact_point = Vector3::new(0.0, 0.0, 0.0);
+        *self = Self::new();
     }
 
     /// Set the result as a successful intersection

@@ -56,6 +56,11 @@ cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/lookuptable.cpp"
 note = "Owned LookupTableManager; removed process GLOBAL_MANAGER; immutable curves; 0 globals."
 
 [[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/castres.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/castres.h"
+note = "Original constructor, reset, triangle flag values, and 32-bit field layout. Rust convenience methods operate on the same cast output."
+
+[[module]]
 path = "Code/Libraries/Source/WWVegas/WWMath/src/line_segment.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/lineseg.cpp"
 note = "Executable original portable geometry comparison; one cached length and six caller-owned RNG draws. Rust initializes defaults and returns zero values for failed intersections."
