@@ -486,9 +486,11 @@ impl game_client::drawable::drawable::NativeAmbientAudio for NativeAudioService<
 #[cfg(test)]
 mod music_completion_tests {
     use super::*;
+    use crate::game_logic::NativeAudioEffects;
     use game_engine::common::audio::audio_event_rts::{AudioEventInfo, AudioType};
     use game_engine::common::audio::game_audio::SoundPlaybackHook;
-    use crate::game_logic::NativeAudioEffects;
+    use game_engine::common::audio::script_policy::ScriptAudioPolicy;
+    use gamelogic::scripting::engine::ScriptAudioRequest;
 
     /// Shared hardware stand-in: every handle loops twice, handle order decides nothing.
     struct LoopingBackend;
@@ -505,6 +507,248 @@ mod music_completion_tests {
         fn music_loop_count(&self, _: u32) -> i32 {
             2
         }
+    }
+
+    #[derive(Default)]
+    struct MusicPlaybackLog {
+        starts: Vec<u32>,
+        stops: Vec<u32>,
+    }
+
+    struct RecordingBackend(Arc<Mutex<MusicPlaybackLog>>);
+
+    impl SoundPlaybackHook for RecordingBackend {
+        fn play(&self, event: &AudioEventRts) -> Result<(), String> {
+            self.0.lock().unwrap().starts.push(event.get_playing_handle());
+            Ok(())
+        }
+
+        fn stop(&self, handle: u32) {
+            self.0.lock().unwrap().stops.push(handle);
+        }
+
+        fn pause(&self, _: u32) {}
+        fn resume(&self, _: u32) {}
+        fn is_playing(&self, _: u32) -> bool {
+            true
+        }
+    }
+
+    fn recording_manager() -> (AudioManager, Arc<Mutex<MusicPlaybackLog>>) {
+        let playback = Arc::new(Mutex::new(MusicPlaybackLog::default()));
+        let mut manager =
+            AudioManager::with_playback_hook(Box::new(RecordingBackend(Arc::clone(&playback))));
+        manager.init();
+        (manager, playback)
+    }
+
+    fn recording_device() -> (Arc<Mutex<AudioManager>>, Arc<Mutex<MusicPlaybackLog>>) {
+        let (mut manager, playback) = recording_manager();
+        for (name, sound_type) in [
+            ("Shell", AudioType::Music),
+            ("Game_USA_11", AudioType::Music),
+            ("GUIClick", AudioType::SoundEffect),
+        ] {
+            manager.register_audio_event_info(AudioEventInfo {
+                audio_name: name.into(),
+                sound_type,
+                volume: 1.,
+                ..Default::default()
+            });
+        }
+        (Arc::new(Mutex::new(manager)), playback)
+    }
+
+    fn submit_music_fixture(service: &mut NativeAudioService<'_>, name: &str, fade_in: bool) -> u32 {
+        use game_engine::common::audio::audio_event_rts::AudioSelectionStreams;
+        let mut selection = AudioSelectionStreams {
+            logic: &mut Default::default(),
+            audio: &mut Default::default(),
+        };
+        let mut event = AudioEventRts::with_event_name(name);
+        event.set_should_fade(fade_in);
+        service
+            .submit_selected_audio(
+                &event,
+                &crate::game_logic::audio_dispatch_impl::receiving_submission_locality(-1, None),
+                &mut selection,
+                &ScriptAudioPolicy::default(),
+            )
+            .unwrap();
+        *service.receipts.last().unwrap()
+    }
+
+    #[test]
+    fn script_music_replacement_cancels_only_its_unstarted_track() {
+        // ShellMapMD's Unshroud and Set Music actions both run before the
+        // startup mixer phase. A peer can have its own identically named track.
+        for fade in [true, false] {
+            let (device, playback) = recording_device();
+            let mut receipts = Vec::new();
+            let mut queued_events = Vec::new();
+            let mut service = NativeAudioService {
+                device: &device,
+                receipts: &mut receipts,
+                queued_events: &mut queued_events,
+            };
+            let mut peer_receipts = Vec::new();
+            let mut peer_events = Vec::new();
+            let mut peer = NativeAudioService {
+                device: &device,
+                receipts: &mut peer_receipts,
+                queued_events: &mut peer_events,
+            };
+            let policy = ScriptAudioPolicy::default();
+            service
+                .script_audio(ScriptAudioRequest::StopMusic { fade: false }, &policy, &[])
+                .unwrap();
+            let shell = submit_music_fixture(&mut service, "Shell", false);
+            let peer_shell = submit_music_fixture(&mut peer, "Shell", false);
+            let click = submit_music_fixture(&mut service, "GUIClick", false);
+            assert_ne!(shell, peer_shell);
+            assert_ne!(shell, click);
+            service
+                .script_audio(ScriptAudioRequest::StopMusic { fade }, &policy, &[])
+                .unwrap();
+            let incoming = submit_music_fixture(&mut service, "Game_USA_11", true);
+
+            let mut audio = device.lock().unwrap();
+            assert_eq!(
+                audio
+                    .pending_play_events()
+                    .map(AudioEventRts::get_playing_handle)
+                    .collect::<Vec<_>>(),
+                [peer_shell, click, incoming],
+            );
+            assert_eq!(audio.fading_audio_count(), 0);
+            audio.process_request_list();
+            let played = playback.lock().unwrap();
+            assert_eq!(played.starts, [peer_shell, click, incoming]);
+            assert!(played.stops.is_empty());
+        }
+    }
+
+    #[test]
+    fn script_music_replacement_keeps_an_active_tracks_fade_duration() {
+        let (device, playback) = recording_device();
+        let mut receipts = Vec::new();
+        let mut queued_events = Vec::new();
+        let mut service = NativeAudioService {
+            device: &device,
+            receipts: &mut receipts,
+            queued_events: &mut queued_events,
+        };
+        let shell = submit_music_fixture(&mut service, "Shell", false);
+        device.lock().unwrap().process_request_list();
+        assert_eq!(playback.lock().unwrap().starts, [shell]);
+
+        service
+            .script_audio(
+                ScriptAudioRequest::StopMusic { fade: true },
+                &ScriptAudioPolicy::default(),
+                &[],
+            )
+            .unwrap();
+        let incoming = submit_music_fixture(&mut service, "Game_USA_11", true);
+        let mut audio = device.lock().unwrap();
+        let fade_frames = audio.get_audio_settings().fade_audio_frames;
+        let observation = game_engine::common::audio::game_audio::AudioViewObservation {
+            ground_position: Default::default(),
+            heading: 0.,
+            camera_position: Default::default(),
+            ground_height: 0.,
+        };
+        assert_eq!(audio.fading_audio_count(), 1);
+        for frame in 1..=fade_frames {
+            audio.update_with_view(observation, &mut |_| true);
+            assert_eq!(audio.fading_frames(), frame);
+        }
+        assert!(playback.lock().unwrap().stops.is_empty());
+        audio.update_with_view(observation, &mut |_| true);
+        assert_eq!(audio.fading_audio_count(), 0);
+        let played = playback.lock().unwrap();
+        assert_eq!(played.starts, [shell, incoming]);
+        assert_eq!(played.stops, [shell]);
+    }
+
+    #[test]
+    #[ignore = "requires mounted Zero Hour content"]
+    fn mounted_shellmap_startup_starts_only_the_last_script_music_track() {
+        use game_engine::common::ini::INI;
+
+        let install = crate::fixture_content::retail_content_root()
+            .join("Command & Conquer Generals Zero Hour/Data");
+        let mut files = crate::assets::ArchiveFileSystem::new();
+        files.set_local_search_roots(Vec::new());
+        for archive in ["INIZH.big", "MapsZH.big"] {
+            futures::executor::block_on(files.load_big_file(install.join(archive))).unwrap();
+        }
+
+        let (mut manager, playback) = recording_manager();
+        for path in ["Data/INI/Default/Music.ini", "Data/INI/Music.ini"] {
+            if let Some(bytes) = files.read_optional_definition_source(path).unwrap() {
+                INI::new()
+                    .with_inline_source(&String::from_utf8_lossy(&bytes), |ini| {
+                        ini.parse_current_file_into_audio(&mut manager)
+                    })
+                    .unwrap();
+            }
+        }
+        for track in ["Shell", "Game_USA_11"] {
+            assert!(manager.get_audio_event_info(track).is_some(), "{track}");
+        }
+        let device = Arc::new(Mutex::new(manager));
+        let map_path = tempfile::tempdir().unwrap();
+        let shell_map = map_path.path().join("ShellMapMD.map");
+        std::fs::write(
+            &shell_map,
+            files
+                .read_optional_definition_source("Maps/ShellMapMD/ShellMapMD.map")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+
+        let mut world = crate::game_logic::GameLogic::new();
+        assert!(world.load_map(shell_map.to_str().unwrap()));
+        let mut receipts = Vec::new();
+        let mut queued_events = Vec::new();
+        let mut audio = NativeAudioService {
+            device: &device,
+            receipts: &mut receipts,
+            queued_events: &mut queued_events,
+        };
+        world.tick_logic_frame_with_script_effects(
+            1.0 / 30.0,
+            None,
+            Some(1),
+            crate::game_logic::ScriptPresentationEffects {
+                audio: Some(&mut audio),
+                ..Default::default()
+            },
+            |_| {},
+            |_| {},
+        );
+        assert!(receipts.len() >= 2, "both startup scripts must submit audio");
+
+        let mut audio = device.lock().unwrap();
+        let music: Vec<_> = audio
+            .pending_play_events()
+            .filter(|event| {
+                event
+                    .get_audio_event_info()
+                    .is_some_and(|info| info.sound_type == AudioType::Music)
+            })
+            .map(|event| (event.get_playing_handle(), event.get_event_name()))
+            .collect();
+        assert_eq!(music.len(), 1, "{music:?}");
+        assert_eq!(music[0].1, "Game_USA_11");
+        let incoming = music[0].0;
+        audio.process_request_list();
+        let played = playback.lock().unwrap();
+        assert!(played.starts.contains(&incoming));
+        assert!(!played.starts.contains(&receipts[0]));
+        assert!(played.stops.is_empty());
     }
 
     /// hq-kw72bi: MilesAudioManager.cpp:1370-1385 sweeps the playing list; a

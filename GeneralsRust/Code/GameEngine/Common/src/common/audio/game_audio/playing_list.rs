@@ -239,6 +239,20 @@ impl AudioManager {
     }
 
     pub fn stop_music_for_handles(&mut self, handles: &[AudioHandle], fade: bool) {
+        if handles.is_empty() {
+            return;
+        }
+        // A script can replace a track before the audio phase starts it. Only
+        // music already on the playback device has anything to fade.
+        self.audio_requests.retain(|request| {
+            request.request != RequestType::Play
+                || !request.get_pending_event().is_some_and(|event| {
+                    handles.contains(&event.get_playing_handle())
+                        && event
+                            .get_audio_event_info()
+                            .is_some_and(|info| info.sound_type == AudioType::Music)
+                })
+        });
         if fade {
             self.fade_music_for_handles(handles);
             return;
