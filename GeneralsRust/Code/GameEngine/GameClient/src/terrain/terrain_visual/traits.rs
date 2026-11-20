@@ -53,6 +53,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.terrain_sampler_mode = None;
         self.water_plane = None;
         self.water_track_meshes.clear();
+        self.water_track_index_buffer = None;
         self.last_water_tracks_flush = crate::terrain::WaterTracksFlush::default();
         self.water_tracks = crate::terrain::WaterTracksRenderSystem::new(
             crate::terrain::DEFAULT_WATER_TRACK_MODULES,

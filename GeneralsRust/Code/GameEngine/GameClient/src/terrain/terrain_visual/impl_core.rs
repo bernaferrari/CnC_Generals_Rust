@@ -205,6 +205,7 @@ impl TerrainVisualImpl {
             texture_rules: Vec::new(),
             water_plane: None,
             water_track_meshes: Vec::new(),
+            water_track_index_buffer: None,
             road_meshes: Vec::new(),
             projected_shadow_gpu: None,
             bridge_meshes: Vec::new(),
@@ -770,10 +771,12 @@ impl TerrainVisualImpl {
     fn upload_water_track_meshes(&mut self, flush: &crate::terrain::WaterTracksFlush) {
         let Some(device) = self.device.as_ref().cloned() else {
             self.water_track_meshes.clear();
+            self.water_track_index_buffer = None;
             return;
         };
         if flush.vertices.is_empty() || flush.indices.is_empty() {
             self.water_track_meshes.clear();
+            self.water_track_index_buffer = None;
             return;
         }
         use crate::terrain::water_tracks::resolved_water_track_texture_name;
@@ -861,17 +864,35 @@ impl TerrainVisualImpl {
         indices: &[u32],
     ) -> GpuWaterPlane {
         self.ensure_named_water_bind_group(device, texture_name);
+        // C++ WaterTracksRenderSystem::ReAcquireResources creates one static
+        // index buffer. Every wake run starts at local vertex zero, so an
+        // exact prefix can share this allocation while vertices animate.
+        // Never write an existing index buffer: earlier draws may retain it.
+        let index_buffer = if let Some(cached) = self
+            .water_track_index_buffer
+            .as_ref()
+            .filter(|cached| cached.indices.starts_with(indices))
+        {
+            cached.buffer.clone()
+        } else {
+            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Water Tracks Index Buffer"),
+                contents: bytemuck::cast_slice(indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+            self.water_track_index_buffer = Some(WaterTrackIndexBuffer {
+                indices: indices.into(),
+                buffer: buffer.clone(),
+            });
+            buffer
+        };
         GpuWaterPlane {
             vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Water Tracks Vertex Buffer"),
                 contents: bytemuck::cast_slice(vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             }),
-            index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Water Tracks Index Buffer"),
-                contents: bytemuck::cast_slice(indices),
-                usage: wgpu::BufferUsages::INDEX,
-            }),
+            index_buffer,
             index_count: indices.len() as u32,
             texture_name: texture_name.to_owned(),
             jba: false,

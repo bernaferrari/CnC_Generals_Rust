@@ -217,6 +217,7 @@ pub struct TerrainVisualImpl {
     water_plane: Option<GpuWaterPlane>,
     /// Uploaded C++ `WaterTracksRenderSystem::flush` geometry.
     water_track_meshes: Vec<GpuWaterPlane>,
+    water_track_index_buffer: Option<WaterTrackIndexBuffer>,
 
     /// Cached GPU meshes for visible road surfaces.
     road_meshes: Vec<GpuRoadMesh>,
@@ -413,6 +414,12 @@ struct GpuWaterPlane {
     /// C++ drawRiverWater (setupJbaWaterShader + river pixel shader) when true;
     /// drawTrapezoidWater (setupFlatWaterShader + trapezoid pixel shader) when false.
     river: bool,
+}
+
+/// Immutable topology whose exact prefix can serve shorter wake runs.
+struct WaterTrackIndexBuffer {
+    indices: Box<[u32]>,
+    buffer: Buffer,
 }
 
 struct GpuRoadMesh {

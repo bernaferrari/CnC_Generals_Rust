@@ -16,6 +16,8 @@ impl TerrainVisualImpl {
         self.terrain_material_bind_groups.clear();
         self.chunk_texture_bindings.clear();
         self.chunk_meshes.clear();
+        self.water_track_meshes.clear();
+        self.water_track_index_buffer = None;
         self.extra_blend_batches.clear();
         // Skybox face textures (incl. the synthetic horizon gradient) and
         // their bind group belong to the previous device after a re-init;

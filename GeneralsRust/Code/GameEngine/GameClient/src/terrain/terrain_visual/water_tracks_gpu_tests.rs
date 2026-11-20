@@ -201,6 +201,40 @@ fn adjacent_water_tracks_preserve_ordered_color_and_shroud_pixels() {
         ]
     );
 
+    let first_index_buffer = &visual.water_track_meshes[0].index_buffer;
+    assert!(
+        visual.water_track_meshes[1..]
+            .iter()
+            .all(|mesh| &mesh.index_buffer == first_index_buffer)
+    );
+
+    let original = std::mem::take(&mut visual.water_track_meshes);
+    let mut changed = flush.clone();
+    changed.indices[..4].copy_from_slice(&[0, 3, 1, 2]);
+    visual.upload_water_track_meshes(&changed);
+    assert_eq!(
+        visual.water_track_meshes[0].index_count,
+        original[0].index_count
+    );
+    assert_ne!(
+        visual.water_track_meshes[0].index_buffer,
+        original[0].index_buffer
+    );
+    assert_ne!(
+        read_water_pixels(&visual, &device, &queue, false),
+        separate_color
+    );
+
+    // A previously recorded frame can retain its old immutable topology.
+    visual.water_track_meshes = original;
+    assert_eq!(
+        read_water_pixels(&visual, &device, &queue, false),
+        separate_color
+    );
+    assert_eq!(
+        read_water_pixels(&visual, &device, &queue, true),
+        separate_shroud
+    );
     check_projected_shroud_uploads(&mut visual, &device, &queue);
 }
 
@@ -360,6 +394,17 @@ fn tournament_b_water_tracks_upload_one_mesh() {
     assert_eq!(visual.water_track_meshes.len(), 1);
     assert_eq!(visual.water_track_meshes[0].index_count, 921 * 6);
     assert_eq!(visual.water_track_meshes[0].texture_name, "wave256.tga");
+
+    let indices = visual.water_track_meshes[0].index_buffer.clone();
+    let vertices = visual.water_track_meshes[0].vertex_buffer.clone();
+    let initial_vertices = visual.last_water_tracks_flush().vertices.clone();
+    for _ in 0..30 {
+        visual.flush_water_tracks();
+        assert_eq!(visual.water_track_meshes.len(), 1);
+        assert_eq!(visual.water_track_meshes[0].index_buffer, indices);
+        assert_ne!(visual.water_track_meshes[0].vertex_buffer, vertices);
+    }
+    assert_ne!(visual.last_water_tracks_flush().vertices, initial_vertices);
 }
 
 #[test]
