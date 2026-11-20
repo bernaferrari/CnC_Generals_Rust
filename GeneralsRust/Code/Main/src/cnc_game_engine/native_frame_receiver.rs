@@ -33,7 +33,7 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
             .draw_playback_identity
             .as_ref()
             .ok_or("native actor candidate has no frozen birth")?;
-        Ok(self.world.live_draw_playback_identity(object) == *identity)
+        Ok(self.world.matches_live_draw_playback_identity(object, identity))
     }
 
     fn native_draw_candidates(
@@ -69,7 +69,7 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
                 .world
                 .host_object(input.id)
                 .ok_or_else(|| "native draw instance source is absent".to_owned())?;
-            if &self.world.live_draw_playback_identity(object) != identity {
+            if !self.world.matches_live_draw_playback_identity(object, identity) {
                 return Err(
                     "native draw instance source belongs to another Object birth/world".into(),
                 );

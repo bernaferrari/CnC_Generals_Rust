@@ -35,7 +35,7 @@ impl RenderPipeline {
                 if unit
                     .draw_playback_identity
                     .as_ref()
-                    .is_none_or(|identity| *identity != world.live_draw_playback_identity(object))
+                    .is_none_or(|identity| !world.matches_live_draw_playback_identity(object, identity))
                 {
                     continue;
                 }

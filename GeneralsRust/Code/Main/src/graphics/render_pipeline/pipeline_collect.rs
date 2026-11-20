@@ -258,23 +258,28 @@ impl RenderPipeline {
             presentation_unit_pass
         );
 
-        // Wide inputs stay in the snapshot buffer while we order and join
-        // their indices. Stable sorting retains the existing tie behavior.
-        let mut input_order: Vec<_> = (0..unit_inputs.len()).collect();
-        if allow_sync_model_loads {
-            input_order.sort_by_key(|&index| unit_inputs[index].id.0);
-        } else {
-            // Distance sort from snapshot positions only — no live transform re-read.
-            input_order.sort_by(|&a, &b| {
-                let (a, b) = (&unit_inputs[a], &unit_inputs[b]);
-                let da = a.position.distance_squared(camera_position);
-                let db = b.position.distance_squared(camera_position);
+        // Native draws visit the receiving Drawable list in construction
+        // order. Only a frozen preview needs to sort its inputs by proximity.
+        let ordered_input_indices = || {
+            let mut indices: Vec<_> = unit_inputs
+                .iter()
+                .enumerate()
+                .map(|(index, input)| {
+                    let distance = if allow_sync_model_loads {
+                        0.0
+                    } else {
+                        input.position.distance_squared(camera_position)
+                    };
+                    (index, distance)
+                })
+                .collect();
+            indices.sort_by(|&(a, da), &(b, db)| {
                 da.partial_cmp(&db)
                     .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.id.cmp(&b.id))
+                    .then_with(|| unit_inputs[a].id.cmp(&unit_inputs[b].id))
             });
-        }
-        let object_ids_elapsed = object_ids_started.elapsed();
+            indices.into_iter().map(|(index, _)| index)
+        };
 
         let mut alive_objects = 0usize;
         let mut fow_filtered = 0usize;
@@ -304,13 +309,25 @@ impl RenderPipeline {
         }
         #[cfg(feature = "game_client")]
         let candidates = if let Some(roster) = native_roster {
-            let mut actors: game_engine::common::fast_hash::FxHashMap<_, _> = input_order
-                .into_iter()
-                .filter_map(|index| {
+            let mut actors = game_engine::common::fast_hash::FxHashMap::with_capacity_and_hasher(
+                unit_inputs.len(),
+                Default::default(),
+            );
+            let mut repeated_id = false;
+            for (index, input) in unit_inputs.iter().enumerate() {
+                if !input.engine_bridged {
+                    repeated_id |= actors.insert(input.id.0, index).is_some();
+                }
+            }
+            // Preserve which row wins if a compatibility snapshot repeats an ID.
+            if repeated_id {
+                for index in ordered_input_indices() {
                     let input = &unit_inputs[index];
-                    (!input.engine_bridged).then_some((input.id.0, index))
-                })
-                .collect();
+                    if !input.engine_bridged {
+                        actors.insert(input.id.0, index);
+                    }
+                }
+            }
             let mut ordered = Vec::with_capacity(roster.len());
             for candidate in roster {
                 match candidate {
@@ -333,16 +350,15 @@ impl RenderPipeline {
             }
             ordered
         } else {
-            input_order
-                .into_iter()
+            ordered_input_indices()
                 .map(Candidate::Actor)
                 .collect::<Vec<_>>()
         };
         #[cfg(not(feature = "game_client"))]
-        let candidates = input_order
-            .into_iter()
+        let candidates = ordered_input_indices()
             .map(Candidate::Actor)
             .collect::<Vec<_>>();
+        let object_ids_elapsed = object_ids_started.elapsed();
 
         // C++ constructor-prepended Drawable visitation; render depth sorting
         // remains a later stage and never chooses callback execution priority.

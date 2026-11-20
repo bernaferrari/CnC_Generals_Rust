@@ -118,6 +118,21 @@ impl LiveDrawPlaybackIdentity {
         self.object_generation
     }
 
+    pub(crate) fn matches_birth(
+        &self,
+        world: &std::sync::Arc<()>,
+        object: &std::sync::Arc<()>,
+        world_epoch: u64,
+        owner_id: NativeDrawOwnerId,
+        object_generation: u64,
+    ) -> bool {
+        std::sync::Arc::ptr_eq(&self.world, world)
+            && std::sync::Arc::ptr_eq(&self.object, object)
+            && self.owner_id == owner_id
+            && self.world_epoch == world_epoch
+            && self.object_generation == object_generation
+    }
+
     pub(crate) fn completion_target(&self, module_index: u32) -> LiveDrawAnimationCompletionTarget {
         LiveDrawAnimationCompletionTarget {
             identity: self.clone(),
@@ -139,11 +154,13 @@ impl LiveDrawPlaybackIdentity {
 
 impl PartialEq for LiveDrawPlaybackIdentity {
     fn eq(&self, other: &Self) -> bool {
-        std::sync::Arc::ptr_eq(&self.world, &other.world)
-            && std::sync::Arc::ptr_eq(&self.object, &other.object)
-            && self.owner_id == other.owner_id
-            && self.world_epoch == other.world_epoch
-            && self.object_generation == other.object_generation
+        self.matches_birth(
+            &other.world,
+            &other.object,
+            other.world_epoch,
+            other.owner_id,
+            other.object_generation,
+        )
     }
 }
 

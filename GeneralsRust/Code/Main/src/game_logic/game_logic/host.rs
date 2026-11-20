@@ -1589,6 +1589,21 @@ impl GameLogic {
         .with_native_pose(object.native_pose_revision(), object.get_transform_matrix())
     }
 
+    #[cfg(feature = "game_client")]
+    pub(crate) fn matches_live_draw_playback_identity(
+        &self,
+        object: &Object,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+    ) -> bool {
+        identity.matches_birth(
+            &self.live_draw_playback_world,
+            &object.visual_draw_identity_token,
+            self.visual_world_epoch,
+            crate::assets::NativeDrawOwnerId::Actor(object.id.0),
+            object.visual_object_generation,
+        )
+    }
+
     /// Make this world's engine-store bundle the ambient resolution target
     /// (C++ single-world engine: the world being started or committed is THE
     /// world). Idempotent per bundle — a live world resetting itself must
