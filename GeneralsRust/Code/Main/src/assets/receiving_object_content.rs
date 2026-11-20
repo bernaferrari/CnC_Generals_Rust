@@ -8,6 +8,7 @@ use game_engine::common::{
 
 /// Owned startup definitions from one ordered Object source stream and the
 /// application-selected weapon, science and action catalogs.
+#[derive(Clone)]
 pub struct ReceivingStartupContent {
     pub(crate) objects: ReceivingObjectContent,
     pub(crate) weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
@@ -36,6 +37,7 @@ impl ReceivingStartupContent {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct ReceivingObjectContent {
     modules: ReceivingModuleContent,
     projections: ReceivingObjectDefinitions,

@@ -9,7 +9,10 @@ use super::{
     thing_template::{AdmittedReceivingTemplate, ReceivingTemplateKind, ThingTemplate},
 };
 use crate::common::ini::INILoadType;
-use std::{cell::OnceCell, collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+};
 pub use upgrade_tooltip::{UpgradeTooltipObservation, UpgradeTooltipSource};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,7 +107,7 @@ pub struct ReceivingModuleContent {
     templates: HashMap<String, TemplateVersion>,
     declaration_order: Vec<String>,
     next_template_id: u16,
-    compatibility_view: OnceCell<Arc<HashMap<String, Arc<ThingTemplate>>>>,
+    compatibility_view: OnceLock<Arc<HashMap<String, Arc<ThingTemplate>>>>,
     modules: ModuleFactory,
 }
 
@@ -157,7 +160,7 @@ impl ReceivingModuleContent {
             templates,
             declaration_order: self.declaration_order.clone(),
             next_template_id: self.next_template_id,
-            compatibility_view: OnceCell::new(),
+            compatibility_view: OnceLock::new(),
             modules,
         }, template_remap, admission_remap)
     }
@@ -218,7 +221,7 @@ impl ReceivingModuleContent {
             templates: HashMap::new(),
             declaration_order: Vec::new(),
             next_template_id: 1,
-            compatibility_view: OnceCell::new(),
+            compatibility_view: OnceLock::new(),
             modules,
         }
     }

@@ -17,7 +17,7 @@ use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use game_engine::common::ini::ini_multiplayer::MultiplayerSettings;
 use game_engine::common::rts::player_template::PlayerTemplateStore;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// Retail map every harness instance plays.
 pub const HARNESS_MAP: &str = "Lone Eagle";
@@ -26,6 +26,7 @@ const HARNESS_MAP_FILE: &str = "Maps/Lone Eagle/Lone Eagle.map";
 /// Immutable retail content read once and shared by all instances.
 pub struct SharedSkirmishAssets {
     definitions: RetailWorldDefinitions,
+    startup_prototype: OnceLock<Result<crate::assets::ReceivingStartupContent, String>>,
     map_path: PathBuf,
     install_root: Option<PathBuf>,
 }
@@ -247,6 +248,7 @@ impl SharedSkirmishAssets {
         };
         Ok(Self {
             definitions: RetailWorldDefinitions::load_from_install(install_root.as_deref())?,
+            startup_prototype: OnceLock::new(),
             map_path,
             install_root,
         })
@@ -294,7 +296,14 @@ impl SharedSkirmishAssets {
             GameLogic::new()
         };
         logic.with_own_services_mut(|logic| -> Result<(), String> {
-            self.definitions.admit(logic)?;
+            self.definitions.admit_with_startup(logic, || {
+                // Parse only after the receiving boot baselines are installed.
+                // The prototype never receives match overrides. Cloning forks
+                // a fresh module-data owner while retaining the source order.
+                self.startup_prototype
+                    .get_or_init(|| self.definitions.startup.admit())
+                    .clone()
+            })?;
             apply_skirmish_config(logic, &self.match_config(seed))?;
             if !logic.load_map(&self.map_path.to_string_lossy()) {
                 return Err(format!("load_map failed for {}", self.map_path.display()));
@@ -395,6 +404,14 @@ impl RetailWorldDefinitions {
     /// Admit these definitions into a fresh world in CnCGameEngine boot
     /// order, before NewGame (C++ GameEngine::init, GameEngine.cpp:428-458).
     pub fn admit(&self, logic: &mut GameLogic) -> Result<(), String> {
+        self.admit_with_startup(logic, || self.startup.admit())
+    }
+
+    fn admit_with_startup(
+        &self,
+        logic: &mut GameLogic,
+        startup: impl FnOnce() -> Result<crate::assets::ReceivingStartupContent, String>,
+    ) -> Result<(), String> {
         logic.admit_camera_application_movement(self.game_data.clone());
         // The application boot admits GameData's energy rules before any
         // build; without them every calcTimeToBuild hits the 0.01 floor.
@@ -403,7 +420,7 @@ impl RetailWorldDefinitions {
         // Roads and OCL before any object content is admitted.
         self.rules.admit(logic)?;
         logic.admit_locomotor_definitions(self.locomotors.clone())?;
-        logic.admit_startup_content(self.startup.admit()?)?;
+        logic.admit_startup_content(startup()?)?;
         logic.admit_player_template_definitions(self.player_templates.clone())?;
         logic.multiplayer_definitions = Some(Arc::clone(&self.multiplayer));
         logic.set_ai_definition_base(self.ai_data.clone());
