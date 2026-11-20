@@ -128,26 +128,11 @@ impl CnCGameEngine {
         selection: &[crate::ui::UnitDisplayInfo],
     ) {
         self.update_owned_control_bar_animations();
-        self.control_bar.set_receiving_upgrade_definitions(
-            &self.game_logic.upgrade_definitions,
-            self.game_logic
-                .receiving_module_content
-                .as_ref()
-                .map(|content| content.action_definitions_shared()),
-        );
-        self.control_bar.bind_logic_owner(
-            Some(self.game_logic.command_definitions()),
-            self.game_logic.control_bar_bridge(),
-        );
-        let facts = self.receiving_menu_world_facts();
-        let bar = &mut self.control_bar;
-        self.game_client
-            .with_window_event_effects(Some(facts), |effects| {
-                effects.with_manager(|manager, effects| {
-                    frame.apply_to_control_bar_with_selection(bar, manager, effects, selection)
-                })
-            });
-        let _ = self.update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
+        // InGameUI.cpp:1821 updates the ControlBar once, with selection,
+        // observer roster, and video state all delivered to the same bar.
+        if let Err(error) = self.apply_receiving_control_bar_frame(frame, selection) {
+            log::warn!("Receiving ControlBar update failed: {error}");
+        }
     }
 
     pub(in crate::cnc_game_engine) fn host_sync_shadow_and_build_presentation(

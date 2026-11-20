@@ -2690,15 +2690,10 @@ impl ControlBar {
         Ok(())
     }
 
-    pub fn update_for_selection_owned(
-        &mut self,
-        selected_objects: Vec<u32>,
-        receiving_manager: &mut crate::gui::window_manager::WindowManager,
-        effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    /// Install the receiving frame's selection before the next ControlBar update.
+    pub fn admit_presentation_selection(&mut self, selected_objects: Vec<u32>) {
         self.context.selected_objects = selected_objects;
         self.mark_ui_dirty();
-        self.update_owned(Duration::from_millis(33), receiving_manager, effects)
     }
 
     pub fn set_observer_mode(&mut self, observer: bool) {

@@ -50,9 +50,10 @@ impl CnCGameEngine {
             .filter(|p| !p.is_observer)
             .map(|_| index)
     }
-    pub(super) fn update_receiving_observer_control_bar(
+    pub(super) fn apply_receiving_control_bar_frame(
         &mut self,
-        delta: std::time::Duration,
+        frame: &crate::presentation_frame::PresentationFrame,
+        selection: &[crate::ui::UnitDisplayInfo],
     ) -> Result<(), Box<dyn std::error::Error>> {
         let receiving_callback_observation = self.receiving_control_bar_callback_observation();
         let game_ending = self.game_logic.owned_script_game_ending();
@@ -63,49 +64,33 @@ impl CnCGameEngine {
                 .as_ref()
                 .map(|content| content.action_definitions_shared()),
         );
-        self.control_bar
-            .bind_logic_owner(
+        if frame.command_definitions.is_none() {
+            self.control_bar.bind_logic_owner(
                 Some(self.game_logic.command_definitions()),
                 self.game_logic.control_bar_bridge(),
             );
+        }
         self.control_bar
             .bind_logic_world(Some(&self.game_logic.world_services));
         let upgrade_observer = self.game_logic.receiving_upgrade_tooltip_observer();
         let upgrade_source = game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_observer);
         let window_manager_owner = self.game_client.window_manager_owner();
-        if !receiving_local_player_is_observer(&self.game_logic) {
-            // A regular ControlBar update does not require replay metadata.
-            let result =
-                self.game_client
-                    .with_window_and_control_bar_effects(None, |effects, videos| {
-                        effects
-                            .admit_control_bar_callback_observation(receiving_callback_observation);
-                        effects.with_manager(|manager, effects| {
-                            self.control_bar.update_owned_receiving(
-                                delta,
-                                None,
-                                upgrade_source,
-                                game_ending,
-                                &window_manager_owner,
-                                videos,
-                                manager,
-                                effects,
-                            )
-                        })
-                    });
-            return result;
-        }
-        let roster = self
-            .receiving_observer_roster()
-            .ok_or("receiving Recorder metadata unavailable for native observer")?;
-        let result =
-            self.game_client
-                .with_window_and_control_bar_effects(None, |effects, videos| {
-                    effects.admit_control_bar_callback_observation(receiving_callback_observation);
-                    effects.with_manager(|manager, effects| {
-                        self.control_bar.update_owned_receiving(
-                            delta,
-                            Some(&roster),
+        let roster = if receiving_local_player_is_observer(&self.game_logic) {
+            Some(self.receiving_observer_roster()
+                .ok_or("receiving Recorder metadata unavailable for native observer")?)
+        } else {
+            None
+        };
+        let menu_world = self.receiving_menu_world_facts();
+        self.game_client.with_window_and_control_bar_effects(Some(menu_world), |effects, videos| {
+            effects.admit_control_bar_callback_observation(receiving_callback_observation);
+            effects.with_manager(|manager, effects| {
+                frame.apply_to_control_bar_with_selection(
+                    &mut self.control_bar, manager, effects, selection,
+                    |bar, manager, effects| {
+                        bar.update_owned_receiving(
+                            std::time::Duration::from_millis(33),
+                            roster.as_ref(),
                             upgrade_source,
                             game_ending,
                             &window_manager_owner,
@@ -113,9 +98,10 @@ impl CnCGameEngine {
                             manager,
                             effects,
                         )
-                    })
-                });
-        result
+                    },
+                )
+            })
+        })
     }
     fn control_bar_parent_handle(
         &self,

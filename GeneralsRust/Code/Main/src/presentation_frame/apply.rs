@@ -1220,16 +1220,24 @@ impl PresentationFrame {
             manager,
             effects,
             &self.selected_unit_display_infos(),
+            |bar, manager, effects| {
+                let _ = bar.update_owned(std::time::Duration::from_millis(33), manager, effects);
+            },
         );
     }
 
-    pub(crate) fn apply_to_control_bar_with_selection(
+    pub(crate) fn apply_to_control_bar_with_selection<R>(
         &self,
         control_bar: &mut game_client::gui::control_bar::ControlBar,
         manager: &mut game_client::gui::window_manager::WindowManager,
         effects: &mut game_client::gui::game_window::WindowEventEffects<'_>,
         infos: &[crate::ui::UnitDisplayInfo],
-    ) {
+        update: impl FnOnce(
+            &mut game_client::gui::control_bar::ControlBar,
+            &mut game_client::gui::window_manager::WindowManager,
+            &mut game_client::gui::game_window::WindowEventEffects<'_>,
+        ) -> R,
+    ) -> R {
         // The frame's receiving world owns the catalog this bar resolves.
         if self.command_definitions.is_some() {
             control_bar.bind_logic_owner(
@@ -1442,7 +1450,8 @@ impl PresentationFrame {
                     .or_else(|| self.command_set_name_including_disabled()),
             );
         }
-        let _ = control_bar.update_for_selection_owned(ids, manager, effects);
+        control_bar.admit_presentation_selection(ids);
+        let update_result = update(control_bar, manager, effects);
         // Re-project the frozen selection identity after context evaluation:
         // C++ updateContextCommand's queue branch swaps the portrait for the
         // build-queue strip (ControlBarCommand.cpp), but this frame's apply is
@@ -1508,6 +1517,7 @@ impl PresentationFrame {
             },
         );
         control_bar.apply_upgrade_cameos_to_windows(manager);
+        update_result
     }
 
     /// Selection IDs for multi-consumer apply (player list or object.selected flags).
