@@ -895,17 +895,18 @@ impl Object {
         } else if self.construction_percent <= 0.0 {
             set_flags |= ModelConditionFlags::AWAITING_CONSTRUCTION;
         } else {
-            let mut active_builder = false;
-            if self.builder_id != INVALID_ID {
-                if let Some(builder) =
-                    crate::helpers::TheGameLogic::find_object_by_id(self.builder_id)
-                {
-                    active_builder = builder
-                        .read()
-                        .map(|guard| guard.is_alive())
-                        .unwrap_or(false);
+            // Object.h:376 only stores the percent. Keep the Core port's
+            // combined status/model setter on the scaffold's own match, as
+            // DozerAIUpdate.cpp:337/548/2236 do for their model transitions.
+            let active_builder = match self.builder_id {
+                INVALID_ID => false,
+                builder => match self.owning_world_services() {
+                    Some(world) => world.object_registry().with_object(builder, Self::is_alive),
+                    None => crate::helpers::TheGameLogic::find_object_by_id(builder)
+                        .and_then(|builder| builder.read().ok().map(|object| object.is_alive())),
                 }
-            }
+                .unwrap_or(false),
+            };
             if active_builder {
                 set_flags |= ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED;
             } else {

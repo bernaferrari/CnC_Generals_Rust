@@ -1591,6 +1591,73 @@ fn installed_dozer_finishes_powered_build_and_takes_its_end_dock_path() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
+fn construction_model_uses_the_scaffolds_world_for_its_live_builder() {
+    use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+
+    const NAME: &str = concat!(module_path!(), "::construction_model_uses_the_scaffolds_world_for_its_live_builder");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_CONSTRUCTION_MODEL_OWNER_CHILD",
+    ) {
+        return;
+    }
+
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    let dozer = admit_physical_construction_builder(&receiving, false);
+    let worker = admit_physical_construction_builder(&peer, true);
+    let builder = dozer.read().unwrap().get_id();
+    assert_eq!(worker.read().unwrap().get_id(), builder);
+    let site_id = with_active_stores(&receiving, || {
+        GameLogicBuildAssistantBackend.build_object_now(
+            Some(builder), "PhysicalConstructionSite", &BuildPosition { x: 290., y: 105., z: 0. }, 0., 0,
+        ).unwrap()
+    });
+    let site = receiving.game_logic_mutex().lock().unwrap().find_object_by_id(site_id).unwrap();
+    let drawable = Arc::new(RwLock::new(Drawable::new(
+        site_id, site_id, "ReceivingScaffold".into(), DrawableType::Animated,
+    )));
+    with_active_stores(&receiving, || site.write().unwrap().set_drawable(Some(drawable.clone())));
+
+    with_active_stores(&peer, || {
+        worker.write().unwrap().kill(None, None);
+        assert!(!worker.read().unwrap().is_alive());
+        assert!(dozer.read().unwrap().is_alive());
+        // The owning registry must read its live builder even with its own
+        // GameLogic borrowed by the scheduler and the dead peer published.
+        let receiving_logic = receiving.game_logic_mutex().lock().unwrap();
+        site.write().unwrap().set_construction_percent(40.0);
+        let flags = drawable.read().unwrap().get_model_conditions();
+        assert!(flags.contains(ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED));
+        assert!(!flags.contains(ModelConditionFlags::PARTIALLY_CONSTRUCTED));
+        drop(receiving_logic);
+    });
+
+    with_active_stores(&receiving, || dozer.write().unwrap().kill(None, None));
+    with_active_stores(&peer, || {
+        assert!(!dozer.read().unwrap().is_alive());
+        for (percent, expected) in [
+            (41.0, ModelConditionFlags::PARTIALLY_CONSTRUCTED),
+            (0.0, ModelConditionFlags::AWAITING_CONSTRUCTION),
+            (crate::object::CONSTRUCTION_COMPLETE, ModelConditionFlags::CONSTRUCTION_COMPLETE),
+        ] {
+            site.write().unwrap().set_construction_percent(percent);
+            let flags = drawable.read().unwrap().get_model_conditions();
+            let stage = flags & (ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED
+                | ModelConditionFlags::PARTIALLY_CONSTRUCTED
+                | ModelConditionFlags::AWAITING_CONSTRUCTION
+                | ModelConditionFlags::CONSTRUCTION_COMPLETE);
+            assert_eq!(stage, expected);
+        }
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
 fn destroying_a_looking_structure_uses_the_driving_clock_outside_update() {
     use crate::common::Coord3D;
     use crate::system::engine_stores::{new_for_world, with_active_stores};
