@@ -24,13 +24,12 @@ impl TerrainLogic {
         water_z: Option<&mut f32>,
         terrain_z: Option<&mut f32>,
     ) -> bool {
-        let terrain_height = self.get_ground_height(x, y, None);
-
-        if let Some(tz) = terrain_z {
-            *tz = terrain_height;
-        }
-
         let Some(water_handle) = self.get_water_handle(x, y) else {
+            // TerrainLogic.cpp:2128–2133 still reports an explicitly requested
+            // terrain height on dry ground. Predicate-only callers can stop here.
+            if let Some(tz) = terrain_z {
+                *tz = self.get_ground_height(x, y, None);
+            }
             return false;
         };
 
@@ -45,6 +44,10 @@ impl TerrainLogic {
             *wz = w_z;
         }
 
+        let terrain_height = self.get_ground_height(x, y, None);
+        if let Some(tz) = terrain_z {
+            *tz = terrain_height;
+        }
         terrain_height < w_z
     }
 

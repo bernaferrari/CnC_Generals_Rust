@@ -315,6 +315,22 @@ fn layer_height_uses_wall_height_only_when_unclipped_or_on_wall() {
 }
 
 #[test]
+fn underwater_reports_dry_terrain_height_without_overwriting_water() {
+    let mut terrain = TerrainLogic::new();
+    terrain.load_map_data(map_data_with_heightmap(21, 21, vec![10; 441]));
+    terrain.add_trigger_area(make_water_trigger(1, "Pool", 20, 0, 0, 40, 40));
+    let mut water = -1.0;
+    let mut ground = -1.0;
+    assert!(!terrain.is_underwater(80.0, 80.0, Some(&mut water), Some(&mut ground)));
+    assert_eq!(water, -1.0);
+    assert_eq!(ground, 10.0 * MAP_HEIGHT_SCALE);
+    assert!(!terrain.is_underwater(80.0, 80.0, None, None));
+    assert!(terrain.is_underwater(10.0, 10.0, Some(&mut water), Some(&mut ground)));
+    assert_eq!(water, 20.0);
+    assert_eq!(ground, 10.0 * MAP_HEIGHT_SCALE);
+}
+
+#[test]
 fn water_handle_lookup_by_name_prefers_trigger_identity_over_name_cache() {
     let mut terrain = TerrainLogic::new();
     terrain.add_trigger_area(make_water_trigger(11, "SharedWater", 12, 0, 0, 40, 40));
