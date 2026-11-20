@@ -6,10 +6,11 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AABox, Coord3D, GeometryInfo, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
+    AABox, Coord3D, GeometryInfo, ModuleData, Real, UnsignedInt, XferVersion,
 };
 use crate::modules::{
-    BehaviorModuleInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
+    BehaviorModuleInterface, SleepyUpdatePhase, UPDATE_SLEEP_NONE, UpdateModuleInterface,
+    UpdateSleepTime,
 };
 use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
@@ -320,7 +321,7 @@ pub(crate) fn xfer_dynamic_geometry_info_update_logic(
 
 /// DynamicGeometryInfoUpdate - smoothly transitions object geometry over time
 pub struct DynamicGeometryInfoUpdate {
-    object_id: ObjectID,
+    owner: Weak<RwLock<GameObject>>,
     module_data: game_engine::common::thing::module::ModuleDataHandle,
     pub logic: DynamicGeometryInfoUpdateLogic,
 }
@@ -330,56 +331,81 @@ impl DynamicGeometryInfoUpdate {
         object: Arc<RwLock<GameObject>>,
         module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        Self::new_with_module_data(object, module_data)
+        Self::new_with_birth_frame(object, module_data, None)
     }
 
-    pub(crate) fn new_with_module_data(
+    pub(crate) fn new_with_birth_frame(
         object: Arc<RwLock<GameObject>>,
         module_data: game_engine::common::thing::module::ModuleDataHandle,
+        birth_frame: Option<u32>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let guard = module_data.read();
-        let data = guard.downcast_ref::<DynamicGeometryInfoUpdateModuleData>().ok_or("Invalid module data")?;
+        let data = guard
+            .downcast_ref::<DynamicGeometryInfoUpdateModuleData>()
+            .ok_or("Invalid module data")?;
         let logic = DynamicGeometryInfoUpdateLogic::new(data);
         drop(guard);
 
-        Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+        let mut update = Self {
+            owner: Arc::downgrade(&object),
             module_data,
             logic,
-        })
+        };
+        // GameLogic.cpp:3868–3900 admits ctor wake 0 on the current
+        // logic frame, with frame 1 as the earliest dispatch at map start.
+        if let Some(frame) = birth_frame {
+            update.record_scheduled_wake(frame.max(1), SleepyUpdatePhase::Normal);
+        }
+        Ok(update)
     }
 }
 
 impl UpdateModuleInterface for DynamicGeometryInfoUpdate {
+    fn record_scheduled_wake(&mut self, frame: u32, phase: SleepyUpdatePhase) {
+        self.logic.next_call_frame_and_phase = (frame.min(0x3fff_ffff) << 2) | phase as u32;
+    }
+
     fn update_simple(&mut self) -> UpdateSleepTime {
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            let guard = self.module_data.read();
-            let data = guard.downcast_ref::<DynamicGeometryInfoUpdateModuleData>().expect("Invalid module data");
-            let transition_time = data.transition_time.max(1);
-            let endpoints = (data.initial_height, data.initial_major_radius, data.initial_minor_radius,
-                data.final_height, data.final_major_radius, data.final_minor_radius);
-            drop(guard);
-            if let Ok(mut obj) = obj_arc.write() {
-                self.logic.transition_time = transition_time;
-                let switched = self.logic.switched_directions;
-                let result = self.logic.update_step(&mut obj);
-                if !switched && self.logic.switched_directions {
-                    (self.logic.final_height, self.logic.final_major_radius, self.logic.final_minor_radius,
-                        self.logic.initial_height, self.logic.initial_major_radius, self.logic.initial_minor_radius) = endpoints;
-                }
-                return result;
-            }
+        if self.logic.finished {
+            return UPDATE_SLEEP_NONE;
         }
-        UPDATE_SLEEP_NONE
+        let Some(owner) = self.owner.upgrade() else {
+            return UPDATE_SLEEP_NONE;
+        };
+        let (transition_time, endpoints) = {
+            let guard = self.module_data.read();
+            let data = guard
+                .downcast_ref::<DynamicGeometryInfoUpdateModuleData>()
+                .expect("Invalid module data");
+            (
+                data.transition_time.max(1),
+                (
+                    data.initial_height,
+                    data.initial_major_radius,
+                    data.initial_minor_radius,
+                    data.final_height,
+                    data.final_major_radius,
+                    data.final_minor_radius,
+                ),
+            )
+        };
+        let Ok(mut object) = owner.write() else {
+            return UPDATE_SLEEP_NONE;
+        };
+        self.logic.transition_time = transition_time;
+        let switched = self.logic.switched_directions;
+        let result = self.logic.update_step(&mut object);
+        if !switched && self.logic.switched_directions {
+            (
+                self.logic.final_height,
+                self.logic.final_major_radius,
+                self.logic.final_minor_radius,
+                self.logic.initial_height,
+                self.logic.initial_major_radius,
+                self.logic.initial_minor_radius,
+            ) = endpoints;
+        }
+        result
     }
 }
 
@@ -390,6 +416,14 @@ impl BehaviorModuleInterface for DynamicGeometryInfoUpdate {
 
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
+    }
+
+    fn get_sleepy_update_interface(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
+        Some(self)
+    }
+
+    fn behavior_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(self.logic.next_call_frame_and_phase >> 2)
     }
 }
 
@@ -424,7 +458,6 @@ impl DynamicGeometryInfoUpdateFactory {
 #[cfg(test)]
 mod footprint_tests {
     use super::*;
-    use crate::contain_module_overrides::ActiveBehaviorModule;
     use crate::helpers::TheThingFactory;
     use crate::object::collide::partition_manager::world_partition_manager;
     use crate::system::engine_stores::{new_for_world, with_active_stores};
@@ -434,6 +467,53 @@ mod footprint_tests {
     use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
     use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
 
+    fn spawn_scene(
+        source_position: Coord3D,
+        target_position: Coord3D,
+    ) -> (Arc<RwLock<GameObject>>, Arc<RwLock<GameObject>>) {
+        assert!(ensure_thing_factory_exists());
+        if get_module_factory().unwrap().is_none() {
+            init_module_factory().unwrap();
+        }
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        crate::initialize_weapon_store().unwrap();
+        assert_eq!(
+            get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
+                "Object ChangingFootprint
+                    KindOf = IMMOBILE
+                    Geometry = SPHERE
+                    GeometryMajorRadius = 3
+                    Body = ActiveBody Health
+                        MaxHealth = 100
+                        InitialHealth = 100
+                    End
+                    Behavior = DynamicGeometryInfoUpdate Transition
+                        InitialDelay = 1
+                        InitialHeight = 3
+                        InitialMajorRadius = 3
+                        InitialMinorRadius = 3
+                        FinalHeight = 119
+                        FinalMajorRadius = 119
+                        FinalMinorRadius = 119
+                        TransitionTime = 33
+                    End
+                End",
+            ),
+            1,
+        );
+        let template = TheThingFactory::find_template("ChangingFootprint").unwrap();
+        let team = Arc::new(RwLock::new(Team::new("FootprintTeam".into(), 12)));
+        let spawn = |position| {
+            let object = TheThingFactory::get()
+                .unwrap()
+                .new_object_with_team_handle(Arc::clone(&template), Arc::clone(&team))
+                .unwrap();
+            object.write().unwrap().set_position(&position).unwrap();
+            object
+        };
+        (spawn(source_position), spawn(target_position))
+    }
+
     #[test]
     fn mounted_shape_change_reaches_the_next_partition_contact_and_weapon_phase() {
         let received = new_for_world();
@@ -441,49 +521,7 @@ mod footprint_tests {
         let impact = Coord3D::new(105.0, 105.0, 0.0);
         let source_position = Coord3D::new(135.0, 105.0, 0.0);
         let target_position = Coord3D::new(225.0, 105.0, 0.0);
-        let fixture = || {
-            assert!(ensure_thing_factory_exists());
-            if get_module_factory().unwrap().is_none() {
-                init_module_factory().unwrap();
-            }
-            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
-            crate::initialize_weapon_store().unwrap();
-            assert_eq!(
-                get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
-                    "Object ChangingFootprint
-                        KindOf = IMMOBILE
-                        Geometry = SPHERE
-                        GeometryMajorRadius = 3
-                        Body = ActiveBody Health
-                            MaxHealth = 100
-                            InitialHealth = 100
-                        End
-                        Behavior = DynamicGeometryInfoUpdate Transition
-                            InitialDelay = 1
-                            InitialHeight = 3
-                            InitialMajorRadius = 3
-                            InitialMinorRadius = 3
-                            FinalHeight = 119
-                            FinalMajorRadius = 119
-                            FinalMinorRadius = 119
-                            TransitionTime = 33
-                        End
-                    End",
-                ),
-                1,
-            );
-            let template = TheThingFactory::find_template("ChangingFootprint").unwrap();
-            let team = Arc::new(RwLock::new(Team::new("FootprintTeam".into(), 12)));
-            let spawn = |position| {
-                let object = TheThingFactory::get()
-                    .unwrap()
-                    .new_object_with_team_handle(Arc::clone(&template), Arc::clone(&team))
-                    .unwrap();
-                object.write().unwrap().set_position(&position).unwrap();
-                object
-            };
-            (spawn(source_position), spawn(target_position))
-        };
+        let fixture = || spawn_scene(source_position, target_position);
         let (source, target) = with_active_stores(&received, fixture);
         let (_, peer_target) = with_active_stores(&peer, fixture);
         let id = target.read().unwrap().get_id();
@@ -521,17 +559,15 @@ mod footprint_tests {
 
         let module = target.read().unwrap()
             .module_by_name(&"DynamicGeometryInfoUpdate".into()).unwrap();
-        // Run the actual mounted interpolation using its already borrowed
-        // parent, with another live world deliberately published.
+        // The installed update resolves the factory's live parent even when
+        // another world with the same actor ID is published.
         with_active_stores(&peer, || {
-            module.with_module_downcast::<ActiveBehaviorModule<DynamicGeometryInfoUpdate>, _, _>(
-                |mounted| {
-                    let mut object = target.write().unwrap();
-                    for _ in 0..2 {
-                        mounted.behavior_mut().logic.update_step(&mut object);
-                    }
-                },
-            ).unwrap();
+            module.with_module(|mounted| {
+                let update = mounted.get_update_module_interface().unwrap();
+                for _ in 0..2 {
+                    update.update_simple();
+                }
+            });
             assert_eq!(
                 world_partition_manager().read().unwrap().get_object_info(id).unwrap().1.get_major_radius(),
                 3.0
@@ -586,5 +622,71 @@ mod footprint_tests {
             partition.read().unwrap().get_object_info(id).unwrap().1.get_major_radius(),
             119.0
         );
+    }
+
+    #[test]
+    fn mounted_geometry_uses_first_logic_frame_and_resumes_saved_wake() {
+        use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+        use std::io::Cursor;
+
+        let received = new_for_world();
+        let peer = new_for_world();
+        let first = Coord3D::new(135.0, 105.0, 0.0);
+        let second = Coord3D::new(225.0, 105.0, 0.0);
+        let (_, target) = with_active_stores(&received, || spawn_scene(first, second));
+        let (_, restored) = with_active_stores(&peer, || spawn_scene(first, second));
+        let name = "DynamicGeometryInfoUpdate".into();
+        let module = target.read().unwrap().module_by_name(&name).unwrap();
+        let restored_module = restored.read().unwrap().module_by_name(&name).unwrap();
+        let radius = |actor: &Arc<RwLock<GameObject>>| {
+            actor.read().unwrap().get_geometry_info().get_major_radius()
+        };
+
+        let mut saved = Vec::new();
+        with_active_stores(&received, || {
+            target.write().unwrap().set_geometry_info_z(2.0);
+            assert_eq!(module.with_module(|module| module.get_initial_wake_frame()), Some(1));
+            let mut logic = get_game_logic().lock().unwrap();
+            logic.update(0, || None).unwrap();
+            assert_eq!(radius(&target), 2.0);
+            logic.update(1, || None).unwrap();
+            assert_eq!(radius(&target), 3.0);
+            module.with_module(|module| {
+                assert_eq!(module.get_initial_wake_frame(), Some(2));
+                module.xfer(&mut XferSave::new(Cursor::new(&mut saved), 1)).unwrap();
+            });
+            logic.update(2, || None).unwrap();
+            assert_eq!(radius(&target), 119.0);
+            assert_eq!(module.with_module(|module| module.get_initial_wake_frame()), Some(3));
+        });
+
+        with_active_stores(&peer, || {
+            restored_module.with_module(|module| {
+                module.xfer(&mut XferLoad::new(saved.as_slice(), 1)).unwrap();
+                assert_eq!(module.get_initial_wake_frame(), Some(2));
+            });
+            let mut logic = get_game_logic().lock().unwrap();
+            GameObject::admit_update_schedule_from_handle(&restored, &mut logic).unwrap();
+            logic.update(1, || None).unwrap();
+            assert_eq!(radius(&restored), 3.0);
+            logic.update(2, || None).unwrap();
+            assert_eq!(radius(&restored), 119.0);
+        });
+
+        with_active_stores(&received, || {
+            let scheduler = get_game_logic();
+            scheduler.lock().unwrap().set_current_frame(17);
+            let template = TheThingFactory::find_template("ChangingFootprint").unwrap();
+            let team = Arc::new(RwLock::new(Team::new("ReinforcementTeam".into(), 13)));
+            let spawned = TheThingFactory::get()
+                .unwrap()
+                .new_object_with_team_handle(template, team)
+                .unwrap();
+            spawned.write().unwrap().set_geometry_info_z(2.0);
+            let module = spawned.read().unwrap().module_by_name(&name).unwrap();
+            assert_eq!(module.with_module(|module| module.get_initial_wake_frame()), Some(17));
+            scheduler.lock().unwrap().update(17, || None).unwrap();
+            assert_eq!(radius(&spawned), 3.0);
+        });
     }
 }

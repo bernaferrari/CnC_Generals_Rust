@@ -170,6 +170,16 @@ impl<T: BehaviorModuleInterface + Snapshotable + 'static> Module for ActiveBehav
     fn get_initial_wake_frame(&mut self) -> Option<u32> {
         self.behavior.behavior_initial_wake_frame()
     }
+
+    fn record_scheduled_wake(
+        &mut self,
+        frame: u32,
+        phase: game_engine::common::thing::update_module::SleepyUpdatePhase,
+    ) {
+        if let Some(update) = self.behavior.get_sleepy_update_interface() {
+            update.record_scheduled_wake(frame, phase);
+        }
+    }
 }
 
 impl<T: BehaviorModuleInterface + Snapshotable + 'static> Snapshotable for ActiveBehaviorModule<T> {
@@ -190,7 +200,7 @@ pub(super) fn active_behavior_module<TBehavior, TData>(
     thing: Arc<dyn ModuleThing>,
     module_data: ModuleDataHandle,
     module_name: &str,
-    create: fn(
+    create: impl FnOnce(
         Arc<RwLock<crate::object::Object>>,
         ModuleDataHandle,
     ) -> Result<TBehavior, Box<dyn std::error::Error + Send + Sync>>,

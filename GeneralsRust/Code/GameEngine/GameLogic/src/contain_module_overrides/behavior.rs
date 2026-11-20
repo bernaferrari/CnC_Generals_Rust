@@ -67,13 +67,32 @@ active_behavior_factories!(
     FireWeaponUpdate,
     "FireWeaponUpdate"
 );
-active_behavior_factories!(
-    dynamic_geometry_info_update_data_factory,
-    dynamic_geometry_info_update_module_factory,
-    DynamicGeometryInfoUpdateModuleData,
-    DynamicGeometryInfoUpdate,
-    "DynamicGeometryInfoUpdate"
-);
+pub(super) fn dynamic_geometry_info_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = DynamicGeometryInfoUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse DynamicGeometryInfoUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub(super) fn dynamic_geometry_info_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: ModuleDataHandle,
+) -> Box<dyn Module> {
+    let frame = crate::object::supplied_module_birth_frame(thing.as_ref());
+    active_behavior_module::<DynamicGeometryInfoUpdate, DynamicGeometryInfoUpdateModuleData>(
+        thing,
+        module_data,
+        "DynamicGeometryInfoUpdate",
+        |owner, data| DynamicGeometryInfoUpdate::new_with_birth_frame(owner, data, frame),
+    )
+}
 
 active_behavior_factories!(
     firestorm_dynamic_geometry_info_update_data_factory,
