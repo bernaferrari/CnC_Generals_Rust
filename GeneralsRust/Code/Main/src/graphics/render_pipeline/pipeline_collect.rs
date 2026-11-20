@@ -660,6 +660,18 @@ impl RenderPipeline {
                                         .any(|control| control.recoil_pivot_index.is_some()),
                             );
 
+                            let mesh_pose_at = |frame| {
+                                w3d_model.draw_mesh_pose(
+                                    animation_binding.as_ref(),
+                                    frame,
+                                    &authored_primary_turret,
+                                    (u.turret_angle_deg, u.turret_pitch_deg),
+                                    (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
+                                    &weapon_controls,
+                                )
+                            };
+                            let pre_cull_frame = anim_frame;
+                            let pre_cull_mesh_pose = mesh_pose_at(pre_cull_frame);
                             // Retain the real native ModelDraw pose before any
                             // mesh visibility/frustum output is converted into
                             // ordinary items. C++ clones hidden children too.
@@ -673,16 +685,12 @@ impl RenderPipeline {
                                     u.world_matrix_without_geometry_scale_and_instance(instance),
                                 );
                                 if let Some(render_object) = w3d_model
-                                    .capture_native_ghost_render_object(
+                                    .capture_native_ghost_with_mesh_pose(
                                         parent,
                                         scales.asset_scale,
                                         color,
-                                        animation_binding.as_ref(),
-                                        anim_frame,
-                                        &authored_primary_turret,
-                                        u.turret_angle_deg,
-                                        u.turret_pitch_deg,
-                                        (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
+                                        animation_binding.is_some(),
+                                        &pre_cull_mesh_pose,
                                         &weapon_controls,
                                         &authored_subobject_visibility,
                                         u.world_is_night,
@@ -777,6 +785,13 @@ impl RenderPipeline {
                                 .as_ref()
                                 .is_some_and(|poses| !poses.is_empty());
 
+                            // A newly admitted hierarchy can return a different
+                            // HAnim frame. Reuse the fog pose only for the exact
+                            // same source sample.
+                            let admitted_mesh_pose = (anim_frame.to_bits() != pre_cull_frame.to_bits())
+                                .then(|| mesh_pose_at(anim_frame));
+                            let mesh_pose = admitted_mesh_pose.as_ref().unwrap_or(&pre_cull_mesh_pose);
+
                             for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                                 let mut material = mesh.material.clone();
 
@@ -839,18 +854,7 @@ impl RenderPipeline {
                                 // bind is not an identity-local draw — that was the floating
                                 // shard path. Meshes outside the constructor-selected LOD
                                 // fail `rigid_hlod_subobject_for_mesh` and are skipped here.
-                                let Some((mesh_local_transform, animation_visible)) = w3d_model
-                                    .mesh_local_transform_and_visibility_for_primary_turret_and_weapon_controls(
-                                        mesh_idx,
-                                        animation_binding.as_ref(),
-                                        anim_frame,
-                                        &authored_primary_turret,
-                                        u.turret_angle_deg,
-                                        u.turret_pitch_deg,
-                                        (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
-                                        &weapon_controls,
-                                    )
-                                else {
+                                let Some((mesh_local_transform, animation_visible)) = mesh_pose(mesh_idx) else {
                                     continue;
                                 };
                                 if !animation_visible {

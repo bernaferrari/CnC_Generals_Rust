@@ -9,6 +9,7 @@ use gamelogic::object::w3d_ghost_object::{
 };
 
 impl W3DModel {
+    #[cfg(test)]
     pub(crate) fn capture_native_ghost_render_object(
         &self,
         world_transform: Mat4,
@@ -20,6 +21,37 @@ impl W3DModel {
         turret_angle: f32,
         turret_pitch: f32,
         alt_turret_degrees: (f32, f32),
+        weapon_controls: &[W3dWeaponVisualControl],
+        visibility: &[AuthoredDrawSubobjectVisibility],
+        world_is_night: bool,
+    ) -> Option<RenderObjectState> {
+        let mesh_pose = self.draw_mesh_pose(
+            animation_binding,
+            animation_frame,
+            primary_turret,
+            (turret_angle, turret_pitch),
+            alt_turret_degrees,
+            weapon_controls,
+        );
+        self.capture_native_ghost_with_mesh_pose(
+            world_transform,
+            scale,
+            color,
+            animation_binding.is_some(),
+            &mesh_pose,
+            weapon_controls,
+            visibility,
+            world_is_night,
+        )
+    }
+
+    pub(crate) fn capture_native_ghost_with_mesh_pose(
+        &self,
+        world_transform: Mat4,
+        scale: f32,
+        color: u32,
+        has_animation_binding: bool,
+        mesh_pose: &impl Fn(usize) -> Option<(Mat4, bool)>,
         weapon_controls: &[W3dWeaponVisualControl],
         visibility: &[AuthoredDrawSubobjectVisibility],
         world_is_night: bool,
@@ -40,7 +72,7 @@ impl W3DModel {
         }
         let (class_id, sub_objects) = if self.hlods.is_empty() {
             if self.meshes.len() != 1
-                || animation_binding.is_some()
+                || has_animation_binding
                 || Self::mesh_declares_skin(&self.meshes[0])
             {
                 return None;
@@ -66,17 +98,7 @@ impl W3DModel {
                 if Self::mesh_declares_skin(mesh) {
                     return None;
                 }
-                let (transform, animation_visible) = self
-                    .mesh_local_transform_and_visibility_for_primary_turret_and_weapon_controls(
-                        mesh_index,
-                        animation_binding,
-                        animation_frame,
-                        primary_turret,
-                        turret_angle,
-                        turret_pitch,
-                        alt_turret_degrees,
-                        weapon_controls,
-                    )?;
+                let (transform, animation_visible) = mesh_pose(mesh_index)?;
                 if !transform.is_finite() {
                     return None;
                 }

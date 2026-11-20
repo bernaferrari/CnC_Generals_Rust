@@ -1598,6 +1598,48 @@ fn alt_turret_draw_poses_alt_bones_from_alt_angles_hq_2qedt_2_6() {
 }
 
 #[test]
+fn shared_mesh_pose_retains_turret_control_when_recoil_is_invalid() {
+    let model = primary_turret_hlod_model();
+    let binding = W3dAnimationBinding::local(0);
+    let turret = AuthoredDrawPrimaryTurret {
+        yaw_bone: Some("yaw_pivot".into()),
+        pitch_bone: Some("pitch_pivot".into()),
+        ..Default::default()
+    };
+    let controls = [
+        W3dWeaponVisualControl {
+            recoil_pivot_index: Some(3),
+            recoil_shift: 2.5,
+            muzzle_flash_pivot_index: None,
+            muzzle_flash_visible: false,
+        },
+        W3dWeaponVisualControl {
+            recoil_pivot_index: Some(2),
+            recoil_shift: f32::NAN,
+            muzzle_flash_pivot_index: None,
+            muzzle_flash_visible: false,
+        },
+    ];
+    let early = model.draw_mesh_pose(
+        Some(&binding), 0.0, &turret, (10.0, 30.0), (0.0, 0.0), &controls,
+    );
+    let late = model.draw_mesh_pose(
+        Some(&binding), 1.0, &turret, (10.0, 30.0), (0.0, 0.0), &controls,
+    );
+    let reference = |mesh, frame| {
+        model.mesh_local_transform_and_visibility_for_primary_turret(
+            mesh, Some(&binding), frame, &turret, 10.0, 30.0, (0.0, 0.0),
+        )
+    };
+    for mesh in 0..model.meshes.len() {
+        assert_eq!(early(mesh), reference(mesh, 0.0));
+        assert_eq!(late(mesh), reference(mesh, 1.0));
+    }
+    assert_eq!(early(0), late(0));
+    assert_ne!(early(3), late(3));
+}
+
+#[test]
 fn aggregate_poses_inherit_primary_turret_and_recoil_controls_in_cxx_order() {
     let model = primary_turret_hlod_model_with_barrel_aggregate();
     let binding = W3dAnimationBinding::local(0);

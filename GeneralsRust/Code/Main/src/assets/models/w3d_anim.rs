@@ -182,7 +182,7 @@ pub(super) fn compute_htree_global_transforms_from_locals_with_capture_controls(
     capture_controls: &[Option<[f32; 16]>],
 ) -> Option<Vec<[f32; 16]>> {
     if locals.len() != hierarchy.pivots.len()
-        || capture_controls.len() != hierarchy.pivots.len()
+        || (!capture_controls.is_empty() && capture_controls.len() != hierarchy.pivots.len())
         || hierarchy.pivots.is_empty()
         || hierarchy.pivots[0].parent_idx != u32::MAX
     {
@@ -199,8 +199,8 @@ pub(super) fn compute_htree_global_transforms_from_locals_with_capture_controls(
             return None;
         }
         let mut global = mat4_mul(&globals[parent_index], &locals[pivot_index]);
-        if let Some(control) = capture_controls[pivot_index] {
-            global = mat4_mul(&global, &control);
+        if let Some(Some(control)) = capture_controls.get(pivot_index) {
+            global = mat4_mul(&global, control);
         }
         globals[pivot_index] = global;
     }
@@ -218,7 +218,7 @@ pub(super) fn compute_htree_global_transforms_from_locals(
     compute_htree_global_transforms_from_locals_with_capture_controls(
         hierarchy,
         locals,
-        &vec![None; hierarchy.pivots.len()],
+        &[],
     )
 }
 

@@ -940,79 +940,104 @@ impl W3DModel {
         alt_turret_degrees: (f32, f32),
         weapon_controls: &[W3dWeaponVisualControl],
     ) -> Option<(Mat4, bool)> {
-        let (fallback_transform, visible) = self
-            .mesh_local_transform_and_visibility_for_primary_turret(
-                mesh_index,
-                animation_binding,
-                animation_frame,
-                primary_turret,
-                turret_angle_degrees,
-                turret_pitch_degrees,
-                alt_turret_degrees,
-            )?;
-        if weapon_controls.is_empty() {
-            return Some((fallback_transform, visible));
-        }
-
-        let Some(mesh_bone_index) = self.rigid_hlod_bone_index_for_mesh(mesh_index) else {
-            return Some((fallback_transform, visible));
-        };
-        let Some((hlod, hierarchy)) = self.rigid_hlod_context() else {
-            return Some((fallback_transform, visible));
-        };
-        let Some(local_transforms) =
-            self.local_transforms_for_animation_binding(animation_binding, animation_frame)
-        else {
-            return Some((fallback_transform, visible));
-        };
-
-        let mut capture_controls = vec![None; hierarchy.pivots.len()];
-        for (bone_index, transform) in Self::turret_capture_controls(
-            hierarchy,
+        self.draw_mesh_pose(
+            animation_binding,
+            animation_frame,
             primary_turret,
             (turret_angle_degrees, turret_pitch_degrees),
             alt_turret_degrees,
-        ) {
-            capture_controls[bone_index] = Some(transform.to_cols_array());
-        }
+            weapon_controls,
+        )(mesh_index)
+    }
 
-        for control in weapon_controls {
-            let Some(pivot_index) = control
-                .recoil_pivot_index
-                .and_then(|index| usize::try_from(index).ok())
-                .filter(|index| *index != 0 && *index < hierarchy.pivots.len())
-            else {
-                continue;
-            };
-            if !control.recoil_shift.is_finite() || control.recoil_shift < 0.0 {
-                return Some((fallback_transform, visible));
+    /// Resolve the source HTree once for this Draw state. Child meshes and
+    /// fog capture can query the same pose without rebuilding the hierarchy.
+    /// C++ `HLodClass::Update_Sub_Object_Transforms` also samples the parent
+    /// HTree before visiting its children.
+    pub(crate) fn draw_mesh_pose<'a>(
+        &'a self,
+        animation_binding: Option<&'a W3dAnimationBinding>,
+        animation_frame: f32,
+        primary_turret: &'a AuthoredDrawPrimaryTurret,
+        main_turret_degrees: (f32, f32),
+        alt_turret_degrees: (f32, f32),
+        weapon_controls: &'a [W3dWeaponVisualControl],
+    ) -> impl Fn(usize) -> Option<(Mat4, bool)> + 'a {
+        let hierarchy_pose = std::cell::OnceCell::new();
+        move |mesh_index| {
+            let mesh = self.meshes.get(mesh_index)?;
+            if self.hlod_parse_failed {
+                return None;
             }
-            // `handleClientRecoil` runs after turret positioning and calls
-            // Capture_Bone/Control_Bone in slot/barrel order. A later control
-            // on the same pivot replaces the earlier capture transform.
-            capture_controls[pivot_index] = Some(
-                Mat4::from_translation(Vec3::new(-control.recoil_shift, 0.0, 0.0)).to_cols_array(),
-            );
-        }
+            if self.hlods.is_empty() {
+                return Some((Self::skin_render_local_transform(mesh, mesh.transform), true));
+            }
 
-        let Some(source_transform) =
-            compute_htree_global_transforms_from_locals_with_capture_controls(
-                hierarchy,
-                &local_transforms,
-                &capture_controls,
-            )?
-            .get(mesh_bone_index)
-            .copied()
-        else {
-            return Some((fallback_transform, visible));
-        };
-        Some((
-            self.skin_local_for_mesh(
-                mesh_index,
-                Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
-            ),
-            visible,
-        ))
+            let (hlod, lod, transforms, animation) = hierarchy_pose
+                .get_or_init(|| {
+                    let (hlod, lod, hierarchy) = self.static_hlod_parent_context()?;
+                    let animation = animation_binding
+                        .filter(|binding| self.animation_binding_is_compatible(binding))
+                        .and_then(|binding| binding.animation(self));
+                    let locals = match animation {
+                        Some(animation) => {
+                            sample_animation_local_transforms(hierarchy, animation, animation_frame)?
+                        }
+                        None => hierarchy.pivots.iter().map(mat4_from_pivot).collect(),
+                    };
+
+                    // The authored controls support one LOD. When a selected
+                    // binding is incompatible, the old path displays bare bind
+                    // pose. Malformed recoil retains valid turret positioning.
+                    let mut controls = Vec::new();
+                    if hlod.lods.len() == 1
+                        && (animation.is_some() || animation_binding.is_none())
+                        && (primary_turret.has_any_turret_bone() || !weapon_controls.is_empty())
+                    {
+                        let capture = self
+                            .native_draw_capture_controls(
+                                primary_turret,
+                                main_turret_degrees.0,
+                                main_turret_degrees.1,
+                                alt_turret_degrees,
+                                weapon_controls,
+                            )
+                            .unwrap_or_else(|| {
+                                Self::turret_capture_controls(
+                                    hierarchy,
+                                    primary_turret,
+                                    main_turret_degrees,
+                                    alt_turret_degrees,
+                                )
+                                .into_iter()
+                                .filter_map(|(index, transform)| {
+                                    Some((i32::try_from(index).ok()?, transform))
+                                })
+                                .collect()
+                            });
+                        if !capture.is_empty() {
+                            controls.resize(hierarchy.pivots.len(), None);
+                            for (index, transform) in capture {
+                                controls[index as usize] = Some(transform.to_cols_array());
+                            }
+                        }
+                    }
+                    let transforms = compute_htree_global_transforms_from_locals_with_capture_controls(
+                        hierarchy, &locals, &controls,
+                    )?;
+                    Some((hlod, lod, transforms, animation))
+                })
+                .as_ref()?;
+            let (_, bone_index) = Self::find_rigid_hlod_mesh(hlod, lod, mesh, transforms.len())?;
+            let visible = match animation {
+                Some(animation) => animation.visibility_for_pivot(bone_index, animation_frame)?,
+                None => true,
+            };
+            let source_transform = transforms.get(bone_index)?;
+            let local_transform =
+                Self::w3d_transform_to_render_basis(Mat4::from_cols_array(source_transform));
+            Some((Self::skin_render_local_transform(mesh, local_transform), visible))
+        }
     }
 
     /// Return C++ `setMuzzleFlashHidden`'s direct visibility override for one
@@ -1030,6 +1055,9 @@ impl W3DModel {
         mesh_index: usize,
         weapon_controls: &[W3dWeaponVisualControl],
     ) -> Option<bool> {
+        if weapon_controls.is_empty() {
+            return None;
+        }
         let (mesh_subobject, mesh_bone_index) = self.rigid_hlod_subobject_for_mesh(mesh_index)?;
         let (hlod, _hierarchy) = self.rigid_hlod_context()?;
         let mesh_bone_index = u32::try_from(mesh_bone_index).ok()?;
@@ -1447,21 +1475,39 @@ impl W3DModel {
     ) -> Option<(&W3dHlodSubObject, usize)> {
         let (hlod, lod, hierarchy) = self.rigid_hlod_static_lod_context()?;
 
-        let mesh = self.meshes.get(mesh_index)?;
-        if mesh.container_name.is_empty()
+        Self::find_rigid_hlod_mesh(
+            hlod,
+            lod,
+            self.meshes.get(mesh_index)?,
+            hierarchy.pivots.len(),
+        )
+    }
+
+    fn find_rigid_hlod_mesh<'a>(
+        hlod: &W3dHlod,
+        lod: &'a W3dHlodLod,
+        mesh: &W3DMesh,
+        bone_count: usize,
+    ) -> Option<(&'a W3dHlodSubObject, usize)> {
+        let container = mesh.container_name.as_bytes();
+        if container.is_empty()
             || !mesh.container_name.eq_ignore_ascii_case(hlod.name.as_str())
         {
             return None;
         }
-        let source_identity = format!("{}.{}", mesh.container_name, mesh.name);
         let subobject = lod.subobjects.iter().find(|subobject| {
-            subobject
-                .name
-                .eq_ignore_ascii_case(source_identity.as_str())
+            let Some((prefix, leaf)) = subobject.name.as_bytes().split_at_checked(container.len())
+            else {
+                return false;
+            };
+            prefix.eq_ignore_ascii_case(container)
+                && leaf
+                    .strip_prefix(b".")
+                    .is_some_and(|leaf| leaf.eq_ignore_ascii_case(mesh.name.as_bytes()))
         })?;
 
         let bone_index = usize::try_from(subobject.bone_index).ok()?;
-        (bone_index < hierarchy.pivots.len()).then_some((subobject, bone_index))
+        (bone_index < bone_count).then_some((subobject, bone_index))
     }
 
     /// C++ `HLodClass` construction starts from `CurLod == 0`, calls
