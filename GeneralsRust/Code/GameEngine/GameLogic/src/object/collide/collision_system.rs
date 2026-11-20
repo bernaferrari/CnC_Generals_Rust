@@ -223,14 +223,25 @@ impl CollisionSystem {
         let Some((pos_b, geom_b, angle_b)) = self.pm().get_object_pose(id_b) else {
             return Ok(false);
         };
-        // C++ PartitionData::collidesWith (PartitionManager.cpp:1932-1933).
-        let kind_no_collide = OBJECT_REGISTRY
-            .with_object(id_a, |obj| obj.is_kind_of(KindOf::NoCollide))
-            .unwrap_or(true)
-            || OBJECT_REGISTRY
-                .with_object(id_b, |obj| obj.is_kind_of(KindOf::NoCollide))
-                .unwrap_or(true);
-        if kind_no_collide {
+        // PartitionManager.cpp:2727 only seeds contacts from mobile objects.
+        // The Rust broad phase also finds immobile pairs in shared cells.
+        let Some(immobile_a) = OBJECT_REGISTRY
+            .with_object(id_a, |obj| {
+                (!obj.is_kind_of(KindOf::NoCollide)).then(|| obj.is_kind_of(KindOf::Immobile))
+            })
+            .flatten()
+        else {
+            return Ok(false);
+        };
+        let Some(immobile_b) = OBJECT_REGISTRY
+            .with_object(id_b, |obj| {
+                (!obj.is_kind_of(KindOf::NoCollide)).then(|| obj.is_kind_of(KindOf::Immobile))
+            })
+            .flatten()
+        else {
+            return Ok(false);
+        };
+        if immobile_a && immobile_b {
             return Ok(false);
         }
 
@@ -1272,6 +1283,57 @@ mod tests {
             .unwrap();
 
         assert!(system.object_configs.contains_key(&1));
+    }
+
+    #[test]
+    fn immobile_contacts_require_one_mobile_object_and_keep_both_callbacks() {
+        let _test_lock = crate::test_sync::lock();
+        let id_a = 0xC011_1551;
+        let id_b = id_a + 1;
+        let mut immobile = crate::common::DefaultThingTemplate::new("FixedContact".into());
+        immobile.add_kind_of(KindOf::Immobile);
+        let immobile = Arc::new(immobile);
+        let owner_a = Arc::new(RwLock::new(crate::object::Object::new_test_from_template(
+            id_a, 100.0, immobile.clone(),
+        )));
+        let owner_b = Arc::new(RwLock::new(crate::object::Object::new_test_from_template(
+            id_b, 100.0, immobile,
+        )));
+        let _registry_cleanup = RegistryCleanup(vec![
+            (id_a, Arc::clone(&owner_a)),
+            (id_b, Arc::clone(&owner_b)),
+        ]);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let geometry = GeometryInfo::new_sphere(4.0, false);
+        let mut system = CollisionSystem::new();
+        for (label, id, owner, x) in [
+            ("owner-a", id_a, &owner_a, 104.0),
+            ("owner-b", id_b, &owner_b, 106.0),
+        ] {
+            owner.write().unwrap().push_behavior_module_for_test(Arc::new(Mutex::new(
+                RegistrySwapCollideProbe {
+                    label,
+                    events: Arc::clone(&events),
+                    action: ProbeAction::None,
+                },
+            )));
+            OBJECT_REGISTRY.register_object(id, owner);
+            system
+                .register_object(id, Coord3D::new(x, 105.0, 0.0), geometry, None)
+                .unwrap();
+        }
+
+        assert!(!system.test_and_respond_collision(id_a, id_b).unwrap());
+        assert!(events.lock().unwrap().is_empty());
+
+        owner_a.write().unwrap().set_template_for_test(Arc::new(
+            crate::common::DefaultThingTemplate::new("MobileContact".into()),
+        ));
+        assert!(system.test_and_respond_collision(id_a, id_b).unwrap());
+        assert_eq!(
+            *events.lock().unwrap(),
+            [("owner-a", id_a, id_b), ("owner-b", id_b, id_a)]
+        );
     }
 
     #[test]
