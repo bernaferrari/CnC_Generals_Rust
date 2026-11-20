@@ -536,22 +536,31 @@ impl ForwardPass {
         // C++ parity: first-use textures should resolve quickly; avoid one-texture-per-frame trickle.
         self.stream_pending_textures(self.texture_stream_budget());
 
-        // Freeze GPU resource state before the renderer frame. An absent or
-        // inactive presentation snapshot explicitly releases stale map data.
-        let inactive_projected_shroud;
-        let projected_shroud = match projected_shroud {
-            Some(snapshot) => snapshot,
-            None => {
-                inactive_projected_shroud =
-                    crate::fow_rendering::ProjectedShroudSnapshot::inactive();
-                &inactive_projected_shroud
-            }
-        };
-        let projected_shroud_binding = self.projected_shroud_uploader.sync_renderer_binding(
-            self.device.as_ref(),
-            self.queue.as_ref(),
-            projected_shroud,
-        );
+        // The receiving terrain has already synced this frame's R8 levels.
+        // Draw shares that resource when it is an exact match, or uses its own uploader.
+        #[cfg(feature = "game_client")]
+        let receiving_shroud = projected_shroud.and_then(|snapshot| {
+            let (view, sampler) = native_terrain?.matching_shroud_sampling_resources(
+                &self.device,
+                snapshot.texture_extent()?,
+                &snapshot.texels,
+            )?;
+            self.projected_shroud_uploader
+                .bind_receiving_terrain_texture(snapshot, view, sampler)
+        });
+        #[cfg(not(feature = "game_client"))]
+        let receiving_shroud = None;
+        let projected_shroud_binding = receiving_shroud.or_else(|| {
+            let Some(snapshot) = projected_shroud else {
+                self.projected_shroud_uploader.clear();
+                return None;
+            };
+            self.projected_shroud_uploader.sync_renderer_binding(
+                self.device.as_ref(),
+                self.queue.as_ref(),
+                snapshot,
+            )
+        });
         self.ghost_lighting_environment =
             Self::build_always_fogged_light_environment(lighting, &self.renderer.renderer_3d).map(Arc::new);
 

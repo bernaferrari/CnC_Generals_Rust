@@ -288,7 +288,7 @@ fn terrain_shroud_draw_uses_frozen_border_levels_and_tint() {
         ..Default::default()
     })
     .unwrap();
-    let graphics = {
+    let mut graphics = {
         let engine = engine.lock();
         GraphicsSystem::new(
             engine.device(),
@@ -373,11 +373,96 @@ fn terrain_shroud_draw_uses_frozen_border_levels_and_tint() {
     let changed_border = paint(&mut render, Some(frame.clone()));
     check(&changed_border, 8, 24, 196, 0.0);
     assert_eq!(changed_border[24 + 24 * 64], paint_shroud[24 + 24 * 64]);
+
+    let snapshot = frame.terrain_projected_shroud().unwrap();
+    let object_projection =
+        draw_forward_shroud(&mut render, &mut graphics, Some(snapshot)).unwrap();
+    assert_eq!(
+        object_projection.content_fingerprint,
+        snapshot.content_fingerprint()
+    );
+    assert_eq!(
+        object_projection.shroud_color,
+        [128.0 / 255.0, 1.0, 64.0 / 255.0]
+    );
+    assert_eq!(
+        render.forward_pass.projected_shroud_uploader.upload_count(),
+        0,
+        "the exact receiving terrain texture must also serve the object pass"
+    );
+    let mut stale = snapshot.clone();
+    stale.texels[0] ^= 1;
+    let fallback = draw_forward_shroud(&mut render, &mut graphics, Some(&stale)).unwrap();
+    assert_eq!(fallback.content_fingerprint, stale.content_fingerprint());
+    assert_eq!(
+        render.forward_pass.projected_shroud_uploader.upload_count(),
+        1
+    );
+    assert!(
+        render
+            .forward_pass
+            .projected_shroud_uploader
+            .resident_state()
+            .is_some()
+    );
+    let again = draw_forward_shroud(&mut render, &mut graphics, Some(snapshot)).unwrap();
+    assert_eq!(again, object_projection);
+    assert_eq!(
+        render.forward_pass.projected_shroud_uploader.upload_count(),
+        1
+    );
+    assert!(
+        render
+            .forward_pass
+            .projected_shroud_uploader
+            .resident_state()
+            .is_none()
+    );
+
     frame.fow_shell_bypass = true;
     assert_eq!(paint(&mut render, Some(frame.clone())), baseline);
     frame.fow_shell_bypass = false;
     assert_eq!(paint(&mut render, Some(frame)), changed_border);
     assert_eq!(paint(&mut render, None), baseline);
+    assert!(draw_forward_shroud(&mut render, &mut graphics, None).is_none());
+}
+
+fn draw_forward_shroud(
+    render: &mut RenderPipeline,
+    graphics: &mut GraphicsSystem,
+    snapshot: Option<&crate::fow_rendering::ProjectedShroudSnapshot>,
+) -> Option<ww3d_renderer_3d::rendering::projected_shroud::ProjectedShroudProjection> {
+    let eye = Vec3::new(32.0, 100.0, 32.0);
+    let view = glam::camera::rh::view::look_at_mat4(eye, Vec3::new(32.0, 0.0, 32.0), Vec3::NEG_Z);
+    let projection =
+        glam::camera::rh::proj::directx::orthographic(-32.0, 32.0, -32.0, 32.0, 1.0, 200.0);
+    render
+        .forward_pass
+        .render(
+            graphics,
+            &[],
+            &view,
+            &projection,
+            eye,
+            None,
+            snapshot,
+            false,
+            None,
+            None,
+            None,
+            None,
+            render.native_terrain.as_ref(),
+            (0.0, 0.0, 64.0, 64.0),
+            wgpu::Color::BLACK,
+        )
+        .unwrap();
+    render
+        .forward_pass
+        .renderer
+        .renderer_handle()
+        .lock()
+        .unwrap()
+        .projected_shroud_projection()
 }
 
 fn terrain_shroud_pixels(

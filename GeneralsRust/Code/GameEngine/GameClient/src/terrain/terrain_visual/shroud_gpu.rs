@@ -139,7 +139,7 @@ impl TerrainVisualImpl {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }));
-        self.shroud_gpu.sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+        self.shroud_gpu.sampler = Some(Arc::new(device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("ST_SHROUD dest sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -148,8 +148,33 @@ impl TerrainVisualImpl {
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
-        }));
+        })));
         Ok(())
+    }
+
+    /// Lend a synced R8 mask only to this device and this exact frozen input.
+    pub fn matching_shroud_sampling_resources(
+        &self,
+        device: &Arc<wgpu::Device>,
+        extent: (u32, u32),
+        cells: &[u8],
+    ) -> Option<(&Arc<TextureView>, &Arc<Sampler>)> {
+        let texture = self.shroud_gpu.dest_texture.as_ref()?;
+        // WGPU object IDs can compare equal across independent instances.
+        // Match the device owner actually shared with the render pipeline.
+        let receiving_device = self.device.as_ref()?;
+        if !Arc::ptr_eq(receiving_device, device)
+            || self.shroud_gpu.dirty
+            || self.shroud_gpu.bind_group.is_none()
+            || (texture.width(), texture.height()) != extent
+            || self.overlay.shroud_cells.as_slice() != cells
+        {
+            return None;
+        }
+        Some((
+            self.shroud_gpu.dest_view.as_ref()?,
+            self.shroud_gpu.sampler.as_ref()?,
+        ))
     }
 
     /// Upload the changed projected mask. Returns the number of mask bytes queued.
@@ -203,7 +228,7 @@ impl TerrainVisualImpl {
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
-            self.shroud_gpu.dest_view = Some(texture.create_view(&Default::default()));
+            self.shroud_gpu.dest_view = Some(Arc::new(texture.create_view(&Default::default())));
             self.shroud_gpu.dest_texture = Some(texture);
             self.shroud_gpu.bind_group = None;
         }

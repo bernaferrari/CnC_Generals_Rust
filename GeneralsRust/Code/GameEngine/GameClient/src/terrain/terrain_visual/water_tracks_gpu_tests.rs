@@ -418,6 +418,7 @@ fn mounted_wake_dds_is_bound_before_first_native_water_draw() {
     let mut visual = TerrainVisualImpl::new();
     visual.create_terrain_pipeline(&device).unwrap();
     visual.create_water_pipeline(&device).unwrap();
+    visual.create_shroud_overlay_pipelines(&device).unwrap();
     visual.device = Some(Arc::clone(&device));
     visual.queue = Some(Arc::clone(&queue));
     let wake = visual.water_tracks_mut().add_wave_from_info(
@@ -485,6 +486,56 @@ fn mounted_wake_dds_is_bound_before_first_native_water_draw() {
     visual.bind_water_track_texture(&device, &layout, "wave256.tga", single_level);
     let pixels_without_mips = read_water_pixels(&visual, &device, &queue, false);
     assert_ne!(pixels_with_mips, pixels_without_mips);
+
+    // The actual mounted wake's material still samples the tinted shroud once
+    // its R8 texture is available to both native and Draw consumers.
+    let cell_size = (bounds.1 - bounds.0).max_element() + 1.0;
+    let origin = (bounds.0 - Vec2::splat(cell_size)).to_array();
+    let cells = [160; 4];
+    visual.set_projected_shroud_overlay_r8(2, 2, cell_size, origin, [128, 255, 0], &cells);
+    assert!(
+        visual
+            .matching_shroud_sampling_resources(&device, (2, 2), &cells)
+            .is_none()
+    );
+    assert_eq!(visual.sync_shroud_dest_texture(), cells.len());
+    let (view, sampler) = visual
+        .matching_shroud_sampling_resources(&device, (2, 2), &cells)
+        .unwrap();
+    assert!(Arc::ptr_eq(
+        view,
+        visual.shroud_gpu.dest_view.as_ref().unwrap()
+    ));
+    assert!(Arc::ptr_eq(
+        sampler,
+        visual.shroud_gpu.sampler.as_ref().unwrap()
+    ));
+    assert!(
+        visual
+            .matching_shroud_sampling_resources(&device, (2, 2), &[159, 160, 160, 160])
+            .is_none()
+    );
+    let (foreign, _) = native_water_test_device();
+    assert!(
+        visual
+            .matching_shroud_sampling_resources(&foreign, (2, 2), &cells)
+            .is_none()
+    );
+
+    let tinted = read_water_pixels(&visual, &device, &queue, true);
+    assert_ne!(tinted, pixels_without_mips);
+    for (base, shaded) in pixels_without_mips
+        .chunks_exact(4)
+        .zip(tinted.chunks_exact(4))
+    {
+        for (channel, tint) in [0.0, 1.0, 128.0 / 255.0].into_iter().enumerate() {
+            let expected = (f32::from(base[channel]) * (160.0 / 255.0) * tint).round() as u8;
+            assert!(
+                shaded[channel].abs_diff(expected) <= 1,
+                "mounted colored wake pixel {base:?} -> {shaded:?}"
+            );
+        }
+    }
 }
 
 fn set_water_test_camera(

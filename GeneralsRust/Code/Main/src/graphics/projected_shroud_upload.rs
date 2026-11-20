@@ -294,6 +294,31 @@ impl ProjectedShroudGpuUploader {
         target: ProjectedShroudTextureState,
     ) -> Option<FrozenProjectedShroudTexture> {
         let texture = self.texture.as_ref()?;
+        Self::binding_for_resources(snapshot, target, &texture.view, &texture.sampler)
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn bind_receiving_terrain_texture(
+        &mut self,
+        snapshot: &ProjectedShroudSnapshot,
+        view: &Arc<wgpu::TextureView>,
+        sampler: &Arc<wgpu::Sampler>,
+    ) -> Option<FrozenProjectedShroudTexture> {
+        let target = ProjectedShroudTextureState {
+            extent: snapshot.texture_extent()?,
+            texture_fingerprint: snapshot.texture_fingerprint(),
+        };
+        let binding = Self::binding_for_resources(snapshot, target, view, sampler)?;
+        self.clear();
+        Some(binding)
+    }
+
+    fn binding_for_resources(
+        snapshot: &ProjectedShroudSnapshot,
+        target: ProjectedShroudTextureState,
+        view: &Arc<wgpu::TextureView>,
+        sampler: &Arc<wgpu::Sampler>,
+    ) -> Option<FrozenProjectedShroudTexture> {
         let projection = ProjectedShroudProjection::from_cpp_grid(
             snapshot.draw_origin_xy,
             snapshot.cell_size_xy,
@@ -302,8 +327,8 @@ impl ProjectedShroudGpuUploader {
             snapshot.content_fingerprint_with_texture(target.texture_fingerprint),
         )?;
         Some(FrozenProjectedShroudTexture::new(
-            Arc::clone(&texture.view),
-            Arc::clone(&texture.sampler),
+            Arc::clone(view),
+            Arc::clone(sampler),
             projection,
         ))
     }

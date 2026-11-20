@@ -405,8 +405,8 @@ struct PolygonWaterMeshStamp {
 #[derive(Default)]
 struct ShroudGpuState {
     dest_texture: Option<wgpu::Texture>,
-    dest_view: Option<wgpu::TextureView>,
-    sampler: Option<Sampler>,
+    dest_view: Option<Arc<wgpu::TextureView>>,
+    sampler: Option<Arc<Sampler>>,
     params: Option<Buffer>,
     bind_layout: Option<Arc<BindGroupLayout>>,
     bind_group: Option<BindGroup>,
