@@ -172,7 +172,7 @@ impl W3dRenderObjectPrototype {
         &self.full_name
     }
 
-    /// Exact W3D file stem that populated this source record.
+    /// Exact W3D file stem, or empty for the built-in NULL prototype.
     pub fn source_file_stem(&self) -> &str {
         &self.source_file_stem
     }
@@ -189,24 +189,58 @@ impl W3dRenderObjectPrototype {
 /// table: it can contain presentation-model aliases. Each entry here is loaded
 /// through the exact C++ first-dot filename rule and is immutable after its
 /// source file has registered, matching C++'s first-name-wins collision rule.
-#[derive(Default)]
 struct W3dRenderObjectPrototypeRegistry {
+    builtin_null: (W3dRenderObjectPrototype, W3DModel),
     prototypes: HashMap<String, W3dRenderObjectPrototype>,
     source_models: HashMap<String, W3DModel>,
 }
 
+impl Default for W3dRenderObjectPrototypeRegistry {
+    fn default() -> Self {
+        // Find_Prototype in assetmgr.cpp always resolves NULL, including before
+        // loading any archive. Null3DObjClass has bounds but submits no mesh.
+        let name = "NULL".to_owned();
+        let mut model = W3DModel::new(name.clone());
+        model.bounding_box_min = glam::Vec3::splat(-0.1);
+        model.bounding_box_max = glam::Vec3::splat(0.1);
+        model.nulls.push(crate::assets::models::W3dNullProto { name: name.clone() });
+        let prototype = W3dRenderObjectPrototype {
+            full_name: name,
+            source_file_stem: String::new(),
+            source_model_key: String::new(),
+            kind: W3dRenderObjectPrototypeKind::Null { null_index: 0 },
+        };
+        Self {
+            builtin_null: (prototype, model),
+            prototypes: HashMap::new(),
+            source_models: HashMap::new(),
+        }
+    }
+}
+
 impl W3dRenderObjectPrototypeRegistry {
     fn lookup(&self, full_name: &str) -> Option<W3dRenderObjectPrototype> {
+        if full_name.eq_ignore_ascii_case(&self.builtin_null.0.full_name) {
+            return Some(self.builtin_null.0.clone());
+        }
         let key = w3d_render_object_identity_key(full_name)?;
         self.prototypes.get(&key).cloned()
     }
 
     fn source_model(&self, prototype: &W3dRenderObjectPrototype) -> Option<&W3DModel> {
+        if prototype == &self.builtin_null.0 {
+            return Some(&self.builtin_null.1);
+        }
         let key = w3d_render_object_identity_key(&prototype.full_name)?;
         let registered = self.prototypes.get(&key)?;
         (registered == prototype)
             .then(|| self.source_models.get(&prototype.source_model_key))
             .flatten()
+    }
+
+    fn builtin_null_model(&self, name: &str) -> Option<&W3DModel> {
+        name.eq_ignore_ascii_case(&self.builtin_null.0.full_name)
+            .then_some(&self.builtin_null.1)
     }
 
     fn source_stem_is_loaded(&self, source_stem: &str) -> bool {
@@ -305,6 +339,9 @@ impl W3dRenderObjectPrototypeRegistry {
         source_model_key: &str,
         kind: W3dRenderObjectPrototypeKind,
     ) {
+        if full_name.eq_ignore_ascii_case(&self.builtin_null.0.full_name) {
+            return;
+        }
         let Some(key) = w3d_render_object_identity_key(&full_name) else {
             return;
         };
@@ -1261,6 +1298,9 @@ impl AssetManager {
 
     /// Load C&C model (with caching)
     pub async fn load_cnc_model(&mut self, unit_name: &str) -> Result<&W3DModel> {
+        if let Some(model) = self.w3d_render_object_prototypes.builtin_null_model(unit_name) {
+            return Ok(model);
+        }
         let unit_key = unit_name.to_lowercase();
 
         // Return cached model if available
@@ -2050,8 +2090,7 @@ impl AssetManager {
 
     /// Get a cached model by name (synchronous)
     pub fn get_cached_model(&self, unit_name: &str) -> Option<W3DModel> {
-        let unit_key = unit_name.to_lowercase();
-        self.model_cache.get(&unit_key).cloned()
+        self.get_cached_model_ref(unit_name).cloned()
     }
 
     pub(crate) fn w3d_model_known_missing(&self, model_name: &str) -> bool {
@@ -2065,8 +2104,9 @@ impl AssetManager {
     }
 
     pub fn get_cached_model_ref(&self, unit_name: &str) -> Option<&W3DModel> {
-        let unit_key = unit_name.to_lowercase();
-        self.model_cache.get(&unit_key)
+        self.w3d_render_object_prototypes
+            .builtin_null_model(unit_name)
+            .or_else(|| self.model_cache.get(&unit_name.to_lowercase()))
     }
 
     /// Return a resident exact C++ render-object prototype by full source name.
@@ -2230,6 +2270,9 @@ impl AssetManager {
 
     /// Load a model asynchronously by cloning from cache or loading fresh
     pub async fn load_w3d_model_async(&mut self, model_name: &str) -> Result<W3DModel> {
+        if let Some(model) = self.w3d_render_object_prototypes.builtin_null_model(model_name) {
+            return Ok(model.clone());
+        }
         let resolved_name = self.resolve_available_model_name(model_name);
         let model_key = model_name.to_lowercase();
         let resolved_key = resolved_name.to_lowercase();
@@ -2296,6 +2339,9 @@ impl AssetManager {
 
     /// Load a model synchronously by cloning from cache or loading through the W3D parser path.
     pub fn load_w3d_model(&mut self, model_name: &str) -> Result<W3DModel> {
+        if let Some(model) = self.w3d_render_object_prototypes.builtin_null_model(model_name) {
+            return Ok(model.clone());
+        }
         let resolved_name = self.resolve_available_model_name(model_name);
         let model_key = model_name.to_lowercase();
         let resolved_key = resolved_name.to_lowercase();

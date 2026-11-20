@@ -1,5 +1,5 @@
 //! Device-independent original logical-condition pristine pose queries.
-use crate::assets::{AuthoredDrawModel, W3DModel, W3dAnimationBinding};
+use crate::assets::{AuthoredDrawModel, W3DModel, W3dAnimationBinding, W3dRenderObjectPrototypeKind};
 
 /// The same immutable decoded-model kernel serves native and headless owners.
 /// No installed HAnim, recoil, world transform or GPU object is consulted.
@@ -112,6 +112,11 @@ impl PristineBoneAssets for crate::assets::AssetManager {
         }
         let prototype = self.cached_w3d_render_object_prototype(&draw.model_key)
             .ok_or_else(|| format!("pristine authored prototype unavailable: {}", draw.model_key))?;
+        // Null3DObjClass inherits the base zero-bone lookup, even if the
+        // selected state supplies an animation intended for an HLOD.
+        if matches!(prototype.kind(), W3dRenderObjectPrototypeKind::Null { .. }) {
+            return Ok(Vec::new());
+        }
         let model = self.cached_w3d_render_object_source_model(&prototype)
             .ok_or_else(|| "pristine prototype lost its receiving decoded model".to_owned())?;
         let binding = match draw.animations.first() {
@@ -153,6 +158,9 @@ impl PristineBoneAssets for crate::assets::AssetManager {
                         selected.model_key
                     )
                 })?;
+            if matches!(prototype.kind(), W3dRenderObjectPrototypeKind::Null { .. }) {
+                continue;
+            }
             // Content admission/prewarm belongs to the receiving session's
             // setup. This immutable query never creates a GPU resource or
             // selects another manager when source content is unavailable.
@@ -196,6 +204,9 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
         if !draw.model_key.is_empty() && !prefix.is_empty() && limit != 0 {
             let prototype = assets.resolve_w3d_render_object_prototype_blocking(&draw.model_key)
                 .ok_or_else(|| format!("pristine authored prototype unavailable: {}", draw.model_key))?;
+            if matches!(prototype.kind(), W3dRenderObjectPrototypeKind::Null { .. }) {
+                return Ok(Vec::new());
+            }
             if let Some(animation) = draw.animations.first() {
                 if !assets.prewarm_w3d_prototype_animation_binding(&prototype, &animation.name) {
                     return Err(format!("pristine authored animation unavailable: {}", animation.name));
@@ -235,6 +246,9 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
                         selected.model_key
                     )
                 })?;
+            if matches!(prototype.kind(), W3dRenderObjectPrototypeKind::Null { .. }) {
+                continue;
+            }
             if let Some(animation) = selected.animations.first() {
                 if !assets.prewarm_w3d_prototype_animation_binding(&prototype, &animation.name)
                 {
@@ -255,6 +269,48 @@ mod tests {
     use crate::assets::ini_parser::AuthoredDrawAnimation;
     use crate::assets::models::test_animation::{motion, raw_animation};
     use crate::assets::{W3dHierarchy, W3dHlod, W3dHlodLod, W3dPivot};
+
+    #[test]
+    fn builtin_null_is_resident_without_an_archive_and_supplies_no_bones() {
+        use crate::assets::models::W3dNullProto;
+
+        let mut manager = crate::assets::AssetManager::new().unwrap();
+        manager.archive_file_system_mut().set_local_search_roots(Vec::new());
+        let prototype = manager.cached_w3d_render_object_prototype("nUlL").unwrap();
+        assert_eq!(prototype.full_name(), "NULL");
+        assert_eq!(prototype.source_file_stem(), "");
+        assert_eq!(prototype.kind(), W3dRenderObjectPrototypeKind::Null { null_index: 0 });
+        let object = manager.cached_w3d_render_object_source_model(&prototype).unwrap();
+        assert!(object.meshes.is_empty());
+        assert_eq!(object.bounding_box_min, glam::Vec3::splat(-0.1));
+        assert_eq!(object.bounding_box_max, glam::Vec3::splat(0.1));
+        assert_eq!(manager.load_w3d_model("Null").unwrap().name, "NULL");
+        assert_eq!(futures::executor::block_on(manager.load_w3d_model_async("null")).unwrap().name, "NULL");
+        assert_eq!(futures::executor::block_on(manager.load_cnc_model("NULL")).unwrap().name, "NULL");
+
+        let mut authored = W3DModel::new("NullArchive".into());
+        authored.nulls.extend(["NULL", "NULL.Authored"].map(|name| W3dNullProto { name: name.into() }));
+        manager.admit_test_w3d_source("NULL", authored);
+        assert_eq!(manager.resolve_w3d_render_object_prototype_blocking("NULL"), Some(prototype.clone()));
+        assert_eq!(manager.cached_w3d_render_object_prototype("NULL.Authored").unwrap().source_file_stem(), "NULL");
+        manager.clear_caches();
+        assert_eq!(manager.cached_w3d_render_object_prototype("NULL"), Some(prototype));
+
+        let assets = std::sync::Mutex::new(manager);
+        let draw = AuthoredDrawModel {
+            model_key: "NULL".into(),
+            animations: vec![AuthoredDrawAnimation {
+                name: "Unused.Absent".into(),
+                is_idle: false,
+                distance_covered_token: None,
+            }],
+            ..Default::default()
+        };
+        assert!(assets.pristine_bones_for_selected_draw(&draw, 1.0, "muzzle", 1, 1).unwrap().is_empty());
+        let mut missing = draw;
+        missing.model_key = "MissingMesh".into();
+        assert!(assets.pristine_bones_for_selected_draw(&missing, 1.0, "muzzle", 1, 1).is_err());
+    }
 
     #[test]
     fn retail_patriot_muzzle_loads_from_archive_on_cold_selected_draw_query() {
