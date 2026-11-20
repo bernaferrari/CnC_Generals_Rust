@@ -9,6 +9,16 @@ pub const WATER_VB_PAGES: usize = 1000;
 pub const WATER_STRIP_X: usize = 2;
 /// C++ `WATER_STRIP_Y`.
 pub const WATER_STRIP_Y: usize = 2;
+
+const WATER_TRACK_STRIP_INDEX_COUNT: usize =
+    water_track_strip_index_count(WATER_STRIP_X, WATER_STRIP_Y);
+
+// C++ ReAcquireResources builds this strip once for every wave to reuse.
+const WATER_TRACK_STRIP_INDICES: [u16; WATER_TRACK_STRIP_INDEX_COUNT] = {
+    let mut indices = [0; WATER_TRACK_STRIP_INDEX_COUNT];
+    fill_water_track_strip_indices(WATER_STRIP_X, &mut indices);
+    indices
+};
 /// C++ hard-coded preallocation count in `WaterTracksRenderSystem::init`.
 pub const DEFAULT_WATER_TRACK_MODULES: usize = 2000;
 /// C++ `WaterTracksRenderSystem::update` fixed frame step.
@@ -590,8 +600,6 @@ pub struct WaterTracksRenderSystem {
     tracks: Vec<WaterTracksObj>,
     used: Vec<usize>,
     free: Vec<usize>,
-    strip_size_x: usize,
-    strip_size_y: usize,
     batch_start: usize,
     show_soft_water_edge: bool,
     transparent_water_depth: f32,
@@ -606,8 +614,6 @@ impl WaterTracksRenderSystem {
             tracks,
             used: Vec::new(),
             free,
-            strip_size_x: WATER_STRIP_X,
-            strip_size_y: WATER_STRIP_Y,
             batch_start: 0,
             show_soft_water_edge: true,
             transparent_water_depth: 1.0,
@@ -809,12 +815,16 @@ impl WaterTracksRenderSystem {
 
         self.batch_start = 0xffff;
 
-        let mut output = WaterTracksFlush::default();
+        let track_count = self.used.len();
+        let vertex_count = WATER_STRIP_X * WATER_STRIP_Y;
+        let index_count = WATER_TRACK_STRIP_INDICES.len();
+        let mut output = WaterTracksFlush {
+            vertices: Vec::with_capacity(track_count * vertex_count),
+            indices: Vec::with_capacity(track_count * index_count),
+            ranges: Vec::with_capacity(track_count),
+        };
         for &handle in &self.used {
-            if self.batch_start
-                >= WATER_VB_PAGES * self.strip_size_x * self.strip_size_y
-                    - self.strip_size_x * self.strip_size_y
-            {
+            if self.batch_start >= WATER_VB_PAGES * vertex_count - vertex_count {
                 self.batch_start = 0;
             }
 
@@ -823,20 +833,20 @@ impl WaterTracksRenderSystem {
             let vertices = self.tracks[handle].build_vertices(heights);
             output.vertices.extend(vertices);
             output.indices.extend(
-                water_track_strip_indices(self.strip_size_x, self.strip_size_y)
-                    .into_iter()
-                    .map(|idx| idx + first_vertex as u16),
+                WATER_TRACK_STRIP_INDICES
+                    .iter()
+                    .map(|&idx| idx + first_vertex as u16),
             );
             output.ranges.push(WaterTrackDrawRange {
                 handle,
                 first_vertex,
-                vertex_count: self.strip_size_x * self.strip_size_y,
+                vertex_count,
                 first_index,
-                index_count: (self.strip_size_y - 1) * (self.strip_size_x * 2 + 2) - 2,
+                index_count,
                 texture_name: self.tracks[handle].texture_name.clone(),
                 wave_type: self.tracks[handle].wave_type,
             });
-            self.batch_start += self.strip_size_x * self.strip_size_y;
+            self.batch_start += vertex_count;
         }
 
         output
@@ -845,26 +855,34 @@ impl WaterTracksRenderSystem {
 
 /// C++ dynamic triangle-strip index generation from `ReAcquireResources`.
 pub fn water_track_strip_indices(strip_size_x: usize, strip_size_y: usize) -> Vec<u16> {
-    let idx_count = (strip_size_y - 1) * (strip_size_x * 2 + 2) - 2;
-    let mut ib = vec![0u16; idx_count];
+    let mut indices = vec![0; water_track_strip_index_count(strip_size_x, strip_size_y)];
+    fill_water_track_strip_indices(strip_size_x, &mut indices);
+    indices
+}
+
+const fn water_track_strip_index_count(strip_size_x: usize, strip_size_y: usize) -> usize {
+    (strip_size_y - 1) * (strip_size_x * 2 + 2) - 2
+}
+
+const fn fill_water_track_strip_indices(strip_size_x: usize, indices: &mut [u16]) {
+    let idx_count = indices.len();
     let mut i = 0;
     let mut j = 0;
     let mut k = 0;
     while i < idx_count {
         while k < strip_size_x * (j + 1) {
-            ib[i] = (k + strip_size_x) as u16;
-            ib[i + 1] = k as u16;
+            indices[i] = (k + strip_size_x) as u16;
+            indices[i + 1] = k as u16;
             k += 1;
             i += 2;
         }
         if i < idx_count {
-            ib[i] = (k - 1) as u16;
-            ib[i + 1] = (k + strip_size_x) as u16;
+            indices[i] = (k - 1) as u16;
+            indices[i + 1] = (k + strip_size_x) as u16;
             i += 2;
         }
         j += 1;
     }
-    ib
 }
 
 /// Serialize records exactly like C++ `WaterTracksRenderSystem::saveTracks`:
