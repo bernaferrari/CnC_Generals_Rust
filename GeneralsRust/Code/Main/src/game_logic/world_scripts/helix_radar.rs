@@ -2900,25 +2900,17 @@ impl GameLogic {
         let frame = self.frame;
         let mut updates: Vec<(ObjectId, f32, Vec3, Option<u32>)> = Vec::new();
         for (id, obj) in self.objects.registered() {
-            if !obj.is_alive() {
+            // Retail RadarVanPing has no GridDecalTemplate.
+            if !obj.is_alive() || !obj.spy_satellite_ping {
                 continue;
             }
-            let radius = if obj.spy_satellite_ping {
-                self.spy_satellites
-                    .active_scans()
-                    .iter()
-                    .find(|s| (s.location - obj.get_position()).length() < 5.0)
-                    .map(|s| s.last_applied_radius.max(s.radius))
-            } else if obj.radar_van_ping {
-                self.radar_scans
-                    .active_scans()
-                    .iter()
-                    .find(|s| (s.location - obj.get_position()).length() < 5.0)
-                    .map(|s| s.last_applied_radius.max(s.radius))
-            } else {
-                None
-            };
-            let Some(radius) = radius else {
+            let Some(radius) = self
+                .spy_satellites
+                .active_scans()
+                .iter()
+                .find(|s| (s.location - obj.get_position()).length() < 5.0)
+                .map(|s| s.last_applied_radius.max(s.radius))
+            else {
                 continue;
             };
             updates.push((*id, radius, obj.get_position(), obj.owner_player_id));
@@ -2944,7 +2936,6 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return;
         };
-        let is_spy = obj.spy_satellite_ping;
         if obj.radius_decal_update.is_none() {
             obj.radius_decal_update = Some(HostRadiusDecalUpdateData::default());
         }
@@ -2956,11 +2947,7 @@ impl GameLogic {
             return;
         }
         let tmpl = HostRadiusDecalTemplate {
-            name: if is_spy {
-                "SpySatellitePingGrid".into()
-            } else {
-                "RadarVanPingGrid".into()
-            },
+            name: "SpySatellitePingGrid".into(),
             texture: "EXGrid".into(),
             opacity_min: 0.25,
             opacity_max: 0.9,
@@ -3153,3 +3140,7 @@ mod sticky_bomb_exact_team_tests {
         assert_eq!(charge.experience_sink, Some(planter));
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "radar_grid_owner_tests.rs"]
+mod radar_grid_owner_tests;
