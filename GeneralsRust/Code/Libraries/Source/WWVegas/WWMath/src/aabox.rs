@@ -3,12 +3,12 @@
 //! This module provides `AABox` and `MinMaxAABox` functionality,
 //! converted from the original C++ `AABoxClass` implementation.
 
-use crate::vector_extensions::Vec3Extensions;
-use crate::{Matrix3D, Vector3, WWMath};
+use crate::{LineSegment, Matrix3D, Vector3, WWMath};
 
 /// Axis-aligned bounding box represented by center and extent.
 /// This is the primary `AABox` representation using center + extent form.
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
 pub struct AABox {
     /// World space center of the box
     pub center: Vector3,
@@ -19,6 +19,7 @@ pub struct AABox {
 /// Axis-aligned bounding box represented by minimum and maximum corners.
 /// This is an alternative representation that can be faster to build in some cases.
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
 pub struct MinMaxAABox {
     /// Minimum corner of the box
     pub min_corner: Vector3,
@@ -56,20 +57,7 @@ impl AABox {
     /// Panics if `points` is empty.
     #[must_use]
     pub fn from_points(points: &[Vector3]) -> Self {
-        assert!(
-            !points.is_empty(),
-            "Need at least one point to create AABox"
-        );
-
-        let mut min = points[0];
-        let mut max = points[0];
-
-        for point in points.iter().skip(1) {
-            min.update_min(point);
-            max.update_max(point);
-        }
-
-        Self::from_min_max(min, max)
+        Self::from_min_max_box(&MinMaxAABox::from_points(points))
     }
 
     /// Create `AABox` from `MinMaxAABox`
@@ -97,6 +85,11 @@ impl AABox {
     /// Initialize from array of points
     pub fn init_from_points(&mut self, points: &[Vector3]) {
         *self = Self::from_points(points);
+    }
+
+    /// Initialize from the original ordered pair of segment endpoints.
+    pub fn init_from_line_segment(&mut self, line: &LineSegment) {
+        *self = Self::from_points(&[line.start(), line.end()]);
     }
 
     /// Initialize from `MinMaxAABox`
@@ -147,41 +140,19 @@ impl AABox {
 
     /// Expand the box to contain the given point
     pub fn add_point(&mut self, point: Vector3) {
-        let mut min = self.min_corner();
-        let mut max = self.max_corner();
-
-        min.update_min(&point);
-        max.update_max(&point);
-
-        self.center = (max + min) * 0.5;
-        self.extent = (max - min) * 0.5;
+        self.add_min_max_box(&MinMaxAABox::new(point, point));
     }
 
     /// Expand this box to enclose another `AABox`
     pub fn add_box(&mut self, other: &AABox) {
-        let mut new_min = self.min_corner();
-        let mut new_max = self.max_corner();
-
-        let other_min = other.min_corner();
-        let other_max = other.max_corner();
-
-        new_min.update_min(&other_min);
-        new_max.update_max(&other_max);
-
-        self.center = (new_max + new_min) * 0.5;
-        self.extent = (new_max - new_min) * 0.5;
+        self.add_min_max_box(&MinMaxAABox::from_aabox(other));
     }
 
     /// Expand this box to enclose a `MinMaxAABox`
     pub fn add_min_max_box(&mut self, other: &MinMaxAABox) {
-        let mut new_min = self.min_corner();
-        let mut new_max = self.max_corner();
-
-        new_min.update_min(&other.min_corner);
-        new_max.update_max(&other.max_corner);
-
-        self.center = (new_max + new_min) * 0.5;
-        self.extent = (new_max - new_min) * 0.5;
+        let mut bounds = MinMaxAABox::from_aabox(self);
+        bounds.grow_to_bounds(other.min_corner, other.max_corner);
+        *self = Self::from_min_max_box(&bounds);
     }
 
     /// Project the box onto the given axis
@@ -338,8 +309,7 @@ impl MinMaxAABox {
         };
 
         for point in points.iter().skip(1) {
-            result.min_corner.update_min(point);
-            result.max_corner.update_max(point);
+            result.add_point(*point);
         }
 
         result
@@ -356,8 +326,7 @@ impl MinMaxAABox {
 
     /// Initialize to empty state
     pub fn init_empty(&mut self) {
-        self.min_corner = Vector3::new(f32::MAX, f32::MAX, f32::MAX);
-        self.max_corner = Vector3::new(f32::MIN, f32::MIN, f32::MIN);
+        *self = Self::empty();
     }
 
     /// Initialize from points
@@ -372,8 +341,7 @@ impl MinMaxAABox {
 
     /// Add a point to the box
     pub fn add_point(&mut self, point: Vector3) {
-        self.min_corner.update_min(&point);
-        self.max_corner.update_max(&point);
+        self.grow_to_bounds(point, point);
     }
 
     /// Add another `MinMaxAABox`
@@ -383,8 +351,7 @@ impl MinMaxAABox {
             return;
         }
 
-        self.min_corner.update_min(&other.min_corner);
-        self.max_corner.update_max(&other.max_corner);
+        self.grow_to_bounds(other.min_corner, other.max_corner);
     }
 
     /// Add an `AABox`
@@ -394,10 +361,7 @@ impl MinMaxAABox {
             return;
         }
 
-        let min = aabox.min_corner();
-        let max = aabox.max_corner();
-        self.min_corner.update_min(&min);
-        self.max_corner.update_max(&max);
+        self.grow_to_bounds(aabox.min_corner(), aabox.max_corner());
     }
 
     /// Add box defined by min/max corners
@@ -411,8 +375,20 @@ impl MinMaxAABox {
             return;
         }
 
-        self.min_corner.update_min(&min_corner);
-        self.max_corner.update_max(&max_corner);
+        self.grow_to_bounds(min_corner, max_corner);
+    }
+
+    fn grow_to_bounds(&mut self, min: Vector3, max: Vector3) {
+        // Vector3::Update_Min/Max preserve the existing value on ties and
+        // unordered input, including signed zero and an existing NaN.
+        for axis in 0..3 {
+            if min[axis] < self.min_corner[axis] {
+                self.min_corner[axis] = min[axis];
+            }
+            if max[axis] > self.max_corner[axis] {
+                self.max_corner[axis] = max[axis];
+            }
+        }
     }
 
     /// Calculate volume
