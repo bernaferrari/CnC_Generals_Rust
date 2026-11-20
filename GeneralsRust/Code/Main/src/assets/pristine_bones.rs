@@ -258,8 +258,7 @@ mod tests {
 
     #[test]
     fn retail_patriot_muzzle_loads_from_archive_on_cold_selected_draw_query() {
-        let archive = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../windows_game/Command & Conquer Generals/W3D.big");
+        let archive = crate::fixture_content::retail_base_w3d_archive();
         let mut manager = crate::assets::AssetManager::new().unwrap();
         manager.archive_file_system_mut().set_local_search_roots(Vec::new());
         futures::executor::block_on(manager.archive_file_system_mut().load_big_file(archive))

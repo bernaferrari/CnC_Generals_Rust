@@ -2,30 +2,10 @@
 //! The one-shot budget is the C++ Weapon max-shot-count admission.
 use super::*;
 
-fn retail_root() -> std::path::PathBuf {
-    std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../windows_game"))
-}
-
-fn base_w3d_archive() -> std::path::PathBuf {
-    let explicit = std::env::var_os("GENERALS_BASE_W3D_BIG").map(std::path::PathBuf::from);
-    let root = retail_root();
-    let candidates = [
-        explicit,
-        Some(root.join("Command & Conquer Generals/W3D.big")),
-        Some(root.join("Command & Conquer Generals/Data/W3D.big")),
-        Some(root.join("Command and Conquer Generals/W3D.big")),
-        Some(root.join("Command and Conquer Generals/Data/W3D.big")),
-    ];
-    candidates.into_iter().flatten()
-        .find(|path| path.metadata().is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0))
-        .expect("retail vanilla Patriot requires the nonempty base-game W3D.big containing ABPatriot; set GENERALS_BASE_W3D_BIG")
-}
+use crate::fixture_content::{retail_base_w3d_archive, retail_content_root};
 
 pub(in crate::game_logic) fn base_ini(name: &str) -> String {
-    let archive = retail_root().join("Command & Conquer Generals Zero Hour/Data/INIZH.big");
+    let archive = retail_content_root().join("Command & Conquer Generals Zero Hour/Data/INIZH.big");
     let mut files = crate::assets::ArchiveFileSystem::new();
     files.set_local_search_roots(Vec::new());
     futures::executor::block_on(files.load_big_file(archive)).expect("retail INI archive");
@@ -89,11 +69,11 @@ fn world_for_target(air_target: bool, superweapon: bool) -> (GameLogic, ObjectId
     let mut assets = crate::assets::AssetManager::new().unwrap();
     assets.archive_file_system_mut().set_local_search_roots(Vec::new());
     if !superweapon {
-        let base_archive = base_w3d_archive();
+        let base_archive = retail_base_w3d_archive();
         futures::executor::block_on(assets.archive_file_system_mut().load_big_file(base_archive))
             .expect("mount genuine base-game W3D.big");
     }
-    let archive = retail_root().join("Command & Conquer Generals Zero Hour/Data/W3DZH.big");
+    let archive = retail_content_root().join("Command & Conquer Generals Zero Hour/Data/W3DZH.big");
     futures::executor::block_on(assets.archive_file_system_mut().load_big_file(archive))
         .expect("mount genuine Zero Hour W3DZH.big");
     let mut world = GameLogic::new();

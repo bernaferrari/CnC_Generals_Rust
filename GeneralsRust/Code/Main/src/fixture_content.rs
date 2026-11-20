@@ -7,6 +7,31 @@
 //! (an admitted world builds bodies, AI and locomotors from the INI only).
 
 use crate::game_logic::GameLogic;
+
+pub(crate) fn retail_content_root() -> std::path::PathBuf {
+    std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../windows_game")
+        })
+}
+
+pub(crate) fn retail_base_w3d_archive() -> std::path::PathBuf {
+    let explicit = std::env::var_os("GENERALS_BASE_W3D_BIG").map(std::path::PathBuf::from);
+    let root = retail_content_root();
+    [
+        explicit,
+        Some(root.join("Command & Conquer Generals/W3D.big")),
+        Some(root.join("Command & Conquer Generals/Data/W3D.big")),
+        Some(root.join("Command and Conquer Generals/W3D.big")),
+        Some(root.join("Command and Conquer Generals/Data/W3D.big")),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|path| path.metadata().is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0))
+    .expect("retail Patriot needs the original Generals W3D.big; set GENERALS_BASE_W3D_BIG")
+}
+
 // WeaponObjects.ini RemoteC4Charge and Weapon.ini BurtonC4ChargeWeapon.
 pub(crate) fn admit_retail_remote_c4(game: &mut GameLogic) {
     admit_retail_remote_c4_with_actions(game, "");
