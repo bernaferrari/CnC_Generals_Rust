@@ -213,12 +213,19 @@ impl HostSpySatellite {
     }
 }
 
+#[cfg(feature = "game_client")]
+#[path = "host_spy_satellite/grid_decals.rs"]
+mod grid_decals;
+
 /// Host residual registry for SpySatellite special power activations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostSpySatelliteRegistry {
     next_id: u32,
     /// Active (not yet expired) residual scans.
     active: Vec<HostSpySatellite>,
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) grid_decals: grid_decals::SpyGridRoster,
     /// Total activations (honesty).
     pub activations: u32,
     /// Activations that observably cleared FOW at the scan center.

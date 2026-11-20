@@ -239,6 +239,13 @@ pub(crate) trait NativeProjectedRadiusAllocator {
         color: u32,
         opacity: f32,
     ) -> Option<game_client::radius_decal::ShadowHandle>;
+
+    fn allocate_authored_radius(
+        &mut self,
+        _info: &game_client::radius_decal::ShadowTypeInfo,
+    ) -> Option<game_client::radius_decal::ShadowHandle> {
+        None
+    }
 }
 
 pub(crate) trait NativeViewEffects {

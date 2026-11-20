@@ -1535,6 +1535,13 @@ impl NativeDrawableOwner<'_> {
             .collect_render_items_with_policy(use_shadow_decals)
     }
 
+    pub fn allocate_authored_projected_radius(
+        &mut self,
+        info: &crate::radius_decal::ShadowTypeInfo,
+    ) -> Option<crate::radius_decal::ShadowHandle> {
+        self.drawables.projected_decals.manager.add_decal(info)
+    }
+
     /// RadiusDecal is a client resource and does not require an Object→Drawable
     /// association (constructor and objectless use are both original cases).
     pub fn allocate_projected_radius(

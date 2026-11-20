@@ -913,6 +913,13 @@ impl crate::game_logic::NativeProjectedRadiusAllocator
     ) -> Option<game_client::radius_decal::ShadowHandle> {
         self.allocate_projected_radius(texture, radius, position, color, opacity)
     }
+
+    fn allocate_authored_radius(
+        &mut self,
+        info: &game_client::radius_decal::ShadowTypeInfo,
+    ) -> Option<game_client::radius_decal::ShadowHandle> {
+        self.allocate_authored_projected_radius(info)
+    }
 }
 
 #[cfg(feature = "game_client")]

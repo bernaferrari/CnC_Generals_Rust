@@ -225,3 +225,164 @@ fn mounted_radar_scan_reveals_and_detects_without_a_projected_grid() {
         );
     });
 }
+
+#[test]
+#[ignore = "requires original Zero Hour INI and map archives"]
+fn mounted_spy_satellite_emits_the_original_30_grid_marks_and_retires_them() {
+    const ORIGINAL: [u32; 30] = [
+        0x65856f3a, 0x353130d6, 0x12cc1d2a, 0xf854019f, 0x14f78c2f, 0x3243bf15, 0xec3fbe32,
+        0x5240cd69, 0x8c2d2673, 0x8995611f, 0xd3443fb2, 0x7ec88bb5, 0xa41dcead, 0xceee7daf,
+        0x9b25268c, 0xe3e6ba49, 0x9e64852b, 0x1bf3cd2f, 0xa1a96fad, 0xe11fb87c, 0xd39e0ac8,
+        0x0d7ea7a8, 0xe65f3540, 0xa9eb307d, 0xcf56cdcf, 0xaec42ee3, 0xd09f8746, 0xbf2cd5f3,
+        0xd5ef57b5, 0xbf795f66,
+    ];
+
+    let content = crate::fixture_content::retail_content_root()
+        .join("Command & Conquer Generals Zero Hour/Data");
+    let (satellite, movement, map) = {
+        let _common = game_engine::common::common_services::CommonServicesScope::new();
+        let mut ini = BigFileSystem::new();
+        ini.open_archive_file(content.join("INIZH.big")).unwrap();
+        let system_ini = archive_entry(&mut ini, "Data/INI/Object/System.ini");
+        let system_ini = String::from_utf8_lossy(&system_ini);
+        let satellite = system_ini
+            .split_once("Object SpySatellitePing")
+            .unwrap()
+            .1
+            .split_once("\nEnd")
+            .unwrap()
+            .0;
+        assert!(satellite.contains("SHADOW_ADDITIVE_DECAL"));
+        assert!(satellite.contains("EXGrid"));
+        let satellite = format!("Object SpySatellitePing{satellite}\nEnd\n");
+        let game_data = archive_entry(&mut ini, "Data/INI/GameData.ini");
+        let movement = CameraMovementRules::default()
+            .overlay_ini_text(&String::from_utf8_lossy(&game_data))
+            .unwrap();
+        let mut maps = BigFileSystem::new();
+        maps.open_archive_file(content.join("MapsZH.big")).unwrap();
+        let map_bytes = archive_entry(&mut maps, "Maps/Lone Eagle/Lone Eagle.map");
+        let mut map = MapLoader::new();
+        map.load_map_from_bytes(&map_bytes).unwrap();
+        (satellite, movement, map.to_map_data())
+    };
+
+    let mut world = GameLogic::new();
+    let services = world.world_services.clone();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        world
+            .world_services
+            .terrain()
+            .write()
+            .unwrap()
+            .try_load_map_geometry(map)
+            .unwrap();
+        world.admit_camera_application_movement(movement);
+        world.initialize_receiving_partition_grid().unwrap();
+        world.add_player(Player::new(0, Team::USA, "Scan owner", true));
+        world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
+            ("Data/INI/Object/System.ini".into(), satellite),
+            ("radar-owner-probe.ini".into(), "Object RadarOwnerProbe\n KindOf = IMMOBILE\n Body = ImmortalBody Body\n MaxHealth = 1\n InitialHealth = 1\n End\nEnd\n".into()),
+        ]).unwrap()).unwrap();
+        let source = world
+            .create_object_for_player("RadarOwnerProbe", 0, Vec3::new(100.0, 0.0, 100.0))
+            .unwrap();
+
+        let mut receiver = NativeDrawableWorld::default();
+        let mut peer = NativeDrawableWorld::default();
+        let peer_mark = peer
+            .borrow_native()
+            .allocate_projected_radius("EXHorde", 20.0, [50.0, 50.0, 0.0], 0xff00_88ee, 0.6)
+            .unwrap();
+        let center = Vec3::new(307.25, 0.0, 208.5);
+        world.frame = 100;
+        {
+            let mut view = RadiusOwner(receiver.borrow_native());
+            let mut effects = ScriptPresentationEffects {
+                view: Some(&mut view),
+                ..Default::default()
+            };
+            assert!(world.activate_spy_satellite_with_effects(
+                0,
+                Team::USA,
+                center,
+                Some(source),
+                &mut effects
+            ));
+        }
+        for (elapsed, expected) in ORIGINAL.into_iter().enumerate() {
+            {
+                let mut view = RadiusOwner(receiver.borrow_native());
+                let mut effects = ScriptPresentationEffects {
+                    view: Some(&mut view),
+                    ..Default::default()
+                };
+                world
+                    .update_spy_satellite_pings_with_effects(&mut effects)
+                    .unwrap();
+                world.update_spy_satellites_with_effects(&mut effects);
+                // The repeated view update may yield the same rows only.
+                world.update_spy_grid_decals(&mut effects);
+            }
+            let items = receiver.borrow_native().collect_projected_decal_items(true);
+            assert_eq!(items.len(), 30, "grow {elapsed}");
+            assert!(items.iter().all(|item| {
+                item.texture_name.eq_ignore_ascii_case("EXGrid")
+                    && item.shadow_type == gamelogic::common::SHADOW_ADDITIVE_DECAL
+                    && item.size_x == 200.0
+                    && item.size_y == 200.0
+                    && [item.color[0], item.color[1], item.color[3]] == [0.; 3]
+            }));
+            let mut rows: Vec<_> = items
+                .iter()
+                .map(|row| {
+                    [
+                        row.position.x.to_bits(),
+                        row.position.y.to_bits(),
+                        row.position.z.to_bits(),
+                        row.color[2].to_bits(),
+                    ]
+                })
+                .collect();
+            // Per-stamp world coordinates and diffuse are compared independent
+            // of the projected manager's separate material insertion order.
+            rows.sort_unstable();
+            let mut crc = crc32fast::Hasher::new();
+            for row in rows {
+                for bits in row {
+                    crc.update(&bits.to_le_bytes());
+                }
+            }
+            assert_eq!(
+                crc.finalize(),
+                expected,
+                "original C++ grow frame {elapsed}"
+            );
+            world.frame += 1;
+        }
+        {
+            let mut view = RadiusOwner(receiver.borrow_native());
+            let mut effects = ScriptPresentationEffects {
+                view: Some(&mut view),
+                ..Default::default()
+            };
+            world
+                .update_spy_satellite_pings_with_effects(&mut effects)
+                .unwrap();
+            world.update_spy_satellites_with_effects(&mut effects);
+        }
+        assert!(
+            receiver
+                .borrow_native()
+                .collect_projected_decal_items(true)
+                .is_empty()
+        );
+        assert_eq!(
+            peer.borrow_native()
+                .collect_projected_decal_items(true)
+                .len(),
+            1
+        );
+        peer_mark.release();
+    });
+}

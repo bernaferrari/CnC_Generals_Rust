@@ -1906,9 +1906,9 @@ impl GameLogic {
 
     pub(in super::super) fn update_radar_scans_with_effects(
         &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        _effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        self.apply_radar_scan_dynamic_shroud(effects);
+        self.apply_radar_scan_dynamic_shroud();
         self.undo_expired_radar_scan_shroud();
         self.radar_scans.prune_expired(self.frame);
         if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
@@ -2285,7 +2285,13 @@ impl GameLogic {
         );
 
         // C++ OCL SUPERWEAPON_SpySatellite → SpySatellitePing residual.
-        let _ = self.spawn_spy_satellite_ping_with_effects(team, location, caster_id, effects);
+        let ping = self.spawn_spy_satellite_ping_with_effects(team, location, caster_id, effects);
+        #[cfg(feature = "game_client")]
+        if let Some(ping) = ping {
+            self.admit_spy_grid(ping);
+        }
+        #[cfg(not(feature = "game_client"))]
+        let _ = ping;
 
         self.spy_satellites.activations() > 0
     }
@@ -2718,7 +2724,9 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        self.apply_spy_satellite_dynamic_shroud(effects);
+        #[cfg(feature = "game_client")]
+        self.update_spy_grid_decals(effects);
+        self.apply_spy_satellite_dynamic_shroud();
         self.undo_expired_spy_satellite_shroud();
         self.spy_satellites.prune_expired(self.frame);
         self.spy_drones.prune_expired(self.frame);
@@ -2728,10 +2736,7 @@ impl GameLogic {
     }
 
     /// C++ DynamicShroudClearingRangeUpdate::update → setShroudClearingRange.
-    fn apply_spy_satellite_dynamic_shroud(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    fn apply_spy_satellite_dynamic_shroud(&mut self) {
         use gamelogic::common::Coord3D;
         let frame = self.frame;
         let work: Vec<(u32, Vec3, f32, f32, u32)> = self
@@ -2800,7 +2805,6 @@ impl GameLogic {
         for _ in 0..newly_visible {
             self.spy_satellites.record_fow_reveal();
         }
-        self.refresh_dynamic_shroud_grid_decals(effects);
     }
 
     fn undo_expired_spy_satellite_shroud(&mut self) {
@@ -2825,10 +2829,7 @@ impl GameLogic {
     }
 
     /// C++ RadarVanPing DynamicShroudClearingRangeUpdate shrink curve.
-    fn apply_radar_scan_dynamic_shroud(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    fn apply_radar_scan_dynamic_shroud(&mut self) {
         use gamelogic::common::Coord3D;
         let frame = self.frame;
         let work: Vec<(Vec3, f32, f32, u32, u32)> = self
@@ -2868,7 +2869,6 @@ impl GameLogic {
             scan.last_applied_radius = new_r;
             scan.radius = new_r;
         }
-        self.refresh_dynamic_shroud_grid_decals(effects);
     }
 
     fn undo_expired_radar_scan_shroud(&mut self) {
@@ -2892,79 +2892,7 @@ impl GameLogic {
         }
     }
 
-    /// C++ DynamicShroudClearingRangeUpdate GridDecalTemplate ring.
-    fn refresh_dynamic_shroud_grid_decals(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let frame = self.frame;
-        let mut updates: Vec<(ObjectId, f32, Vec3, Option<u32>)> = Vec::new();
-        for (id, obj) in self.objects.registered() {
-            // Retail RadarVanPing has no GridDecalTemplate.
-            if !obj.is_alive() || !obj.spy_satellite_ping {
-                continue;
-            }
-            let Some(radius) = self
-                .spy_satellites
-                .active_scans()
-                .iter()
-                .find(|s| (s.location - obj.get_position()).length() < 5.0)
-                .map(|s| s.last_applied_radius.max(s.radius))
-            else {
-                continue;
-            };
-            updates.push((*id, radius, obj.get_position(), obj.owner_player_id));
-        }
-        for (id, radius, pos, owner) in updates {
-            self.apply_ping_grid_decal(id, radius, pos, owner, frame, effects);
-        }
-    }
 
-    fn apply_ping_grid_decal(
-        &mut self,
-        id: ObjectId,
-        radius: f32,
-        pos: Vec3,
-        owner: Option<u32>,
-        frame: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use crate::game_logic::host_radius_decal_update::{
-            HostRadiusDecalTemplate, HostRadiusDecalUpdateData,
-        };
-        let players = self.radius_decal_player_view(owner);
-        let Some(obj) = self.objects.get_mut(&id) else {
-            return;
-        };
-        if obj.radius_decal_update.is_none() {
-            obj.radius_decal_update = Some(HostRadiusDecalUpdateData::default());
-        }
-        let Some(rd) = obj.radius_decal_update.as_mut() else {
-            return;
-        };
-        if radius <= 0.01 {
-            rd.kill_radius_decal();
-            return;
-        }
-        let tmpl = HostRadiusDecalTemplate {
-            name: "SpySatellitePingGrid".into(),
-            texture: "EXGrid".into(),
-            opacity_min: 0.25,
-            opacity_max: 0.9,
-            throb_frames: 0,
-            only_visible_to_owner: true,
-            color: 0,
-        };
-        rd.create_radius_decal_with_player_view_and_effects(
-            tmpl,
-            radius,
-            pos,
-            frame,
-            owner.map(|id| id as i32),
-            players,
-            effects,
-        );
-    }
 }
 
 #[cfg(test)]
