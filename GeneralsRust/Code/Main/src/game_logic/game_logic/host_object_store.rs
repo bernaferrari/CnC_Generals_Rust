@@ -416,7 +416,10 @@ impl<'a> HostObjectRead<'a> {
     pub fn registered_keys(
         self,
     ) -> impl DoubleEndedIterator<Item = &'a ObjectId> + ExactSizeIterator + 'a {
-        self.store.registration_order.iter()
+        self.registered_ids().iter()
+    }
+    pub(crate) fn registered_ids(self) -> &'a [ObjectId] {
+        self.store.ordered_ids()
     }
     pub fn registered_is_empty(self) -> bool {
         self.store.registration_order.is_empty()

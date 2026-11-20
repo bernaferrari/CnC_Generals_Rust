@@ -46,6 +46,8 @@ impl GameWorldShadow {
             drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
             host_to_entity: Default::default(),
             entity_to_host: Default::default(),
+            registered_host_ids: Vec::new(),
+            sorted_host_ids: Vec::new(),
             max_entities: max_entities.max(1),
             host_player_to_gw: HashMap::new(),
             horde_player_rel: HashMap::new(),
@@ -267,34 +269,33 @@ impl GameWorldShadow {
         self.world.set_frame(u64::from(logic.get_frame()));
     }
 
-    fn sync_object_identities(&mut self, logic: &GameLogic) -> Vec<ObjectId> {
-        let mut obj_ids: Vec<ObjectId> = logic.host_objects().registered_keys().copied().collect();
-        obj_ids.sort_by_key(|id| id.0);
-        // C++ GameLogic grows its ObjectID lookup vector when a newly
-        // allocated ID exceeds the current size (GameLogic.cpp:3827-3841).
-        // `max_entities` is only the initial/reset capacity hint; silently
-        // truncating this host set would leave later objects without a
-        // shadow lifecycle mapping and bypass every coupled authority channel.
-        if obj_ids.len() > self.max_entities {
-            self.max_entities = obj_ids.len();
-        }
+    fn sync_object_identities(&mut self, logic: &GameLogic) {
+        let registered = logic.host_objects().registered_ids();
+        if self.registered_host_ids.as_slice() != registered {
+            self.registered_host_ids.clear();
+            self.registered_host_ids.extend_from_slice(registered);
+            self.sorted_host_ids.clone_from(&self.registered_host_ids);
+            self.sorted_host_ids.sort_unstable_by_key(|id| id.0);
+            // GameLogic.cpp:3827–3841 grows the ID lookup past its initial hint.
+            self.max_entities = self.max_entities.max(registered.len());
 
-        // Remove shadow entities whose host object is gone (obj_ids is sorted).
-        let stale: Vec<(u32, EntityId)> = self
-            .host_to_entity
-            .iter()
-            .filter(|(hid, _)| obj_ids.binary_search_by_key(*hid, |id| id.0).is_err())
-            .map(|(&hid, &eid)| (hid, eid))
-            .collect();
-        for (hid, eid) in stale {
-            let _ = self.world.world_mut().remove_entity(eid);
-            self.host_to_entity.remove(&hid);
-            self.entity_to_host.remove(&eid.get());
+            // Retire in the existing map's iteration order.
+            let sorted = &self.sorted_host_ids;
+            self.host_to_entity.retain(|hid, eid| {
+                if sorted.binary_search_by_key(hid, |id| id.0).is_ok() {
+                    return true;
+                }
+                let _ = self.world.world_mut().remove_entity(*eid);
+                self.entity_to_host.remove(&eid.get());
+                false
+            });
         }
 
         // Bind identities before copying references so every target/container
         // resolves on the first observation, independent of object iteration order.
-        for &oid in &obj_ids {
+        // A receiving shadow entity may disappear while its host still exists.
+        for index in 0..self.sorted_host_ids.len() {
+            let oid = self.sorted_host_ids[index];
             let mapped = self.host_to_entity.get(&oid.0).copied();
             if mapped.is_some_and(|eid| self.world.world().entity(eid).is_some()) {
                 continue;
@@ -311,14 +312,13 @@ impl GameWorldShadow {
             let owner = self.owner_for_host_object(logic, obj);
             self.spawn_mapped(oid, obj, owner, transform, obj.health.current.max(0.0));
         }
-        obj_ids
     }
 
     pub fn sync_from_host(&mut self, logic: &GameLogic) {
         use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
 
         self.sync_players(logic);
-        let obj_ids = self.sync_object_identities(logic);
+        self.sync_object_identities(logic);
         let assets = logic.application_assets();
         let local_player = logic.local_player_id().unwrap_or(0);
         let shell = logic.isInShellGame();
@@ -327,7 +327,8 @@ impl GameWorldShadow {
         } else {
             logic.world_services.shroud().lock().ok()
         };
-        for oid in obj_ids {
+        for index in 0..self.sorted_host_ids.len() {
+            let oid = self.sorted_host_ids[index];
             let Some(obj) = logic.host_object(oid) else {
                 continue;
             };

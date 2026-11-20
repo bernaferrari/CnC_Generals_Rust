@@ -83,6 +83,37 @@ fn coalesced_presentation_keeps_per_step_entity_ids_for_short_lived_objects() {
 }
 
 #[test]
+fn unchanged_host_roster_rebinds_only_the_removed_observation_entity() {
+    let mut logic = GameLogic::new();
+    ensure_template(&mut logic, "ObservationUnit", 100.0);
+    let first = logic
+        .create_object("ObservationUnit", Team::USA, Vec3::X)
+        .unwrap();
+    let second = logic
+        .create_object("ObservationUnit", Team::USA, Vec3::Z)
+        .unwrap();
+    let mut shadow = GameWorldShadow::new(4);
+    shadow.sync_from_host(&logic);
+    let first_projection = shadow.entity_for_host(first).unwrap();
+    let second_projection = shadow.entity_for_host(second).unwrap();
+    assert!(first_projection.get() < second_projection.get());
+
+    assert!(shadow.world_mut().world_mut().remove_entity(first_projection));
+    shadow.sync_host_step_identities(&logic);
+    let replacement = shadow.entity_for_host(first).unwrap();
+    assert_ne!(replacement, first_projection);
+    assert_eq!(shadow.host_for_entity(first_projection), None);
+    assert_eq!(shadow.entity_for_host(second), Some(second_projection));
+
+    shadow.sync_from_host(&logic);
+    assert_eq!(shadow.entity_for_host(first), Some(replacement));
+    assert_eq!(
+        shadow.world().entity(replacement).unwrap().transform.position,
+        Vec3::X
+    );
+}
+
+#[test]
 fn shadow_world_boundary_reset_clears_previous_identity_map() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WorldBoundaryReset");
