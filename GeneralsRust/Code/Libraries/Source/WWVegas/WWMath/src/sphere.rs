@@ -1,8 +1,11 @@
+//! WWMath bounding-sphere construction and geometry.
+
 use super::{Matrix3D, Vector3};
 use std::ops::{Add, AddAssign, Mul, MulAssign};
 
 /// A 3D sphere defined by a center point and radius
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct Sphere {
     pub center: Vector3,
     pub radius: f32,

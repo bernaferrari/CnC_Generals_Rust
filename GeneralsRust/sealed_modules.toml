@@ -71,6 +71,11 @@ cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/rect.h"
 note = "Original coordinate layout, inclusive containment, scaling, ordered union, and signed grid snapping verified against portable C++. Rust initializes defaults and defines out-of-range integer conversion."
 
 [[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/sphere.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/sphere.h"
+note = "Original layout, ordered bounding-point fit, recentering, volume, orthogonal transforms, and contact/union edges verified against portable C++. Rust initializes its default and accepts empty point slices."
+
+[[module]]
 path = "Code/Libraries/Source/WWVegas/WWMath/src/line_segment.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/lineseg.cpp"
 note = "Executable original portable geometry comparison; one cached length and six caller-owned RNG draws. Rust initializes defaults and returns zero values for failed intersections."
