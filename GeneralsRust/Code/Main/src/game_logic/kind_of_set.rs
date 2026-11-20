@@ -11,6 +11,55 @@ use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+// Stable positions in the compact presentation bank and the corresponding
+// prefix of the full snapshot kind list. Other kinds follow enum order.
+const PRESENTATION_ORDER: [KindOf; 32] = [
+    KindOf::Structure,
+    KindOf::Infantry,
+    KindOf::Vehicle,
+    KindOf::Aircraft,
+    KindOf::Projectile,
+    KindOf::Resource,
+    KindOf::Selectable,
+    KindOf::Attackable,
+    KindOf::CommandCenter,
+    KindOf::Worker,
+    KindOf::Hero,
+    KindOf::SupplyCenter,
+    KindOf::PowerPlant,
+    KindOf::FSBarracks,
+    KindOf::FSWarFactory,
+    KindOf::FSAirfield,
+    KindOf::FSInternetCenter,
+    KindOf::FSPower,
+    KindOf::FSBaseDefense,
+    KindOf::FSSupplyDropzone,
+    KindOf::FSSupplyCenter,
+    KindOf::FSSuperweapon,
+    KindOf::FSStrategyCenter,
+    KindOf::FSFake,
+    KindOf::FSTechnology,
+    KindOf::FSBlackMarket,
+    KindOf::FSAdvancedTech,
+    KindOf::Harvestable,
+    KindOf::Powered,
+    KindOf::IgnoredInGui,
+    KindOf::Dozer,
+    KindOf::Harvester,
+];
+const PRESENTATION_KIND_BITS: ([u32; KindOf::ALL_KIND_OF.len()], u128) = {
+    let mut bank = [0; KindOf::ALL_KIND_OF.len()];
+    let mut mask = 0;
+    let mut index = 0;
+    while index < PRESENTATION_ORDER.len() {
+        let kind = PRESENTATION_ORDER[index] as usize;
+        bank[kind] = 1 << index;
+        mask |= 1 << kind;
+        index += 1;
+    }
+    (bank, mask)
+};
+
 // Direct bit-index lookup preserves the established serialization order.
 const _: () = {
     let kinds = KindOf::ALL_KIND_OF;
@@ -78,6 +127,34 @@ impl KindOfSet {
             remaining: self.bits,
             kinds: KindOf::ALL_KIND_OF,
         }
+    }
+
+    pub(crate) fn presentation_bits(self) -> u32 {
+        let (bank, prefix) = &PRESENTATION_KIND_BITS;
+        let mut remaining = self.bits & prefix;
+        let mut bits = 0;
+        while remaining != 0 {
+            bits |= bank[remaining.trailing_zeros() as usize];
+            remaining &= remaining - 1;
+        }
+        bits
+    }
+
+    pub(crate) fn presentation_order(self) -> impl Iterator<Item = KindOf> {
+        let mut bits = self.presentation_bits();
+        let prefix = std::iter::from_fn(move || {
+            if bits == 0 {
+                return None;
+            }
+            let index = bits.trailing_zeros() as usize;
+            bits &= bits - 1;
+            Some(PRESENTATION_ORDER[index])
+        });
+        let suffix = KindOfSetIter {
+            remaining: self.bits & !PRESENTATION_KIND_BITS.1,
+            kinds: KindOf::ALL_KIND_OF,
+        };
+        prefix.chain(suffix.copied())
     }
 }
 
@@ -228,6 +305,32 @@ mod tests {
         bit_list.sort_by_key(|k| *k as u8);
         hash_list.sort_by_key(|k| *k as u8);
         assert_eq!(bit_list, hash_list);
+    }
+
+    #[test]
+    fn presentation_keeps_compact_bits_and_the_full_snapshot_order() {
+        let set: KindOfSet = [
+            KindOf::ProducedAtHelipad,
+            KindOf::Dozer,
+            KindOf::Mine,
+            KindOf::Projectile,
+            KindOf::Vehicle,
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(set.presentation_bits(), (1 << 2) | (1 << 4) | (1 << 30));
+        assert!(set.presentation_order().eq([
+            KindOf::Vehicle,
+            KindOf::Projectile,
+            KindOf::Dozer,
+            KindOf::Mine,
+            KindOf::ProducedAtHelipad,
+        ]));
+
+        let all: KindOfSet = KindOf::ALL_KIND_OF.iter().copied().collect();
+        assert_eq!(all.presentation_bits(), u32::MAX);
+        assert_eq!(all.presentation_order().count(), all.len());
+        assert!(KindOfSet::new().presentation_order().next().is_none());
     }
 
     #[test]

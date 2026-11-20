@@ -57,52 +57,9 @@ impl Object {
         self.ground_height_from_terrain = from_terrain;
     }
 
-    /// Presentation kind_of ORDER bits residual (same ORDER as GameWorldShadow::host_kind_of_bits).
+    /// Compact KindOf bits in the historical presentation order.
     pub fn presentation_kind_of_bits(&self) -> u32 {
-        use crate::game_logic::KindOf;
-        const ORDER: &[KindOf] = &[
-            KindOf::Structure,
-            KindOf::Infantry,
-            KindOf::Vehicle,
-            KindOf::Aircraft,
-            KindOf::Projectile,
-            KindOf::Resource,
-            KindOf::Selectable,
-            KindOf::Attackable,
-            KindOf::CommandCenter,
-            KindOf::Worker,
-            KindOf::Hero,
-            KindOf::SupplyCenter,
-            KindOf::PowerPlant,
-            KindOf::FSBarracks,
-            KindOf::FSWarFactory,
-            KindOf::FSAirfield,
-            KindOf::FSInternetCenter,
-            KindOf::FSPower,
-            KindOf::FSBaseDefense,
-            KindOf::FSSupplyDropzone,
-            KindOf::FSSupplyCenter,
-            KindOf::FSSuperweapon,
-            KindOf::FSStrategyCenter,
-            KindOf::FSFake,
-            KindOf::FSTechnology,
-            KindOf::FSBlackMarket,
-            KindOf::FSAdvancedTech,
-            KindOf::Harvestable,
-            KindOf::Powered,
-            KindOf::IgnoredInGui,
-            // Appended to preserve every pre-existing presentation bit index.
-            KindOf::Dozer,
-            KindOf::Harvester,
-        ];
-        let set = &self.get_template().kind_of;
-        let mut bits = 0u32;
-        for (i, k) in ORDER.iter().enumerate() {
-            if set.contains(k) {
-                bits |= 1u32 << i;
-            }
-        }
-        bits
+        self.get_template().kind_of.presentation_bits()
     }
 
     /// C++ CrushDie model condition FRONTCRUSHED/BACKCRUSHED residual.
