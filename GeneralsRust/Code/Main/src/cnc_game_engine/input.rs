@@ -1886,34 +1886,11 @@ impl CnCGameEngine {
         let Some(pres) = self.last_presentation_frame.clone() else {
             return false;
         };
-        self.apply_presentation_to_huds(&pres);
+        let selection = pres.selected_unit_display_infos();
+        self.apply_presentation_to_huds(&pres, selection.clone());
         self.sync_eva_messages_from_logic();
         #[cfg(feature = "game_client")]
-        {
-            self.update_owned_control_bar_animations();
-            self.control_bar.set_receiving_upgrade_definitions(
-                &self.game_logic.upgrade_definitions,
-                self.game_logic
-                    .receiving_module_content
-                    .as_ref()
-                    .map(|content| content.action_definitions_shared()),
-            );
-            self.control_bar
-                .bind_logic_owner(
-                Some(self.game_logic.command_definitions()),
-                self.game_logic.control_bar_bridge(),
-            );
-            let facts = self.receiving_menu_world_facts();
-            let bar = &mut self.control_bar;
-            self.game_client
-                .with_window_event_effects(Some(facts), |effects| {
-                    effects.with_manager(|manager, effects| {
-                        pres.apply_to_control_bar(bar, manager, effects)
-                    });
-                });
-            let _ =
-                self.update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
-        }
+        self.host_apply_presentation_control_bar(&pres, &selection);
         true
     }
 
@@ -2868,13 +2845,14 @@ impl CnCGameEngine {
     pub(super) fn apply_presentation_to_huds(
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
+        selection: Vec<crate::ui::UnitDisplayInfo>,
     ) {
         // One HUD receives each snapshot apply; events are applied once per LogicFrame.
         // Resources/minimap/selection re-sync every render; events apply once
         // per LogicFrame inside apply_events_to_game_hud (same freeze is reused).
         let world_epoch = self.host_direct_visual_world_epoch;
         self.game_hud_mut().prepare_presentation_world(world_epoch);
-        pres.apply_to_game_hud(self.game_hud_mut());
+        pres.apply_to_game_hud_with_selection(self.game_hud_mut(), selection);
     }
 }
 

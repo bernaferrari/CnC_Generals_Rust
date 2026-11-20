@@ -376,38 +376,13 @@ impl CnCGameEngine {
         // Update HUD + ControlBar selection panel from presentation when available
         // (resources + minimap + selection health). ControlBar health is snapshot-owned.
         if let Some(pres) = self.last_presentation_frame.clone() {
-            self.apply_presentation_to_huds(&pres);
+            let selection = pres.selected_unit_display_infos();
+            self.apply_presentation_to_huds(&pres, selection.clone());
             // Presentation audio already dispatched via dispatch_audio_events_direct
             // (BuildingComplete/UnitReady/UpgradeComplete). Do not dual-play engine SFX.
             self.sync_eva_messages_from_presentation(&pres);
             #[cfg(feature = "game_client")]
-            {
-                self.update_owned_control_bar_animations();
-                self.control_bar.set_receiving_upgrade_definitions(
-                    &self.game_logic.upgrade_definitions,
-                    self.game_logic
-                        .receiving_module_content
-                        .as_ref()
-                        .map(|content| content.action_definitions_shared()),
-                );
-                self.control_bar
-                    .bind_logic_owner(
-                Some(self.game_logic.command_definitions()),
-                self.game_logic.control_bar_bridge(),
-            );
-                {
-                    let facts = self.receiving_menu_world_facts();
-                    let bar = &mut self.control_bar;
-                    self.game_client
-                        .with_window_event_effects(Some(facts), |effects| {
-                            effects.with_manager(|manager, effects| {
-                                pres.apply_to_control_bar(bar, manager, effects)
-                            })
-                        })
-                };
-                let _ = self
-                    .update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
-            }
+            self.host_apply_presentation_control_bar(&pres, &selection);
         } else {
             // Wave 238: boot residual via ui_local_economy (no &Player dual-read).
             let (money, power, max_power) = self.ui_local_economy();

@@ -102,6 +102,14 @@ impl PresentationFrame {
     /// so a prior live `update_ui_state` walk cannot leave stale identity when a frame
     /// is available.
     pub fn apply_to_ui_state(&self, ui: &mut crate::ui::GameUIState) {
+        self.apply_to_ui_state_with_selection(ui, self.selected_unit_display_infos());
+    }
+
+    pub(crate) fn apply_to_ui_state_with_selection(
+        &self,
+        ui: &mut crate::ui::GameUIState,
+        infos: Vec<crate::ui::UnitDisplayInfo>,
+    ) {
         let hud = self.hud_read_model();
         self.apply_can_make_cameos_to_ui_state(ui);
 
@@ -134,7 +142,7 @@ impl PresentationFrame {
         ui.player_id = hud.local_player_id;
         ui.selected_units = hud.selected.to_vec();
         ui.match_over = self.match_over;
-        ui.selected_unit_infos = self.selected_unit_display_infos();
+        ui.selected_unit_infos = infos;
         // Radar residual from snapshot events (no live update_ui_state re-read).
         {
             use crate::ui::{RadarMessageEntry, RadarPing, RadarPingKind};
@@ -516,6 +524,14 @@ impl PresentationFrame {
     }
 
     pub fn apply_to_game_hud(&self, hud: &mut crate::ui::GameHUD) {
+        self.apply_to_game_hud_with_selection(hud, self.selected_unit_display_infos());
+    }
+
+    pub(crate) fn apply_to_game_hud_with_selection(
+        &self,
+        hud: &mut crate::ui::GameHUD,
+        infos: Vec<crate::ui::UnitDisplayInfo>,
+    ) {
         // InGameUI PublicTimer residual freeze onto HUD strip.
         let sw: Vec<crate::ui::hud_state::UiSuperweaponTimer> = self
             .superweapon_timers
@@ -584,7 +600,6 @@ impl PresentationFrame {
         let (credits, power, max_power) = self.hud_resource_triple();
         hud.update_resources(credits, power, max_power);
         hud.update_minimap(self.hud_minimap_rows());
-        let infos = self.selected_unit_display_infos();
         // Prefer explicit player selection list; if empty but infos came from
         // object.selected flags, mirror those IDs onto the HUD strip.
         let mut ids = self.selected.clone();
@@ -1028,9 +1043,17 @@ impl PresentationFrame {
 
     /// Snapshot-owned ControlBar / WND selection panel (health + name).
     pub fn control_bar_selection_panel(&self) -> crate::ui::ControlBarSelectionPanelState {
-        let mut panel = crate::ui::ControlBarSelectionPanelState::from_unit_infos(
-            &self.selected_unit_display_infos(),
-        );
+        let infos = self.selected_unit_display_infos();
+        let mut panel = self.control_bar_selection_primary(&infos);
+        panel.unit_infos = infos;
+        panel
+    }
+
+    fn control_bar_selection_primary(
+        &self,
+        infos: &[crate::ui::UnitDisplayInfo],
+    ) -> crate::ui::ControlBarSelectionPanelState {
+        let mut panel = crate::ui::ControlBarSelectionPanelState::from_primary(infos);
         // Prefer full queue from the primary selected renderable when present.
         // Wave 1108: fail-closed on sold/unusable primary (belt-and-suspenders after
         // selected_unit_display_infos Wave 1106).
@@ -1192,6 +1215,21 @@ impl PresentationFrame {
         manager: &mut game_client::gui::window_manager::WindowManager,
         effects: &mut game_client::gui::game_window::WindowEventEffects<'_>,
     ) {
+        self.apply_to_control_bar_with_selection(
+            control_bar,
+            manager,
+            effects,
+            &self.selected_unit_display_infos(),
+        );
+    }
+
+    pub(crate) fn apply_to_control_bar_with_selection(
+        &self,
+        control_bar: &mut game_client::gui::control_bar::ControlBar,
+        manager: &mut game_client::gui::window_manager::WindowManager,
+        effects: &mut game_client::gui::game_window::WindowEventEffects<'_>,
+        infos: &[crate::ui::UnitDisplayInfo],
+    ) {
         // The frame's receiving world owns the catalog this bar resolves.
         if self.command_definitions.is_some() {
             control_bar.bind_logic_owner(
@@ -1199,11 +1237,11 @@ impl PresentationFrame {
                 self.control_bar_bridge.0.clone(),
             );
         }
-        let panel = self.control_bar_selection_panel();
+        let panel = self.control_bar_selection_primary(infos);
         let ids: Vec<u32> = if !self.selected.is_empty() {
             self.selected.iter().map(|id| id.0).collect()
         } else {
-            panel.unit_infos.iter().map(|u| u.object_id.0).collect()
+            infos.iter().map(|u| u.object_id.0).collect()
         };
         control_bar.apply_presentation_money(self.local_supplies as i32);
         control_bar.apply_presentation_beacon_limit(self.local_beacon_button_enabled);

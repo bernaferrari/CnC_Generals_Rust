@@ -107,37 +107,11 @@ impl CnCGameEngine {
         {
             let mut ui = crate::ui::GameUIState::default();
             pres.apply_to_ui_state(&mut ui);
-            self.apply_presentation_to_huds(&pres);
+            self.apply_presentation_to_huds(&pres, ui.selected_unit_infos.clone());
             // Presentation audio already dispatched; SFX dual-path retired.
             self.sync_eva_messages_from_presentation(&pres);
             #[cfg(feature = "game_client")]
-            {
-                self.update_owned_control_bar_animations();
-                self.control_bar.set_receiving_upgrade_definitions(
-                    &self.game_logic.upgrade_definitions,
-                    self.game_logic
-                        .receiving_module_content
-                        .as_ref()
-                        .map(|content| content.action_definitions_shared()),
-                );
-                self.control_bar
-                    .bind_logic_owner(
-                Some(self.game_logic.command_definitions()),
-                self.game_logic.control_bar_bridge(),
-            );
-                {
-                    let facts = self.receiving_menu_world_facts();
-                    let bar = &mut self.control_bar;
-                    self.game_client
-                        .with_window_event_effects(Some(facts), |effects| {
-                            effects.with_manager(|manager, effects| {
-                                pres.apply_to_control_bar(bar, manager, effects)
-                            })
-                        })
-                };
-                let _ = self
-                    .update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
-            }
+            self.host_apply_presentation_control_bar(&pres, &ui.selected_unit_infos);
             // Keep last_presentation aligned with pipeline freeze when it was the source.
             self.last_presentation_frame = Some(pres.into());
             ui
@@ -145,6 +119,35 @@ impl CnCGameEngine {
             // Boot/loading residual only.
             self.host_update_ui_state(self.current_player_id)
         }
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(in crate::cnc_game_engine) fn host_apply_presentation_control_bar(
+        &mut self,
+        frame: &crate::presentation_frame::PresentationFrame,
+        selection: &[crate::ui::UnitDisplayInfo],
+    ) {
+        self.update_owned_control_bar_animations();
+        self.control_bar.set_receiving_upgrade_definitions(
+            &self.game_logic.upgrade_definitions,
+            self.game_logic
+                .receiving_module_content
+                .as_ref()
+                .map(|content| content.action_definitions_shared()),
+        );
+        self.control_bar.bind_logic_owner(
+            Some(self.game_logic.command_definitions()),
+            self.game_logic.control_bar_bridge(),
+        );
+        let facts = self.receiving_menu_world_facts();
+        let bar = &mut self.control_bar;
+        self.game_client
+            .with_window_event_effects(Some(facts), |effects| {
+                effects.with_manager(|manager, effects| {
+                    frame.apply_to_control_bar_with_selection(bar, manager, effects, selection)
+                })
+            });
+        let _ = self.update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
     }
 
     pub(in crate::cnc_game_engine) fn host_sync_shadow_and_build_presentation(
@@ -253,37 +256,12 @@ impl CnCGameEngine {
                 .map(crate::presentation_frame::PresentationSceneLine::from),
         );
         // Seed the same instance HUD used by input and ordinary frame updates.
-        self.apply_presentation_to_huds(&pres);
+        let selection = pres.selected_unit_display_infos();
+        self.apply_presentation_to_huds(&pres, selection.clone());
         #[cfg(feature = "game_client")]
-        {
-            self.update_owned_control_bar_animations();
-            self.control_bar.set_receiving_upgrade_definitions(
-                &self.game_logic.upgrade_definitions,
-                self.game_logic
-                    .receiving_module_content
-                    .as_ref()
-                    .map(|content| content.action_definitions_shared()),
-            );
-            self.control_bar
-                .bind_logic_owner(
-                Some(self.game_logic.command_definitions()),
-                self.game_logic.control_bar_bridge(),
-            );
-            {
-                let facts = self.receiving_menu_world_facts();
-                let bar = &mut self.control_bar;
-                self.game_client
-                    .with_window_event_effects(Some(facts), |effects| {
-                        effects.with_manager(|manager, effects| {
-                            pres.apply_to_control_bar(bar, manager, effects)
-                        })
-                    })
-            };
-            let _ =
-                self.update_receiving_observer_control_bar(std::time::Duration::from_millis(33));
-        }
+        self.host_apply_presentation_control_bar(&pres, &selection);
         let mut ui = GameUIState::default();
-        pres.apply_to_ui_state(&mut ui);
+        pres.apply_to_ui_state_with_selection(&mut ui, selection);
         self.last_ui_state = Some(ui);
         self.last_presentation_frame = Some(pres.into());
         // C++ does not evaluate victory on the load frame. A just-seeded

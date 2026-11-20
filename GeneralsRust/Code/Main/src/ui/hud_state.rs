@@ -476,10 +476,16 @@ pub struct ControlBarSelectionPanelState {
 impl ControlBarSelectionPanelState {
     /// Build selection panel state from presentation-owned unit infos.
     pub fn from_unit_infos(infos: &[UnitDisplayInfo]) -> Self {
-        if infos.is_empty() {
+        let mut panel = Self::from_primary(infos);
+        panel.unit_infos.extend_from_slice(infos);
+        panel
+    }
+
+    /// Build the primary display fields while the caller retains the selection.
+    pub(crate) fn from_primary(infos: &[UnitDisplayInfo]) -> Self {
+        let Some(primary) = infos.first() else {
             return Self::default();
-        }
-        let primary = &infos[0];
+        };
         Self {
             visible: true,
             primary_name: primary.name.clone(),
@@ -487,7 +493,7 @@ impl ControlBarSelectionPanelState {
             health_maximum: primary.health_maximum.max(1.0),
             selected_count: infos.len(),
             primary_object_id: Some(primary.object_id),
-            unit_infos: infos.to_vec(),
+            unit_infos: Vec::new(),
             veterancy_overlay: primary.veterancy_overlay.clone(),
             production_progress: primary.production_progress,
             production_template: primary.production_template.clone(),

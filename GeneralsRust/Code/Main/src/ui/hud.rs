@@ -1135,17 +1135,15 @@ impl GameHUD {
         let selection_changed = self.selected_units != unit_ids;
         self.selected_units = unit_ids;
         self.selected_unit_infos = unit_infos;
-        self.selection_panel =
-            ControlBarSelectionPanelState::from_unit_infos(&self.selected_unit_infos);
         if !self.show_selection_health {
             // Options residual: hide health numbers/bars on selection strip.
             for info in &mut self.selected_unit_infos {
                 info.health_current = 0.0;
                 info.health_maximum = 0.0;
             }
-            self.selection_panel =
-                ControlBarSelectionPanelState::from_unit_infos(&self.selected_unit_infos);
         }
+        self.selection_panel =
+            ControlBarSelectionPanelState::from_unit_infos(&self.selected_unit_infos);
         if selection_changed {
             self.update_command_buttons();
             // Prefer presentation producer residual for construction panel.

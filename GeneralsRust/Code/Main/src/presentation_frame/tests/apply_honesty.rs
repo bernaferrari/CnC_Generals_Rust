@@ -74,6 +74,14 @@ fn apply_to_ui_state_overwrites_live_identity_after_mutation() {
         "selection panel HP from presentation: {}",
         ui.selection_panel.health_current
     );
+
+    let mut hud = crate::ui::GameHUD::new();
+    hud.set_show_selection_health(false);
+    snap.apply_to_game_hud_with_selection(&mut hud, ui.selected_unit_infos.clone());
+    assert_eq!(hud.selected_unit_ids(), &[id]);
+    assert_eq!(hud.selection_panel().health_current, 0.0);
+    assert_eq!(ui.selection_panel.health_current, 100.0);
+    assert_eq!(snap.control_bar_selection_panel().health_current, 100.0);
 }
 
 #[test]
