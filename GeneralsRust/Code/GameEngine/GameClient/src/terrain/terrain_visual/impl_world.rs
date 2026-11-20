@@ -198,6 +198,9 @@ impl TerrainVisualImpl {
         }
 
         self.seismic_simulations = active_simulations;
+        if !self.seismic_simulations.is_empty() {
+            self.invalidate_projected_unit_shadow_meshes();
+        }
     }
 
     /// Apply seismic effect to heightmap

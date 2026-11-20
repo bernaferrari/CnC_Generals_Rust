@@ -332,6 +332,7 @@ impl TerrainVisualImpl {
     }
 
     fn reset_draw_area_state(&mut self) {
+        self.invalidate_projected_unit_shadow_meshes();
         self.oversize_amount = 0;
 
         if let Some((map_width, map_height)) = self.map_sample_dimensions() {
@@ -655,6 +656,7 @@ impl TerrainVisualImpl {
 
     /// C++ `HeightMapRenderObjClass::staticLightingChanged`.
     pub fn static_lighting_changed(&mut self) {
+        self.invalidate_projected_unit_shadow_meshes();
         // BaseHeightMap invalidates GPU scorch geometry, retaining logical marks.
         self.scorches.scorches_in_buffer = 0;
         self.scorch_meshes.clear();

@@ -25,6 +25,7 @@ struct ProjectedShadowGpu {
     sampler: wgpu::Sampler,
     textures: HashMap<String, Option<BindGroup>>,
     inputs: Vec<ProjectedUnitShadow>,
+    geometry_draw_window: Option<([i32; 2], [i32; 2])>,
     vertices: Vec<ProjectedShadowVertex>,
     indices: Vec<u32>,
     batches: Vec<(String, std::ops::Range<u32>)>,
@@ -120,6 +121,7 @@ impl ProjectedShadowGpu {
             sampler,
             textures: HashMap::new(),
             inputs: Vec::new(),
+            geometry_draw_window: None,
             vertices: Vec::new(),
             indices: Vec::new(),
             batches: Vec::new(),
@@ -167,6 +169,7 @@ impl TerrainVisualImpl {
         if inputs.is_empty() {
             if let Some(gpu) = self.projected_shadow_gpu.as_mut() {
                 gpu.inputs.clear();
+                gpu.geometry_draw_window = None;
                 gpu.batches.clear();
             }
             return HashSet::new();
@@ -213,7 +216,10 @@ impl TerrainVisualImpl {
             bound.is_some()
         });
         let casters = inputs.iter().map(|shadow| shadow.object_id).collect();
-        gpu.inputs = inputs;
+        if gpu.inputs != inputs {
+            gpu.inputs = inputs;
+            gpu.geometry_draw_window = None;
+        }
         casters
     }
 
@@ -228,36 +234,54 @@ impl TerrainVisualImpl {
         mut transform: impl FnMut(u32) -> Option<Mat4>,
     ) {
         if let Some(gpu) = self.projected_shadow_gpu.as_mut() {
+            let mut changed = false;
             gpu.inputs.retain_mut(|shadow| {
                 let Some(current) = transform(shadow.object_id) else {
+                    changed = true;
                     return false;
                 };
-                shadow.transform = current;
+                if shadow.transform != current {
+                    shadow.transform = current;
+                    changed = true;
+                }
                 true
             });
+            if changed {
+                gpu.geometry_draw_window = None;
+            }
         }
     }
 
-    fn update_projected_unit_shadow_meshes(&mut self) {
+    fn invalidate_projected_unit_shadow_meshes(&mut self) {
+        if let Some(gpu) = self.projected_shadow_gpu.as_mut() {
+            gpu.geometry_draw_window = None;
+        }
+    }
+
+    /// Rebuild receiver geometry after changed casters, terrain, or clipping.
+    /// The result is the number of bytes queued for the two vertex/index writes.
+    fn update_projected_unit_shadow_meshes(&mut self) -> usize {
         let (Some(gpu), Some(map), Some(device), Some(queue)) = (
             self.projected_shadow_gpu.as_mut(),
             self.height_map.as_ref(),
             self.device.as_ref(),
             self.queue.as_ref(),
         ) else {
-            return;
+            return 0;
         };
-        gpu.vertices.clear();
-        gpu.indices.clear();
-        gpu.batches.clear();
-        if gpu.inputs.is_empty() {
-            return;
-        }
         let start = [self.draw_origin_x, self.draw_origin_y];
         let end = [
             (start[0] + self.draw_width - 1).min(map.width as i32 - 1),
             (start[1] + self.draw_height - 1).min(map.height as i32 - 1),
         ];
+        let draw_window = (start, end);
+        if gpu.geometry_draw_window == Some(draw_window) {
+            return 0;
+        }
+        gpu.geometry_draw_window = Some(draw_window);
+        gpu.vertices.clear();
+        gpu.indices.clear();
+        gpu.batches.clear();
         for shadow in &gpu.inputs {
             let before = gpu.indices.len() as u32;
             append_projected_shadow(map, start, end, shadow, &mut gpu.vertices, &mut gpu.indices);
@@ -275,14 +299,14 @@ impl TerrainVisualImpl {
             }
         }
         if gpu.indices.is_empty() {
-            return;
+            return 0;
         }
         let limit = device.limits().max_buffer_size;
         let vertices = cast_slice(&gpu.vertices);
         let indices = cast_slice(&gpu.indices);
         if vertices.len() as u64 > limit || indices.len() as u64 > limit {
             gpu.batches.clear();
-            return;
+            return 0;
         }
         ProjectedShadowGpu::upload_buffer(
             device,
@@ -300,6 +324,7 @@ impl TerrainVisualImpl {
             indices,
             limit,
         );
+        vertices.len() + indices.len()
     }
 
     /// C++ `DoShadows(false)`, after terrain and before opaque scene models.

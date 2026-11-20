@@ -1010,7 +1010,7 @@ fn projected_unit_shadow_multiplies_source_color_on_native_terrain() {
         &device,
         &queue,
         &classes,
-        HeightMap::new(64, 64, 0.0, 1.0),
+        HeightMap::new(64, 64, 255.0, 1.0),
         1.0,
     );
     let source = std::env::var_os("GENERALS_TEST_WORKER_SHADOW_DDS")
@@ -1026,15 +1026,16 @@ fn projected_unit_shadow_multiplies_source_color_on_native_terrain() {
     synthetic
         .write_to(&mut encoded, image::ImageFormat::Tga)
         .unwrap();
+    let caster = ProjectedUnitShadow {
+        object_id: 42,
+        transform: Mat4::from_translation(Vec3::new(30.5, 0.0, 1.5)),
+        size: Vec2::splat(14.0),
+        offset: Vec2::ZERO,
+        layer_height: None,
+        texture_name: "ShadowI".into(),
+    };
     let casters = visual.admit_projected_unit_shadows(
-        vec![ProjectedUnitShadow {
-            object_id: 42,
-            transform: Mat4::from_translation(Vec3::new(30.5, 0.0, 1.5)),
-            size: Vec2::splat(14.0),
-            offset: Vec2::ZERO,
-            layer_height: None,
-            texture_name: "ShadowI".into(),
-        }],
+        vec![caster.clone()],
         |path| match path {
             "Art/Textures/shadowi.dds" => source.clone(),
             "Art/Textures/shadowi.tga" => Some(encoded.get_ref().clone()),
@@ -1076,6 +1077,75 @@ fn projected_unit_shadow_multiplies_source_color_on_native_terrain() {
         );
         assert_eq!(edge, [180, 185, 190, 255]);
     }
+
+    let repeated_bytes = (0..20)
+        .map(|_| {
+            assert_eq!(
+                visual.admit_projected_unit_shadows(vec![caster.clone()], |_| {
+                    panic!("resident shadow texture should not be reloaded")
+                }),
+                casters
+            );
+            visual.retain_projected_unit_shadow_casters(|_| Some(caster.transform));
+            visual.update_projected_unit_shadow_meshes()
+        })
+        .sum::<usize>();
+    assert_eq!(
+        repeated_bytes, 0,
+        "stationary authored decal uploaded {repeated_bytes} duplicate geometry bytes"
+    );
+    assert_eq!(
+        render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform),
+        pixels
+    );
+
+    let moved = Mat4::from_translation(Vec3::new(34.5, 0.0, 1.5));
+    visual.retain_projected_unit_shadow_casters(|id| (id == caster.object_id).then_some(moved));
+    let move_bytes = visual.update_projected_unit_shadow_meshes();
+    assert!(move_bytes > 0);
+    assert_ne!(
+        render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform),
+        pixels
+    );
+    visual.retain_projected_unit_shadow_casters(|_| Some(caster.transform));
+    assert_eq!(visual.update_projected_unit_shadow_meshes(), move_bytes);
+
+    let restore_draw_origin = visual.draw_origin_x;
+    visual.draw_origin_x = 32;
+    let clipped_bytes = visual.update_projected_unit_shadow_meshes();
+    assert!(clipped_bytes > 0 && clipped_bytes < move_bytes);
+    assert_ne!(
+        render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform),
+        pixels
+    );
+    visual.draw_origin_x = restore_draw_origin;
+    assert_eq!(visual.update_projected_unit_shadow_meshes(), move_bytes);
+
+    let center_height = |visual: &TerrainVisualImpl| {
+        visual.projected_shadow_gpu.as_ref().unwrap().vertices.iter()
+            .find(|vertex| vertex.position[0] == 31.0 && vertex.position[2] == 1.0)
+            .unwrap().position[1]
+    };
+    let flat = center_height(&visual);
+    visual.apply_accepted_height(31, 1, 18);
+    assert_eq!(visual.update_projected_unit_shadow_meshes(), move_bytes);
+    assert!(center_height(&visual) > flat);
+    visual.apply_accepted_height(31, 1, 0);
+    assert_eq!(visual.update_projected_unit_shadow_meshes(), move_bytes);
+    assert_eq!(center_height(&visual), flat);
+    assert_eq!(
+        render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform),
+        pixels
+    );
+
+    visual.add_seismic_simulation(SeismicSimulationNode::new(Vec3::new(31.0, 0.0, 1.0), 3.0, 0.01));
+    visual.update_seismic_simulations();
+    assert_eq!(visual.update_projected_unit_shadow_meshes(), move_bytes);
+    assert!(center_height(&visual) > flat);
+    eprintln!(
+        "authored decal CRC32 {:08x}, 20 idle updates {repeated_bytes} bytes, moved {move_bytes}, clipped {clipped_bytes}",
+        crc32fast::hash(&pixels)
+    );
 
     visual.retain_projected_unit_shadow_casters(|_| None);
     visual.update_native(motion, None).unwrap();
