@@ -10,6 +10,7 @@
 use super::*;
 use crate::graphics::fow_uniform_integration::frozen_fow_model_fields;
 use crate::graphics::render_item::RenderItemBonePaletteSource;
+use std::fmt::Write;
 use ww3d_renderer_3d::rendering::mesh_system::FrozenFowVisibility;
 use ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase;
 
@@ -170,6 +171,7 @@ impl ForwardPass {
             renderer,
             application_assets: None,
             mesh_cache: HashMap::new(),
+            mesh_cache_key: String::new(),
             texture_cache: HashMap::new(),
             shared_retail: crate::assets::ww3d_asset_manager::SharedRetailContent::for_current_application(),
             pending_texture_stream: VecDeque::new(),
@@ -1193,13 +1195,15 @@ impl ForwardPass {
         graphics_system: &GraphicsSystem,
         item: &RenderItem,
     ) -> Result<Option<Arc<MeshModelClass>>> {
-        let cache_key = format!(
+        self.mesh_cache_key.clear();
+        write!(
+            self.mesh_cache_key,
             "{}::{}::{}",
             item.model_name, item.mesh_index, item.material_key
-        );
-
-        if let Some(model) = self.mesh_cache.get(&cache_key) {
-            return Ok(Some(model.clone()));
+        )
+        .expect("formatting a String cannot fail");
+        if let Some(model) = self.mesh_cache.get(self.mesh_cache_key.as_str()) {
+            return Ok(Some(Arc::clone(model)));
         }
 
         let w3d_model = match graphics_system.get_model(&item.model_name) {
@@ -1221,6 +1225,7 @@ impl ForwardPass {
             }
         };
 
+        let cache_key = self.mesh_cache_key.clone();
         if let Some(mesh_model) = w3d_model.ww3d_mesh_models.get(&mesh.name) {
             let mesh_model = Arc::clone(mesh_model);
             self.mesh_cache.insert(cache_key, mesh_model.clone());

@@ -907,6 +907,7 @@ pub struct ForwardPass {
     pub(crate) renderer: WgpuMainRenderer,
     application_assets: Option<Arc<Mutex<crate::assets::AssetManager>>>,
     mesh_cache: HashMap<String, Arc<MeshModelClass>>,
+    mesh_cache_key: String,
     texture_cache: HashMap<String, Arc<TextureClass>>,
     /// Host-shared retail content (texture payloads/classes across engines).
     shared_retail: Option<crate::assets::ww3d_asset_manager::SharedRetailContent>,

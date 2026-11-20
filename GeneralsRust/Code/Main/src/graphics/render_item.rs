@@ -655,10 +655,7 @@ impl RenderItem {
     ) -> Self {
         let mesh_key = format!("{}_{}", model_name, mesh_index);
         let distance = world_position.length();
-        let texture_tag = material
-            .texture_name
-            .clone()
-            .unwrap_or_else(|| "default".to_string());
+        let texture_tag = material.texture_name.as_deref().unwrap_or("default");
         let material_key = format!("{}::{}", material.name, texture_tag);
         let sorting_key = Self::generate_sorting_key(render_pass, &material_key, distance);
 
