@@ -29,7 +29,9 @@ fn replay_fixture_engine() -> anyhow::Result<(
     );
     // The probe does not run Engine startup. Admit the captured startup
     // GameData bytes into this receiving owner before any mini-world/map.
-    let mut movement = game_engine::common::ini::ini_game_data::CameraMovementRules::default();
+    use game_engine::common::ini::ini_game_data::{CameraContentRules, CameraMovementRules};
+    let mut movement = CameraMovementRules::default();
+    let mut camera = CameraContentRules::default();
     for relative in [
         "Data/INI/Default/GameData.ini",
         "Data/INI/GameData.ini",
@@ -42,6 +44,9 @@ fn replay_fixture_engine() -> anyhow::Result<(
             Err(error) => return Err(anyhow::anyhow!("{}: {error}", path.display())),
         };
         movement = movement
+            .overlay_ini_text(&text)
+            .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
+        camera = camera
             .overlay_ini_text(&text)
             .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
     }
@@ -60,6 +65,10 @@ fn replay_fixture_engine() -> anyhow::Result<(
     engine
         .game_logic
         .admit_camera_application_movement(movement);
+    engine
+        .game_logic
+        .admit_camera_application_rules(camera)
+        .map_err(anyhow::Error::msg)?;
     Ok((event_loop, application_services, engine))
 }
 
@@ -90,8 +99,12 @@ fn install_replay_factory(engine: &mut CnCGameEngine) -> ObjectId {
         .camera
         .movement_policy
         .reset_seed();
+    let camera = engine.game_logic.session_view.camera.settings.reset_seed();
     engine.game_logic = GameLogic::new();
     engine.game_logic.session_view.camera.movement_policy = movement;
+    // The synthetic world replaces the camera owner after application startup.
+    // Keep the admitted application basis so ClearGameData can reset the view.
+    engine.game_logic.session_view.camera.settings = camera;
     engine.gameworld_shadow = Some(GameWorldShadow::new(64));
     engine.last_frame_timing = None;
     engine.last_presentation_frame = None;
@@ -175,6 +188,16 @@ fn run_engine_replay_batch(
         direct_probe_frame(engine, dt).expect("complete replay probe frame");
     }
     let after = host_queue_state(engine, producer_id);
+    let shadow = engine.gameworld_shadow.as_ref().expect("receiving observer");
+    assert_eq!(
+        shadow.world().frame(),
+        u64::from(engine.game_logic.get_frame())
+    );
+    let producer = shadow
+        .entity_for_host(producer_id)
+        .and_then(|entity| shadow.world().entity(entity))
+        .expect("producer in published observation");
+    assert_eq!(producer.production_queue_items[0].construction_frames, after.0);
     (
         after.0 - before.0,
         before.1 - after.1,
@@ -277,12 +300,10 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
     assert_eq!(engine.game_logic.game_mode(), GameMode::Skirmish);
     assert!(engine.pending_match_start.is_none());
 
-    // Exercise the second mutation site with a real receiving map request.
-    // This fixture has no active Shell; forcing that stale UI bit makes the
-    // actual Menu->Loading callback fail after map selection, then checks
-    // that the previous application fallback is restored.
+    // An owned map updates the application fallback before this mapless
+    // fixture rejects skirmish setup without receiving multiplayer settings.
+    assert!(engine.game_logic.multiplayer_definitions.is_none());
     engine.current_state = GameState::Menu;
-    engine.shell_menu_active = true;
     let prior_map_fallback = Some("Maps/BeforeRejectedTransition".to_string());
     engine.application_map_fallback = prior_map_fallback.clone();
     let mut selected_map = GameMessage::new(GameMessageType::NewGame);
@@ -290,16 +311,12 @@ fn source_command_phase_engine_witness(engine: &mut CnCGameEngine) {
         selected_map.append_integer_argument(value);
     }
     selected_map.set_owned_new_game_map("Maps/RejectedTransition".into());
-    assert!(
-        engine
-            .prepare_receiving_source_new_game(&selected_map)
-            .is_err()
-    );
+    assert!(!engine.prepare_receiving_source_new_game(&selected_map).unwrap());
     assert_eq!(engine.application_map_fallback, prior_map_fallback);
     assert_eq!(engine.game_logic.logic_base_seed, prior_base_seed);
     assert_eq!(engine.game_logic.logic_random.seed_words(), prior_rng_words);
     assert!(engine.pending_match_start.is_none());
-    engine.shell_menu_active = false;
+    assert_eq!(engine.current_state, GameState::Menu);
     engine.current_state = GameState::InGame;
 
     let fps_before = {
@@ -1160,9 +1177,15 @@ pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
         super::super::StartupLoadState::Complete,
     );
     #[cfg(feature = "game_client")]
-    engine
-        .probe_skirmish_local_command_owner()
-        .map_err(anyhow::Error::msg)?;
+    {
+        engine.game_logic.admit_object_ini_sources([(
+            "ReplayCommandOwner.ini".into(),
+            "Object ReplayCommandOwnerFixture\nEnd\n".into(),
+        )])?;
+        engine
+            .probe_skirmish_local_command_owner()
+            .map_err(anyhow::Error::msg)?;
+    }
     install_replay_factory(&mut engine);
     // Actual Engine startup/hotkey/native continuation, executed only by
     // the existing process-main-thread probe. This is not a unit mock.
@@ -1228,6 +1251,7 @@ pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
         (2, 2, 2),
         "four TiVO 60 Hz offers must advance owner queues only for the two completed fixed steps"
     );
+    println!("Replay batches passed at 30 and 60 Hz with matching production observations");
     #[cfg(feature = "game_client")]
     source_command_phase_engine_witness(&mut engine);
     #[cfg(feature = "game_client")]
