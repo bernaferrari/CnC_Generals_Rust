@@ -482,9 +482,11 @@ impl PartitionManager {
         let mut cells: Vec<_> = self
             .cells
             .iter()
-            .filter(|(cell, _)| query.accepts([cell.0, cell.1]))
+            .filter_map(|(&(x, z), occupants)| {
+                Some((query.traversal_key([x, z])?, occupants))
+            })
             .collect();
-        cells.sort_by_key(|(cell, _)| query.traversal_key([cell.0, cell.1]));
+        cells.sort_unstable_by_key(|(key, _)| *key);
         let mut seen = HashSet::new();
         let mut result = Vec::new();
         for (_, occupants) in cells {
@@ -518,15 +520,16 @@ impl PartitionManager {
         let mut cells: Vec<_> = self
             .cells
             .iter()
-            .filter(|(cell, _)| query.accepts([cell.0, cell.1]))
+            .filter_map(|(&(x, z), occupants)| {
+                Some((query.traversal_key([x, z])?, occupants))
+            })
             .collect();
-        cells.sort_by_key(|(cell, _)| query.traversal_key([cell.0, cell.1]));
+        cells.sort_unstable_by_key(|(key, _)| *key);
         let mut seen = HashSet::new();
         let mut closest = None;
         let mut best_distance = radius * radius;
         let mut found_radius = None;
-        for (cell, occupants) in cells {
-            let ring = query.traversal_key([cell.0, cell.1]).0;
+        for ((ring, _, _), occupants) in cells {
             if found_radius.is_some_and(|found| ring > found) {
                 break;
             }

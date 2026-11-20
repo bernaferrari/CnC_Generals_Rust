@@ -38,17 +38,24 @@ impl RadiusCellQuery {
         }
     }
 
-    /// RadiusVec bucket, then its original y/x insertion order. Enumerating
-    /// occupied cells in this order is equivalent to skipping empty offsets.
-    pub(super) fn traversal_key(&self, cell: [i32; 2]) -> (i32, i64, i64) {
-        let offset = [
-            i64::from(cell[0]) - i64::from(self.center[0]),
-            i64::from(cell[1]) - i64::from(self.center[1]),
-        ];
-        (minimum_bucket(offset, self.cell_size), offset[1], offset[0])
+    /// One accepted RadiusVec bucket and its original y/x insertion order.
+    pub(super) fn traversal_key(&self, cell: [i32; 2]) -> Option<(i32, i64, i64)> {
+        let offset = self.offset_within_grid(cell)?;
+        let bucket = minimum_bucket(offset, self.cell_size);
+        self.maximum_bucket
+            .is_none_or(|maximum| bucket <= maximum)
+            .then_some((bucket, offset[1], offset[0]))
     }
 
     pub(super) fn accepts(&self, cell: [i32; 2]) -> bool {
+        if self.maximum_bucket.is_none() {
+            self.offset_within_grid(cell).is_some()
+        } else {
+            self.traversal_key(cell).is_some()
+        }
+    }
+
+    fn offset_within_grid(&self, cell: [i32; 2]) -> Option<[i64; 2]> {
         let offset = [
             i64::from(cell[0]) - i64::from(self.center[0]),
             i64::from(cell[1]) - i64::from(self.center[1]),
@@ -65,11 +72,10 @@ impl RadiusCellQuery {
                 || offset[1] <= -(height as i64)
                 || offset[1] >= height as i64
             {
-                return false;
+                return None;
             }
         }
-        self.maximum_bucket
-            .is_none_or(|maximum| minimum_bucket(offset, self.cell_size) <= maximum)
+        Some(offset)
     }
 }
 
@@ -78,27 +84,22 @@ impl RadiusCellQuery {
 /// REAL_TO_INT_CEIL first converts that quotient to its float parameter.
 fn minimum_bucket(offset: [i64; 2], cell_size: f32) -> i32 {
     let half = cell_size * 0.5;
-    let center = [[-half, -half], [half, -half], [-half, half], [half, half]];
-    let x = offset[0] as f32 * cell_size;
-    let y = offset[1] as f32 * cell_size;
-    let other = [
-        [x - half, y - half],
-        [x + half, y - half],
-        [x - half, y + half],
-        [x + half, y + half],
-    ];
-    // Preserve the original finite sentinel, including its large-distance cap.
-    let mut minimum_squared = 1.0e12_f64;
-    for a in center {
-        for b in other {
-            let dx = f64::from(a[0] - b[0]);
-            let dy = f64::from(a[1] - b[1]);
-            let squared = dx * dx + dy * dy;
-            if minimum_squared > squared {
-                minimum_squared = squared;
-            }
-        }
-    }
+    // Every X corner difference can pair with every Y difference. Preserve
+    // the C++ Real subtractions before choosing each minimum and squaring
+    // in double precision. The original finite sentinel also caps the sum.
+    let separation = |axis: i64| {
+        let center = axis as f32 * cell_size;
+        let lower = center - half;
+        let upper = center + half;
+        (-half - lower)
+            .abs()
+            .min((-half - upper).abs())
+            .min((half - lower).abs())
+            .min((half - upper).abs())
+    };
+    let dx = f64::from(separation(offset[0]));
+    let dy = f64::from(separation(offset[1]));
+    let minimum_squared = (dx * dx + dy * dy).min(1.0e12_f64);
     let distance = f64::from((minimum_squared as f32).sqrt());
     source_ceil_nonnegative((distance / f64::from(cell_size)) as f32)
 }
