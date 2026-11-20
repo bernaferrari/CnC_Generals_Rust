@@ -1,4 +1,5 @@
 use super::*;
+use crate::gui::options_host_bridge::TerrainLodEffect;
 
 /// Immutable observation at native ShowOptions, never a mutable input authority.
 #[derive(Clone, Copy, Debug)]
@@ -998,7 +999,7 @@ impl OptionsMenu {
         host: Option<HostOptionsApply>,
         pref: &mut UserPreferences,
         owned_scroll: Option<Option<i32>>,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        mut terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
         effects: &mut WindowEventEffects<'_>,
     ) -> bool {
         let owns_camera_preferences = owned_scroll.is_some();
@@ -1408,15 +1409,20 @@ impl OptionsMenu {
             // The native caller's hook applies the target to its own renderer
             // and terrain (`apply_lod_texture_reduction_to_session`); without
             // one only the definitions change.
-            if let Some(apply_texture_lod) = terrain_lod {
-                apply_texture_lod(texture_reduction);
+            if let Some(receive) = terrain_lod.as_deref_mut() {
+                receive(TerrainLodEffect::TextureReduction(texture_reduction));
             } else {
                 let _ = crate::core::game_client::store_lod_texture_reduction(texture_reduction);
             }
         }
 
         if effects.menu_host.is_some() {
-            if let Some(result) =
+            if let Some(receive) = terrain_lod {
+                game_engine::common::game_lod::set_static_lod_from_string_for_session_with(
+                    detail_name,
+                    |result| receive(TerrainLodEffect::StaticDetail(result)),
+                );
+            } else if let Some(result) =
                 game_engine::common::game_lod::set_static_lod_from_string_for_session(detail_name)
             {
                 match result {
@@ -1551,7 +1557,7 @@ impl OptionsMenu {
     pub(super) fn accept_options(
         &mut self,
         owned: Option<(&mut UserPreferences, Option<i32>)>,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
         effects: &mut WindowEventEffects<'_>,
     ) {
         let resolution_changed = match owned {

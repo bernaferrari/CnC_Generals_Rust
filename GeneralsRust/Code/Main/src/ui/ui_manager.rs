@@ -12,6 +12,7 @@ use crate::{
     localization,
     subsystem_manager::initialize_shell_ui_schemes,
 };
+use super::options_menu::TerrainLodEffect;
 use log::info;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -369,7 +370,7 @@ impl UIManager {
         x: i32,
         y: i32,
         button: MouseButton,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
     ) -> bool {
         #[cfg(feature = "game_client")]
         let effects = None;
@@ -383,7 +384,7 @@ impl UIManager {
         x: i32,
         y: i32,
         button: MouseButton,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
         mut effects: HostWindowEventEffects<'_, '_>,
     ) -> bool {
         let ui_sound_events_before = self.queued_ui_sound_event_count();
@@ -517,7 +518,7 @@ impl UIManager {
         &mut self,
         key: KeyCode,
         allow_hud_input: bool,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
     ) -> bool {
         self.handle_key_press_with_hud_input_and_terrain_lod_and_effects(
             key,
@@ -531,7 +532,7 @@ impl UIManager {
         &mut self,
         key: KeyCode,
         allow_hud_input: bool,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
         effects: HostWindowEventEffects<'_, '_>,
     ) -> bool {
         self.keys_pressed.insert(key, true);

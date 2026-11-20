@@ -1,4 +1,5 @@
 use super::*;
+use crate::gui::options_host_bridge::TerrainLodEffect;
 
 /// Residual: last OptionsMenu action requested by residual peels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,7 +115,7 @@ pub fn apply_options_from_host_with_preferences(
 pub fn apply_options_from_host_with_preferences_and_terrain(
     apply: HostOptionsApply,
     preferences: &mut UserPreferences,
-    terrain_lod: Option<&mut dyn FnMut(i32)>,
+    terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
     effects: &mut WindowEventEffects<'_>,
 ) -> bool {
     let scroll = apply.scroll_speed;
@@ -139,7 +140,7 @@ pub fn apply_options_from_host_with_preferences_and_terrain(
 pub(crate) fn complete_options_accept_with_preferences(
     preferences: &mut UserPreferences,
     scroll: Option<i32>,
-    terrain_lod: Option<&mut dyn FnMut(i32)>,
+    terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
     effects: &mut WindowEventEffects<'_>,
 ) {
     effects.with_options_menu(|menu, effects| {

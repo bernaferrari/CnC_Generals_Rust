@@ -1,5 +1,6 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+use crate::ui::options_menu::TerrainLodEffect;
 
 #[cfg(feature = "game_client")]
 type HostWindowEventEffects<'borrow, 'receiver> =
@@ -93,7 +94,7 @@ fn route_host_ui_key_with_terrain_lod(
     key: crate::ui::KeyCode,
     chat_open: bool,
     input_enabled: bool,
-    terrain_lod: Option<&mut dyn FnMut(i32)>,
+    terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
     effects: HostWindowEventEffects<'_, '_>,
 ) -> bool {
     // The host ChatPanel is not a focused WND. Let the existing mapped-key
@@ -333,16 +334,13 @@ impl CnCGameEngine {
                                     {
                                         construction_consumed = self
                                             .with_receiving_menu_effects_and_ui(
-                                                |ui_manager, render_pipeline, effects| {
-                                                    let mut terrain_lod = |reduction| {
-                                                        render_pipeline.apply_texture_lod(reduction)
-                                                    };
+                                                |ui_manager, terrain_lod, effects| {
                                                     route_host_ui_key_with_terrain_lod(
                                                         ui_manager,
                                                         ui_key,
                                                         chat_open,
                                                         input_enabled,
-                                                        Some(&mut terrain_lod),
+                                                        Some(terrain_lod),
                                                         Some(effects),
                                                     )
                                                 },
@@ -727,15 +725,12 @@ impl CnCGameEngine {
                     #[cfg(feature = "game_client")]
                     {
                         hud_cameo_consumed = self.with_receiving_menu_effects_and_ui(
-                            |ui_manager, render_pipeline, effects| {
-                                let mut terrain_lod = |reduction| {
-                                    render_pipeline.apply_texture_lod(reduction);
-                                };
+                            |ui_manager, terrain_lod, effects| {
                                 ui_manager.handle_mouse_click_with_terrain_lod_and_effects(
                                     x,
                                     y,
                                     ui_button,
-                                    Some(&mut terrain_lod),
+                                    Some(terrain_lod),
                                     Some(effects),
                                 )
                             },
@@ -757,15 +752,12 @@ impl CnCGameEngine {
                     #[cfg(feature = "game_client")]
                     {
                         let _ = self.with_receiving_menu_effects_and_ui(
-                            |ui_manager, render_pipeline, effects| {
-                                let mut terrain_lod = |reduction| {
-                                    render_pipeline.apply_texture_lod(reduction);
-                                };
+                            |ui_manager, terrain_lod, effects| {
                                 ui_manager.handle_mouse_click_with_terrain_lod_and_effects(
                                     x,
                                     y,
                                     ui_button,
-                                    Some(&mut terrain_lod),
+                                    Some(terrain_lod),
                                     Some(effects),
                                 )
                             },
@@ -3215,7 +3207,7 @@ impl CnCGameEngine {
         &mut self,
         operation: impl FnOnce(
             &mut crate::ui::UIManager,
-            &mut crate::graphics::render_pipeline::RenderPipeline,
+            &mut dyn FnMut(TerrainLodEffect),
             &mut game_client::gui::game_window::WindowEventEffects<'_>,
         ) -> R,
     ) -> Result<R, String> {
@@ -3223,7 +3215,6 @@ impl CnCGameEngine {
         let control_bar_observation = self.receiving_control_bar_callback_observation();
         let diplomacy = self.receiving_diplomacy_world_facts().ok();
         let ui = &mut self.ui_manager;
-        let render = &mut self.render_pipeline;
         self.menu_audio.require_bound()?;
         let locality = self.game_logic.receiving_audio_locality_for_player(-1);
         let audio_view = super::audio_view::CompletedAudioView::capture(&self.game_logic);
@@ -3233,16 +3224,21 @@ impl CnCGameEngine {
             locality,
             audio_view,
         );
+        let mut terrain_lod = super::options_bridge::receiving_terrain_lod(
+            &mut self.game_logic.lighting_definitions,
+            &mut self.render_pipeline,
+        );
         let result = self.game_client.with_window_event_effects_and_menu_audio(
             Some(facts),
             &mut menu_audio,
             |effects| {
                 effects.admit_control_bar_callback_observation(control_bar_observation);
                 effects.with_diplomacy_facts(diplomacy.as_ref(), |effects| {
-                    operation(ui, render, effects)
+                    operation(ui, &mut terrain_lod, effects)
                 })
             },
         );
+        drop(terrain_lod);
         drop(menu_audio);
         self.complete_receiving_menu_host_requests()?;
         Ok(result)
@@ -3357,9 +3353,8 @@ impl CnCGameEngine {
     /// Complete source UI lifecycle actions only after all native UI/view loans end.
     /// Returns whether the source reset invalidated the old message-list positions.
     pub(super) fn complete_receiving_menu_host_requests(&mut self) -> Result<bool, String> {
-        // Apply Options effects only after the GameClient callback loan has
-        // ended, but before the event returns to its caller/render boundary.
-        // This keeps track reset synchronous with C++ setStaticLODLevel.
+        // Complete queued camera and compatibility preferences before input
+        // returns to its caller and the next render boundary.
         #[cfg(feature = "game_client")]
         self.host_tick_options_bridge();
         use game_client::gui::campaign_launch_host_bridge::{

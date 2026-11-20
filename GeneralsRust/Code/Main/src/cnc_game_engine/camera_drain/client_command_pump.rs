@@ -172,8 +172,10 @@ impl CnCGameEngine {
                     .replay_version_differs_owned(filename.to_owned())
                     .unwrap_or(false)
             };
-            let render_pipeline = &mut self.render_pipeline;
-            let mut terrain_lod = |reduction| render_pipeline.apply_texture_lod(reduction);
+            let mut terrain_lod = super::super::options_bridge::receiving_terrain_lod(
+                &mut self.game_logic.lighting_definitions,
+                &mut self.render_pipeline,
+            );
             let preferences = self.ui_manager.options_preferences_mut();
             let control_bar = &mut self.control_bar;
             let viewport = &mut self.game_logic.session_view.camera;

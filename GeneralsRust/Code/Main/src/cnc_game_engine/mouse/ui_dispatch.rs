@@ -265,8 +265,10 @@ impl CnCGameEngine {
                     .replay_version_differs_owned(filename.to_owned())
                     .unwrap_or(false)
             };
-            let render_pipeline = &mut self.render_pipeline;
-            let mut terrain_lod = |reduction| render_pipeline.apply_texture_lod(reduction);
+            let mut terrain_lod = super::super::options_bridge::receiving_terrain_lod(
+                &mut self.game_logic.lighting_definitions,
+                &mut self.render_pipeline,
+            );
             let mut emitted_messages = Vec::new();
             let (
                 window_manager_owner,
@@ -322,6 +324,7 @@ impl CnCGameEngine {
                 &mut context,
             );
             drop(context);
+            drop(terrain_lod);
             drop(replay_version);
             self.complete_receiving_menu_event_messages(emitted_messages)?;
             if let Some(step) = replay_operation.take() {
@@ -522,8 +525,10 @@ impl CnCGameEngine {
                 .replay_version_differs_owned(filename.to_owned())
                 .unwrap_or(false)
         };
-        let render_pipeline = &mut self.render_pipeline;
-        let mut terrain_lod = |reduction| render_pipeline.apply_texture_lod(reduction);
+        let mut terrain_lod = super::super::options_bridge::receiving_terrain_lod(
+            &mut self.game_logic.lighting_definitions,
+            &mut self.render_pipeline,
+        );
         let mut emitted_messages = Vec::new();
         let (
             receiving_window_manager,
@@ -581,6 +586,7 @@ impl CnCGameEngine {
             &mut context,
         );
         drop(context);
+        drop(terrain_lod);
         drop(replay_version);
         self.complete_receiving_menu_event_messages(emitted_messages)?;
         if let Some(step) = replay_operation.take() {

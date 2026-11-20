@@ -2,6 +2,7 @@
 use super::*;
 use crate::gui::callbacks::OptionsCameraInputObservation;
 use crate::gui::gadgets::HorizontalSlider;
+use crate::gui::options_host_bridge::{HostOptionsRequest, TerrainLodEffect};
 use game_engine::common::{
     ini::ini_game_data::CameraInputRules, user_preferences::UserPreferences,
 };
@@ -84,6 +85,16 @@ fn click_options(
     prefs: &mut UserPreferences,
     rules: CameraInputRules,
 ) {
+    let _ = click_options_with_terrain_lod(manager, button, prefs, rules, None);
+}
+
+fn click_options_with_terrain_lod(
+    manager: &mut WindowManager,
+    button: &Rc<RefCell<GameWindow>>,
+    prefs: &mut UserPreferences,
+    rules: CameraInputRules,
+    receive: Option<&mut dyn FnMut(TerrainLodEffect)>,
+) -> Vec<HostOptionsRequest> {
     let (x, y) = button.borrow().get_screen_position();
     let (x, y) = (x + 5, y + 5);
     let data = (((y as u32) << 16) | ((x as u32) & 0xffff)) as WindowMsgData;
@@ -106,6 +117,10 @@ fn click_options(
     let mut script_display =
         crate::core::script_action_handler::ScriptDisplayReceiver::default();
     let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+    let mut camera_options = CameraOptionsInputContext::new(prefs, rules);
+    if let Some(receive) = receive {
+        camera_options = camera_options.with_terrain_lod(receive);
+    }
     let mut context = ControlBarInputContext {
         control_bar_observation: None,
         diplomacy_world: None,
@@ -123,7 +138,7 @@ fn click_options(
         replay_version: None,
         replay_menu: None,
         observer_roster: None,
-        camera_options: Some(CameraOptionsInputContext::new(prefs, rules)),
+        camera_options: Some(camera_options),
         control_bar: &mut bar,
         viewport: &mut viewport,
         replay: false,
@@ -168,7 +183,9 @@ fn click_options(
         drain.window_manager_owner = Some(&owner);
         owner.complete_event_callbacks(&mut drain);
     }
+    drop(context);
     owner.with_manager(|owned| std::mem::swap(owned, manager));
+    menu_host.options.take_requests()
 }
 fn value(slider: &Rc<RefCell<GameWindow>>) -> i32 {
     match slider.borrow().widget() {
@@ -469,4 +486,81 @@ fn receiving_replay_checkbox_actual_wnd_commits_only_own_store_before_accept() {
     // a destroyed button is a fresh input: source shared-store Apply is covered
     // separately by Main's actual custom Apply test.
     let _ = accept;
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn actual_options_terrain_lod_callback_precedes_common_level_commit() {
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::game_lod::{
+        SessionStaticLodResult, get_static_lod, set_static_lod_from_string_for_session,
+    };
+    use game_engine::common::ini::ini_game_data::ensure_global_data;
+    use game_engine::common::ini::ini_game_lod::StaticGameLODLevel;
+
+    if let TestProcess::ParentVerified = run_bounded(
+        module_path!(),
+        "actual_options_terrain_lod_callback_precedes_common_level_commit",
+    ) {
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let legacy_user_data = scratch.path().join("legacy-lod-user-data");
+    let global = ensure_global_data();
+    {
+        let mut global = global.write();
+        global.enable_static_lod = true;
+        global.set_path_user_data(legacy_user_data.to_str().unwrap().to_owned());
+    }
+    let path = scratch.path().join("Options.ini");
+    std::fs::write(&path, "ScrollFactor = 60\n").unwrap();
+    let mut preferences = UserPreferences::new();
+    let _ = preferences.load(path.to_str().unwrap());
+    let rules = CameraInputRules::default();
+    let (mut manager, layout, accept, _, _, _) = options_wnd();
+    let initial = OptionsCameraInputObservation::observe(rules, &preferences);
+    run_options_init(&mut manager, &layout, &initial);
+    let _ = set_static_lod_from_string_for_session("Low");
+    assert_eq!(get_static_lod(), "Low");
+
+    let mut calls = 0;
+    let mut receive = |effect| {
+        let TerrainLodEffect::StaticDetail(SessionStaticLodResult::Apply {
+            level: StaticGameLODLevel::Medium,
+            rules,
+        }) = effect
+        else {
+            panic!("Options without a detail combo selects its Medium preset, got {effect:?}");
+        };
+        assert_eq!(
+            get_static_lod(),
+            "Low",
+            "the WND terrain effect must observe the old Common level"
+        );
+        let written = global.read();
+        assert_eq!(written.max_tank_track_edges, rules.max_tank_track_edges);
+        assert_eq!(
+            written.max_tank_track_opaque_edges,
+            rules.max_tank_track_opaque_edges
+        );
+        assert_eq!(
+            written.max_tank_track_fade_delay,
+            rules.max_tank_track_fade_delay
+        );
+        calls += 1;
+    };
+    let requests = click_options_with_terrain_lod(
+        &mut manager,
+        &accept,
+        &mut preferences,
+        rules,
+        Some(&mut receive),
+    );
+    assert_eq!(calls, 1);
+    assert_eq!(get_static_lod(), "Medium");
+    assert!(requests.iter().all(|request| !matches!(
+        request,
+        HostOptionsRequest::TerrainTrackRules { .. }
+            | HostOptionsRequest::StaticLodMarkerOnly { .. }
+    )));
 }

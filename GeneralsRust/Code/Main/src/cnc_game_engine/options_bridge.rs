@@ -9,7 +9,40 @@
 
 use super::*;
 #[cfg(feature = "game_client")]
-use game_client::gui::options_host_bridge::HostOptionsRequest;
+use game_client::gui::options_host_bridge::{HostOptionsRequest, TerrainLodEffect};
+#[cfg(feature = "game_client")]
+use game_engine::common::game_lod::SessionStaticLodResult;
+
+#[cfg(feature = "game_client")]
+fn apply_receiving_static_detail(
+    lighting: &mut crate::game_logic::lighting_rules::LightingDefinitions,
+    renderer: &mut crate::graphics::render_pipeline::RenderPipeline,
+    result: SessionStaticLodResult,
+) {
+    match result {
+        SessionStaticLodResult::Apply { level, rules } => {
+            lighting.apply_static_lod(level, rules, |definitions| {
+                renderer.set_native_terrain_track_detail(&definitions.effective.terrain_tracks);
+            });
+        }
+        SessionStaticLodResult::MarkerOnly { level } => {
+            lighting.static_lod_level = Some(level);
+        }
+    }
+}
+
+#[cfg(feature = "game_client")]
+pub(super) fn receiving_terrain_lod<'a>(
+    lighting: &'a mut crate::game_logic::lighting_rules::LightingDefinitions,
+    renderer: &'a mut crate::graphics::render_pipeline::RenderPipeline,
+) -> impl FnMut(TerrainLodEffect) + 'a {
+    move |effect| match effect {
+        TerrainLodEffect::TextureReduction(reduction) => renderer.apply_texture_lod(reduction),
+        TerrainLodEffect::StaticDetail(result) => {
+            apply_receiving_static_detail(lighting, renderer, result);
+        }
+    }
+}
 
 /// Build the visual C++ `DrawRMBScrollAnchor` residual only for a live Main
 /// RMB drag. This keeps the preference separate from camera simulation and
@@ -80,17 +113,18 @@ impl CnCGameEngine {
                     selected_level,
                     rules,
                 } => {
-                    let render = &mut self.render_pipeline;
-                    self.game_logic.lighting_definitions.apply_static_lod(
-                        selected_level,
-                        rules,
-                        |definitions| {
-                            render.set_native_terrain_track_detail(&definitions.effective.terrain_tracks);
-                        },
+                    apply_receiving_static_detail(
+                        &mut self.game_logic.lighting_definitions,
+                        &mut self.render_pipeline,
+                        SessionStaticLodResult::Apply { level: selected_level, rules },
                     );
                 }
                 HostOptionsRequest::StaticLodMarkerOnly { level } => {
-                    self.game_logic.admit_static_lod_level(Some(level));
+                    apply_receiving_static_detail(
+                        &mut self.game_logic.lighting_definitions,
+                        &mut self.render_pipeline,
+                        SessionStaticLodResult::MarkerOnly { level },
+                    );
                 }
             }
         }

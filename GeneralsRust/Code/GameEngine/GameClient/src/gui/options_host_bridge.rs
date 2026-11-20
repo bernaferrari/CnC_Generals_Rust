@@ -1,6 +1,15 @@
 //! Camera preferences queued by the receiving client for its native host.
 use std::collections::VecDeque;
 
+/// Graphics detail effects delivered during the receiving Options operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerrainLodEffect {
+    /// Apply the Custom texture reduction to the receiving graphics owners.
+    TextureReduction(i32),
+    /// Apply the Common selection to the session's own level and terrain ring.
+    StaticDetail(game_engine::common::game_lod::SessionStaticLodResult),
+}
+
 /// A user preference selected through the retail OptionsMenu WND whose live
 /// effect belongs to Main's input/camera authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,8 +24,7 @@ pub enum HostOptionsRequest {
     /// Match C++ `DrawRMBScrollAnchor`: render the active RMB drag anchor as
     /// the retail green/black cross in Main's presentation path.
     DrawRmbScrollAnchor { enabled: bool },
-    /// Applied static LOD track controls for the receiving Main world. This
-    /// is an effect of one accepted Options event, not ambient Common state.
+    /// Applied static LOD controls for a host consuming the Options mailbox.
     TerrainTrackRules {
         selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel,
         rules: game_engine::common::ini::ini_game_data::TerrainTrackRules,

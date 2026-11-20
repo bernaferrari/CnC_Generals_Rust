@@ -107,7 +107,7 @@ impl GameLod {
 }
 
 // Remaining classic probe/cache adapters; live level authority is on GameLODManager.
-/// Result delivered to a receiving session after the application LOD request.
+/// The receiving session effects of an application LOD request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStaticLodResult {
     /// Apply these preset-owned track controls to the receiving session.
@@ -218,56 +218,64 @@ pub fn get_dynamic_lod() -> String {
 }
 
 pub fn set_static_lod_from_string(value: &str) {
-    let _ = apply_static_lod_from_string(value, true);
+    apply_static_lod_from_string(value, None);
 }
 
-/// Apply the application-selected static LOD and report its receiving-session
-/// effect. Preset levels return only their three edge controls; Custom is a
-/// reapply signal so Main preserves the receiving world's own rules.
-///
-/// The legacy terrain callback is intentionally not invoked here: Main owns
-/// native terrain per render pipeline and must receive the effect explicitly.
+/// Return the receiving session effect to a compatibility caller. Custom
+/// carries a reapply signal so the caller can preserve its owned track rules.
 pub fn set_static_lod_from_string_for_session(value: &str) -> Option<SessionStaticLodResult> {
-    apply_static_lod_from_string(value, false)
+    let mut effect = None;
+    set_static_lod_from_string_for_session_with(value, |result| effect = Some(result));
+    effect
+}
+
+/// Deliver track detail to the receiving session after applying the rules and
+/// before committing the application's current static LOD.
+pub fn set_static_lod_from_string_for_session_with(
+    value: &str,
+    mut receive: impl FnMut(SessionStaticLodResult),
+) {
+    apply_static_lod_from_string(value, Some(&mut receive));
 }
 
 fn apply_static_lod_from_string(
     value: &str,
-    invoke_legacy_terrain_hook: bool,
-) -> Option<SessionStaticLodResult> {
+    receive: Option<&mut dyn FnMut(SessionStaticLodResult)>,
+) {
     let Some(mapped) = canonical_static_lod_name(value) else {
-        return None;
+        return;
     };
     let level = StaticGameLODLevel::from_str(mapped).expect("canonical StaticGameLOD level");
-    let global_data = get_global_data()?;
+    let Some(global_data) = get_global_data() else {
+        return;
+    };
     if !global_data.read().enable_static_lod {
         get_game_lod_manager_mut().set_current_static_lod_level(StaticGameLODLevel::Custom);
-        return (!invoke_legacy_terrain_hook).then_some(SessionStaticLodResult::MarkerOnly {
-            level: StaticGameLODLevel::Custom,
-        });
-    }
-    if level == StaticGameLODLevel::Unknown
-        || (level != StaticGameLODLevel::Custom
-            && get_game_lod_manager().get_static_lod_level() == level)
-    {
-        // The application preset may already be active because another
-        // receiving world selected it. Resolve the immutable preset anyway;
-        // the receiving world performs its own same-level check.
-        if !invoke_legacy_terrain_hook && level != StaticGameLODLevel::Unknown {
-            return resolve_session_track_rules(level)
-                .map(|rules| SessionStaticLodResult::Apply { level, rules });
+        if let Some(receive) = receive {
+            receive(SessionStaticLodResult::MarkerOnly {
+                level: StaticGameLODLevel::Custom,
+            });
         }
-        return None;
+        return;
     }
-    // A synchronous callback may query this same manager. No manager loan
-    // survives apply, and the original current level commits after callbacks.
-    apply_static_lod_level(mapped, invoke_legacy_terrain_hook)?;
-    get_game_lod_manager_mut().set_current_static_lod_level(level);
-    if invoke_legacy_terrain_hook {
-        None
-    } else {
-        resolve_session_track_rules(level)
-            .map(|rules| SessionStaticLodResult::Apply { level, rules })
+    if level == StaticGameLODLevel::Unknown {
+        return;
+    }
+
+    let apply = level == StaticGameLODLevel::Custom
+        || get_game_lod_manager().get_static_lod_level() != level;
+    if apply && apply_static_lod_level(mapped, receive.is_none()).is_none() {
+        return;
+    }
+    // An application preset may already be active in another session. The
+    // receiving owner performs its own same-level check without a manager loan.
+    if let Some(receive) = receive
+        && let Some(rules) = resolve_session_track_rules(level)
+    {
+        receive(SessionStaticLodResult::Apply { level, rules });
+    }
+    if apply {
+        get_game_lod_manager_mut().set_current_static_lod_level(level);
     }
 }
 

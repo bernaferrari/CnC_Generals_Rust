@@ -1,5 +1,6 @@
 //! Selected native button callbacks use borrowed owners and complete within the OS operation.
 use super::WindowManager;
+use crate::gui::options_host_bridge::TerrainLodEffect;
 use crate::gui::callbacks::control_bar_callbacks::ControlBarViewport;
 use crate::gui::control_bar::{ControlBar, ControlBarStage};
 use crate::gui::game_window::{
@@ -20,7 +21,7 @@ pub struct CameraOptionsInputContext<'a> {
     preferences: &'a mut game_engine::common::user_preferences::UserPreferences,
     rules: game_engine::common::ini::ini_game_data::CameraInputRules,
     pending: Option<PendingCameraOptions>,
-    terrain_lod: Option<&'a mut dyn FnMut(i32)>,
+    terrain_lod: Option<&'a mut dyn FnMut(TerrainLodEffect)>,
 }
 impl<'a> CameraOptionsInputContext<'a> {
     pub fn new(
@@ -34,9 +35,8 @@ impl<'a> CameraOptionsInputContext<'a> {
             terrain_lod: None,
         }
     }
-    /// Actual native input lends a hook that applies a texture-reduction
-    /// target to its installed renderer and terrain for this operation.
-    pub fn with_terrain_lod(mut self, receiver: &'a mut dyn FnMut(i32)) -> Self {
+    /// Native input lends its receiving renderer and terrain for this operation.
+    pub fn with_terrain_lod(mut self, receiver: &'a mut dyn FnMut(TerrainLodEffect)) -> Self {
         self.terrain_lod = Some(receiver);
         self
     }
@@ -61,7 +61,7 @@ impl<'a> CameraOptionsInputContext<'a> {
                     scroll,
                     self.terrain_lod
                         .as_mut()
-                        .map(|receiver| &mut **receiver as &mut dyn FnMut(i32)),
+                        .map(|receiver| &mut **receiver as &mut dyn FnMut(TerrainLodEffect)),
                     effects,
                 )
             }

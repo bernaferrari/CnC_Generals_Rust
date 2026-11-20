@@ -206,6 +206,11 @@ type HostWindowEventEffects<'borrow, 'receiver> =
 #[cfg(not(feature = "game_client"))]
 type HostWindowEventEffects<'borrow, 'receiver> = ();
 
+#[cfg(feature = "game_client")]
+pub(crate) use game_client::gui::options_host_bridge::TerrainLodEffect;
+#[cfg(not(feature = "game_client"))]
+pub(crate) type TerrainLodEffect = i32;
+
 pub struct OptionsMenu {
     preferences: game_engine::common::user_preferences::UserPreferences,
     /// Current active tab
@@ -403,7 +408,7 @@ impl OptionsMenu {
         x: i32,
         y: i32,
         button: MouseButton,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
     ) -> Option<UIEvent> {
         self.handle_mouse_click_with_terrain_lod_and_effects(x, y, button, terrain_lod, None)
     }
@@ -413,7 +418,7 @@ impl OptionsMenu {
         x: i32,
         y: i32,
         button: MouseButton,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
         effects: HostWindowEventEffects<'_, '_>,
     ) -> Option<UIEvent> {
         if button != MouseButton::Left {
@@ -1076,7 +1081,7 @@ impl OptionsMenu {
     fn handle_action(
         &mut self,
         action: ActionButton,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
         effects: HostWindowEventEffects<'_, '_>,
     ) -> Option<UIEvent> {
         match action {
@@ -1102,7 +1107,7 @@ impl OptionsMenu {
     pub(crate) fn handle_key_press_with_terrain_lod(
         &mut self,
         key: KeyCode,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
     ) -> bool {
         self.handle_key_press_with_terrain_lod_and_effects(key, terrain_lod, None)
     }
@@ -1110,7 +1115,7 @@ impl OptionsMenu {
     pub(crate) fn handle_key_press_with_terrain_lod_and_effects(
         &mut self,
         key: KeyCode,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
         effects: HostWindowEventEffects<'_, '_>,
     ) -> bool {
         match key {
@@ -1129,7 +1134,7 @@ impl OptionsMenu {
 
     fn apply_settings_with_terrain_lod(
         &mut self,
-        terrain_lod: Option<&mut dyn FnMut(i32)>,
+        terrain_lod: Option<&mut dyn FnMut(TerrainLodEffect)>,
         effects: HostWindowEventEffects<'_, '_>,
     ) {
         info!(
@@ -1766,7 +1771,10 @@ mod receiving_terrain_lod_tests {
         let mut receiver_b = game_client::core::game_client::GameClient::new().unwrap();
         let r3d_a = ww3d_renderer_3d::Renderer3dRuntime::new();
         let r3d_b = ww3d_renderer_3d::Renderer3dRuntime::new();
-        let _foreign = game_client::terrain::terrain_visual::get_terrain_visual().unwrap();
+        assert!(
+            game_client::terrain::terrain_visual::get_terrain_visual().is_err(),
+            "constructing receiving clients leaves the compatibility terrain unpublished"
+        );
         let button = a
             .action_buttons
             .iter()
@@ -1778,7 +1786,10 @@ mod receiving_terrain_lod_tests {
                 x,
                 y,
                 MouseButton::Left,
-                Some(&mut |value| {
+                Some(&mut |effect| {
+                    let TerrainLodEffect::TextureReduction(value) = effect else {
+                        return;
+                    };
                     game_client::core::game_client::apply_lod_texture_reduction_to_session(
                         &r3d_a,
                         value,
@@ -1806,7 +1817,10 @@ mod receiving_terrain_lod_tests {
         assert!(receiver_b.with_window_event_effects(None, |effects| {
             b.handle_key_press_with_terrain_lod_and_effects(
                 KeyCode::Enter,
-                Some(&mut |value| {
+                Some(&mut |effect| {
+                    let TerrainLodEffect::TextureReduction(value) = effect else {
+                        return;
+                    };
                     game_client::core::game_client::apply_lod_texture_reduction_to_session(
                         &r3d_b,
                         value,
