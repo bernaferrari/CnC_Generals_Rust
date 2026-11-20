@@ -166,7 +166,7 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(meta);
     };
-    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None, None, None, false, None)
+    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None, None, None, false, false, None)
 }
 
 /// C++ `WorldHeightMap::ParseLightingDataChunk` (WorldHeightMap.cpp:758-829).
@@ -408,6 +408,7 @@ pub fn parse_map_settings_from_chunky(chunky: &ChunkyMap) -> LoaderResult<MapMet
         None,
         None,
         false,
+        false,
         None,
     )
 }
@@ -524,6 +525,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_terrain_definitions(
         None,
         None,
         false,
+        false,
         None,
     )
 }
@@ -548,6 +550,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
     upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
     science_facts: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
     player_templates_admitted: bool,
+    locomotor_definitions_admitted: bool,
     filesystem: Option<&mut crate::assets::archive::ArchiveFileSystem>,
 ) -> LoaderResult<MapMetadata> {
     parse_map_settings_from_loaded_chunky(
@@ -571,6 +574,7 @@ pub(crate) fn parse_map_settings_from_chunky_with_owned_definition_catalogs(
         Some(science_facts),
         admitted_object_sources,
         player_templates_admitted,
+        locomotor_definitions_admitted,
         filesystem,
     )
 }
@@ -583,6 +587,7 @@ fn parse_map_settings_from_loaded_chunky(
     science_facts: Option<std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>>,
     admitted_object_sources: Option<&[(PathBuf, String)]>,
     player_templates_admitted: bool,
+    locomotor_definitions_admitted: bool,
     mut filesystem: Option<&mut crate::assets::archive::ArchiveFileSystem>,
 ) -> LoaderResult<MapMetadata> {
     let mut terrain_definitions = meta
@@ -755,6 +760,7 @@ fn parse_map_settings_from_loaded_chunky(
                         armor_definitions.to_parsed(),
                         admitted_object_sources.is_some(),
                         player_templates_admitted,
+                        locomotor_definitions_admitted,
                         upgrade_definitions,
                     )
                     .map_err(GameLogicError::Configuration)?;
@@ -874,6 +880,7 @@ fn parse_map_settings_from_loaded_chunky(
                         armor_definitions.to_parsed(),
                         admitted_object_sources.is_some(),
                         player_templates_admitted,
+                        locomotor_definitions_admitted,
                         upgrade_definitions,
                     )
                     .map_err(GameLogicError::Configuration)?;

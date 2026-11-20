@@ -227,6 +227,7 @@ pub struct INI {
     science_definitions_admitted: bool,
     // The receiving session has already admitted PlayerTemplate blocks.
     player_templates_admitted: bool,
+    locomotor_definitions_admitted: bool,
     particle_definitions_admitted: bool,
     /// C++ INI.cpp:458-463 feeds the active load's CRC, in line order.
     /// This parser already has exclusive access through `&mut self`.
@@ -1308,6 +1309,11 @@ impl INI {
         self.science_definitions_admitted = true;
     }
 
+    /// The receiving world has applied its map and solo locomotor overrides.
+    pub fn set_locomotor_definitions_admitted(&mut self) {
+        self.locomotor_definitions_admitted = true;
+    }
+
     pub fn set_player_templates_admitted(&mut self) {
         self.player_templates_admitted = true;
     }
@@ -1341,6 +1347,7 @@ impl INI {
             action_definitions_admitted: false,
             science_definitions_admitted: false,
             player_templates_admitted: false,
+            locomotor_definitions_admitted: false,
             particle_definitions_admitted: false,
             xfer: None,
             script_template_definitions: Vec::new(),
@@ -2026,6 +2033,11 @@ impl INI {
             }
             if self.player_templates_admitted && first_token.eq_ignore_ascii_case("PlayerTemplate")
             {
+                consume_block_with_nesting(self)?;
+                continue;
+            }
+
+            if self.locomotor_definitions_admitted && first_token.eq_ignore_ascii_case("Locomotor") {
                 consume_block_with_nesting(self)?;
                 continue;
             }

@@ -1692,11 +1692,75 @@ fn seed_exact_spy_drone_locomotor(store: &mut LocomotorStore) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
 
     fn store_has(name: &str) -> bool {
         default_host_locomotor_store().find_template(name).is_some()
+    }
+
+    #[test]
+    fn map_and_solo_locomotors_stay_with_the_receiving_world() {
+        use game_engine::common::game_common::{
+            convert_acceleration_in_secs_to_frames, convert_velocity_in_secs_to_frames,
+        };
+
+        const NAME: &str = "MissionWalker";
+        let directory = tempfile::tempdir().unwrap();
+        let mission = directory.path().join("Mission");
+        let next = directory.path().join("Next");
+        std::fs::create_dir(&mission).unwrap();
+        std::fs::create_dir(&next).unwrap();
+        let mut out = game_engine::common::system::DataChunkOutput::new();
+        out.open_data_chunk("HeightMapData", 3);
+        for value in [21, 21, 1, 441] {
+            out.write_int(value);
+        }
+        for _ in 0..441 {
+            out.write_byte(0);
+        }
+        out.close_data_chunk();
+        let geometry = out.into_ckmp_bytes();
+        let mission_map = mission.join("Mission.map");
+        let next_map = next.join("Next.map");
+        std::fs::write(&mission_map, &geometry).unwrap();
+        std::fs::write(&next_map, geometry).unwrap();
+        std::fs::write(
+            mission.join("Map.ini"),
+            "Locomotor MissionWalker\n Speed = 120\n Acceleration = 900\nEnd\n",
+        ).unwrap();
+        std::fs::write(
+            mission.join("Solo.ini"),
+            "Locomotor MissionWalker\n Speed = 150\nEnd\nGameData\n DefaultStartingCash = 4500\nEnd\n",
+        ).unwrap();
+
+        let mut baseline = LocomotorStore::new_owned();
+        baseline.apply_source(
+            "Locomotor MissionWalker\n Surfaces = GROUND\n Speed = 60\n Acceleration = 1800\nEnd\n",
+        ).unwrap();
+        let mut world = GameLogic::new();
+        let mut peer = GameLogic::new();
+        world.admit_locomotor_definitions(baseline.clone()).unwrap();
+        peer.admit_locomotor_definitions(baseline).unwrap();
+        let movement = |world: &GameLogic| {
+            let template = world.locomotor_catalog().find_template(NAME).unwrap();
+            (template.max_speed, template.acceleration)
+        };
+        assert!(world.load_map(mission_map.to_str().unwrap()));
+        let per_frame = |speed, acceleration| {
+            (
+                convert_velocity_in_secs_to_frames(speed),
+                convert_acceleration_in_secs_to_frames(acceleration),
+            )
+        };
+        assert_eq!(movement(&world), per_frame(150.0, 900.0));
+        assert_eq!(movement(&peer), per_frame(60.0, 1800.0));
+        assert_eq!(
+            world.last_parsed_map_settings().unwrap().default_starting_cash,
+            Some(4500),
+        );
+        assert!(world.load_map(next_map.to_str().unwrap()));
+        assert_eq!(movement(&world), movement(&peer));
     }
 
     #[test]

@@ -748,6 +748,7 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
     armor: game_engine::common::ini::ini::armor_definitions::ArmorDefinitions,
     object_definitions_admitted: bool,
     player_templates_admitted: bool,
+    locomotor_definitions_admitted: bool,
     upgrades: game_engine::common::system::upgrade::UpgradeCenter,
 ) -> Result<
     (
@@ -769,6 +770,9 @@ pub fn load_map_ini_ui_overrides_with_owned_upgrade_definitions(
     }
     if player_templates_admitted {
         ini.set_player_templates_admitted();
+    }
+    if locomotor_definitions_admitted {
+        ini.set_locomotor_definitions_admitted();
     }
     if let Some(target) = target.as_ref() {
         ini.set_owned_ai_data_store_target((**target).clone());

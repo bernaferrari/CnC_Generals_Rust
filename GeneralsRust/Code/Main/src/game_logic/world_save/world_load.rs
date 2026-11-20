@@ -624,6 +624,7 @@ impl GameLogic {
                             .map(|content| content.science_facts())
                             .unwrap_or_default(),
                         self.player_template_definitions.is_some(),
+                        self.locomotor_definition_base.is_some(),
                         asset_guard.as_mut().map(|assets| assets.archive_file_system_mut()),
                     );
                 drop(asset_guard);
