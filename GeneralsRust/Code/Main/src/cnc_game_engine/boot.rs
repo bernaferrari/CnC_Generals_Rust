@@ -1359,7 +1359,29 @@ impl CnCGameEngine {
                     &engine.game_logic.world_services,
                 )));
 
-            engine.game_client.mark_initialized();
+            // CampaignManager.cpp:226 resolves one file through the application's
+            // local and BIG archive mounts.
+            use game_engine::common::ini::ini_campaign::CampaignStore;
+            let campaign_definitions = super::startup_definition_source::read_optional_text(
+                engine.application_assets.as_ref(),
+                "Data/INI/Campaign.ini",
+            )
+            .and_then(|source| {
+                source
+                    .as_deref()
+                    .map(CampaignStore::from_ini_text)
+                    .transpose()
+                    .map_err(|error| error.to_string())
+            });
+            match campaign_definitions {
+                Ok(Some(campaigns)) => engine.game_client
+                    .mark_initialized_with_campaign_definitions(&campaigns),
+                Ok(None) => engine.game_client.mark_initialized(),
+                Err(error) => {
+                    warn!("Receiving Campaign.ini admission failed: {error}");
+                    engine.game_client.mark_initialized();
+                }
+            }
             info!("GameClient: all subsystems initialized");
         }
 

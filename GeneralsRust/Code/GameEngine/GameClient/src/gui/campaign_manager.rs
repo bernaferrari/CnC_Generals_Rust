@@ -266,6 +266,14 @@ impl CampaignManager {
     /// Pull all parsed campaigns from the global CampaignStore into our local list.
     fn sync_from_store(&mut self) {
         let store = get_campaign_store();
+        self.install_definitions(&store);
+    }
+
+    /// Install the startup campaign definitions selected by this application.
+    pub(crate) fn install_definitions(
+        &mut self,
+        store: &game_engine::common::ini::ini_campaign::CampaignStore,
+    ) {
         self.campaign_list = store
             .campaign_names()
             .iter()

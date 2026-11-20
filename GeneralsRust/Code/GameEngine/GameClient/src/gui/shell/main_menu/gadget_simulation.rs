@@ -325,7 +325,7 @@ pub fn simulate_main_menu_campaign_side_button_gadget_selected(
             ShowSide::None | ShowSide::Skirmish => return false,
         };
 
-    simulate_main_menu_button_gadget_selected(
+    let selected = simulate_main_menu_button_gadget_selected(
         cold_key,
         resolve,
         bind,
@@ -347,7 +347,17 @@ pub fn simulate_main_menu_campaign_side_button_gadget_selected(
                 && state.show_side == side
         },
         effects,
-    )
+    );
+    if selected && let Some(campaign) = effects.campaign_manager.as_deref_mut() {
+        let campaign_name = match side {
+            ShowSide::USA => "USA",
+            ShowSide::GLA => "GLA",
+            ShowSide::China => "China",
+            _ => return selected,
+        };
+        campaign.set_campaign(campaign_name);
+    }
+    selected
 }
 
 /// Residual: fire retail difficulty button (Easy/Medium/Hard) via state latches.
@@ -409,6 +419,9 @@ pub fn simulate_main_menu_difficulty_button_gadget_selected(
         },
         effects,
     );
+    if ok && let Some(campaign) = effects.campaign_manager.as_deref_mut() {
+        campaign.set_game_difficulty(MainMenu::to_campaign_difficulty(diff));
+    }
     ok
 }
 

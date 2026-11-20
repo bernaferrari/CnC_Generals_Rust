@@ -532,6 +532,27 @@ impl Default for CampaignStore {
     }
 }
 
+impl CampaignStore {
+    /// Parse the selected Campaign.ini into an independent definition store.
+    pub fn from_ini_text(contents: &str) -> INIResult<Self> {
+        let mut store = Self::new();
+        INI::new().with_inline_source(contents, |ini| {
+            while !ini.is_eof() {
+                ini.read_line()?;
+                let Some(block) = ini.get_first_token() else {
+                    continue;
+                };
+                if !block.eq_ignore_ascii_case("Campaign") {
+                    return Err(INIError::UnknownToken);
+                }
+                store.add_campaign(read_campaign_definition(ini)?);
+            }
+            Ok(())
+        })?;
+        Ok(store)
+    }
+}
+
 
 // ============================================================================
 // INI Block Parser
@@ -540,6 +561,12 @@ impl Default for CampaignStore {
 /// Parse a Campaign block from INI
 /// Matches C++ INI::parseCampaignDefinition
 pub fn parse_campaign_definition(ini: &mut INI) -> INIResult<()> {
+    let campaign = read_campaign_definition(ini)?;
+    get_campaign_store_mut().add_campaign(campaign);
+    Ok(())
+}
+
+fn read_campaign_definition(ini: &mut INI) -> INIResult<Campaign> {
     // Read the campaign name from the block header line
     // Format: "Campaign CampaignName"
     let name = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
@@ -554,11 +581,7 @@ pub fn parse_campaign_definition(ini: &mut INI) -> INIResult<()> {
     // Parse all campaign fields (including nested Mission blocks)
     ini.init_from_ini_with_fields(&mut campaign, CAMPAIGN_FIELD_PARSE_TABLE)?;
 
-    // Add the campaign to the store
-    let mut store = get_campaign_store_mut();
-    store.add_campaign(campaign);
-
-    Ok(())
+    Ok(campaign)
 }
 
 #[cfg(test)]

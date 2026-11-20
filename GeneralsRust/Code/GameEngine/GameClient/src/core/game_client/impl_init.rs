@@ -375,6 +375,15 @@ impl GameClient {
         self.initialized = true;
     }
 
+    /// Mark native initialization using the receiving application's Campaign.ini.
+    pub fn mark_initialized_with_campaign_definitions(
+        &mut self,
+        campaigns: &game_engine::common::ini::ini_campaign::CampaignStore,
+    ) {
+        self.campaign_manager.install_definitions(campaigns);
+        self.initialized = true;
+    }
+
     /// Bind the committed logic world's presentation queues to this client.
     /// A staged candidate does not call this until its world is installed.
     pub fn bind_visual_world(&mut self, visual_world: gamelogic::helpers::ClientVisualHandle) {

@@ -108,6 +108,53 @@ fn admit_multiplayer_texts(texts: &[(&str, String)]) -> Result<i32, String> {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn mounted_campaign_definitions_initialize_the_receiving_client() {
+        use game_engine::common::ini::ini_campaign::CampaignStore;
+
+        let archive = crate::fixture_content::retail_content_root()
+            .join("Command & Conquer Generals Zero Hour/Data/INIZH.big");
+        let mut files = crate::assets::archive::ArchiveFileSystem::new();
+        files.set_local_search_roots(Vec::new());
+        futures::executor::block_on(files.load_big_file(archive))
+            .expect("mount Zero Hour INIZH.big");
+        let bytes = files
+            .read_optional_definition_source("Data/INI/Campaign.ini")
+            .unwrap()
+            .expect("mounted Campaign.ini");
+        let definitions = CampaignStore::from_ini_text(&String::from_utf8(bytes).unwrap())
+            .expect("parse mounted Campaign.ini");
+        let mut receiving = game_client::core::GameClient::new().unwrap();
+        receiving.mark_initialized_with_campaign_definitions(&definitions);
+        assert!(receiving.with_window_event_effects(None, |effects| {
+            game_client::gui::simulate_main_menu_campaign_start_residual(
+                game_client::gui::ShowSide::USA,
+                game_client::gui::GameDifficulty::Hard,
+                effects,
+            )
+        }));
+        let map = receiving.campaign_manager().get_current_map().unwrap();
+        assert_eq!(map, "Maps\\MD_USA01\\MD_USA01.map");
+        assert_eq!(receiving.campaign_manager().get_game_difficulty() as i32, 2);
+
+        let mut peer = game_client::core::GameClient::new().unwrap();
+        let other = CampaignStore::from_ini_text(
+            "Campaign USA\n FirstMission Mission01\n Mission Mission01\n Map Maps\\Fixture\\Fixture.map\n End\nEnd\n",
+        ).unwrap();
+        peer.mark_initialized_with_campaign_definitions(&other);
+        peer.campaign_manager_mut().set_campaign("USA");
+        assert_eq!(peer.campaign_manager().get_current_map().as_deref(), Some("Maps\\Fixture\\Fixture.map"));
+        assert_eq!(
+            receiving.campaign_manager().get_current_map().as_deref(),
+            Some(map.as_str())
+        );
+        assert_eq!(
+            receiving.campaign_manager().get_next_mission().unwrap().map_name,
+            "Maps\\MD_USA02\\MD_USA02.map"
+        );
+    }
+
     #[test]
     fn ordered_multiplayer_admission_initializes_actual_menu_without_duplicate_money() {
         crate::game_logic::game_logic::pose_owner_tests::isolated_at(
