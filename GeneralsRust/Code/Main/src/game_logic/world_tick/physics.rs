@@ -671,6 +671,15 @@ impl GameLogic {
         if !crate::game_logic::host_topple::crusher_can_topple(level) {
             return Ok(false);
         }
+        let Some(prop) = self.objects.get(&prop_id) else {
+            return Ok(false);
+        };
+        // A collision with no ToppleUpdate has no stump or callback to dispatch.
+        if prop.topple_data.is_none()
+            && !crate::game_logic::host_topple::is_topple_capable_template(&prop.template_name)
+        {
+            return Ok(false);
+        }
         #[cfg(feature = "game_client")]
         let fx_player = self.local_player_id();
         let (kill_now, handled, stump, pos, ori) = {
