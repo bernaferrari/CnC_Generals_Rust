@@ -294,6 +294,7 @@ struct DetonatorInfo {
 
 pub struct MinefieldBehavior {
     object_id: ObjectID,
+    owner: Weak<RwLock<GameObject>>,
     module_data: game_engine::common::thing::module::ModuleDataView<MinefieldBehaviorModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     next_death_check_frame: UnsignedInt,
@@ -327,11 +328,8 @@ impl MinefieldBehavior {
         }
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id,
+            owner: Arc::downgrade(&object),
             next_call_frame_and_phase: crate::helpers::TheGameLogic::get_frame().saturating_add(1),
             next_death_check_frame: 0,
             scoot_frames_left: 0,
@@ -348,13 +346,7 @@ impl MinefieldBehavior {
     }
 
     fn owner(&self) -> Option<Arc<RwLock<GameObject>>> {
-        // Wave 410: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        self.owner.upgrade()
     }
 
     fn current_frame() -> UnsignedInt {
@@ -1157,6 +1149,7 @@ impl MinefieldBehaviorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::ThingTemplate;
     use crate::helpers::TheThingFactory;
     use crate::system::engine_stores::{new_for_world, with_active_stores};
     use crate::team::Team;
@@ -1165,22 +1158,19 @@ mod tests {
         ensure_thing_factory_exists, get_thing_factory,
     };
 
-    #[test]
-    fn installed_minefield_matches_cpp_damage_healing_and_drain_counts() {
-        let world = new_for_world();
-        with_active_stores(&world, || {
-            assert!(ensure_thing_factory_exists());
-            if get_module_factory().unwrap().is_none() {
-                init_module_factory().unwrap();
-            }
-            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
-            assert_eq!(
-                get_thing_factory()
-                    .unwrap()
-                    .as_mut()
-                    .unwrap()
-                    .load_ini_text(
-                        "Object CountedMine
+    fn install_mine_template() -> Arc<dyn ThingTemplate> {
+        assert!(ensure_thing_factory_exists());
+        if get_module_factory().unwrap().is_none() {
+            init_module_factory().unwrap();
+        }
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        assert_eq!(
+            get_thing_factory()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .load_ini_text(
+                    "Object CountedMine
                         KindOf = MINE IMMOBILE
                         Body = ActiveBody Health
                             MaxHealth = 100
@@ -1191,10 +1181,17 @@ mod tests {
                             Regenerates = Yes
                         End
                     End",
-                    ),
-                1,
-            );
-            let template = TheThingFactory::find_template("CountedMine").unwrap();
+                ),
+            1,
+        );
+        TheThingFactory::find_template("CountedMine").unwrap()
+    }
+
+    #[test]
+    fn installed_minefield_matches_cpp_damage_healing_and_drain_counts() {
+        let world = new_for_world();
+        with_active_stores(&world, || {
+            let template = install_mine_template();
             let team = Arc::new(RwLock::new(Team::new("MineTeam".into(), 1)));
             let mine = TheThingFactory::get()
                 .unwrap()
@@ -1266,6 +1263,83 @@ mod tests {
             assert_eq!(mine.get_health(), 12.5);
             assert!(!mine.test_status(ObjectStatusTypes::Masked));
             assert!(!mine.is_destroyed());
+        });
+    }
+
+    #[test]
+    fn native_mine_assembly_and_damage_use_the_supplied_owner_with_a_same_id_peer() {
+        use crate::object::body::active_body::BodyDefinitionCatalog;
+        use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
+        use crate::system::game_logic::GameLogic;
+        use game_engine::common::global_data::GlobalData;
+
+        let receiving = new_for_world();
+        let foreign = new_for_world();
+        with_active_stores(&foreign, || {
+            let template = install_mine_template();
+            let team = Arc::new(RwLock::new(Team::new("ForeignMineTeam".into(), 1)));
+            let peer = TheThingFactory::get()
+                .unwrap()
+                .new_object_with_team_handle(Arc::clone(&template), team)
+                .unwrap();
+            peer.write()
+                .unwrap()
+                .set_status(OBJECT_STATUS_NO_ATTACK_FROM_AI, false);
+
+            let mut logic = GameLogic::new_with_engine_stores(Arc::clone(&receiving));
+            let definitions = Arc::new(
+                BodyDefinitionCatalog::new(
+                    Some(&GlobalData::default()),
+                    Default::default(),
+                    Default::default(),
+                )
+                .unwrap(),
+            );
+            let mut factory = ObjectFactory::new();
+            let id = factory
+                .prepare_object_owned(
+                    &mut logic,
+                    template,
+                    Coord3D::ZERO,
+                    None,
+                    ObjectCreationFlags::NO_AI,
+                    &mut |_: &str| Ok(None),
+                    definitions,
+                    get_module_factory().unwrap().as_ref().unwrap(),
+                )
+                .unwrap();
+            assert_eq!(id, peer.read().unwrap().get_id());
+            let mine = factory.get_object(id).unwrap().get_base_object().unwrap();
+            let (body, field) = {
+                let mine = mine.read().unwrap();
+                assert!(mine.test_status(ObjectStatusTypes::NoAttackFromAi));
+                (
+                    mine.get_body_module().unwrap(),
+                    mine.module_by_name(&"MinefieldBehavior".into()).unwrap(),
+                )
+            };
+            body.lock()
+                .unwrap()
+                .change_health_for_borrowed_owner(-55.0, false)
+                .unwrap();
+            field
+                .with_module_downcast::<MinefieldBehaviorModule, _, _>(|module| {
+                    let behavior = module.behavior_mut();
+                    let mut damage = DamageInfo::with_simple(
+                        55.0,
+                        INVALID_ID,
+                        DamageType::Unresistable,
+                        DeathType::Normal,
+                    );
+                    behavior.on_damage(&mut damage).unwrap();
+                    assert_eq!(behavior.virtual_mines_remaining, 4);
+                })
+                .unwrap();
+            assert_eq!(mine.read().unwrap().get_health(), 45.0);
+            let peer = peer.read().unwrap();
+            assert_eq!(peer.get_health(), 100.0);
+            assert!(!peer.test_status(ObjectStatusTypes::NoAttackFromAi));
+            assert!(!peer.test_status(ObjectStatusTypes::Masked));
         });
     }
 }

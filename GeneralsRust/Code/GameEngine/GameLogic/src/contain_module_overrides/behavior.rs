@@ -115,10 +115,9 @@ pub(super) fn minefield_behavior_module_factory(
     module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
     assert!(module_data.is::<MinefieldBehaviorModuleData>());
-    let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
-        // Wave 449: missing owner → no-op module.
-        return missing_owner_module("MinefieldBehavior", module_data);
+    let object = match crate::object::supplied_module_owner(thing.as_ref()) {
+        Ok(object) => object,
+        Err(error) => return failed_initialization_module("MinefieldBehavior", module_data, error),
     };
     let behavior = MinefieldBehavior::new(object, module_data.clone())
         .expect("MinefieldBehavior failed to initialize");
