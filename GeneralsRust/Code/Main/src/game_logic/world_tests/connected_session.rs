@@ -3,7 +3,7 @@
 use super::*;
 use crate::command_executor::CommandExecutor;
 use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
-use crate::game_logic::{ProductionExitMetadata, ProductionExitStyle};
+use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content_with_actions};
 use crate::save_load::SnapshotBuilder;
 
 #[track_caller]
@@ -27,100 +27,109 @@ fn frame(world: &mut GameLogic) {
 }
 
 fn authored_world(cash: u32) -> (GameLogic, ObjectId) {
+    const ACTIONS: &str = "CommandButton ConnectedBarracksBuildButton
+ Command = DOZER_CONSTRUCT
+ Object = AmericaBarracks
+End
+CommandSet ConnectedBarracksBuildSet
+ 1 = ConnectedBarracksBuildButton
+End
+CommandButton ConnectedRangerBuildButton
+ Command = UNIT_BUILD
+ Object = AmericaInfantryRanger
+End
+CommandSet ConnectedBarracksProductionSet
+ 1 = ConnectedRangerBuildButton
+End
+";
+    const RIFLE: &str = "ConnectedRangerRifle";
+
     let mut world = GameLogic::new();
+    admit_retail_production_energy_rules(&mut world);
+    world.admit_default_locomotors_if_unadmitted();
+    // ActionManager checks the installed DozerAIUpdate and CommandSet.
+    // Admit the entire roster before the first factory birth so later
+    // construction, egress and formation movement use the same content.
+    let base = |name: &str| {
+        FixtureObject::new(name)
+            .kind_of("STRUCTURE IMMOBILE COMMANDCENTER MP_COUNT_FOR_VICTORY ALWAYS_VISIBLE")
+            .health(1000.0)
+            .energy(100)
+    };
+    let objects = [
+        base("AmericaCommandCenter"),
+        base("ChinaCommandCenter"),
+        FixtureObject::new("ConnectedDozer")
+            .kind_of("DOZER VEHICLE SELECTABLE ALWAYS_VISIBLE")
+            .health(200.0)
+            .field("CommandSet = ConnectedBarracksBuildSet")
+            .field(format!(
+                "Locomotor = SET_NORMAL {}",
+                crate::game_logic::locomotor_bootstrap::AMERICA_DOZER_LOCOMOTOR
+            ))
+            .dozer(),
+        FixtureObject::new("AmericaBarracks")
+            .kind_of("STRUCTURE FS_BARRACKS SCORE IMMOBILE MP_COUNT_FOR_VICTORY SELECTABLE ALWAYS_VISIBLE")
+            .health(1000.0)
+            .build_cost(300)
+            .build_time(0.1)
+            .energy(-10)
+            .field("CommandSet = ConnectedBarracksProductionSet")
+            .module("Prerequisites\n Object = AmericaCommandCenter\nEnd")
+            .module("Behavior = ProductionUpdate ConnectedProduction\nEnd")
+            .module(
+                "Behavior = QueueProductionExitUpdate ConnectedExit\n\
+                 UnitCreatePoint = X:0 Y:-25 Z:0\n\
+                 NaturalRallyPoint = X:36 Y:-25 Z:0\n\
+                 ExitDelay = 300\nEnd",
+            ),
+        FixtureObject::new("AmericaInfantryRanger")
+            .kind_of("INFANTRY SELECTABLE CAN_ATTACK SCORE ALWAYS_VISIBLE")
+            .health(80.0)
+            .build_cost(150)
+            .build_time(0.1)
+            .field("VisionRange = 200")
+            .field(format!(
+                "Locomotor = SET_NORMAL {}",
+                crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR
+            ))
+            .module("Behavior = AIUpdateInterface ConnectedInfantryAI\nEnd")
+            .armed(RIFLE),
+    ];
+    let weapon = FixtureWeapon::from_stats(
+        RIFLE,
+        &Weapon {
+            damage: 20.0,
+            range: 80.0,
+            reload_time: 0.25,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        },
+    );
+    admit_fixture_content_with_actions(&mut world, &objects, &[weapon], ACTIONS);
     for (id, team) in [(0, Team::USA), (1, Team::China)] {
         let mut player = Player::new(id, team, "Connected", id == 0);
         player.resources.supplies = cash;
-        player.power_available = 100;
-        player.resources.power = 100;
         // CPP map-side relationships, rather than faction labels, admit
         // an ordinary attack between these two owned player slots.
         player.set_map_relationship(1 - id, gamelogic::common::Relationship::Enemies);
         world.add_player(player);
     }
-    admit_retail_production_energy_rules(&mut world);
     // Original Barracks requires its own CommandCenter, and the opposing
     // player must have a victory-counted base before the first real tick.
     for (name, player, position) in [
         ("AmericaCommandCenter", 0, Vec3::new(140.0, 0.0, 140.0)),
         ("ChinaCommandCenter", 1, Vec3::new(-140.0, 0.0, -140.0)),
     ] {
-        let mut base = ThingTemplate::new(name);
-        base.add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::Immobile)
-            .add_kind_of(KindOf::CommandCenter)
-            .add_kind_of(KindOf::MpCountForVictory)
-            .add_kind_of(KindOf::Attackable)
-            .set_health(1000.0);
-        base.always_visible = true;
-        world.templates.insert(name.into(), base);
         world
             .create_object_for_player(name, player, position)
             .unwrap();
     }
-    let mut dozer = ThingTemplate::new("ConnectedDozer");
-    dozer
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(200.0);
-    dozer.always_visible = true;
-    dozer.set_locomotor_name(crate::game_logic::locomotor_bootstrap::AMERICA_DOZER_LOCOMOTOR);
-    world.templates.insert(dozer.name.clone(), dozer);
-    let mut barracks = ThingTemplate::new("AmericaBarracks");
-    barracks
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::FSBarracks)
-        .add_kind_of(KindOf::Score)
-        .add_kind_of(KindOf::Immobile)
-        .add_kind_of(KindOf::MpCountForVictory)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(1000.0)
-        .set_cost(300, -10);
-    barracks.build_time = 0.1;
-    barracks.always_visible = true;
-    // Authored QueueProductionExitUpdate: creation and natural rally points
-    // are distinct, and the real egress path clears the factory footprint.
-    barracks.production_exit_metadata = Some(ProductionExitMetadata {
-        style: ProductionExitStyle::Queue,
-        unit_create_point: [0.0, -25.0, 0.0],
-        natural_rally_point: [36.0, -25.0, 0.0],
-        exit_delay_frames: 9,
-        allow_airborne_creation: false,
-        initial_burst: 0,
-        use_spawn_rally_point: false,
-        grant_temporary_stealth_frames: 0,
-    });
-    world.templates.insert(barracks.name.clone(), barracks);
-    let mut unit = ThingTemplate::new("AmericaInfantryRanger");
-    unit.add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::Score)
-        .set_health(80.0)
-        .set_cost(150, 0);
-    unit.build_time = 0.1;
-    unit.always_visible = true;
-    unit.sight_range = 200.0;
-    unit.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
-    unit.set_primary_weapon(Weapon {
-        damage: 20.0,
-        range: 80.0,
-        reload_time: 0.25,
-        // CPP Weapon::fireWeapon without a ProjectileObject applies damage
-        // synchronously; this authored gun uses the host direct-fire route.
-        projectile_speed: 0.0,
-        ..Weapon::default()
-    });
-    world.templates.insert(unit.name.clone(), unit);
     let dozer = world
         .create_object_for_player("ConnectedDozer", 0, Vec3::new(55.0, 0.0, 55.0))
         .unwrap();
-    world.admit_fixture_command_action_source(
-        "CommandButton ConnectedBarracksBuildButton\n Command = DOZER_CONSTRUCT\n Object = AmericaBarracks\nEnd\nCommandSet ConnectedBarracksBuildSet\n 1 = ConnectedBarracksBuildButton\nEnd\n",
-    ).unwrap();
-    world.host_object_mut(dozer).unwrap().command_set_override =
-        Some("ConnectedBarracksBuildSet".into());
+    // The original most-recent-task scan treats order frame zero as empty.
+    frame(&mut world);
     (world, dozer)
 }
 
