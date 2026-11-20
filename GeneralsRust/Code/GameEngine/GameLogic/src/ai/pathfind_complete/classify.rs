@@ -7,6 +7,12 @@ struct FootprintObstacle {
     is_transparent: bool,
 }
 
+#[derive(Clone, Copy)]
+enum ObstacleFootprint {
+    Fence(f32),
+    Structure,
+}
+
 impl FootprintObstacle {
     fn from_object(obj: &crate::object::Object, insert: bool) -> Result<Self, String> {
         let is_rubble = if insert {
@@ -842,61 +848,113 @@ impl PathfindingSystem {
         obj: &crate::object::Object,
         insert: bool,
     ) -> Result<(), String> {
-        use crate::common::KindOf;
+        if Self::ignores_footprint_object(obj) {
+            return Ok(());
+        }
+        let footprint = Self::obstacle_footprint(obj);
+        if !insert {
+            return self.remove_classified_footprint(obj, footprint);
+        }
+        if let Some(footprint) = footprint {
+            let obstacle = FootprintObstacle::from_object(obj, true)?;
+            self.apply_obstacle_footprint(obj, footprint, obstacle, true);
+        }
+        Ok(())
+    }
 
-        if obj.is_kind_of(KindOf::Mine)
+    /// Player.cpp:1644–1645 removes the old footprint before adding the new one.
+    /// Read the new obstacle's body first so an observation error leaves the old cells intact.
+    pub(in crate::ai) fn refresh_completed_object_footprint(
+        &mut self,
+        obj: &crate::object::Object,
+    ) -> Result<(), String> {
+        if Self::ignores_footprint_object(obj) {
+            return Ok(());
+        }
+        let footprint = Self::obstacle_footprint(obj);
+        let insertion = footprint
+            .map(|shape| FootprintObstacle::from_object(obj, true).map(|obstacle| (shape, obstacle)))
+            .transpose()?;
+
+        self.remove_classified_footprint(obj, footprint)?;
+        if let Some((shape, obstacle)) = insertion {
+            self.apply_obstacle_footprint(obj, shape, obstacle, true);
+        }
+        Ok(())
+    }
+
+    fn ignores_footprint_object(obj: &crate::object::Object) -> bool {
+        obj.is_kind_of(KindOf::Mine)
             || obj.is_kind_of(KindOf::Projectile)
             || obj.is_kind_of(KindOf::BridgeTower)
-        {
-            return Ok(());
-        }
+    }
 
+    fn obstacle_footprint(obj: &crate::object::Object) -> Option<ObstacleFootprint> {
         let fence_width = obj.get_template().get_fence_width();
         if fence_width > 0.0 && !obj.is_kind_of(KindOf::DefensiveWall) {
-            return self.classify_fence(obj, insert, fence_width);
+            return Some(ObstacleFootprint::Fence(fence_width));
         }
-
-        if !insert {
-            // C++ permanent blast crater footprints never remove.
-            if obj.is_kind_of(KindOf::BlastCrater) {
-                return Ok(());
-            }
-            if !obj.is_kind_of(KindOf::Immobile) {
-                if let Some(ai) = obj.get_ai_update_interface() {
-                    let mut ai = ai.try_lock().map_err(|error| {
-                        format!("cannot borrow object {} AI for pathfind removal: {error}", obj.get_id())
-                    })?;
-                    ai.remove_pathfind_occupancy(obj, self)?;
-                }
-            }
-        }
-
-        if !obj.is_kind_of(KindOf::Structure) {
-            return Ok(());
-        }
-        if obj.is_mobile() {
-            return Ok(());
-        }
-        let geo = obj.get_geometry_info();
-        if geo.get_is_small() {
-            return Ok(());
+        if !obj.is_kind_of(KindOf::Structure)
+            || obj.is_mobile()
+            || obj.get_geometry_info().get_is_small()
+        {
+            return None;
         }
         if obj.get_height_above_terrain() > PATHFIND_CELL_SIZE_F
             && !obj.is_kind_of(KindOf::BlastCrater)
         {
-            return Ok(());
+            return None;
         }
+        Some(ObstacleFootprint::Structure)
+    }
 
-        self.internal_classify_object_footprint(obj, insert)
+    fn remove_classified_footprint(
+        &mut self,
+        obj: &crate::object::Object,
+        footprint: Option<ObstacleFootprint>,
+    ) -> Result<(), String> {
+        // C++ classifies fences before the blast-crater and mobile occupancy checks.
+        if !matches!(footprint, Some(ObstacleFootprint::Fence(_))) {
+            if obj.is_kind_of(KindOf::BlastCrater) {
+                return Ok(());
+            }
+            if !obj.is_kind_of(KindOf::Immobile)
+                && let Some(ai) = obj.get_ai_update_interface()
+            {
+                let mut ai = ai.try_lock().map_err(|error| {
+                    format!("cannot borrow object {} AI for pathfind removal: {error}", obj.get_id())
+                })?;
+                ai.remove_pathfind_occupancy(obj, self)?;
+            }
+        }
+        if let Some(footprint) = footprint {
+            let obstacle = FootprintObstacle::from_object(obj, false)?;
+            self.apply_obstacle_footprint(obj, footprint, obstacle, false);
+        }
+        Ok(())
+    }
+
+    fn apply_obstacle_footprint(
+        &mut self,
+        obj: &crate::object::Object,
+        footprint: ObstacleFootprint,
+        obstacle: FootprintObstacle,
+        insert: bool,
+    ) {
+        match footprint {
+            ObstacleFootprint::Fence(width) => self.classify_fence(obj, obstacle, insert, width),
+            ObstacleFootprint::Structure => self.internal_classify_object_footprint(obj, obstacle, insert),
+        }
     }
 
     /// C++ `Pathfinder::classifyFence` (AIPathfind.cpp:3983+).
-    pub(crate) fn classify_fence(
+    fn classify_fence(
         &mut self,
         obj: &crate::object::Object,
+        obstacle: FootprintObstacle,
         insert: bool,
         fence_width: f32,
-    ) -> Result<(), String> {
+    ) {
         let pos = obj.get_position();
         let angle = obj.get_orientation();
         let halfsize_x = fence_width * 0.5;
@@ -912,7 +970,6 @@ impl PathfindingSystem {
         let num_steps_y = (2.0 * halfsize_y / STEP_SIZE).ceil() as i32;
         let mut tl_x = pos.x - fence_offset * c - halfsize_y * s;
         let mut tl_y = pos.y + halfsize_y * c - fence_offset * s;
-        let obstacle = FootprintObstacle::from_object(obj, insert)?;
         let mut lo_x = i32::MAX;
         let mut lo_y = i32::MAX;
         let mut hi_x = i32::MIN;
@@ -948,18 +1005,17 @@ impl PathfindingSystem {
                 (GridCoord::new(lo_x, lo_y), GridCoord::new(hi_x, hi_y)),
             );
         }
-        Ok(())
     }
 
     /// C++ `internal_classifyObjectFootprint` box/cylinder raster.
-    pub(crate) fn internal_classify_object_footprint(
+    fn internal_classify_object_footprint(
         &mut self,
         obj: &crate::object::Object,
+        obstacle: FootprintObstacle,
         insert: bool,
-    ) -> Result<(), String> {
+    ) {
         let pos = obj.get_position();
         let geo = obj.get_geometry_info();
-        let obstacle = FootprintObstacle::from_object(obj, insert)?;
         let origin_x = ((pos.x + 0.5) / PATHFIND_CELL_SIZE_F).floor() as i32;
         let origin_y = ((pos.y + 0.5) / PATHFIND_CELL_SIZE_F).floor() as i32;
         let mut lo_x = origin_x;
@@ -1049,7 +1105,6 @@ impl PathfindingSystem {
             (GridCoord::new(lo_x, lo_y), GridCoord::new(hi_x, hi_y)),
         );
         self.refresh_pinched_bounds(lo_x, lo_y, hi_x, hi_y);
-        Ok(())
     }
 
 

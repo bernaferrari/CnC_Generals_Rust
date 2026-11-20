@@ -2918,6 +2918,10 @@ impl Pathfinder {
         self.inner.classify_object_footprint_ex(obj, true)
     }
 
+    pub(crate) fn refresh_completed_object_footprint(&mut self, obj: &Object) -> Result<(), String> {
+        self.inner.refresh_completed_object_footprint(obj)
+    }
+
     pub fn add_object_to_map(
         &mut self,
         object_id: ObjectID,

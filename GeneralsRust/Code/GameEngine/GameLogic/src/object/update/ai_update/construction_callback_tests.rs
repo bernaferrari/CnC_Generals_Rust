@@ -867,6 +867,7 @@ fn admit_vision_structure(
                 GeometryHeight = 10
                 ShroudClearingRange = 60
                 ShroudRevealToAllRange = 45
+                BuildCost = 700
             End
         ";
         assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(source), 1);
@@ -947,6 +948,79 @@ fn completed_structure_refreshes_vision_and_pending_unlook_in_its_own_world() {
     ]);
     assert!(after_peer == before_peer, "the peer shroud counters and pending heap stay unchanged");
     assert!(!peer_spatial.contains(&id), "completion must not move the peer's same-ID spatial entry");
+}
+
+#[cfg(panic = "unwind")]
+#[test]
+fn completion_with_poisoned_body_keeps_the_installed_footprint_intact() {
+    use crate::ai::Pathfinder;
+    use crate::ai::pathfind_complete::{PathfindCellType, SURFACE_GROUND};
+    use crate::common::Coord3D;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+
+    let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
+    let driving = new_for_world();
+    let peer = new_for_world();
+    let center = Coord3D::new(105., 105., 0.);
+    let structure = admit_vision_structure(&driving, center, 37, 23);
+    let peer_structure = admit_vision_structure(&peer, center, 251, 41);
+    let id = structure.read().unwrap().get_id();
+    assert_eq!(peer_structure.read().unwrap().get_id(), id);
+    let path = driving.ai().read().unwrap().pathfinder().unwrap();
+    let peer_path = peer.ai().read().unwrap().pathfinder().unwrap();
+    for (path, object) in [(&path, &structure), (&peer_path, &peer_structure)] {
+        let mut path = path.write().unwrap();
+        path.reset_with_size(40, 40);
+        // Install a footprint with its canonical object ID as at construction start.
+        path.add_object_to_pathfind_map(&object.read().unwrap()).unwrap();
+    }
+    let sample = |path: &Pathfinder| {
+        [center, Coord3D::new(115., 105., 0.), Coord3D::new(125., 105., 0.)].map(|pos| {
+            (
+                path.get_cell_type_at(&pos),
+                path.valid_movement_position_for_surfaces(SURFACE_GROUND, false, &pos, Some(id)),
+            )
+        })
+    };
+    let before = sample(&path.read().unwrap());
+    assert_eq!(before, [
+        (Some(PathfindCellType::Obstacle), true),
+        (Some(PathfindCellType::Obstacle), true),
+        (Some(PathfindCellType::Clear), true),
+    ]);
+    assert_eq!(sample(&peer_path.read().unwrap()), before);
+
+    let player = structure.read().unwrap().get_controlling_player().unwrap();
+    let body = structure.read().unwrap().get_body_module().unwrap();
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _body = body.lock().unwrap();
+        panic!("inject a poisoned construction body lock");
+    })).is_err());
+    let failed = with_active_stores(&peer, || {
+        Player::on_structure_construction_complete(&player, None, &structure, false)
+    });
+    let after = sample(&path.read().unwrap());
+    let after_peer = sample(&peer_path.read().unwrap());
+    let score = player.read().unwrap().get_score_keeper().get_total_money_spent();
+    body.clear_poison();
+    assert!(failed.unwrap_err().contains("footprint body lock poisoned"));
+    assert_eq!(score, 0);
+    assert_eq!(after_peer, before);
+    assert_eq!(after, before, "failed footprint refresh must leave its live obstacle installed");
+
+    with_active_stores(&peer, || {
+        Player::on_structure_construction_complete(&player, None, &structure, false).unwrap();
+    });
+    assert_eq!(sample(&path.read().unwrap()), before);
+    assert_eq!(sample(&peer_path.read().unwrap()), before);
+    assert_eq!(player.read().unwrap().get_score_keeper().get_total_money_spent(), 700);
+    for world in [&driving, &peer] {
+        with_active_stores(world, || {
+            let mut logic = world.game_logic_mutex().lock().unwrap();
+            logic.destroy_object(id);
+            logic.cleanup_dead_objects().unwrap();
+        });
+    }
 }
 
 #[test]

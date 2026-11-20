@@ -707,8 +707,7 @@ impl EngineStores {
             .pathfinder().ok_or("construction pathfinder missing")?;
         let mut pathfinder = pathfinder.try_write()
             .map_err(|error| format!("cannot borrow construction pathfinder: {error}"))?;
-        pathfinder.remove_object_from_pathfind_map(structure)?;
-        pathfinder.add_object_to_pathfind_map(structure)
+        pathfinder.refresh_completed_object_footprint(structure)
     }
     pub fn ai_data(&self) -> &Arc<RwLock<AIDataStore>> {
         &self.ai_data
