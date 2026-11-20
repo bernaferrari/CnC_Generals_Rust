@@ -1,5 +1,6 @@
 //! Real layout-owned slider + selected WND callbacks; no fake Options event producer.
 use super::*;
+use crate::core::game_client::ClientInputAuthority;
 use crate::gui::callbacks::OptionsCameraInputObservation;
 use crate::gui::gadgets::HorizontalSlider;
 use crate::gui::options_host_bridge::{HostOptionsRequest, TerrainLodEffect};
@@ -85,7 +86,14 @@ fn click_options(
     prefs: &mut UserPreferences,
     rules: CameraInputRules,
 ) {
-    let _ = click_options_with_terrain_lod(manager, button, prefs, rules, None);
+    let _ = click_options_with_terrain_lod(
+        manager,
+        button,
+        prefs,
+        rules,
+        ClientInputAuthority::NativeHosted,
+        None,
+    );
 }
 
 fn click_options_with_terrain_lod(
@@ -93,6 +101,7 @@ fn click_options_with_terrain_lod(
     button: &Rc<RefCell<GameWindow>>,
     prefs: &mut UserPreferences,
     rules: CameraInputRules,
+    authority: ClientInputAuthority,
     receive: Option<&mut dyn FnMut(TerrainLodEffect)>,
 ) -> Vec<HostOptionsRequest> {
     let (x, y) = button.borrow().get_screen_position();
@@ -126,9 +135,7 @@ fn click_options_with_terrain_lod(
         diplomacy_world: None,
         menu_audio: None,
         input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
-        menus: Some(
-            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
-        ),
+        menus: Some(menus.receiving_menus(authority)),
         ime: Some(&mut ime),
         in_game_movies: None,
         script_display: Some(&mut script_display),
@@ -152,7 +159,7 @@ fn click_options_with_terrain_lod(
         logic_frame: None,
         ui: Some(&mut ui),
         menu_world: Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default()),
-        menu_host: Some(&mut menu_host),
+        menu_host: (authority == ClientInputAuthority::NativeHosted).then_some(&mut menu_host),
         main_menu: Some(&mut main_menu),
     };
     // Fresh MenuManager still needs Options IDs + ignore_selected cleared so
@@ -496,7 +503,7 @@ fn actual_options_terrain_lod_callback_precedes_common_level_commit() {
         SessionStaticLodResult, get_static_lod, set_static_lod_from_string_for_session,
     };
     use game_engine::common::ini::ini_game_data::ensure_global_data;
-    use game_engine::common::ini::ini_game_lod::StaticGameLODLevel;
+    use game_engine::common::ini::ini_game_lod::{StaticGameLODLevel, get_game_lod_manager};
 
     if let TestProcess::ParentVerified = run_bounded(
         module_path!(),
@@ -522,6 +529,19 @@ fn actual_options_terrain_lod_callback_precedes_common_level_commit() {
     run_options_init(&mut manager, &layout, &initial);
     let _ = set_static_lod_from_string_for_session("Low");
     assert_eq!(get_static_lod(), "Low");
+    let preset = get_game_lod_manager().static_game_lod_info
+        [StaticGameLODLevel::Medium.to_index().unwrap()]
+    .clone();
+    let compatibility = [12, 5, 137];
+    {
+        let mut global = global.write();
+        [
+            global.max_tank_track_edges,
+            global.max_tank_track_opaque_edges,
+            global.max_tank_track_fade_delay,
+        ] = compatibility;
+        global.max_particle_count = -101;
+    }
 
     let mut calls = 0;
     let mut receive = |effect| {
@@ -537,15 +557,28 @@ fn actual_options_terrain_lod_callback_precedes_common_level_commit() {
             "Low",
             "the WND terrain effect must observe the old Common level"
         );
-        let written = global.read();
-        assert_eq!(written.max_tank_track_edges, rules.max_tank_track_edges);
         assert_eq!(
-            written.max_tank_track_opaque_edges,
-            rules.max_tank_track_opaque_edges
+            [
+                rules.max_tank_track_edges,
+                rules.max_tank_track_opaque_edges,
+                rules.max_tank_track_fade_delay,
+            ],
+            [
+                preset.max_tank_track_edges,
+                preset.max_tank_track_opaque_edges,
+                preset.max_tank_track_fade_delay,
+            ],
         );
+        let written = global.read();
+        assert_eq!(written.max_particle_count, preset.max_particle_count);
         assert_eq!(
-            written.max_tank_track_fade_delay,
-            rules.max_tank_track_fade_delay
+            [
+                written.max_tank_track_edges,
+                written.max_tank_track_opaque_edges,
+                written.max_tank_track_fade_delay,
+            ],
+            compatibility,
+            "the native WND request leaves compatibility track limits alone"
         );
         calls += 1;
     };
@@ -554,6 +587,7 @@ fn actual_options_terrain_lod_callback_precedes_common_level_commit() {
         &accept,
         &mut preferences,
         rules,
+        ClientInputAuthority::NativeHosted,
         Some(&mut receive),
     );
     assert_eq!(calls, 1);
@@ -563,4 +597,95 @@ fn actual_options_terrain_lod_callback_precedes_common_level_commit() {
         HostOptionsRequest::TerrainTrackRules { .. }
             | HostOptionsRequest::StaticLodMarkerOnly { .. }
     )));
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn actual_standalone_options_wnd_keeps_the_legacy_track_callback() {
+    use crate::terrain::terrain_visual::{init_terrain_visual, with_terrain_visual_mut};
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::game_lod::{get_static_lod, set_static_lod_from_string};
+    use game_engine::common::ini::ini_game_data::ensure_global_data;
+    use game_engine::common::ini::ini_game_lod::{StaticGameLODLevel, get_game_lod_manager};
+
+    if let TestProcess::ParentVerified = run_bounded(
+        module_path!(),
+        "actual_standalone_options_wnd_keeps_the_legacy_track_callback",
+    ) {
+        return;
+    }
+    let scratch = tempfile::tempdir().unwrap();
+    let global = ensure_global_data();
+    {
+        let mut global = global.write();
+        global.enable_static_lod = true;
+        global.set_path_user_data(scratch.path().to_str().unwrap().to_owned());
+    }
+    let path = scratch.path().join("Options.ini");
+    std::fs::write(&path, "ScrollFactor = 60\n").unwrap();
+    let mut preferences = UserPreferences::new();
+    assert!(preferences.load(path.to_str().unwrap()));
+    let rules = CameraInputRules::default();
+    let (mut manager, layout, accept, _, _, _) = options_wnd();
+    let initial = OptionsCameraInputObservation::observe(rules, &preferences);
+    run_options_init(&mut manager, &layout, &initial);
+    set_static_lod_from_string("Low");
+    init_terrain_visual().unwrap();
+    let slot = with_terrain_visual_mut(|terrain| {
+        let terrain = terrain.as_mut().unwrap();
+        let slot = terrain
+            .terrain_tracks_mut()
+            .bind_track(2.0, 10.0, "legacytrack.tga")
+            .unwrap();
+        for x in [0.0, 20.0, 40.0] {
+            terrain.add_track_edge(slot, x, 0.0, 123);
+        }
+        assert_eq!(
+            terrain
+                .terrain_tracks()
+                .track(slot)
+                .unwrap()
+                .active_edge_count(),
+            2
+        );
+        slot
+    })
+    .unwrap();
+
+    let requests = click_options_with_terrain_lod(
+        &mut manager,
+        &accept,
+        &mut preferences,
+        rules,
+        ClientInputAuthority::StandaloneCore,
+        None,
+    );
+    assert!(requests.is_empty());
+    assert_eq!(get_static_lod(), "Medium");
+    let lod = get_game_lod_manager();
+    let preset = &lod.static_game_lod_info[StaticGameLODLevel::Medium.to_index().unwrap()];
+    let global = global.read();
+    assert_eq!(global.max_tank_track_edges, preset.max_tank_track_edges);
+    assert_eq!(
+        global.max_tank_track_opaque_edges,
+        preset.max_tank_track_opaque_edges
+    );
+    assert_eq!(
+        global.max_tank_track_fade_delay,
+        preset.max_tank_track_fade_delay
+    );
+    let count = with_terrain_visual_mut(|terrain| {
+        terrain
+            .as_ref()
+            .unwrap()
+            .terrain_tracks()
+            .track(slot)
+            .unwrap()
+            .active_edge_count()
+    });
+    assert_eq!(
+        count,
+        Some(0),
+        "standalone accept clears the actual compatibility track ring"
+    );
 }

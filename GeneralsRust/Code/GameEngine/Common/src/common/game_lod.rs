@@ -264,7 +264,7 @@ fn apply_static_lod_from_string(
 
     let apply = level == StaticGameLODLevel::Custom
         || get_game_lod_manager().get_static_lod_level() != level;
-    if apply && apply_static_lod_level(mapped, receive.is_none()).is_none() {
+    if apply && apply_static_lod_level(level, receive.is_none()).is_none() {
         return;
     }
     // An application preset may already be active in another session. The
@@ -302,20 +302,13 @@ fn resolve_session_track_rules(
 /// Apply StaticGameLOD settings to GlobalData.
 /// Matches C++ GameLODManager::applyStaticLODLevel().
 fn apply_static_lod_level(
-    level_name: &str,
-    invoke_legacy_terrain_hook: bool,
-) -> Option<crate::common::ini::ini_game_data::TerrainTrackRules> {
-    let level = match StaticGameLODLevel::from_str(level_name) {
-        Some(l) => l,
-        None => return None,
-    };
-    let index = match level.to_index() {
-        Some(i) => i,
-        None => return None,
-    };
+    level: StaticGameLODLevel,
+    legacy_terrain_tracks: bool,
+) -> Option<()> {
+    let index = level.to_index()?;
 
     if level == StaticGameLODLevel::Custom {
-        refresh_custom_static_lod_level();
+        refresh_custom_static_lod_level(legacy_terrain_tracks);
     }
 
     let lod_info = get_game_lod_manager().static_game_lod_info[index].clone();
@@ -350,9 +343,11 @@ fn apply_static_lod_level(
     global.use_cloud_map = lod_info.use_cloud_map;
     global.use_light_map = lod_info.use_light_map;
     global.show_soft_water_edge = lod_info.show_soft_water_edge;
-    global.max_tank_track_edges = lod_info.max_tank_track_edges;
-    global.max_tank_track_opaque_edges = lod_info.max_tank_track_opaque_edges;
-    global.max_tank_track_fade_delay = lod_info.max_tank_track_fade_delay;
+    if legacy_terrain_tracks {
+        global.max_tank_track_edges = lod_info.max_tank_track_edges;
+        global.max_tank_track_opaque_edges = lod_info.max_tank_track_opaque_edges;
+        global.max_tank_track_fade_delay = lod_info.max_tank_track_fade_delay;
+    }
     global.texture_reduction_factor = requested_texture_reduction;
     global.use_tree_sway = lod_info.use_tree_sway;
     global.use_draw_module_lod = !lod_info.use_buildup_scaffolds;
@@ -363,8 +358,6 @@ fn apply_static_lod_level(
     if !did_mem_pass() || is_really_low_mhz() {
         global.shell_map_on = false;
     }
-    let track_rules =
-        crate::common::ini::ini_game_data::TerrainTrackRules::from_global_data(&global);
     drop(global);
     sync_writable_shadow_decals(lod_info.use_shadow_volumes, lod_info.use_shadow_decals);
 
@@ -392,14 +385,14 @@ fn apply_static_lod_level(
             hook();
         }
     }
-    if invoke_legacy_terrain_hook {
+    if legacy_terrain_tracks {
         let services = crate::common::common_services::common_services();
         let hook = *services.system.rebuild_tank_tracks.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(hook) = hook {
             hook();
         }
     }
-    Some(track_rules)
+    Some(())
 }
 
 fn recommended_texture_reduction(requested_level: StaticGameLODLevel) -> i32 {
@@ -430,7 +423,7 @@ fn recommended_texture_reduction(requested_level: StaticGameLODLevel) -> i32 {
 /// The options menu writes custom display settings into GlobalData before selecting
 /// `STATIC_GAME_LOD_CUSTOM`; the C++ manager snapshots those live values into the
 /// Custom LOD slot before applying it.
-fn refresh_custom_static_lod_level() {
+fn refresh_custom_static_lod_level(legacy_terrain_tracks: bool) {
     let Some(global_data) = get_global_data() else {
         return;
     };
@@ -440,6 +433,7 @@ fn refresh_custom_static_lod_level() {
         refresh_custom_static_lod_info_from_global(
             &mut manager.static_game_lod_info[index],
             &global,
+            legacy_terrain_tracks,
         );
     }
 }
@@ -447,6 +441,7 @@ fn refresh_custom_static_lod_level() {
 fn refresh_custom_static_lod_info_from_global(
     lod_info: &mut StaticGameLODInfo,
     global: &GlobalData,
+    legacy_terrain_tracks: bool,
 ) {
     lod_info.max_particle_count = global.max_particle_count;
     lod_info.use_shadow_volumes = global.use_shadow_volumes;
@@ -454,9 +449,11 @@ fn refresh_custom_static_lod_info_from_global(
     lod_info.use_cloud_map = global.use_cloud_map;
     lod_info.use_light_map = global.use_light_map;
     lod_info.show_soft_water_edge = global.show_soft_water_edge;
-    lod_info.max_tank_track_edges = global.max_tank_track_edges;
-    lod_info.max_tank_track_opaque_edges = global.max_tank_track_opaque_edges;
-    lod_info.max_tank_track_fade_delay = global.max_tank_track_fade_delay;
+    if legacy_terrain_tracks {
+        lod_info.max_tank_track_edges = global.max_tank_track_edges;
+        lod_info.max_tank_track_opaque_edges = global.max_tank_track_opaque_edges;
+        lod_info.max_tank_track_fade_delay = global.max_tank_track_fade_delay;
+    }
     lod_info.use_buildup_scaffolds = !global.use_draw_module_lod;
     lod_info.use_heat_effects = global.use_heat_effects;
     lod_info.use_tree_sway = lod_info.use_buildup_scaffolds;
@@ -675,7 +672,7 @@ pub fn load_game_lod_ini_presets_and_options() {
         }
     }
 
-    refresh_custom_static_lod_level();
+    refresh_custom_static_lod_level(true);
 
     let mut prefs = UserPreferences::new();
     let _ = prefs.load("Options.ini");
