@@ -1262,6 +1262,142 @@ fn installed_dozer_enters_parent_movement_from_its_authored_start_dock() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn admit_physical_construction_builder(
+    world: &Arc<crate::system::engine_stores::EngineStores>,
+    worker: bool,
+) -> Arc<RwLock<Object>> {
+    use crate::common::LocomotorSetType;
+    use crate::helpers::TheThingFactory;
+    use crate::locomotor::{LocomotorAppearance, LocomotorTemplate, SURFACE_GROUND};
+    use crate::system::engine_stores::with_active_stores;
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::get_thing_factory;
+
+    let existing = admit_vision_structure(world, Coord3D::new(305., 305., 0.), 37, 23);
+    let team = existing.read().unwrap().get_team().unwrap();
+    with_active_stores(world, || {
+        if get_module_factory().unwrap().is_none() {
+            init_module_factory().unwrap();
+        }
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        let terrain = world.services().terrain();
+        terrain.write().unwrap()
+            .try_restore_logic_height_map_with_effects(40, 40, &[0; 1600], &mut || {}).unwrap();
+        let pathfinder = world.ai().read().unwrap().pathfinder().unwrap();
+        pathfinder.write().unwrap().rebuild_from_terrain(&terrain.read().unwrap());
+
+        let (kind, behavior, appearance) = if worker {
+            ("INFANTRY DOZER HARVESTER", "WorkerAIUpdate", LocomotorAppearance::TwoLegs)
+        } else {
+            ("VEHICLE DOZER", "DozerAIUpdate", LocomotorAppearance::Treads)
+        };
+        let mut ground = LocomotorTemplate::new("PhysicalConstructionGround".into());
+        ground.surfaces = SURFACE_GROUND;
+        ground.max_speed = 6.;
+        ground.acceleration = 0.4;
+        ground.max_turn_rate = 0.5;
+        ground.appearance = appearance;
+        world.services().locomotor_store().register_template(ground);
+        let definitions = format!("
+            Object PhysicalConstructor
+                KindOf = {kind}
+                Geometry = CYLINDER
+                GeometryMajorRadius = 4
+                GeometryHeight = 5
+                Body = ActiveBody Health
+                    MaxHealth = 100
+                    InitialHealth = 100
+                End
+                Behavior = PhysicsBehavior Drive
+                    Mass = 10.0
+                End
+                Behavior = {behavior} Builder
+                End
+                Locomotor = SET_NORMAL PhysicalConstructionGround
+            End
+        ");
+        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(&definitions), 1);
+        let template = TheThingFactory::find_template("PhysicalConstructor").unwrap();
+        let actor = TheThingFactory::get().unwrap().new_object_with_team_handle(template, team).unwrap();
+        let mut object = actor.write().unwrap();
+        object.set_position(&Coord3D::new(65., 105., 0.)).unwrap();
+        assert!(object.get_physics().is_some());
+        let ai = object.get_ai_update_interface().unwrap();
+        drop(object);
+        let mut ai = ai.lock().unwrap();
+        ai.choose_locomotor_set(LocomotorSetType::Normal).unwrap();
+        assert_eq!(ai.get_worker_ai_update_interface_mut().is_some(), worker);
+        assert_eq!(ai.get_dozer_ai_update_interface_mut().is_some(), !worker);
+        actor
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn installed_dozer_motive_force_wakes_physics_without_postponing_its_due_frame() {
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+
+    const NAME: &str = concat!(module_path!(), "::installed_dozer_motive_force_wakes_physics_without_postponing_its_due_frame");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_INSTALLED_DOZER_MOTIVE_CHILD",
+    ) {
+        return;
+    }
+
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    let dozer = admit_physical_construction_builder(&receiving, false);
+    let worker = admit_physical_construction_builder(&peer, true);
+    let (builder_id, parent, physics, proxy) = {
+        let dozer = dozer.read().unwrap();
+        let physics = dozer.get_physics().unwrap();
+        (dozer.get_id(), dozer.get_ai_update_interface().unwrap(), physics.clone(), physics.installed_update_proxy(&dozer).unwrap())
+    };
+    let (worker_physics, worker_proxy, worker_pose) = {
+        let worker = worker.read().unwrap();
+        assert_eq!(worker.get_id(), builder_id);
+        let physics = worker.get_physics().unwrap();
+        (physics.clone(), physics.installed_update_proxy(&worker).unwrap(), *worker.get_position())
+    };
+    peer.game_logic_mutex().lock().unwrap().register_sleepy_update_module(builder_id, worker_proxy.clone(), 90);
+    let initial_pose = *dozer.read().unwrap().get_position();
+
+    with_active_stores(&receiving, || {
+        let site = GameLogicBuildAssistantBackend.build_object_now(
+            Some(builder_id), "CompletionVisionStructure", &BuildPosition { x: 290., y: 105., z: 0. }, 0., 0,
+        ).unwrap();
+        let logic = receiving.game_logic_mutex();
+        logic.lock().unwrap().register_sleepy_update_module(builder_id, proxy.clone(), 80);
+        for frame in 38..=41 {
+            logic.lock().unwrap().set_current_frame(frame.into());
+            // AIUpdate.h:580 runs the actual cached AI in PHASE_INITIAL,
+            // before GameLogic drives the installed Physics module.
+            parent.lock().unwrap().update().unwrap();
+            if frame >= 40 {
+                assert!(physics.accumulated_force_acceleration().x > 0.);
+                let state = physics.access().unwrap();
+                assert!(state.is_motive_at(frame + 9).unwrap());
+                assert!(!state.is_motive_at(frame + 10).unwrap());
+                drop(state);
+                assert_eq!(logic.lock().unwrap().sleepy_entry_for(&proxy), Some((builder_id, 41)));
+            }
+            logic.lock().unwrap().update(frame, || None).unwrap();
+        }
+        assert!(dozer.read().unwrap().get_position().x > initial_pose.x);
+        let scaffold = logic.lock().unwrap().find_object_by_id(site).unwrap();
+        assert_eq!(scaffold.read().unwrap().get_construction_percent(), 0.);
+    });
+    assert_eq!(*worker.read().unwrap().get_position(), worker_pose);
+    assert_eq!(worker_physics.accumulated_force_acceleration(), Coord3D::ZERO);
+    assert!(!worker_physics.access().unwrap().is_motive_at(40).unwrap());
+    assert_eq!(peer.game_logic_mutex().lock().unwrap().sleepy_entry_for(&worker_proxy), Some((builder_id, 90)));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn destroying_a_looking_structure_uses_the_driving_clock_outside_update() {
     use crate::common::Coord3D;

@@ -1236,13 +1236,46 @@ impl UnitAIUpdate {
                     .map(|physics| physics.get_forward_speed_2d_with_object(&object))
             })
             .unwrap_or(0.0);
-        let mut physics_write = physics.as_ref().and_then(|physics| physics.access().ok());
-        if let Some(physics) = physics_write.as_deref_mut() {
-            loco.apply_physics_options(physics);
+        if let Some(mut physics) = physics.as_ref().and_then(|physics| physics.access().ok()) {
+            loco.apply_physics_options(&mut *physics);
         }
+        let installed = physics.as_ref().and_then(|physics| {
+            let proxy = physics.installed_update_proxy(&object).ok()?;
+            let scheduler = object
+                .owning_world_services()
+                .and_then(|world| world.object_registry().owning_logic())
+                .unwrap_or_else(crate::system::game_logic::get_game_logic);
+            let frame = scheduler.lock().ok()?.get_frame();
+            Some((physics, proxy, scheduler, frame))
+        });
+        let mut wake_physics = || {
+            let (_, proxy, scheduler, frame) = installed.as_ref().expect("installed Physics update proxy");
+            let mut logic = scheduler
+                .lock()
+                .map_err(|_| "Physics wake scheduler poisoned".to_string())?;
+            // GameLogic.cpp:2971–2982 keeps an already-due update on this frame.
+            logic.friend_awaken_update_module(proxy, frame.wrapping_add(1));
+            Ok(())
+        };
+        let mut legacy_physics = if installed.is_none() {
+            physics.as_ref().and_then(|physics| physics.access().ok())
+        } else {
+            None
+        };
+        let access = if let Some((physics, _, _, frame)) = installed {
+            // The exact proxy records its wake on the same Physics module.
+            // Release that module before advancing its scheduled wake, then
+            // stamp the motive deadline as in PhysicsUpdate.cpp:395–400.
+            Some(crate::locomotor::LocomotorPhysicsAccess::Installed {
+                handle: physics,
+                frame,
+                wake: &mut wake_physics,
+            })
+        } else {
+            legacy_physics.as_deref_mut().map(crate::locomotor::LocomotorPhysicsAccess::Borrowed)
+        };
         // C++ locomotor speed, acceleration and turn rate are per logic frame.
-        let delta = 1.0;
-        let (new_pos, new_angle, _new_speed) = loco.loco_update_move_towards_position(
+        let result = loco.loco_update_move_with_access(
             current,
             angle,
             forward_speed,
@@ -1250,13 +1283,22 @@ impl UnitAIUpdate {
             path_distance + self.runtime.data.path_extra_distance,
             speed,
             body,
-            delta,
+            1.0,
             blocked,
-            physics_write.as_deref_mut(),
+            access,
             Some(&mut *object),
+            None,
         );
+        drop(legacy_physics);
+        let new_angle = match result {
+            Ok((_, angle, _)) => angle,
+            Err(error) => {
+                log::error!("native POSITION_ON_PATH movement failed: {error}");
+                return;
+            }
+        };
         object.set_orientation(new_angle);
-        if let Some(physics) = physics_write.as_deref_mut() {
+        if let Some(mut physics) = physics.as_ref().and_then(|physics| physics.access().ok()) {
             let mut yaw_delta = new_angle - angle;
             let two_pi = std::f32::consts::PI * 2.0;
             while yaw_delta > std::f32::consts::PI {
@@ -1281,7 +1323,6 @@ impl UnitAIUpdate {
             airborne,
         );
         self.runtime.data.do_final_position = false;
-        let _ = new_pos;
     }
 
     pub(super) fn apply_stored_locomotor_goal(&mut self) {
