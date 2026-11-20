@@ -95,6 +95,20 @@ impl GameClient {
         let game_text_store =
             std::sync::Arc::new(std::sync::RwLock::new(crate::game_text::GameText::default()));
         window_manager_owner.with_manager(|wm| wm.admit_game_text(std::sync::Arc::clone(&game_text_store)));
+        // NativeHosted is supplied the application's Common audio device by
+        // its host. Keep the standalone Kira playback stack exclusive to the
+        // standalone client so a native GameClient does not open a second
+        // platform stream during construction.
+        let (audio_event_queue, music_system, speech_system, audio_engine) =
+            match input_authority {
+                ClientInputAuthority::StandaloneCore => (
+                    Some(AudioEventQueue::new(256)),
+                    Some(MusicSystem::new()),
+                    Some(SpeechSystem::new()),
+                    AudioEngine::new().ok(),
+                ),
+                ClientInputAuthority::NativeHosted => (None, None, None, None),
+            };
         let client = Self {
             window_manager_owner,
             prepare_background_layout: None,
@@ -186,10 +200,10 @@ impl GameClient {
             message_dispatcher: Arc::new(GameClientMessageDispatcher::new()),
             network_bridge: None,
             subsystem_manager: SubsystemManager::new(),
-            audio_event_queue: Some(AudioEventQueue::new(256)),
-            music_system: Some(MusicSystem::new()),
-            speech_system: Some(SpeechSystem::new()),
-            audio_engine: AudioEngine::new().ok(),
+            audio_event_queue,
+            music_system,
+            speech_system,
+            audio_engine,
             shadow_map: std::collections::HashMap::new(),
             shadows_enabled: true,
             rendered_object_count: 0,

@@ -56,7 +56,12 @@ use crate::message_stream::game_message::GameMessageType;
         };
         let first = make_device();
         let second = make_device();
-        let mut client = GameClient::new().unwrap();
+        let mut client = GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted)
+            .unwrap();
+        assert!(client.audio_engine.is_none());
+        assert!(client.audio_event_queue.is_none());
+        assert!(client.music_system.is_none());
+        assert!(client.speech_system.is_none());
         client.bind_native_audio_device(Arc::clone(&first));
         client.init_audio_subsystems().unwrap();
         let audio = Arc::clone(client.subsystem_manager.audio.as_ref().unwrap());
