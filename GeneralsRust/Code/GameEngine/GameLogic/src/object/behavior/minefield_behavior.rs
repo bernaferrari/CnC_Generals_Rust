@@ -806,28 +806,29 @@ impl MinefieldBehavior {
                 })
                 .unwrap_or((0.0, 1.0, Coord3D::new(0.0, 0.0, 0.0)));
 
-            let expected_f = self.module_data.read().num_virtual_mines as Real * health / max_health;
-            let mut expected = if damage_info.input.damage_type == DamageType::Healing {
-                expected_f.floor() as UnsignedInt
+            let mine_count = self.module_data.read().num_virtual_mines;
+            let expected_f = mine_count as Real * health / max_health;
+            // MinefieldBehavior.cpp:443–448 uses the original x87 conversion
+            // for the signed count, which rounds positive integral damage up.
+            let expected = if damage_info.input.damage_type == DamageType::Healing {
+                game_engine::base_type::real_to_int_floor(expected_f)
             } else {
-                expected_f.ceil() as UnsignedInt
+                game_engine::base_type::real_to_int_ceil(expected_f)
             };
-            expected = expected.min(self.module_data.read().num_virtual_mines);
+            let expected = (expected.max(0) as UnsignedInt).min(mine_count);
 
-            if self.virtual_mines_remaining < expected {
+            if self.virtual_mines_remaining <= expected {
                 self.virtual_mines_remaining = expected;
-            } else if self.virtual_mines_remaining > expected {
-                if self.draining
-                    && damage_info.input.source_id == self.object_id
-                    && damage_info.input.damage_type == DamageType::Unresistable
-                {
-                    self.virtual_mines_remaining -= 1;
-                } else {
-                    let _ = self.detonate_once(&pos);
-                    continue;
-                }
+                break;
             }
-            break;
+            if self.draining
+                && damage_info.input.source_id == self.object_id
+                && damage_info.input.damage_type == DamageType::Unresistable
+            {
+                self.virtual_mines_remaining -= 1;
+            } else {
+                let _ = self.detonate_once(&pos);
+            }
         }
 
         if self.virtual_mines_remaining == 0 && self.regenerates {
@@ -1150,5 +1151,121 @@ impl MinefieldBehaviorFactory {
         module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(MinefieldBehavior::new(thing, module_data)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::helpers::TheThingFactory;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::team::Team;
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::{
+        ensure_thing_factory_exists, get_thing_factory,
+    };
+
+    #[test]
+    fn installed_minefield_matches_cpp_damage_healing_and_drain_counts() {
+        let world = new_for_world();
+        with_active_stores(&world, || {
+            assert!(ensure_thing_factory_exists());
+            if get_module_factory().unwrap().is_none() {
+                init_module_factory().unwrap();
+            }
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            assert_eq!(
+                get_thing_factory()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .load_ini_text(
+                        "Object CountedMine
+                        KindOf = MINE IMMOBILE
+                        Body = ActiveBody Health
+                            MaxHealth = 100
+                            InitialHealth = 100
+                        End
+                        Behavior = MinefieldBehavior Mines
+                            NumVirtualMines = 8
+                            Regenerates = Yes
+                        End
+                    End",
+                    ),
+                1,
+            );
+            let template = TheThingFactory::find_template("CountedMine").unwrap();
+            let team = Arc::new(RwLock::new(Team::new("MineTeam".into(), 1)));
+            let mine = TheThingFactory::get()
+                .unwrap()
+                .new_object_with_team_handle(template, team)
+                .unwrap();
+            let (mine_id, body, field) = {
+                let mine = mine.read().unwrap();
+                (
+                    mine.get_id(),
+                    mine.get_body_module().unwrap(),
+                    mine.module_by_name(&"MinefieldBehavior".into()).unwrap(),
+                )
+            };
+            // ActiveBody commits health before notifying damage behaviors.
+            let set_health = |health| {
+                let mut body = body.lock().unwrap();
+                let delta = health - body.get_health();
+                body.change_health_for_borrowed_owner(delta, false).unwrap();
+            };
+            field
+                .with_module_downcast::<MinefieldBehaviorModule, _, _>(|module| {
+                    let behavior = module.behavior_mut();
+                    assert_eq!(behavior.virtual_mines_remaining, 8);
+
+                    set_health(50.0);
+                    let mut hit = DamageInfo::with_simple(
+                        50.0,
+                        INVALID_ID,
+                        DamageType::Unresistable,
+                        DeathType::Normal,
+                    );
+                    behavior.on_damage(&mut hit).unwrap();
+                    assert_eq!(behavior.virtual_mines_remaining, 5);
+
+                    set_health(25.0);
+                    let mut hit = DamageInfo::with_simple(
+                        25.0,
+                        INVALID_ID,
+                        DamageType::Unresistable,
+                        DeathType::Normal,
+                    );
+                    behavior.on_damage(&mut hit).unwrap();
+                    assert_eq!(behavior.virtual_mines_remaining, 3);
+
+                    set_health(50.0);
+                    let mut heal = DamageInfo::with_simple(
+                        25.0,
+                        INVALID_ID,
+                        DamageType::Healing,
+                        DeathType::None,
+                    );
+                    behavior.on_healing(&mut heal).unwrap();
+                    assert_eq!(behavior.virtual_mines_remaining, 4);
+
+                    behavior.regenerates = false;
+                    behavior.draining = true;
+                    set_health(12.5);
+                    let mut drain = DamageInfo::with_simple(
+                        37.5,
+                        mine_id,
+                        DamageType::Unresistable,
+                        DeathType::Normal,
+                    );
+                    behavior.on_damage(&mut drain).unwrap();
+                    assert_eq!(behavior.virtual_mines_remaining, 2);
+                })
+                .unwrap();
+            let mine = mine.read().unwrap();
+            assert_eq!(mine.get_health(), 12.5);
+            assert!(!mine.test_status(ObjectStatusTypes::Masked));
+            assert!(!mine.is_destroyed());
+        });
     }
 }
