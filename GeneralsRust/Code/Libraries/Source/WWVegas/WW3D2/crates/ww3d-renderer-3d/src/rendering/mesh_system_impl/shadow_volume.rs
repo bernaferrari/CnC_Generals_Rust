@@ -240,7 +240,8 @@ impl ShadowVolumeRenderer {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: depth_format,
                 depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Less),
+                // W3DVolumetricShadowManager::renderShadows uses D3DCMP_LESSEQUAL.
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState {
                     front: face(wgpu::StencilOperation::IncrementWrap),
                     back: face(wgpu::StencilOperation::DecrementWrap),
@@ -443,6 +444,172 @@ mod tests {
             positions: p.iter().map(|v| Vec3::from_array(*v)).collect(),
             triangles,
             edges,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "requires a native GPU adapter"]
+    fn stencil_shadow_accepts_an_equal_depth_receiver() {
+        use super::super::{W3dTriangleStruct, W3dVectorStruct};
+
+        let instance = wgpu::Instance::default();
+        let adapter =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+                .expect("shadow volume test requires a GPU adapter");
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                .expect("shadow volume test requires a GPU device");
+        let color_format = wgpu::TextureFormat::Rgba8Unorm;
+        let depth_format = wgpu::TextureFormat::Depth24PlusStencil8;
+        let extent = wgpu::Extent3d {
+            width: 16,
+            height: 8,
+            depth_or_array_layers: 1,
+        };
+        let texture = |label, format, usage| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: extent,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage,
+                view_formats: &[],
+            })
+        };
+        let color = texture(
+            "shadow volume receiver color",
+            color_format,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        );
+        let depth = texture(
+            "shadow volume receiver depth and stencil",
+            depth_format,
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+        );
+        let color_view = color.create_view(&Default::default());
+        let depth_view = depth.create_view(&Default::default());
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shadow receiver pixels"),
+            size: 256 * u64::from(extent.height),
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut renderer = ShadowVolumeRenderer::new(&device, color_format, depth_format);
+        let mut model = MeshModelClass::new("stencil-receiver-caster");
+        let geometry = cube();
+        model.vertices = geometry
+            .positions
+            .into_iter()
+            .map(|p| W3dVectorStruct {
+                x: p.x,
+                y: p.y,
+                z: p.z,
+            })
+            .collect();
+        model.triangles = geometry
+            .triangles
+            .into_iter()
+            .map(|vindex| W3dTriangleStruct {
+                vindex,
+                attributes: 0,
+                normal: W3dVectorStruct {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                distance: 0.0,
+            })
+            .collect();
+        let mut mesh = MeshClass::new();
+        mesh.model = Some(Arc::new(model));
+        mesh.transform = Mat4::from_scale_rotation_translation(
+            Vec3::new(1.0, 1.0, 0.25),
+            glam::Quat::IDENTITY,
+            Vec3::new(-0.5, 0.25, -0.125),
+        );
+        // Identity projects the near volume wall outside clip space and the
+        // other to depth 1/8. The center pixel intersects only that wall.
+        let casters = [Arc::new(mesh)];
+        for (receiver, shade) in [(0.25, 160), (0.0625, 255), (0.125, 160)] {
+            let mut encoder = device.create_command_encoder(&Default::default());
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("stencil shadow and receiver"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &color_view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(receiver),
+                            store: wgpu::StoreOp::Discard,
+                        }),
+                        stencil_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0),
+                            store: wgpu::StoreOp::Discard,
+                        }),
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                assert_eq!(
+                    renderer.record(
+                        &device,
+                        &queue,
+                        &mut pass,
+                        &casters,
+                        Mat4::IDENTITY,
+                        -Vec3::Y
+                    ),
+                    4
+                );
+            }
+            encoder.copy_texture_to_buffer(
+                color.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &readback,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(256),
+                        rows_per_image: Some(extent.height),
+                    },
+                },
+                extent,
+            );
+            queue.submit([encoder.finish()]);
+            let (complete, received) = std::sync::mpsc::channel();
+            let slice = readback.slice(..);
+            slice.map_async(wgpu::MapMode::Read, move |result| {
+                complete.send(result).unwrap()
+            });
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            received.recv().unwrap().unwrap();
+            {
+                let pixels = slice.get_mapped_range().unwrap();
+                let row = 4 * 256;
+                let inside = row + 8 * 4;
+                assert_eq!(
+                    &pixels[row..row + 4],
+                    &[255, 255, 255, 255],
+                    "outside the volume"
+                );
+                assert_eq!(
+                    &pixels[inside..inside + 4],
+                    &[shade, shade, shade, 255],
+                    "receiver depth {receiver}"
+                );
+            }
+            readback.unmap();
         }
     }
 
