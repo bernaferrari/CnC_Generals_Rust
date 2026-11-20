@@ -126,8 +126,8 @@ fn stage(
 }
 /// [`stage`] for a client save: its CHUNK_ParticleSystem companion needs the
 /// detached native presentation owner the application stages with (the same
-/// GPU receiver `staged_restore_tests` builds). The candidate is discarded
-/// once staged; these witnesses observe the restored logic world.
+/// GPU receiver `staged_restore_tests` builds). Release its presentation
+/// resources before the fixture installs the staged logic world.
 #[cfg(feature = "game_client")]
 fn stage_native(
     m: &mut SaveFileManager,
@@ -190,6 +190,24 @@ fn stage_native(
 ) -> Result<StagedRestoreWorld, RestoreStagingFailure> {
     stage(m, slot, w)
 }
+
+fn restore_fixture_native(
+    saves: &mut SaveFileManager,
+    slot: &str,
+    live: &mut Box<GameLogic>,
+) -> Box<GameLogic> {
+    let StagedRestoreWorld {
+        mut logic,
+        runtime_world,
+        ..
+    } = stage_native(saves, slot, live).unwrap();
+    logic.finish_saved_snapshot_admission().unwrap();
+    let committed = runtime_world.preflight_native().unwrap().install_globals();
+    let previous = std::mem::replace(live, Box::new(logic));
+    committed.finish_after_logic_commit();
+    previous
+}
+
 fn rewrite_logic(path: &std::path::Path, change: impl FnOnce(&mut WorldSnapshot)) {
     let input = std::fs::read(path).unwrap();
     let mut pos = 0;
@@ -258,7 +276,7 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
     isolated(
         "direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_coverage",
         || {
-            let mut source = world();
+            let mut source = Box::new(world());
             let initial = source.initial_skirmish_admission.as_ref().unwrap().clone();
             // Exercise the real SnapshotBuilder SINI branch with a nonunit
             // Drawable scale, not merely a default WorldSnapshot version tag.
@@ -319,10 +337,16 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
                 crate::save_load::snapshot::WORLD_SNAPSHOT_BINCODE_VERSION,
                 "the actual encoded save retains current capability"
             );
-            let restored = stage_native(&mut saves, "direct", &source).unwrap();
+            let expected_definitions = definitions(&source);
+            assert!(expected_definitions
+                .iter()
+                .any(|(name, _)| name == "teamSkirmishGLA1"));
+            // The detached token owns TeamFactory until the same checked
+            // commit that installs the restored GameLogic.
+            let previous = restore_fixture_native(&mut saves, "direct", &mut source);
+            let restored = source.as_ref();
             assert_eq!(
                 restored
-                    .logic
                     .host_object(scaled)
                     .unwrap()
                     .drawable_instance_scale,
@@ -330,9 +354,10 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
                 "SINI save/restore must not admit an absolute scale as an old multiplier"
             );
 
-            assert_eq!(definitions(&restored.logic), definitions(&source));
-            for (id, player) in source.get_players() {
-                let loaded = restored.logic.get_player(*id).unwrap();
+            assert_eq!(definitions(restored), expected_definitions);
+            assert_eq!(definitions(&previous), expected_definitions);
+            for (id, player) in previous.get_players() {
+                let loaded = restored.get_player(*id).unwrap();
                 assert_eq!(loaded.color_rgb, player.color_rgb);
                 assert_eq!(loaded.color_night_rgb, player.color_night_rgb);
                 assert_eq!(loaded.start_position, player.start_position);
@@ -342,31 +367,47 @@ fn direct_config_archive_rebuilds_saved_initial_foundation_before_strict_map_cov
                     player.map_side.map_player_name
                 );
                 assert_eq!(loaded.map_side.role, player.map_side.role);
-                assert_eq!(restored.logic.is_local_player(*id), source.is_local_player(*id));
+                assert_eq!(restored.is_local_player(*id), previous.is_local_player(*id));
             }
             assert_eq!(
-                restored.logic.host_objects().registered_len(),
-                source.host_objects().registered_len()
+                restored.host_objects().registered_len(),
+                previous.host_objects().registered_len()
             );
             assert_eq!(
-                restored.logic.get_player(0).unwrap().name,
+                restored.get_player(0).unwrap().name,
                 "Changed after admission"
             );
             assert_eq!(
-                restored.logic.get_player(0).unwrap().resources.supplies,
+                restored.get_player(0).unwrap().resources.supplies,
                 123
             );
             assert_eq!(
-                restored.logic.initial_skirmish_admission.as_deref(),
+                restored.initial_skirmish_admission.as_deref(),
                 Some(initial.as_ref())
             );
             assert_eq!(
-                source.initial_skirmish_admission.as_deref(),
+                previous.initial_skirmish_admission.as_deref(),
                 Some(initial.as_ref())
             );
         },
     );
 }
+
+#[cfg(feature = "game_client")]
+fn assert_client_setup_has_no_played_record(
+    boot: &crate::parallel_harness::RetailWorldDefinitions,
+    config: &crate::skirmish_config::SkirmishMatchConfig,
+    expected_map: &str,
+) {
+    let mut world = retail_world_from(boot);
+    apply_skirmish_config(&mut world, config).unwrap();
+    let initial = world.initial_skirmish_admission.as_ref().unwrap();
+    assert!(initial.source.is_none());
+    assert!(initial.local_slot_from_client);
+    assert_eq!(initial.local_slot, Some(0));
+    assert_eq!(initial.config.map, expected_map);
+}
+
 #[cfg(feature = "game_client")]
 #[test]
 fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_round_trip() {
@@ -380,7 +421,7 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
             ));
             // The lobby selects by index in the receiving world's PlayerTemplate
             // catalog and colors from its Multiplayer palette.
-            let mut source = retail_world_from(&boot);
+            let mut source = Box::new(retail_world_from(&boot));
             let catalog = source.player_template_definitions.as_ref().unwrap();
             let usa = catalog.find_template_index("FactionAmerica").unwrap() as i32;
             let gla = catalog.find_template_index("FactionGLA").unwrap() as i32;
@@ -415,20 +456,7 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                 crate::skirmish_config::config_from_client_skirmish_setup(&lobby.lock().unwrap(), None, &palette).unwrap();
             let observed = &before_start.source_game_info.as_ref().unwrap().0;
             assert!(!observed.in_game && !observed.in_progress);
-            let mut native_pre_start = retail_world_from(&boot);
-            apply_skirmish_config(&mut native_pre_start, &before_start).unwrap();
-            let initial = native_pre_start
-                .initial_skirmish_admission
-                .as_ref()
-                .unwrap();
-            assert!(
-                initial.source.is_none(),
-                "pre-start lobby must not become an original played-match record"
-            );
-            assert!(initial.local_slot_from_client);
-            assert_eq!(initial.local_slot, Some(0));
-            assert_eq!(initial.config.map, map);
-            drop(native_pre_start);
+            assert_client_setup_has_no_played_record(&boot, &before_start, &map);
             {
                 let setup_handle = std::sync::Arc::clone(&lobby);
 
@@ -452,17 +480,7 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                 overridden.map,
                 overridden.source_game_info.as_ref().unwrap().0.map_name
             );
-            let mut overridden_world = retail_world_from(&boot);
-            apply_skirmish_config(&mut overridden_world, &overridden).unwrap();
-            let overridden_initial = overridden_world
-                .initial_skirmish_admission
-                .as_ref()
-                .unwrap();
-            assert!(overridden_initial.source.is_none());
-            assert_eq!(overridden_initial.config.map, "Lone Eagle");
-            assert!(overridden_initial.local_slot_from_client);
-            assert_eq!(overridden_initial.local_slot, Some(0));
-            drop(overridden_world);
+            assert_client_setup_has_no_played_record(&boot, &overridden, "Lone Eagle");
             apply_skirmish_config(&mut source, &config).unwrap();
             assert!(source.load_map(&map));
             let initial = source.initial_skirmish_admission.as_ref().unwrap().clone();
@@ -500,14 +518,15 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
             let mut saves = SaveFileManager::with_save_directory(dir.path());
             saves.init().unwrap();
             save(&mut saves, "client", &source);
-            let restored = stage_native(&mut saves, "client", &source).unwrap();
+            let expected_definitions = definitions(&source);
+            let previous = restore_fixture_native(&mut saves, "client", &mut source);
+            let restored = source.as_ref();
             assert_eq!(
-                restored.logic.initial_skirmish_admission.as_deref(),
+                restored.initial_skirmish_admission.as_deref(),
                 Some(initial.as_ref())
             );
             assert_eq!(
                 restored
-                    .logic
                     .initial_skirmish_admission
                     .as_ref()
                     .unwrap()
@@ -515,15 +534,12 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                     .as_ref(),
                 Some(&original)
             );
-            assert_eq!(definitions(&restored.logic), definitions(&source));
-            assert_eq!(
-                restored.logic.get_player(0).unwrap().resources.supplies,
-                19000
-            );
-            // A staged world's physical geometry now lives in Save. Re-saving
+            assert_eq!(definitions(restored), expected_definitions);
+            assert_eq!(restored.get_player(0).unwrap().resources.supplies, 19000);
+            // The restored world's physical geometry now lives in Save. Re-saving
             // retains the genuine initial logical map rather than recapturing
             // it from that scratch path or silently dropping the source record.
-            save(&mut saves, "client_resaved", &restored.logic);
+            save(&mut saves, "client_resaved", restored);
             let crate::save_load::DecodedGameSave {
                 snapshot: resaved, ..
             } = saves.load_game_snapshot("client_resaved").unwrap();
@@ -533,13 +549,10 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
             assert_eq!(resaved_initial.source.as_ref(), Some(&original));
             assert_eq!(resaved_initial.config.map, initial.config.map);
             assert_eq!(resaved_initial.local_slot, initial.local_slot);
-            // A pending Core-world candidate retains its staging reservation.
-            // Complete this observation before asking for another candidate.
-            drop(restored);
             // Keep the actual original GameStateMap suffix, remove only the
             // port-added capsule: receiving definition admission must derive
             // from that genuine record, never the currently published lobby.
-            save(&mut saves, "source_only", &source);
+            save(&mut saves, "source_only", &previous);
             rewrite_logic(&saves.get_save_path("source_only"), |w| {
                 let end = w.lifecycle_tail.len();
                 assert_eq!(&w.lifecycle_tail[end - 4..], b"SINI");
@@ -563,11 +576,11 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                 crate::save_load::snapshot::initial_skirmish::source(&original_snapshot).unwrap(),
                 Some(original.clone())
             );
-            let imported = stage(&mut saves, "source_only", &source).unwrap();
-            assert_eq!(definitions(&imported.logic), definitions(&source));
+            restore_fixture_native(&mut saves, "source_only", &mut source);
+            let imported = source.as_ref();
+            assert_eq!(definitions(imported), expected_definitions);
             assert_eq!(
                 imported
-                    .logic
                     .initial_skirmish_admission
                     .as_ref()
                     .unwrap()
@@ -575,10 +588,7 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                     .as_ref(),
                 Some(&original)
             );
-            assert_eq!(
-                imported.logic.get_player(0).unwrap().resources.supplies,
-                19000
-            );
+            assert_eq!(imported.get_player(0).unwrap().resources.supplies, 19000);
         },
     );
 }
@@ -666,7 +676,7 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
             ));
             // The lobby selects by index in the receiving world's PlayerTemplate
             // catalog and colors from its Multiplayer palette.
-            let mut source = retail_world_from(&boot);
+            let mut source = Box::new(retail_world_from(&boot));
             let catalog = source.player_template_definitions.as_ref().unwrap();
             let usa = catalog.find_template_index("FactionAmerica").unwrap() as i32;
             let gla = catalog.find_template_index("FactionGLA").unwrap() as i32;
@@ -814,23 +824,25 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
                     .unwrap()
                     .is_none()
             );
-            let restored = stage_native(&mut saves, "random_color", &source).unwrap();
-            assert_eq!(restored.logic.local_player_id(), Some(1));
-            assert!(!restored.logic.is_local_player(0));
-            assert!(restored.logic.is_local_player(1));
+            let expected_definitions = definitions(&source);
+            let previous = restore_fixture_native(&mut saves, "random_color", &mut source);
+            let restored = source.as_ref();
+            assert_eq!(restored.local_player_id(), Some(1));
+            assert!(!restored.is_local_player(0));
+            assert!(restored.is_local_player(1));
             assert_eq!(
-                restored.logic.initial_skirmish_admission.as_deref(),
-                source.initial_skirmish_admission.as_deref()
+                restored.initial_skirmish_admission.as_deref(),
+                previous.initial_skirmish_admission.as_deref()
             );
             for (id, color, night) in expected_colors {
-                assert_eq!(restored.logic.get_player(id).unwrap().color_rgb, color);
+                assert_eq!(restored.get_player(id).unwrap().color_rgb, color);
                 assert_eq!(
-                    restored.logic.get_player(id).unwrap().color_night_rgb,
+                    restored.get_player(id).unwrap().color_night_rgb,
                     night,
                     "save continuation preserves admitted night color"
                 );
             }
-            assert_eq!(definitions(&restored.logic), definitions(&source));
+            assert_eq!(definitions(restored), expected_definitions);
             assert_eq!(persisted(&peer), peer_before);
             let before = persisted(&source);
             save(&mut saves, "unresolved_original", &source);
