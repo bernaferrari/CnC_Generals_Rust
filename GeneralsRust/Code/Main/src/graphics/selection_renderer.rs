@@ -788,13 +788,20 @@ impl SelectionRenderer {
 /// then `W3DModelDraw::setFullyObscuredByShroud` → `enableShadowInvisible`.
 /// Fogged ghosts and black-shrouded units cast no disc.
 fn blob_shadow_visible_through_shroud(u: &crate::presentation_frame::UnitRenderInput) -> bool {
+    shadow_visible_through_shroud(u.drawable_shroud, u.fow_visibility)
+}
+
+pub(super) fn shadow_visible_through_shroud(
+    shroud: crate::presentation_frame::PresentationDrawableShroudFacts,
+    visibility: crate::fow_rendering::ObjectVisibility,
+) -> bool {
     use crate::presentation_frame::PresentationObjectShroudStatus;
-    if u.drawable_shroud.lifetime.is_direct_host_object()
-        && (u.drawable_shroud.raw_status as u8) >= (PresentationObjectShroudStatus::Fogged as u8)
+    if shroud.lifetime.is_direct_host_object()
+        && (shroud.raw_status as u8) >= (PresentationObjectShroudStatus::Fogged as u8)
     {
         return false;
     }
-    !u.fow_visibility.fully_obscures_drawable()
+    !visibility.fully_obscures_drawable()
 }
 
 /// C++ projected/volumetric shadows drape the heightmap at object XY; object Z unused.
@@ -838,6 +845,13 @@ pub(crate) fn volume_shadow_caster_ids(
 pub fn collect_blob_shadows_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
 ) -> Vec<SelectedUnit> {
+    collect_remaining_blob_shadows(frame, &std::collections::HashSet::new())
+}
+
+fn collect_remaining_blob_shadows(
+    frame: &crate::presentation_frame::PresentationFrame,
+    projected_shadow_ids: &std::collections::HashSet<u32>,
+) -> Vec<SelectedUnit> {
     // C++ addShadow NULL + renderShadows skip when !m_useShadowDecals.
     if !game_engine::common::game_lod::use_shadow_decals() {
         return Vec::new();
@@ -852,6 +866,7 @@ pub fn collect_blob_shadows_from_presentation(
             u.shadow_type_bits != crate::game_logic::host_enum_table_residual::SHADOW_NONE
                 && !casts_volume(u)
         })
+        .filter(|u| !projected_shadow_ids.contains(&u.id.0))
         .map(|u| {
             // The temporary projected shadow approximation uses authored decal
             // size or a bounding extent. Volume casters use the stencil pass.
@@ -1201,6 +1216,7 @@ pub fn enqueue_selection_render(
     drag_rect: Option<DragSelectRect>,
     rmb_scroll_anchor: Option<RmbScrollAnchorOverlay>,
     presentation: Option<&crate::presentation_frame::PresentationFrame>,
+    projected_shadow_ids: &std::collections::HashSet<u32>,
     // Placement ghost / special-power radius / guard area residual circles.
     ground_markers: Vec<SelectedUnit>,
     show_move_lines: bool,
@@ -1219,7 +1235,7 @@ pub fn enqueue_selection_render(
     // Blob discs are the fallback when the forward-pass projected/CSM sample
     // is empty. Planted at unit Y (not world origin) so units do not hover.
     if let Some(frame) = presentation {
-        selected_units.splice(0..0, collect_blob_shadows_from_presentation(frame));
+        selected_units.splice(0..0, collect_remaining_blob_shadows(frame, projected_shadow_ids));
     }
     selected_units.extend(ground_markers);
     pipeline.debug_last_selection_indicators = selection_indicator_count;

@@ -762,6 +762,11 @@ impl IniParser {
                             // must use `locomotor_sets` above.
                             obj.attributes.insert(key.to_string(), value.to_string());
                         }
+                        // W3DModelDraw reads this Object field when allocating its
+                        // shadow; it is not a texture on the model's material.
+                        "shadowtexture" => {
+                            obj.attributes.insert(key.to_string(), value.to_string());
+                        }
                         // Texture references (various formats used in C&C)
                         _ if lower_key.contains("texture") => {
                             obj.textures.insert(key.to_string(), value.to_string());

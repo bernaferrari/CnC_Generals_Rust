@@ -39,6 +39,13 @@ pub(super) fn record(
 
             Ok(())
         }
+        ScopedNativePass::ProjectedDecalShadows => {
+            let render_pass = frame.scene_pass();
+            render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
+            render_pass.set_scissor_rect(vp_x as u32, vp_y as u32, vp_w as u32, vp_h as u32);
+            terrain_visual.record_projected_unit_shadows(render_pass);
+            Ok(())
+        }
         ScopedNativePass::TerrainWater => {
             if frame.depth_view().is_none() {
                 return Ok(());

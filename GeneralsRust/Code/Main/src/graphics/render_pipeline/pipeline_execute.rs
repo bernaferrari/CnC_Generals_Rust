@@ -463,6 +463,7 @@ impl RenderPipeline {
                 }
             }
             let terrain_started = std::time::Instant::now();
+            self.synchronize_native_projected_shadow_casters();
             let motion = self
                 .presentation_frame
                 .as_ref()

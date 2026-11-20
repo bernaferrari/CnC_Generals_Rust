@@ -206,6 +206,7 @@ impl TerrainVisualImpl {
             water_plane: None,
             water_track_meshes: Vec::new(),
             road_meshes: Vec::new(),
+            projected_shadow_gpu: None,
             bridge_meshes: Vec::new(),
             scorch_meshes: Vec::new(),
             scorches: TerrainScorchBuffer::new(),

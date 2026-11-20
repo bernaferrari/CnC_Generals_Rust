@@ -19,6 +19,7 @@ impl TerrainVisualImpl {
         // of binding stale textures (wgpu cross-device bind is invalid).
         self.skybox_textures = [None, None, None, None, None];
         self.road_named_bind_groups.clear();
+        self.projected_shadow_gpu = None;
         self.road_texture = None;
         self.road_sampler = None;
         self.road_texture_bind_group = None;

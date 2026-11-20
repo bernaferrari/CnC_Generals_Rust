@@ -569,39 +569,6 @@ impl GameLogic {
             Self::apply_authored_temporary_weapon_behavior_metadata(&mut template, definition);
             Self::apply_authored_physics_behavior_metadata(&mut template, definition);
             Self::apply_authored_geometry(&mut template, definition);
-            if let Some(sx) = Self::object_definition_attr(definition, "ShadowSizeX")
-                .and_then(|v| v.parse::<f32>().ok())
-            {
-                template.shadow_size_x = sx;
-            }
-            if let Some(sy) = Self::object_definition_attr(definition, "ShadowSizeY")
-                .and_then(|v| v.parse::<f32>().ok())
-            {
-                template.shadow_size_y = sy;
-            }
-            if let Some(shadow) = Self::object_definition_attr(definition, "Shadow") {
-                template.shadow_type =
-                    crate::game_logic::host_enum_table_residual::parse_shadow_type_bits(
-                        shadow.as_str(),
-                    );
-            }
-            if let Some(ox) = Self::object_definition_attr(definition, "ShadowOffsetX")
-                .and_then(|v| v.parse::<f32>().ok())
-            {
-                template.shadow_offset_x = ox;
-            }
-            if let Some(oy) = Self::object_definition_attr(definition, "ShadowOffsetY")
-                .and_then(|v| v.parse::<f32>().ok())
-            {
-                template.shadow_offset_y = oy;
-            }
-            if let Some(tex) = Self::object_definition_attr(definition, "ShadowTexture") {
-                let tex = tex.trim();
-                if !tex.is_empty() && !tex.eq_ignore_ascii_case("none") {
-                    template.shadow_texture = Some(tex.to_string());
-                }
-            }
-
             let primary_texture = texture_hint.or_else(|| definition.get_primary_texture());
             if let Some(texture_name) = primary_texture {
                 let texture_name = texture_name.trim();

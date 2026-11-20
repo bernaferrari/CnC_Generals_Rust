@@ -2186,6 +2186,16 @@ impl CnCGameEngine {
                 .filter(|id| *id != 0);
             #[cfg(not(feature = "game_client"))]
             let hovered_drawable = None;
+            #[cfg(feature = "game_client")]
+            let projected_shadow_ids = {
+                let assets = &self.application_assets;
+                self.render_pipeline.admit_native_projected_shadows(&self.game_logic, |path| {
+                    assets.lock().unwrap_or_else(|error| error.into_inner())
+                        .archive_file_system_mut().open_file_sync(path).ok()
+                })
+            };
+            #[cfg(not(feature = "game_client"))]
+            let projected_shadow_ids = std::collections::HashSet::new();
             crate::graphics::selection_renderer::enqueue_selection_render(
                 &mut self.render_pipeline,
                 &self.game_logic.session_view.camera.view_matrix,
@@ -2193,6 +2203,7 @@ impl CnCGameEngine {
                 drag_rect.filter(|r| r.is_valid()),
                 rmb_scroll_anchor,
                 self.last_presentation_frame.as_deref(),
+                &projected_shadow_ids,
                 ground_markers,
                 self.show_move_lines,
                 self.show_attack_lines,

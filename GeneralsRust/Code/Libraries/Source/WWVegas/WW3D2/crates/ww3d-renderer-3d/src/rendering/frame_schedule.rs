@@ -86,6 +86,7 @@ pub const FRAME_SCHEDULE: [FramePhase; FramePhase::COUNT] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScopedNativePass {
     TerrainGround,
+    ProjectedDecalShadows,
     TerrainWater,
     ClientEffects,
 }

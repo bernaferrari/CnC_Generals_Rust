@@ -75,6 +75,7 @@ include!("impl_gpu.rs");
 include!("impl_pipelines.rs");
 include!("impl_world.rs");
 include!("overlay_gpu.rs");
+include!("projected_shadows.rs");
 include!("river_gpu.rs");
 include!("shroud_gpu.rs");
 include!("traits.rs");

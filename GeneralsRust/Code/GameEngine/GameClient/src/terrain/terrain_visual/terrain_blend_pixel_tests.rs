@@ -287,6 +287,7 @@ fn render_live_terrain_visual_with_transform(
             }), timestamp_writes: None, occlusion_query_set: None, multiview_mask: None,
         });
         visual.record_chunk_draws(&mut pass);
+        visual.record_projected_unit_shadows(&mut pass);
     }
     encoder.copy_texture_to_buffer(target.as_image_copy(), wgpu::TexelCopyBufferInfo {
         buffer: &readback, layout: wgpu::TexelCopyBufferLayout {
@@ -980,4 +981,105 @@ fn receiving_terrain_owners_render_their_own_live_lights_and_restore_static_colo
     a.admit_dynamic_lights(first.scene.lights());
     assert_eq!(baseline, sample(render_live_terrain_visual(&device, &queue, &mut a)));
     assert_eq!(baseline, sample(render_live_terrain_visual(&device, &queue, &mut b)));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
+fn projected_unit_shadow_multiplies_source_color_on_native_terrain() {
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("projected shadow test requires a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("projected shadow test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let classes = [(
+        TerrainSourceTileClass {
+            first_tile: 0,
+            num_tiles: 1,
+            width: 1,
+            name: "ShadowReceiver".to_owned(),
+        },
+        [200; 3],
+    )];
+    let mut visual = live_terrain_visual(
+        &device,
+        &queue,
+        &classes,
+        HeightMap::new(64, 64, 0.0, 1.0),
+        1.0,
+    );
+    let source = std::env::var_os("GENERALS_TEST_WORKER_SHADOW_DDS")
+        .map(|path| std::fs::read(path).expect("read retail ShadowI DDS witness"));
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    let synthetic = image::RgbaImage::from_fn(64, 64, |x, _| {
+        image::Rgba(match x {
+            3..=12 => [242, 236, 230, 255],
+            24..=40 => [136, 128, 112, 0],
+            _ => [255; 4],
+        })
+    });
+    synthetic
+        .write_to(&mut encoded, image::ImageFormat::Tga)
+        .unwrap();
+    let casters = visual.admit_projected_unit_shadows(
+        vec![ProjectedUnitShadow {
+            object_id: 42,
+            transform: Mat4::from_translation(Vec3::new(30.5, 0.0, 1.5)),
+            size: Vec2::splat(14.0),
+            offset: Vec2::ZERO,
+            layer_height: None,
+            texture_name: "ShadowI".into(),
+        }],
+        |path| match path {
+            "Art/Textures/shadowi.dds" => source.clone(),
+            "Art/Textures/shadowi.tga" => Some(encoded.get_ref().clone()),
+            _ => None,
+        },
+    );
+    assert_eq!(casters, HashSet::from([42]));
+    let motion = TerrainVisualMotion {
+        frame: 0,
+        paused: false,
+        gravity: 0.0,
+        breeze: Default::default(),
+    };
+    visual.update_native(motion, None).unwrap();
+    let transform = Mat4::from_cols_array_2d(&[
+        [0.125, 0.0, 0.0, 0.0],
+        [0.0, 0.0, -0.02, 0.0],
+        [0.0, 2.0, 0.0, 0.0],
+        [-3.8125, -3.0, 0.5, 1.0],
+    ]);
+    let pixels = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+    let pixel = |x: usize| -> [u8; 4] {
+        pixels[4 * 256 + x * 4..4 * 256 + x * 4 + 4]
+            .try_into()
+            .unwrap()
+    };
+    let (edge, center) = (pixel(4), pixel(16));
+    assert_eq!(pixel(0), [200, 200, 200, 255]);
+    if source.is_some() {
+        assert!(
+            (98..=112).contains(&center[0]) && (180..=199).contains(&edge[0]),
+            "ShadowI edge {edge:?}, center {center:?}"
+        );
+    } else {
+        assert_eq!(
+            center,
+            [88, 100, 107, 255],
+            "zero texture alpha preserves multiplicative RGB"
+        );
+        assert_eq!(edge, [180, 185, 190, 255]);
+    }
+
+    visual.retain_projected_unit_shadow_casters(|_| None);
+    visual.update_native(motion, None).unwrap();
+    let hidden = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+    let sample = 4 * 256 + 16 * 4;
+    assert_eq!(&hidden[sample..sample + 4], &[200, 200, 200, 255]);
 }

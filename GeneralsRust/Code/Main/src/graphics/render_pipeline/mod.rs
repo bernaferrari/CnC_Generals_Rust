@@ -679,6 +679,8 @@ mod native_terrain_owner;
 pub use native_terrain_owner::append_terrain_prop_model_items;
 #[cfg(feature = "game_client")]
 mod native_terrain_pass;
+#[cfg(feature = "game_client")]
+mod native_projected_shadows;
 
 /// Main render pipeline - equivalent to C++ SAGE RenderPipeline
 pub struct RenderPipeline {

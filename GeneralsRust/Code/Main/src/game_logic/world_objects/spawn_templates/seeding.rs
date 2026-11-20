@@ -629,6 +629,30 @@ impl GameLogic {
         template: &mut ThingTemplate,
         definition: &crate::assets::ObjectDefinition,
     ) {
+        let shadow_number = |key| {
+            Self::object_definition_attr(definition, key).and_then(|value| value.parse::<f32>().ok())
+        };
+        if let Some(size) = shadow_number("ShadowSizeX") {
+            template.shadow_size_x = size;
+        }
+        if let Some(size) = shadow_number("ShadowSizeY") {
+            template.shadow_size_y = size;
+        }
+        if let Some(offset) = shadow_number("ShadowOffsetX") {
+            template.shadow_offset_x = offset;
+        }
+        if let Some(offset) = shadow_number("ShadowOffsetY") {
+            template.shadow_offset_y = offset;
+        }
+        if let Some(shadow) = Self::object_definition_attr(definition, "Shadow") {
+            template.shadow_type =
+                crate::game_logic::host_enum_table_residual::parse_shadow_type_bits(&shadow);
+        }
+        if let Some(texture) = Self::object_definition_attr(definition, "ShadowTexture") {
+            let texture = texture.trim();
+            template.shadow_texture = (!texture.is_empty() && !texture.eq_ignore_ascii_case("none"))
+                .then(|| texture.to_owned());
+        }
         template.turret_spawn_definition =
             Some(crate::game_logic::object::turret_spawn_for_receiving_definition(definition));
         template.armor_definitions.get_or_insert_with(|| {
@@ -1042,4 +1066,37 @@ impl GameLogic {
         let first = player_ids.next()?;
         player_ids.next().is_none().then_some(first)
     }
+}
+
+#[test]
+fn worker_shadow_texture_survives_retail_object_admission_and_partial_refresh() {
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(
+            "Object GLAInfantryWorker\n  Shadow = SHADOW_DECAL\n  ShadowSizeX = 14;\n  ShadowSizeY = 14;\n  ShadowTexture = ShadowI;\nEnd\n",
+            "GLAInfantry.ini",
+        )
+        .unwrap();
+    let definition = parser.get_definition("GLAInfantryWorker").unwrap();
+    assert_eq!(definition.get_primary_texture(), None);
+    let mut template =
+        GameLogic::build_template_from_object_definition("GLAInfantryWorker", definition, None);
+    let assert_shadow = |template: &ThingTemplate| {
+        assert_eq!(
+            template.shadow_type,
+            crate::game_logic::host_enum_table_residual::SHADOW_DECAL,
+        );
+        assert_eq!((template.shadow_size_x, template.shadow_size_y), (14.0, 14.0));
+        assert_eq!(template.shadow_texture.as_deref(), Some("ShadowI"));
+    };
+    assert_shadow(&template);
+    let mut partial = ObjectDefinition::new("GLAInfantryWorker".into());
+    partial.display_name = "Worker alias".into();
+    GameLogic::apply_object_definition_create_overrides(&mut template, &partial);
+    assert_eq!(template.display_name, "Worker alias");
+    assert_shadow(&template);
+
+    let mut existing = ThingTemplate::new("GLAInfantryWorker");
+    GameLogic::apply_authored_template_metadata(&mut existing, definition);
+    assert_shadow(&existing);
 }

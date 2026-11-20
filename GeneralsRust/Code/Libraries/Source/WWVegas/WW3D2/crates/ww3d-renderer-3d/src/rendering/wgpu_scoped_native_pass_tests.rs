@@ -577,6 +577,10 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
         second.send("pre-after").unwrap();
         Ok(())
     });
+    renderer.enqueue_scoped_native_pass(
+        FramePhase::DecalShadows,
+        ScopedNativePass::ProjectedDecalShadows,
+    );
     let third = send.clone();
     renderer.enqueue_frame_work(FramePhase::StaticSort, move |_| {
         third.send("post-before").unwrap();
@@ -593,6 +597,7 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
         native_count += 1;
         send.send(match kind {
             ScopedNativePass::TerrainGround => "ground",
+            ScopedNativePass::ProjectedDecalShadows => "projected shadows",
             ScopedNativePass::TerrainWater => "water",
             ScopedNativePass::ClientEffects => "effects",
         })
@@ -609,6 +614,7 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
             "pre-before",
             "ground",
             "pre-after",
+            "projected shadows",
             "post-before",
             "water",
             "post-after"
@@ -620,6 +626,10 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
         .unwrap();
     assert!(recv.try_iter().next().is_none());
     renderer.enqueue_scoped_native_pass(FramePhase::Terrain, ScopedNativePass::TerrainGround);
+    renderer.enqueue_scoped_native_pass(
+        FramePhase::DecalShadows,
+        ScopedNativePass::ProjectedDecalShadows,
+    );
     renderer.enqueue_scoped_native_pass(FramePhase::StaticSort, ScopedNativePass::TerrainWater);
     renderer.begin_frame().unwrap();
     renderer
@@ -627,11 +637,11 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
         .unwrap();
     assert!(
         recv.try_iter().next().is_none(),
-        "retained scene discards both markers"
+        "retained scene discards all scoped passes"
     );
     drop(scoped);
     assert_eq!(
-        native_count, 2,
+        native_count, 3,
         "scoped handler never escapes its driving frame"
     );
     renderer.enqueue_scoped_native_pass(FramePhase::Terrain, ScopedNativePass::TerrainGround);
