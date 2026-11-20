@@ -14,6 +14,7 @@ impl GameWorldShadow {
         obj: &crate::game_logic::Object,
         eid: EntityId,
         assets: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+        visibility: crate::fow_rendering::ObjectVisibility,
     ) {
         let pos = obj.get_position();
         let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
@@ -28,7 +29,10 @@ impl GameWorldShadow {
         e.idle_since_frame = obj.idle_since_frame;
         e.mood_attack_check_rate = obj.mood_attack_check_rate;
         e.auto_acquire_when_idle = obj.auto_acquire_when_idle();
-        e.attack_priority_set = obj.attack_priority_set.clone().unwrap_or_default();
+        obj.attack_priority_set
+            .as_deref()
+            .unwrap_or_default()
+            .clone_into(&mut e.attack_priority_set);
 
         e.health = health;
         e.transform = transform;
@@ -48,7 +52,10 @@ impl GameWorldShadow {
             e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
         }
         e.is_rebuild_hole = obj.is_rebuild_hole;
-        e.rebuild_template_name = obj.rebuild_template_name.clone().unwrap_or_default();
+        obj.rebuild_template_name
+            .as_deref()
+            .unwrap_or_default()
+            .clone_into(&mut e.rebuild_template_name);
         e.rebuild_ready_frame = obj.rebuild_ready_frame;
         e.rebuild_spawner_id = obj.rebuild_spawner_id.map(|id| id.0);
         e.rebuild_worker_id = obj.rebuild_worker_id.map(|id| id.0);
@@ -67,7 +74,6 @@ impl GameWorldShadow {
         e.user_2 = (obj.model_condition_bits
             & (1u128 << crate::game_logic::host_enum_table_residual::user_2_model_bit()))
             != 0;
-        e.back_crushed = obj.back_crushed;
         e.vision_range = obj.vision_range;
         e.shroud_clearing_range = obj.shroud_clearing_range;
         {
@@ -380,9 +386,6 @@ impl GameWorldShadow {
             e.fwwd_reaction_rubble.clear();
         }
         if let Some(br) = obj.base_regenerate.as_ref() {
-            e.base_regen_active = br.active;
-            e.base_regen_wake_frame = br.wake_frame;
-            e.base_regen_done_sold = br.done_sold;
             e.base_regen_pending_damage = br.pending_damage;
         } else {
             e.base_regen_active = false;
@@ -441,12 +444,19 @@ impl GameWorldShadow {
         e.is_surrendered = obj.is_surrendered;
         e.emoticon_name.clone_from(&obj.emoticon_name);
         e.emoticon_frames_left = obj.emoticon_frames_left;
-        e.damage_fx_name = obj
-            .pending_transition_damage_fx
-            .last()
-            .and_then(|e| e.fx_name.clone());
-        e.bone_fx_name = obj.bone_fx_damage.as_ref().and_then(|b| b.last_fx.clone());
-        e.death_fx_name = obj.pending_death_fx.clone();
+        e.damage_fx_name.clone_from(
+            obj.pending_transition_damage_fx
+                .last()
+                .map(|event| &event.fx_name)
+                .unwrap_or(&None),
+        );
+        e.bone_fx_name.clone_from(
+            obj.bone_fx_damage
+                .as_ref()
+                .map(|bone| &bone.last_fx)
+                .unwrap_or(&None),
+        );
+        e.death_fx_name.clone_from(&obj.pending_death_fx);
         e.formation_id = obj.formation_id;
         e.formation_offset = [obj.formation_offset.x, obj.formation_offset.y];
         e.disguise_transitioning_to = obj.status.disguise_transitioning_to;
@@ -1035,7 +1045,10 @@ impl GameWorldShadow {
         e.guard_retaliate_victim_host = obj.guard_retaliate_victim().map(|id| id.0).unwrap_or(0);
         e.guard_retaliate_anchor = obj.guard_retaliate_anchor().map(|p| [p.x, p.y, p.z]);
         e.path_timestamp = obj.path_timestamp;
-        e.disguise_pending_template = obj.disguise_pending_template.clone().unwrap_or_default();
+        obj.disguise_pending_template
+            .as_deref()
+            .unwrap_or_default()
+            .clone_into(&mut e.disguise_pending_template);
         e.disguise_pending_team_ordinal = obj
             .disguise_pending_team
             .map(|t| match t {
@@ -1054,7 +1067,6 @@ impl GameWorldShadow {
             .unwrap_or(false);
         e.armed = obj.armed_riders_upgrade_weapon_set
             || (!obj.occupants.is_empty() && obj.passengers_allowed_to_fire);
-        e.armor_crate_upgrade = obj.armor_crate_upgrade;
         e.selection_flash_remaining = obj.selection_flash_remaining;
         e.path_waypoints.clear();
         e.path_waypoints
@@ -1081,36 +1093,9 @@ impl GameWorldShadow {
         e.radar_active = obj.radar_active;
         e.mesh_scale =
             crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
-        {
-            use crate::fow_rendering::FOWRenderingBridge;
-            let local_player_id = logic.local_player_id().unwrap_or(0);
-            // C++ PartitionManager parity: every Object has a
-            // controlling player (Object::getControllingPlayer),
-            // and own objects are always inside their own lookers'
-            // radius, so local-player objects stay Clear. The
-            // sparse host registry often leaves owner_player_id
-            // unset; resolve it from the team exactly like
-            // update_main_crate_vision's look pass does.
-            let resolved_owner = obj
-                .owner_player_id
-                .or_else(|| logic.player_id_for_team(obj.team));
-            let vis = if logic.isInShellGame() {
-                crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
-            } else if resolved_owner == Some(local_player_id) {
-                // Always see own force (structures + builders +
-                // army); see presentation_frame/build.rs bypass.
-                crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
-            } else {
-                FOWRenderingBridge::get_object_visibility(
-                    logic.world_services.shroud().lock().ok().as_deref(),
-                    local_player_id,
-                    obj.id,
-                )
-            };
-            e.fow_visibility_alpha = vis.visibility_alpha;
-            e.fow_is_explored = vis.is_explored;
-            e.fow_visibility_falloff = vis.visibility_falloff;
-        }
+        e.fow_visibility_alpha = visibility.visibility_alpha;
+        e.fow_is_explored = visibility.is_explored;
+        e.fow_visibility_falloff = visibility.visibility_falloff;
         {
             let pos = obj.get_position();
             if obj.ground_height_from_terrain {
@@ -1322,8 +1307,14 @@ impl GameWorldShadow {
         e.last_damage_source_host = obj.last_damage_source.map(|id| id.0).unwrap_or(0);
         e.sole_healing_benefactor_id = obj.sole_healing_benefactor.map(|id| id.0);
         e.sole_healing_benefactor_expiration_frame = obj.sole_healing_benefactor_expiration_frame;
-        e.command_set_override = obj.command_set_override.clone().unwrap_or_default();
-        e.disguise_as_template = obj.disguise_as_template.clone().unwrap_or_default();
+        obj.command_set_override
+            .as_deref()
+            .unwrap_or_default()
+            .clone_into(&mut e.command_set_override);
+        obj.disguise_as_template
+            .as_deref()
+            .unwrap_or_default()
+            .clone_into(&mut e.disguise_as_template);
         e.disguise_as_team_ordinal = obj
             .disguise_as_team
             .map(|t| match t {

@@ -315,9 +315,18 @@ impl GameWorldShadow {
     }
 
     pub fn sync_from_host(&mut self, logic: &GameLogic) {
+        use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
+
         self.sync_players(logic);
         let obj_ids = self.sync_object_identities(logic);
         let assets = logic.application_assets();
+        let local_player = logic.local_player_id().unwrap_or(0);
+        let shell = logic.isInShellGame();
+        let shroud = if shell {
+            None
+        } else {
+            logic.world_services.shroud().lock().ok()
+        };
         for oid in obj_ids {
             let Some(obj) = logic.host_object(oid) else {
                 continue;
@@ -325,9 +334,20 @@ impl GameWorldShadow {
             let Some(&eid) = self.host_to_entity.get(&oid.0) else {
                 continue;
             };
-            self.refresh_mapped_from_host(logic, oid, obj, eid, assets.as_deref());
+            // Registered objects missing their controller retain the vision pass's
+            // faction fallback. GameWorld ownership itself uses the explicit ID.
+            let visibility = if shell
+                || obj.owner_player_id.or_else(|| logic.player_id_for_team(obj.team))
+                    == Some(local_player)
+            {
+                ObjectVisibility::FULLY_VISIBLE
+            } else {
+                FOWRenderingBridge::get_object_visibility(shroud.as_deref(), local_player, obj.id)
+            };
+            self.refresh_mapped_from_host(logic, oid, obj, eid, assets.as_deref(), visibility);
             self.sync_weapon_slots_from_host(eid, obj);
         }
+        drop(shroud);
 
         let (map_min, map_max) = logic.world_bounds();
         self.map_min_x = map_min.x;
