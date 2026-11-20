@@ -31,39 +31,46 @@ pub struct PresentationProductionItem {
 }
 
 impl PresentationProductionItem {
-    #[inline]
-    pub fn from_host_item(item: &crate::game_logic::buildings::ProductionItem) -> Self {
-        let ratio = if item.total_time <= 0.0 {
+    fn progress_ratio(progress: f32, total_time: f32) -> f32 {
+        if total_time <= 0.0 {
             1.0
         } else {
-            (item.progress / item.total_time).clamp(0.0, 1.0)
-        };
+            (progress / total_time).clamp(0.0, 1.0)
+        }
+    }
+
+    #[inline]
+    pub fn from_host_item(item: &crate::game_logic::buildings::ProductionItem) -> Self {
         Self {
             template_name: item.template_name.clone(),
             progress: item.progress,
             total_time: item.total_time,
             cost_supplies: item.cost.supplies,
             is_upgrade: item.is_upgrade(),
-            progress_ratio: ratio,
+            progress_ratio: Self::progress_ratio(item.progress, item.total_time),
         }
     }
 
     /// Wave 489: GameWorld entity production queue → presentation strip.
     #[inline]
     pub fn from_entity_item(item: &gamelogic::world::entities::EntityProductionItem) -> Self {
-        let ratio = if item.total_time <= 0.0 {
-            1.0
-        } else {
-            (item.progress / item.total_time).clamp(0.0, 1.0)
-        };
         Self {
             template_name: item.template_name.clone(),
             progress: item.progress,
             total_time: item.total_time,
             cost_supplies: item.cost_supplies,
             is_upgrade: item.is_upgrade,
-            progress_ratio: ratio,
+            progress_ratio: Self::progress_ratio(item.progress, item.total_time),
         }
+    }
+
+    pub(super) fn matches_entity_item(&self, item: &gamelogic::world::entities::EntityProductionItem) -> bool {
+        self.template_name == item.template_name
+            && self.progress == item.progress
+            && self.total_time == item.total_time
+            && self.cost_supplies == item.cost_supplies
+            && self.is_upgrade == item.is_upgrade
+            && self.progress_ratio == Self::progress_ratio(item.progress, item.total_time)
     }
 }
 

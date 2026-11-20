@@ -1,5 +1,5 @@
 //! Complete immutable host kind facts. The compact entity bank is a separate contract.
-use super::{GameLogic, KindOf, PresentationFrame, RenderableObject};
+use super::{KindOf, RenderableObject};
 use crate::game_logic::Object;
 
 // Keep the established snapshot list prefix/order. Remaining actual kinds follow
@@ -69,14 +69,4 @@ pub(super) fn refresh_object_kind_facts(
     renderable.always_selectable = always;
     renderable.reject_unmanned = reject;
     dirty
-}
-
-impl PresentationFrame {
-    pub(super) fn refresh_host_kind_facts(&mut self, logic: &GameLogic) {
-        for renderable in &mut self.objects {
-            if let Some(object) = logic.host_object(renderable.id) {
-                refresh_object_kind_facts(renderable, object);
-            }
-        }
-    }
 }

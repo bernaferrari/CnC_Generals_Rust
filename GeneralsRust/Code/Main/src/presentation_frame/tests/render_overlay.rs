@@ -1026,6 +1026,21 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
+    let entity_id = shadow.entity_for_host(id).expect("shadow entity");
+    let entity = shadow.world_mut().world_mut().entity_mut(entity_id).unwrap();
+    entity.kind_of_bits = (1_u32 << 31) | (1_u32 << 6) | 1;
+    entity.path_waypoints = vec![[2., 0., 4.], [8., 1., 2.]];
+    entity.garrisoned_host_ids = vec![7, 5];
+    entity.production_queue_items = vec![gamelogic::world::entities::EntityProductionItem {
+        template_name: "Upgrade_OverlayParity".into(),
+        progress: 0.5,
+        total_time: 2.,
+        construction_frames: 15,
+        cost_supplies: 80,
+        is_upgrade: true,
+        quantity_total: 1,
+        quantity_produced: 0,
+    }];
     // Poison host after sync — overlay must use shadow residual.
     if let Some((obj, fixture_partition)) = logic.host_object_and_partition_mut(id) {
         obj.set_position_with_partition_owner(
@@ -1054,7 +1069,17 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
     assert!(ro.is_detector && ro.force_attack);
     assert!(!ro.show_health_bar);
     assert!((ro.weapon_range - 120.0).abs() < 0.01);
-    // Deeper residual fields present in overlay path (source honesty).
+    assert_eq!(ro.kind_of, [KindOf::Structure, KindOf::Selectable, KindOf::Harvester]);
+    assert_eq!(ro.path_waypoints, [glam::Vec3::new(2., 0., 4.), glam::Vec3::new(8., 1., 2.)]);
+    assert_eq!(ro.garrisoned_units, [ObjectId(7), ObjectId(5)]);
+    assert_eq!(ro.production_queue.len(), 1);
+    assert_eq!(ro.production_queue[0].template_name, "Upgrade_OverlayParity");
+    assert_eq!(ro.production_queue[0].progress_ratio, 0.25);
+    assert!(ro.production_queue[0].is_upgrade);
+
+    let expected = frame.objects.clone();
+    frame.overlay_gameworld_shadow(&shadow);
+    assert_eq!(frame.objects, expected);
 }
 
 #[test]

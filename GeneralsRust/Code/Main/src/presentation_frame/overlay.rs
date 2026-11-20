@@ -850,13 +850,10 @@ impl PresentationFrame {
                 obj.last_damage_source_host = ent.last_damage_source_host;
                 dirty = true;
             }
-            let disguise = if ent.disguise_as_template.is_empty() {
-                None
-            } else {
-                Some(ent.disguise_as_template.clone())
-            };
-            if obj.disguise_as_template != disguise {
-                obj.disguise_as_template = disguise;
+            let disguise = (!ent.disguise_as_template.is_empty())
+                .then_some(ent.disguise_as_template.as_str());
+            if obj.disguise_as_template.as_deref() != disguise {
+                obj.disguise_as_template = disguise.map(str::to_owned);
                 dirty = true;
             }
             if obj.vision_spied_mask != ent.vision_spied_mask {
@@ -990,13 +987,10 @@ impl PresentationFrame {
                 dirty = true;
             }
             // Path waypoints residual (presentation move lines).
-            let path_wp: Vec<glam::Vec3> = ent
-                .path_waypoints
-                .iter()
-                .map(|p| glam::Vec3::new(p[0], p[1], p[2]))
-                .collect();
-            if obj.path_waypoints != path_wp {
-                obj.path_waypoints = path_wp;
+            let path_wp = ent.path_waypoints.iter().copied().map(glam::Vec3::from_array);
+            if obj.path_waypoints.iter().copied().ne(path_wp.clone()) {
+                obj.path_waypoints.clear();
+                obj.path_waypoints.extend(path_wp);
                 dirty = true;
             }
             if obj.path_len != ent.path_len {
@@ -1014,24 +1008,14 @@ impl PresentationFrame {
             // Production queue head residual.
             // Full production queue residual (not head-only).
             if !ent.production_queue_items.is_empty() {
-                let q: Vec<PresentationProductionItem> = ent
-                    .production_queue_items
-                    .iter()
-                    .map(|p| PresentationProductionItem {
-                        template_name: p.template_name.clone(),
-                        progress: p.progress,
-                        total_time: p.total_time,
-                        cost_supplies: p.cost_supplies,
-                        is_upgrade: p.is_upgrade,
-                        progress_ratio: if p.total_time <= 0.0 {
-                            1.0
-                        } else {
-                            (p.progress / p.total_time).clamp(0.0, 1.0)
-                        },
+                let items = &ent.production_queue_items;
+                if obj.production_queue.len() != items.len()
+                    || obj.production_queue.iter().zip(items).any(|(current, item)| {
+                        !current.matches_entity_item(item)
                     })
-                    .collect();
-                if obj.production_queue != q {
-                    obj.production_queue = q;
+                {
+                    obj.production_queue.clear();
+                    obj.production_queue.extend(items.iter().map(PresentationProductionItem::from_entity_item));
                     dirty = true;
                 }
                 if obj.production_paused != ent.production_paused {
@@ -1107,14 +1091,14 @@ impl PresentationFrame {
                 obj.contained_by = contained;
                 dirty = true;
             }
-            let garrisoned: Vec<crate::game_logic::ObjectId> = ent
+            let garrisoned = ent
                 .garrisoned_host_ids
                 .iter()
                 .copied()
-                .map(crate::game_logic::ObjectId)
-                .collect();
-            if obj.garrisoned_units != garrisoned {
-                obj.garrisoned_units = garrisoned;
+                .map(ObjectId);
+            if obj.garrisoned_units.iter().copied().ne(garrisoned.clone()) {
+                obj.garrisoned_units.clear();
+                obj.garrisoned_units.extend(garrisoned);
                 dirty = true;
             }
             // Disabled residual (any host disable flag).
@@ -1137,51 +1121,11 @@ impl PresentationFrame {
             }
             // KindOf bitset residual → presentation ORDER vector.
             {
-                use crate::game_logic::KindOf;
-                const ORDER: &[KindOf] = &[
-                    KindOf::Structure,
-                    KindOf::Infantry,
-                    KindOf::Vehicle,
-                    KindOf::Aircraft,
-                    KindOf::Projectile,
-                    KindOf::Resource,
-                    KindOf::Selectable,
-                    KindOf::Attackable,
-                    KindOf::CommandCenter,
-                    KindOf::Worker,
-                    KindOf::Hero,
-                    KindOf::SupplyCenter,
-                    KindOf::PowerPlant,
-                    KindOf::FSBarracks,
-                    KindOf::FSWarFactory,
-                    KindOf::FSAirfield,
-                    KindOf::FSInternetCenter,
-                    KindOf::FSPower,
-                    KindOf::FSBaseDefense,
-                    KindOf::FSSupplyDropzone,
-                    KindOf::FSSupplyCenter,
-                    KindOf::FSSuperweapon,
-                    KindOf::FSStrategyCenter,
-                    KindOf::FSFake,
-                    KindOf::FSTechnology,
-                    KindOf::FSBlackMarket,
-                    KindOf::FSAdvancedTech,
-                    KindOf::Harvestable,
-                    KindOf::Powered,
-                    KindOf::IgnoredInGui,
-                    // Must remain aligned with Object::presentation_kind_of_bits.
-                    KindOf::Dozer,
-                    KindOf::Harvester,
-                ];
-                let mut v: Vec<KindOf> = ORDER
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, _)| ent.kind_of_bits & (1u32 << i) != 0)
-                    .map(|(_, k)| *k)
-                    .collect();
-                v.truncate(32);
-                if obj.kind_of != v {
-                    obj.kind_of = v;
+                let kinds = Self::kinds_from_presentation_bits(ent.kind_of_bits);
+                if obj.kind_of.iter().copied().ne(kinds) {
+                    obj.kind_of.clear();
+                    obj.kind_of
+                        .extend(Self::kinds_from_presentation_bits(ent.kind_of_bits));
                     dirty = true;
                 }
                 if obj.unattackable != ent.unattackable {
@@ -1223,16 +1167,14 @@ impl PresentationFrame {
                     obj.hacker_disable_building_ready = ent.hacker_disable_building_ready;
                     dirty = true;
                 }
-                let special_power_ready_template_name =
-                    (!ent.special_power_ready_template_name.is_empty())
-                        .then(|| ent.special_power_ready_template_name.clone());
-                if obj.special_power_ready_template_name != special_power_ready_template_name {
-                    obj.special_power_ready_template_name = special_power_ready_template_name;
+                let special_power_ready_template_name = (!ent.special_power_ready_template_name.is_empty())
+                    .then_some(ent.special_power_ready_template_name.as_str());
+                if obj.special_power_ready_template_name.as_deref() != special_power_ready_template_name {
+                    obj.special_power_ready_template_name = special_power_ready_template_name.map(str::to_owned);
                     dirty = true;
                 }
-                let special_power_ready_template_id =
-                    (!ent.special_power_ready_template_name.is_empty())
-                        .then_some(ent.special_power_ready_template_id);
+                let special_power_ready_template_id = special_power_ready_template_name
+                    .map(|_| ent.special_power_ready_template_id);
                 if obj.special_power_ready_template_id != special_power_ready_template_id {
                     obj.special_power_ready_template_id = special_power_ready_template_id;
                     dirty = true;
@@ -1289,9 +1231,9 @@ impl PresentationFrame {
     /// Fail-closed: not full build_from_logic parity (weapons, FOW grid, FX, etc.).
 
     /// Wave 490: decode entity `kind_of_bits` using host presentation ORDER residual.
-    fn kind_of_list_from_presentation_bits(bits: u32) -> Vec<crate::game_logic::KindOf> {
+    fn kinds_from_presentation_bits(mut bits: u32) -> impl Iterator<Item = crate::game_logic::KindOf> {
         use crate::game_logic::KindOf;
-        const ORDER: &[KindOf] = &[
+        const ORDER: [KindOf; u32::BITS as usize] = [
             KindOf::Structure,
             KindOf::Infantry,
             KindOf::Vehicle,
@@ -1326,13 +1268,14 @@ impl PresentationFrame {
             KindOf::Dozer,
             KindOf::Harvester,
         ];
-        let mut out = Vec::new();
-        for (i, k) in ORDER.iter().enumerate() {
-            if i < 32 && (bits & (1u32 << i)) != 0 {
-                out.push(*k);
+        std::iter::from_fn(move || {
+            if bits == 0 {
+                return None;
             }
-        }
-        out
+            let index = bits.trailing_zeros() as usize;
+            bits &= bits - 1;
+            Some(ORDER[index])
+        })
     }
 
     pub fn renderable_from_gameworld_entity(
@@ -1417,6 +1360,7 @@ impl PresentationFrame {
             ent.model_condition_bits,
         );
         let model_key = draw_models.first().map(|model| model.model_key.clone());
+        let kind_of: Vec<_> = Self::kinds_from_presentation_bits(ent.kind_of_bits).collect();
         RenderableObject {
             receiving_draw_models: None,
             status_tint: [0.0; 3],
@@ -1600,10 +1544,8 @@ impl PresentationFrame {
             weapons_jammed: ent.weapons_jammed,
             masked: ent.masked,
             unattackable: ent.unattackable,
-            is_force_attackable: Self::kind_of_list_from_presentation_bits(ent.kind_of_bits)
-                .contains(&crate::game_logic::KindOf::ForceAttackable),
-            always_selectable: Self::kind_of_list_from_presentation_bits(ent.kind_of_bits)
-                .contains(&crate::game_logic::KindOf::AlwaysSelectable),
+            is_force_attackable: kind_of.contains(&crate::game_logic::KindOf::ForceAttackable),
+            always_selectable: kind_of.contains(&crate::game_logic::KindOf::AlwaysSelectable),
 
             is_crate: false,
             is_salvage_crate: false,
@@ -1833,7 +1775,7 @@ impl PresentationFrame {
             // Wave 490: guard/mine/kind presentation from GW entity.
             guard_radius: ent.guard_radius,
             has_mine: ent.has_mine_data,
-            kind_of: Self::kind_of_list_from_presentation_bits(ent.kind_of_bits),
+            kind_of,
             is_structure: matches!(ent.object_type_ordinal, 3) || ent.is_building,
             is_unit: matches!(ent.object_type_ordinal, 0 | 1 | 2),
             is_mobile: matches!(ent.object_type_ordinal, 0 | 1 | 2),
@@ -2027,15 +1969,21 @@ impl PresentationFrame {
     ///
     /// GW entities do not yet own TransitionDamageFX / BoneFX / poison tint / defector /
     /// death FX / topple lean. When objects are rebuilt from the entity store, those
-    /// fields would otherwise hard-default. Overlay from the matching host Object by id.
-    /// Fail-closed: not full GameWorld FX ownership / playable_claim.
+    /// fields would otherwise hard-default. Resolve the matching host Object once
+    /// for its FX, kind facts, and receiving Drawable playback identity.
     pub fn overlay_host_fx_residual(&mut self, logic: &GameLogic) -> usize {
         let shroud = logic.world_services.shroud().lock().ok();
+        let shroud_facts = super::build::DirectShroudFrameFacts::freeze(shroud.as_deref(), self.local_player_id);
+        let local_team = logic
+            .get_player(self.local_player_id)
+            .map(|p| p.team)
+            .unwrap_or(crate::game_logic::Team::Neutral);
         let mut stamped = 0usize;
         for ro in &mut self.objects {
             let Some(obj) = logic.host_object(ro.id) else {
                 continue;
             };
+            ro.draw_playback_identity = Some(logic.live_draw_playback_identity(obj));
             let mut dirty = super::kind_facts::refresh_object_kind_facts(ro, obj);
             if ro.special_power_override_destination != obj.special_power_override_destination {
                 ro.special_power_override_destination = obj.special_power_override_destination;
@@ -2045,16 +1993,13 @@ impl PresentationFrame {
                 ro.owner_player_id = obj.owner_player_id;
                 dirty = true;
             }
-            let local_team = logic
-                .get_player(self.local_player_id)
-                .map(|p| p.team)
-                .unwrap_or(crate::game_logic::Team::Neutral);
-            let drawable_shroud = super::build::freeze_direct_object_shroud_facts(
+            let drawable_shroud = super::build::freeze_direct_object_shroud_facts_with_frame_facts(
                 shroud.as_deref(),
                 obj,
                 self.local_player_id,
                 local_team,
                 self.fow_shell_bypass,
+                shroud_facts.as_ref(),
             );
             if ro.drawable_shroud != drawable_shroud {
                 ro.drawable_shroud = drawable_shroud;
@@ -2450,15 +2395,6 @@ impl PresentationFrame {
         n
     }
 
-    fn bind_draw_playback_handles_from_host(&mut self, logic: &GameLogic) {
-        for renderable in &mut self.objects {
-            let Some(object) = logic.host_object(renderable.id) else {
-                continue;
-            };
-            renderable.draw_playback_identity = Some(logic.live_draw_playback_identity(object));
-        }
-    }
-
     /// Build a PresentationFrame whose **object roster** is GameWorld-primary (Wave 193).
     ///
     /// When `host` is provided, non-object presentation residual (world_env, scripts,
@@ -2534,9 +2470,6 @@ impl PresentationFrame {
         };
         let host_objects = std::mem::take(&mut frame.objects);
         let gw_n = frame.rebuild_objects_from_gameworld(shadow);
-        if let Some(logic) = host.as_deref() {
-            frame.bind_draw_playback_handles_from_host(logic);
-        }
         // Wave 838: keep host objects when shadow yields nothing.
         if gw_n == 0 && !host_objects.is_empty() {
             frame.objects = host_objects;
@@ -2651,10 +2584,6 @@ impl PresentationFrame {
                 // Shadow overlay is non-authoritative for containment and can
                 // replace hidden/shared data with an entrance-local roster.
                 let _ = frame.overlay_host_fx_residual(logic);
-                frame.refresh_host_kind_facts(logic);
-                // Shadow-only additions still need the receiving host's frozen
-                // drawable identity before the native roster is collected.
-                frame.bind_draw_playback_handles_from_host(logic);
                 frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow));
                 frame
             }
@@ -2747,14 +2676,9 @@ impl PresentationFrame {
                 // Shadow overlay is non-authoritative for containment and can
                 // replace hidden/shared data with an entrance-local roster.
                 let _ = frame.overlay_host_fx_residual(logic);
-                frame.refresh_host_kind_facts(logic);
             }
             None => {}
         }
-        // Both the rebuilt roster and shadow-only additions can contain
-        // canonical host objects. Freeze their identities after the last
-        // roster mutation, before the native renderer consumes this frame.
-        frame.bind_draw_playback_handles_from_host(logic);
         frame.freeze_drawable_status_tints_from_logic(logic, shadow);
         frame
     }
