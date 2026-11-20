@@ -79,6 +79,17 @@ impl PartialEq for SelectCache {
 }
 
 impl ReceivingDrawModels {
+    #[cfg(feature = "game_client")]
+    pub(crate) fn tank_draw_module_tags(&self) -> impl Iterator<Item = (u32, &str)> {
+        self.modules.iter().enumerate().filter_map(|(index, module)| {
+            let mut declaration = module.declaration.split_whitespace();
+            if !declaration.next()?.eq_ignore_ascii_case("W3DTankDraw") {
+                return None;
+            }
+            Some((index as u32, declaration.next()?))
+        })
+    }
+
     /// Drawable.cpp:436-448 reads ordered classes from its receiving ThingTemplate.
     /// This is authored identity, independent of selected models or GPU residency.
     pub(crate) fn module_class_names(&self) -> std::sync::Arc<Vec<String>> {

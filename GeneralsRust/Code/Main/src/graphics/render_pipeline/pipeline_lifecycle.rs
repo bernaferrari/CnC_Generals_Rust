@@ -27,7 +27,11 @@ impl RenderPipeline {
         client: &game_client::core::game_client::NativeDrawableOwner<'_>,
     ) -> Result<(), String> {
         self.borrow_native_installed_poses()
-            .retire_after_game_client_reset(client)
+            .retire_after_game_client_reset(client)?;
+        if let Some(terrain) = self.native_terrain.as_mut() {
+            terrain.retire_terrain_tracks_after_drawable_reset();
+        }
+        Ok(())
     }
 
     /// Initialize render pipeline - equivalent to C++ RenderPipeline::Initialize()

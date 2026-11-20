@@ -443,6 +443,16 @@ pub(crate) trait NativeViewEffects {
         birth: game_client::core::game_client::NativeDrawableBirthContext,
         content: &mut game_engine::common::thing::module_factory::ModuleFactory,
     ) -> Result<(), String>;
+    #[cfg(feature = "game_client")]
+    fn admit_factory_drawable_with_terrain(
+        &mut self,
+        source: NativeFactoryDrawableSource,
+        birth: game_client::core::game_client::NativeDrawableBirthContext,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+        _terrain: Option<&mut game_client::terrain::terrain_visual::TerrainVisualImpl>,
+    ) -> Result<(), String> {
+        self.admit_factory_drawable(source, birth, content)
+    }
 }
 
 /// Object::~Object retains its original Object/team after GameLogic removed

@@ -567,6 +567,15 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         birth: game_client::core::game_client::NativeDrawableBirthContext,
         content: &mut game_engine::common::thing::module_factory::ModuleFactory,
     ) -> Result<(), String> {
+        self.admit_factory_drawable_with_terrain(source, birth, content, None)
+    }
+    fn admit_factory_drawable_with_terrain(
+        &mut self,
+        source: NativeFactoryDrawableSource,
+        birth: game_client::core::game_client::NativeDrawableBirthContext,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+        terrain: Option<&mut game_client::terrain::terrain_visual::TerrainVisualImpl>,
+    ) -> Result<(), String> {
         use game_client::core::{GameClientError, game_client::PresentationDrawableMutation};
         let NativeFactoryDrawableSource { drawable, render } = source;
         if drawable.host_epoch != self.host_epoch {
@@ -619,6 +628,17 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
                     .unwrap_or_else(|| "completed".into()),
                 renderer_cleanup.err().unwrap_or_else(|| "completed".into())
             ));
+        }
+        // Factory creation installs the default RenderObj before the caller's
+        // first Object placement. The receiving tank module owns the marker.
+        if let Some(terrain) = terrain.filter(|terrain| terrain.track_mark_admission_enabled()) {
+            for (index, tag) in render.receiving_draw_models.tank_draw_module_tags() {
+                let Ok(width) = self.poses.installed_track_width(&render.identity, key, index) else {
+                    continue;
+                };
+                self.drawables.bind_installed_tank_track(key, tag, width, terrain)
+                    .map_err(|error| error.to_string())?;
+            }
         }
         Ok(())
     }
@@ -756,6 +776,9 @@ impl CnCGameEngine {
 #[cfg(all(test, feature = "game_client"))]
 #[path = "native_view_effects_tests.rs"]
 mod tests;
+#[cfg(all(test, feature = "game_client"))]
+#[path = "native_tank_track_admission_tests.rs"]
+mod native_tank_track_admission_tests;
 
 /// Snapshot immutable application constructor policy before lending field owners.
 #[cfg(feature = "game_client")]

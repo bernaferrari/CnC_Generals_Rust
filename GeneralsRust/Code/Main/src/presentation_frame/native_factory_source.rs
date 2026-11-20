@@ -231,7 +231,12 @@ impl GameLogic {
                     id.0
                 ))
             })?;
-            view.admit_factory_drawable(source, birth, content.module_factory_mut())
+            view.admit_factory_drawable_with_terrain(
+                source,
+                birth,
+                content.module_factory_mut(),
+                effects.terrain.as_deref_mut().and_then(|terrain| terrain.track_terrain()),
+            )
                 .map_err(gamelogic::GameLogicError::Configuration)
         }
         #[cfg(not(feature = "game_client"))]

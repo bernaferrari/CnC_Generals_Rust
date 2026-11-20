@@ -502,6 +502,16 @@ impl TerrainTracksRenderObjClassSystem {
         true
     }
 
+    pub(crate) fn retire_receiving_tracks_after_drawable_reset(&mut self) {
+        for &slot in &self.used_modules {
+            let track = &mut self.tracks[slot];
+            if track.receiving_binding.take().is_some() {
+                track.bound = false;
+                track.owner_layer = TerrainTrackLayer::Ground;
+            }
+        }
+    }
+
     /// C++ `unbindTrack`.
     pub fn unbind_track(&mut self, handle: usize) {
         if let Some(track) = self.tracks.get_mut(handle) {

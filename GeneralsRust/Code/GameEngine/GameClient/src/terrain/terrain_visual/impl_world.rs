@@ -528,11 +528,19 @@ impl TerrainVisualImpl {
         self.terrain_tracks.has_receiving_tracks()
     }
 
+    pub fn track_mark_admission_enabled(&self) -> bool {
+        self.height_map.is_some() && self.terrain_tracks.config().make_track_marks
+    }
+
     pub fn retire_terrain_track(
         &mut self,
         binding: &gamelogic::object::draw::client_visual::NativeTerrainTrackBinding,
     ) -> bool {
         self.terrain_tracks.retire_receiving_track(binding)
+    }
+
+    pub fn retire_terrain_tracks_after_drawable_reset(&mut self) {
+        self.terrain_tracks.retire_receiving_tracks_after_drawable_reset();
     }
 
     pub(crate) fn apply_receiving_track_motion(
