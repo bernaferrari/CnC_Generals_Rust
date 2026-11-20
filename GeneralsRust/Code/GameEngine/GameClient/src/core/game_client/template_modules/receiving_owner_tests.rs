@@ -869,3 +869,108 @@ fn receiving_night_restamp_uses_session_bits_but_compatibility_and_snow_remain_c
         "compatibility entry cannot select a different Core client TOD"
     );
 }
+
+#[test]
+fn retained_native_drawable_keeps_template_storage_and_observer_order() {
+    use crate::drawable::Drawable;
+
+    fn installed(client: &GameClient) -> (DrawableId, usize) {
+        let id = client.get_drawable_for_object(42).unwrap();
+        let drawable = &client.drawables.drawable_map[&id];
+        let name = drawable.get_template_name().unwrap();
+        assert_eq!(name, "AmericaTankCrusader");
+        (id, name.as_ptr() as usize)
+    }
+
+    crate::test_support::ensure_ambient_host();
+    let mut content = catalog("FirstOwner");
+    let mut peer_content = catalog("PeerOwner");
+    let plan = admit(
+        &mut content,
+        "Draw = W3DTankDraw TankTag\nTreadAnimationRate = 2.5\nEnd",
+    );
+    let peer_plan = admit(
+        &mut peer_content,
+        "Draw = W3DTankDraw TankTag\nTreadAnimationRate = 7.5\nEnd",
+    );
+    let mut receiver = GameClient::new().unwrap();
+    let mut peer = GameClient::new().unwrap();
+    assert_eq!(
+        receiver
+            .sync_presentation_drawables_observed_with_content(
+                [entry(plan.clone())], 0, &mut content, policy(), |_| {},
+            )
+            .unwrap(),
+        (1, 0, 0)
+    );
+    peer.sync_presentation_drawables_observed_with_content(
+        [entry(peer_plan)], 0, &mut peer_content, policy(), |_| {},
+    )
+    .unwrap();
+    let (id, initial_ptr) = installed(&receiver);
+    let peer_storage = installed(&peer);
+    assert_eq!(id, peer_storage.0, "the instances reuse the same numeric ID");
+    assert_ne!(initial_ptr, peer_storage.1);
+
+    let mut next = entry(plan.clone());
+    next.position = [11.0, 23.0, 37.0];
+    next.orientation = 0.625;
+    let mut phases = Vec::new();
+    let mut transforms = Vec::new();
+    assert_eq!(
+        receiver
+            .sync_presentation_drawables_observed_with_content(
+                [next], 33, &mut content, policy(), |mutation| match mutation {
+                    PresentationDrawableMutation::TransformInstalled { transform, .. } => {
+                        transforms.push(transform.elements);
+                        phases.push("transform");
+                    }
+                    PresentationDrawableMutation::ConditionsMarked { .. } => phases.push("condition"),
+                    _ => panic!("retained tank must not recreate or retire its Drawable"),
+                },
+            )
+            .unwrap(),
+        (0, 1, 0)
+    );
+    assert_eq!(phases, ["transform", "transform", "condition"]);
+    assert_ne!(transforms[0], transforms[1]);
+    let retained = installed(&receiver);
+    assert_eq!(retained.0, id);
+    assert_eq!(
+        retained.1, initial_ptr,
+        "retained authored template must keep its backing allocation"
+    );
+
+    // BasicDrawable::setTemplateName can independently change its local text.
+    // Retain still owns the same installed definition and corrects that drift.
+    receiver
+        .find_drawable_by_id_mut(id)
+        .unwrap()
+        .set_template_name(Some("TemporaryName".to_owned()));
+    assert_eq!(
+        receiver
+            .sync_presentation_drawables_observed_with_content(
+                [entry(plan)], 66, &mut content, policy(), |_| {},
+            )
+            .unwrap(),
+        (0, 1, 0)
+    );
+    assert_eq!(installed(&receiver).0, id);
+
+    let replacement = admit(
+        &mut content,
+        "Draw = W3DTankDraw TankTag\nTreadAnimationRate = 4.5\nEnd",
+    );
+    assert_eq!(
+        receiver
+            .sync_presentation_drawables_observed_with_content(
+                [entry(replacement)], 99, &mut content, policy(), |_| {},
+            )
+            .unwrap(),
+        (1, 0, 0)
+    );
+    assert_ne!(installed(&receiver).0, id);
+    assert_eq!(module_data(&mut receiver).1, 4.5 * (1.0 / 30.0));
+    assert_eq!(installed(&peer), peer_storage);
+    assert_eq!(module_data(&mut peer).1, 7.5 * (1.0 / 30.0));
+}

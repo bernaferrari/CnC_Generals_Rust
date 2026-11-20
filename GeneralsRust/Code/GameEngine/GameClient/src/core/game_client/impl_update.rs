@@ -821,7 +821,7 @@ impl GameClient {
             if !e.resident && !semantic_lifetime {
                 continue;
             }
-            let visual_template_name = Self::presentation_visual_template_name(&e).to_string();
+            let visual_template_name = Self::presentation_visual_template_name(&e);
             let existing_drawable_id = self
                 .drawables
                 .drawable_object_map
@@ -947,9 +947,12 @@ impl GameClient {
                             observe(PresentationDrawableMutation::TerrainPropAdded { source: &e, request });
                         }
                         basic.admit_receiving_time_of_day(receiving_tod);
-                        if !visual_template_name.is_empty() {
+                        // retains_binding already verified the exact admitted definition.
+                        if !visual_template_name.is_empty()
+                            && basic.get_template_name() != Some(visual_template_name)
+                        {
                             basic.set_template_name_with_receiving(
-                                Some(visual_template_name.clone()),
+                                Some(visual_template_name.to_owned()),
                                 match &e.module_admission {
                                     PresentationModuleAdmission::Authored(template) => {
                                         Some(template.clone())
