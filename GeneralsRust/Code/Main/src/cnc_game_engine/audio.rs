@@ -42,7 +42,9 @@ impl CnCGameEngine {
     ) {
         event.script_audio_policy = Some(self.game_logic.queued_audio_events.policy().clone());
         let observer = self.receiving_audio_observer_target();
-        let locality = self.game_logic.receiving_audio_locality(observer);
+        let locality = self
+            .game_logic
+            .receiving_audio_locality(observer, std::slice::from_ref(&event));
         let audio_owner = self
             .subsystem_manager
             .get::<crate::subsystem_manager::AudioManagerSubsystem>();

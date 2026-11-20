@@ -85,11 +85,14 @@ impl GameLogic {
         observer_look_at: Option<i32>,
         audio: Option<&mut dyn super::super::super::NativeAudioEffects>,
     ) -> Vec<crate::game_logic::audio_dispatch_impl::AdmittedAudioRequest> {
-        let locality = self.receiving_audio_locality(observer_look_at);
         self.retry_dropped_ambient_sounds_with_receiving_audio(audio);
+        if self.queued_audio_events.is_empty() {
+            return Vec::new();
+        }
+        let pending = self.queued_audio_events.drain_requests();
+        let locality = self.receiving_audio_locality(observer_look_at, &pending);
         let mut outgoing = Vec::new();
 
-        let pending = self.queued_audio_events.drain_requests();
         for event in pending {
             #[cfg(feature = "game_client")]
             let names = self.resolve_owned_audio_event_names(&event.event_type);
@@ -133,10 +136,18 @@ impl GameLogic {
     pub(crate) fn receiving_audio_locality(
         &self,
         observer_look_at: Option<i32>,
+        requests: &[AudioEventRequest],
     ) -> Option<crate::game_logic::audio_dispatch_impl::LiveAudioLocality> {
         let mut snap = self.receiving_audio_player_locality(observer_look_at)?;
-        for (id, obj) in self.objects.registered() {
-            if let Some(pid) = obj.owner_player_id {
+        // Sound admission only resolves object ownership when the queued
+        // event names an Object and did not already specify a player.
+        let source_ids = requests
+            .iter()
+            .filter(|event| event.player_index.is_none())
+            .filter_map(|event| event.object_id);
+        for id in source_ids {
+            if let Some(pid) = self.objects.get_registered(&id).and_then(|obj| obj.owner_player_id)
+            {
                 snap.object_owners.insert(id.0, pid as i32);
             }
         }
