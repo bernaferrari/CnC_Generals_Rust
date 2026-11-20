@@ -385,6 +385,7 @@ pub struct OverlayGpuState {
     pub shroud_height: i32,
     pub shroud_cell_size: f32,
     pub shroud_origin: [f32; 2],
+    shroud_tint: Option<[u8; 3]>,
     pub river_v_origin: f32,
     pub bump_frame: i32,
     pub water_grid_dirty: bool,

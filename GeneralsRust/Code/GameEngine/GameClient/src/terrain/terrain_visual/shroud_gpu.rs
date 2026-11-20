@@ -135,7 +135,7 @@ impl TerrainVisualImpl {
         self.shroud_gpu.bind_layout = Some(bind_layout);
         self.shroud_gpu.params = Some(device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ST_SHROUD params"),
-            size: 32,
+            size: 48,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }));
@@ -223,6 +223,8 @@ impl TerrainVisualImpl {
             },
             extent,
         );
+        let tint = self.overlay.shroud_tint.unwrap_or([255; 3]);
+        let tint = tint.map(|channel| f32::from(channel) / 255.0);
         let params = [
             self.overlay.shroud_origin[0],
             self.overlay.shroud_origin[1],
@@ -231,6 +233,10 @@ impl TerrainVisualImpl {
             w as f32,
             h as f32,
             0.0,
+            0.0,
+            tint[0],
+            tint[1],
+            tint[2],
             0.0,
         ];
         queue.write_buffer(buf, 0, bytemuck::cast_slice(&params));

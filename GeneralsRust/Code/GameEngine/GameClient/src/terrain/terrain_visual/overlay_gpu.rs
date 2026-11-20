@@ -108,6 +108,7 @@ impl TerrainVisualImpl {
         self.overlay.shroud_height = height;
         self.overlay.shroud_cell_size = cell_size.max(1.0);
         self.overlay.shroud_origin = origin;
+        self.overlay.shroud_tint = None;
         self.overlay.shroud_cells = vec![255u8; (width as usize).saturating_mul(height as usize)];
         self.shroud_gpu.dirty = true;
     }
@@ -118,12 +119,14 @@ impl TerrainVisualImpl {
         self.shroud_gpu.dirty |= self.overlay.shroud_width != 0
             || self.overlay.shroud_height != 0
             || self.overlay.shroud_cell_size != 0.0
-            || self.overlay.shroud_origin != [0.0; 2];
+            || self.overlay.shroud_origin != [0.0; 2]
+            || self.overlay.shroud_tint.is_some();
         self.overlay.shroud_cells.clear();
         self.overlay.shroud_width = 0;
         self.overlay.shroud_height = 0;
         self.overlay.shroud_cell_size = 0.0;
         self.overlay.shroud_origin = [0.0; 2];
+        self.overlay.shroud_tint = None;
     }
 
     /// Bulk-replace the shroud overlay from a presentation R8 payload.
@@ -144,12 +147,26 @@ impl TerrainVisualImpl {
         origin: [f32; 2],
         data: &[u8],
     ) {
+        self.set_projected_shroud_overlay_r8(width, height, cell_size, origin, [255; 3], data);
+    }
+
+    /// Receive W3D's frozen R8 levels and the map's authored shroud color.
+    pub fn set_projected_shroud_overlay_r8(
+        &mut self,
+        width: i32,
+        height: i32,
+        cell_size: f32,
+        origin: [f32; 2],
+        tint: [u8; 3],
+        data: &[u8],
+    ) {
         let width = width.max(0);
         let height = height.max(0);
         let expected = (width as usize).saturating_mul(height as usize);
         if width == 0 || height == 0 || expected == 0 || data.len() < expected {
             return;
         }
+        let tint = (tint != [255; 3]).then_some(tint);
         let same_size = self.overlay.shroud_width == width
             && self.overlay.shroud_height == height
             && self.overlay.shroud_cells.len() == expected;
@@ -158,7 +175,8 @@ impl TerrainVisualImpl {
             && self.overlay.shroud_origin == origin
             && self.overlay.shroud_cells.as_slice() == &data[..expected]
         {
-            // Identical payload: nothing to rebake, nothing to re-upload.
+            self.shroud_gpu.dirty |= self.overlay.shroud_tint != tint;
+            self.overlay.shroud_tint = tint;
             return;
         }
         if !same_size {
@@ -168,6 +186,7 @@ impl TerrainVisualImpl {
             self.overlay.shroud_origin = origin;
         }
         self.overlay.shroud_cells[..expected].copy_from_slice(&data[..expected]);
+        self.overlay.shroud_tint = tint;
         self.shroud_gpu.dirty = true;
     }
 

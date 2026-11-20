@@ -274,3 +274,238 @@ fn track_lod_clears_the_live_ring_before_committing_its_receiving_level() {
     assert!(render.native_terrain().is_none());
     assert_eq!(count(&peer, peer_slot), 2);
 }
+#[test]
+#[ignore = "requires native GPU for the receiving terrain shroud pass"]
+fn terrain_shroud_draw_uses_frozen_border_levels_and_tint() {
+    use crate::fow_rendering::{
+        PresentationFowGrid, ProjectedShroudMetadata, ProjectedShroudSnapshot,
+    };
+    use crate::presentation_frame::PresentationFrame;
+
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 64,
+        height: 64,
+        ..Default::default()
+    })
+    .unwrap();
+    let graphics = {
+        let engine = engine.lock();
+        GraphicsSystem::new(
+            engine.device(),
+            engine.queue(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+        .unwrap()
+    };
+    let mut render = RenderPipeline::initialize(engine, &graphics).unwrap();
+    let mut terrain = visual(0);
+    terrain.set_skybox_enabled(false);
+    let mut water = terrain.water_rules();
+    water.water_type = 0;
+    terrain.admit_water_rules(water);
+    render.install_native_terrain_cpu(Some(terrain));
+    render
+        .hydrate_native_terrain_gpu(&graphics.device_arc(), &graphics.queue_arc())
+        .unwrap();
+    let device = graphics.device_arc();
+    let queue = graphics.queue_arc();
+    let paint = |render: &mut RenderPipeline, frame: Option<PresentationFrame>| {
+        render.set_presentation_frame(frame.map(Rc::new));
+        render.update_minimap_fow_texture().unwrap();
+        terrain_shroud_pixels(render.native_terrain_mut().unwrap(), &device, &queue)
+    };
+    let baseline = paint(&mut render, None);
+
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    frame.fow_shell_bypass = false;
+    frame.fow_grid = PresentationFowGrid {
+        width: 2,
+        height: 2,
+        world_origin_xy: [19.5, 19.5],
+        cell_size: 10.0,
+        cells: vec![
+            PresentationFowGrid::CELL_VISIBLE,
+            PresentationFowGrid::CELL_EXPLORED,
+            PresentationFowGrid::CELL_HIDDEN,
+            PresentationFowGrid::CELL_VISIBLE,
+        ],
+        active: true,
+    };
+    let mut metadata = ProjectedShroudMetadata {
+        shroud_color_rgb: [128, 255, 64],
+        clear_alpha: 255,
+        fog_alpha: 96,
+        shroud_alpha: 24,
+        border_alpha: 80,
+    };
+    frame.projected_shroud = ProjectedShroudSnapshot::from_grid(&frame.fow_grid, metadata);
+    let paint_shroud = paint(&mut render, Some(frame.clone()));
+
+    let check = |pixels: &[[u8; 4]], x: usize, y: usize, fog: u8, fully_lit_weight: f32| {
+        let index = x + y * 64;
+        let source = baseline[index];
+        let actual = pixels[index];
+        let tint_bgr = [64.0, 255.0, 128.0];
+        assert!(
+            source[..3].iter().all(|&channel| channel > 10),
+            "clear terrain at {x},{y}: {source:?}"
+        );
+        for channel in 0..3 {
+            let dimmed = f32::from(fog) * tint_bgr[channel] / (255.0 * 255.0);
+            let factor = fully_lit_weight + dimmed * (1.0 - fully_lit_weight);
+            let expected = (f32::from(source[channel]) * factor).round() as u8;
+            assert!(
+                actual[channel].abs_diff(expected) <= 1,
+                "terrain shroud pixel ({x},{y}) channel {channel}: {actual:?} from {source:?}, expected {expected}"
+            );
+        }
+    };
+    check(&paint_shroud, 8, 24, 80, 0.0); // padded border, outside the logical grid
+    check(&paint_shroud, 24, 24, 255, 1.0); // full clear stays white
+    check(&paint_shroud, 34, 24, 96, 0.0); // authored fog
+    check(&paint_shroud, 24, 34, 24, 0.0); // authored hidden
+    check(&paint_shroud, 29, 24, 96, 0.5); // center of clear/fog bilinear transition
+
+    metadata.border_alpha = 196;
+    frame.projected_shroud = ProjectedShroudSnapshot::from_grid(&frame.fow_grid, metadata);
+    let changed_border = paint(&mut render, Some(frame.clone()));
+    check(&changed_border, 8, 24, 196, 0.0);
+    assert_eq!(changed_border[24 + 24 * 64], paint_shroud[24 + 24 * 64]);
+    frame.fow_shell_bypass = true;
+    assert_eq!(paint(&mut render, Some(frame.clone())), baseline);
+    frame.fow_shell_bypass = false;
+    assert_eq!(paint(&mut render, Some(frame)), changed_border);
+    assert_eq!(paint(&mut render, None), baseline);
+}
+
+fn terrain_shroud_pixels(
+    visual: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> Vec<[u8; 4]> {
+    use game_client::{
+        snow::{SnowManager, SnowRenderState, WeatherSetting},
+        terrain::{BreezeInfo, terrain_visual::TerrainVisualMotion},
+    };
+
+    let snow = SnowRenderState {
+        manager: SnowManager::default(),
+        definition: WeatherSetting::default(),
+    };
+    let view = glam::camera::rh::view::look_at_mat4(
+        Vec3::new(32.0, 100.0, 32.0),
+        Vec3::new(32.0, 0.0, 32.0),
+        Vec3::NEG_Z,
+    );
+    let projection =
+        glam::camera::rh::proj::directx::orthographic(-32.0, 32.0, -32.0, 32.0, 1.0, 200.0);
+    visual
+        .render_native_y_up(&view, &projection, 0.0, &snow, None)
+        .unwrap();
+    visual
+        .update_native(
+            TerrainVisualMotion {
+                paused: false,
+                frame: 31,
+                breeze: BreezeInfo::default(),
+                gravity: -1.0,
+            },
+            None,
+        )
+        .unwrap();
+
+    const ROW: u32 = 64 * 4;
+    let size = wgpu::Extent3d {
+        width: 64,
+        height: 64,
+        depth_or_array_layers: 1,
+    };
+    let attachment = |format, usage| {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("terrain projected shroud fixture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+            view_formats: &[],
+        })
+    };
+    let color = attachment(
+        wgpu::TextureFormat::Bgra8Unorm,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+    );
+    let depth = attachment(
+        wgpu::TextureFormat::Depth24PlusStencil8,
+        wgpu::TextureUsages::RENDER_ATTACHMENT,
+    );
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("terrain projected shroud pixels"),
+        size: u64::from(ROW * size.height),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &color.create_view(&Default::default()),
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &depth.create_view(&Default::default()),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Discard,
+                }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        visual.record_chunk_draws(&mut pass);
+    }
+    encoder.copy_texture_to_buffer(
+        color.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(ROW),
+                rows_per_image: Some(size.height),
+            },
+        },
+        size,
+    );
+    let submitted = queue.submit([encoder.finish()]);
+    let (done, received) = std::sync::mpsc::channel();
+    let slice = readback.slice(..);
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        done.send(result).unwrap()
+    });
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(submitted),
+            timeout: Some(std::time::Duration::from_secs(20)),
+        })
+        .unwrap();
+    received
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    let pixels = slice
+        .get_mapped_range()
+        .unwrap()
+        .chunks_exact(4)
+        .map(|pixel| pixel.try_into().unwrap())
+        .collect();
+    readback.unmap();
+    pixels
+}

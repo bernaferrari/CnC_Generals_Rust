@@ -436,40 +436,31 @@ impl RenderPipeline {
             );
         }
 
-        // C++ W3DShroud second pass: feed the frozen presentation grid into
-        // the terrain shroud overlay (GameClient ST_SHROUD dest texture) so
-        // the GPU shroud passes stop running on the 1x1 clear fallback.
-        // Missing or inactive grids must also retire the previous world's
-        // overlay; otherwise a map transition can retain stale shroud.
+        // The terrain material and Draw shroud use the same frozen W3D mask.
+        // The minimap still uses the unpadded logical grid above.
         #[cfg(feature = "game_client")]
-        {
-            let r8 = self.presentation_terrain_fow_r8();
-            if let Some(visual) = self.native_terrain.as_mut() {
-                if let (Some(grid), Some(r8)) = (grid, r8.as_ref()) {
-                    visual.set_shroud_overlay_r8(
-                        grid.width as i32,
-                        grid.height as i32,
-                        grid.cell_size,
-                        grid.world_origin_xy,
-                        r8,
-                    );
-                } else {
-                    visual.clear_shroud_overlay();
-                }
+        if let Some(visual) = self.native_terrain.as_mut() {
+            let projection = self
+                .presentation_frame
+                .as_ref()
+                .and_then(|frame| frame.terrain_projected_shroud());
+            if let Some(projection) = projection {
+                let cell_size = projection.cell_size_xy[0];
+                // The native mask origin includes W3D's leading border texel.
+                let origin = projection.draw_origin_xy.map(|origin| origin - cell_size);
+                visual.set_projected_shroud_overlay_r8(
+                    projection.texture_width as i32,
+                    projection.texture_height as i32,
+                    cell_size,
+                    origin,
+                    projection.metadata.shroud_color_rgb,
+                    projection.texels.as_slice(),
+                );
+            } else {
+                visual.clear_shroud_overlay();
             }
         }
         Ok(())
-    }
-
-    /// R8 terrain FOW overlay payload from the presentation snapshot (no live shroud).
-    ///
-    /// Fed into `TerrainVisualImpl::set_shroud_overlay_r8` every frame by
-    /// `update_minimap_fow_texture` (the C++ W3DShroud destination-texture
-    /// second pass). Returns `None` when inactive / fail-open (skip upload).
-    pub fn presentation_terrain_fow_r8(&self) -> Option<Vec<u8>> {
-        self.presentation_frame
-            .as_ref()
-            .and_then(|f| f.terrain_fow_r8())
     }
 
     /// Pack presentation laser Line3D segments into a CPU vertex buffer for WGPU.
