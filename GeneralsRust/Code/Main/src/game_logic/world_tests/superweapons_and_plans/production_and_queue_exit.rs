@@ -26,8 +26,6 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
     use gamelogic::common::Relationship;
     use gamelogic::scripting::request_host_skirmish_attack_nearest_group;
 
-    let _ = gamelogic::scripting::take_host_skirmish_attack_nearest_group_requests();
-
     let mut logic = GameLogic::new();
     // Match admission initializes the actual receiving scalar grid before
     // Object births; no process-global partition from another test supplies it.
@@ -119,7 +117,10 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
         obj.vision_range = 1.0;
     }
     logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-    request_host_skirmish_attack_nearest_group("teamUSA1", 4, 50);
+    // The real interpreter queues the action on the driving world's services.
+    logic.with_own_services(|| {
+        request_host_skirmish_attack_nearest_group("teamUSA1", 4, 50);
+    });
     logic.evaluate_and_execute_scripts(0.0);
 
     let after = logic.host_object(attacker).expect("attacker");
