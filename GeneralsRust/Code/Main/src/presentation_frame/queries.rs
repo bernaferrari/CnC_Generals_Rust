@@ -420,40 +420,33 @@ impl PresentationFrame {
             .map(|direct| (direct.object.id, direct))
             .collect();
 
-        let mut inputs: Vec<UnitRenderInput> = self
-            .objects
-            .iter()
-            .filter(|object| mesh_allowed(object, false))
-            .map(|object| {
-                let mut input = make_input(object);
-                if let Some(direct) = direct_visual_templates.get(&object.id) {
-                    apply_visual_template(
-                        &mut input,
-                        &direct.visual_template_name,
-                        direct.visual_mesh_scale,
-                        &direct.receiving_visual_draw_models,
-                    );
-                    input.apply_debris_model_override(direct.debris_model_override.as_deref());
-                }
-                input
-            })
-            .collect();
-        let mut ordinary_input_ids: FxHashSet<ObjectId> =
-            inputs.iter().map(|input| input.id).collect();
-
-        for direct in &self.direct_host_drawables {
-            // A live ordinary row remains the sole mesh source.  This avoids
-            // duplicate meshes when the GameWorld roster retained the entity.
-            if !direct.resident || ordinary_input_ids.contains(&direct.object.id) {
+        let mut inputs = Vec::new();
+        let mut owned_mesh_ids = FxHashSet::default();
+        for object in &self.objects {
+            if object.engine_bridged {
+                // RenderBridge owns this ID even if a host Drawable is resident.
+                owned_mesh_ids.insert(object.id);
                 continue;
             }
-            // If the current ordinary roster delegated this ID to RenderBridge,
-            // the older host-only copy must not reclaim it as a main mesh.
-            if self
-                .objects
-                .iter()
-                .any(|object| object.id == direct.object.id && object.engine_bridged)
-            {
+            if !mesh_allowed(object, false) {
+                continue;
+            }
+            let mut input = make_input(object);
+            if let Some(direct) = direct_visual_templates.get(&object.id) {
+                apply_visual_template(
+                    &mut input,
+                    &direct.visual_template_name,
+                    direct.visual_mesh_scale,
+                    &direct.receiving_visual_draw_models,
+                );
+                input.apply_debris_model_override(direct.debris_model_override.as_deref());
+            }
+            owned_mesh_ids.insert(input.id);
+            inputs.push(input);
+        }
+
+        for direct in &self.direct_host_drawables {
+            if !direct.resident || owned_mesh_ids.contains(&direct.object.id) {
                 continue;
             }
             if !mesh_allowed(&direct.object, true) {
@@ -470,7 +463,7 @@ impl PresentationFrame {
                 &direct.receiving_visual_draw_models,
             );
             input.apply_debris_model_override(direct.debris_model_override.as_deref());
-            ordinary_input_ids.insert(input.id);
+            owned_mesh_ids.insert(input.id);
             inputs.push(input);
         }
         self.append_rally_point_marker_inputs(&mut inputs);

@@ -841,7 +841,7 @@ fn unit_render_inputs_keep_resident_direct_destroyed_drawable_without_duplicate(
         o.health.current = 0.0;
     }
 
-    let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+    let mut snap = PresentationFrame::build_from_logic(&mut logic, 0);
     let inputs = snap.unit_render_inputs();
     assert_eq!(
         inputs.len(),
@@ -877,6 +877,20 @@ fn unit_render_inputs_keep_resident_direct_destroyed_drawable_without_duplicate(
         inputs.iter().all(|i| !i.engine_bridged),
         "engine_bridged residual stays false on host-only path"
     );
+
+    let original_position = direct.object.position;
+    let mut duplicate = direct.clone();
+    duplicate.object.position.x += 20.0;
+    snap.direct_host_drawables.push(duplicate);
+    snap.objects
+        .iter_mut()
+        .find(|object| object.id == alive_id)
+        .unwrap()
+        .engine_bridged = true;
+    let inputs = snap.unit_render_inputs();
+    let emitted: Vec<_> = inputs.iter().map(|input| input.id).collect();
+    assert_eq!(emitted, [other_id, dead_id]);
+    assert_eq!(inputs[1].position, original_position);
 }
 
 #[test]
