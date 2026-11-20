@@ -710,6 +710,9 @@ impl Gadget for PushButton {
     }
 
     fn set_enabled(&mut self, enabled: bool) {
+        if self.enabled == enabled {
+            return;
+        }
         self.enabled = enabled;
         if !enabled {
             self.state = GadgetState::Disabled;
