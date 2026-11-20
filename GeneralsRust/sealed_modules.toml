@@ -61,6 +61,11 @@ cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/castres.h"
 note = "Original constructor, reset, triangle flag values, and 32-bit field layout. Rust convenience methods operate on the same cast output."
 
 [[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/pot.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/pot.cpp"
+note = "Native leading-bit operations match original rounding and exponent results, including zero and the signed high bit. Safe Rust extensions retain previous boundary results."
+
+[[module]]
 path = "Code/Libraries/Source/WWVegas/WWMath/src/line_segment.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/lineseg.cpp"
 note = "Executable original portable geometry comparison; one cached length and six caller-owned RNG draws. Rust initializes defaults and returns zero values for failed intersections."

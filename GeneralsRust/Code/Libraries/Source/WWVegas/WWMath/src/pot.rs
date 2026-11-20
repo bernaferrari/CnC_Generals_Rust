@@ -11,6 +11,8 @@
 ///
 /// This function finds the smallest power of 2 that is greater than or equal
 /// to the input value. If the input is already a power of 2, it returns that value.
+/// The original sign-bit result is retained when the answer is 2³¹.
+/// Negative Rust inputs return 1 because the original signed loop cannot terminate.
 ///
 /// # Arguments
 /// * `val` - The input value to find the closest power of 2 for
@@ -33,34 +35,7 @@ pub fn find_pot(val: i32) -> i32 {
     if val <= 0 {
         return 1;
     }
-
-    let mut val = val as u32;
-    let mut rec_pos = 0;
-    let mut rec_cnt = 0;
-
-    // Walk through the value shifting off bits and record the
-    // position of the highest bit, and whether we have found
-    // more than one bit.
-    for lp in 0..32 {
-        if val & 1 != 0 {
-            rec_pos = lp;
-            rec_cnt += 1;
-        }
-        val >>= 1;
-        if val == 0 {
-            break;
-        }
-    }
-
-    // If we have not found more than one bit then the number
-    // was the power of two so return it.
-    if rec_cnt < 2 {
-        1 << rec_pos
-    } else {
-        // If we found more than one bit, then the number needs to
-        // be rounded up to the next highest power of 2.
-        1 << (rec_pos + 1)
-    }
+    (val as u32).next_power_of_two() as i32
 }
 
 /// Find the log2 of the closest inclusive power of 2 to a value.
@@ -87,37 +62,7 @@ pub fn find_pot(val: i32) -> i32 {
 /// assert_eq!(find_pot_log2(15), 4);    // 2^4 = 16
 /// ```
 pub fn find_pot_log2(val: u32) -> u32 {
-    if val == 0 {
-        return 0;
-    }
-
-    let mut val = val;
-    let mut rec_pos = 0;
-    let mut rec_cnt = 0;
-
-    // Walk through the value shifting off bits and record the
-    // position of the highest bit, and whether we have found
-    // more than one bit.
-    for lp in 0..32 {
-        if val & 1 != 0 {
-            rec_pos = lp;
-            rec_cnt += 1;
-        }
-        val >>= 1;
-        if val == 0 {
-            break;
-        }
-    }
-
-    // If we have not found more than one bit then the number
-    // was the power of two so return it.
-    if rec_cnt < 2 {
-        rec_pos
-    } else {
-        // If we found more than one bit, then the number needs to
-        // be rounded up to the next highest power of 2.
-        rec_pos + 1
-    }
+    u32::BITS - val.saturating_sub(1).leading_zeros()
 }
 
 /// Check if a number is a power of 2.
@@ -141,13 +86,15 @@ pub fn find_pot_log2(val: u32) -> u32 {
 /// assert_eq!(is_power_of_2(0), false);   // 0 is not a power of 2
 /// ```
 pub fn is_power_of_2(val: u32) -> bool {
-    val != 0 && (val & (val - 1)) == 0
+    val.is_power_of_two()
 }
 
 /// Find the next power of 2 greater than the given value.
 ///
 /// Unlike `find_pot`, this function always returns the next higher power of 2,
 /// even if the input is already a power of 2.
+/// The Rust compatibility extension accepts the original signed input range.
+/// Larger input values return 1.
 ///
 /// # Arguments
 /// * `val` - The input value
@@ -165,12 +112,12 @@ pub fn is_power_of_2(val: u32) -> bool {
 /// assert_eq!(next_power_of_2(8), 16);    // Next power after 8 is 16
 /// ```
 pub fn next_power_of_2(val: u32) -> u32 {
-    if val == 0 {
-        return 1;
+    let inclusive = find_pot(val as i32) as u32;
+    if inclusive == val {
+        inclusive << 1
+    } else {
+        inclusive
     }
-
-    let pot = find_pot(val as i32) as u32;
-    if pot == val { pot << 1 } else { pot }
 }
 
 /// Find the previous power of 2 less than or equal to the given value.
@@ -193,22 +140,7 @@ pub fn next_power_of_2(val: u32) -> u32 {
 /// assert_eq!(prev_power_of_2(15), 8);    // 2^3
 /// ```
 pub fn prev_power_of_2(val: u32) -> u32 {
-    if val == 0 {
-        return 0;
-    }
-
-    // Find the position of the highest set bit
-    let mut highest_bit = 0;
-    let mut temp = val;
-
-    while temp > 0 {
-        temp >>= 1;
-        if temp > 0 {
-            highest_bit += 1;
-        }
-    }
-
-    1 << highest_bit
+    val.checked_ilog2().map_or(0, |bit| 1 << bit)
 }
 
 #[cfg(test)]
