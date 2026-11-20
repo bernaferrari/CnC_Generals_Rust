@@ -1,7 +1,7 @@
 //! Synchronous health setters on the driving Object and its one cached body.
 //! C++ ActiveBody.cpp:873-922,930-943,952-1178,1188-1227. No owner is retained.
 use super::body_module::{
-    BodyModuleInterface, BodyResult, MaxHealthChangeType, OwnerHealthTransition,
+    BodyError, BodyModuleInterface, BodyResult, MaxHealthChangeType, OwnerHealthTransition,
     OwnerMaxHealthChange,
 };
 use crate::common::ObjectStatusMaskType;
@@ -172,6 +172,26 @@ impl Object {
             self.finish_body_health_transition_with_owner(&body, transition)?;
         }
         Ok(())
+    }
+
+    /// DozerAIUpdate.cpp:520–526 builds onto the scaffold's current health.
+    pub(crate) fn add_construction_health_with_owner(&mut self, frames: u32) -> BodyResult<()> {
+        let Some(body) = self.get_body_module() else {
+            return Ok(());
+        };
+        let is_structure = self.is_structure();
+        let transition = {
+            let Ok(mut body) = body.lock() else {
+                return Ok(());
+            };
+            let delta = body.get_max_health() / frames as f32;
+            match body.change_health_for_borrowed_owner(delta, is_structure) {
+                Ok(transition) => transition,
+                Err(BodyError::OperationNotSupported) => return body.internal_change_health(delta),
+                Err(error) => return Err(error),
+            }
+        };
+        self.finish_body_health_transition_with_owner(&body, transition)
     }
 
     fn change_body_health_with_owner(&mut self, body: &Body, delta: f32) -> BodyResult<()> {

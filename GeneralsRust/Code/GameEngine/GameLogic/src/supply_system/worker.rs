@@ -1033,75 +1033,96 @@ impl WorkerAIUpdate {
                     if let Ok(mut actor) = owner.write() {
                         actor.set_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
                     }
-                    let frames = if installed {
-                        DozerAIUpdate::current_build_frames(&owner, &target)
-                    } else {
-                        task.build_total_frames.max(1)
-                    };
-                    let world = crate::system::engine_stores::active_services();
-                    let construction_manager = &world.logic_managers().construction;
-                    // A Resume order enters the same C++ BUILD action. Start
-                    // tracking from the scaffold's existing percent and HP.
-                    let starting_progress = if !task.started_construction {
-                        let Ok(building) = target.read() else {
+                    if installed {
+                        let frames = DozerAIUpdate::current_build_frames(&owner, &target);
+                        let Ok(mut scaffold) = target.write() else { return };
+                        // DozerAIUpdate.cpp:511–536 uses the live scaffold and
+                        // body. Replacing the builder never replaces either.
+                        let progress = scaffold.get_construction_percent();
+                        if progress < 0.0
+                            || scaffold.get_builder_id() != self.object_id
+                            || scaffold.is_destroyed()
+                            || scaffold.is_effectively_dead()
+                        {
+                            drop(scaffold);
                             self.dozer_task = None;
+                            clear_current(self, Some(&owner));
                             return;
-                        };
-                        let max_health = if task.build_max_health > 0.0 {
-                            task.build_max_health
-                        } else {
-                            building.get_body_module().map(|body| body.get_max_health()).unwrap_or(0.0)
-                        };
-                        Some((max_health, building.get_construction_percent(), building.get_health()))
+                        }
+                        let progress = progress + 100.0 / frames as f32;
+                        scaffold.set_construction_percent(progress);
+                        if let Err(error) = scaffold.add_construction_health_with_owner(frames) {
+                            log::debug!("Worker construction health update failed: {error}");
+                        }
+                        scaffold.set_producer_id(self.object_id);
+                        scaffold.set_builder_id(self.object_id);
+                        if progress >= 100.0 {
+                            build_complete_rebuild = Some(task.is_rebuild);
+                        }
                     } else {
-                        None
-                    };
-                    let (completed, progress, current_health) = {
-                        let mut manager = match construction_manager.write() {
-                            Ok(manager) => manager,
-                            Err(_) => {
+                        let frames = task.build_total_frames.max(1);
+                        let world = crate::system::engine_stores::active_services();
+                        let construction_manager = &world.logic_managers().construction;
+                        // A Resume order enters the same C++ BUILD action. Start
+                        // tracking from the scaffold's existing percent and HP.
+                        let starting_progress = if !task.started_construction {
+                            let Ok(building) = target.read() else {
                                 self.dozer_task = None;
                                 return;
-                            }
+                            };
+                            let max_health = if task.build_max_health > 0.0 {
+                                task.build_max_health
+                            } else {
+                                building.get_body_module().map(|body| body.get_max_health()).unwrap_or(0.0)
+                            };
+                            Some((max_health, building.get_construction_percent(), building.get_health()))
+                        } else {
+                            None
                         };
-                        if let Some((max_health, percent, health)) = starting_progress {
-                            match manager.start_construction(
-                                task.target_id,
-                                self.object_id,
-                                max_health,
-                                frames,
-                                task.is_rebuild,
-                            ) {
-                                Ok(()) => manager.seed_from_structure(task.target_id, percent, health),
-                                Err(error) => log::debug!("WorkerAIUpdate::update_dozer_task start_construction failed: {error}"),
+                        let (completed, progress, current_health) = {
+                            let mut manager = match construction_manager.write() {
+                                Ok(manager) => manager,
+                                Err(_) => {
+                                    self.dozer_task = None;
+                                    return;
+                                }
+                            };
+                            if let Some((max_health, percent, health)) = starting_progress {
+                                match manager.start_construction(
+                                    task.target_id,
+                                    self.object_id,
+                                    max_health,
+                                    frames,
+                                    task.is_rebuild,
+                                ) {
+                                    Ok(()) => manager.seed_from_structure(task.target_id, percent, health),
+                                    Err(error) => log::debug!("WorkerAIUpdate::update_dozer_task start_construction failed: {error}"),
+                                }
+                                task.started_construction = true;
                             }
-                            task.started_construction = true;
-                        }
-                        if installed {
-                            manager.set_build_frames(task.target_id, frames);
-                        }
-                        let completed = manager.update_for_dozer(self.object_id);
-                        let progress = manager.get_progress(task.target_id);
-                        let current_health = manager.get_current_health(task.target_id);
-                        (completed, progress, current_health)
-                    };
-                    if let Some(progress) = progress
-                        && let Ok(mut target_write) = target.write()
-                    {
-                        target_write.set_construction_percent(progress);
-                        if let Some(health) = current_health {
-                            if let Err(err) = target_write.set_health(health) {
-                                log::debug!(
-                                    "WorkerAIUpdate::update_dozer_task set_health failed: {}",
-                                    err
-                                );
+                            let completed = manager.update_for_dozer(self.object_id);
+                            let progress = manager.get_progress(task.target_id);
+                            let current_health = manager.get_current_health(task.target_id);
+                            (completed, progress, current_health)
+                        };
+                        if let Some(progress) = progress
+                            && let Ok(mut target_write) = target.write()
+                        {
+                            target_write.set_construction_percent(progress);
+                            if let Some(health) = current_health {
+                                if let Err(err) = target_write.set_health(health) {
+                                    log::debug!(
+                                        "WorkerAIUpdate::update_dozer_task set_health failed: {}",
+                                        err
+                                    );
+                                }
                             }
+                            target_write.set_producer_id(self.object_id);
+                            target_write.set_builder_id(self.object_id);
                         }
-                        target_write.set_producer_id(self.object_id);
-                        target_write.set_builder_id(self.object_id);
-                    }
-                    if completed == Some(task.target_id) {
-                        build_complete_rebuild = Some(task.is_rebuild);
+                        if completed == Some(task.target_id) {
+                            build_complete_rebuild = Some(task.is_rebuild);
+                        }
                     }
                 }
                 WorkerDozerTaskType::Fortify => {

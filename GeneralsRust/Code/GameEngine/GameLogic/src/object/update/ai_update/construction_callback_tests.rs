@@ -1870,6 +1870,124 @@ fn installed_worker_resumes_existing_scaffold_without_relocking_its_parent() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
+fn installed_workers_transfer_a_live_scaffold_without_losing_progress_or_damage() {
+    use crate::ai::{AiCommandParams, AiCommandType};
+    use crate::common::LocomotorSetType;
+    use crate::helpers::TheThingFactory;
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+
+    const NAME: &str = concat!(module_path!(), "::installed_workers_transfer_a_live_scaffold_without_losing_progress_or_damage");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_INSTALLED_WORKER_TRANSFER_CHILD",
+    ) {
+        return;
+    }
+
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    let worker = admit_physical_construction_builder(&receiving, true);
+    let peer_actor = admit_physical_construction_builder(&peer, false);
+    let builder = worker.read().unwrap().get_id();
+    assert_eq!(peer_actor.read().unwrap().get_id(), builder);
+    let peer_pose = *peer_actor.read().unwrap().get_position();
+    let place = |world: &Arc<EngineStores>, builder, x, y| with_active_stores(world, || {
+        GameLogicBuildAssistantBackend.build_object_now(
+            builder, "PhysicalConstructionSite", &BuildPosition { x, y, z: 0. }, 0., 0,
+        ).unwrap()
+    });
+    with_active_stores(&receiving, || {
+        let player = worker.read().unwrap().get_controlling_player().unwrap();
+        player.write().unwrap().get_energy_mut().add_power_production(10);
+    });
+    let site_id = place(&receiving, Some(builder), 290., 105.);
+    assert_eq!(place(&peer, None, 205., 105.), site_id);
+    let peer_site = peer.game_logic_mutex().lock().unwrap().find_object_by_id(site_id).unwrap();
+
+    with_active_stores(&receiving, || {
+        let logic = receiving.game_logic_mutex();
+        let site = logic.lock().unwrap().find_object_by_id(site_id).unwrap();
+        let parent = worker.read().unwrap().get_ai_update_interface().unwrap();
+        let first = (38..120).find(|&frame| {
+            logic.lock().unwrap().set_current_frame(frame.into());
+            parent.lock().unwrap().update().unwrap();
+            logic.lock().unwrap().update(frame, || None).unwrap();
+            site.read().unwrap().get_construction_percent() > 0.0
+        }).expect("original Worker must contribute first");
+        let original_progress = site.read().unwrap().get_construction_percent();
+        site.write().unwrap().set_health(0.75).unwrap();
+
+        let new_site_id = place(&receiving, Some(builder), 295., 285.);
+        let new_site = logic.lock().unwrap().find_object_by_id(new_site_id).unwrap();
+        worker.write().unwrap().set_position(&Coord3D::new(275., 285., 0.)).unwrap();
+        let team = worker.read().unwrap().get_team().unwrap();
+        let template = TheThingFactory::find_template("PhysicalConstructor").unwrap();
+        let replacement = TheThingFactory::get().unwrap().new_object_with_team_handle(template, team).unwrap();
+        let (replacement_id, replacement_parent) = {
+            let mut actor = replacement.write().unwrap();
+            actor.set_position(&Coord3D::new(65., 105., 0.)).unwrap();
+            (actor.get_id(), actor.get_ai_update_interface().unwrap())
+        };
+        let mut resume = AiCommandParams::new(AiCommandType::ResumeConstruction, CommandSourceType::FromScript);
+        resume.obj = Some(site_id);
+        {
+            let mut ai = replacement_parent.lock().unwrap();
+            ai.choose_locomotor_set(LocomotorSetType::Normal).unwrap();
+            ai.execute_command(&resume).unwrap();
+        }
+        assert_eq!(site.read().unwrap().get_builder_id(), replacement_id);
+
+        let switched = (first + 1..220).find(|&frame| {
+            logic.lock().unwrap().set_current_frame(frame.into());
+            replacement_parent.lock().unwrap().update().unwrap();
+            logic.lock().unwrap().update(frame, || None).unwrap();
+            site.read().unwrap().get_construction_percent() > original_progress
+        }).expect("replacement Worker must continue the original scaffold");
+        let delta = 100.0 / 300.0;
+        {
+            let scaffold = site.read().unwrap();
+            assert!((scaffold.get_construction_percent() - (original_progress + delta)).abs() < 0.00001);
+            assert!((scaffold.get_health() - (0.75 + delta)).abs() < 0.00001);
+            assert_eq!(scaffold.get_producer_id(), replacement_id);
+        }
+        assert!(replacement.read().unwrap().get_position().x > 260.);
+        // Further damage during the new builder's work remains visible on the
+        // next frame. The authored body owns HP and construction adds to it.
+        site.write().unwrap().set_health(0.5).unwrap();
+        let next = switched + 1;
+        logic.lock().unwrap().set_current_frame(next.into());
+        replacement_parent.lock().unwrap().update().unwrap();
+        assert!((site.read().unwrap().get_health() - (0.5 + delta)).abs() < 0.00001);
+        logic.lock().unwrap().update(next, || None).unwrap();
+
+        for frame in next + 1..next + 60 {
+            logic.lock().unwrap().set_current_frame(frame.into());
+            parent.lock().unwrap().update().unwrap();
+            replacement_parent.lock().unwrap().update().unwrap();
+            logic.lock().unwrap().update(frame, || None).unwrap();
+            if new_site.read().unwrap().get_construction_percent() > 0.0 {
+                break;
+            }
+        }
+        assert_eq!(new_site.read().unwrap().get_builder_id(), builder);
+        assert!(new_site.read().unwrap().get_construction_percent() > 0.0);
+        assert_eq!(site.read().unwrap().get_builder_id(), replacement_id);
+        assert!(site.read().unwrap().get_construction_percent() > original_progress + delta);
+        let construction = receiving.services().logic_managers().construction.read().unwrap();
+        assert!(construction.active_tasks().is_empty());
+    });
+
+    assert_eq!(*peer_actor.read().unwrap().get_position(), peer_pose);
+    let peer_site = peer_site.read().unwrap();
+    assert_eq!(peer_site.get_builder_id(), INVALID_ID);
+    assert_eq!(peer_site.get_construction_percent(), 0.0);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
 fn construction_model_uses_the_scaffolds_world_for_its_live_builder() {
     use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
