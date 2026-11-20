@@ -3277,16 +3277,15 @@ fn air_force_side_uses_a10_skillset_not_paladin() {
     assert_eq!(residual[0][0], "AirF_SCIENCE_A10ThunderboltMissileStrike1");
     assert_ne!(residual[0][0], "SCIENCE_PaladinTank");
 
-    let _ = crate::map_frame_scenario::ensure_assets_env_for_tests();
-    let Some(identity) =
-        crate::game_logic::PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
-    else {
-        eprintln!(
-            "air_force_side_uses_a10_skillset_not_paladin: SKIP (set GENERALS_ASSETS_DIR to windows_game retail root)"
-        );
+    let Ok(catalogs) = crate::parallel_harness::RetailWorldDefinitions::load() else {
+        eprintln!("air_force_side_uses_a10_skillset_not_paladin: retail catalogs absent");
         return;
     };
     let mut logic = crate::game_logic::GameLogic::new();
+    catalogs.admit_lobby_catalogs(&mut logic).unwrap();
+    let identity = logic
+        .player_template_identity_from_name("FactionAmericaAirForceGeneral")
+        .expect("receiving Air Force faction");
     logic.add_player(crate::game_logic::Player::new(1, Team::USA, "AirF", false));
     let _ = logic.bind_player_template_identity(1, identity);
     let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
@@ -3564,17 +3563,15 @@ fn air_force_side_info_skillset_is_a10_not_paladin() {
     assert_eq!(residual[0][0], "AirF_SCIENCE_A10ThunderboltMissileStrike1");
     assert_eq!(residual[1][0], "SCIENCE_SpectreGunship1");
 
-    let _ = crate::map_frame_scenario::ensure_assets_env_for_tests();
-    let Some(identity) = crate::game_logic::PlayerTemplateIdentity::from_exact_name(
-        "FactionAmericaAirForceGeneral",
-    ) else {
-        eprintln!(
-            "air_force_side_info_skillset_is_a10_not_paladin: SKIP (set GENERALS_ASSETS_DIR to windows_game retail root)"
-        );
+    let Ok(catalogs) = crate::parallel_harness::RetailWorldDefinitions::load() else {
+        eprintln!("air_force_side_info_skillset_is_a10_not_paladin: retail catalogs absent");
         return;
     };
-
     let mut logic = crate::game_logic::GameLogic::new();
+    catalogs.admit_lobby_catalogs(&mut logic).unwrap();
+    let identity = logic
+        .player_template_identity_from_name("FactionAmericaAirForceGeneral")
+        .expect("receiving Air Force faction");
     let mut player = crate::game_logic::Player::new(1, Team::USA, "Air Force AI", false);
     player.science_purchase_points = 5;
     logic.add_player(player);

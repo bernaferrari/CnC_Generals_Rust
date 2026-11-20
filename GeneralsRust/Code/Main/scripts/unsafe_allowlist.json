@@ -36,10 +36,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/GameClient/src/core/game_client/global_boundary_fixture.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameClient/src/display/image.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -269,10 +265,6 @@
       "undocumented": 0
     },
     "Code/Main/src/graphics/occlusion_bridge.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Main/src/map_frame_scenario.rs": {
       "constructs": 2,
       "undocumented": 0
     },

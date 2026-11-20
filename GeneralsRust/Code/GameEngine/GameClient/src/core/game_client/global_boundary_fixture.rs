@@ -4,15 +4,17 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
-fn ensure_retail_assets_env() {
+fn retail_assets_root() -> Option<PathBuf> {
     // Prefer a root that actually has loose ParticleSystem.ini (extracted BIG).
     // A pre-set GENERALS_ASSETS_DIR pointing at a retail install without INI is
     // not sufficient for particle/FX admission tests.
     let particle_rel = Path::new("Data/INI/ParticleSystem.ini");
-    if let Ok(root) = std::env::var("GENERALS_ASSETS_DIR") {
-        if Path::new(&root).join(particle_rel).is_file() {
-            return;
-        }
+    let inherited = std::env::var("GENERALS_ASSETS_DIR").ok().map(PathBuf::from);
+    if inherited
+        .as_ref()
+        .is_some_and(|root| root.join(particle_rel).is_file())
+    {
+        return inherited;
     }
     let candidates = [
         PathBuf::from("windows_game/extracted_big_files_v2/INIZH"),
@@ -31,72 +33,27 @@ fn ensure_retail_assets_env() {
             "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game/Command & Conquer Generals Zero Hour",
         ),
     ];
-    for path in &candidates {
-        if path.join(particle_rel).is_file() || path.is_dir() {
-            // Prefer the first candidate that carries ParticleSystem.ini; else
-            // keep searching for a dir that does before falling back.
-            if !path.join(particle_rel).is_file() {
-                continue;
-            }
-            // SAFETY: test-only env seed before child spawn / ambient host.
-            unsafe {
-                std::env::set_var("GENERALS_ASSETS_DIR", &path);
-                std::env::set_var("GENERALS_RETAIL_DIR", &path);
-            }
-            return;
-        }
-    }
-    // Last resort: any existing retail/install dir for non-particle probes.
-    for path in &candidates {
-        if path.is_dir() {
-            // SAFETY: test-only env seed before child spawn / ambient host.
-            unsafe {
-                std::env::set_var("GENERALS_ASSETS_DIR", &path);
-                std::env::set_var("GENERALS_RETAIL_DIR", &path);
-            }
-            return;
-        }
-    }
+    candidates
+        .iter()
+        .find(|path| path.join(particle_rel).is_file())
+        .or_else(|| candidates.iter().find(|path| path.is_dir()))
+        .cloned()
+        .or(inherited)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn retail_particle_ini_available() -> bool {
-    ensure_retail_assets_env();
+fn retail_particle_ini_available(assets: Option<&Path>) -> bool {
     let relative = Path::new("Data/INI/ParticleSystem.ini");
-    if relative.is_file() {
-        return true;
-    }
-    if let Ok(root) = std::env::var("GENERALS_ASSETS_DIR") {
-        if Path::new(&root).join("Data/INI/ParticleSystem.ini").is_file() {
-            return true;
-        }
-    }
-    // Extracted BIG layout used by local checkouts. Cargo --lib cwd is the
-    // GameClient package dir, so walk up to GeneralsRust/windows_game as well.
-    for path in [
-        Path::new("windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
-        Path::new("../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
-        Path::new("../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
-        Path::new("../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
-        Path::new("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
-        Path::new("/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
-    ] {
-        if path.is_file() {
-            return true;
-        }
-    }
-    if let Ok(root) = std::env::var("GENERALS_ASSETS_DIR") {
-        let root = Path::new(&root);
-        for candidate in [
-            root.join("../extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
-            root.join("../../extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
-        ] {
-            if candidate.is_file() {
-                return true;
-            }
-        }
-    }
-    false
+    relative.is_file()
+        || assets.is_some_and(|root| {
+            root.join(relative).is_file()
+                || [
+                    "../extracted_big_files_v2/INIZH",
+                    "../../extracted_big_files_v2/INIZH",
+                ]
+                .into_iter()
+                .any(|directory| root.join(directory).join(relative).is_file())
+        })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -108,7 +65,6 @@ pub(crate) fn run_in_private_child(module: &str, name: &str) -> bool {
         .1;
     let exact = format!("{module}::{name}");
     if std::env::var(MARKER).as_deref() == Ok(exact.as_str()) {
-        ensure_retail_assets_env();
         crate::test_support::ensure_ambient_host();
         let root = std::env::temp_dir().join(format!(
             "generals_client_userdata_{}_{}",
@@ -121,22 +77,23 @@ pub(crate) fn run_in_private_child(module: &str, name: &str) -> bool {
             .set_path_user_data(root.to_string_lossy().into_owned());
         return false;
     }
-    if !retail_particle_ini_available() {
+    let assets = retail_assets_root();
+    if !retail_particle_ini_available(assets.as_deref()) {
         eprintln!(
             "skipping isolated compatibility test (retail ParticleSystem.ini absent): {exact}"
         );
         return true;
     }
-    ensure_retail_assets_env();
     let parent_cwd = std::env::current_dir().expect("parent cwd");
-    let mut child_cmd = std::process::Command::new(std::env::current_exe().expect("test executable"));
+    let mut child_cmd =
+        std::process::Command::new(std::env::current_exe().expect("test executable"));
     child_cmd
         .args(["--exact", &exact, "--test-threads=1", "--nocapture"])
         .env(MARKER, &exact)
         .current_dir(&parent_cwd)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    if let Ok(assets) = std::env::var("GENERALS_ASSETS_DIR") {
+    if let Some(assets) = assets {
         child_cmd.env("GENERALS_ASSETS_DIR", &assets);
         child_cmd.env("GENERALS_RETAIL_DIR", &assets);
     }

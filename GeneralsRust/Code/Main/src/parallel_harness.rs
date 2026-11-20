@@ -228,14 +228,22 @@ impl SharedSkirmishAssets {
     /// Read the retail definition sources and resolve [`HARNESS_MAP`].
     /// `GENERALS_RETAIL_CONTENT_ROOT` overrides automatic install discovery.
     pub fn load_retail() -> Result<Self, HarnessAssetError> {
-        let install_root = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
-            .map(|root| explicit_retail_install(Path::new(&root)))
-            .transpose()?;
-        let map_path = match install_root.as_deref() {
-            Some(install) => explicit_retail_map(install)?,
-            None => crate::map_frame_scenario::lone_eagle_map_path()
-                .map(PathBuf::from)
-                .ok_or_else(|| HarnessAssetError::Missing(format!("{HARNESS_MAP}.map")))?,
+        let (install_root, map_path) = match std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT") {
+            Some(root) => {
+                let install = explicit_retail_install(Path::new(&root))?;
+                let map = explicit_retail_map(&install)?;
+                (Some(install), map)
+            }
+            None => {
+                let install = crate::map_frame_scenario::find_lone_eagle_retail_install()
+                    .and_then(|root| explicit_retail_install(&root).ok());
+                let map = install
+                    .as_deref()
+                    .and_then(|root| explicit_retail_map(root).ok())
+                    .or_else(|| crate::map_frame_scenario::lone_eagle_map_path().map(PathBuf::from))
+                    .ok_or_else(|| HarnessAssetError::Missing(format!("{HARNESS_MAP}.map")))?;
+                (install, map)
+            }
         };
         Ok(Self {
             definitions: RetailWorldDefinitions::load_from_install(install_root.as_deref())?,
@@ -253,6 +261,44 @@ impl SharedSkirmishAssets {
         let mut config = golden_skirmish_config(&self.map_path.to_string_lossy());
         config.random_seed = seed;
         config
+    }
+
+    pub(crate) fn prepare_skirmish(&self, seed: u32) -> Result<GameLogic, String> {
+        crate::game_logic::ensure_world_ambient();
+        let mut logic = {
+            let application = game_engine::common::common_services::CommonServicesScope::new();
+            // GameEngine.cpp:281-329 mounts loose and BIG files before INI
+            // admission. SidesList.cpp:487 opens SkirmishScripts.scb from
+            // these same application channels when the map lacks scripts.
+            let mut file_system = application.services().application.file_system
+                .lock()
+                .map_err(|error| format!("cannot lock the skirmish filesystem: {error}"))?;
+            if let Some(install) = &self.install_root {
+                use game_engine::common::system::{
+                    big_file_system::BigArchiveBackend, local_file_system::LocalFileSystem,
+                };
+
+                file_system
+                    .ensure_backend(LocalFileSystem::new)
+                    .add_search_path(install);
+                file_system
+                    .ensure_backend(BigArchiveBackend::new)
+                    .add_search_path(install);
+            }
+            crate::subsystem_manager::FileSystemSubsystem::mount_common_files(&mut file_system)
+                .map_err(|error| error.to_string())?;
+            drop(file_system);
+            GameLogic::new()
+        };
+        logic.with_own_services_mut(|logic| -> Result<(), String> {
+            self.definitions.admit(logic)?;
+            apply_skirmish_config(logic, &self.match_config(seed))?;
+            if !logic.load_map(&self.map_path.to_string_lossy()) {
+                return Err(format!("load_map failed for {}", self.map_path.display()));
+            }
+            Ok(())
+        })?;
+        Ok(logic)
     }
 }
 
@@ -428,40 +474,7 @@ impl HeadlessSkirmish {
     /// Admit the shared content into a fresh world and start the skirmish.
     /// Must run on the thread that will drive the instance.
     pub fn start(assets: &SharedSkirmishAssets, seed: u32) -> Result<Self, String> {
-        crate::game_logic::ensure_world_ambient();
-        let mut logic = {
-            let application = game_engine::common::common_services::CommonServicesScope::new();
-            // GameEngine.cpp:281-329 mounts loose and BIG files before INI
-            // admission. SidesList.cpp:487 opens SkirmishScripts.scb from
-            // these same application channels when the map lacks scripts.
-            let mut file_system = application.services().application.file_system
-                .lock()
-                .map_err(|error| format!("cannot lock the skirmish filesystem: {error}"))?;
-            if let Some(install) = &assets.install_root {
-                use game_engine::common::system::{
-                    big_file_system::BigArchiveBackend, local_file_system::LocalFileSystem,
-                };
-
-                file_system
-                    .ensure_backend(LocalFileSystem::new)
-                    .add_search_path(install);
-                file_system
-                    .ensure_backend(BigArchiveBackend::new)
-                    .add_search_path(install);
-            }
-            crate::subsystem_manager::FileSystemSubsystem::mount_common_files(&mut file_system)
-                .map_err(|error| error.to_string())?;
-            drop(file_system);
-            GameLogic::new()
-        };
-        logic.with_own_services_mut(|logic| -> Result<(), String> {
-            assets.definitions.admit(logic)?;
-            apply_skirmish_config(logic, &assets.match_config(seed))?;
-            if !logic.load_map(&assets.map_path.to_string_lossy()) {
-                return Err(format!("load_map failed for {}", assets.map_path.display()));
-            }
-            Ok(())
-        })?;
+        let logic = assets.prepare_skirmish(seed)?;
         let mut game = Self { logic };
         // Hand out the world after its first logic frame, when a player first
         // has control: C++ DozerAIUpdate::getMostRecentCommand only selects a
@@ -843,9 +856,9 @@ pub fn run_parallel_skirmishes(
 }
 
 /// Debug builds recurse deeply through map load and AI; match the main thread.
-const HARNESS_THREAD_STACK: usize = 64 * 1024 * 1024;
+pub(crate) const HARNESS_THREAD_STACK: usize = 64 * 1024 * 1024;
 
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+pub(crate) fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     payload
         .downcast_ref::<String>()
         .cloned()
