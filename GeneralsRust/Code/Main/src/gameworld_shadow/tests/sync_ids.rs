@@ -542,6 +542,33 @@ fn sync_from_host_copies_entity_production_queue_items_residual() {
     assert_eq!(e.production_queue_items[1].template_name, "UnitB");
     assert_eq!(e.production_queue_items[1].total_time, 12.0);
     assert_eq!(e.production_template, "UnitA");
+
+    let item_storage = e.production_queue_items.as_ptr();
+    let name_storage = e.production_queue_items[0].template_name.as_ptr();
+    let building = logic.host_object_mut(id).unwrap().building_data.as_mut().unwrap();
+    building.production_queue.pop();
+    let item = &mut building.production_queue[0];
+    item.template_name.replace_range(.., "UnitC");
+    item.progress = 0.5;
+    item.construction_frames = 15;
+    item.quantity_total = 0;
+    item.kind = crate::game_logic::buildings::ProductionKind::Upgrade;
+    building.production_paused = true;
+
+    shadow.sync_from_host(&logic);
+    let e = shadow.world().entity(eid).unwrap();
+    assert_eq!(e.production_queue_len, 1);
+    assert_eq!(e.production_queue_items.len(), 1);
+    assert_eq!(e.production_queue_items.as_ptr(), item_storage);
+    let item = &e.production_queue_items[0];
+    assert_eq!(item.template_name.as_ptr(), name_storage);
+    assert_eq!(item.template_name, "UnitC");
+    assert_eq!(item.progress, 0.5);
+    assert_eq!(item.construction_frames, 15);
+    assert_eq!(item.quantity_total, 1);
+    assert!(item.is_upgrade);
+    assert_eq!(e.production_template, "UnitC");
+    assert!(e.production_paused);
 }
 
 fn sync_from_host_copies_entity_applied_upgrade_names_residual() {

@@ -6,6 +6,23 @@ use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Tr
 use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
 
+fn observe_production_item(
+    item: &crate::game_logic::ProductionItem,
+    mut template_name: String,
+) -> EntityProductionItem {
+    template_name.clone_from(&item.template_name);
+    EntityProductionItem {
+        template_name,
+        progress: item.progress,
+        total_time: item.total_time,
+        construction_frames: item.construction_frames,
+        cost_supplies: item.cost.supplies,
+        is_upgrade: item.is_upgrade(),
+        quantity_total: item.quantity_total.max(1),
+        quantity_produced: item.quantity_produced,
+    }
+}
+
 impl GameWorldShadow {
     pub(super) fn refresh_mapped_from_host(
         &mut self,
@@ -472,51 +489,31 @@ impl GameWorldShadow {
         e.is_building = obj.building_data.is_some();
         if let Some(bd) = obj.building_data.as_ref() {
             e.building_type_ordinal = Self::host_building_type_ordinal(bd.building_type);
-
-            // A sole-tick shadow normally owns queue progress and
-            // must not be overwritten by the host every frame.
-            // A fresh shadow (including a post-load rebuild),
-            // however, has no queue at all.  Bootstrap exactly
-            // once from the host so a completed saved factory can
-            // still enter the C++ door/ready sequence instead of
-            // becoming an inert empty GameWorld entity.
-            {
-                e.production_queue_len = bd.production_queue.len().min(255) as u8;
-                {
-                    const MAX_QUEUE: usize = 16;
-                    e.production_queue_items = bd
-                        .production_queue
-                        .iter()
-                        .take(MAX_QUEUE)
-                        .map(|p| EntityProductionItem {
-                            template_name: p.template_name.clone(),
-                            progress: p.progress,
-                            total_time: p.total_time,
-                            construction_frames: p.construction_frames,
-                            cost_supplies: p.cost.supplies,
-                            is_upgrade: p.is_upgrade(),
-                            quantity_total: p.quantity_total.max(1),
-                            quantity_produced: p.quantity_produced,
-                        })
-                        .collect();
-                    e.production_paused = bd.production_paused;
-                }
-                if let Some(head) = bd.production_queue.first() {
-                    e.production_progress = head.progress;
-                    e.production_template.clone_from(&head.template_name);
-                } else {
-                    e.production_progress = 0.0;
-                    e.production_template.clear();
-                }
+            const MAX_QUEUE: usize = 16;
+            let queue = &bd.production_queue;
+            let shown = &queue[..queue.len().min(MAX_QUEUE)];
+            let observed = &mut e.production_queue_items;
+            observed.truncate(shown.len());
+            for (row, item) in observed.iter_mut().zip(shown) {
+                *row = observe_production_item(item, std::mem::take(&mut row.template_name));
             }
-            // Sole-tick GameWorld owns door phase after bootstrap.
-            // Copy host only when the shadow door is still idle so a
-            // host-started cycle is not lost, then never stomp GW.
-            {
-                e.production_door_phase = obj.production_door_phase;
-                e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
-                e.production_door_hold_open = obj.production_door_hold_open;
+            observed.extend(
+                shown[observed.len()..]
+                    .iter()
+                    .map(|item| observe_production_item(item, String::new())),
+            );
+            e.production_queue_len = queue.len().min(u8::MAX as usize) as u8;
+            e.production_paused = bd.production_paused;
+            if let Some(head) = queue.first() {
+                e.production_progress = head.progress;
+                e.production_template.clone_from(&head.template_name);
+            } else {
+                e.production_progress = 0.0;
+                e.production_template.clear();
             }
+            e.production_door_phase = obj.production_door_phase;
+            e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
+            e.production_door_hold_open = obj.production_door_hold_open;
             e.rally_point = bd.rally_point.map(|p| [p.x, p.y, p.z]);
             e.garrison_count = bd.garrisoned_units.len().min(u16::MAX as usize) as u16;
             e.max_garrison = bd.max_garrison.min(u16::MAX as usize) as u16;
