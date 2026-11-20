@@ -1114,6 +1114,9 @@ fn mounted_retaliation_response(shot: RetaliationShot) {
                 12.0
             };
             blast.attack_range = if must_move { 70.0 } else { 100.0 };
+            if must_move {
+                blast.minimum_attack_range = 10.0;
+            }
             blast.weapon_speed = 99999.0;
             blast.min_weapon_speed = 99999.0;
             blast.clip_size = 2;
@@ -1144,6 +1147,9 @@ Object RetaliationAggressor
     End
     Behavior = AIUpdateInterface AggressorAI
     End
+    Behavior = PhysicsBehavior AggressorPhysics
+        Mass = 1
+    End
     Locomotor = SET_NORMAL RetaliationGround
     WeaponSet
         Conditions = None
@@ -1170,6 +1176,11 @@ Object RetaliationResponder
         InitialHealth = 100
     End
     Behavior = AIUpdateInterface RetaliationAI
+        Turret
+            ControlledWeaponSlots = PRIMARY
+            MinIdleScanInterval = 0
+            MaxIdleScanInterval = 0
+        End
     End
     Locomotor = SET_NORMAL RetaliationGround
     WeaponSet
@@ -1233,6 +1244,14 @@ End
     with_active_stores(&driving, || {
         let ai = friend.read().unwrap().get_ai().unwrap();
         assert!(ai.is_idle());
+        if must_move {
+            let mut ai = ai.lock().unwrap();
+            assert_eq!(
+                ai.get_which_turret_for_cur_weapon(),
+                crate::common::TurretType::Primary,
+            );
+            ai.update().unwrap();
+        }
         {
             let friend = friend.read().unwrap();
             let source = source.read().unwrap();
@@ -1248,6 +1267,19 @@ End
                     crate::attack::CanAttackResult::Possible
                 }
             );
+        }
+        if must_move {
+            let pursuer = friend.read().unwrap();
+            let (weapon, _) = pursuer.get_current_weapon().unwrap();
+            let mut shooter = source.write().unwrap();
+            shooter.set_orientation(std::f32::consts::PI).unwrap();
+            let physics = shooter.get_physics().unwrap();
+            physics.access().unwrap().set_velocity(&Coord3D::new(-0.75, 0.0, 0.0));
+            // AIStates.cpp:2364 uses the actual west-facing actor. Its speed
+            // is positive and between one tenth and the full pursuit speed.
+            assert!(crate::ai::states::attack_machine::attack_can_pursue(
+                &pursuer, weapon, &shooter,
+            ));
         }
         // ActiveBody.cpp:657–698 calls a real idle ally after the victim dies.
         match shot {

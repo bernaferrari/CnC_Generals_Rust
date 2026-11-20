@@ -1561,7 +1561,7 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
             physics
                 .access()
                 .ok()
-                .map(|guard| guard.get_forward_speed_2d())
+                .map(|guard| guard.get_forward_speed_2d_with_object(victim))
         })
         .unwrap_or(0.0);
 
