@@ -114,6 +114,10 @@ pub struct GameLogic {
     /// Main runtime bag (assets, command system, host logs). Bound with the
     /// world for this instance's free-function bridges; no process fallback.
     pub(crate) main_services: std::sync::Arc<crate::main_services::MainServices>,
+    /// This world borrows its application's mounted assets. Asset workers
+    /// synchronize the manager itself; only GameLogic can replace this handle.
+    pub(super) application_assets:
+        Option<std::sync::Arc<std::sync::Mutex<crate::assets::AssetManager>>>,
     /// Trigger membership for this host world. Objects keep only a weak
     /// handle so pose changes update this owner's slots without selecting an
     /// ambient game instance.
@@ -1471,7 +1475,9 @@ pub struct GameLogic {
 impl GameLogic {
     /// Asset service bound to this world, not the thread's active service.
     pub(crate) fn application_assets(&self) -> Option<std::sync::Arc<std::sync::Mutex<crate::assets::AssetManager>>> {
-        self.main_services.asset_manager.lock().ok()?.clone()
+        self.application_assets.clone().or_else(|| {
+            self.main_services.asset_manager.lock().ok()?.clone()
+        })
     }
     pub(crate) fn bind_application_assets(&mut self, assets: std::sync::Arc<std::sync::Mutex<crate::assets::AssetManager>>) {
         // These assets' authored sounds play in this engine's TheAudio.
@@ -1479,7 +1485,11 @@ impl GameLogic {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .bind_engine_audio(gamelogic::helpers::TheAudio::of(&self.world_services));
-        *self.main_services.asset_manager.lock().unwrap_or_else(|e| e.into_inner()) = Some(assets);
+        // Existing standalone and Win32 callbacks still use this world's
+        // published adapter. Both paths share the same manager.
+        *self.main_services.asset_manager.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(std::sync::Arc::clone(&assets));
+        self.application_assets = Some(assets);
     }
 
 

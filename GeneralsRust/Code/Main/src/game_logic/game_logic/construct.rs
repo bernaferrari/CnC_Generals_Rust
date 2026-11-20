@@ -105,6 +105,7 @@ impl GameLogic {
             // new() publishes this bundle for free-function bridges; Drop pops it.
             world_services: std::sync::Arc::clone(&world_services),
             main_services: std::sync::Arc::clone(&main_services),
+            application_assets: None,
             host_trigger_world,
             team_factory: team_factory.clone(),
             prepared_map_sides: gamelogic::sides_list::SidesList::new(),

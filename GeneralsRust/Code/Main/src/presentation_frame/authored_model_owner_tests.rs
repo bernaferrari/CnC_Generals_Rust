@@ -132,6 +132,10 @@ fn shadow_renderable_uses_receiving_asset_catalogue_for_same_object_name() {
     let mut right = GameLogic::new();
     left.bind_application_assets(Arc::clone(&first));
     right.bind_application_assets(Arc::clone(&second));
+    // A bound world retains its provider independently of the compatibility
+    // publication used by standalone callbacks.
+    left.main_services.asset_manager.lock().unwrap().take();
+    right.main_services.asset_manager.lock().unwrap().take();
     let mut template = ThingTemplate::new("SharedTree");
     template.add_kind_of(crate::game_logic::KindOf::Vehicle);
     template.set_health(100.0);
