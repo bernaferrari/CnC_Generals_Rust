@@ -569,7 +569,12 @@ impl GameLogic {
         let mut snap = self.build_host_script_query_snapshot();
         // Legacy snapshot geometry is projected from the same receiving
         // polygon owner; first name wins, like PolygonTriggerList lookup.
-        if let Ok(terrain) = self.world_services.terrain().read() {
+        {
+            let terrain = self
+                .world_services
+                .terrain()
+                .read()
+                .expect("owned terrain script query");
             for trigger in terrain.get_trigger_areas().get_triggers() {
                 let bounds = trigger.get_bounds();
                 snap.areas
@@ -581,10 +586,20 @@ impl GameLogic {
                         bounds.hi.y as f32,
                     ));
             }
+            // C++ ScriptConditions.cpp:244–272 checks the latch before resolving
+            // a bridge. Reuse the already captured registration order when it fires.
+            snap.any_bridges_damage_states_changed = terrain.bridge_damage_states_changed();
+            if snap.any_bridges_damage_states_changed {
+                for object in snap.objects.iter().filter(|object| !object.name.is_empty()) {
+                    snap.named_bridge_broken
+                        .insert(object.name.clone(), terrain.is_bridge_broken(object.id));
+                    snap.named_bridge_repaired
+                        .insert(object.name.clone(), terrain.is_bridge_repaired(object.id));
+                }
+            }
         }
-        merge_host_bridge_states(self, &mut snap);
+        self.capture_host_player_and_tech_census(&mut snap);
         gamelogic::scripting::HostScriptQuery::of(&self.world_services).set_host_script_query_snapshot(snap);
-        self.merge_host_player_census_into_snapshot();
     }
 
     /// C++ `Player::isSupplySourceAttacked` / `isSupplySourceSafe` for leftover
@@ -728,7 +743,8 @@ impl GameLogic {
                 continue;
             };
             let dead = !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead;
-            if !dead
+            if !census.has_any_objects
+                && !dead
                 && !obj.is_kind_of(KindOf::Projectile)
                 && !obj.is_kind_of(KindOf::Mine)
                 && !obj.is_kind_of(KindOf::SmallMissile)
@@ -793,7 +809,10 @@ impl GameLogic {
         player_census
     }
 
-    pub(super) fn merge_host_player_census_into_snapshot(&self) {
+    fn capture_host_player_and_tech_census(
+        &self,
+        snap: &mut gamelogic::scripting::HostScriptQuerySnapshot,
+    ) {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::HostTechBuildingCensus;
         let player_census = self.owned_host_player_census();
@@ -818,10 +837,8 @@ impl GameLogic {
                 ),
             });
         }
-        gamelogic::scripting::HostScriptQuery::of(&self.world_services).merge_host_script_query_snapshot(|snap| {
-            snap.player_census = player_census;
-            snap.tech_buildings = tech_buildings;
-        });
+        snap.player_census = player_census;
+        snap.tech_buildings = tech_buildings;
     }
 
     /// Leftover `OBJECT_REGISTRY` is empty on the live path. Script actions

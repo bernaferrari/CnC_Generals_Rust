@@ -5,29 +5,6 @@
 use super::super::*;
 use std::collections::HashMap;
 
-fn merge_host_bridge_states(
-    world: &GameLogic,
-    snap: &mut gamelogic::scripting::HostScriptQuerySnapshot,
-) {
-    // CPP ScriptConditions.cpp:244-272 reads the terrain phase's latch and
-    // the named bridge's transition. A query never advances or consumes it.
-    let terrain = world
-        .world_services
-        .terrain()
-        .read()
-        .expect("owned terrain bridge query");
-    snap.any_bridges_damage_states_changed = terrain.bridge_damage_states_changed();
-    for obj in world.host_objects().registered_values() {
-        if obj.name.is_empty() {
-            continue;
-        }
-        snap.named_bridge_broken
-            .insert(obj.name.clone(), terrain.is_bridge_broken(obj.id.0));
-        snap.named_bridge_repaired
-            .insert(obj.name.clone(), terrain.is_bridge_repaired(obj.id.0));
-    }
-}
-
 /// C++ KINDOF_INERT from leftover ThingTemplate when the factory is already loaded.
 /// Never calls TheThingFactory::find_template (that lazy-inits Object INI).
 fn leftover_host_template_is_inert(template_name: &str) -> bool {
