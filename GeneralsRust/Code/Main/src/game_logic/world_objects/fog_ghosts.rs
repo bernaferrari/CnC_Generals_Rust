@@ -329,12 +329,17 @@ impl GameLogic {
                     if counts.total == 0 {
                         continue;
                     }
-                    transitions.push((
-                        ghost.scene_id(),
-                        Some(id),
-                        status,
-                        counts.shrouded == counts.total,
-                    ));
+                    let previous = ghost.previous_shroudedness(local);
+                    // A linked row only snapshots, frees or stamps on a change.
+                    if previous != Some(status as u8) {
+                        transitions.push((
+                            ghost.scene_id(),
+                            Some(id),
+                            previous,
+                            status,
+                            counts.shrouded == counts.total,
+                        ));
+                    }
                 }
             }
         }
@@ -367,18 +372,13 @@ impl GameLogic {
             transitions.push((
                 ghost.scene_id(),
                 None,
+                ghost.previous_shroudedness(local),
                 status,
                 counts.shrouded == counts.total,
             ));
         }
         // Preserve C++ manager head-to-tail order (including saved order).
-        for (scene_id, parent, current, all_cells_shrouded) in transitions {
-            let previous = self
-                .w3d_ghosts
-                .used()
-                .iter()
-                .find(|ghost| ghost.scene_id() == scene_id)
-                .and_then(|ghost| ghost.previous_shroudedness(local));
+        for (scene_id, parent, previous, current, all_cells_shrouded) in transitions {
             if current == ObjectShroudStatus::Fogged
                 && parent.is_some()
                 && previous.unwrap_or(ObjectShroudStatus::Invalid as u8)

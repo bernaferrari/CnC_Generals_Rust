@@ -1,4 +1,5 @@
 use super::*;
+use game_engine::common::fast_hash::{FxHashMap, FxHashSet};
 
 impl PresentationFrame {
     /// Freeze the only clip record currently owned by a coupled GameWorld
@@ -1354,23 +1355,21 @@ impl PresentationFrame {
 
     /// Override first, else the template CommandSet. ThingTemplates are
     /// immutable for the game, so one factory lookup per template per rebuild.
-    fn template_command_set_name(
-        memo: &mut std::collections::HashMap<String, String>,
-        template: &str,
+    fn template_command_set_name<'a>(
+        memo: &mut FxHashMap<&'a str, String>,
+        template: &'a str,
         ent: &gamelogic::world::entities::Entity,
     ) -> String {
         let command_set_override = ent.command_set_override.trim();
         if !command_set_override.is_empty() {
             return command_set_override.to_string();
         }
-        if let Some(hit) = memo.get(template) {
-            return hit.clone();
-        }
-        let resolved =
-            crate::ui::construction_panel::resolve_command_set_name(template, None)
-                .unwrap_or_default();
-        memo.insert(template.to_string(), resolved.clone());
-        resolved
+        memo.entry(template)
+            .or_insert_with(|| {
+                crate::ui::construction_panel::resolve_command_set_name(template, None)
+                    .unwrap_or_default()
+            })
+            .clone()
     }
 
     fn renderable_from_gameworld_entity_with_command_set(
@@ -1928,11 +1927,9 @@ impl PresentationFrame {
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) -> usize {
-        let existing: std::collections::HashSet<u32> =
-            self.objects.iter().map(|o| o.id.0).collect();
+        let existing: FxHashSet<u32> = self.objects.iter().map(|o| o.id.0).collect();
         let mut appended = 0usize;
-        let mut command_sets: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
+        let mut command_sets = FxHashMap::default();
         for ent in shadow.world().world().entities() {
             if ent.destroyed && ent.health <= 0.0 {
                 continue;
@@ -2423,11 +2420,12 @@ impl PresentationFrame {
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) -> usize {
+        let world = shadow.world().world();
         self.objects.clear();
+        self.objects.reserve(world.entity_count());
         let mut n = 0usize;
-        let mut command_sets: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
-        for ent in shadow.world().world().entities() {
+        let mut command_sets = FxHashMap::default();
+        for ent in world.entities() {
             if ent.destroyed && ent.health <= 0.0 {
                 continue;
             }

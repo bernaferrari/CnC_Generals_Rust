@@ -394,7 +394,7 @@ impl PresentationFrame {
                         fow_shell_bypass,
                         facts.as_ref(),
                     );
-                    (visibility, drawable)
+                    (obj, visibility, drawable)
                 })
                 .collect();
             (grid, objects)
@@ -422,11 +422,7 @@ impl PresentationFrame {
             0
         });
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().registered_len());
-        for (obj, (fow_visibility, drawable_shroud)) in logic
-            .host_objects()
-            .registered_values()
-            .zip(frozen_object_shrouds)
-        {
+        for (obj, fow_visibility, drawable_shroud) in frozen_object_shrouds {
             // C++ Drawable::setDrawableHidden — ride-hide hijacker has no mesh.
             if obj.drawable_hidden {
                 continue;
