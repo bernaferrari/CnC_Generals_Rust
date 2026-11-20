@@ -156,7 +156,10 @@ impl GameLogic {
         self.host_radar.providers = self
             .objects
             .registered_keys()
-            .map(|&id| (id, self.host_radar_providers(id)))
+            .filter_map(|&id| {
+                let providers = self.host_radar_providers(id);
+                (!providers.is_empty()).then_some((id, providers))
+            })
             .collect();
     }
 
@@ -172,11 +175,12 @@ impl GameLogic {
         self.admit_host_radar_disabled_edges(id);
         self.attempt_authored_radar_upgrades_with_effects(id, effects);
         let next = self.host_radar_providers(id);
-        let previous = self
-            .host_radar
-            .providers
-            .insert(id, next.clone())
-            .unwrap_or_default();
+        let previous = if next.is_empty() {
+            self.host_radar.providers.remove(&id)
+        } else {
+            self.host_radar.providers.insert(id, next.clone())
+        }
+        .unwrap_or_default();
         for index in 0..previous.len().max(next.len()) {
             let mut old = previous.get(index).cloned().unwrap_or_default();
             let mut new = next.get(index).cloned().unwrap_or_default();

@@ -2150,3 +2150,107 @@ fn test_paint_shroud_from_partition_cells_cache_matches_full_repaint() {
     assert_eq!(cached.shroud_grid, fresh.shroud_grid);
     });
 }
+
+#[test]
+fn indexed_radar_refresh_keeps_order_and_rebinds_loaded_rows() {
+    use crate::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    with_test_services(|| {
+        let new_radar = || {
+            let mut radar = RadarSystem::new();
+            radar.new_map(
+                Coord3D::new(0.0, 0.0, 0.0),
+                Coord3D::new(128.0, 128.0, 0.0),
+                &[],
+            );
+            radar.clear_shroud();
+            radar
+        };
+        let object = |id, x, is_local| {
+            let mut object = RadarObject::new(id);
+            object.priority = RadarPriorityType::Unit;
+            object.world_pos = Coord3D::new(x, 40.0, 0.0);
+            object.color = 0xFF00FF00 | id;
+            object.is_local = is_local;
+            object
+        };
+        let mut indexed = new_radar();
+        let mut linear = new_radar();
+        for item in [
+            object(3, 11.0, false),
+            object(3, 12.0, false),
+            object(8, 13.0, true),
+        ] {
+            indexed.add_object(item.clone());
+            linear.add_object(item);
+        }
+        let refresh_pair = |indexed: &mut RadarSystem, linear: &mut RadarSystem, item| {
+            indexed.prepare_live_object_refresh();
+            assert!(indexed.update_object_in_place(&item));
+            assert!(linear.update_object_in_place(&item));
+            let rows = |radar: &RadarSystem| {
+                radar
+                    .get_all_objects()
+                    .map(|obj| (obj.object_id, obj.radar_pos.x))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(rows(indexed), rows(linear));
+            assert_eq!(
+                indexed.build_object_overlay_texture_rgba(),
+                linear.build_object_overlay_texture_rgba(),
+            );
+        };
+        refresh_pair(&mut indexed, &mut linear, object(3, 16.0, false));
+        assert_eq!(indexed.object_list[1].radar_pos.x, 11);
+        assert!(indexed.remove_object(3));
+        assert!(linear.remove_object(3));
+        refresh_pair(&mut indexed, &mut linear, object(3, 20.0, false));
+
+        for cpp_chunk in [false, true] {
+            let mut saved = new_radar();
+            saved.add_object(object(4, 31.0, false));
+            saved.add_object(object(3, 32.0, false));
+            let mut linear_load = new_radar();
+            if cpp_chunk {
+                use crate::System::{
+                    xfer::Xfer as CppXfer, xfer_load::XferLoad as CppLoad,
+                    xfer_save::XferSave as CppSave,
+                };
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("radar.xfer").to_str().unwrap().to_owned();
+                let mut writer = CppSave::new();
+                CppXfer::open(&mut writer, path.clone()).unwrap();
+                saved.xfer_cpp_chunk(&mut writer).unwrap();
+                CppXfer::close(&mut writer).unwrap();
+                for radar in [&mut indexed, &mut linear_load] {
+                    let mut reader = CppLoad::new();
+                    CppXfer::open(&mut reader, path.clone()).unwrap();
+                    radar.xfer_cpp_chunk(&mut reader).unwrap();
+                    CppXfer::close(&mut reader).unwrap();
+                }
+            } else {
+                let mut bytes = Cursor::new(Vec::new());
+                saved.xfer(&mut XferSave::new(&mut bytes, 1)).unwrap();
+                let bytes = bytes.into_inner();
+                for radar in [&mut indexed, &mut linear_load] {
+                    radar.xfer(&mut XferLoad::new(&bytes[..], 1)).unwrap();
+                }
+            }
+            assert!(!indexed.object_indices.valid);
+            indexed.prepare_live_object_refresh();
+            // The C++ chunk stores only ID and color, so both restored lists
+            // receive the corresponding live registrations before updates.
+            let spec = objects::insert_spec_from_object(object(3, 34.0, false));
+            indexed.add_live_object(spec.clone());
+            linear_load.add_live_object(spec);
+            refresh_pair(&mut indexed, &mut linear_load, object(3, 33.0, false));
+            let rows = &indexed.object_list;
+            // Both formats restore ID and color. The previous row remains at
+            // Invalid priority, ahead of the re-listed Unit with ID 3.
+            assert_eq!(rows[0].object_id, 4);
+            assert_eq!(rows[1].object_id, 3);
+            assert_eq!(rows[1].radar_pos.x, 33);
+        }
+    });
+}

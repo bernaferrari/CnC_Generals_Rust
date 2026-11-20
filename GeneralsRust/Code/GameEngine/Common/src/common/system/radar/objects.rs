@@ -150,6 +150,7 @@ impl RadarSystem {
                 }
             }
         }
+        self.prepare_live_object_refresh();
         for spec in live {
             self.add_live_object(spec);
         }

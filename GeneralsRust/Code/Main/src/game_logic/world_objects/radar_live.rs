@@ -656,6 +656,7 @@ impl GameLogic {
                 radar.remove_object(id);
             }
         }
+        self.radar.prepare_live_object_refresh();
         for id in ids {
             let alive = self.objects.get(&id).is_some_and(|obj| obj.is_alive());
             if alive {

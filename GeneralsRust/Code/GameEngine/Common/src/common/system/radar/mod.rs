@@ -9,6 +9,7 @@
 // Port from C++ Radar.cpp and Radar.h (Colin Day, January 2002)
 ///////////////////////////////////////////////////////////////////////////////
 
+use crate::common::fast_hash::FxHashMap;
 use crate::common::game_common::ObjectShroudStatus;
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::sync::{Arc, RwLock};
@@ -965,6 +966,31 @@ struct PartitionPaint {
     painted: Vec<CellShroudStatus>,
 }
 
+#[derive(Default)]
+struct RadarObjectIndices {
+    regular: FxHashMap<u32, usize>,
+    local: FxHashMap<u32, usize>,
+    valid: bool,
+}
+
+impl RadarObjectIndices {
+    fn rebuild(&mut self, regular: &[RadarObject], local: &[RadarObject]) {
+        for (indices, objects) in [(&mut self.regular, regular), (&mut self.local, local)] {
+            indices.clear();
+            // Legacy saves can contain repeated IDs. The first list entry
+            // has always received the update, so index it last.
+            indices.extend(
+                objects
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .map(|(i, obj)| (obj.object_id, i)),
+            );
+        }
+        self.valid = true;
+    }
+}
+
 pub struct RadarSystem {
     owner_identity: Arc<()>,
     event_identities: [Arc<()>; MAX_RADAR_EVENTS],
@@ -988,6 +1014,7 @@ pub struct RadarSystem {
 
     /// Radar objects for local player only
     local_object_list: Vec<RadarObject>,
+    object_indices: RadarObjectIndices,
 
     /// Radar events array
     events: [RadarEvent; MAX_RADAR_EVENTS],
@@ -1099,6 +1126,7 @@ impl RadarSystem {
             water_radar_color: [140.0 / 255.0, 140.0 / 255.0, 1.0],
             object_list: Vec::new(),
             local_object_list: Vec::new(),
+            object_indices: RadarObjectIndices::default(),
             events: std::array::from_fn(|_| RadarEvent::default()),
             next_free_event: 0,
             last_event: None,
@@ -1130,6 +1158,7 @@ impl RadarSystem {
         self.event_identities = std::array::from_fn(|_| Arc::new(()));
         self.object_list.clear();
         self.local_object_list.clear();
+        self.object_indices.valid = false;
         self.clear_all_events();
         self.radar_force_on = false;
         self.terrain_dirty = true;
@@ -1216,7 +1245,17 @@ impl RadarSystem {
             .position(|obj| obj.priority >= radar_obj.priority)
             .unwrap_or(list.len());
 
-        list.insert(insert_pos, radar_obj.clone());
+        list.insert(insert_pos, radar_obj);
+        self.object_indices.valid = false;
+    }
+
+    /// Reuse object locations for a steady refresh of both ordered lists.
+    /// A structural change invalidates this index until the next bulk refresh.
+    pub fn prepare_live_object_refresh(&mut self) {
+        if !self.object_indices.valid {
+            self.object_indices
+                .rebuild(&self.object_list, &self.local_object_list);
+        }
     }
 
     /// Replace an already-listed object's data when it stays in the same list
@@ -1235,10 +1274,17 @@ impl RadarSystem {
         } else {
             &mut self.object_list
         };
-        let Some(index) = list
-            .iter()
-            .position(|obj| obj.object_id == radar_obj.object_id)
-        else {
+        let index = if self.object_indices.valid {
+            let indices = if radar_obj.is_local {
+                &self.object_indices.local
+            } else {
+                &self.object_indices.regular
+            };
+            indices.get(&radar_obj.object_id).copied()
+        } else {
+            list.iter().position(|obj| obj.object_id == radar_obj.object_id)
+        };
+        let Some(index) = index else {
             return false;
         };
         if list[index].priority != radar_obj.priority {
@@ -1256,6 +1302,7 @@ impl RadarSystem {
             .position(|obj| obj.object_id == object_id)
         {
             self.local_object_list.remove(index);
+            self.object_indices.valid = false;
             return true;
         }
 
@@ -1265,6 +1312,7 @@ impl RadarSystem {
             .position(|obj| obj.object_id == object_id)
         {
             self.object_list.remove(index);
+            self.object_indices.valid = false;
             return true;
         }
 
@@ -2555,7 +2603,10 @@ impl Snapshotable for RadarSystem {
         xfer.xfer_bool(&mut self.radar_force_on)
             .map_err(|e| format!("RadarSystem::xfer radarForceOn error: {}", e))?;
 
-        // C++ lines 1470-1473: xfer local and regular object lists
+        // C++ lines 1470-1473: xfer local and regular object lists.
+        if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+            self.object_indices.valid = false;
+        }
         xfer_radar_object_list(xfer, &mut self.local_object_list)
             .map_err(|e| format!("RadarSystem::xfer localObjectList error: {}", e))?;
         xfer_radar_object_list(xfer, &mut self.object_list)

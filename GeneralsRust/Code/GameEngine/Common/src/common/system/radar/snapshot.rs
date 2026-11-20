@@ -41,6 +41,7 @@ impl RadarSystem {
     /// C++ `Radar::xfer` version 1 layout.
     pub fn xfer_cpp_chunk(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
         if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+            self.object_indices.valid = false;
             self.owner_identity = std::sync::Arc::new(());
             self.event_identities = std::array::from_fn(|_| std::sync::Arc::new(()));
         }
