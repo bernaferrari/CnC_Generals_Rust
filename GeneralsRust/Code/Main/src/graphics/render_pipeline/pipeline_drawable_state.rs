@@ -96,6 +96,40 @@ fn authored_mode(mode: ClientDrawableAnimationMode) -> crate::assets::AuthoredDr
     }
 }
 
+pub(super) fn authored_animation_start_frame(
+    draw: &crate::assets::AuthoredDrawModel,
+    frames: u32,
+) -> f32 {
+    use crate::assets::AuthoredDrawAnimationMode;
+
+    let backwards = matches!(
+        draw.animation_mode,
+        AuthoredDrawAnimationMode::OnceBackwards | AuthoredDrawAnimationMode::LoopBackwards
+    );
+    let last = frames.saturating_sub(1) as f32;
+    if draw.flags & (1 << 0) != 0 {
+        // The narrow renderer has no matching GameClient RNG draw here.
+        return if backwards { last } else { 0. };
+    }
+    if draw.flags & (1 << 1) != 0 {
+        0.
+    } else if draw.flags & (1 << 2) != 0 || backwards {
+        last
+    } else {
+        0.
+    }
+}
+
+pub(super) fn deterministic_authored_animation_rate(
+    draw: &crate::assets::AuthoredDrawModel,
+) -> Option<f32> {
+    let [low, high] = draw.animation_speed_range_bits
+        .unwrap_or([1f32.to_bits(); 2])
+        .map(f32::from_bits);
+    // GameClientRandomValueReal returns hi without consuming RNG when delta <= 0.
+    (low.is_finite() && high.is_finite() && high - low <= 0.).then_some(high)
+}
+
 pub(super) fn frozen_visual_identity_for_draw_model(
     source_template_name: &str,
     draw_model: &crate::assets::AuthoredDrawModel,
@@ -887,13 +921,7 @@ impl RenderPipeline {
             return (None, 0.0, Vec::new());
         };
         let animation_binding_key = animation_binding.state_key();
-        let start_frame = match draw_model.animation_mode {
-            crate::assets::AuthoredDrawAnimationMode::LoopBackwards
-            | crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
-                num_frames.saturating_sub(1) as f32
-            }
-            _ => 0.0,
-        };
+        let start_frame = authored_animation_start_frame(draw_model, num_frames);
         let reset_animation = state.animation.as_ref().is_none_or(|animation| {
             animation.animation_binding_key != Some(animation_binding_key.clone())
                 || !animation
@@ -902,6 +930,13 @@ impl RenderPipeline {
                 || animation.mode != draw_model.animation_mode
         });
         if reset_animation {
+            if let super::installed_draw_pose::InstalledDrawObject::Ready(pose) =
+                &mut state.installed_draw_pose
+            {
+                // Set_Animation changes the hierarchy even when a real state
+                // and its transition use the same clip with different starts.
+                pose.hierarchy_valid = false;
+            }
             state.animation = Some(ObjectAnimationState {
                 animation_binding_key: Some(animation_binding_key),
                 animation_identity: expected.hierarchy_animation.clone(),
@@ -911,7 +946,7 @@ impl RenderPipeline {
                 mode: draw_model.animation_mode.clone(),
                 last_sync_ms: self.animation_sync_ms,
                 previous_frame: start_frame,
-                frame_rate_multiplier: 1.,
+                frame_rate_multiplier: deterministic_authored_animation_rate(draw_model).unwrap_or(1.),
                 direction: ObjectAnimationState::initial_direction(&draw_model.animation_mode),
                 playback_mode: draw_model.animation_mode.clone(),
             });
@@ -967,6 +1002,87 @@ impl RenderPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receiving_scaffold_keeps_empty_state_through_forward_and_reverse_clips() {
+        use crate::assets::{AuthoredDrawAnimationMode as Mode, LiveDrawPlaybackIdentity};
+        use std::sync::Arc;
+
+        let authored = r#"
+Object Scaffold
+ Draw = W3DModelDraw Scaffold
+  DefaultConditionState
+   Model = None
+   TransitionKey = DOWN
+  End
+  ConditionState = PARTIALLY_CONSTRUCTED
+   Model = Scaffold
+   Animation = ScaffoldScaffold.ScaffoldScaffold
+   AnimationMode = MANUAL
+   Flags = START_FRAME_LAST
+   TransitionKey = UP
+   ParticleSysBone = Smoke01 BuildUpSmoke
+  End
+  TransitionState = DOWN UP
+   Model = Scaffold
+   Animation = ScaffoldScaffold.ScaffoldScaffold
+   AnimationMode = ONCE
+   AnimationSpeedFactorRange = 1.0 1.0
+   Flags = START_FRAME_FIRST
+  End
+  TransitionState = UP DOWN
+   Model = Scaffold
+   Animation = ScaffoldScaffold.ScaffoldScaffold
+   AnimationMode = ONCE_BACKWARDS
+   AnimationSpeedFactorRange = 2.0 2.0
+   Flags = START_FRAME_LAST
+  End
+ End
+End
+"#;
+        let mut parser = crate::assets::IniParser::new();
+        parser.parse_ini_content(authored, "scaffold.ini").unwrap();
+        let definition = parser.get_definition("Scaffold").unwrap();
+        let mut template = crate::game_logic::ThingTemplate::new("Scaffold");
+        template.set_authored_draw_models(None, &definition.draw_modules);
+        let receiving = template.receiving_draw_models().unwrap();
+
+        let world = Arc::new(());
+        let identity = LiveDrawPlaybackIdentity::new(Arc::clone(&world), Arc::new(()), 1, 7, 1);
+        let key = identity.playback_key(0);
+        let mut playback = std::collections::HashMap::new();
+        let partially = 1u128 << crate::game_logic::host_enum_table_residual::partially_constructed_model_bit();
+
+        let absent = receiving.apply_live_draw_transition_playback(0, &identity, &mut playback).unwrap();
+        assert!(absent[0].model_key.is_empty());
+        assert_eq!(playback[&key].current_index, 0);
+        let forward = receiving.apply_live_draw_transition_playback(partially, &identity, &mut playback).unwrap();
+        assert_eq!(forward[0].animation_mode, Mode::Once);
+        assert_eq!(playback[&key].next_index, Some(1));
+        assert_eq!(authored_animation_start_frame(&forward[0], 4), 0.0);
+
+        let pending = receiving.apply_live_draw_transition_playback(partially, &identity, &mut playback).unwrap();
+        assert_eq!(pending, forward, "repeating the request must not install the destination");
+        playback.get_mut(&key).unwrap().animation_complete = true;
+        let active = receiving.apply_live_draw_transition_playback(partially, &identity, &mut playback).unwrap();
+        assert_eq!(active[0].animation_mode, Mode::Manual);
+        assert_eq!(playback[&key].next_index, None);
+        assert_eq!(authored_animation_start_frame(&active[0], 4), 3.0);
+
+        let reverse = receiving.apply_live_draw_transition_playback(0, &identity, &mut playback).unwrap();
+        assert_eq!(reverse[0].animation_mode, Mode::OnceBackwards);
+        assert_eq!(deterministic_authored_animation_rate(&reverse[0]), Some(2.0));
+        assert_eq!(playback[&key].next_index, Some(0));
+        playback.get_mut(&key).unwrap().animation_complete = true;
+        let retired = receiving.apply_live_draw_transition_playback(0, &identity, &mut playback).unwrap();
+        assert!(retired[0].model_key.is_empty());
+        assert_eq!(playback[&key].next_index, None);
+
+        let reborn = LiveDrawPlaybackIdentity::new(world, Arc::new(()), 2, 7, 1);
+        let fresh = receiving.apply_live_draw_transition_playback(0, &reborn, &mut playback).unwrap();
+        assert!(fresh[0].model_key.is_empty());
+        assert_ne!(reborn.playback_key(0), key);
+    }
 
     #[test]
     fn client_drawable_identity_requires_exact_frozen_draw_state() {

@@ -490,7 +490,7 @@ impl ObjectDefinition {
         prior_by_module: &[(u32, u32, bool)],
     ) -> Option<Vec<AuthoredDrawModel>> {
         let dest = self.select_draw_models_for_conditions(condition_bits)?;
-        Some(self.apply_transition_playback(dest, prior_by_module))
+        Some(Self::apply_transition_playback(&self.draw_modules, dest, prior_by_module))
     }
 
     /// Apply live TransitionState playback using state owned by the caller's
@@ -498,6 +498,17 @@ impl ObjectDefinition {
     /// in concurrent worlds or reused generations from sharing a timeline.
     pub(crate) fn apply_live_draw_transition_playback(
         &self,
+        playback_by_module: &mut HashMap<LiveDrawPlaybackKey, LiveDrawPlayback>,
+        identity: &LiveDrawPlaybackIdentity,
+        dest_models: Vec<AuthoredDrawModel>,
+    ) -> Vec<AuthoredDrawModel> {
+        Self::apply_live_draw_transition_playback_from_modules(
+            &self.draw_modules, playback_by_module, identity, dest_models,
+        )
+    }
+
+    pub(crate) fn apply_live_draw_transition_playback_from_modules(
+        modules: &[DrawModuleDefinition],
         playback_by_module: &mut HashMap<LiveDrawPlaybackKey, LiveDrawPlayback>,
         identity: &LiveDrawPlaybackIdentity,
         dest_models: Vec<AuthoredDrawModel>,
@@ -520,7 +531,7 @@ impl ObjectDefinition {
                     })
             })
             .collect();
-        let selected = self.apply_transition_playback(dest_models, &prior);
+        let selected = Self::apply_transition_playback(modules, dest_models, &prior);
         for model in &selected {
             let dest_index = dest_indices
                 .iter()
@@ -532,7 +543,8 @@ impl ObjectDefinition {
                     current_index: model.selected_condition_state_index,
                     next_index: dest_index
                         .filter(|&dest| dest != model.selected_condition_state_index),
-                    animation_complete: false,
+                    // isAnimationComplete(nullptr) is true at the next Draw.
+                    animation_complete: model.is_transition && model.model_key.is_empty(),
                 },
             );
         }
@@ -540,14 +552,14 @@ impl ObjectDefinition {
     }
 
     fn apply_transition_playback(
-        &self,
+        modules: &[DrawModuleDefinition],
         dest_models: Vec<AuthoredDrawModel>,
         prior_by_module: &[(u32, u32, bool)],
     ) -> Vec<AuthoredDrawModel> {
         dest_models
             .into_iter()
             .map(|dest| {
-                let Some(module) = self.draw_modules.get(dest.module_index as usize) else {
+                let Some(module) = modules.get(dest.module_index as usize) else {
                     return dest;
                 };
                 let prior = prior_by_module

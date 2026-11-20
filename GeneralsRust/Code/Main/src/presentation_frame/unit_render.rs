@@ -640,13 +640,24 @@ impl UnitRenderInput {
     ) {
         self.draw_animation_completion_targets.clear();
         if let Some(identity) = self.draw_playback_identity.as_ref() {
-            self.draw_models = crate::assets::apply_live_draw_transition_playback_for_object(
-                asset_manager,
-                playback_by_module,
-                identity,
-                &self.template_name,
-                self.draw_models.clone(),
-            );
+            self.draw_models = if let Some(receiving) = &self.receiving_draw_models {
+                receiving.apply_live_draw_transition_playback(
+                    self.model_condition_bits_with_combat_flags(),
+                    identity,
+                    playback_by_module,
+                ).unwrap_or_default()
+            } else {
+                crate::assets::apply_live_draw_transition_playback_for_object(
+                    asset_manager,
+                    playback_by_module,
+                    identity,
+                    &self.template_name,
+                    std::mem::take(&mut self.draw_models),
+                )
+            };
+            // Model=None is a real current state and can start or receive an
+            // authored transition. Only mesh submission drops empty models.
+            self.draw_models.retain(|model| !model.model_key.is_empty());
             self.draw_animation_completion_targets = self
                 .draw_models
                 .iter()

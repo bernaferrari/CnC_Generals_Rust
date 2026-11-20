@@ -46,7 +46,7 @@ pub(crate) struct ReceivingDrawModels {
     modules: Box<[crate::assets::DrawModuleDefinition]>,
     // Tokenized once during admission; native projection shares this exact list.
     module_class_names: std::sync::Arc<Vec<String>>,
-    /// `select` is a pure function of (immutable modules, bits); every object
+    /// Selection is a pure function of (immutable modules, bits); every object
     /// of this template asks for the same few condition masks every frame.
     select_cache: SelectCache,
 }
@@ -96,11 +96,41 @@ impl ReceivingDrawModels {
         &self,
         bits: u128,
     ) -> std::result::Result<Vec<crate::assets::AuthoredDrawModel>, ()> {
-        crate::assets::ObjectDefinition::select_native_render_draws_from_modules(
+        if let Ok(cache) = self.select_cache.0.lock() {
+            if let Some(hit) = cache.get(&bits) {
+                return Ok(hit.clone());
+            }
+        }
+        let selected = crate::assets::ObjectDefinition::select_native_render_draws_from_modules(
             &self.modules,
             bits,
             self.base_model.as_deref(),
-        )
+        )?;
+        if let Ok(mut cache) = self.select_cache.0.lock() {
+            if cache.len() >= SelectCache::MAX_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(bits, selected.clone());
+        }
+        Ok(selected)
+    }
+
+    pub(crate) fn apply_live_draw_transition_playback(
+        &self,
+        bits: u128,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        playback: &mut std::collections::HashMap<
+            crate::assets::LiveDrawPlaybackKey,
+            crate::assets::LiveDrawPlayback,
+        >,
+    ) -> std::result::Result<Vec<crate::assets::AuthoredDrawModel>, ()> {
+        let dest = self.native_render_draws(bits)?;
+        Ok(crate::assets::ObjectDefinition::apply_live_draw_transition_playback_from_modules(
+            &self.modules,
+            playback,
+            identity,
+            dest,
+        ))
     }
 
     pub(crate) fn first_object_draw(
@@ -117,33 +147,9 @@ impl ReceivingDrawModels {
     }
 
     pub(crate) fn select(&self, bits: u128) -> Vec<crate::assets::AuthoredDrawModel> {
-        if let Ok(cache) = self.select_cache.0.lock() {
-            if let Some(hit) = cache.get(&bits) {
-                return hit.clone();
-            }
-        }
-        let selected = self.select_uncached(bits);
-        if let Ok(mut cache) = self.select_cache.0.lock() {
-            if cache.len() >= SelectCache::MAX_ENTRIES {
-                cache.clear();
-            }
-            cache.insert(bits, selected.clone());
-        }
+        let mut selected = self.native_render_draws(bits).unwrap_or_default();
+        selected.retain(|model| !model.model_key.is_empty());
         selected
-    }
-
-    fn select_uncached(&self, bits: u128) -> Vec<crate::assets::AuthoredDrawModel> {
-        crate::assets::ObjectDefinition::select_draw_models_from_modules(&self.modules, bits)
-            .unwrap_or_else(|| {
-                self.base_model
-                    .as_ref()
-                    .map(|name| crate::assets::AuthoredDrawModel {
-                        model_key: name.clone(),
-                        ..Default::default()
-                    })
-                    .into_iter()
-                    .collect()
-            })
     }
 }
 

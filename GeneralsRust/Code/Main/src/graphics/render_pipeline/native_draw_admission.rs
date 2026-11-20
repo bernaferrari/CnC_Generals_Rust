@@ -554,18 +554,13 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             state.native_selected_condition = Some(selected);
             return;
         }
-        let range = selected
-            .animation_speed_range_bits
-            .unwrap_or([1f32.to_bits(); 2]);
-        let low = f32::from_bits(range[0]);
-        let speed = f32::from_bits(range[1]);
-        // Source GetGameClientRandomValueReal returns hi without drawing
-        // when delta <= 0, including reversed authored bounds.
-        if !low.is_finite() || !speed.is_finite() || speed - low > 0. {
+        let Some(speed) =
+            super::pipeline_drawable_state::deterministic_authored_animation_rate(&selected)
+        else {
             state.installed_draw_pose = InstalledDrawObject::AwaitingAdmission;
             state.native_selected_condition = Some(selected);
             return;
-        }
+        };
         let template = state.native_source_template.clone();
         state.native_selected_condition = Some(selected.clone());
         if selected.model_key.is_empty() {
@@ -632,21 +627,8 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                     state.installed_draw_pose = InstalledDrawObject::AwaitingAdmission;
                     return;
                 }
-                let backwards = matches!(
-                    selected.animation_mode,
-                    crate::assets::AuthoredDrawAnimationMode::OnceBackwards
-                        | crate::assets::AuthoredDrawAnimationMode::LoopBackwards
-                );
-                let mut start = if backwards {
-                    frames.saturating_sub(1) as f32
-                } else {
-                    0.
-                };
-                if selected.flags & (1 << 1) != 0 {
-                    start = 0.;
-                } else if selected.flags & (1 << 2) != 0 {
-                    start = frames.saturating_sub(1) as f32;
-                }
+                let start =
+                    super::pipeline_drawable_state::authored_animation_start_frame(&selected, frames);
                 state.animation = Some(ObjectAnimationState {
                     animation_binding_key: Some(binding.state_key()),
                     animation_identity: animation.hierarchy_animation.clone(),
