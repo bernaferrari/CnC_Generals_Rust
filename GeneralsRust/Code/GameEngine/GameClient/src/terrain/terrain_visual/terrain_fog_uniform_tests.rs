@@ -113,31 +113,20 @@ fn actual_terrain_shader_pixels_use_only_receiving_enabled_fog_range() {
         );
         let white_view = white.create_view(&Default::default());
         let sampler = device.create_sampler(&Default::default());
+        let mut material_entries: Vec<_> = (0..MAX_TEXTURES_PER_CHUNK as u32)
+            .map(|binding| wgpu::BindGroupEntry {
+                binding,
+                resource: wgpu::BindingResource::TextureView(&white_view),
+            })
+            .collect();
+        material_entries.push(wgpu::BindGroupEntry {
+            binding: MAX_TEXTURES_PER_CHUNK as u32,
+            resource: wgpu::BindingResource::Sampler(&sampler),
+        });
         let textures = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("terrain fog actual material bindings"),
             layout: visual.terrain_texture_bind_group_layout.as_ref().unwrap(),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&white_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&white_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&white_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&white_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
+            entries: &material_entries,
         });
         let (fog_color, fog_range) = visual.terrain_fog_uniforms();
         let data = TerrainUniforms {
