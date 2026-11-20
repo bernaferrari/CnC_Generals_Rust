@@ -42,25 +42,31 @@ const DOZER: RetailTrackUnit = RetailTrackUnit {
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_tank_factory_binds_before_placement_and_client_reset_retires_own_marks() {
-    exercise_retail_track_retirement(BATTLEMASTER, Retirement::Reset);
+    exercise_retail_track(BATTLEMASTER, TrackExercise::Reset);
 }
 
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_disguise_replacement_detaches_only_the_old_drawable_track() {
-    exercise_retail_track_retirement(BATTLEMASTER, Retirement::Disguise);
+    exercise_retail_track(BATTLEMASTER, TrackExercise::Disguise);
+}
+
+#[test]
+#[ignore = "requires mounted retail sources and native WGPU"]
+fn retail_tank_registered_yaw_updates_and_caps_its_track_without_translation() {
+    exercise_retail_track(BATTLEMASTER, TrackExercise::TurnInPlace);
 }
 
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_truck_dozer_binds_authored_track_and_loads_original_dds() {
-    exercise_retail_track_retirement(DOZER, Retirement::Reset);
+    exercise_retail_track(DOZER, TrackExercise::Reset);
 }
 
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_wrapper_tracks_overlord_tank() {
-    exercise_retail_track_retirement(
+    exercise_retail_track(
         RetailTrackUnit {
             template: "ChinaTankOverlord",
             team: Team::China,
@@ -69,14 +75,14 @@ fn retail_wrapper_tracks_overlord_tank() {
             width: 26.579_417,
             dds: None,
         },
-        Retirement::Reset,
+        TrackExercise::Reset,
     );
 }
 
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_wrapper_tracks_overlord_truck() {
-    exercise_retail_track_retirement(
+    exercise_retail_track(
         RetailTrackUnit {
             template: "AmericaTankAvenger",
             team: Team::USA,
@@ -85,14 +91,14 @@ fn retail_wrapper_tracks_overlord_truck() {
             width: 16.883_705,
             dds: None,
         },
-        Retirement::Reset,
+        TrackExercise::Reset,
     );
 }
 
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_wrapper_tracks_tank_truck() {
-    exercise_retail_track_retirement(
+    exercise_retail_track(
         RetailTrackUnit {
             template: "GLAVehicleQuadCannon",
             team: Team::GLA,
@@ -101,16 +107,17 @@ fn retail_wrapper_tracks_tank_truck() {
             width: 16.734_961,
             dds: None,
         },
-        Retirement::Reset,
+        TrackExercise::Reset,
     );
 }
 
-enum Retirement {
+enum TrackExercise {
     Reset,
     Disguise,
+    TurnInPlace,
 }
 
-fn exercise_retail_track_retirement(unit: RetailTrackUnit, retirement: Retirement) {
+fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
     let install = std::path::PathBuf::from(std::env::var_os("GENERALS_BASE_DIR").unwrap());
     let model_archive = if unit.expansion_model {
         std::path::PathBuf::from(std::env::var_os("GENERALS_ASSETS_DIR").unwrap())
@@ -217,13 +224,39 @@ fn exercise_retail_track_retirement(unit: RetailTrackUnit, retirement: Retiremen
             .receives_terrain_track(&peer_receipt)
     );
 
+    if matches!(exercise, TrackExercise::TurnInPlace) {
+        let terrain = render.native_terrain().unwrap();
+        let track = terrain.terrain_tracks().track(receipt.slot()).unwrap();
+        assert!(track.have_anchor() && track.have_cap());
+        assert_eq!(track.active_edge_count(), 0);
+        with_view(
+            &mut client,
+            &mut render,
+            &mut graphics,
+            &mut world,
+            |world, effects| rotate_registered_tank_in_place(world, id, effects),
+        );
+        let terrain = render.native_terrain().unwrap();
+        let track = terrain.terrain_tracks().track(receipt.slot()).unwrap();
+        assert!(
+            track.have_anchor() && !track.have_cap(),
+            "a registered zero-pivot yaw revisits the original anchor without appending an edge"
+        );
+        assert_eq!(track.active_edge_count(), 0);
+    }
+
+    let placements: &[f32] = if matches!(exercise, TrackExercise::TurnInPlace) {
+        &[45.0, 70.0, 95.0]
+    } else {
+        &[45.0, 70.0]
+    };
     with_view(
         &mut client,
         &mut render,
         &mut graphics,
         &mut world,
         |world, effects| {
-            for x in [45.0, 70.0] {
+            for &x in placements {
                 assert!(world.set_registered_object_position_with_effects(
                     id,
                     Vec3::new(x, 0.0, 20.0),
@@ -242,10 +275,10 @@ fn exercise_retail_track_retirement(unit: RetailTrackUnit, retirement: Retiremen
             .active_edges(tracks.config().max_tank_track_edges);
         assert_eq!(
             edges.len(),
-            2,
+            placements.len(),
             "factory placement supplied the first anchor"
         );
-        for (edge, x) in edges.iter().zip([45.0, 70.0]) {
+        for (edge, &x) in edges.iter().zip(placements) {
             assert_eq!(edge.time_added, 1234);
             assert_eq!(edge.endpoint_pos[0].x, x);
             assert!(
@@ -284,11 +317,11 @@ fn exercise_retail_track_retirement(unit: RetailTrackUnit, retirement: Retiremen
         );
         terrain.prepare_tank_track_draws(|_| panic!("the resident retail tread was reopened"));
     }
-    match retirement {
-        Retirement::Disguise => {
+    match exercise {
+        TrackExercise::Disguise => {
             replace_with_retail_disguise(&mut world, &mut client, &mut render, &mut graphics, id);
         }
-        Retirement::Reset => {
+        TrackExercise::Reset => {
             assert!(
                 render
                     .retire_native_drawables_after_client_reset(
@@ -307,6 +340,40 @@ fn exercise_retail_track_retirement(unit: RetailTrackUnit, retirement: Retiremen
                 .retire_native_drawables_after_client_reset(&client.borrow_native_drawable_owner())
                 .unwrap();
         }
+        TrackExercise::TurnInPlace => {
+            assert_eq!(edges_before.last().unwrap().alpha, 1.0);
+            world
+                .objects
+                .get_mut(&id)
+                .unwrap()
+                .set_status_stealthed(true);
+            with_view(
+                &mut client,
+                &mut render,
+                &mut graphics,
+                &mut world,
+                |world, effects| rotate_registered_tank_in_place(world, id, effects),
+            );
+            let terrain = render.native_terrain().unwrap();
+            let tracks = terrain.terrain_tracks();
+            let track = tracks.track(receipt.slot()).unwrap();
+            assert!(!track.have_anchor() && track.have_cap());
+            let mut expected = edges_before;
+            expected.last_mut().unwrap().alpha = 0.0;
+            assert_eq!(
+                track.active_edges(tracks.config().max_tank_track_edges),
+                expected
+            );
+            let peer = peer_render
+                .native_terrain()
+                .unwrap()
+                .terrain_tracks()
+                .track(peer_receipt.slot())
+                .unwrap();
+            assert!(peer.have_anchor() && peer.have_cap());
+            assert_eq!(peer.active_edge_count(), 0);
+            return;
+        }
     }
     let terrain = render.native_terrain().unwrap();
     assert!(!terrain.receives_terrain_track(&receipt));
@@ -316,7 +383,7 @@ fn exercise_retail_track_retirement(unit: RetailTrackUnit, retirement: Retiremen
         track.active_edges(terrain.terrain_tracks().config().max_tank_track_edges),
         edges_before,
     );
-    if matches!(retirement, Retirement::Disguise) {
+    if matches!(exercise, TrackExercise::Disguise) {
         let tracks = render.native_terrain_mut().unwrap().terrain_tracks_mut();
         let end = 1234 + tracks.config().max_tank_track_fade_delay;
         tracks.update(end);
@@ -329,6 +396,29 @@ fn exercise_retail_track_retirement(unit: RetailTrackUnit, retirement: Retiremen
             .unwrap()
             .receives_terrain_track(&peer_receipt)
     );
+}
+
+fn rotate_registered_tank_in_place(
+    world: &mut GameLogic,
+    id: ObjectId,
+    effects: &mut ScriptPresentationEffects<'_>,
+) {
+    let object = world.objects.get_mut(&id).unwrap();
+    // The original locomotor disables its pivot offset while braking.
+    object.is_braking = true;
+    let before = (
+        object.get_position(),
+        object.get_orientation(),
+        object.native_pose_revision(),
+    );
+    let goal = before.0 - Vec3::Z * 100.0;
+    world
+        .rotate_owned_pivot_with_effects(id, goal, 0.25, 4, effects)
+        .unwrap();
+    let object = world.objects.get(&id).unwrap();
+    assert_eq!(object.get_position(), before.0);
+    assert!((object.get_orientation() - before.1 - 0.25).abs() < 1e-6);
+    assert_eq!(object.native_pose_revision(), before.2 + 1);
 }
 
 fn replace_with_retail_disguise(

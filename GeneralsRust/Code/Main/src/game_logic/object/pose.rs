@@ -603,11 +603,22 @@ impl Object {
         angle: f32,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
     ) {
+        self.set_orientation_with_partition_and_observer(angle, partition, |_| {});
+    }
+
+    pub(in crate::game_logic) fn set_orientation_with_partition_and_observer(
+        &mut self,
+        angle: f32,
+        partition: &mut crate::game_logic::partition_manager::PartitionManager,
+        observe: impl FnOnce(&Self),
+    ) {
         let old_position = self.get_position();
         let old_angle = self.get_orientation();
         self.require_partition_owner(Some(partition));
         self.thing.set_orientation(angle);
         self.notify_native_pose_installed();
+        // C++ Object::reactToTransformChange calls its Drawable before marking partition dirty.
+        observe(self);
         partition.receiving_transform_changed(self, old_position, old_angle);
     }
 
@@ -1747,6 +1758,24 @@ impl crate::game_logic::GameLogic {
         self.set_owned_object_position_with_effects(id, position, frame, effects)
     }
 
+    #[cfg(feature = "game_client")]
+    pub(in crate::game_logic) fn observe_owned_track_transform<'object>(
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        logic: &std::sync::RwLock<gamelogic::terrain::TerrainLogic>,
+        observation: impl FnOnce() -> Option<(&'object Object, crate::assets::LiveDrawPlaybackIdentity)>,
+    ) {
+        if let Some(view) = effects.view.as_deref_mut()
+            && let Some(terrain) = effects
+                .terrain
+                .as_deref_mut()
+                .and_then(|terrain| terrain.track_terrain())
+            && terrain.has_receiving_tracks()
+            && let Some((object, identity)) = observation()
+        {
+            view.on_owned_track_position_installed(&identity, object, terrain, logic);
+        }
+    }
+
     /// One lexical original-position callback boundary. The caller has ended
     /// its Object/terrain loans; the actor remains in the authoritative store.
     pub(in crate::game_logic) fn complete_owned_position_reaction(
@@ -1756,18 +1785,10 @@ impl crate::game_logic::GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         #[cfg(feature = "game_client")]
-        if let Some(view) = effects.view.as_deref_mut()
-            && let Some(terrain) = effects.terrain.as_deref_mut().and_then(|terrain| terrain.track_terrain())
-            && terrain.has_receiving_tracks()
-            && let Some(object) = self.objects.get(&id).filter(|object| reaction.still_applies(object))
-        {
-            view.on_owned_track_position_installed(
-                &self.live_draw_playback_identity(object),
-                object,
-                terrain,
-                self.world_services.terrain().as_ref(),
-            );
-        }
+        Self::observe_owned_track_transform(effects, self.world_services.terrain().as_ref(), || {
+            let object = self.objects.get(&id).filter(|object| reaction.still_applies(object))?;
+            Some((object, self.live_draw_playback_identity(object)))
+        });
         #[cfg(feature = "game_client")]
         if let Some(mut cursor) = reaction.tree_move.take() {
             loop {

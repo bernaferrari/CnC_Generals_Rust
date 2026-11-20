@@ -1579,10 +1579,22 @@ impl GameLogic {
         &self,
         object: &Object,
     ) -> crate::assets::LiveDrawPlaybackIdentity {
-        crate::assets::LiveDrawPlaybackIdentity::new(
-            Arc::clone(&self.live_draw_playback_world),
-            Arc::clone(&object.visual_draw_identity_token),
+        Self::live_draw_playback_identity_in_world(
+            &self.live_draw_playback_world,
             self.visual_world_epoch,
+            object,
+        )
+    }
+
+    pub(in crate::game_logic) fn live_draw_playback_identity_in_world(
+        world: &Arc<()>,
+        epoch: u64,
+        object: &Object,
+    ) -> crate::assets::LiveDrawPlaybackIdentity {
+        crate::assets::LiveDrawPlaybackIdentity::new(
+            Arc::clone(world),
+            Arc::clone(&object.visual_draw_identity_token),
+            epoch,
             object.id.0,
             object.visual_object_generation,
         )

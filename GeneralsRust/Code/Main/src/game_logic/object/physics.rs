@@ -2554,7 +2554,7 @@ impl PivotTurn {
 }
 
 impl crate::game_logic::GameLogic {
-    pub(in crate::game_logic) fn rotate_owned_pivot_with_effects(
+    pub(crate) fn rotate_owned_pivot_with_effects(
         &mut self,
         id: ObjectId,
         goal: glam::Vec3,
@@ -2579,7 +2579,27 @@ impl crate::game_logic::GameLogic {
         }
         let object = self.objects.get_mut(&id)?;
         if let Some(angle) = plan.orientation {
-            object.set_orientation_with_partition_owner(angle, &mut self.partition_manager);
+            object.set_orientation_with_partition_and_observer(
+                angle,
+                &mut self.partition_manager,
+                |_object| {
+                    #[cfg(feature = "game_client")]
+                    Self::observe_owned_track_transform(
+                        effects,
+                        self.world_services.terrain().as_ref(),
+                        || {
+                            Some((
+                                _object,
+                                Self::live_draw_playback_identity_in_world(
+                                    &self.live_draw_playback_world,
+                                    self.visual_world_epoch,
+                                    _object,
+                                ),
+                            ))
+                        },
+                    );
+                },
+            );
         }
         object.physics_turning = plan.turning;
         Some((plan.turning, plan.relative))
