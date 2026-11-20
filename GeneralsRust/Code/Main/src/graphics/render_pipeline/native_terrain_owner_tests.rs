@@ -126,3 +126,151 @@ fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_sele
     drop(graphics);
     drop(engine);
 }
+
+#[test]
+#[ignore = "requires native GPU for the receiving RenderPipeline"]
+fn track_lod_clears_the_live_ring_before_committing_its_receiving_level() {
+    use game_client::terrain::terrain_tracks::TerrainTrackHeightProvider;
+    use game_engine::common::ini::{
+        ini_game_data::TerrainTrackRules,
+        ini_game_lod::StaticGameLODLevel::{Custom, High, Low, Unknown},
+    };
+
+    struct FlatTrackHeight;
+    impl TerrainTrackHeightProvider for FlatTrackHeight {
+        fn ground_height_and_normal(&self, _x: f32, _y: f32) -> (f32, Vec3) {
+            (0.0, Vec3::Z)
+        }
+    }
+
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        ..Default::default()
+    })
+    .unwrap();
+    let graphics = {
+        let engine = engine.lock();
+        GraphicsSystem::new(
+            engine.device(),
+            engine.queue(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+        .unwrap()
+    };
+    let mut render = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer = RenderPipeline::initialize(engine, &graphics).unwrap();
+    render.install_native_terrain_cpu(Some(visual(40)));
+    peer.install_native_terrain_cpu(Some(visual(80)));
+
+    let lay = |renderer: &mut RenderPipeline, slot| {
+        let tracks = renderer.native_terrain_mut().unwrap().terrain_tracks_mut();
+        for x in [10.0, 25.0, 40.0] {
+            tracks.add_edge_to_track(slot, &FlatTrackHeight, x, 20.0, 1000);
+        }
+    };
+    let bind = |renderer: &mut RenderPipeline| {
+        renderer
+            .native_terrain_mut()
+            .unwrap()
+            .terrain_tracks_mut()
+            .bind_track(14.0, 10.0, "EXTnkTrack.tga")
+            .unwrap()
+    };
+    let count = |renderer: &RenderPipeline, slot| {
+        renderer
+            .native_terrain()
+            .unwrap()
+            .terrain_tracks()
+            .track(slot)
+            .unwrap()
+            .active_edge_count()
+    };
+    let slot = bind(&mut render);
+    let peer_slot = bind(&mut peer);
+    assert_eq!(slot, peer_slot);
+    lay(&mut render, slot);
+    lay(&mut peer, peer_slot);
+    assert_eq!((count(&render, slot), count(&peer, peer_slot)), (2, 2));
+
+    let mut world = crate::game_logic::GameLogic::new();
+    let mut peer_world = crate::game_logic::GameLogic::new();
+    world.admit_static_lod_level(Some(Low));
+    peer_world.admit_static_lod_level(Some(Low));
+    let base = world.effective_terrain_track_rules();
+    let peer_base = peer_world.effective_terrain_track_rules();
+    let mut preset = base;
+    preset.max_tank_track_edges = 12;
+    preset.max_tank_track_opaque_edges = 7;
+    preset.max_tank_track_fade_delay = 321;
+    preset.max_terrain_tracks = 1;
+    preset.make_track_marks = false;
+    let before = render.native_terrain().unwrap().terrain_tracks().config();
+
+    assert!(
+        world
+            .lighting_definitions
+            .apply_static_lod(High, preset, |owner| {
+                assert_eq!(owner.static_lod_level, Some(Low));
+                render.set_native_terrain_track_detail(&owner.effective.terrain_tracks);
+                assert_eq!(owner.static_lod_level, Some(Low));
+                assert_eq!(count(&render, slot), 0);
+                assert_eq!(count(&peer, peer_slot), 2);
+            })
+    );
+    assert_eq!(world.current_static_lod_level(), Some(High));
+    assert_eq!(peer_world.current_static_lod_level(), Some(Low));
+    assert_eq!(peer_world.effective_terrain_track_rules(), peer_base);
+    let tracks = render.native_terrain().unwrap().terrain_tracks();
+    let after = tracks.config();
+    assert_eq!(after.max_tank_track_edges, 12);
+    assert_eq!(after.max_tank_track_opaque_edges, 7);
+    assert_eq!(after.max_tank_track_fade_delay, 321);
+    assert_eq!(after.max_terrain_tracks, before.max_terrain_tracks);
+    assert_eq!(after.make_track_marks, before.make_track_marks);
+    assert!(tracks.track(slot).unwrap().bound());
+
+    lay(&mut render, slot);
+    for unchanged in [High, Unknown] {
+        assert!(
+            !world
+                .lighting_definitions
+                .apply_static_lod(unchanged, base, |_| {
+                    panic!("unapplied LOD must leave the receiving track ring intact");
+                })
+        );
+        assert_eq!(world.current_static_lod_level(), Some(High));
+        assert_eq!(count(&render, slot), 2);
+    }
+
+    for previous in [High, Custom] {
+        assert!(
+            world
+                .lighting_definitions
+                .apply_static_lod(Custom, base, |owner| {
+                    assert_eq!(owner.static_lod_level, Some(previous));
+                    render.set_native_terrain_track_detail(&owner.effective.terrain_tracks);
+                })
+        );
+        assert_eq!(count(&render, slot), 0);
+        assert_eq!(
+            render.native_terrain().unwrap().terrain_tracks().config(),
+            after
+        );
+        lay(&mut render, slot);
+    }
+    assert_eq!(count(&peer, peer_slot), 2);
+
+    render.clear_native_terrain();
+    assert!(world.lighting_definitions.apply_static_lod(
+        Low,
+        TerrainTrackRules::default(),
+        |owner| {
+            render.set_native_terrain_track_detail(&owner.effective.terrain_tracks);
+        }
+    ));
+    assert_eq!(world.current_static_lod_level(), Some(Low));
+    assert!(render.native_terrain().is_none());
+    assert_eq!(count(&peer, peer_slot), 2);
+}
