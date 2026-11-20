@@ -108,9 +108,76 @@ pub struct HostFxObjectPose {
     pub is_shrouded: bool,
 }
 
+/// Upright pose captured for an installed host Object. Most captured Objects
+/// have no attached effect that needs their transform on this frame.
+#[derive(Clone, Copy, Debug)]
+pub struct HostFxObjectPoseSample {
+    pub id: ObjectID,
+    pub position: Coord3D,
+    pub orientation: f32,
+    pub player_index: i32,
+    pub bounding_circle_radius: f32,
+    pub is_shrouded: bool,
+}
+
+impl HostFxObjectPoseSample {
+    /// Materialize in the source FX coordinate system and rotation order.
+    pub fn into_pose(self) -> HostFxObjectPose {
+        let position = glam::Vec3::new(self.position.x, self.position.y, self.position.z);
+        HostFxObjectPose {
+            id: self.id,
+            position: self.position,
+            transform: Matrix3D::from_translation(position)
+                * Matrix3D::from_rotation_z(self.orientation),
+            player_index: self.player_index,
+            bounding_circle_radius: self.bounding_circle_radius,
+            is_shrouded: self.is_shrouded,
+        }
+    }
+}
+
+pub(crate) enum StoredHostFxPose {
+    Sample(HostFxObjectPoseSample),
+    Resolved(HostFxObjectPose),
+}
+
+impl From<HostFxObjectPose> for StoredHostFxPose {
+    fn from(pose: HostFxObjectPose) -> Self {
+        Self::Resolved(pose)
+    }
+}
+
+impl From<HostFxObjectPoseSample> for StoredHostFxPose {
+    fn from(sample: HostFxObjectPoseSample) -> Self {
+        Self::Sample(sample)
+    }
+}
+
+impl StoredHostFxPose {
+    fn id(&self) -> ObjectID {
+        match self {
+            Self::Sample(sample) => sample.id,
+            Self::Resolved(pose) => pose.id,
+        }
+    }
+
+    fn resolve(&mut self) -> HostFxObjectPose {
+        match self {
+            Self::Resolved(pose) => *pose,
+            Self::Sample(sample) => {
+                let pose = sample.into_pose();
+                *self = Self::Resolved(pose);
+                pose
+            }
+        }
+    }
+}
+
+pub(crate) type HostFxPoseMap = game_engine::common::fast_hash::FxHashMap<ObjectID, StoredHostFxPose>;
+
 fn with_host_fx_poses_mut_on<R>(
     services: &crate::system::engine_stores::WorldServices,
-    f: impl FnOnce(&mut HashMap<ObjectID, HostFxObjectPose>) -> R,
+    f: impl FnOnce(&mut HostFxPoseMap) -> R,
 ) -> R {
     let mut map = services
         .client_visuals()
@@ -120,27 +187,10 @@ fn with_host_fx_poses_mut_on<R>(
     f(&mut map)
 }
 
-fn with_host_fx_poses_on<R>(
-    services: &crate::system::engine_stores::WorldServices,
-    f: impl FnOnce(&HashMap<ObjectID, HostFxObjectPose>) -> R,
-) -> R {
-    let map = services
-        .client_visuals()
-        .host_fx_poses
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
-    f(&map)
-}
-
-fn with_host_fx_poses_mut<R>(f: impl FnOnce(&mut HashMap<ObjectID, HostFxObjectPose>) -> R) -> Option<R> {
+fn with_host_fx_poses_mut<R>(f: impl FnOnce(&mut HostFxPoseMap) -> R) -> Option<R> {
     // Transitional ambient: prefer set_host_fx_object_pose_on / replace_*_on.
     let services = crate::system::engine_stores::try_active_services()?;
     Some(with_host_fx_poses_mut_on(&services, f))
-}
-
-fn with_host_fx_poses<R>(f: impl FnOnce(&HashMap<ObjectID, HostFxObjectPose>) -> R) -> Option<R> {
-    let services = crate::system::engine_stores::try_active_services()?;
-    Some(with_host_fx_poses_on(&services, f))
 }
 
 /// Stamp a live host object's leftover-space pose for object-form FX.
@@ -159,15 +209,15 @@ pub fn set_host_fx_object_pose_on(
 }
 
 fn insert_host_fx_object_pose(
-    poses: &mut std::collections::HashMap<ObjectID, HostFxObjectPose>,
+    poses: &mut HostFxPoseMap,
     pose: HostFxObjectPose,
 ) {
-    poses.insert(pose.id, pose);
+    poses.insert(pose.id, pose.into());
 }
 
 /// Look up a host object pose published by the live host.
 pub fn host_fx_object_pose(id: ObjectID) -> Option<HostFxObjectPose> {
-    with_host_fx_poses(|map| map.get(&id).copied()).flatten()
+    with_host_fx_poses_mut(|map| map.get_mut(&id).map(StoredHostFxPose::resolve)).flatten()
 }
 
 /// Drop a published host pose when the live object is gone.
@@ -187,12 +237,12 @@ pub fn retain_host_fx_object_poses(keep: impl Fn(ObjectID) -> bool) {
 #[cfg(test)]
 mod host_fx_pose_publication_tests {
     use super::{
-        HostFxObjectPose, apply_host_fx_pose_frame, host_fx_object_pose,
+        HostFxObjectPose, HostFxObjectPoseSample, HostFxPoseMap, StoredHostFxPose,
+        apply_host_fx_pose_frame, host_fx_object_pose,
         insert_host_fx_object_pose, set_host_fx_object_pose,
         set_host_fx_object_pose_on,
     };
     use crate::common::{Matrix3D, ObjectID};
-    use std::collections::HashMap;
 
     fn pose(id: ObjectID, x: f32) -> HostFxObjectPose {
         HostFxObjectPose {
@@ -207,29 +257,57 @@ mod host_fx_pose_publication_tests {
 
     #[test]
     fn frame_publication_replaces_live_values_and_drops_absent_ids() {
-        let mut poses = HashMap::new();
+        let mut poses = HostFxPoseMap::default();
         insert_host_fx_object_pose(&mut poses, pose(91_001, 1.0));
         insert_host_fx_object_pose(&mut poses, pose(91_002, 2.0));
 
         apply_host_fx_pose_frame(&mut poses, [pose(91_001, 7.0)]);
 
         assert_eq!(poses.len(), 1);
-        assert_eq!(poses.get(&91_001).unwrap().position.x, 7.0);
+        assert_eq!(poses.get_mut(&91_001).unwrap().resolve().position.x, 7.0);
         assert!(!poses.contains_key(&91_002));
     }
 
     #[test]
     fn event_time_insert_is_visible_until_the_next_frame_retains_ids() {
-        let mut poses = HashMap::new();
+        let mut poses = HostFxPoseMap::default();
         apply_host_fx_pose_frame(&mut poses, [pose(91_003, 3.0)]);
 
         // The setter and frame publisher share this insertion helper.
         insert_host_fx_object_pose(&mut poses, pose(91_004, 4.0));
-        assert_eq!(poses.get(&91_004).unwrap().position.x, 4.0);
+        assert_eq!(poses.get_mut(&91_004).unwrap().resolve().position.x, 4.0);
 
         apply_host_fx_pose_frame(&mut poses, [pose(91_003, 5.0)]);
         assert!(!poses.contains_key(&91_004));
-        assert_eq!(poses.get(&91_003).unwrap().position.x, 5.0);
+        assert_eq!(poses.get_mut(&91_003).unwrap().resolve().position.x, 5.0);
+    }
+
+    #[test]
+    fn only_queried_frame_poses_resolve_their_authored_matrix() {
+        let mut poses = HostFxPoseMap::default();
+        let sample = HostFxObjectPoseSample {
+            id: 12,
+            position: crate::common::Coord3D::new(-9.0, 11.0, 4.0),
+            orientation: 0.45,
+            player_index: 1,
+            bounding_circle_radius: 8.0,
+            is_shrouded: true,
+        };
+        apply_host_fx_pose_frame(&mut poses, [sample, HostFxObjectPoseSample { id: 13, ..sample }]);
+        assert!(matches!(poses.get(&12), Some(StoredHostFxPose::Sample(_))));
+        let expected = Matrix3D::from_translation(glam::vec3(-9.0, 11.0, 4.0))
+            * Matrix3D::from_rotation_z(0.45);
+        for _ in 0..2 {
+            let pose = poses.get_mut(&12).unwrap().resolve();
+            assert_eq!(
+                pose.transform.to_cols_array().map(f32::to_bits),
+                expected.to_cols_array().map(f32::to_bits),
+            );
+            assert_eq!(pose.bounding_circle_radius, 8.0);
+            assert!(pose.is_shrouded);
+        }
+        assert!(matches!(poses.get(&12), Some(StoredHostFxPose::Resolved(_))));
+        assert!(matches!(poses.get(&13), Some(StoredHostFxPose::Sample(_))));
     }
 
     #[test]
@@ -301,15 +379,29 @@ pub fn replace_host_fx_object_poses_for_frame_on(
     });
 }
 
+/// Publish the receiving frame's poses without generating unused transforms.
+/// A parent lookup resolves and retains its matrix until the next publication.
+pub fn replace_host_fx_object_pose_samples_for_frame_on(
+    services: &crate::system::engine_stores::WorldServices,
+    poses: impl IntoIterator<Item = HostFxObjectPoseSample>,
+) {
+    with_host_fx_poses_mut_on(services, |current| {
+        apply_host_fx_pose_frame(current, poses);
+    });
+}
+
 fn apply_host_fx_pose_frame(
-    current: &mut std::collections::HashMap<ObjectID, HostFxObjectPose>,
-    poses: impl IntoIterator<Item = HostFxObjectPose>,
+    current: &mut HostFxPoseMap,
+    poses: impl IntoIterator<Item = impl Into<StoredHostFxPose>>,
 ) {
     // Every retained ID receives a fresh pose. Rebuild in the existing map to
     // preserve that result without a temporary pose Vec or live-ID HashSet.
     // Clear retains allocation capacity; duplicate IDs still use the last pose.
     current.clear();
-    current.extend(poses.into_iter().map(|pose| (pose.id, pose)));
+    current.extend(poses.into_iter().map(|pose| {
+        let pose = pose.into();
+        (pose.id(), pose)
+    }));
 }
 
 /// Particle system manager bridge to the client-side implementation.

@@ -222,16 +222,24 @@ fn host_fx_object_pose(
     bounding_circle_radius: f32,
     is_shrouded: bool,
 ) -> gamelogic::helpers::HostFxObjectPose {
-    let leftover_pos = host_to_leftover_coord(pos);
-    let transform = glam::Mat4::from_translation(glam::Vec3::new(
-        leftover_pos.x,
-        leftover_pos.y,
-        leftover_pos.z,
-    )) * glam::Mat4::from_rotation_z(orientation);
-    gamelogic::helpers::HostFxObjectPose {
+    host_fx_pose_sample(
+        id, pos, orientation, player_index, bounding_circle_radius, is_shrouded,
+    )
+    .into_pose()
+}
+
+fn host_fx_pose_sample(
+    id: u32,
+    pos: Vec3,
+    orientation: f32,
+    player_index: i32,
+    bounding_circle_radius: f32,
+    is_shrouded: bool,
+) -> gamelogic::helpers::HostFxObjectPoseSample {
+    gamelogic::helpers::HostFxObjectPoseSample {
         id,
-        position: leftover_pos,
-        transform,
+        position: host_to_leftover_coord(pos),
+        orientation,
         player_index,
         bounding_circle_radius,
         is_shrouded,
@@ -288,7 +296,7 @@ pub fn refresh_host_fx_object_poses_from_presentation_on(
     let poses = frame.objects.iter().map(|object| {
         let is_shrouded = (object.drawable_shroud.raw_status as u8)
             >= (crate::presentation_frame::PresentationObjectShroudStatus::Fogged as u8);
-        host_fx_object_pose(
+        host_fx_pose_sample(
             object.id.0,
             object.position,
             object.orientation,
@@ -300,7 +308,7 @@ pub fn refresh_host_fx_object_poses_from_presentation_on(
             is_shrouded,
         )
     });
-    gamelogic::helpers::replace_host_fx_object_poses_for_frame_on(services, poses);
+    gamelogic::helpers::replace_host_fx_object_pose_samples_for_frame_on(services, poses);
 }
 
 fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
