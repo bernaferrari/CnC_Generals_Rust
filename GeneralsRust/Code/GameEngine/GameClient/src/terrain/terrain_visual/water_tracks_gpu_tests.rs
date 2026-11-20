@@ -129,6 +129,12 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
             "the native polygon shader must bind the mounted TWWater01 art",
         );
         assert_eq!(visual.river_gpu.river_tex, visual.water_texture);
+        let edge = visual.river_gpu.detail_views.as_ref().unwrap().edge.texture();
+        assert_eq!(
+            (edge.width(), edge.height()),
+            (256, 256),
+            "the mounted river uses the stock TWAlphaEdge texture"
+        );
         set_water_test_camera(&mut visual, &device, min, max);
         visual.set_map_water_areas(areas.clone());
         assert!(
@@ -573,6 +579,96 @@ fn water_shroud_preserves_the_trapezoid_background_before_alpha_blend() {
             assert!(tinted_pool[0][channel].abs_diff(colored_water) <= 1);
             assert!(pool_tinted_delta[channel].abs_diff(pool_delta[channel]) <= 1);
         }
+    });
+}
+
+#[test]
+#[ignore = "requires a serialized native GPU"]
+fn river_uses_the_authored_edge_coordinate_and_alpha() {
+    use game_engine::common::common_services::{CommonServices, with_common_services};
+
+    let common = Arc::new(CommonServices::new());
+    with_common_services(&common, || {
+        let (device, queue) = native_water_test_device();
+        let mut visual = TerrainVisualImpl::new();
+        let mut water = visual.water_presentation().clone();
+        water.standing_water_color = (1.0, 0.7, 0.6);
+        for setting in &mut water.settings {
+            setting.surface_color = (255.0, 255.0, 255.0, 128.0);
+        }
+        visual.admit_water_presentation(&water).unwrap();
+        visual
+            .init_gpu_resources(device.clone(), queue.clone())
+            .unwrap();
+        let solid = |rgba| {
+            TerrainVisualImpl::create_solid_rgba_texture(
+                &device,
+                &queue,
+                rgba,
+                "river edge control",
+            )
+        };
+        visual.water_texture = Some(solid([32, 64, 96, 255]));
+        let details = visual.river_gpu.detail_views.as_mut().unwrap();
+        details.sparkle = solid([0, 0, 0, 255]).create_view(&Default::default());
+        let edge = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("River edge UV and alpha control"),
+            size: wgpu::Extent3d {
+                width: 8,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let mut texels = [[0, 0, 0, 64_u8]; 8];
+        texels[3..5].fill([200, 0, 0, 128]);
+        queue.write_texture(
+            edge.as_image_copy(),
+            bytemuck::cast_slice(&texels),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(32),
+                rows_per_image: Some(1),
+            },
+            edge.size(),
+        );
+        details.edge = edge.create_view(&Default::default());
+        visual.ensure_water_materials(&device);
+        set_water_test_camera(&mut visual, &device, Vec2::splat(-1.0), Vec2::splat(9.0));
+        visual.set_map_water_areas(vec![TerrainWaterArea {
+            points: vec![
+                [0.0, 0.0, 0.0],
+                [8.0, 0.0, 0.0],
+                [8.0, 0.0, 8.0],
+                [0.0, 0.0, 8.0],
+            ],
+            is_river: true,
+            river_start: 0,
+        }]);
+        // The covered center pixel has u1≈0.26 and u2≈0.52. Linear sampling
+        // selects only columns 1–2 for u1, and columns 3–4 for the edge's u2.
+        // At u2, the original multiplies the mesh alpha by 128, not red 200.
+        let background = wgpu::Color {
+            r: 0.5,
+            g: 0.5,
+            b: 0.5,
+            a: 1.0,
+        };
+        let dark = read_water_pixels(&visual, &device, &queue, true);
+        let lit = read_water_pixels_with_background(&visual, &device, &queue, true, background);
+        let center = (8 * 32 + 16) * 4;
+        let delta: [i16; 3] = std::array::from_fn(|channel| {
+            i16::from(lit[center + channel]) - i16::from(dark[center + channel])
+        });
+        eprintln!(
+            "River edge artwork leaves a background contribution of {delta:?}, original expected ~96"
+        );
+        assert!(delta.iter().all(|value| value.abs_diff(96) <= 1));
     });
 }
 

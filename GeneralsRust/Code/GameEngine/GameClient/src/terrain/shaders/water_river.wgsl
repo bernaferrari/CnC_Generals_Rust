@@ -92,9 +92,12 @@ fn shade_water(in: VertexOutput) -> vec4<f32> {
         rgb = rgb + t1.rgb * t2.rgb;
     } else {
         // river: add r0.rgb, r0, t3 ; mul r0.a, r0, t3 ; add r0.rgb, r0, t1*t2
-        let t3 = textureSample(alpha_edge_texture, river_sampler, in.tex_coords);
+        // W3DWater.cpp:201,2843,2861: stage 3 uses u2 across the full width.
+        // The albedo uses u1 across half the width and v1 is identical to v2.
+        let edge_uv = vec2<f32>(in.tex_coords.x * 2.0, in.tex_coords.y);
+        let t3 = textureSample(alpha_edge_texture, river_sampler, edge_uv);
         rgb = rgb + t3.rgb;
-        alpha = alpha * saturate(max(t3.a, t3.r));
+        alpha = alpha * t3.a;
         rgb = rgb + t1.rgb * t2.rgb;
     }
 
