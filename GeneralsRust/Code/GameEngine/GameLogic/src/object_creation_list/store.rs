@@ -125,6 +125,25 @@ impl ObjectCreationList {
         self.create_internal_with_objects(ctx, primary, secondary, lifetime_frames)
     }
 
+    /// CPP ObjectCreationList.cpp:1539–1551 still runs every nugget in authored
+    /// order. Generic births can update the newest dying parent's backlink
+    /// before the child enters its original onCreate callbacks.
+    pub(crate) fn create_with_borrowed_primary(
+        &self,
+        ctx: &CreationContext<'_>,
+        primary: &mut Object,
+        secondary_id: ObjectID,
+    ) -> CreationResult {
+        let mut first = None;
+        for nugget in &self.nuggets {
+            let created = nugget.create_with_borrowed_primary(ctx, primary, secondary_id);
+            if first.is_none() {
+                first = created;
+            }
+        }
+        first
+    }
+
     /// Create objects with owner flag (for DeliverPayload)
     /// Matches C++ static ObjectCreationList::create with createOwner (ObjectCreationList.h:116-121)
     ///

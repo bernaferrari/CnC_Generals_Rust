@@ -1553,8 +1553,10 @@ impl Object {
                     if let Some(applies) = wrapper.destroy_die_applicable(self, damage) {
                         return applies;
                     }
-                    // RebuildHoleExposeDie.cpp receives the current parent.
-                    if wrapper.on_rebuild_hole_die_with_owner(self, damage) {
+                    // These die callbacks receive the current parent.
+                    if wrapper.on_rebuild_hole_die_with_owner(self, damage)
+                        || wrapper.on_create_object_die_with_owner(self, damage)
+                    {
                         return false;
                     }
                 }

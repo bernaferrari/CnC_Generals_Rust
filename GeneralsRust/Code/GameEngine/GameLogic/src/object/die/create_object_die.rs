@@ -7,25 +7,16 @@
 use super::{DieModule, DieModuleData, DieModuleInterface};
 use crate::common::{Bool, INVALID_ID};
 use crate::damage::{DamageInfo, DamageType};
-use crate::helpers::TheGameLogic;
 use crate::helpers::TheObjectCreationListStore;
-use crate::modules::{AIUpdateInterface, BodyModuleInterface, BodyModuleInterfaceExt};
+use crate::modules::{BodyModuleInterface, BodyModuleInterfaceExt};
 use crate::object::Object;
 use crate::object::die::{
     parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,
     parse_die_mux_veterancy_levels,
 };
-use crate::object::registry::OBJECT_REGISTRY;
-use crate::system::game_logic::get_game_logic;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
-
-/// Wave 452: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 /// Module data for CreateObjectDie
 /// (Matches C++ CreateObjectDieModuleData)
@@ -177,33 +168,8 @@ impl CreateObjectDie {
         "CreateObjectDie"
     }
 
-    /// Create objects from the object creation list
-    fn create_objects(
-        &self,
-        dying_object: &Object,
-        damage_dealer: Option<&Object>,
-    ) -> Vec<Arc<RwLock<Object>>> {
-        let mut created_objects = Vec::new();
-
-        let module_data = self.base.module_data.read();
-        let ocl_name = match module_data.ocl.first() {
-            Some(name) => name,
-            None => return created_objects,
-        };
-
-        if let Some(ocl_handle) = TheObjectCreationListStore::find_object_creation_list(ocl_name) {
-            let ctx = crate::object_creation_list::live_creation_context();
-            let created = ocl_handle.create_with_objects(&ctx, dying_object, damage_dealer, 0);
-            if let Some(obj) = created {
-                created_objects.push(obj);
-            }
-        }
-
-        created_objects
-    }
-
     /// Transfer health and damage state from old object to new object
-    fn transfer_health(&self, old_object: &Object, _new_object: &mut Object) {
+    fn transfer_health(&self, old_object: &Object, new_object: &mut Object) {
         if !self.base.module_data.read().transfer_previous_health {
             return;
         }
@@ -213,7 +179,7 @@ impl CreateObjectDie {
         let Some(old_body) = old_object.get_body_module() else {
             return;
         };
-        let Some(new_body) = _new_object.get_body_module() else {
+        let Some(new_body) = new_object.get_body_module() else {
             return;
         };
 
@@ -252,41 +218,6 @@ impl CreateObjectDie {
             let _ = new_body_guard.attempt_damage(&mut info);
         }
     }
-
-    /// Transfer attackers from old object to new object
-    fn transfer_attackers(
-        &self,
-        dying_object: &mut Object,
-        old_object_id: crate::common::ObjectID,
-        new_object_id: crate::common::ObjectID,
-    ) {
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        if let Some(ai) = dying_object.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
-                ai_guard.transfer_attack(old_object_id, new_object_id);
-            }
-        }
-
-        let Ok(game_logic) = get_game_logic().lock() else {
-            return;
-        };
-
-        for &object_id in game_logic.get_all_object_ids() {
-            if object_id == old_object_id || object_id == new_object_id {
-                continue;
-            }
-            let _ = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.transfer_attack(old_object_id, new_object_id);
-                    }
-                }
-            });
-        }
-    }
 }
 
 impl DieModuleInterface for CreateObjectDie {
@@ -302,32 +233,27 @@ impl DieModuleInterface for CreateObjectDie {
             return;
         }
 
-        let source_id = damage_info.input.source_id;
-        let created_objects = if source_id == object.get_id() {
-            self.create_objects(object, Some(object))
-        } else {
-            let damage_dealer_arc = TheGameLogic::find_object_by_id(source_id);
-            let damage_dealer_guard = damage_dealer_arc.as_ref().and_then(|h| h.read().ok());
-            self.create_objects(object, damage_dealer_guard.as_deref())
+        let (ocl, transfer_previous_health) = {
+            let data = self.base.module_data.read();
+            let ocl = data.ocl.first()
+                .and_then(|name| TheObjectCreationListStore::find_object_creation_list(name));
+            (ocl, data.transfer_previous_health)
         };
-
-        // If we created objects and should transfer health
-        if self.base.module_data.read().transfer_previous_health && !created_objects.is_empty() {
-            for created_obj_arc in created_objects.iter() {
-                let new_id = {
-                    let Ok(mut created_obj) = created_obj_arc.write() else {
-                        continue;
-                    };
-                    self.transfer_health(object, &mut created_obj);
-                    if let Some(ai) = created_obj.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard.transfer_attack(object.get_id(), created_obj.get_id());
-                        }
-                    }
-                    created_obj.get_id()
+        let Some(ocl) = ocl else {
+            return;
+        };
+        let ctx = crate::object_creation_list::live_creation_context();
+        let created = ocl.create_with_borrowed_primary(&ctx, object, damage_info.input.source_id);
+        if transfer_previous_health && let Some(created) = created {
+            let new_id = {
+                let Ok(mut created) = created.write() else {
+                    return;
                 };
-                self.transfer_attackers(object, object.get_id(), new_id);
-            }
+                self.transfer_health(object, &mut created);
+                created.get_id()
+            };
+            // CreateObjectDie.cpp:113–121 visits the original receiving list once.
+            super::transfer_attackers_with_borrowed_parent(object, new_id);
         }
     }
 }
@@ -354,5 +280,215 @@ mod tests {
         data.ocl.push("DebrisSmall".to_string());
         data.ocl.push("DebrisLarge".to_string());
         assert_eq!(data.ocl.len(), 2);
+    }
+
+    #[test]
+    fn lethal_fire_creates_authored_debris_in_order_with_a_borrowed_victim() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            concat!(
+                module_path!(),
+                "::lethal_fire_creates_authored_debris_in_order_with_a_borrowed_victim"
+            ).strip_prefix("gamelogic::").unwrap(),
+            "GENERALS_CREATE_OBJECT_DIE_CHILD",
+        ) {
+            return;
+        }
+
+        lethal_creation_case(false);
+        lethal_creation_case(true);
+    }
+
+    fn lethal_creation_case(earlier_hole: bool) {
+        use crate::common::Coord3D;
+        use crate::helpers::TheThingFactory;
+        use crate::player::{Player, PlayerTemplate, PlayerType};
+        use crate::system::engine_stores::{new_for_world, with_active_stores};
+        use crate::system::game_logic::get_game_logic;
+        use crate::weapon::{WeaponStore, WeaponTemplate};
+        use game_engine::common::thing::thing_factory::{
+            ensure_thing_factory_exists, get_thing_factory,
+        };
+
+        let driving = new_for_world();
+        let peer = new_for_world();
+        let load = || {
+            assert!(ensure_thing_factory_exists());
+            game_engine::common::thing::module_factory::init_module_factory().unwrap();
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            crate::initialize_weapon_store().unwrap();
+            let hole = if earlier_hole {
+                "    Behavior = RebuildHoleExposeDie Expose
+        HoleName = FixtureHole
+        HoleMaxHealth = 30
+        TransferAttackers = No
+    End
+"
+            } else {
+                ""
+            };
+            let text = format!(r#"
+Object OclVictim
+    KindOf = IMMOBILE STRUCTURE
+    Geometry = BOX
+    GeometryMajorRadius = 20
+    GeometryMinorRadius = 14
+    Body = ActiveBody Health
+        InitialHealth = 100
+        MaxHealth = 100
+    End
+{hole}    Behavior = DestroyDie Destroy
+    End
+    Behavior = CreateObjectDie Debris
+        RequiredStatus = DESTROYED
+        CreationList = OCL_AuthoredDeathFixture
+        TransferPreviousHealth = Yes
+    End
+End
+Object OclFirer
+    KindOf = VEHICLE CAN_ATTACK
+    Geometry = SPHERE
+    GeometryMajorRadius = 4
+    Behavior = AIUpdateInterface AI
+    End
+    Body = ActiveBody Health
+        InitialHealth = 100
+        MaxHealth = 100
+    End
+End
+Object ReplacementOcl
+    KindOf = IMMOBILE
+    Geometry = SPHERE
+    GeometryMajorRadius = 4
+    Body = ActiveBody Health
+        InitialHealth = 100
+        MaxHealth = 100
+    End
+End
+Object GenericDebris
+    KindOf = UNATTACKABLE
+    Geometry = SPHERE
+    GeometryMajorRadius = 2
+    Body = ActiveBody Health
+        InitialHealth = 100
+        MaxHealth = 100
+    End
+End
+Object FixtureHole
+    KindOf = IMMOBILE STRUCTURE
+    Geometry = BOX
+    GeometryMajorRadius = 4
+    GeometryMinorRadius = 4
+    Body = ActiveBody Health
+        InitialHealth = 5
+        MaxHealth = 5
+    End
+End
+"#);
+            assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(&text), 5);
+            let text = r#"
+ObjectCreationList OCL_AuthoredDeathFixture
+    CreateObject
+        ObjectNames = ReplacementOcl
+        Count = 1
+        Offset = X:3 Y:-2 Z:0
+    End
+    CreateDebris
+        ModelNames = FixtureDebris01
+        Count = 1
+        Offset = X:-2 Y:4 Z:0
+    End
+End
+"#;
+            assert_eq!(
+                crate::object_creation_list::store::load_object_creation_lists_from_str(text)
+                    .unwrap(), 1
+            );
+            let mut template = PlayerTemplate::new("OclPlayer".into());
+            template.playable = true;
+            let player = Arc::new(RwLock::new(Player::new(0)));
+            {
+                let mut player = player.write().unwrap();
+                player.init(Arc::new(template));
+                player.set_player_type(PlayerType::Human, false);
+            }
+            crate::player::player_list().write().unwrap().add_player(Arc::clone(&player));
+            let team = {
+                let factory = crate::team::get_team_factory();
+                let mut factory = factory.lock().unwrap();
+                let prototype = factory
+                    .init_team_owned("OclTeam".into(), "".into(), false, None, Some(0))
+                    .unwrap();
+                factory.create_team_on_prototype_with_id(&prototype, 12).unwrap()
+            };
+            player.write().unwrap().set_default_team(Some(Arc::clone(&team)));
+            let spawn = |name, position| {
+                let template = TheThingFactory::find_template(name).unwrap();
+                let actor = TheThingFactory::get()
+                    .unwrap()
+                    .new_object_with_team_handle(template, Arc::clone(&team))
+                    .unwrap();
+                actor.write().unwrap().set_position(&position).unwrap();
+                actor
+            };
+            let source = spawn("OclFirer", Coord3D::new(105., 105., 0.));
+            let victim = spawn("OclVictim", Coord3D::new(225., 105., 0.));
+            let source_id = source.read().unwrap().get_id();
+            let victim_id = victim.read().unwrap().get_id();
+            let ai = source.read().unwrap().get_ai_update_interface().unwrap();
+            ai.lock().unwrap().set_current_victim(Some(victim_id));
+            assert!(victim.read().unwrap().find_module_by_name("CreateObjectDie").is_some());
+            (source_id, victim_id, victim, ai)
+        };
+        let (source, victim_id, victim, ai) = with_active_stores(&driving, load);
+        let (peer_source, peer_id, peer_victim, peer_ai) = with_active_stores(&peer, load);
+        assert_eq!((source, victim_id), (peer_source, peer_id));
+
+        with_active_stores(&driving, || {
+            let fire = |amount| {
+                let mut gun = WeaponTemplate::new("OclFixtureFire".into());
+                gun.attack_range = 1000.0;
+                gun.primary_damage = amount;
+                gun.weapon_speed = 99999.0;
+                gun.min_weapon_speed = 99999.0;
+                gun.damage_type = DamageType::Unresistable;
+                gun.death_type = crate::damage::DeathType::Normal;
+                WeaponStore::create_and_fire_temp_weapon_at_target(
+                    &Arc::new(gun), source, victim_id,
+                ).unwrap();
+            };
+            fire(40.0);
+            assert_eq!(victim.read().unwrap().get_health(), 60.0);
+            fire(150.0);
+            assert!(victim.read().unwrap().is_destroyed());
+            let logic = get_game_logic().lock().unwrap();
+            let mut ids = logic.get_all_object_ids().iter().copied();
+            let debris_id = ids.next().unwrap();
+            let replacement_id = ids.next().unwrap();
+            let prior = if earlier_hole { ids.next().unwrap() } else { victim_id };
+            assert_eq!(ids.collect::<Vec<_>>(), [victim_id, source]);
+            let debris = logic.find_object_by_id(debris_id).unwrap();
+            let replacement = logic.find_object_by_id(replacement_id).unwrap();
+            let debris = debris.read().unwrap();
+            let replacement = replacement.read().unwrap();
+            assert_eq!(debris.get_template().get_name().as_str(), "GenericDebris");
+            assert_eq!(replacement.get_template().get_name().as_str(), "ReplacementOcl");
+            assert_eq!(debris.get_producer_id(), victim_id);
+            assert_eq!(replacement.get_producer_id(), victim_id);
+            assert_eq!(debris.get_next_object_id(), Some(replacement_id));
+            assert_eq!(replacement.get_next_object_id(), Some(prior));
+            assert_eq!(replacement.get_prev_object_id(), Some(debris_id));
+            assert_eq!(victim.read().unwrap().get_prev_object_id(), Some(
+                if earlier_hole { prior } else { replacement_id }
+            ));
+            assert_eq!(*debris.get_position(), Coord3D::new(223., 109., 0.));
+            assert_eq!(*replacement.get_position(), Coord3D::new(228., 103., 0.));
+            assert_eq!(debris.get_health(), 100.0);
+            assert_eq!(replacement.get_health(), 60.0);
+            assert_eq!(ai.lock().unwrap().get_current_victim(), Some(replacement_id));
+        });
+        assert_eq!(peer_victim.read().unwrap().get_health(), 100.0);
+        assert_eq!(peer_ai.lock().unwrap().get_current_victim(), Some(peer_id));
+        assert_eq!(peer.services().object_registry().get_all_objects().len(), 2);
     }
 }

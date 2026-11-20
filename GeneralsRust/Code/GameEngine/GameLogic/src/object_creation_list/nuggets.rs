@@ -88,6 +88,23 @@ pub trait ObjectCreationNugget: Send + Sync {
         )
     }
 
+    /// Death callbacks already hold the original primary. The default
+    /// object observations are unchanged for nuggets that do not lend it.
+    fn create_with_borrowed_primary(
+        &self,
+        ctx: &CreationContext<'_>,
+        primary: &mut Object,
+        secondary_id: ObjectID,
+    ) -> CreationResult {
+        if secondary_id == primary.get_id() {
+            self.create_with_objects(ctx, primary, Some(primary), 0)
+        } else {
+            let secondary = ctx.thing_factory.find_object(secondary_id);
+            let secondary = secondary.as_ref().and_then(|object| object.read().ok());
+            self.create_with_objects(ctx, primary, secondary.as_deref(), 0)
+        }
+    }
+
     /// Create with bool flag for owner creation (used by DeliverPayload)
     /// Matches C++ virtual Object* create(primaryObj, primary, secondary, createOwner, lifetimeFrames)
     fn create_with_owner_flag(
@@ -322,6 +339,38 @@ impl Default for GenericObjectCreationNugget {
     }
 }
 
+/// The original source stays available throughout each nugget. A mounted
+/// death callback can also lend the parent for the exact prior-head backlink.
+enum CreationSource<'a> {
+    Shared(&'a Object),
+    Borrowed(&'a mut Object),
+}
+
+impl std::ops::Deref for CreationSource<'_> {
+    type Target = Object;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Shared(object) => object,
+            Self::Borrowed(object) => object,
+        }
+    }
+}
+
+fn spawn_with_source(
+    ctx: &CreationContext<'_>,
+    source: &mut Option<CreationSource<'_>>,
+    template: Arc<dyn ThingTemplate>,
+    team: &Arc<RwLock<Team>>,
+) -> Result<Arc<RwLock<Object>>, GameError> {
+    match source {
+        Some(CreationSource::Borrowed(owner)) => {
+            ctx.thing_factory.new_object_with_borrowed_head(template, team, owner)
+        }
+        _ => ctx.thing_factory.new_object(template, team),
+    }
+}
+
 impl GenericObjectCreationNugget {
     /// Create the object and apply all configured properties
     /// Matches C++ GenericObjectCreationNugget::reallyCreate (ObjectCreationList.cpp:1291-1408)
@@ -331,7 +380,7 @@ impl GenericObjectCreationNugget {
         pos: &Coord3D,
         mtx: Option<&Matrix3D>,
         orientation: Real,
-        source_obj: Option<&Object>,
+        mut source_obj: Option<CreationSource<'_>>,
         lifetime_frames: UnsignedInt,
     ) -> CreationResult {
         if self.names.is_empty() {
@@ -342,7 +391,7 @@ impl GenericObjectCreationNugget {
         // if (m_requiresLivePlayer && (!sourceObj || !sourceObj->getControllingPlayer()
         //     || !sourceObj->getControllingPlayer()->isPlayerActive())) return NULL;
         if self.requires_live_player {
-            let Some(obj) = source_obj else {
+            let Some(obj) = source_obj.as_deref() else {
                 return None;
             };
             let Some(player_id) = obj.get_controlling_player_id() else {
@@ -367,7 +416,7 @@ impl GenericObjectCreationNugget {
             })
         });
 
-        if let Some(obj) = source_obj {
+        if let Some(obj) = source_obj.as_deref() {
             if let Some(player_id) = obj.get_controlling_player_id() {
                 if let Some(team_id) =
                     crate::player::with_player(player_id as i32, |player_guard| {
@@ -389,10 +438,10 @@ impl GenericObjectCreationNugget {
                         .lock()
                         .ok()
                         .and_then(|factory| factory.find_team_by_id(team_id));
-                    if let Some(obj) = team
-                        .and_then(|team| ctx.thing_factory.new_object(container_tmpl, &team).ok())
-                    {
-                        if let Some(src) = source_obj {
+                    if let Some(obj) = team.and_then(|team| {
+                        spawn_with_source(ctx, &mut source_obj, container_tmpl, &team).ok()
+                    }) {
+                        if let Some(src) = source_obj.as_deref() {
                             if let Ok(mut obj_guard) = obj.write() {
                                 obj_guard.set_producer(Some(src));
                             }
@@ -438,7 +487,8 @@ impl GenericObjectCreationNugget {
                 .lock()
                 .ok()
                 .and_then(|factory| factory.find_team_by_id(team_id));
-            let Some(debris) = team.and_then(|team| ctx.thing_factory.new_object(tmpl, &team).ok())
+            let Some(debris) =
+                team.and_then(|team| spawn_with_source(ctx, &mut source_obj, tmpl, &team).ok())
             else {
                 continue;
             };
@@ -448,7 +498,7 @@ impl GenericObjectCreationNugget {
             }
 
             // Set producer
-            if let Some(src) = source_obj {
+            if let Some(src) = source_obj.as_deref() {
                 if let Ok(mut debris_guard) = debris.write() {
                     debris_guard.set_producer(Some(src));
                 }
@@ -457,7 +507,7 @@ impl GenericObjectCreationNugget {
             // C++ ObjectCreationList.cpp:1356-1361
             // preserveLayer copies the source pathfind layer when not stuffing into a container.
             if self.preserve_layer && source_obj.is_some() && container.is_none() {
-                if let Some(src) = source_obj {
+                if let Some(src) = source_obj.as_deref() {
                     let layer = src.get_layer();
                     if layer != PathfindLayerEnum::Ground {
                         if let Ok(mut debris_guard) = debris.write() {
@@ -506,12 +556,12 @@ impl GenericObjectCreationNugget {
                 &spawn_pos,
                 mtx,
                 orientation,
-                source_obj,
+                source_obj.as_deref(),
                 lifetime_frames,
             );
 
             // C++ ObjectCreationList.cpp:1387-1401 — fade after doStuffToObj.
-            self.apply_fade_to_object(&debris, source_obj);
+            self.apply_fade_to_object(&debris, source_obj.as_deref());
         }
 
         // C++ ObjectCreationList.cpp:1404-1405 — doStuffToObj on the container last.
@@ -523,7 +573,7 @@ impl GenericObjectCreationNugget {
                 pos,
                 mtx,
                 orientation,
-                source_obj,
+                source_obj.as_deref(),
                 lifetime_frames,
             );
         }
@@ -963,6 +1013,28 @@ impl GenericObjectCreationNugget {
             }
         }
     }
+
+    fn create_from_object(
+        &self,
+        ctx: &CreationContext<'_>,
+        primary: CreationSource<'_>,
+        lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        if self.skip_if_significantly_airborne && primary.is_significantly_above_terrain() {
+            return None;
+        }
+        let pos = *primary.get_position();
+        let transform = primary.get_transform_matrix();
+        let orientation = primary.get_orientation();
+        self.really_create(
+            ctx,
+            &pos,
+            Some(&transform),
+            orientation,
+            Some(primary),
+            lifetime_frames,
+        )
+    }
 }
 
 impl ObjectCreationNugget for GenericObjectCreationNugget {
@@ -994,7 +1066,7 @@ impl ObjectCreationNugget for GenericObjectCreationNugget {
             primary,
             None,
             orientation,
-            primary_obj,
+            primary_obj.map(CreationSource::Shared),
             lifetime_frames,
         )
     }
@@ -1006,22 +1078,16 @@ impl ObjectCreationNugget for GenericObjectCreationNugget {
         _secondary: Option<&Object>,
         lifetime_frames: UnsignedInt,
     ) -> CreationResult {
-        if self.skip_if_significantly_airborne && primary.is_significantly_above_terrain() {
-            return None;
-        }
+        self.create_from_object(ctx, CreationSource::Shared(primary), lifetime_frames)
+    }
 
-        let pos = *primary.get_position();
-        let mtx = primary.get_transform_matrix();
-        let orientation = primary.get_orientation();
-
-        self.really_create(
-            ctx,
-            &pos,
-            Some(&mtx),
-            orientation,
-            Some(primary),
-            lifetime_frames,
-        )
+    fn create_with_borrowed_primary(
+        &self,
+        ctx: &CreationContext<'_>,
+        primary: &mut Object,
+        _secondary_id: ObjectID,
+    ) -> CreationResult {
+        self.create_from_object(ctx, CreationSource::Borrowed(primary), 0)
     }
 }
 

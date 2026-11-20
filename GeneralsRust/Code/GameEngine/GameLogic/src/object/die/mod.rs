@@ -430,6 +430,36 @@ const DIE_MODULE_DATA_FIELDS: &[FieldParse<DieModuleData>] = &[
     },
 ];
 
+/// Both original death handlers visit the receiving list newest first.
+fn transfer_attackers_with_borrowed_parent(dying_object: &Object, replacement_id: ObjectID) {
+    let Some(world) = dying_object.owning_world_services() else {
+        return;
+    };
+    // Release the roster before entering AI, which can resolve its new target.
+    let Ok(object_ids) = crate::system::game_logic::get_game_logic()
+        .lock()
+        .map(|logic| logic.get_all_object_ids().to_vec())
+    else {
+        return;
+    };
+    let old_id = dying_object.get_id();
+    for object_id in object_ids {
+        let ai = if object_id == old_id {
+            dying_object.get_ai_update_interface()
+        } else {
+            world
+                .object_registry()
+                .with_object(object_id, Object::get_ai_update_interface)
+                .flatten()
+        };
+        if let Some(ai) = ai {
+            if let Ok(mut ai) = ai.lock() {
+                ai.transfer_attack(old_id, replacement_id);
+            }
+        }
+    }
+}
+
 /// Base trait for all die modules (matches C++ DieModuleInterface)
 pub trait DieModuleInterface: Send + Sync + std::fmt::Debug + AsAny + Any {
     /// Called when the object dies
@@ -606,6 +636,24 @@ impl DieModuleWrapper {
         let destroy = self.die_module.as_ref().as_any().downcast_ref::<DestroyDie>()?;
         debug_assert_eq!(self.object_id, owner.get_id());
         Some(destroy.is_applicable(owner, damage))
+    }
+
+    pub(crate) fn on_create_object_die_with_owner(
+        &mut self,
+        owner: &mut Object,
+        damage: &DamageInfo,
+    ) -> bool {
+        let Some(create) = self
+            .die_module
+            .as_mut()
+            .as_any_mut()
+            .downcast_mut::<CreateObjectDie>()
+        else {
+            return false;
+        };
+        debug_assert_eq!(self.object_id, owner.get_id());
+        create.on_die(owner, damage);
+        true
     }
 
     pub(crate) fn on_rebuild_hole_die_with_owner(

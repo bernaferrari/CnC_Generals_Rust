@@ -59,6 +59,15 @@ pub trait ThingFactoryContext {
         template: Arc<dyn ThingTemplate>,
         team: &Arc<RwLock<Team>>,
     ) -> Result<Arc<RwLock<Object>>, GameError>;
+
+    fn new_object_with_borrowed_head(
+        &self,
+        template: Arc<dyn ThingTemplate>,
+        team: &Arc<RwLock<Team>>,
+        _owner: &mut Object,
+    ) -> Result<Arc<RwLock<Object>>, GameError> {
+        self.new_object(template, team)
+    }
 }
 
 /// Abstraction over terrain logic for testing
@@ -110,6 +119,19 @@ impl ThingFactoryContext for LiveThingFactoryContext {
         factory
             .new_object_with_team_handle(template, Arc::clone(team))
             .map_err(|e| GameError::SystemError(e.to_string()))
+    }
+
+    fn new_object_with_borrowed_head(
+        &self,
+        template: Arc<dyn ThingTemplate>,
+        team: &Arc<RwLock<Team>>,
+        owner: &mut Object,
+    ) -> Result<Arc<RwLock<Object>>, GameError> {
+        let factory = crate::helpers::TheThingFactory::get()
+            .map_err(|error| GameError::SystemError(error.to_string()))?;
+        factory
+            .new_object_with_borrowed_head(template, Some(Arc::clone(team)), owner)
+            .map_err(|error| GameError::SystemError(error.to_string()))
     }
 }
 

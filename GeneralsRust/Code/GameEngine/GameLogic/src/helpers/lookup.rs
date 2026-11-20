@@ -863,17 +863,18 @@ impl TheThingFactory {
         )
     }
 
-    pub(crate) fn new_rebuild_hole(
+    pub(crate) fn new_object_with_borrowed_head(
         &self,
         template: Arc<dyn crate::common::ThingTemplate>,
-        dying_object: &mut crate::object::Object,
+        team: Option<Arc<RwLock<crate::team::Team>>>,
+        borrowed_head: &mut crate::object::Object,
     ) -> Result<Arc<RwLock<crate::object::Object>>, Box<dyn std::error::Error + Send + Sync>> {
         self.new_object_with_team_handle_and_factory_flags(
             template,
-            dying_object.get_team(),
+            team,
             crate::common::ObjectStatusMaskType::NONE,
             crate::object::object_factory::ObjectCreationFlags::NONE,
-            Some(dying_object),
+            Some(borrowed_head),
         )
     }
 

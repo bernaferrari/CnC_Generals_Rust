@@ -6,7 +6,7 @@
 
 use super::{DieModule, DieModuleData, DieModuleInterface};
 use crate::ai::the_ai;
-use crate::common::{AsciiString, Bool, ObjectID, ObjectStatusTypes, Real};
+use crate::common::{AsciiString, Bool, ObjectStatusTypes, Real};
 use crate::damage::DamageInfo;
 use crate::helpers::TheThingFactory;
 use crate::object::Object;
@@ -18,7 +18,6 @@ use crate::object::die::{
     parse_die_mux_veterancy_levels,
 };
 use crate::scripting::engine::transfer_object_name_to_object;
-use crate::system::game_logic::get_game_logic;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
@@ -238,7 +237,8 @@ impl RebuildHoleExposeDie {
             Err(_) => return None,
         };
 
-        let hole = factory.new_rebuild_hole(template, dying_object).ok()?;
+        let team = dying_object.get_team();
+        let hole = factory.new_object_with_borrowed_head(template, team, dying_object).ok()?;
 
         if let Ok(mut hole_guard) = hole.write() {
             let _ = hole_guard.set_position(&position);
@@ -248,41 +248,6 @@ impl RebuildHoleExposeDie {
         }
 
         Some(hole)
-    }
-
-    /// RebuildHoleExposeDie.cpp:153–162 visits the receiving list newest first.
-    fn transfer_attackers(&self, dying_object: &Object, hole_id: ObjectID) {
-        if !self.base.module_data.read().transfer_attackers {
-            return;
-        }
-        let Some(world) = dying_object.owning_world_services() else {
-            return;
-        };
-
-        // Hole creation already checked that this is the parent's GameLogic.
-        // Release the roster before entering AI, which can resolve its new target.
-        let Ok(object_ids) = get_game_logic()
-            .lock()
-            .map(|logic| logic.get_all_object_ids().to_vec())
-        else {
-            return;
-        };
-        let old_id = dying_object.get_id();
-        for object_id in object_ids {
-            let ai = if object_id == old_id {
-                dying_object.get_ai_update_interface()
-            } else {
-                world
-                    .object_registry()
-                    .with_object(object_id, Object::get_ai_update_interface)
-                    .flatten()
-            };
-            if let Some(ai) = ai {
-                if let Ok(mut ai) = ai.lock() {
-                    ai.transfer_attack(old_id, hole_id);
-                }
-            }
-        }
     }
 }
 
@@ -356,13 +321,16 @@ impl DieModuleInterface for RebuildHoleExposeDie {
             });
         }
 
-        self.transfer_attackers(object, hole_id);
+        if self.base.module_data.read().transfer_attackers {
+            super::transfer_attackers_with_borrowed_parent(object, hole_id);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::system::game_logic::get_game_logic;
 
     #[test]
     fn test_rebuild_hole_expose_die_module_data_default() {
