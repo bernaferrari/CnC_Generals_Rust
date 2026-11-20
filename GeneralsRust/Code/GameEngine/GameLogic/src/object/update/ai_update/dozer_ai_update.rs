@@ -472,6 +472,12 @@ struct DozerActionTask {
     started_construction: bool,
 }
 
+pub(crate) enum ConstructionAdvance {
+    Unavailable,
+    InProgress,
+    Complete,
+}
+
 /// Dozer AI Update module (matches C++ DozerAIUpdate).
 pub struct DozerAIUpdate {
     /// C++ TheAudio of the engine this Object was born into.
@@ -1098,6 +1104,35 @@ impl DozerAIUpdate {
         Ok(())
     }
 
+    // DozerAIUpdate.cpp:511–536 changes progress, the canonical body and
+    // producer on the live goal before checking completion.
+    pub(crate) fn advance_live_scaffold(
+        scaffold: &mut Object,
+        builder: ObjectID,
+        frames: u32,
+    ) -> ConstructionAdvance {
+        let progress = scaffold.get_construction_percent();
+        if progress < 0.0
+            || scaffold.get_builder_id() != builder
+            || scaffold.is_destroyed()
+            || scaffold.is_effectively_dead()
+        {
+            return ConstructionAdvance::Unavailable;
+        }
+        let progress = progress + 100.0 / frames as f32;
+        scaffold.set_construction_percent(progress);
+        if let Err(error) = scaffold.add_construction_health_with_owner(frames) {
+            log::debug!("Construction health update failed: {error}");
+        }
+        scaffold.set_producer_id(builder);
+        scaffold.set_builder_id(builder);
+        if progress >= 100.0 {
+            ConstructionAdvance::Complete
+        } else {
+            ConstructionAdvance::InProgress
+        }
+    }
+
     // DozerAIUpdate.cpp:515–526 samples the builder's player every frame.
     pub(crate) fn current_build_frames(owner: &Arc<RwLock<Object>>, target: &Arc<RwLock<Object>>) -> u32 {
         let player = owner.read().ok().and_then(|actor| actor.get_controlling_player());
@@ -1290,6 +1325,10 @@ impl DozerAIUpdate {
             return;
         };
         let owner_pos = *owner_guard.get_position();
+        let changed_controller = installed_owner.is_some()
+            && task.task_type == DozerTask::Build
+            && self.action_state == DozerActionState::DoAction
+            && owner_guard.get_controlling_player_id() != target_guard.get_controlling_player_id();
         let target_pos = *target_guard.get_position();
         let target_radius = target_guard
             .get_geometry_info()
@@ -1297,11 +1336,13 @@ impl DozerAIUpdate {
         let target_builder_id = target_guard.get_builder_id();
         let target_sole = target_guard.get_sole_healing_benefactor();
         let target_is_bridge_tower = target_guard.is_kind_of(KindOf::BridgeTower);
-        let target_body = target_guard.get_body_module();
-        let target_body_max = target_body
-            .as_ref()
-            .and_then(|body| body.lock().ok().map(|guard| guard.get_max_health()))
-            .unwrap_or(0.0);
+        let target_body_max = if installed_owner.is_some() && task.task_type == DozerTask::Build {
+            0.0
+        } else {
+            target_guard.get_body_module()
+                .and_then(|body| body.lock().ok().map(|guard| guard.get_max_health()))
+                .unwrap_or(0.0)
+        };
         drop(target_guard);
 
         if self.action_state == DozerActionState::PickActionPos {
@@ -1442,6 +1483,12 @@ impl DozerAIUpdate {
                     }
                 }
                 DozerTask::Build => {
+                    // DozerAIUpdate.cpp:474–477 checks that the builder and
+                    // scaffold still have the same controlling player.
+                    if changed_controller {
+                        self.internal_task_complete(DozerTask::Build);
+                        return;
+                    }
                     // DozerAIUpdate.cpp:481–510 issues the Action dock as a
                     // separate inherited move, even when it matches Start.
                     match self.advance_build_dock(&owner, &mut parent) {
@@ -1456,43 +1503,46 @@ impl DozerAIUpdate {
                         self.internal_task_complete(DozerTask::Build);
                         return;
                     }
-                    let world = crate::system::engine_stores::active_services();
-                    let manager_handle = &world.logic_managers().construction;
-                    // The current module scheduler cannot yet lend the world
-                    // manager directly. Keep its guard around manager work only;
-                    // object setters and completion callbacks can reenter it.
+                    // The manager only serves the standalone compatibility
+                    // path. Installed builders mutate the owning scaffold.
+                    let standalone_world = installed_owner.is_none()
+                        .then(crate::system::engine_stores::active_services);
+                    let manager_handle = standalone_world.as_ref()
+                        .map(|world| &world.logic_managers().construction);
                     let frames = Self::current_build_frames(&owner, &target);
                     if !task.started_construction {
-                        let max_health = if task.build_max_health > 0.0 {
-                            task.build_max_health
-                        } else {
-                            target_body_max
-                        };
-                        let (existing_percent, existing_health) = target
-                            .read()
-                            .ok()
-                            .map(|guard| (guard.get_construction_percent(), guard.get_health()))
-                            .unwrap_or((0.0, 1.0));
-                        let Ok(mut manager) = manager_handle.write() else {
-                            return;
-                        };
-                        if manager
-                            .start_construction(
-                                task.target_id,
-                                self.object_id,
-                                max_health,
-                                frames,
-                                self.task_owner.construct_is_rebuild,
-                            )
-                            .is_ok()
-                        {
-                            manager.seed_from_structure(
-                                task.target_id,
-                                existing_percent,
-                                existing_health,
-                            );
+                        if let Some(manager_handle) = manager_handle {
+                            let max_health = if task.build_max_health > 0.0 {
+                                task.build_max_health
+                            } else {
+                                target_body_max
+                            };
+                            let (existing_percent, existing_health) = target
+                                .read()
+                                .ok()
+                                .map(|guard| (guard.get_construction_percent(), guard.get_health()))
+                                .unwrap_or((0.0, 1.0));
+                            let Ok(mut manager) = manager_handle.write() else {
+                                return;
+                            };
+                            if manager
+                                .start_construction(
+                                    task.target_id,
+                                    self.object_id,
+                                    max_health,
+                                    frames,
+                                    self.task_owner.construct_is_rebuild,
+                                )
+                                .is_ok()
+                            {
+                                manager.seed_from_structure(
+                                    task.target_id,
+                                    existing_percent,
+                                    existing_health,
+                                );
+                            }
+                            drop(manager);
                         }
-                        drop(manager);
                         task.started_construction = true;
                         if let Some(sound) = target.read().ok().and_then(|guard| {
                             guard.get_template().get_per_unit_sound("UnderConstruction")
@@ -1503,25 +1553,41 @@ impl DozerAIUpdate {
                     if let Ok(mut owner_write) = owner.write() {
                         owner_write.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
                     }
-                    let (completed, progress, current_health) = {
-                        let Ok(mut manager) = manager_handle.write() else {
-                            return;
+                    let completed = if let Some(manager_handle) = manager_handle {
+                        let (completed, progress, current_health) = {
+                            let Ok(mut manager) = manager_handle.write() else {
+                                return;
+                            };
+                            manager.set_build_frames(task.target_id, frames);
+                            let completed = manager.update_for_dozer(self.object_id);
+                            (completed, manager.get_progress(task.target_id), manager.get_current_health(task.target_id))
                         };
-                        manager.set_build_frames(task.target_id, frames);
-                        let completed = manager.update_for_dozer(self.object_id);
-                        (completed, manager.get_progress(task.target_id), manager.get_current_health(task.target_id))
-                    };
-                    if let Some(progress) = progress {
-                        if let Ok(mut target_write) = target.write() {
-                            target_write.set_construction_percent(progress);
-                            if let Some(health) = current_health {
-                                let _ = target_write.set_health(health);
+                        if let Some(progress) = progress {
+                            if let Ok(mut target_write) = target.write() {
+                                target_write.set_construction_percent(progress);
+                                if let Some(health) = current_health {
+                                    let _ = target_write.set_health(health);
+                                }
+                                target_write.set_producer_id(self.object_id);
+                                target_write.set_builder_id(self.object_id);
                             }
-                            target_write.set_producer_id(self.object_id);
-                            target_write.set_builder_id(self.object_id);
                         }
-                    }
-                    if completed == Some(task.target_id) {
+                        completed == Some(task.target_id)
+                    } else {
+                        let advance = {
+                            let Ok(mut scaffold) = target.write() else { return };
+                            Self::advance_live_scaffold(&mut scaffold, self.object_id, frames)
+                        };
+                        match advance {
+                            ConstructionAdvance::Unavailable => {
+                                self.internal_task_complete(DozerTask::Build);
+                                return;
+                            }
+                            ConstructionAdvance::InProgress => false,
+                            ConstructionAdvance::Complete => true,
+                        }
+                    };
+                    if completed {
                         if let Err(error) = self.handle_build_completion(
                             &owner,
                             &target,

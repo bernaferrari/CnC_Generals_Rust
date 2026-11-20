@@ -1,4 +1,4 @@
-use crate::object::update::ai_update::dozer_ai_update::{DozerAIUpdate, DozerBuildSubTask, DozerDockPoint};
+use crate::object::update::ai_update::dozer_ai_update::{ConstructionAdvance, DozerAIUpdate, DozerBuildSubTask, DozerDockPoint};
 
 /// Worker AI update module data (matches C++ WorkerAIUpdateModuleData fields).
 #[derive(Debug, Clone)]
@@ -1035,29 +1035,18 @@ impl WorkerAIUpdate {
                     }
                     if installed {
                         let frames = DozerAIUpdate::current_build_frames(&owner, &target);
-                        let Ok(mut scaffold) = target.write() else { return };
-                        // DozerAIUpdate.cpp:511–536 uses the live scaffold and
-                        // body. Replacing the builder never replaces either.
-                        let progress = scaffold.get_construction_percent();
-                        if progress < 0.0
-                            || scaffold.get_builder_id() != self.object_id
-                            || scaffold.is_destroyed()
-                            || scaffold.is_effectively_dead()
-                        {
-                            drop(scaffold);
-                            self.dozer_task = None;
-                            clear_current(self, Some(&owner));
-                            return;
-                        }
-                        let progress = progress + 100.0 / frames as f32;
-                        scaffold.set_construction_percent(progress);
-                        if let Err(error) = scaffold.add_construction_health_with_owner(frames) {
-                            log::debug!("Worker construction health update failed: {error}");
-                        }
-                        scaffold.set_producer_id(self.object_id);
-                        scaffold.set_builder_id(self.object_id);
-                        if progress >= 100.0 {
-                            build_complete_rebuild = Some(task.is_rebuild);
+                        let advance = {
+                            let Ok(mut scaffold) = target.write() else { return };
+                            DozerAIUpdate::advance_live_scaffold(&mut scaffold, self.object_id, frames)
+                        };
+                        match advance {
+                            ConstructionAdvance::Unavailable => {
+                                self.dozer_task = None;
+                                clear_current(self, Some(&owner));
+                                return;
+                            }
+                            ConstructionAdvance::InProgress => {}
+                            ConstructionAdvance::Complete => build_complete_rebuild = Some(task.is_rebuild),
                         }
                     } else {
                         let frames = task.build_total_frames.max(1);

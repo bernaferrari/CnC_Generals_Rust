@@ -1540,7 +1540,7 @@ fn installed_dozer_finishes_powered_build_and_takes_its_end_dock_path() {
         return;
     }
 
-    assert_physical_powered_construction_end(false);
+    assert_physical_powered_construction_end(false, false);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1556,11 +1556,27 @@ fn installed_worker_animates_powered_build_and_takes_its_end_dock_path() {
         return;
     }
 
-    assert_physical_powered_construction_end(true);
+    assert_physical_powered_construction_end(true, false);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn assert_physical_powered_construction_end(worker: bool) {
+#[test]
+fn installed_dozer_keeps_live_scaffold_damage_through_completion_and_end_dock() {
+    use crate::test_process::{TestProcess, run_bounded};
+
+    const NAME: &str = concat!(module_path!(), "::installed_dozer_keeps_live_scaffold_damage_through_completion_and_end_dock");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_INSTALLED_DOZER_LIVE_SCAFFOLD_CHILD",
+    ) {
+        return;
+    }
+
+    assert_physical_powered_construction_end(false, true);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn assert_physical_powered_construction_end(worker: bool, damage_during_construction: bool) {
     use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
     use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
@@ -1613,6 +1629,7 @@ fn assert_physical_powered_construction_end(worker: bool) {
         let mut started = None;
         let mut completed: Option<(Coord3D, Coord3D)> = None;
         let mut end_delivered = false;
+        let mut expected_health = site.read().unwrap().get_health();
         for frame in 38..450 {
             logic.lock().unwrap().set_current_frame(frame.into());
             let mut ai = parent.lock().unwrap();
@@ -1641,9 +1658,18 @@ fn assert_physical_powered_construction_end(worker: bool) {
                 assert!((progress - 100.0 / 300.0).abs() < 0.00001);
                 started = Some(frame);
             }
+            if progress > 0.0 || progress == crate::object::CONSTRUCTION_COMPLETE {
+                expected_health = (expected_health + 100.0 / 300.0).min(100.0);
+                let health = site.read().unwrap().get_health();
+                assert!((health - expected_health).abs() < 0.00001, "construction health at frame {frame}: {health}, expected {expected_health}");
+                if damage_during_construction && started.is_some_and(|start| frame == start + 3) {
+                    site.write().unwrap().set_health(0.5).unwrap();
+                    expected_health = 0.5;
+                }
+            }
             if progress == crate::object::CONSTRUCTION_COMPLETE {
                 assert_eq!(frame - started.expect("build must contribute before completion") + 1, 300);
-                assert_eq!(site.read().unwrap().get_health(), 100.0);
+                assert_eq!(site.read().unwrap().get_health() < 100.0, damage_during_construction);
                 assert!(ai.is_waiting_for_path());
                 assert!(pathfinder.write().unwrap().pathfinding_system_mut().pending_path_request_count() > 0);
                 assert_eq!(ai.get_last_command_source(), CommandSourceType::FromAi);
@@ -1663,6 +1689,8 @@ fn assert_physical_powered_construction_end(worker: bool) {
         }
         let (approach, goal) = completed.expect("powered builder must complete and set its native End goal");
         assert!(end_delivered, "installed AI must consume its End movement");
+        let construction = receiving.services().logic_managers().construction.read().unwrap();
+        assert!(construction.active_tasks().is_empty());
         let final_pose = *actor.read().unwrap().get_position();
         if worker {
             assert!(final_pose.distance(goal) < crate::path::PATHFIND_CELL_SIZE_F);
