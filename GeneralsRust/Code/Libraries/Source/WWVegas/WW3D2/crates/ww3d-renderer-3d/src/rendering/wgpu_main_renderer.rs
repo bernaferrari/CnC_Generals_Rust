@@ -88,6 +88,12 @@ pub struct MainRendererStats {
     pub vertex_color_passes: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WindowFrameOutput {
+    Surface,
+    OcclusionFallback,
+}
+
 /// Primary high level renderer coordinating frame lifetime over the host-owned
 /// [`ww3d_engine::Engine`] frame (one encoder, one submit per frame).
 pub struct WgpuMainRenderer {
@@ -108,7 +114,7 @@ pub struct WgpuMainRenderer {
     /// Host-owned WW3D engine (explicit; no process singleton).
     pub engine: SharedEngine,
     pending_frame: Option<ww3d_engine::RenderFrame>,
-    last_surface_presented: bool,
+    last_window_frame_output: Option<WindowFrameOutput>,
     /// Work queued for the next frame, recorded in [`FRAME_SCHEDULE`] order.
     schedule: FrameSchedule,
     shadow_caster_submissions: Vec<ShadowCasterSubmission>,
@@ -219,7 +225,7 @@ impl WgpuMainRenderer {
             ww3d,
             renderer_3d,
             pending_frame: None,
-            last_surface_presented: false,
+            last_window_frame_output: None,
             schedule: FrameSchedule::default(),
             shadow_caster_submissions: Vec::new(),
             shadow_caster_count_hint: 0,
@@ -263,12 +269,16 @@ impl WgpuMainRenderer {
 
     /// Clear the last result before a new application render attempt.
     pub fn reset_surface_presented(&mut self) {
-        self.last_surface_presented = false;
+        self.last_window_frame_output = None;
     }
 
     /// True only when this renderer completed a frame with a window surface.
     pub fn last_surface_presented(&self) -> bool {
-        self.last_surface_presented
+        self.last_window_frame_output == Some(WindowFrameOutput::Surface)
+    }
+
+    pub fn last_window_frame_output(&self) -> Option<WindowFrameOutput> {
+        self.last_window_frame_output
     }
 
     /// Begin a new frame.
@@ -288,7 +298,7 @@ impl WgpuMainRenderer {
             ));
         }
 
-        self.last_surface_presented = false;
+        self.reset_surface_presented();
         self.frame_start = Instant::now();
         self.shadow_caster_submissions.clear();
         self.shadow_caster_count_hint = 0;
@@ -449,7 +459,13 @@ impl WgpuMainRenderer {
             if let Some(callback) = post_render.as_mut() {
                 callback_result = callback(&mut frame);
             }
-            let has_window_surface = frame.has_gpu_color_target();
+            let window_frame_output = if frame.has_window_surface() {
+                Some(WindowFrameOutput::Surface)
+            } else if frame.has_gpu_color_target() {
+                Some(WindowFrameOutput::OcclusionFallback)
+            } else {
+                None
+            };
             let end_result = self.engine.lock().end_render(frame)
                 .map_err(|err| RendererError::RenderError(err.to_string()));
             let end_result = match (end_result, self.discard_frame_sorting()) {
@@ -466,7 +482,7 @@ impl WgpuMainRenderer {
 
             match (frame_work_result, end_result) {
                 (Ok(stats), Ok(())) => {
-                    self.last_surface_presented = has_window_surface;
+                    self.last_window_frame_output = window_frame_output;
                     stats
                 }
                 (Err(work_err), Ok(())) => return Err(work_err),

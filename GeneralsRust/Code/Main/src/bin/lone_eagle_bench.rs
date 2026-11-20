@@ -17,6 +17,7 @@ struct Snap {
     state: String,
     frame: u32,
     windowed_presented_frames: Option<u64>,
+    windowed_surface_presents: Option<u64>,
     logic_frame: u32,
     present_ms: f32,
     present_collect_ms: f32,
@@ -74,6 +75,7 @@ fn parse_status(path: &Path) -> Option<Snap> {
             "state" => s.state = v.trim().to_string(),
             "frame" => s.frame = v.trim().parse().unwrap_or(0),
             "windowed_presented_frames" => s.windowed_presented_frames = v.trim().parse().ok(),
+            "windowed_surface_presents" => s.windowed_surface_presents = v.trim().parse().ok(),
             "logic_frame" => s.logic_frame = v.trim().parse().unwrap_or(0),
             "present_ms" => s.present_ms = v.trim().parse().unwrap_or(0.0),
             "present_collect_ms" => s.present_collect_ms = v.trim().parse().unwrap_or(0.0),
@@ -124,6 +126,7 @@ struct BenchNumbers {
     mode: &'static str,
     ticks: u32,
     frames: u64,
+    surface_presents: Option<u64>,
     ms_per_tick: f64,
     ms_per_frame: f64,
     peak_radar_pixels: u32,
@@ -133,6 +136,13 @@ struct BenchNumbers {
     avg_terrain_ms: f64,
     avg_forward_ms: f64,
     sample_path: Option<PathBuf>,
+}
+
+impl BenchNumbers {
+    fn surface_fps(&self) -> Option<f64> {
+        let surface_fraction = self.surface_presents? as f64 / self.frames as f64;
+        Some(surface_fraction * (1000.0 / self.ms_per_frame))
+    }
 }
 
 fn mean(xs: &[f32]) -> f64 {
@@ -236,6 +246,7 @@ fn run_mode(
     let mut measure_start: Option<Instant> = None;
     let mut start_logic = 0u32;
     let mut start_frame = 0u64;
+    let mut start_surface_presents = None;
     let mut last_timed_frame = 0u64;
     let mut present_samples: Vec<f32> = Vec::new();
     let mut collect_samples: Vec<f32> = Vec::new();
@@ -307,6 +318,7 @@ fn run_mode(
                                 measure_start = Some(Instant::now());
                                 start_logic = snap.logic_frame;
                                 start_frame = frame;
+                                start_surface_presents = snap.windowed_surface_presents;
                                 last_timed_frame = frame;
                                 // A sampling process can alter the timing run.
                                 if capture_sample {
@@ -366,6 +378,12 @@ fn run_mode(
         .as_secs_f64();
     let logic_delta = final_snap.logic_frame.saturating_sub(start_logic);
     let frame_delta = final_snap.benchmark_frames(windowed).unwrap_or(0).saturating_sub(start_frame);
+    let surface_presents = if windowed {
+        final_snap.windowed_surface_presents.zip(start_surface_presents)
+            .map(|(end, start)| end.saturating_sub(start))
+    } else {
+        None
+    };
     let ms_per_tick = (measure_elapsed * 1000.0) / f64::from(logic_delta);
     let ms_per_frame = (measure_elapsed * 1000.0) / frame_delta as f64;
 
@@ -423,6 +441,7 @@ fn run_mode(
         },
         ticks: logic_delta,
         frames: frame_delta,
+        surface_presents,
         ms_per_tick,
         ms_per_frame,
         peak_radar_pixels: peak_radar,
@@ -449,24 +468,25 @@ fn write_docs(path: &Path, rows: &[BenchNumbers], notes: &str) -> std::io::Resul
     writeln!(f)?;
     writeln!(
         f,
-        "Captured by `lone_eagle_bench` on the Mac playable worktree. Times are wall-clock after InGame settle. Windowed frames count surface presents, while headless frames count host updates."
+        "Captured by `lone_eagle_bench` after InGame settles. Windowed frames include surface presents and occlusion fallback. Headless frames count host updates."
     )?;
     writeln!(f)?;
     writeln!(
         f,
-        "| mode | ticks | frames | ms/tick | ms/frame | avg present_ms | collect | terrain | forward | radar_pixels | terrain_chunks |"
+        "| mode | ticks | frames | surface presents | ms/tick | ms/frame | avg present_ms | collect | terrain | forward | radar_pixels | terrain_chunks |"
     )?;
     writeln!(
         f,
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     )?;
     for r in rows {
         writeln!(
             f,
-            "| {} | {} | {} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {} | {} |",
+            "| {} | {} | {} | {} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {:.3} | {} | {} |",
             r.mode,
             r.ticks,
             r.frames,
+            r.surface_presents.map_or_else(|| "—".to_owned(), |count| count.to_string()),
             r.ms_per_tick,
             r.ms_per_frame,
             r.avg_present_ms,
@@ -568,9 +588,10 @@ fn main() {
     ) {
         Ok(r) => {
             eprintln!(
-                "lone_eagle_bench: windowed ms/frame={:.3} fps={:.2} logic_hz={:.2} present_ms={:.3} (collect={:.3} terrain={:.3} forward={:.3}) radar_pixels={}",
+                "lone_eagle_bench: windowed ms/frame={:.3} gpu_fps={:.2} surface_fps={} logic_hz={:.2} present_ms={:.3} (collect={:.3} terrain={:.3} forward={:.3}) radar_pixels={}",
                 r.ms_per_frame,
                 1000.0 / r.ms_per_frame,
+                r.surface_fps().map_or_else(|| "unknown".to_owned(), |fps| format!("{fps:.2}")),
                 1000.0 / r.ms_per_tick,
                 r.avg_present_ms,
                 r.avg_collect_ms,

@@ -22,6 +22,7 @@ fn return_to_base_aircraft_residual() {
 mod runtime_host_windowed_bridge_tests {
     use super::*;
     use crate::command_line::CommandLineArgs;
+    use ww3d_renderer_3d::rendering::wgpu_main_renderer::WindowFrameOutput;
 
     #[test]
     fn successful_surface_presents_are_counted_separately_from_updates() {
@@ -38,12 +39,14 @@ mod runtime_host_windowed_bridge_tests {
         let mut bridge = RuntimeHostBridge::from_command_line(&args).unwrap();
         bridge.publish_booting_from_winit_query(false, Some(true));
         assert!(std::fs::read_to_string(&status).unwrap().contains("windowed_presented_frames=0"));
-        bridge.note_windowed_surface_presented();
-        bridge.note_windowed_surface_presented();
+        bridge.note_windowed_gpu_frame(WindowFrameOutput::Surface);
+        bridge.note_windowed_gpu_frame(WindowFrameOutput::OcclusionFallback);
         bridge.publish_booting_from_winit_query(false, Some(true));
         let snapshot = std::fs::read_to_string(&status).unwrap();
         assert!(snapshot.lines().any(|line| line == "frame=0"));
         assert!(snapshot.lines().any(|line| line == "windowed_presented_frames=2"));
+        assert!(snapshot.lines().any(|line| line == "windowed_surface_presents=1"));
+        assert!(snapshot.lines().any(|line| line == "windowed_occlusion_frames=1"));
     }
 
     #[test]

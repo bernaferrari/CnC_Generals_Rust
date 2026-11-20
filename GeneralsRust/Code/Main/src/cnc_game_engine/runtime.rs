@@ -159,7 +159,8 @@ pub(super) struct RuntimeHostBridge {
     capture_request_started_at: Option<Instant>,
     screenshot_enqueue_failed: bool,
     has_published_live_frame: bool,
-    windowed_presented_frames: u64,
+    windowed_surface_presents: u64,
+    windowed_occlusion_frames: u64,
     created_at: Instant,
     last_capture_health_log_at: Option<Instant>,
 }
@@ -253,16 +254,19 @@ impl RuntimeHostBridge {
         self.capture_request_started_at = Some(Instant::now());
     }
 
-    /// Latch live_frame_ok after a real windowed wgpu surface present.
-    ///
-    /// Capture-path promotion still owns the primary residual; this covers the
-    /// honest case where the OS surface has presented even if PNG readback is
-    /// delayed. Headless must never call this (no OS surface present).
-    pub(super) fn note_windowed_surface_presented(&mut self) {
-        self.windowed_presented_frames += 1;
+    /// Latch live_frame_ok when the windowed renderer produces GPU color.
+    pub(super) fn note_windowed_gpu_frame(
+        &mut self,
+        output: ww3d_renderer_3d::rendering::wgpu_main_renderer::WindowFrameOutput,
+    ) {
+        use ww3d_renderer_3d::rendering::wgpu_main_renderer::WindowFrameOutput;
+        match output {
+            WindowFrameOutput::Surface => self.windowed_surface_presents += 1,
+            WindowFrameOutput::OcclusionFallback => self.windowed_occlusion_frames += 1,
+        }
         if !self.has_published_live_frame {
             info!(
-                "Runtime host latched live_frame_ok from windowed surface present (frame={})",
+                "Runtime host latched live_frame_ok from windowed GPU output {output:?} (frame={})",
                 self.last_published_frame
             );
         }
@@ -324,7 +328,8 @@ impl RuntimeHostBridge {
             capture_request_started_at: None,
             screenshot_enqueue_failed: false,
             has_published_live_frame: false,
-            windowed_presented_frames: 0,
+            windowed_surface_presents: 0,
+            windowed_occlusion_frames: 0,
             created_at: Instant::now(),
             last_capture_health_log_at: None,
         })
@@ -482,7 +487,11 @@ impl RuntimeHostBridge {
         payload.push_str(&format!("frame={}\n", snapshot.frame));
         payload.push_str(&format!(
             "windowed_presented_frames={}\n",
-            self.windowed_presented_frames
+            self.windowed_surface_presents + self.windowed_occlusion_frames
+        ));
+        payload.push_str(&format!(
+            "windowed_surface_presents={}\nwindowed_occlusion_frames={}\n",
+            self.windowed_surface_presents, self.windowed_occlusion_frames,
         ));
         payload.push_str(&format!("logic_frame={}\n", snapshot.logic_frame));
         payload.push_str(&format!("logic_steps={}\n", snapshot.logic_steps));
@@ -546,7 +555,7 @@ impl RuntimeHostBridge {
         ));
         payload.push_str(&format!("waypoint_mode={}\n", snapshot.waypoint_mode));
         // Honest live_frame sources: promoted capture PNG **or** windowed surface
-        // present latch (`note_windowed_surface_presented`). Never fallback PNG;
+        // GPU latch (`note_windowed_gpu_frame`). Never fallback PNG;
         // never headless present (headless cannot call the present latch).
         payload.push_str(&format!(
             "live_frame_ok={}\n",

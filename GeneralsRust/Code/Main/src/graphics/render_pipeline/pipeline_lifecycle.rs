@@ -14,8 +14,10 @@ impl RenderPipeline {
         self.forward_pass.renderer.reset_surface_presented();
     }
 
-    pub(crate) fn last_surface_presented(&self) -> bool {
-        self.forward_pass.renderer.last_surface_presented()
+    pub(crate) fn last_window_frame_output(
+        &self,
+    ) -> Option<ww3d_renderer_3d::rendering::wgpu_main_renderer::WindowFrameOutput> {
+        self.forward_pass.renderer.last_window_frame_output()
     }
 
     /// Retire renderer-side constructor receipts after the receiving

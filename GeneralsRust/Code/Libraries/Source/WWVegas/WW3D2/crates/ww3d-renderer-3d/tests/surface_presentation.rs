@@ -15,6 +15,7 @@ fn a_real_headless_frame_does_not_claim_a_window_surface_present() {
     assert!(!renderer.last_surface_presented());
     renderer.end_frame_with_scene_policy(true, None).unwrap();
     assert!(!renderer.last_surface_presented());
+    assert_eq!(renderer.last_window_frame_output(), None);
     renderer.reset_surface_presented();
     assert!(!renderer.last_surface_presented());
     drop(renderer);
