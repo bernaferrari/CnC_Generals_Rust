@@ -66,6 +66,11 @@ cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/normalcone.h"
 note = "Executable original portable comparison of ordered cone edges, dot products and merges. A degenerate cross product returns the center dot where C++ reads unwritten outputs."
 
 [[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/aaplane.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/aaplane.h"
+note = "Original constructor, Set and Get_Normal match portable C++ axis ordinals and storage bits. Rust initializes its default before use and provides separate distance and projection helpers."
+
+[[module]]
 path = "Code/GameEngine/Common/src/common/game_lod.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/Common/GameLOD.cpp"
 note = "Probe/test overrides owned on GameLODManager; dead SlowDeath TLS cache removed; 8->0 process globals."

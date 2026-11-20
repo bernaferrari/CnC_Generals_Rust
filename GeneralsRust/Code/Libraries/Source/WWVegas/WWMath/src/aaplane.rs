@@ -1,10 +1,19 @@
+//! Axis-aligned plane storage and unit normals from W3D `aaplane.h`.
+//!
+//! Rust initializes `Default` to the XY plane. The C++ default constructor
+//! leaves both fields unwritten until `Set`. The distance, projection, and
+//! segment helpers support Rust callers and are separate from W3D CollisionMath.
+
 use super::Vector3;
 
 /// Axis-aligned plane normal direction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AxisEnum {
+    /// Positive X, original axis ordinal 0.
     XNormal = 0,
+    /// Positive Y, original axis ordinal 1.
     YNormal = 1,
+    /// Positive Z, original axis ordinal 2.
     ZNormal = 2,
 }
 
@@ -14,7 +23,7 @@ pub enum AxisEnum {
 /// is guaranteed to be aligned with one of the coordinate axes (X, Y, or Z).
 /// This allows for more efficient computations compared to general planes.
 ///
-/// This exactly matches the C++ AAPlaneClass structure.
+/// Stores the same axis and distance as C++ `AAPlaneClass`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AAPlane {
     /// The normal axis (XNORMAL, YNORMAL, or ZNORMAL) - matches C++ Normal field
@@ -50,23 +59,15 @@ impl AAPlane {
     /// Matches C++: void Get_Normal(Vector3 * normal) const;
     pub fn get_normal(&self) -> Vector3 {
         match self.normal {
-            AxisEnum::XNormal => Vector3::new(1.0, 0.0, 0.0),
-            AxisEnum::YNormal => Vector3::new(0.0, 1.0, 0.0),
-            AxisEnum::ZNormal => Vector3::new(0.0, 0.0, 1.0),
+            AxisEnum::XNormal => Vector3::X,
+            AxisEnum::YNormal => Vector3::Y,
+            AxisEnum::ZNormal => Vector3::Z,
         }
     }
 
-    /// Set the normal vector (alternative method for C++ compatibility)
-    /// Matches C++: void Get_Normal(Vector3 * normal) const;
+    /// Replace all components of the destination with the plane's unit normal.
     pub fn get_normal_into(&self, normal: &mut Vector3) {
-        normal.x = 0.0;
-        normal.y = 0.0;
-        normal.z = 0.0;
-        match self.normal {
-            AxisEnum::XNormal => normal.x = 1.0,
-            AxisEnum::YNormal => normal.y = 1.0,
-            AxisEnum::ZNormal => normal.z = 1.0,
-        }
+        *normal = self.get_normal();
     }
 
     /// Get the signed distance from a point to the plane
@@ -100,14 +101,14 @@ impl AAPlane {
         self.distance_to_point(center) >= radius
     }
 
-    /// Test if any part of a sphere is in front of or intersecting the plane
+    /// Test for a sphere extending strictly onto the positive side of the plane.
     pub fn is_sphere_in_front_or_intersecting(&self, center: Vector3, radius: f32) -> bool {
         self.distance_to_point(center) > -radius
     }
 
-    /// Compute intersection of a line segment with the plane
-    /// Returns (intersection_found, parameter_t)
-    /// If intersection_found is true, the intersection point is at p0 + t * (p1 - p0)
+    /// Compute an intersection on the closed line segment from `p0` to `p1`.
+    /// A hit is at `p0 + t * (p1 - p0)`. A nearly parallel segment returns
+    /// `(false, 0.0)`. An out-of-range crossing returns its original parameter.
     pub fn compute_intersection(&self, p0: Vector3, p1: Vector3) -> (bool, f32) {
         let (start_coord, end_coord) = match self.normal {
             AxisEnum::XNormal => (p0.x, p1.x),

@@ -20,7 +20,7 @@
 ///
 /// # Examples
 /// ```
-/// use core::math::pot::find_pot;
+/// use math_utilities::pot::find_pot;
 ///
 /// assert_eq!(find_pot(1), 1);     // 2^0 = 1
 /// assert_eq!(find_pot(2), 2);     // 2^1 = 2  
@@ -77,7 +77,7 @@ pub fn find_pot(val: i32) -> i32 {
 ///
 /// # Examples
 /// ```
-/// use core::math::pot::find_pot_log2;
+/// use math_utilities::pot::find_pot_log2;
 ///
 /// assert_eq!(find_pot_log2(1), 0);     // 2^0 = 1
 /// assert_eq!(find_pot_log2(2), 1);     // 2^1 = 2
@@ -130,7 +130,7 @@ pub fn find_pot_log2(val: u32) -> u32 {
 ///
 /// # Examples
 /// ```
-/// use core::math::pot::is_power_of_2;
+/// use math_utilities::pot::is_power_of_2;
 ///
 /// assert_eq!(is_power_of_2(1), true);    // 2^0
 /// assert_eq!(is_power_of_2(2), true);    // 2^1
@@ -157,7 +157,7 @@ pub fn is_power_of_2(val: u32) -> bool {
 ///
 /// # Examples
 /// ```
-/// use core::math::pot::next_power_of_2;
+/// use math_utilities::pot::next_power_of_2;
 ///
 /// assert_eq!(next_power_of_2(1), 2);     // Next power after 1 is 2
 /// assert_eq!(next_power_of_2(2), 4);     // Next power after 2 is 4
@@ -183,7 +183,7 @@ pub fn next_power_of_2(val: u32) -> u32 {
 ///
 /// # Examples
 /// ```
-/// use core::math::pot::prev_power_of_2;
+/// use math_utilities::pot::prev_power_of_2;
 ///
 /// assert_eq!(prev_power_of_2(1), 1);     // 2^0
 /// assert_eq!(prev_power_of_2(2), 2);     // 2^1

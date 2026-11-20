@@ -39,20 +39,22 @@
 //! ## Example Usage
 //!
 //! ```rust
-//! use wwmath::{Vector3, Matrix4, Quaternion, WWMath};
+//! use math_utilities::{Matrix3D, Quaternion, Vector3, WWMath};
 //!
 //! // Basic vector operations
 //! let v1 = Vector3::new(1.0, 2.0, 3.0);
 //! let v2 = Vector3::new(4.0, 5.0, 6.0);
-//! let dot_product = v1.dot(&v2);
+//! assert_eq!(v1.dot(v2), 32.0);
 //!
 //! // Matrix transformations
-//! let transform = Matrix4::identity();
-//! let translated = transform.translate(&Vector3::new(10.0, 0.0, 0.0));
+//! let translation = Vector3::new(10.0, 0.0, 0.0);
+//! let transform = Matrix3D::from_translation(translation);
+//! assert_eq!(transform.get_translation(), translation);
 //!
 //! // Quaternion rotations
-//! let rotation = Quaternion::from_axis_angle(&Vector3::unit_y(), WWMath::deg_to_rad(45.0));
-//! let rotated_vector = rotation.rotate_vector(&v1);
+//! let rotation = Quaternion::from_axis_angle(Vector3::Y, WWMath::deg_to_rad(45.0));
+//! let rotated_vector = rotation.rotate_vector(v1);
+//! assert!((rotated_vector.length() - v1.length()).abs() < 0.0001);
 //! ```
 
 #[warn(missing_docs)]
