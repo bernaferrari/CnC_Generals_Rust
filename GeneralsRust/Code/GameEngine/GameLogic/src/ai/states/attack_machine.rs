@@ -1546,7 +1546,7 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
         }
     }
 
-    if weapon.is_too_close(source.get_id(), Some(victim.get_id()), None) {
+    if weapon.is_too_close_for_objects(source, victim) {
         return false;
     }
 

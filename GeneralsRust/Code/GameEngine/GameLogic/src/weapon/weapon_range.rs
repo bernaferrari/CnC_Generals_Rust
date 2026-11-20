@@ -256,6 +256,22 @@ impl Weapon {
         ) < min_range * min_range
     }
 
+    /// Weapon.cpp:2211–2238 with the actual actors already borrowed by Pursue.
+    pub(crate) fn is_too_close_for_objects(
+        &self,
+        source: &crate::object::Object,
+        target: &crate::object::Object,
+    ) -> bool {
+        let min_range = self.template.get_minimum_attack_range();
+        min_range != 0.0
+            && boundary_dist_sqr(
+                source.get_position(),
+                source.get_geometry_info().get_bounding_circle_radius(),
+                target.get_position(),
+                target.get_geometry_info().get_bounding_circle_radius(),
+            ) < min_range * min_range
+    }
+
     fn range_source(&self, id: ObjectId) -> Option<(Coord3D, GeometryInfo)> {
         if let Some(source) = self.caller_source(id) {
             return Some((source.position, source.geometry));
