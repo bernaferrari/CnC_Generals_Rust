@@ -1,5 +1,6 @@
 use super::*;
-use crate::fow_rendering::{ProjectedShroudMetadata, ProjectedShroudSnapshot};
+use crate::fow_rendering::{ObjectShroudFrame, ProjectedShroudMetadata, ProjectedShroudSnapshot};
+use gamelogic::common::ObjectShroudStatus;
 
 /// Keep the host visibility decision identical in direct and shadow-backed frames.
 pub(super) fn hide_garrison_from_local(
@@ -20,31 +21,6 @@ pub(super) fn hide_garrison_from_local(
         && object.team != local_team
 }
 
-/// Per-frame frozen FOW runtime facts for the direct-drawable shroud freeze.
-///
-/// Uses the frame's shroud borrow and hoists the runtime-active probe out of the
-/// per-object loop: the fallback branch needs only this one bit, and probing
-/// it per object used to materialize the full visible/explored snapshot Vecs
-/// per object per frame. `None` mirrors the per-object lock-failure Clear
-/// fallback (a poisoned manager stays poisoned for the whole frame).
-pub(super) struct DirectShroudFrameFacts {
-    runtime_active: bool,
-}
-
-impl DirectShroudFrameFacts {
-    /// O(1) membership probe using the already borrowed frame owner.
-    pub(super) fn freeze(
-        guard: Option<&gamelogic::system::shroud_manager::ShroudManager>,
-        local_player_id: u32,
-    ) -> Option<Self> {
-        let guard = guard?;
-        Some(Self {
-            runtime_active: guard.has_any_visible_object(local_player_id)
-                || guard.has_any_explored_object(local_player_id),
-        })
-    }
-}
-
 /// Freeze only the source facts C++ resolves for a direct Object-backed
 /// Drawable. Host object FOW is the PartitionData COI mix stored by
 /// `update_main_crate_vision` (Clear / PartialClear / Fogged / Shrouded).
@@ -55,57 +31,44 @@ pub(super) fn freeze_direct_object_shroud_facts(
     local_team: Team,
     fow_shell_bypass: bool,
 ) -> PresentationDrawableShroudFacts {
-    freeze_direct_object_shroud_facts_with_frame_facts(
-        shroud,
+    freeze_direct_object_shroud_facts_with_frame(
+        &ObjectShroudFrame::new(shroud, local_player_id),
         obj,
         local_player_id,
         local_team,
         fow_shell_bypass,
-        DirectShroudFrameFacts::freeze(shroud, local_player_id).as_ref(),
     )
 }
 
-/// Per-object shroud freeze sharing the per-frame [DirectShroudFrameFacts]
-/// probe (see the frame build loop). Behavior-identical to probing per
-/// object: the runtime-active bit only feeds the cache-miss fallback.
-pub(super) fn freeze_direct_object_shroud_facts_with_frame_facts(
-    shroud: Option<&gamelogic::system::shroud_manager::ShroudManager>,
+pub(super) fn freeze_direct_object_shroud_facts_with_frame(
+    frame: &ObjectShroudFrame<'_>,
     obj: &crate::game_logic::Object,
     local_player_id: u32,
     local_team: Team,
     fow_shell_bypass: bool,
-    frame_facts: Option<&DirectShroudFrameFacts>,
 ) -> PresentationDrawableShroudFacts {
-    // Team fallback mirrors the look pass (C++ Object::getControllingPlayer):
-    // the sparse host registry often leaves owner_player_id unset.
-    let raw_status = if fow_shell_bypass
-        || obj.owner_player_id == Some(local_player_id)
-        || obj.team == local_team
-    {
-        // The host FOW bridge deliberately preserves C++ own-force/no-partition
-        // clear behavior even when the standalone manager has no membership.
-        PresentationObjectShroudStatus::Clear
-    } else if let Some(facts) = frame_facts {
-        if let Some(shroud) = shroud {
-            if let Some(status) = shroud.get_host_object_shroud_status(local_player_id, obj.id.0) {
-                PresentationObjectShroudStatus::from(status)
-            } else if !facts.runtime_active || shroud.can_see_object(local_player_id, obj.id.0) {
-                PresentationObjectShroudStatus::Clear
-            } else if shroud.has_explored_object(local_player_id, obj.id.0) {
-                PresentationObjectShroudStatus::Fogged
-            } else {
-                PresentationObjectShroudStatus::Shrouded
-            }
+    let status =
+        if direct_object_uses_shroud_status(obj, local_player_id, local_team, fow_shell_bypass) {
+            frame.status(obj.id)
         } else {
-            // The C++ Object fallback is Clear when it has no partition data.
-            PresentationObjectShroudStatus::Clear
-        }
-    } else {
-        // The frame-start lock already failed (a poisoned manager stays
-        // poisoned), so the per-object lookup cannot succeed either: keep
-        // the C++ no-partition Clear fallback.
-        PresentationObjectShroudStatus::Clear
-    };
+            ObjectShroudStatus::Clear
+        };
+    freeze_direct_object_shroud_facts_from_status(obj, status)
+}
+
+fn direct_object_uses_shroud_status(
+    obj: &crate::game_logic::Object,
+    local_player_id: u32,
+    local_team: Team,
+    fow_shell_bypass: bool,
+) -> bool {
+    !fow_shell_bypass && obj.owner_player_id != Some(local_player_id) && obj.team != local_team
+}
+
+fn freeze_direct_object_shroud_facts_from_status(
+    obj: &crate::game_logic::Object,
+    raw_status: ObjectShroudStatus,
+) -> PresentationDrawableShroudFacts {
     // `Object::is_alive` also tests HP, which is deliberately not a direct
     // Drawable residency signal: deferred death paths retain a visual Object
     // with a sliver of HP.  Freeze only the C++ effectively-dead/deferred
@@ -133,7 +96,7 @@ pub(super) fn freeze_direct_object_shroud_facts_with_frame_facts(
             .as_ref()
             .is_some_and(|collapse| collapse.is_active());
 
-    PresentationDrawableShroudFacts::direct_host_object(raw_status, effectively_dead)
+    PresentationDrawableShroudFacts::direct_host_object(raw_status.into(), effectively_dead)
 }
 
 pub(super) fn object_is_mine_kind(obj: &crate::game_logic::Object) -> bool {
@@ -355,7 +318,7 @@ impl PresentationFrame {
                 local_player_id,
                 fow_shell_bypass,
             );
-            let facts = DirectShroudFrameFacts::freeze(shroud, local_player_id);
+            let facts = ObjectShroudFrame::new(shroud, local_player_id);
             let objects: Vec<_> = logic
                 .host_objects()
                 .registered_values()
@@ -363,18 +326,32 @@ impl PresentationFrame {
                     let owner = obj
                         .owner_player_id
                         .or_else(|| logic.player_id_for_team(obj.team));
-                    let visibility = if fow_shell_bypass || owner == Some(local_player_id) {
-                        ObjectVisibility::FULLY_VISIBLE
-                    } else {
-                        FOWRenderingBridge::get_object_visibility(shroud, local_player_id, obj.id)
-                    };
-                    let drawable = freeze_direct_object_shroud_facts_with_frame_facts(
-                        shroud,
+                    let apply_visibility = !fow_shell_bypass
+                        && owner != Some(local_player_id)
+                        && facts.visibility_active();
+                    let apply_drawable = direct_object_uses_shroud_status(
                         obj,
                         local_player_id,
                         local_team,
                         fow_shell_bypass,
-                        facts.as_ref(),
+                    );
+                    let status = if apply_visibility || apply_drawable {
+                        facts.status(obj.id)
+                    } else {
+                        ObjectShroudStatus::Clear
+                    };
+                    let visibility = if apply_visibility {
+                        ObjectVisibility::from_shroud_status(status)
+                    } else {
+                        ObjectVisibility::FULLY_VISIBLE
+                    };
+                    let drawable = freeze_direct_object_shroud_facts_from_status(
+                        obj,
+                        if apply_drawable {
+                            status
+                        } else {
+                            ObjectShroudStatus::Clear
+                        },
                     );
                     (obj, visibility, drawable)
                 })

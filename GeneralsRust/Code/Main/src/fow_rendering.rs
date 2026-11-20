@@ -32,8 +32,63 @@
 //! Not full SAGE dirty-rect streaming / multi-player simultaneous grid parity.
 
 use crate::game_logic::ObjectId as ObjectID;
+use gamelogic::common::ObjectShroudStatus;
 use gamelogic::system::shroud_manager::{ShroudManager, ShroudState};
 use log::{trace, warn};
+
+/// One player's object shroud reads under the receiving manager's frame borrow.
+pub(crate) struct ObjectShroudFrame<'a> {
+    shroud: Option<&'a ShroudManager>,
+    player_id: u32,
+    has_membership: bool,
+    visibility_active: bool,
+}
+
+impl<'a> ObjectShroudFrame<'a> {
+    pub(crate) fn new(shroud: Option<&'a ShroudManager>, player_id: u32) -> Self {
+        let has_membership = shroud.is_some_and(|shroud| {
+            shroud.has_any_visible_object(player_id) || shroud.has_any_explored_object(player_id)
+        });
+        Self {
+            shroud,
+            player_id,
+            has_membership,
+            visibility_active: has_membership
+                && shroud.is_some_and(ShroudManager::host_vision_ready),
+        }
+    }
+
+    /// Generic visibility stays clear until the host's first vision pass.
+    pub(crate) fn visibility_active(&self) -> bool {
+        self.visibility_active
+    }
+
+    /// Drawable shroud can use an explicit partition status before that pass.
+    pub(crate) fn status(&self, object_id: ObjectID) -> ObjectShroudStatus {
+        let Some(shroud) = self.shroud else {
+            return ObjectShroudStatus::Clear;
+        };
+        if let Some(status) = shroud.get_host_object_shroud_status(self.player_id, object_id.0) {
+            return status;
+        }
+        if !self.has_membership || shroud.can_see_object(self.player_id, object_id.0) {
+            ObjectShroudStatus::Clear
+        } else if shroud.has_explored_object(self.player_id, object_id.0) {
+            ObjectShroudStatus::Fogged
+        } else {
+            ObjectShroudStatus::Shrouded
+        }
+    }
+
+    pub(crate) fn visibility(&self, object_id: ObjectID) -> ObjectVisibility {
+        if self.visibility_active() {
+            ObjectVisibility::from_shroud_status(self.status(object_id))
+        } else {
+            ObjectVisibility::FULLY_VISIBLE
+        }
+    }
+}
+
 fn shroud_runtime_active(
     shroud_mgr: &gamelogic::system::shroud_manager::ShroudManager,
     player_id: u32,
@@ -47,10 +102,7 @@ fn shroud_runtime_active(
     // Membership is written by the 30 Hz vision feed itself (clear +
     // re-stamp every logic frame), so an empty set post-gate means either
     // genuinely no lookers or a membership flush — not "FOW is broken".
-    if !shroud_mgr.host_vision_ready() {
-        return false;
-    }
-    shroud_mgr.has_any_visible_object(player_id) || shroud_mgr.has_any_explored_object(player_id)
+    ObjectShroudFrame::new(Some(shroud_mgr), player_id).visibility_active()
 }
 
 /// Serialize remaining legacy fixtures which still mutate engine singletons.
@@ -746,6 +798,14 @@ impl ObjectVisibility {
         visibility_falloff: 1.0,
     };
 
+    pub(crate) fn from_shroud_status(status: ObjectShroudStatus) -> Self {
+        match status {
+            ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear => Self::VISIBLE,
+            ObjectShroudStatus::Fogged => Self::FOGGED,
+            _ => Self::HIDDEN,
+        }
+    }
+
     /// Encode shroud flags into render visibility (parity with FOW bridge states).
     pub fn from_shroud_flags(is_visible: bool, is_explored: bool) -> Self {
         if is_visible {
@@ -802,46 +862,19 @@ impl FOWRenderingBridge {
         player_id: u32,
         object_id: ObjectID,
     ) -> ObjectVisibility {
-        // Default to fully visible if shroud manager not available
-        // This ensures the game continues to work even without FOW
-        let mut visibility = ObjectVisibility::default();
-
-        // Query ShroudManager for visibility state
-        if let Some(shroud_mgr) = shroud {
-            if !shroud_runtime_active(&shroud_mgr, player_id) {
-                return visibility;
-            }
-            visibility = if let Some(status) =
-                shroud_mgr.get_host_object_shroud_status(player_id, object_id.0)
-            {
-                use gamelogic::common::ObjectShroudStatus;
-                match status {
-                    ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear => {
-                        ObjectVisibility::from_shroud_flags(true, true)
-                    }
-                    ObjectShroudStatus::Fogged => ObjectVisibility::from_shroud_flags(false, true),
-                    _ => ObjectVisibility::from_shroud_flags(false, false),
-                }
-            } else {
-                ObjectVisibility::from_shroud_flags(
-                    shroud_mgr.can_see_object(player_id, object_id.0),
-                    shroud_mgr.has_explored_object(player_id, object_id.0),
-                )
-            };
-            let is_visible = visibility.visibility_alpha >= 1.0;
-            let is_explored = visibility.is_explored >= 1.0;
-
+        let frame = ObjectShroudFrame::new(shroud, player_id);
+        let visibility = frame.visibility(object_id);
+        if frame.visibility_active() {
             trace!(
                 "FOW visibility for object {}: alpha={}, explored={}, visible={}",
-                object_id, visibility.visibility_alpha, is_explored, is_visible
+                object_id,
+                visibility.visibility_alpha,
+                visibility.is_explored >= 1.0,
+                visibility.visibility_alpha >= 1.0,
             );
-        } else {
-            trace!(
-                "Shroud manager unavailable, using default visibility for object {}",
-                object_id
-            );
+        } else if shroud.is_none() {
+            trace!("Shroud manager unavailable, using default visibility for object {object_id}");
         }
-
         visibility
     }
 
@@ -1504,6 +1537,33 @@ mod host_fow_fail_open_tests {
     }
 
     #[test]
+    fn one_shroud_observation_preserves_drawable_status_and_vision_readiness() {
+        let object = ObjectID(42);
+        let legacy = ObjectID(11);
+        let unknown = ObjectID(23);
+        let mut left = ShroudManager::new();
+        let mut right = ShroudManager::new();
+        left.mark_host_object_seen(0, object.0);
+        left.mark_host_object_explored(0, legacy.0);
+        left.set_host_object_shroud_status(0, object.0, ObjectShroudStatus::Fogged);
+        right.set_host_object_shroud_status(0, object.0, ObjectShroudStatus::PartialClear);
+
+        let frame = ObjectShroudFrame::new(Some(&left), 0);
+        assert_eq!(frame.status(object), ObjectShroudStatus::Fogged);
+        assert_eq!(frame.visibility(object), ObjectVisibility::FULLY_VISIBLE);
+        left.mark_host_vision_ready();
+        let frame = ObjectShroudFrame::new(Some(&left), 0);
+        assert_eq!(frame.visibility(object), ObjectVisibility::FOGGED);
+        assert_eq!(frame.visibility(legacy), ObjectVisibility::FOGGED);
+        assert_eq!(frame.visibility(unknown), ObjectVisibility::HIDDEN);
+
+        let peer = ObjectShroudFrame::new(Some(&right), 0);
+        assert_eq!(peer.status(object), ObjectShroudStatus::PartialClear);
+        assert_eq!(peer.visibility(object), ObjectVisibility::FULLY_VISIBLE);
+        assert_eq!(peer.status(unknown), ObjectShroudStatus::Clear);
+    }
+
+    #[test]
     fn terrain_snapshot_derives_from_membership_after_first_vision_tick() {
         let mut manager = ShroudManager::new();
         manager.init_shroud_grid(400.0, 400.0);
@@ -1519,7 +1579,9 @@ mod host_fow_fail_open_tests {
         manager.mark_host_vision_ready();
         let grid = FOWRenderingBridge::snapshot_terrain_grid(Some(&manager), 0, false);
         assert!(grid.active);
-        assert_eq!(grid.cells.len(), 100);
+        // PartitionManager's original REAL_TO_INT_CEIL retains the final
+        // cell at an exact multiple of the 40-unit cell size.
+        assert_eq!((grid.width, grid.height, grid.cells.len()), (11, 11, 121));
         assert!(grid.cells.contains(&PresentationFowGrid::CELL_VISIBLE));
         assert!(grid.cells.contains(&PresentationFowGrid::CELL_HIDDEN));
         let r8 = grid.to_r8_texture();

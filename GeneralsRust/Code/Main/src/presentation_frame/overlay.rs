@@ -2016,7 +2016,7 @@ impl PresentationFrame {
     /// for its FX, kind facts, and receiving Drawable playback identity.
     pub fn overlay_host_fx_residual(&mut self, logic: &GameLogic) -> usize {
         let shroud = logic.world_services.shroud().lock().ok();
-        let shroud_facts = super::build::DirectShroudFrameFacts::freeze(shroud.as_deref(), self.local_player_id);
+        let shroud_frame = crate::fow_rendering::ObjectShroudFrame::new(shroud.as_deref(), self.local_player_id);
         let local_team = logic
             .get_player(self.local_player_id)
             .map(|p| p.team)
@@ -2036,13 +2036,12 @@ impl PresentationFrame {
                 ro.owner_player_id = obj.owner_player_id;
                 dirty = true;
             }
-            let drawable_shroud = super::build::freeze_direct_object_shroud_facts_with_frame_facts(
-                shroud.as_deref(),
+            let drawable_shroud = super::build::freeze_direct_object_shroud_facts_with_frame(
+                &shroud_frame,
                 obj,
                 self.local_player_id,
                 local_team,
                 self.fow_shell_bypass,
-                shroud_facts.as_ref(),
             );
             if ro.drawable_shroud != drawable_shroud {
                 ro.drawable_shroud = drawable_shroud;

@@ -315,7 +315,7 @@ impl GameWorldShadow {
     }
 
     pub fn sync_from_host(&mut self, logic: &GameLogic) {
-        use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
+        use crate::fow_rendering::{ObjectShroudFrame, ObjectVisibility};
 
         self.sync_players(logic);
         self.sync_object_identities(logic);
@@ -327,6 +327,7 @@ impl GameWorldShadow {
         } else {
             logic.world_services.shroud().lock().ok()
         };
+        let shroud_frame = ObjectShroudFrame::new(shroud.as_deref(), local_player);
         for index in 0..self.sorted_host_ids.len() {
             let oid = self.sorted_host_ids[index];
             let Some(obj) = logic.host_object(oid) else {
@@ -343,7 +344,7 @@ impl GameWorldShadow {
             {
                 ObjectVisibility::FULLY_VISIBLE
             } else {
-                FOWRenderingBridge::get_object_visibility(shroud.as_deref(), local_player, obj.id)
+                shroud_frame.visibility(obj.id)
             };
             self.refresh_mapped_from_host(logic, oid, obj, eid, assets.as_deref(), visibility);
             self.sync_weapon_slots_from_host(eid, obj);
