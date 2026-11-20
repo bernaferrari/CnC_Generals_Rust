@@ -681,7 +681,14 @@ impl Object {
                 notify_deleted_module(module, &mut owner, deletion.as_deref_mut())
             });
         }
-        owner.with_mut(|object| object.handle_partition_cell_maintenance());
+        // Object.cpp:741 removes the object's look after onDelete callbacks.
+        owner.with_mut(|object| {
+            if let Some(deletion) = deletion {
+                deletion.refresh_destroyed_partition(object);
+            } else {
+                object.handle_partition_cell_maintenance();
+            }
+        });
     }
 
     /// Bind this object's admitted world before lifecycle callbacks can run.

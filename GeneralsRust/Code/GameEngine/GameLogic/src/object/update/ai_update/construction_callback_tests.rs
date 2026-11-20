@@ -831,80 +831,82 @@ fn dozer_completion_callback_keeps_same_id_peer_structure_and_footprint_untouche
     );
 }
 
+fn admit_vision_structure(
+    world: &Arc<crate::system::engine_stores::EngineStores>,
+    position: crate::common::Coord3D,
+    frame: u64,
+    unlook_duration: u32,
+) -> Arc<RwLock<Object>> {
+    use crate::helpers::TheThingFactory;
+    use crate::system::engine_stores::with_active_stores;
+    use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
+
+    with_active_stores(world, || {
+        world.services().common().system.runtime_global_data.write()
+            .unlook_persist_duration = unlook_duration;
+        world.services().shroud().lock().unwrap().init_shroud_grid(400., 400.);
+        world.ai().read().unwrap().pathfinder().unwrap().write().unwrap()
+            .reset_with_size(40, 40);
+        let team = Arc::new(RwLock::new(Team::new("StructureOwner".into(), 0xBA_0440)));
+        team.write().unwrap().set_controlling_player_id(Some(0));
+        let mut controller = Player::new(0);
+        controller.set_default_team(Some(Arc::clone(&team)));
+        {
+            let mut players = world.services().players().write().unwrap();
+            players.add_player(Arc::new(RwLock::new(controller)));
+            players.add_player(Arc::new(RwLock::new(Player::new(1))));
+        }
+
+        assert!(ensure_thing_factory_exists());
+        let source = "
+            Object CompletionVisionStructure
+                KindOf = STRUCTURE IMMOBILE
+                Geometry = CYLINDER
+                GeometryMajorRadius = 10
+                GeometryHeight = 10
+                ShroudClearingRange = 60
+                ShroudRevealToAllRange = 45
+            End
+        ";
+        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(source), 1);
+        let template = TheThingFactory::find_template("CompletionVisionStructure").unwrap();
+        let structure = Arc::new(RwLock::new(Object::new_test_from_template(
+            0xBA_0441, 100., template,
+        )));
+        {
+            let mut object = structure.write().unwrap();
+            object.set_construction_percent(0.);
+            object.set_position(&position).unwrap();
+            assert_eq!(object.get_shroud_clearing_range(), 10.);
+        }
+        {
+            let mut logic = world.game_logic_mutex().lock().unwrap();
+            logic.set_current_frame(frame);
+            logic.register_object(Arc::clone(&structure)).unwrap();
+        }
+        {
+            let mut object = structure.write().unwrap();
+            object.set_team(Some(team)).unwrap();
+            object.handle_partition_cell_maintenance();
+        }
+        world.services().shroud().lock().unwrap().process_entire_pending_undo_shroud_reveal_queue();
+        structure
+    })
+}
+
 #[test]
 fn completed_structure_refreshes_vision_and_pending_unlook_in_its_own_world() {
     use crate::common::Coord3D;
-    use crate::helpers::TheThingFactory;
-    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
     use crate::system::shroud_manager::ShroudState;
-    use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
-
-    fn admit(
-        world: &Arc<EngineStores>,
-        position: Coord3D,
-        frame: u64,
-        unlook_duration: u32,
-    ) -> Arc<RwLock<Object>> {
-        with_active_stores(world, || {
-            world.services().common().system.runtime_global_data.write()
-                .unlook_persist_duration = unlook_duration;
-            world.services().shroud().lock().unwrap().init_shroud_grid(400., 400.);
-            world.ai().read().unwrap().pathfinder().unwrap().write().unwrap()
-                .reset_with_size(40, 40);
-            let team = Arc::new(RwLock::new(Team::new("StructureOwner".into(), 0xBA_0440)));
-            team.write().unwrap().set_controlling_player_id(Some(0));
-            let mut controller = Player::new(0);
-            controller.set_default_team(Some(Arc::clone(&team)));
-            {
-                let mut players = world.services().players().write().unwrap();
-                players.add_player(Arc::new(RwLock::new(controller)));
-                players.add_player(Arc::new(RwLock::new(Player::new(1))));
-            }
-
-            assert!(ensure_thing_factory_exists());
-            let source = "
-                Object CompletionVisionStructure
-                    KindOf = STRUCTURE IMMOBILE
-                    Geometry = CYLINDER
-                    GeometryMajorRadius = 10
-                    GeometryHeight = 10
-                    ShroudClearingRange = 60
-                    ShroudRevealToAllRange = 45
-                End
-            ";
-            assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(source), 1);
-            let template = TheThingFactory::find_template("CompletionVisionStructure").unwrap();
-            let structure = Arc::new(RwLock::new(Object::new_test_from_template(
-                0xBA_0441, 100., template,
-            )));
-            {
-                let mut object = structure.write().unwrap();
-                object.set_construction_percent(0.);
-                object.set_position(&position).unwrap();
-                assert_eq!(object.get_shroud_clearing_range(), 10.);
-            }
-            {
-                let mut logic = world.game_logic_mutex().lock().unwrap();
-                logic.set_current_frame(frame);
-                logic.register_object(Arc::clone(&structure)).unwrap();
-            }
-            {
-                let mut object = structure.write().unwrap();
-                object.set_team(Some(team)).unwrap();
-                object.handle_partition_cell_maintenance();
-            }
-            world.services().shroud().lock().unwrap().process_entire_pending_undo_shroud_reveal_queue();
-            structure
-        })
-    }
 
     let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
     let driving = new_for_world();
     let peer = new_for_world();
     let receiving_position = Coord3D::new(105., 105., 0.);
     let peer_position = Coord3D::new(255., 255., 0.);
-    let structure = admit(&driving, receiving_position, 37, 23);
-    let peer_structure = admit(&peer, peer_position, 251, 41);
+    let structure = admit_vision_structure(&driving, receiving_position, 37, 23);
+    let peer_structure = admit_vision_structure(&peer, peer_position, 251, 41);
     let id = structure.read().unwrap().get_id();
     assert_eq!(peer_structure.read().unwrap().get_id(), id);
     let witness = Coord3D::new(135., 105., 0.);
@@ -944,6 +946,71 @@ fn completed_structure_refreshes_vision_and_pending_unlook_in_its_own_world() {
     ]);
     assert!(after_peer == before_peer, "the peer shroud counters and pending heap stay unchanged");
     assert!(!peer_spatial.contains(&id), "completion must not move the peer's same-ID spatial entry");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn destroying_a_looking_structure_uses_the_driving_clock_outside_update() {
+    use crate::common::Coord3D;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::system::shroud_manager::ShroudState;
+    use crate::test_process::{TestProcess, run_bounded};
+
+    let name = concat!(module_path!(), "::destroying_a_looking_structure_uses_the_driving_clock_outside_update");
+    if let TestProcess::ParentVerified = run_bounded(
+        name.strip_prefix("gamelogic::").unwrap_or(name),
+        "GENERALS_DESTROY_LOOKING_STRUCTURE_CHILD",
+    ) {
+        return;
+    }
+    let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
+    for publish_peer in [false, true] {
+        let driving = new_for_world();
+        let peer = new_for_world();
+        let position = Coord3D::new(105., 105., 0.);
+        let peer_position = Coord3D::new(255., 255., 0.);
+        let structure = admit_vision_structure(&driving, position, 37, 23);
+        let peer_structure = admit_vision_structure(&peer, peer_position, 251, 41);
+        let id = structure.read().unwrap().get_id();
+        assert_eq!(peer_structure.read().unwrap().get_id(), id);
+        let shroud = driving.services().shroud();
+        let peer_shroud = peer.services().shroud();
+        assert_eq!(shroud.lock().unwrap().get_shroud_state(0, &position), ShroudState::Visible);
+        let before_peer = peer_shroud.lock().unwrap().snapshot_state();
+
+        let published = if publish_peer { &peer } else { &driving };
+        with_active_stores(published, || {
+            let mut logic = driving.game_logic_mutex().lock().unwrap();
+            assert_eq!(logic.get_frame(), 37);
+            eprintln!("calling GameLogic::destroy_object while holding its owner outside update");
+            logic.destroy_object(id);
+            logic.destroy_object(id);
+        });
+        assert!(structure.read().unwrap().is_destroyed());
+        assert!(!peer_structure.read().unwrap().is_destroyed());
+        assert!(peer_shroud.lock().unwrap().snapshot_state() == before_peer);
+        {
+            let mut shroud = shroud.lock().unwrap();
+            let state = shroud.snapshot_state();
+            let [pending] = state.pending_undo_shroud_reveals.as_slice() else {
+                panic!("destroyObject must queue the old reveal once");
+            };
+            assert_eq!(pending.where_pos, position.to_array());
+            assert_eq!(pending.expiration_frame, 60);
+            shroud.process_pending_undo_shroud_reveals(60);
+            assert_eq!(shroud.get_shroud_state(0, &position), ShroudState::Visible);
+            shroud.process_pending_undo_shroud_reveals(61);
+            assert_eq!(shroud.get_shroud_state(0, &position), ShroudState::Explored);
+        }
+        with_active_stores(&driving, || {
+            driving.game_logic_mutex().lock().unwrap().cleanup_dead_objects().unwrap();
+        });
+        with_active_stores(&peer, || {
+            let mut logic = peer.game_logic_mutex().lock().unwrap();
+            logic.destroy_object(id);
+            logic.cleanup_dead_objects().unwrap();
+        });
+    }
 }
 
 /// A real create-module callback probes both manager loans without waiting if

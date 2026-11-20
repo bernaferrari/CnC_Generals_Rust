@@ -2117,6 +2117,7 @@ pub(crate) enum ObjectDestroyServiceAction {
 /// (C++ `TheGameLogic->destroyObject`) without any global world lookup.
 pub(crate) trait ObjectDeletionServices {
     fn destroy_object(&mut self, object_id: ObjectID);
+    fn refresh_destroyed_partition(&mut self, object: &mut Object);
 }
 
 /// Runtime cleanup phase; save data continues to use the C++ status bits.

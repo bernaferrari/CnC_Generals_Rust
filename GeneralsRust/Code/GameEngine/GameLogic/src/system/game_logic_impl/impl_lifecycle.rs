@@ -15,6 +15,14 @@ impl crate::object::ObjectDeletionServices for GameLogicDeletionServices<'_> {
     fn destroy_object(&mut self, object_id: ObjectID) {
         self.logic.destroy_object(object_id);
     }
+
+    fn refresh_destroyed_partition(&mut self, object: &mut Object) {
+        if let Some(world) = self.logic.owning_world_services() {
+            object.maintain_partition_for_world_at_frame(&world, self.logic.frame);
+        } else {
+            object.handle_partition_cell_maintenance();
+        }
+    }
 }
 
 impl GameLogic {

@@ -73,12 +73,19 @@ enum VisionOwners<'a> {
     /// Keep the driving world's stores lazy until their first effect.
     Deferred {
         world: &'a WorldServices,
-        retained: bool,
+        clock: VisionClock,
         partition_guard: Option<std::sync::RwLockWriteGuard<'a, PartitionManager>>,
         shroud_guard: Option<std::sync::MutexGuard<'a, ShroudManager>>,
         objects_guard: Option<std::sync::RwLockWriteGuard<'a, ObjectManager>>,
         objects_tried: bool,
     },
+}
+
+#[derive(Clone, Copy)]
+enum VisionClock {
+    Compatibility,
+    OwningWorld,
+    DrivingFrame(u32),
 }
 
 /// Already admitted services. Construct before mutating the passenger; no
@@ -170,8 +177,11 @@ impl<'a> ObjectPartitionServices<'a> {
     fn frame(&self) -> u32 {
         match &self.owners {
             VisionOwners::Borrowed { frame, .. } => *frame,
-            VisionOwners::Deferred { world, retained: true, .. } => world.logic_frame(),
-            VisionOwners::Deferred { .. } => crate::helpers::TheGameLogic::get_frame(),
+            VisionOwners::Deferred { world, clock, .. } => match clock {
+                VisionClock::Compatibility => crate::helpers::TheGameLogic::get_frame(),
+                VisionClock::OwningWorld => world.logic_frame(),
+                VisionClock::DrivingFrame(frame) => *frame,
+            },
         }
     }
     fn unlook_persist_frames(&self) -> u32 {
@@ -180,11 +190,12 @@ impl<'a> ObjectPartitionServices<'a> {
                 unlook_persist_frames,
                 ..
             } => *unlook_persist_frames,
-            VisionOwners::Deferred { world, retained: true, .. } =>
+            VisionOwners::Deferred { clock: VisionClock::Compatibility, .. } =>
+                game_engine::common::global_data::read_safe()
+                    .map(|data| data.unlook_persist_duration)
+                    .unwrap_or(0),
+            VisionOwners::Deferred { world, .. } =>
                 world.common().system.runtime_global_data.read().unlook_persist_duration,
-            VisionOwners::Deferred { .. } => game_engine::common::global_data::read_safe()
-                .map(|data| data.unlook_persist_duration)
-                .unwrap_or(0),
         }
     }
 }
@@ -285,29 +296,34 @@ impl Object {
         f: impl FnOnce(&mut Self, &mut ObjectPartitionServices<'_>),
     ) {
         let world = crate::system::engine_stores::active_services();
-        self.with_deferred_world_vision(&world, false, f);
+        self.with_deferred_world_vision(&world, VisionClock::Compatibility, f);
     }
 
     pub(super) fn maintain_partition_for_owning_world(&mut self) {
         if let Some(world) = self.owning_world_services() {
-            self.with_deferred_world_vision(&world, true, Self::partition_maintenance);
+            self.with_deferred_world_vision(&world, VisionClock::OwningWorld, Self::partition_maintenance);
         } else {
             self.handle_partition_cell_maintenance();
         }
     }
 
+    /// The caller already holds the driving GameLogic during onDestroy.
+    pub(crate) fn maintain_partition_for_world_at_frame(&mut self, world: &WorldServices, frame: u32) {
+        self.with_deferred_world_vision(world, VisionClock::DrivingFrame(frame), Self::partition_maintenance);
+    }
+
     fn with_deferred_world_vision(
         &mut self,
         world: &WorldServices,
-        retained: bool,
+        clock: VisionClock,
         f: impl FnOnce(&mut Self, &mut ObjectPartitionServices<'_>),
     ) {
-        let controller = if retained {
+        let controller = if matches!(clock, VisionClock::Compatibility) {
+            self.get_controlling_player()
+        } else {
             self.controlling_player_id_from_pin().ok().flatten().and_then(|index| {
                 world.players().read().ok()?.get_player(index as Int).cloned()
             })
-        } else {
-            self.get_controlling_player()
         };
         let masks = controller
             .and_then(|controller| {
@@ -321,7 +337,7 @@ impl Object {
         let mut services = ObjectPartitionServices {
             owners: VisionOwners::Deferred {
                 world,
-                retained,
+                clock,
                 partition_guard: None,
                 shroud_guard: None,
                 objects_guard: None,
