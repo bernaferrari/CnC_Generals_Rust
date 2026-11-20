@@ -9,11 +9,14 @@ use game_client_rust::gui::control_bar::{
     take_host_control_bar_published_requests,
 };
 use game_client_rust::gui::gadgets::PushButton;
+use game_client_rust::gui::game_window::{WindowInputReturnCode, WindowMsgHandled};
 use game_client_rust::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource;
-use game_client_rust::gui::window_manager::ControlBarInputContext;
+use game_client_rust::gui::window_manager::{ControlBarInputContext, WindowManager};
 use game_client_rust::gui::{GameWindow, WindowMessage, WindowWidget};
+use game_client_rust::input::Mouse;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::commands::CommandType;
+use gamelogic::system::engine_stores::{new_world_services, with_world_services};
 use std::{cell::RefCell, rc::Rc};
 type Window = Rc<RefCell<GameWindow>>;
 struct Viewport;
@@ -84,7 +87,13 @@ fn scene(c: &mut GameClient, command: &str) -> Window {
         })
     })
 }
-fn dispatch(c: &mut GameClient, bar: &mut ControlBar, origin: Origin) {
+fn with_receiving_input_context<R>(
+    c: &mut GameClient,
+    bar: &mut ControlBar,
+    origin: Origin,
+    mouse: Option<&mut Mouse>,
+    operation: impl FnOnce(&mut WindowManager, &mut ControlBarInputContext<'_>) -> R,
+) -> R {
     let frame = c.get_frame();
     let mut viewport = Viewport;
     let mut emitted = Vec::new();
@@ -118,7 +127,7 @@ fn dispatch(c: &mut GameClient, bar: &mut ControlBar, origin: Origin) {
         replay: false,
         game_ending: false,
         tooltips_disabled: true,
-        cursor_mouse: None,
+        cursor_mouse: mouse,
         window_manager_owner: Some(owner),
         campaign_manager: Some(campaign),
         menu_world: None,
@@ -129,21 +138,25 @@ fn dispatch(c: &mut GameClient, bar: &mut ControlBar, origin: Origin) {
         main_menu: Some(main_menu),
         emitted_messages: Some(&mut emitted),
     };
-    owner.with_manager(|manager| {
+    owner.with_manager(|manager| operation(manager, &mut context))
+}
+
+fn dispatch(c: &mut GameClient, bar: &mut ControlBar, origin: Origin) {
+    with_receiving_input_context(c, bar, origin, None, |manager, context| {
         for msg in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
             let _ = manager.process_mouse_event_with_control_bar(
                 msg,
                 15,
                 15,
                 ((15usize) << 16) | 15,
-                &mut context,
+                context,
             );
         }
+        // The public input route records an owned click. Serialization/authority has not run.
+        assert!(
+            take_host_control_bar_published_requests(context.ui.as_deref_mut().unwrap()).is_empty()
+        );
     });
-    // The public input route records an owned click. Serialization/authority has not run.
-    assert!(
-        take_host_control_bar_published_requests(context.ui.as_deref_mut().unwrap()).is_empty()
-    );
 }
 fn replay(
     c: &mut GameClient,
@@ -207,4 +220,160 @@ fn deferred_source_receipt_cannot_adopt_peer_window_with_the_same_id() {
         replay(&mut a, &mut bar).is_empty(),
         "rejected input is consumed once"
     );
+}
+
+type CallbackTrace = Rc<RefCell<Vec<String>>>;
+
+fn mouse_callback_scene(c: &mut GameClient) -> (Window, CallbackTrace) {
+    let trace = CallbackTrace::default();
+    let target = c.with_window_event_effects(None, |effects| {
+        effects.with_manager(|manager, effects| {
+            let old = manager
+                .create_window_with_id(None, 5, 5, 30, 30, id("PreviousHover"), effects)
+                .unwrap();
+            let close = manager
+                .create_window_with_id(None, 5, 60, 30, 30, id("LonePopup"), effects)
+                .unwrap();
+            let parent = manager
+                .create_window_with_id(None, 50, 5, 60, 30, id("MouseParent"), effects)
+                .unwrap();
+            let target = manager
+                .create_window_with_id(Some(&parent), 5, 5, 30, 20, id("MouseTarget"), effects)
+                .unwrap();
+            for win in [&old, &close, &parent, &target] {
+                win.borrow_mut().hide(false, manager).unwrap();
+            }
+            let old_trace = Rc::clone(&trace);
+            old.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::MouseLeaving {
+                    old_trace.borrow_mut().push("leave".into());
+                }
+                WindowMsgHandled::Ignored
+            });
+            let popup_trace = Rc::clone(&trace);
+            close.borrow_mut().set_system_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::User(16389) {
+                    popup_trace.borrow_mut().push("close".into());
+                }
+                WindowMsgHandled::Ignored
+            });
+            let parent_trace = Rc::clone(&trace);
+            parent.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if matches!(msg, WindowMessage::RightUp | WindowMessage::LeftDown) {
+                    parent_trace.borrow_mut().push("parent".into());
+                    WindowMsgHandled::Handled
+                } else {
+                    WindowMsgHandled::Ignored
+                }
+            });
+            let tooltip_trace = Rc::clone(&trace);
+            let target_trace = Rc::clone(&trace);
+            {
+                let mut window = target.borrow_mut();
+                window.set_tooltip("stale");
+                window.set_tooltip_callback(move |window, _, _, _| {
+                    tooltip_trace
+                        .borrow_mut()
+                        .push(format!("tooltip:{}", window.get_tooltip()));
+                });
+                window.set_input_callback(move |window, msg, _, _| {
+                    match msg {
+                        WindowMessage::RightUp | WindowMessage::LeftDown => {
+                            target_trace.borrow_mut().push("target".into());
+                            window.set_tooltip("updated");
+                        }
+                        WindowMessage::MouseEntering => {
+                            target_trace.borrow_mut().push("enter".into())
+                        }
+                        _ => {}
+                    }
+                    WindowMsgHandled::Ignored
+                });
+            }
+            manager.set_lone_window(Some(&close), effects);
+            target
+        })
+    });
+    (target, trace)
+}
+
+#[test]
+fn native_mouse_dispatch_closes_lone_popup_before_live_tooltip_and_hover() {
+    let world = new_world_services();
+    with_world_services(&world, || {
+        let mut first = client();
+        let mut second = client();
+        let (target_a, trace_a) = mouse_callback_scene(&mut first);
+        let (target_b, trace_b) = mouse_callback_scene(&mut second);
+        assert_eq!(target_a.borrow().get_id(), target_b.borrow().get_id());
+        let input = |client: &mut GameClient, msg, x: i32| {
+            with_receiving_input_context(
+                client,
+                &mut ControlBar::new(),
+                Origin::PhysicalWindowMouseInput,
+                Some(&mut Mouse::new()),
+                |manager, context| {
+                    let result = manager.process_mouse_event_with_control_bar(
+                        msg,
+                        x,
+                        15,
+                        (15usize << 16) | x as usize,
+                        context,
+                    );
+                    let grab = manager
+                        .get_grab_window()
+                        .map(|window| window.borrow().get_id());
+                    (result, grab)
+                },
+            )
+        };
+        assert_eq!(
+            input(&mut first, WindowMessage::MousePos, 15).0,
+            WindowInputReturnCode::NotUsed
+        );
+        assert_eq!(
+            input(&mut second, WindowMessage::MousePos, 15).0,
+            WindowInputReturnCode::NotUsed
+        );
+        assert!(trace_a.borrow().is_empty());
+        assert!(trace_b.borrow().is_empty());
+        assert_eq!(
+            input(&mut first, WindowMessage::RightUp, 60),
+            (WindowInputReturnCode::Used, None)
+        );
+        assert_eq!(
+            &*trace_a.borrow(),
+            &[
+                "target",
+                "parent",
+                "close",
+                "tooltip:updated",
+                "leave",
+                "enter"
+            ]
+        );
+        assert!(
+            trace_b.borrow().is_empty(),
+            "peer windows with the same IDs received no callbacks"
+        );
+        trace_a.borrow_mut().clear();
+        assert_eq!(
+            input(&mut first, WindowMessage::MousePos, 60).0,
+            WindowInputReturnCode::NotUsed
+        );
+        assert_eq!(
+            &*trace_a.borrow(),
+            &["tooltip:updated"],
+            "same hover refresh sends no generated region events"
+        );
+        assert_eq!(
+            input(&mut second, WindowMessage::LeftDown, 60),
+            (WindowInputReturnCode::Used, Some(id("MouseParent")))
+        );
+        assert_eq!(
+            &*trace_b.borrow(),
+            &["target", "parent", "close", "tooltip:updated"],
+            "newly grabbed mouse defers hover changes"
+        );
+    });
 }

@@ -179,16 +179,17 @@ impl WindowManager {
         mut context: Option<&mut super::ControlBarInputContext<'_>>,
         mut emitted_messages: Option<&mut crate::gui::game_window::WindowEventEffects<'_>>,
     ) -> WindowInputReturnCode {
-        const GGM_LEFT_DRAG: u32 = 16384;
-        const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
         let old_lone = self.lone_window.as_ref().and_then(|w| w.upgrade());
-        if let Some(context) = context.as_deref_mut() {
-            self.update_cursor_tooltip_for_mouse_event_owned(x, y, Some(context), None);
-        } else {
-            let mouse = emitted_messages
-                .as_deref_mut()
-                .and_then(|effects| effects.cursor_mouse.as_deref_mut());
-            self.update_cursor_tooltip_for_mouse_event(x, y, mouse);
+        if let Some(mouse) = context
+            .as_deref_mut()
+            .and_then(|context| context.cursor_mouse.as_deref_mut())
+            .or_else(|| {
+                emitted_messages
+                    .as_deref_mut()
+                    .and_then(|effects| effects.cursor_mouse.as_deref_mut())
+            })
+        {
+            mouse.set_cursor_tooltip(String::new(), None, None, None);
         }
         // Find window under cursor or use capture
         let capture_window = self.get_capture();
@@ -278,9 +279,21 @@ impl WindowManager {
             }
         }
 
-        if let Some(window) = target_window {
-            let handled_window = self.send_mouse_message_up_chain_phase(
-                &window,
+        // The original selects the tooltip window before delivery, then reads
+        // its callback and text after the target, ancestor and lone-popup callbacks.
+        let tooltip_window = if capture_window.is_none()
+            && (context.is_some()
+                || emitted_messages
+                    .as_ref()
+                    .is_some_and(|effects| effects.cursor_mouse.is_some()))
+        {
+            self.find_tooltip_window_at_point(x, y)
+        } else {
+            None
+        };
+        let handled_window = target_window.as_ref().and_then(|window| {
+            self.send_mouse_message_up_chain_phase(
+                window,
                 msg,
                 data,
                 x,
@@ -288,17 +301,21 @@ impl WindowManager {
                 capture_window.as_ref(),
                 context.as_deref_mut(),
                 emitted_messages.as_deref_mut(),
-            );
+            )
+        });
 
+        if capture_window.is_some() {
             self.update_current_mouse_region(
-                Some(&window),
+                target_window.as_ref(),
                 capture_window.as_ref(),
                 x,
                 y,
                 context.as_deref_mut(),
                 emitted_messages.as_deref_mut(),
             );
+        }
 
+        if target_window.is_some() {
             self.close_lone_window_after_mouse_message(
                 old_lone.as_ref(),
                 handled_window.as_ref(),
@@ -306,39 +323,59 @@ impl WindowManager {
                 context.as_deref_mut(),
                 emitted_messages.as_deref_mut(),
             );
-
             if msg == WindowMessage::LeftDown {
                 if let Some(handled) = handled_window.as_ref() {
                     self.set_grab_window(Some(handled));
                 }
             }
+        }
 
-            if handled_window.is_some() {
-                WindowInputReturnCode::Used
-            } else {
-                WindowInputReturnCode::NotUsed
-            }
-        } else {
+        if let Some(window) = tooltip_window {
+            self.send_mouse_tooltip(
+                window,
+                x,
+                y,
+                context.as_deref_mut(),
+                emitted_messages
+                    .as_deref_mut()
+                    .and_then(|effects| effects.cursor_mouse.as_deref_mut()),
+            );
+        }
+        if capture_window.is_none() && self.get_grab_window().is_none() {
+            let capture = self.get_capture();
+            let hover_window = target_window.as_ref().filter(|window| {
+                !window
+                    .borrow()
+                    .get_status()
+                    .contains(WindowStatus::DESTROYED)
+            });
             self.update_current_mouse_region(
-                None,
-                capture_window.as_ref(),
+                hover_window,
+                capture.as_ref(),
                 x,
                 y,
                 context.as_deref_mut(),
                 emitted_messages.as_deref_mut(),
             );
-            if matches!(
+        }
+
+        if target_window.is_none()
+            && matches!(
                 msg,
                 WindowMessage::LeftUp | WindowMessage::MiddleUp | WindowMessage::RightUp
-            ) {
-                self.close_lone_window_after_mouse_message(
-                    old_lone.as_ref(),
-                    None,
-                    msg,
-                    context.as_deref_mut(),
-                    emitted_messages.as_deref_mut(),
-                );
-            }
+            )
+        {
+            self.close_lone_window_after_mouse_message(
+                old_lone.as_ref(),
+                None,
+                msg,
+                context,
+                emitted_messages,
+            );
+        }
+        if handled_window.is_some() {
+            WindowInputReturnCode::Used
+        } else {
             WindowInputReturnCode::NotUsed
         }
     }
@@ -583,93 +620,64 @@ impl WindowManager {
         y: i32,
         context: &mut super::ControlBarInputContext<'_>,
     ) {
-        self.update_cursor_tooltip_for_mouse_event_owned(x, y, Some(context), None);
-    }
-
-    fn update_cursor_tooltip_for_mouse_event_owned(
-        &mut self,
-        x: i32,
-        y: i32,
-        context: Option<&mut super::ControlBarInputContext<'_>>,
-        receiving_mouse: Option<&mut crate::input::Mouse>,
-    ) {
-        let Some(context) = context else {
-            return self.update_cursor_tooltip_for_mouse_event(x, y, receiving_mouse);
-        };
-        // The source clears the previous generic tooltip before hit-testing,
-        // including capture, disabled tooltips and an owned command callback.
         if let Some(mouse) = context.cursor_mouse.as_deref_mut() {
             mouse.set_cursor_tooltip(String::new(), None, None, None);
         }
-        if self.get_capture().is_some() || self.get_grab_window().is_some() {
-            return;
-        }
-        let Some(window) = self.find_tooltip_window_at_point(x, y) else {
-            return;
-        };
-        if window.borrow().has_owned_control_bar_tooltip() {
-            // Release the child before layout creation/population uses its manager.
-            if !context.tooltips_disabled && !context.game_ending {
-                let upgrade_source = context.upgrade_tooltip;
-                // The hovered bar's own CommandButton catalog.
-                let definitions = context.control_bar.command_definitions().cloned();
-                context.with_tooltip_effects(self, |tooltip, manager, effects| {
-                    crate::gui::gui_callbacks::control_bar_popup_description::show_build_tooltip_layout_with_upgrade_source(
-                        tooltip, manager, window, upgrade_source, definitions.as_ref(), effects,
-                    );
-                });
-            }
-            return;
-        }
-        let packed = ((y as u32) << 16) | ((x as u32) & 0xffff);
-        let window = window.borrow();
-        if let Some(callback) = window.get_tooltip_callback() {
-            if let Some(mouse) = context.cursor_mouse.as_deref_mut() {
-                callback(&window, window.instance_data(), packed, mouse);
-            }
-        } else if !window.get_tooltip().is_empty() {
-            if let Some(mouse) = context.cursor_mouse.as_deref_mut() {
-                mouse.set_cursor_tooltip(
-                    window.get_tooltip().to_string(),
-                    Some(window.get_tooltip_delay()),
-                    None,
-                    None,
-                );
+        if self.get_capture().is_none() && self.get_grab_window().is_none() {
+            if let Some(window) = self.find_tooltip_window_at_point(x, y) {
+                self.send_mouse_tooltip(window, x, y, Some(context), None);
             }
         }
     }
 
-    pub(crate) fn update_cursor_tooltip_for_mouse_event(
-        &self,
+    fn send_mouse_tooltip(
+        &mut self,
+        window: Rc<RefCell<GameWindow>>,
         x: i32,
         y: i32,
+        mut context: Option<&mut super::ControlBarInputContext<'_>>,
         receiving_mouse: Option<&mut crate::input::Mouse>,
     ) {
-        let Some(mouse) = receiving_mouse else {
-            return;
-        };
-        mouse.set_cursor_tooltip(String::new(), None, None, None);
-
-        if self.get_capture().is_some() || self.get_grab_window().is_some() {
+        if window
+            .borrow()
+            .get_status()
+            .contains(WindowStatus::DESTROYED)
+        {
             return;
         }
-
-        let Some(window_rc) = self.find_tooltip_window_at_point(x, y) else {
+        if let Some(context) = context.as_deref_mut() {
+            if window.borrow().has_owned_control_bar_tooltip() {
+                // Release the child before layout creation/population uses its manager.
+                if !context.tooltips_disabled && !context.game_ending {
+                    let upgrade_source = context.upgrade_tooltip;
+                    // The hovered bar's own CommandButton catalog.
+                    let definitions = context.control_bar.command_definitions().cloned();
+                    context.with_tooltip_effects(self, |tooltip, manager, effects| {
+                        crate::gui::gui_callbacks::control_bar_popup_description::show_build_tooltip_layout_with_upgrade_source(
+                            tooltip, manager, window, upgrade_source, definitions.as_ref(), effects,
+                        );
+                    });
+                }
+                return;
+            }
+        }
+        let mouse = context
+            .and_then(|context| context.cursor_mouse.as_deref_mut())
+            .or(receiving_mouse);
+        let Some(mouse) = mouse else {
             return;
         };
         let packed = ((y as u32) << 16) | ((x as u32) & 0xffff);
-        let window = window_rc.borrow();
+        let window = window.borrow();
         if let Some(callback) = window.get_tooltip_callback() {
-            // C++ toolTipWindow->m_tooltip(window, &instData, packedMouseCoords)
             callback(&window, window.instance_data(), packed, mouse);
-            return;
-        }
-        let tooltip = window.get_tooltip();
-        if !tooltip.is_empty() {
-            let delay = window.get_tooltip_delay();
-            let tooltip = tooltip.to_string();
-            drop(window);
-            mouse.set_cursor_tooltip(tooltip, Some(delay), None, None);
+        } else if !window.get_tooltip().is_empty() {
+            mouse.set_cursor_tooltip(
+                window.get_tooltip().to_string(),
+                Some(window.get_tooltip_delay()),
+                None,
+                None,
+            );
         }
     }
 
