@@ -61,7 +61,8 @@ pub struct MultiInstanceOptions {
     pub update_hz: u32,
     /// Instances allowed to boot at the same time.
     pub boot_parallelism: usize,
-    /// Private user-data root; instance `i` uses `<root>/instance-<i>`.
+    /// Private user-data root. An empty path uses a fresh temporary directory.
+    /// Instance `i` uses `<root>/instance-<i>`.
     pub userdata_root: PathBuf,
     /// Extra engine command-line switches for every instance.
     pub extra_args: Vec<String>,
@@ -90,13 +91,17 @@ impl Default for MultiInstanceOptions {
             present_fps: 15,
             update_hz: 60,
             boot_parallelism: 4,
-            userdata_root: std::env::temp_dir().join("generals_multi"),
+            userdata_root: PathBuf::new(),
             extra_args: Vec::new(),
             assertions: Assertions::default(),
             gate_timeout: Duration::from_secs(900),
             stop_when_decided: false,
         }
     }
+}
+
+fn reserve_temporary_userdata() -> std::io::Result<tempfile::TempDir> {
+    tempfile::Builder::new().prefix("generals_multi-").tempdir()
 }
 
 /// Grid columns for `n` tiles: 4x2 for 8 and 4x4 for 16.
@@ -229,6 +234,15 @@ pub fn run_multi_instance(
 ) -> anyhow::Result<MultiInstanceReport> {
     anyhow::ensure!(options.instances > 0, "need at least one instance");
     anyhow::ensure!(!options.scenarios.is_empty(), "need at least one scenario");
+    let temporary_userdata = if options.userdata_root.as_os_str().is_empty() {
+        Some(reserve_temporary_userdata()?)
+    } else {
+        None
+    };
+    let userdata_root = temporary_userdata
+        .as_ref()
+        .map_or(options.userdata_root.as_path(), tempfile::TempDir::path);
+    log::info!("multi-instance user data at {}", userdata_root.display());
     let runtime = tokio::runtime::Handle::try_current().ok();
     let (iw, ih) = options.instance_size;
     let gpu_config = ww3d_engine::EngineConfig {
@@ -310,7 +324,7 @@ pub fn run_multi_instance(
                                 .map_err(|e| format!("instance window {index}: {e}"))?,
                         );
                         let scenario = options.scenarios[index % options.scenarios.len()].clone();
-                        let userdata = options.userdata_root.join(format!("instance-{index}"));
+                        let userdata = userdata_root.join(format!("instance-{index}"));
                         let bridge = match scenario.gate() {
                             Some(_) => {
                                 let dir = userdata.join("runtime-host");
@@ -550,4 +564,24 @@ pub fn run_multi_instance(
     drop(compositor);
     outcome.map_err(anyhow::Error::msg)?;
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_grid_roots_isolate_saves_and_driver_receipts() {
+        assert!(MultiInstanceOptions::default().userdata_root.as_os_str().is_empty());
+        let first = reserve_temporary_userdata().unwrap();
+        let second = reserve_temporary_userdata().unwrap();
+        let relative = "instance-0/runtime-host";
+        for (root, payload) in [(&first, b"first".as_slice()), (&second, b"second".as_slice())] {
+            let bridge = root.path().join(relative);
+            std::fs::create_dir_all(&bridge).unwrap();
+            std::fs::write(bridge.join("status.txt"), payload).unwrap();
+        }
+        assert_eq!(std::fs::read(first.path().join(relative).join("status.txt")).unwrap(), b"first");
+        assert_eq!(std::fs::read(second.path().join(relative).join("status.txt")).unwrap(), b"second");
+    }
 }

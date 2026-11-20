@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! generals_multi [--instances N] [--scenario S]... [--columns C]
-//!                [--headless] [--shots DIR] [--shot-frame F] [--shot-timeout SECS]
+//!                [--headless] [--userdata DIR] [--shots DIR] [--shot-frame F] [--shot-timeout SECS]
 //!                [--run-for SECS] [--present-fps FPS] [--update-hz HZ (60; 0 uncapped)]
 //!                [--boot-parallel K]
 //!                [--instance-size WxH] [--cell-size WxH] [--audio]
@@ -35,7 +35,7 @@ use std::time::Duration;
 fn usage() -> ! {
     eprintln!(
         "usage: generals_multi [--instances N] [--scenario golden|shell|skirmish:<map>[:<faction>]|cmds:<a>;<b>]... \
-         [--columns C] [--headless] [--shots DIR] [--shot-frame F] [--shot-timeout SECS] [--run-for SECS] \
+         [--columns C] [--headless] [--userdata DIR] [--shots DIR] [--shot-frame F] [--shot-timeout SECS] [--run-for SECS] \
          [--present-fps FPS] [--update-hz HZ] [--boot-parallel K] [--instance-size WxH] [--cell-size WxH] [--audio] [--suite e2e] [--gate-timeout SECS] \
          [--pass-frame F] [--verdict-timeout SECS] [--until-verdicts] [-- <engine args>]\n\
          scenarios also: gate:<menu|map_load|orders|ai|save_load>[:<map>]"
