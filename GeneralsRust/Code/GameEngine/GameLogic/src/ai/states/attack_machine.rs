@@ -820,7 +820,7 @@ impl StateImplementation for AIAttackAimAtTargetState {
 impl AIAttackAimAtTargetState {
     fn enter_with_target(
         &mut self,
-        attacker: Option<&Object>,
+        attacker: Option<crate::modules::AiCommandTarget<'_>>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
@@ -885,8 +885,9 @@ impl AIAttackAimAtTargetState {
                 .base
                 .get_machine_goal_object_id()
                 .ok_or_else(|| "attack aim missing target".to_string())?;
-            let target = AttackGoal::resolve(Some(target_id), attacker)
-                .ok_or("attack aim missing target")?;
+            let target =
+                AttackGoal::resolve(Some(target_id), attacker.map(|target| target.object))
+                    .ok_or("attack aim missing target")?;
             let target = target.read("attack aim target lock poisoned")?;
             if !used_contain {
                 in_range = weapon.is_within_attack_range_for_objects(
@@ -895,7 +896,12 @@ impl AIAttackAimAtTargetState {
                     None,
                 );
             }
-            if let Some(ai) = target.get_ai_update_interface() {
+            let lent_base_targeter = attacker.is_some_and(|attacker| {
+                attacker.base_targeter.is_some() && std::ptr::eq(attacker.object, &*target)
+            });
+            if !lent_base_targeter
+                && let Some(ai) = target.get_ai_update_interface()
+            {
                 if let Ok(mut ai_guard) = ai.lock() {
                     ai_guard.add_targeter(owner_guard.get_id(), true);
                     preventing = ai_guard.is_temporarily_preventing_aim_success();
@@ -994,7 +1000,7 @@ impl CppState for AIAttackAimAtTargetState {
         if ai.world().is_some() {
             attack_entry::aim_enter(self, ai)
         } else {
-            self.enter_with_target(ai.command_target())
+            self.enter_with_target(ai.borrowed_command_target())
         }
     }
 
@@ -1291,6 +1297,63 @@ impl CppState for AIAttackFireWeaponState {
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
+        self.update_with_targeter(None)
+    }
+
+    fn cpp_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        self.update_with_targeter(Some(ai))
+    }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        if ai.world().is_some() {
+            attack_entry::fire_exit(self, exit, ai)
+        } else {
+            self.cpp_on_exit(exit)
+        }
+    }
+
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "attack fire missing owner".to_string())?;
+        let mut owner_guard = owner
+            .lock()
+            .map_err(|_| "attack fire owner lock poisoned".to_string())?;
+
+        owner_guard.clear_status(ObjectStatusMaskType::from_status(
+            ObjectStatusTypes::IsFiringWeapon,
+        ));
+        owner_guard.clear_status(ObjectStatusMaskType::from_status(
+            ObjectStatusTypes::IgnoringStealth,
+        ));
+
+        if let Some(weapon) = owner_guard.weapon_set.get_current_weapon_mut() {
+            if weapon.observe_status() == WeaponStatus::PreAttack {
+                owner_guard.cancel_pre_attack_for_current_weapon();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn cpp_is_attack(&self) -> bool {
+        true
+    }
+}
+
+impl AIAttackFireWeaponState {
+    fn update_with_targeter(
+        &mut self,
+        ai: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -1300,6 +1363,7 @@ impl CppState for AIAttackFireWeaponState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack fire missing owner".to_string())?;
+        let base_targeter = ai.and_then(|ai| ai.base_aim_targeter_for(&owner));
         let mut owner_guard = owner
             .lock()
             .map_err(|_| "attack fire owner lock poisoned".to_string())?;
@@ -1368,7 +1432,8 @@ impl CppState for AIAttackFireWeaponState {
             if let Some(target) = victim {
                 let victim_id = target.read().ok().map(|g| g.get_id());
                 if let Some(victim_id) = victim_id {
-                    let _ = owner_guard.fire_current_weapon_at_target_id(victim_id);
+                    let _ = owner_guard
+                        .fire_current_weapon_at_target_id_with_targeter(victim_id, base_targeter);
                 }
 
                 if let Some(current_victim) = owner_guard.ai_fire_current_victim {
@@ -1453,47 +1518,6 @@ impl CppState for AIAttackFireWeaponState {
         }
 
         Ok(StateReturnType::Success)
-    }
-
-    fn cpp_on_exit_with_ai(
-        &mut self,
-        exit: StateExitType,
-        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
-    ) -> Result<(), String> {
-        if ai.world().is_some() {
-            attack_entry::fire_exit(self, exit, ai)
-        } else {
-            self.cpp_on_exit(exit)
-        }
-    }
-
-    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        let owner = self
-            .base
-            .get_machine_owner()
-            .ok_or_else(|| "attack fire missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack fire owner lock poisoned".to_string())?;
-
-        owner_guard.clear_status(ObjectStatusMaskType::from_status(
-            ObjectStatusTypes::IsFiringWeapon,
-        ));
-        owner_guard.clear_status(ObjectStatusMaskType::from_status(
-            ObjectStatusTypes::IgnoringStealth,
-        ));
-
-        if let Some(weapon) = owner_guard.weapon_set.get_current_weapon_mut() {
-            if weapon.observe_status() == WeaponStatus::PreAttack {
-                owner_guard.cancel_pre_attack_for_current_weapon();
-            }
-        }
-
-        Ok(())
-    }
-
-    fn cpp_is_attack(&self) -> bool {
-        true
     }
 }
 

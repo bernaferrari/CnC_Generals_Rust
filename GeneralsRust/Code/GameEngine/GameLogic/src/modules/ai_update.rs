@@ -3,6 +3,14 @@
 // Split from `modules.rs` for module-size parity.
 // Observable behavior is unchanged.
 
+/// Target already borrowed for this synchronous AI command.
+#[doc(hidden)]
+#[derive(Clone, Copy)]
+pub struct AiCommandTarget<'a> {
+    pub(crate) object: &'a crate::object::Object,
+    pub(crate) base_targeter: Option<crate::object::unit::BaseAimTargeter<'a>>,
+}
+
 /// AI update interface (matching C++ AIUpdateInterface)
 pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Inspect the actual installed runtime in bounded lifecycle regressions.
@@ -1025,6 +1033,15 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         _target: &crate::object::Object,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.execute_command(command)
+    }
+
+    #[doc(hidden)]
+    fn execute_command_with_aim_target(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+        target: AiCommandTarget<'_>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.execute_command_with_target(command, target.object)
     }
 
     /// Set locomotor upgrade flag (matching C++ AIUpdateInterface::setLocomotorUpgrade).

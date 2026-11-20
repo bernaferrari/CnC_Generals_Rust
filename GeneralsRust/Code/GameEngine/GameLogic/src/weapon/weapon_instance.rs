@@ -428,6 +428,7 @@ impl Weapon {
             true,
             borrowed_source,
             None,
+            None,
         )? {
             return Ok(self.apply_post_fire_state(source, current_frame, &bonus));
         }
@@ -472,6 +473,7 @@ impl Weapon {
             true,
             true,
             borrowed_source,
+            None,
             None,
         )? {
             return Ok(self.apply_post_fire_state(source, current_frame, &bonus));
@@ -567,6 +569,7 @@ impl Weapon {
             source_bonus_flags,
             container_bonus_flags,
             None,
+            None,
         )
     }
 
@@ -578,6 +581,7 @@ impl Weapon {
         source_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
         container_bonus_flags: Option<crate::common::types::WeaponBonusConditionFlags>,
         borrowed_source: Option<&mut crate::object::Object>,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
     ) -> Result<bool, WeaponError> {
         let disarm = self.template.get_damage_type() == DamageType::Disarm;
         let ready = self.observe_status() == WeaponStatus::ReadyToFire;
@@ -615,6 +619,7 @@ impl Weapon {
             false,
             true,
             borrowed_source,
+            base_targeter,
             None,
         )?;
         if !fired {
@@ -1842,6 +1847,7 @@ impl Weapon {
             false,
             true,
             None,
+            None,
             disarm_damage,
         )? {
             let _ = self.apply_post_fire_state(source_obj_id, current_frame, &bonus);
@@ -2055,6 +2061,7 @@ impl Weapon {
             inflict_damage,
             None,
             None,
+            None,
         )
     }
 
@@ -2068,6 +2075,7 @@ impl Weapon {
         ignore_ranges: bool,
         inflict_damage: bool,
         mut borrowed_source: Option<&mut crate::object::Object>,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
         disarm_damage: Option<&mut DisarmDamageReaction<'_>>,
     ) -> Result<bool, WeaponError> {
         if self.template.get_request_assist_range() > 0.0 {
@@ -2283,6 +2291,7 @@ impl Weapon {
                     bonus,
                     true,
                     borrowed_source.as_deref_mut(),
+                    base_targeter,
                 )?;
             }
             return Ok(false);
@@ -2298,6 +2307,7 @@ impl Weapon {
                         bonus,
                         is_projectile_detonation,
                         borrowed_source.as_deref_mut(),
+                        base_targeter,
                     )?;
                 }
             }
@@ -2312,6 +2322,7 @@ impl Weapon {
                         bonus,
                         inflict_damage,
                         borrowed_source.as_deref_mut(),
+                        base_targeter,
                     )?;
                 } else {
                     let projectile_id = self.create_projectile(
@@ -2351,6 +2362,7 @@ impl Weapon {
                     is_projectile_detonation,
                     inflict_damage,
                     borrowed_source.as_deref_mut(),
+                    base_targeter,
                 )?;
             }
         }
@@ -2376,6 +2388,7 @@ impl Weapon {
             is_projectile_detonation,
             inflict_damage,
             None,
+            None,
         )
     }
 
@@ -2388,6 +2401,7 @@ impl Weapon {
         is_projectile_detonation: bool,
         inflict_damage: bool,
         borrowed_source: Option<&mut crate::object::Object>,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
     ) -> Result<(), WeaponError> {
         if inflict_damage {
             self.deal_damage_internal_with_source(
@@ -2397,6 +2411,7 @@ impl Weapon {
                 bonus,
                 is_projectile_detonation,
                 borrowed_source,
+                base_targeter,
             )?;
         }
         Ok(())

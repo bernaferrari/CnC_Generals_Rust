@@ -68,19 +68,19 @@ impl UnitAIUpdate {
     pub(super) fn execute_command_with_target(
         &mut self,
         command: &crate::ai::AiCommandParams,
-        target: Option<&crate::object::Object>,
+        target: Option<crate::modules::AiCommandTarget<'_>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(machine) = self.ai_state_machine.as_mut() {
             let target = target.filter(|target| {
                 if command.cmd != crate::ai::AiCommandType::GuardRetaliate
-                    || command.obj != Some(target.get_id())
+                    || command.obj != Some(target.object.get_id())
                 {
                     return false;
                 }
                 self.runtime
                     .native_owner()
                     .and_then(|owner| owner.read().ok()?.owning_world_services())
-                    .zip(target.owning_world_services())
+                    .zip(target.object.owning_world_services())
                     .is_some_and(|(owner, target)| Arc::ptr_eq(&owner, &target))
             });
             let mut runtime = super::UnitAiStateRuntime::new(&mut self.runtime, true);

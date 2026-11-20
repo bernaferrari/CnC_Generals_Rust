@@ -474,6 +474,7 @@ fn test_projectileless_weapon_queues_delayed_damage() {
             &WeaponBonus::default(),
             true,
             None,
+            None,
             |template, position, delay, source, victim, bonus| {
                 store.set_delayed_damage(
                     template,
@@ -527,6 +528,7 @@ fn test_projectileless_weapon_skips_queue_when_damage_disabled() {
             &WeaponBonus::default(),
             false,
             None,
+            None,
             |template, position, delay, source, victim, bonus| {
                 store.set_delayed_damage(template, position, 73 + delay, source, victim, bonus);
             },
@@ -557,6 +559,7 @@ fn projectileless_owned_queues_keep_same_id_worlds_and_self_position_independent
             10.0,
             &WeaponBonus::default(),
             true,
+            None,
             None,
             |template, position, delay, source, victim, bonus| {
                 assert_eq!(delay, 3, "CPP rounds positive fractional travel upward");
@@ -1060,7 +1063,8 @@ fn held_weapon_dispatches_installed_armed_friend_retaliation() {
     mounted_retaliation_response(RetaliationShot::HeldAtPosition);
     mounted_retaliation_response(RetaliationShot::HeldAtObject);
     mounted_retaliation_response(RetaliationShot::HeldAfterMoving);
-    mounted_retaliation_response(RetaliationShot::InstalledAttackObject);
+    mounted_retaliation_response(RetaliationShot::InstalledAttackObject { retaliate: false });
+    mounted_retaliation_response(RetaliationShot::InstalledAttackObject { retaliate: true });
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1070,7 +1074,7 @@ enum RetaliationShot {
     HeldAtPosition,
     HeldAtObject,
     HeldAfterMoving,
-    InstalledAttackObject,
+    InstalledAttackObject { retaliate: bool },
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1092,7 +1096,8 @@ fn mounted_retaliation_response(shot: RetaliationShot) {
     let impact = Coord3D::new(105.0, 105.0, 0.0);
     let guard_position = Coord3D::new(140.0, 105.0, 0.0);
     let must_move = matches!(shot, RetaliationShot::HeldAfterMoving);
-    let installed_attack = matches!(shot, RetaliationShot::InstalledAttackObject);
+    let installed_attack = matches!(shot, RetaliationShot::InstalledAttackObject { .. });
+    let retaliates = !matches!(shot, RetaliationShot::InstalledAttackObject { retaliate: false });
     let mount = |world: &Arc<EngineStores>| {
         with_active_stores(world, || {
             if must_move || installed_attack {
@@ -1230,7 +1235,7 @@ End
             defender
                 .write()
                 .unwrap()
-                .set_logical_retaliation_mode_enabled(!installed_attack);
+                .set_logical_retaliation_mode_enabled(retaliates);
             (source, victim, friend, weapon)
         })
     };
@@ -1295,7 +1300,7 @@ End
                 source.reload_all_ammo(true).unwrap();
                 source.fire_current_weapon_at_position(&impact).unwrap();
             }
-            RetaliationShot::InstalledAttackObject => {
+            RetaliationShot::InstalledAttackObject { .. } => {
                 let attacker_ai = source.read().unwrap().get_ai().unwrap();
                 let mut command = crate::ai::AiCommandParams::new(
                     crate::ai::AiCommandType::AttackObject,
@@ -1322,7 +1327,7 @@ End
         assert_eq!(victim.read().unwrap().get_health(), 0.0);
         assert!(victim.read().unwrap().is_effectively_dead());
         assert_eq!(friend.read().unwrap().get_health(), 100.0);
-        if installed_attack {
+        if !retaliates {
             assert!(ai.is_idle());
             return;
         }

@@ -36,6 +36,17 @@ fn snap_closest_goal_position_with_interface(
 
 pub(crate) trait AiStateRuntime {
     fn command_target(&self) -> Option<&crate::object::Object> {
+        self.borrowed_command_target().map(|target| target.object)
+    }
+
+    fn borrowed_command_target(&self) -> Option<AiCommandTarget<'_>> {
+        None
+    }
+
+    fn base_aim_targeter_for(
+        &self,
+        _firing_owner: &std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
+    ) -> Option<crate::object::unit::BaseAimTargeter<'_>> {
         None
     }
 

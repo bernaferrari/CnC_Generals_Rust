@@ -150,7 +150,11 @@ fn should_retaliate(obj: &Object) -> bool {
     true
 }
 
-pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
+pub(crate) fn retaliate_nearby_friends(
+    victim: &Object,
+    target: crate::modules::AiCommandTarget<'_>,
+) {
+    let damager = target.object;
     if !should_retaliate_against_aggressor(victim, damager) {
         return;
     }
@@ -210,7 +214,7 @@ pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
                 command.obj = Some(damager_id);
                 command.pos = position;
                 command.int_value = crate::weapon::NO_MAX_SHOTS_LIMIT;
-                let _ = ai.execute_command_with_target(&command, damager);
+                let _ = ai.execute_command_with_aim_target(&command, target);
             }
         }
     }

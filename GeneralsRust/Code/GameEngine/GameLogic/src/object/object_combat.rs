@@ -61,6 +61,7 @@ impl Object {
         &mut self,
         damage_info: &crate::damage::DamageInfo,
         attacker: Option<&Object>,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
     ) {
         let enable_repulsors = crate::ai::the_ai()
             .read()
@@ -83,10 +84,24 @@ impl Object {
         {
             use crate::object::body::active_body::retaliate_nearby_friends;
             if let Some(attacker) = attacker {
-                retaliate_nearby_friends(self, attacker);
+                retaliate_nearby_friends(
+                    self,
+                    crate::modules::AiCommandTarget {
+                        object: attacker,
+                        base_targeter,
+                    },
+                );
             } else {
                 let _ = crate::object::registry::OBJECT_REGISTRY
-                    .with_object(source_id, |damager| retaliate_nearby_friends(self, damager));
+                    .with_object(source_id, |damager| {
+                        retaliate_nearby_friends(
+                            self,
+                            crate::modules::AiCommandTarget {
+                                object: damager,
+                                base_targeter: None,
+                            },
+                        );
+                    });
             }
         }
     }
@@ -107,7 +122,16 @@ impl Object {
         damage_info: &mut DamageInfo,
         attacker: Option<&mut Object>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        match self.attempt_damage_inner(damage_info, attacker, None) {
+        self.attempt_damage_with_attacker_targeter(damage_info, attacker, None)
+    }
+
+    pub(crate) fn attempt_damage_with_attacker_targeter(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        attacker: Option<&mut Object>,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match self.attempt_damage_inner(damage_info, attacker, None, base_targeter) {
             Ok(_) => Ok(()),
             Err(ObjectError::AlreadyDead) => Ok(()), // Silently ignore damage to dead objects for compatibility
             Err(e) => Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
@@ -2087,7 +2111,7 @@ impl Object {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<f32, ObjectError> {
-        self.attempt_damage_inner(damage_info, None, None)
+        self.attempt_damage_inner(damage_info, None, None, None)
     }
 
     pub(crate) fn attempt_minefield_drain(
@@ -2116,6 +2140,7 @@ impl Object {
                 module: &module,
                 destroy,
             }),
+            None,
         )
     }
 
@@ -2124,6 +2149,7 @@ impl Object {
         damage_info: &mut DamageInfo,
         attacker: Option<&mut Object>,
         mut minefield: Option<MountedMinefieldDrain<'_>>,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
     ) -> Result<f32, ObjectError> {
         // C++ DamageInfo only has input.m_deathType / m_damageType. Callers that
         // set input (OCL diesOnBadLand: DAMAGE_WATER + DEATH_FLOODED) must have
@@ -2201,7 +2227,7 @@ impl Object {
                 }
             }
         }
-        self.apply_post_damage_object_effects(damage_info, attacker.as_deref());
+        self.apply_post_damage_object_effects(damage_info, attacker.as_deref(), base_targeter);
 
         if let Some(contain) = &self.contain {
             if let Ok(mut contain_guard) = contain.lock() {
@@ -2403,6 +2429,14 @@ impl Object {
         &mut self,
         target_id: ObjectID,
     ) -> Result<(), ObjectError> {
+        self.fire_current_weapon_at_target_id_with_targeter(target_id, None)
+    }
+
+    pub(crate) fn fire_current_weapon_at_target_id_with_targeter(
+        &mut self,
+        target_id: ObjectID,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
+    ) -> Result<(), ObjectError> {
         // Wave 264: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
@@ -2476,6 +2510,7 @@ impl Object {
                     source_bonus_flags,
                     container_bonus_flags,
                     Some(self),
+                    base_targeter,
                 );
                 weapon.clear_caller_held_source();
                 let reloaded =

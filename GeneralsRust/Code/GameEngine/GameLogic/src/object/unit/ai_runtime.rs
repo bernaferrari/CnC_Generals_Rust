@@ -2166,8 +2166,27 @@ impl<'runtime, 'world> UnitAiStateRuntime<'runtime, 'world> {
     }
 }
 impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
-    fn command_target(&self) -> Option<&Object> {
+    fn borrowed_command_target(&self) -> Option<crate::modules::AiCommandTarget<'_>> {
         self.command_target
+    }
+
+    fn base_aim_targeter_for(
+        &self,
+        firing_owner: &Arc<RwLock<Object>>,
+    ) -> Option<super::BaseAimTargeter<'_>> {
+        // The inherited firing FSM runs after the derived JetAI has returned
+        // to this runtime (ai_interface_update.rs). Only Jet overrides these
+        // two base callbacks in the original AIUpdate.h contract.
+        if self.runtime.components.jet_ai.is_none()
+            && self
+                .runtime
+                .native_owner()
+                .is_some_and(|actor| Arc::ptr_eq(&actor, firing_owner))
+        {
+            Some(super::BaseAimTargeter(std::marker::PhantomData))
+        } else {
+            None
+        }
     }
 
     fn attitude(&self) -> Option<AIAttitudeType> {

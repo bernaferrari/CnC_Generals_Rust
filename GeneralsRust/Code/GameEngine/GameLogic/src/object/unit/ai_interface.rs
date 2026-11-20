@@ -439,6 +439,20 @@ impl AIUpdateInterface for UnitAIUpdate {
         command: &crate::ai::AiCommandParams,
         target: &Object,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.execute_command_with_aim_target(
+            command,
+            crate::modules::AiCommandTarget {
+                object: target,
+                base_targeter: None,
+            },
+        )
+    }
+
+    fn execute_command_with_aim_target(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+        target: crate::modules::AiCommandTarget<'_>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         UnitAIUpdate::execute_command_with_target(self, command, Some(target))
     }
 

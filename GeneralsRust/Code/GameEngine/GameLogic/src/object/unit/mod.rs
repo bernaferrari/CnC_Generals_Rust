@@ -37,13 +37,18 @@ mod types;
 
 pub use ai_core::UnitAIUpdate;
 pub(crate) use ai_core::UnitAiComponents;
+/// Proof from the running UnitAI that the original targeter callbacks are
+/// the base no-op and false. JetAI always uses its own real callbacks.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BaseAimTargeter<'a>(std::marker::PhantomData<&'a ai_core::UnitAiRuntime>);
+
 /// A synchronous loan of one AI runtime to its currently executing state.
 pub(crate) struct UnitAiStateRuntime<'runtime, 'world> {
     runtime: &'runtime mut ai_core::UnitAiRuntime,
     parent_exists: bool,
     parent_state_id: Option<u32>,
     world: Option<&'world mut dyn crate::modules::ai_world::AiWorld>,
-    command_target: Option<&'world crate::object::Object>,
+    command_target: Option<crate::modules::AiCommandTarget<'world>>,
 }
 pub use ai_path::{
     leftover_compute_quick_path_coords, leftover_is_in_region_no_z,

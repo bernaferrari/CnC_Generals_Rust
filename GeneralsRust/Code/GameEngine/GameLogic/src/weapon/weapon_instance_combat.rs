@@ -83,6 +83,7 @@ impl Weapon {
             bonus,
             inflict_damage,
             None,
+            None,
         )
     }
 
@@ -96,10 +97,11 @@ impl Weapon {
         bonus: &WeaponBonus,
         inflict_damage: bool,
         borrowed_source: Option<&mut crate::object::Object>,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
     ) -> Result<(), WeaponError> {
         self.handle_projectileless_flight_damage_with_queue(
             source_obj_id, source_pos, target_obj_id, target_position, speed, bonus,
-            inflict_damage, borrowed_source,
+            inflict_damage, borrowed_source, base_targeter,
             |template, position, delay, source, victim, bonus| {
                 let when = TheGameLogic::get_frame().wrapping_add(delay);
                 let result = with_weapon_store_mut(|store| {
@@ -129,6 +131,7 @@ impl Weapon {
         bonus: &WeaponBonus,
         inflict_damage: bool,
         borrowed_source: Option<&mut crate::object::Object>,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
         queue: impl FnOnce(&Arc<super::WeaponTemplate>, &Coord3D, u32, ObjectId, ObjectId, &WeaponBonus),
     ) -> Result<(), WeaponError> {
         if !inflict_damage {
@@ -156,6 +159,7 @@ impl Weapon {
                 bonus,
                 false,
                 borrowed_source,
+                base_targeter,
             )?;
             return Ok(());
         }
@@ -406,6 +410,7 @@ impl Weapon {
             bonus,
             is_projectile_detonation,
             None,
+            None,
         )
     }
 
@@ -417,6 +422,7 @@ impl Weapon {
         bonus: &WeaponBonus,
         is_projectile_detonation: bool,
         borrowed_source: Option<&mut crate::object::Object>,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
     ) -> Result<u32, WeaponError> {
         if source_obj_id == INVALID_OBJECT_ID {
             return Ok(0);
@@ -688,9 +694,10 @@ impl Weapon {
                     {
                         victim.write().ok().and_then(|mut victim| {
                             victim
-                                .attempt_damage_with_attacker(
+                                .attempt_damage_with_attacker_targeter(
                                     &mut target_damage_info,
                                     borrowed_source.as_deref_mut(),
+                                    base_targeter,
                                 )
                                 .ok()?;
                             Some(target_damage_info.output.actual_damage_dealt)
@@ -700,6 +707,7 @@ impl Weapon {
                             obj_id,
                             &mut target_damage_info,
                             borrowed_source.as_deref_mut(),
+                            base_targeter,
                         )
                         .ok()
                     };
@@ -723,6 +731,7 @@ impl Weapon {
                         source_obj_id,
                         &mut self_damage,
                         borrowed_source.as_deref_mut(),
+                        base_targeter,
                     )
                     .map(|actual| actual as u32);
             }
@@ -746,6 +755,7 @@ impl Weapon {
                             self_id,
                             &mut self_damage,
                             borrowed_source.as_deref_mut(),
+                            base_targeter,
                         ) {
                             total_damage = actual_damage as u32;
                         }
@@ -758,6 +768,7 @@ impl Weapon {
                     target_id,
                     &mut damage_info,
                     borrowed_source.as_deref_mut(),
+                    base_targeter,
                 ) {
                     total_damage = actual_damage as u32;
                 }
@@ -1697,6 +1708,7 @@ impl Weapon {
         obj_id: ObjectId,
         damage_info: &mut crate::damage::DamageInfo,
         mut borrowed_source: Option<&mut Object>,
+        base_targeter: Option<crate::object::unit::BaseAimTargeter<'_>>,
     ) -> Result<f32, WeaponError> {
         use crate::object_manager::get_object_manager;
 
@@ -1724,7 +1736,7 @@ impl Weapon {
 
         if let Some(result) =
             crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj| {
-                obj.attempt_damage_with_attacker(damage_info, borrowed_source)
+                obj.attempt_damage_with_attacker_targeter(damage_info, borrowed_source, base_targeter)
                     .map(|_| damage_info.output.actual_damage_dealt)
                     .map_err(|err| {
                         WeaponError::SystemError(format!("Failed to apply damage: {}", err))
