@@ -86,6 +86,16 @@ cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/vector4.h"
 note = "Original ordered portable normalization, signed-zero and underflow behavior, value-returning interpolation, component validity, Set, and Swap verified bit-for-bit. Glam supplies native alignment and arithmetic. The Rust interpolation output writes all four components as the original value-returning overload does."
 
 [[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/vector2.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/vector2.h"
+note = "Original portable turns, both normalization overloads, signed approximate distance, component bounds, and ordered interpolation verified bit-for-bit. Glam supplies initialized vectors, bounds-checked indexing, and ordinary arithmetic."
+
+[[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/vec2_extensions.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/vector2.h"
+note = "Perpendicular dot and float validity delegate to the verified Vector2 implementation. The clockwise WWMath convention matches the original source."
+
+[[module]]
 path = "Code/Libraries/Source/WWVegas/WWMath/src/line_segment.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/lineseg.cpp"
 note = "Executable original portable geometry comparison; one cached length and six caller-owned RNG draws. Rust initializes defaults and returns zero values for failed intersections."

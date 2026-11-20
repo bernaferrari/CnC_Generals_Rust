@@ -4,7 +4,7 @@ use glam::Vec2;
 
 /// Game-specific extensions for Vec2
 pub trait Vec2Extensions {
-    /// Perpendicular dot product - equivalent to perp_dot but named for C++ compatibility
+    /// WWMath dot product with the clockwise perpendicular of the right-hand vector.
     fn perp_dot_product(self, rhs: Vec2) -> f32;
 
     /// Check if all components are valid floats
@@ -14,16 +14,15 @@ pub trait Vec2Extensions {
 
 impl Vec2Extensions for Vec2 {
     fn perp_dot_product(self, rhs: Vec2) -> f32 {
-        self.perp_dot(rhs)
+        perp_dot_product(self, rhs)
     }
 
     fn is_valid(self) -> bool {
-        use crate::WWMath;
-        WWMath::is_valid_float(self.x) && WWMath::is_valid_float(self.y)
+        crate::vector2::Vector2Ext::is_valid(&self)
     }
 }
 
-/// Static perpendicular dot product function for C++ compatibility
+/// WWMath dot product with the clockwise perpendicular of `b`.
 pub fn perp_dot_product(a: Vec2, b: Vec2) -> f32 {
-    a.perp_dot(b)
+    crate::vector2::perp_dot_product(a, b)
 }
