@@ -18,9 +18,7 @@ use std::collections::{HashMap, HashSet};
 mod client_bindings;
 pub use client_bindings::ParticleBindingAccess;
 pub(crate) use client_bindings::ReceivingParticlePoseAccess;
-use client_bindings::{
-    can_retire_bindings, retire_client_binding, spawn_client_binding, ClientParticleBinding,
-};
+use client_bindings::{retire_client_binding, spawn_client_binding, ClientParticleBindings};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct CombatParticleAttachment {
@@ -74,7 +72,7 @@ pub struct CombatParticleRegistry {
     /// This is deliberately not part of a snapshot. A saved client id is only a
     /// historical handle and must never be destroyed by a newly restored host
     /// registry; live projectile exhausts rebind on their next update.
-    client_bindings: HashMap<u32, ClientParticleBinding>,
+    client_bindings: ClientParticleBindings,
     /// Destruction notifications for PresentationFrame events this frame.
     destroyed_this_frame: Vec<(ObjectId, Team)>,
     /// Particle ids spawned this frame (presentation event drain).
@@ -117,7 +115,7 @@ impl CombatParticleRegistry {
         Self {
             next_id: 1,
             systems: HashMap::new(),
-            client_bindings: HashMap::new(),
+            client_bindings: ClientParticleBindings::default(),
             destroyed_this_frame: Vec::new(),
             spawned_this_frame: Vec::new(),
             muzzle_flash_until: HashMap::new(),
@@ -160,20 +158,14 @@ impl CombatParticleRegistry {
     }
 
     pub(crate) fn can_clear(&self) -> bool {
-        can_retire_bindings(&self.client_bindings)
+        self.client_bindings.can_clear()
     }
 
     pub fn clear(&mut self) -> Result<(), String> {
         if !self.can_clear() {
             return Err("particle registry requires its actual live receiving manager".into());
         }
-        for (_, binding) in self.client_bindings.drain() {
-            let retired = retire_client_binding(&binding, &mut ());
-            debug_assert!(
-                retired,
-                "driving particle owner changed during synchronous clear"
-            );
-        }
+        self.client_bindings.clear();
         self.systems.clear();
         self.destroyed_this_frame.clear();
         self.spawned_this_frame.clear();
@@ -274,7 +266,7 @@ impl CombatParticleRegistry {
             .systems
             .values()
             .filter(|entry| {
-                if self.client_bindings.contains_key(&entry.id) {
+                if self.client_bindings.get(&entry.id).is_some() {
                     return false;
                 }
                 let Some(lifetime) = entry.kind.sweep_system_lifetime() else {
@@ -1744,10 +1736,8 @@ fn spawn_attached_system<P: crate::game_logic::combat_particles::ParticleBinding
             bone_name: None,
         }),
     };
-    if let Some(binding) = spawn_client_binding(&entry, &registry.client_bindings, particle_owner) {
-        entry.client_system_id = Some(binding.id);
-        registry.client_bindings.insert(id, binding);
-    }
+    entry.client_system_id =
+        spawn_client_binding(&entry, &mut registry.client_bindings, particle_owner);
     registry.systems.insert(id, entry);
     registry.spawned_this_frame.push(id);
     id

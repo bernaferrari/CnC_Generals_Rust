@@ -223,6 +223,39 @@ fn receiving_particle_bindings_reject_peer_reset_clone_and_historical_ownership(
 }
 
 #[test]
+fn last_current_receipt_releases_namespace_even_with_historical_rows() {
+    let name = "CurrentReceipt";
+    let mut receiving = manager(name);
+    let mut peer = manager(name);
+    let mut registry = CombatParticleRegistry::new();
+    let historical = source(&mut registry, name, &mut receiving);
+    let historical_client = client_id(&registry, historical);
+    receiving.reset().unwrap();
+
+    let first = source(&mut registry, name, &mut receiving);
+    let second = source(&mut registry, name, &mut receiving);
+    let first_client = client_id(&registry, first);
+    assert_eq!(first_client, historical_client);
+    registry.deactivate(first, &mut receiving);
+    assert!(!registry.can_clear_with_client_manager(&peer));
+    let blocked = source(&mut registry, name, &mut peer);
+    assert_eq!(registry.get(blocked).unwrap().client_system_id, None);
+    assert_eq!(peer.system_count(), 0);
+
+    registry.deactivate(second, &mut receiving);
+    assert!(registry.can_clear(), "only an expired receipt remains");
+    let admitted = source(&mut registry, name, &mut peer);
+    let admitted_client = client_id(&registry, admitted);
+    assert_eq!(admitted_client, historical_client);
+    assert!(!registry.can_clear_with_client_manager(&receiving));
+    registry.deactivate(historical, &mut peer);
+    assert!(
+        !peer.find_particle_system(admitted_client).unwrap().is_destroyed(),
+        "retiring an expired receipt must leave its reused client ID alone"
+    );
+}
+
+#[test]
 fn receiving_particle_manager_reset_stale_receipt_never_claims_reused_id() {
     let mut particles = manager("ResetActual");
     let mut registry = CombatParticleRegistry::new();
@@ -342,7 +375,7 @@ fn receiving_particle_wrong_owner_restore_rejects_before_mutating_registry() {
     );
     assert_eq!(registry.systems_snapshot(), before);
     assert_eq!(registry.next_id(), next);
-    assert!(registry.client_bindings.contains_key(&host));
+    assert!(registry.client_bindings.entries.contains_key(&host));
     assert!(
         !particles
             .find_particle_system(actual_id)
@@ -437,7 +470,7 @@ fn receiving_particle_loaded_receipt_rejects_peer_without_mutating_host_bindings
             .is_err()
     );
     assert_eq!(registry.systems_snapshot(), before);
-    assert!(registry.client_bindings.is_empty());
+    assert!(registry.client_bindings.entries.is_empty());
     assert_eq!(
         registry
             .adopt_loaded_client_systems(&first, &receipt)
@@ -740,7 +773,7 @@ fn receiving_particle_companion_rejects_same_id_wrong_template_before_mutation()
     );
     assert_eq!(wrong.systems_snapshot(), before);
     assert_eq!(wrong.next_id(), next);
-    assert!(wrong.client_bindings.is_empty());
+    assert!(wrong.client_bindings.entries.is_empty());
     assert_eq!(receiving.active_system_count(), 2);
     assert!(!receiving.find_particle_system(id).unwrap().is_destroyed());
     wrong.clear_with_client_manager(&mut receiving);
@@ -765,7 +798,7 @@ fn receiving_particle_companion_rejects_same_id_wrong_template_before_mutation()
             .is_err()
     );
     assert_eq!(valid.systems_snapshot(), before);
-    assert_eq!(valid.client_bindings.len(), 2);
+    assert_eq!(valid.client_bindings.entries.len(), 2);
     assert_eq!(valid.client_bindings.get(&1).unwrap().id, id);
     assert_eq!(valid.client_bindings.get(&2).unwrap().id, second_id);
     valid.systems.get_mut(&2).unwrap().template_name = "MissingEffect".into();
@@ -776,7 +809,7 @@ fn receiving_particle_companion_rejects_same_id_wrong_template_before_mutation()
             .is_err()
     );
     assert_eq!(valid.systems_snapshot(), before);
-    assert_eq!(valid.client_bindings.len(), 2);
+    assert_eq!(valid.client_bindings.entries.len(), 2);
     valid.systems.get_mut(&2).unwrap().template_name = "LoadedEffect".into();
     assert_eq!(receiving.active_system_count(), 2);
     valid.deactivate_with_client_manager(1, &mut receiving);
