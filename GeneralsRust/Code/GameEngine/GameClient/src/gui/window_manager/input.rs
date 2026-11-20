@@ -315,7 +315,10 @@ impl WindowManager {
             );
         }
 
-        if target_window.is_some() {
+        // C++ GameWindowManager.cpp:830-878 routes captured input through
+        // the captor branch and skips normal lone-popup dismissal and
+        // left-down grabbing (1118-1161).
+        if capture_window.is_none() && target_window.is_some() {
             self.close_lone_window_after_mouse_message(
                 old_lone.as_ref(),
                 handled_window.as_ref(),

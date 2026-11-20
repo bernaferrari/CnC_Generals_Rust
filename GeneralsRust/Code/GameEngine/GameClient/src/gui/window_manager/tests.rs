@@ -1031,6 +1031,52 @@ fn handled_mouse_down_outside_lone_window_closes_it_like_cpp() {
 }
 
 #[test]
+fn captured_left_down_preserves_lone_popup_and_skips_grab_like_cpp() {
+    crate::test_support::ensure_ambient_host();
+    let mut manager = WindowManager::new();
+    let captor = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let lone_popup = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
+    let close_count = Rc::new(RefCell::new(0));
+
+    {
+        let close_count = Rc::clone(&close_count);
+        lone_popup.borrow_mut().set_system_callback(move |_, msg, _, _| {
+            if msg == WindowMessage::User(16389) {
+                *close_count.borrow_mut() += 1;
+                WindowMsgHandled::Handled
+            } else {
+                WindowMsgHandled::Ignored
+            }
+        });
+    }
+    captor
+        .borrow_mut()
+        .set_input_callback(|_, msg, _, _| match msg {
+            WindowMessage::LeftDown => WindowMsgHandled::Handled,
+            _ => WindowMsgHandled::Ignored,
+        });
+
+    manager.test_set_lone_window(Some(&lone_popup));
+    manager.capture_mouse(&captor).unwrap();
+    assert_eq!(
+        manager.test_process_mouse_event(WindowMessage::LeftDown, 10, 10, 0),
+        WindowInputReturnCode::Used
+    );
+    assert!(manager.lone_window.is_some(), "captured input leaves lone popup open");
+    assert_eq!(*close_count.borrow(), 0);
+    assert!(manager.get_grab_window().is_none(), "captured left-down does not grab");
+
+    manager.release_capture(&captor).unwrap();
+    assert_eq!(
+        manager.test_process_mouse_event(WindowMessage::LeftDown, 10, 10, 0),
+        WindowInputReturnCode::Used
+    );
+    assert!(manager.lone_window.is_none(), "normal handled input closes lone popup");
+    assert_eq!(*close_count.borrow(), 1);
+    assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &captor));
+}
+
+#[test]
 fn lone_window_itself_is_not_its_own_child_like_cpp() {
     crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
