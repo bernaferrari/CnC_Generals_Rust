@@ -482,9 +482,11 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: ThePartitionManager->UPDATE();
         //
-        // Spatial partition is updated AFTER all objects have moved and before
-        // death cleanup so queries during cleanup use correct positions.
-        if let Err(e) = self.update_partition_manager() {
+        // The preceding collision phase already drained dirty footprints.
+        // Its callbacks can enqueue the next phase's work. Refresh only this
+        // compatibility centre index so those registrations remain deferred.
+        let center_update = self.partition_manager_mut().update_host_index();
+        if let Err(e) = center_update {
             warn!("Partition manager update failed: {}", e);
         }
 
@@ -1283,6 +1285,16 @@ impl GameLogic {
 
     pub fn update_partition_manager(&mut self) -> Result<(), GameLogicError> {
         trace!("GameLogic::update_partition_manager()");
+        // Explicit initial/map and restore updates also prepare the receiving
+        // COIs. The ordinary frame does this before dispatching contacts.
+        if let Some(world) = self.owning_world_services() {
+            world
+                .logic_managers()
+                .partition
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .update_dirty_geometry();
+        }
         self.partition_manager_mut().update_host_index()
     }
 

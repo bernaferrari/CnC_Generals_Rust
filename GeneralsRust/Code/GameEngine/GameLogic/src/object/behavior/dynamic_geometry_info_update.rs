@@ -420,3 +420,171 @@ impl DynamicGeometryInfoUpdateFactory {
         )?))
     }
 }
+
+#[cfg(test)]
+mod footprint_tests {
+    use super::*;
+    use crate::contain_module_overrides::ActiveBehaviorModule;
+    use crate::helpers::TheThingFactory;
+    use crate::object::collide::partition_manager::world_partition_manager;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::system::game_logic::get_game_logic;
+    use crate::team::Team;
+    use crate::weapon::{WeaponAffectsMask, WeaponStore, WeaponTemplate};
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
+
+    #[test]
+    fn mounted_shape_change_reaches_the_next_partition_contact_and_weapon_phase() {
+        let received = new_for_world();
+        let peer = new_for_world();
+        let impact = Coord3D::new(105.0, 105.0, 0.0);
+        let source_position = Coord3D::new(135.0, 105.0, 0.0);
+        let target_position = Coord3D::new(225.0, 105.0, 0.0);
+        let fixture = || {
+            assert!(ensure_thing_factory_exists());
+            if get_module_factory().unwrap().is_none() {
+                init_module_factory().unwrap();
+            }
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            crate::initialize_weapon_store().unwrap();
+            assert_eq!(
+                get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
+                    "Object ChangingFootprint
+                        KindOf = IMMOBILE
+                        Geometry = SPHERE
+                        GeometryMajorRadius = 3
+                        Body = ActiveBody Health
+                            MaxHealth = 100
+                            InitialHealth = 100
+                        End
+                        Behavior = DynamicGeometryInfoUpdate Transition
+                            InitialDelay = 1
+                            InitialHeight = 3
+                            InitialMajorRadius = 3
+                            InitialMinorRadius = 3
+                            FinalHeight = 119
+                            FinalMajorRadius = 119
+                            FinalMinorRadius = 119
+                            TransitionTime = 33
+                        End
+                    End",
+                ),
+                1,
+            );
+            let template = TheThingFactory::find_template("ChangingFootprint").unwrap();
+            let team = Arc::new(RwLock::new(Team::new("FootprintTeam".into(), 12)));
+            let spawn = |position| {
+                let object = TheThingFactory::get()
+                    .unwrap()
+                    .new_object_with_team_handle(Arc::clone(&template), Arc::clone(&team))
+                    .unwrap();
+                object.write().unwrap().set_position(&position).unwrap();
+                object
+            };
+            (spawn(source_position), spawn(target_position))
+        };
+        let (source, target) = with_active_stores(&received, fixture);
+        let (_, peer_target) = with_active_stores(&peer, fixture);
+        let id = target.read().unwrap().get_id();
+        let source_id = source.read().unwrap().get_id();
+        assert_eq!(peer_target.read().unwrap().get_id(), id);
+        let partition = &received.services().logic_managers().partition;
+        let linked_ghost = |world: &crate::system::engine_stores::EngineStores| {
+            world.services().object_registry().owning_partition()
+                .unwrap().read().unwrap().ghost_link_scene_id(id).unwrap()
+        };
+        let original_ghost = linked_ghost(&received);
+        let peer_ghost = linked_ghost(&peer);
+        partition
+            .write()
+            .unwrap()
+            .do_shroud_reveal_cells(&target_position, 200.0, 1);
+        let shroud = || {
+            target.read().unwrap().get_shrouded_status_with_native_partition(
+                0,
+                &partition.read().unwrap(),
+                &received.services().players().read().unwrap(),
+            )
+        };
+        assert_eq!(shroud(), crate::common::ObjectShroudStatus::Clear);
+        assert_eq!(
+            partition.read().unwrap().get_object_info(id).unwrap().1.get_major_radius(),
+            3.0
+        );
+
+        // Original Object.cpp:764 only changes the shape's height observation.
+        let initial_cells = partition.read().unwrap().object_coi_cells(id).unwrap().to_vec();
+        with_active_stores(&peer, || target.write().unwrap().set_geometry_info_z(7.0));
+        assert_eq!(partition.read().unwrap().object_coi_cells(id), Some(initial_cells.as_slice()));
+        assert_eq!(linked_ghost(&received), original_ghost);
+
+        let module = target.read().unwrap()
+            .module_by_name(&"DynamicGeometryInfoUpdate".into()).unwrap();
+        // Run the actual mounted interpolation using its already borrowed
+        // parent, with another live world deliberately published.
+        with_active_stores(&peer, || {
+            module.with_module_downcast::<ActiveBehaviorModule<DynamicGeometryInfoUpdate>, _, _>(
+                |mounted| {
+                    let mut object = target.write().unwrap();
+                    for _ in 0..2 {
+                        mounted.behavior_mut().logic.update_step(&mut object);
+                    }
+                },
+            ).unwrap();
+            assert_eq!(
+                world_partition_manager().read().unwrap().get_object_info(id).unwrap().1.get_major_radius(),
+                3.0
+            );
+        });
+        assert_eq!(target.read().unwrap().get_geometry_info().get_major_radius(), 119.0);
+        assert_eq!(partition.read().unwrap().object_coi_cells(id), Some([].as_slice()));
+        assert!(partition.read().unwrap().get_object_pose(id).is_none());
+        // PartitionData has no COI to reveal between removal and the phase.
+        assert_eq!(shroud(), crate::common::ObjectShroudStatus::Shrouded);
+        assert_ne!(linked_ghost(&received), original_ghost);
+        assert_eq!(linked_ghost(&peer), peer_ghost);
+
+        with_active_stores(&received, || {
+            let next_position = target_position + Coord3D::new(1.0, 0.0, 0.0);
+            target.write().unwrap().set_position(&next_position).unwrap();
+            assert!(partition.read().unwrap().get_object_pose(id).is_none());
+            get_game_logic().lock().unwrap().resolve_damage_and_physics().unwrap();
+            assert_eq!(partition.read().unwrap().get_object_pose(id).unwrap().0, next_position);
+            assert_eq!(shroud(), crate::common::ObjectShroudStatus::Clear);
+            assert!(
+                partition.read().unwrap().get_contact_list().iter().any(|pair| {
+                    *pair == (id, source_id) || *pair == (source_id, id)
+                }),
+                "new footprint is visible to the real contact list in this phase"
+            );
+            let mut blast = WeaponTemplate::new("ChangedFootprintBlast".into());
+            blast.attack_range = 1000.0;
+            blast.primary_damage = 23.0;
+            blast.primary_damage_radius = 3.0;
+            blast.weapon_speed = 99999.0;
+            blast.min_weapon_speed = 99999.0;
+            blast.damage_type = crate::damage::DamageType::Unresistable;
+            blast.affects_mask = WeaponAffectsMask::new(
+                WeaponAffectsMask::ALLIES | WeaponAffectsMask::ENEMIES | WeaponAffectsMask::NEUTRALS,
+            );
+            WeaponStore::create_and_fire_temp_weapon_at_pos(&Arc::new(blast), source_id, &impact).unwrap();
+
+            // Map initialization and snapshot postprocessing also call an
+            // explicit partition update without a running contact pass.
+            {
+                let mut object = target.write().unwrap();
+                let geometry = *object.get_geometry_info();
+                object.set_geometry_info(geometry);
+            }
+            assert!(partition.read().unwrap().get_object_pose(id).is_none());
+            get_game_logic().lock().unwrap().update_partition_manager().unwrap();
+        });
+        assert_eq!(target.read().unwrap().get_health(), 77.0);
+        assert_eq!(peer_target.read().unwrap().get_health(), 100.0);
+        assert_eq!(
+            partition.read().unwrap().get_object_info(id).unwrap().1.get_major_radius(),
+            119.0
+        );
+    }
+}

@@ -18,15 +18,56 @@ impl Object {
         geom.height_above_terrain = self.geometry_info.height_above_terrain;
         self.geometry_info = geom;
         if self.partition_data.is_some() {
-            if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-                partition.unregister_object(self.id);
-                partition.register_object_at(self.id, *self.get_position());
-            }
+            self.replace_partition_geometry();
         }
         if let Some(drawable) = &self.drawable {
             if let Ok(mut draw_guard) = drawable.write() {
                 draw_guard.react_to_geometry_change();
             }
+        }
+    }
+
+    fn replace_partition_geometry(&mut self) {
+        let Some(world) = self.owning_world_services() else {
+            // Compatibility fixtures without a receiving object world still
+            // use the legacy centre index.
+            if let Some(partition) = crate::helpers::ThePartitionManager::get() {
+                partition.unregister_object(self.id);
+                partition.register_object_at(self.id, *self.get_position());
+            }
+            return;
+        };
+        let geometry = crate::object::collide::collision_geometry::GeometryInfo::from_engine_geometry(
+            &self.geometry_info.shape,
+        );
+        let replaced = world
+            .logic_managers()
+            .partition
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replace_object_geometry(self.id, *self.get_position(), geometry, self.get_orientation());
+        if !replaced {
+            // A geometry write during creation must not admit the Object.
+            return;
+        }
+        if let Some(data) = &mut self.partition_data {
+            **data = crate::object::PartitionData::new();
+        }
+        if !self.is_kind_of(KindOf::Immobile) {
+            return;
+        }
+        // The old registration can survive as a fog-memory ghost. Reuse the
+        // normal host ghost retirement and new registration for this world.
+        let partition = world.object_registry().owning_partition();
+        let mut ghosts = world
+            .w3d_ghost_objects()
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut partition = partition.as_ref().unwrap_or(&world.logic_managers().partition)
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if partition.detach_object_ghost(self.id, &mut ghosts) {
+            partition.attach_object_ghost(self.id, true, &mut ghosts);
         }
     }
 

@@ -311,6 +311,8 @@ pub struct PartitionManager {
     cells: HashMap<CellCoord, PartitionCell>,
     /// Object registry mapping ID to partition data
     objects: HashMap<ObjectId, PartitionObject>,
+    /// Full shape replacements have no COIs until the next partition update.
+    dirty_geometry: Vec<PartitionObject>,
     /// Contact list for collision detection
     contact_list: Vec<(ObjectId, ObjectId)>,
     /// Reused membership scratch for pairs that can share several cells.
@@ -337,6 +339,7 @@ impl PartitionManager {
         Self {
             cells: HashMap::new(),
             objects: HashMap::new(),
+            dirty_geometry: Vec::new(),
             contact_list: Vec::new(),
             contact_pairs_seen: FxHashSet::default(),
             fogged_cells: HashMap::new(),
@@ -377,7 +380,11 @@ impl PartitionManager {
     }
 
     pub fn object_coi_cells(&self, id: ObjectId) -> Option<&[CellCoord]> {
-        self.objects.get(&id).map(|obj| obj.cells.as_slice())
+        self.objects.get(&id).map(|obj| obj.cells.as_slice()).or_else(|| {
+            // New PartitionData has zero COIs until the dirty list drains.
+            // A shroud observer must not rasterize the new shape early.
+            self.dirty_geometry.iter().any(|obj| obj.id == id).then_some(&[])
+        })
     }
 
     pub fn has_known_shroud_cell(&self, x: i32, y: i32) -> bool {
@@ -419,6 +426,7 @@ impl PartitionManager {
         geometry: GeometryInfo,
         angle: f32,
     ) -> Result<(), CollisionError> {
+        drop(self.take_dirty_geometry(id));
         let cells = super::partition_coi::cells_touched_for_geometry(
             position.x, position.y, &geometry, angle,
         );
@@ -459,8 +467,55 @@ impl PartitionManager {
         Some(object)
     }
 
+    fn take_dirty_geometry(&mut self, id: ObjectId) -> Option<PartitionObject> {
+        let index = self.dirty_geometry.iter().position(|obj| obj.id == id)?;
+        Some(self.dirty_geometry.remove(index))
+    }
+
+    /// Object.cpp:746–760 replaces the registration, then
+    /// PartitionManager.cpp:2204–2237 puts the new footprint on the dirty list.
+    pub(crate) fn replace_object_geometry(
+        &mut self,
+        id: ObjectId,
+        position: Coord3D,
+        geometry: GeometryInfo,
+        angle: f32,
+    ) -> bool {
+        let Some(mut object) = self
+            .remove_partition_object(id)
+            .or_else(|| self.take_dirty_geometry(id))
+        else {
+            return false;
+        };
+        object.position = position;
+        object.angle = angle;
+        object.geometry = geometry;
+        object.cells = Vec::new();
+        object.shroud_last_cell = None;
+        self.dirty_geometry.push(object);
+        true
+    }
+
+    /// PartitionManager.cpp:2703–2725 drains the newest dirty registration
+    /// first. Contact callbacks can queue more work for the next update.
+    pub(crate) fn update_dirty_geometry(&mut self) {
+        while let Some(mut object) = self.dirty_geometry.pop() {
+            object.cell = CellCoord::from_world_pos(&object.position);
+            object.cells = super::partition_coi::cells_touched_for_geometry(
+                object.position.x,
+                object.position.y,
+                &object.geometry,
+                object.angle,
+            );
+            object.shroud_last_cell = Some(object.cell);
+            self.cell_changed_events.push(object.id);
+            self.insert_partition_object(object);
+        }
+    }
+
     pub fn unregister_object(&mut self, id: ObjectId) -> Result<(), CollisionError> {
         let _ = self.remove_partition_object(id);
+        drop(self.take_dirty_geometry(id));
         Ok(())
     }
 
@@ -471,7 +526,12 @@ impl PartitionManager {
     ) -> Result<(), CollisionError> {
         let angle = match self.objects.get(&id) {
             Some(obj) => obj.angle,
-            None => return Ok(()),
+            None => {
+                if let Some(object) = self.dirty_geometry.iter_mut().find(|obj| obj.id == id) {
+                    object.position = new_position;
+                }
+                return Ok(());
+            }
         };
         self.update_object_pose(id, new_position, angle)
     }
@@ -483,6 +543,10 @@ impl PartitionManager {
         angle: f32,
     ) -> Result<(), CollisionError> {
         let Some(mut object) = self.remove_partition_object(id) else {
+            if let Some(object) = self.dirty_geometry.iter_mut().find(|obj| obj.id == id) {
+                object.position = new_position;
+                object.angle = angle;
+            }
             return Ok(());
         };
         // The footprint raster depends only on XY, geometry and angle. Keep
@@ -674,6 +738,7 @@ impl PartitionManager {
     /// Build contact list of potentially colliding objects
     /// Matches C++ PartitionManager collision detection
     pub fn build_contact_list(&mut self) {
+        self.update_dirty_geometry();
         self.contact_list.clear();
         self.contact_pairs_seen.clear();
         for cell in self.cells.values() {
@@ -1875,6 +1940,7 @@ impl PartitionManager {
     pub fn clear(&mut self) {
         self.cells.clear();
         self.objects.clear();
+        self.dirty_geometry.clear();
         self.contact_list.clear();
         self.contact_pairs_seen.clear();
         self.shroud.clear();
