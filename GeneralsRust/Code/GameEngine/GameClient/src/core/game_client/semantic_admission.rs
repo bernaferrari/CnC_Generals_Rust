@@ -271,20 +271,22 @@ impl NativeDrawableOwner<'_> {
                 "track admission has a stale Drawable binding".into(),
             ));
         }
-        let Some(model) = self.drawables.drawable_map.get_mut(&key.drawable_id)
+        let Some(drawable) = self.drawables.drawable_map.get_mut(&key.drawable_id)
             .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::drawable::BasicDrawable>())
-            .and_then(|drawable| drawable.receiving_track_model(module_tag))
         else {
             return Ok(false);
         };
-        Ok(model.bind_receiving_terrain_track(|texture| {
-            let width = installed_width()?;
-            terrain.terrain_tracks_mut().bind_receiving_track(
-                width,
-                game_engine::map_object::MAP_XY_FACTOR,
-                texture,
-            )
-        }))
+        let bound = drawable.with_receiving_track_model(module_tag, |model| {
+            model.bind_receiving_terrain_track(|texture| {
+                let width = installed_width()?;
+                terrain.terrain_tracks_mut().bind_receiving_track(
+                    width,
+                    game_engine::map_object::MAP_XY_FACTOR,
+                    texture,
+                )
+            })
+        });
+        Ok(bound.unwrap_or(false))
     }
 
     /// Read receiving logic only once an installed module owns a track to move.

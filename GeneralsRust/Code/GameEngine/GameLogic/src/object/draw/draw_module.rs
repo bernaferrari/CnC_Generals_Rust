@@ -293,6 +293,11 @@ pub trait DrawModule: Module {
 ///
 /// Reference: ObjectDrawInterface in DrawModule.h
 pub trait ObjectDrawInterface {
+    /// Borrow the ModelDraw leaf reached by an existing native Draw delegation.
+    fn receiving_track_model(&mut self) -> Option<&mut super::W3DModelDraw> {
+        None
+    }
+
     /// Receiving native Object facts, before original onObjectCreated callbacks.
     fn bind_native_owner(&mut self, _owner_id: ObjectID, _indicator_rgb: [u8; 3]) {}
     fn native_state_particle_count(&self) -> usize {

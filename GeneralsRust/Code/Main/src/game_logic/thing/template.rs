@@ -80,16 +80,9 @@ impl PartialEq for SelectCache {
 
 impl ReceivingDrawModels {
     #[cfg(feature = "game_client")]
-    pub(crate) fn model_track_draw_module_tags(&self) -> impl Iterator<Item = (u32, &str)> {
+    pub(crate) fn draw_module_tags(&self) -> impl Iterator<Item = (u32, &str)> {
         self.modules.iter().enumerate().filter_map(|(index, module)| {
-            let mut declaration = module.declaration.split_whitespace();
-            let class = declaration.next()?;
-            if !class.eq_ignore_ascii_case("W3DTankDraw")
-                && !class.eq_ignore_ascii_case("W3DTruckDraw")
-            {
-                return None;
-            }
-            Some((index as u32, declaration.next()?))
+            Some((index as u32, module.declaration.split_whitespace().nth(1)?))
         })
     }
 

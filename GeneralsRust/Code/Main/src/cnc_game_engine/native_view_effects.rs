@@ -632,7 +632,7 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         // first Object placement. The receiving ModelDraw base owns the marker.
         if let Some(terrain) = terrain.filter(|terrain| terrain.track_mark_admission_enabled()) {
             let poses = &mut self.poses;
-            for (index, tag) in render.receiving_draw_models.model_track_draw_module_tags() {
+            for (index, tag) in render.receiving_draw_models.draw_module_tags() {
                 self.drawables
                     .bind_installed_model_track(
                         key,

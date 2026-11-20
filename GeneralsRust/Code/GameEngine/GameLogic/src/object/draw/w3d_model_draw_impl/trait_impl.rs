@@ -260,6 +260,10 @@ impl DrawModule for W3DModelDraw {
 }
 
 impl ObjectDrawInterface for W3DModelDraw {
+    fn receiving_track_model(&mut self) -> Option<&mut W3DModelDraw> {
+        Some(self)
+    }
+
     fn bind_native_owner(&mut self, owner_id: ObjectID, indicator_rgb: [u8; 3]) {
         self.owner_id = Some(owner_id);
         self.hex_color = packed_indicator_hex(crate::common::Color::rgb(

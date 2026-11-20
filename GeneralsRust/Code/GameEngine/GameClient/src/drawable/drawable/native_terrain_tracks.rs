@@ -1,52 +1,47 @@
-use gamelogic::object::draw::{
-    W3DModelDraw, W3DTankDraw, W3DTruckDraw, client_visual::NativeTerrainTrackBinding,
+use gamelogic::object::{
+    draw::{W3DModelDraw, client_visual::NativeTerrainTrackBinding},
+    drawable::with_native_terrain_track_model,
 };
 
-use super::{BasicDrawable, DrawModule};
-
-fn track_model(module: &mut dyn DrawModule) -> Option<&mut W3DModelDraw> {
-    let module = module.logic_module_mut()?.as_any_mut();
-    if module.is::<W3DTankDraw>() {
-        module
-            .downcast_mut::<W3DTankDraw>()
-            .map(W3DTankDraw::receiving_model_track)
-    } else {
-        module
-            .downcast_mut::<W3DTruckDraw>()
-            .map(W3DTruckDraw::receiving_model_track)
-    }
-}
+use super::BasicDrawable;
 
 impl BasicDrawable {
     pub(crate) fn receiving_track_bindings(&mut self) -> Vec<NativeTerrainTrackBinding> {
         self.draw_modules
             .iter_mut()
-            .filter_map(|module| {
-                track_model(module.as_mut())?
-                    .receiving_terrain_track()
-                    .cloned()
+            .filter_map(|slot| {
+                with_native_terrain_track_model(slot.logic_module_mut()?, |model| {
+                    model.receiving_terrain_track().cloned()
+                })
+                .flatten()
             })
             .collect()
     }
 
-    pub(crate) fn receiving_track_model(&mut self, tag: &str) -> Option<&mut W3DModelDraw> {
+    pub(crate) fn with_receiving_track_model<R>(
+        &mut self,
+        tag: &str,
+        visit: impl FnOnce(&mut W3DModelDraw) -> R,
+    ) -> Option<R> {
         let module = self
             .draw_modules
             .iter_mut()
-            .find(|module| module.snapshot_module_identifier() == Some(tag))?;
-        track_model(module.as_mut())
+            .find(|module| module.snapshot_module_identifier() == Some(tag))?
+            .logic_module_mut()?;
+        with_native_terrain_track_model(module, visit)
     }
 
     pub(crate) fn visit_receiving_tracks(
         &mut self,
         mut visit: impl FnMut(&NativeTerrainTrackBinding, bool),
     ) {
-        for module in &mut self.draw_modules {
-            let Some(model) = track_model(module.as_mut()) else {
-                continue;
-            };
-            if let Some(binding) = model.receiving_terrain_track() {
-                visit(binding, model.track_obscured_by_shroud());
+        for slot in &mut self.draw_modules {
+            if let Some(module) = slot.logic_module_mut() {
+                let _ = with_native_terrain_track_model(module, |model| {
+                    if let Some(binding) = model.receiving_terrain_track() {
+                        visit(binding, model.track_obscured_by_shroud());
+                    }
+                });
             }
         }
     }

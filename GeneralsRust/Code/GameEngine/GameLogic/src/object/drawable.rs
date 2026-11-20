@@ -811,6 +811,20 @@ where
     });
 }
 
+/// Operate on the installed ModelDraw reached through its native Draw wrapper.
+pub fn with_native_terrain_track_model<R>(
+    module: &mut dyn Module,
+    visit: impl FnOnce(&mut crate::object::draw::W3DModelDraw) -> R,
+) -> Option<R> {
+    let mut result = None;
+    with_object_draw_interface_mut(module, |interface| {
+        if let Some(model) = interface.receiving_track_model() {
+            result = Some(visit(model));
+        }
+    });
+    result
+}
+
 fn with_rope_draw_interface_mut<F>(module: &mut dyn Module, func: F)
 where
     F: FnOnce(&mut dyn crate::object::draw::draw_module::RopeDrawInterface),

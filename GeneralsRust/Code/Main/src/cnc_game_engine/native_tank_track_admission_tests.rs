@@ -16,6 +16,7 @@ struct RetailTrackUnit {
     template: &'static str,
     team: Team,
     model: &'static str,
+    expansion_model: bool,
     width: f32,
     dds: Option<&'static str>,
 }
@@ -24,6 +25,7 @@ const BATTLEMASTER: RetailTrackUnit = RetailTrackUnit {
     template: "ChinaTankBattleMaster",
     team: Team::China,
     model: "NVBtMstr",
+    expansion_model: false,
     width: 18.573_772,
     dds: None,
 };
@@ -32,6 +34,7 @@ const DOZER: RetailTrackUnit = RetailTrackUnit {
     template: "AmericaVehicleDozer",
     team: Team::USA,
     model: "AVCONSTDOZ_A",
+    expansion_model: false,
     width: 16.823_484,
     dds: Some("Art/Textures/extiretrack2.dds"),
 };
@@ -54,6 +57,54 @@ fn retail_truck_dozer_binds_authored_track_and_loads_original_dds() {
     exercise_retail_track_retirement(DOZER, Retirement::Reset);
 }
 
+#[test]
+#[ignore = "requires mounted retail sources and native WGPU"]
+fn retail_wrapper_tracks_overlord_tank() {
+    exercise_retail_track_retirement(
+        RetailTrackUnit {
+            template: "ChinaTankOverlord",
+            team: Team::China,
+            model: "NVOvrlrd",
+            expansion_model: false,
+            width: 26.579_417,
+            dds: None,
+        },
+        Retirement::Reset,
+    );
+}
+
+#[test]
+#[ignore = "requires mounted retail sources and native WGPU"]
+fn retail_wrapper_tracks_overlord_truck() {
+    exercise_retail_track_retirement(
+        RetailTrackUnit {
+            template: "AmericaTankAvenger",
+            team: Team::USA,
+            model: "AVAVNGER",
+            expansion_model: true,
+            width: 16.883_705,
+            dds: None,
+        },
+        Retirement::Reset,
+    );
+}
+
+#[test]
+#[ignore = "requires mounted retail sources and native WGPU"]
+fn retail_wrapper_tracks_tank_truck() {
+    exercise_retail_track_retirement(
+        RetailTrackUnit {
+            template: "GLAVehicleQuadCannon",
+            team: Team::GLA,
+            model: "UVQuadCann",
+            expansion_model: false,
+            width: 16.734_961,
+            dds: None,
+        },
+        Retirement::Reset,
+    );
+}
+
 enum Retirement {
     Reset,
     Disguise,
@@ -61,9 +112,15 @@ enum Retirement {
 
 fn exercise_retail_track_retirement(unit: RetailTrackUnit, retirement: Retirement) {
     let install = std::path::PathBuf::from(std::env::var_os("GENERALS_BASE_DIR").unwrap());
+    let model_archive = if unit.expansion_model {
+        std::path::PathBuf::from(std::env::var_os("GENERALS_ASSETS_DIR").unwrap())
+            .join("Data/W3DZH.big")
+    } else {
+        install.join("W3D.big")
+    };
     let mut archive = ArchiveFileSystem::new();
     archive
-        .open_archive_file(install.join("W3D.big").to_str().unwrap())
+        .open_archive_file(model_archive.to_str().unwrap())
         .unwrap();
     let mut code = Vec::new();
     archive
