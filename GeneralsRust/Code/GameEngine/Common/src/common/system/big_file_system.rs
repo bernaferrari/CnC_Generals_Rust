@@ -1106,16 +1106,24 @@ impl BigFileSystem {
                 }
             };
 
-            for entry in entries {
-                let entry_path = match entry {
-                    Ok(entry) => entry.path(),
-                    Err(_) => continue,
+            for entry in entries.flatten() {
+                let Ok(mut file_type) = entry.file_type() else {
+                    continue;
                 };
-                if entry_path.is_dir() {
+                let entry_path = entry.path();
+                if file_type.is_symlink() {
+                    // Preserve the previous target-following behavior for
+                    // links, including user-mounted archive and install paths.
+                    let Ok(target) = fs::metadata(&entry_path) else {
+                        continue;
+                    };
+                    file_type = target.file_type();
+                }
+                if file_type.is_dir() {
                     pending_dirs.push_back(entry_path);
                     continue;
                 }
-                if entry_path.is_file() && matches_mask(&entry_path) {
+                if file_type.is_file() && matches_mask(&entry_path) {
                     let key = normalize_archive_path_key(&entry_path);
                     candidates.entry(key).or_insert(entry_path);
                 }
@@ -1782,6 +1790,29 @@ mod tests {
             .load_big_files_from_directory(dir.path().to_str().unwrap(), "support.BIG", false)
             .unwrap();
         assert_eq!(system_case.get_loaded_big_files().len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_mount_keeps_linked_files_and_nested_install_dirs() {
+        use std::os::unix::fs::symlink;
+
+        let install = tempfile::tempdir().unwrap();
+        let archive_dir = tempfile::tempdir().unwrap();
+        let linked_archive = archive_dir.path().join("Content.big");
+        create_test_big_file(linked_archive.to_str().unwrap()).unwrap();
+        symlink(&linked_archive, install.path().join("Linked.big")).unwrap();
+        symlink(archive_dir.path(), install.path().join("Data")).unwrap();
+        symlink(archive_dir.path().join("missing"), install.path().join("Broken.big")).unwrap();
+
+        let mut system = BigFileSystem::new();
+        assert!(system
+            .load_big_files_from_directory(install.path().to_str().unwrap(), "*.big", false)
+            .unwrap());
+        let loaded = system.get_loaded_big_files();
+        assert_eq!(loaded.len(), 2);
+        assert!(loaded.iter().any(|path| path.as_str().ends_with("/Linked.big")));
+        assert!(loaded.iter().any(|path| path.as_str().ends_with("/Data/Content.big")));
     }
 
     #[test]
