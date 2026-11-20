@@ -1077,21 +1077,28 @@ impl ForwardPass {
         graphics_system: &GraphicsSystem,
         item: &RenderItem,
     ) -> Result<Option<Arc<MeshClass>>> {
+        use ww3d_renderer_3d::rendering::mesh_system::MeshGeometryClass;
+
         let mesh_model = match self.ensure_mesh_model(graphics_system, item)? {
             Some(model) => model,
             None => return Ok(None),
         };
 
-        let palette = Self::sample_bone_palette_for_item_with_model_resolver(item, |model_key| {
-            graphics_system
-                .get_model(model_key)
-                .map(|model| model.as_ref())
-        });
-        if matches!(
+        let requires_exact_palette = matches!(
             &item.bone_palette_source,
             RenderItemBonePaletteSource::HmodelBindPose { .. }
                 | RenderItemBonePaletteSource::HierarchyBindPose
-        ) {
+        );
+        // MeshClass::Render processes skin geometry only for SKIN meshes.
+        // A rigid HLOD child already carries its animated pivot in mesh_local_transform.
+        let palette = if requires_exact_palette || mesh_model.get_flag(MeshGeometryClass::SKIN) {
+            Self::sample_bone_palette_for_item_with_model_resolver(item, |model_key| {
+                graphics_system.get_model(model_key).map(|model| model.as_ref())
+            })
+        } else {
+            None
+        };
+        if requires_exact_palette {
             let Some(palette) = palette.as_deref() else {
                 // An explicit skin owner is not optional. Rendering it
                 // without the exact source HTree would silently substitute a

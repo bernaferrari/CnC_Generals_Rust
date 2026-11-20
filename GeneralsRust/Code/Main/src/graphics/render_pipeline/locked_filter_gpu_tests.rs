@@ -268,3 +268,173 @@ fn locked_drawable_is_excluded_from_capture_redrawn_with_post_filter_camera_befo
     }
     assert_eq!(overlay_calls, 2, "overlay belongs to each current frame");
 }
+
+#[test]
+#[ignore = "requires native WGPU; run explicit isolated GPU acceptance"]
+fn rigid_hanim_uses_the_child_transform_without_sampling_a_skin_palette() {
+    use crate::assets::models::test_animation::{motion, raw_animation};
+    use crate::assets::{
+        W3DMesh, W3dAnimationBinding, W3dHierarchy, W3dHlod, W3dHlodLod, W3dHlodSubObject, W3dPivot,
+    };
+
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    let (device, queue, format, depth_format) = {
+        let handle = engine.lock();
+        (
+            handle.device(),
+            handle.queue(),
+            handle.color_format(),
+            handle.depth_format(),
+        )
+    };
+    let mut graphics = GraphicsSystem::new(device.clone(), queue, format, depth_format).unwrap();
+    let mut forward = ForwardPass::initialize(engine, &graphics).unwrap();
+
+    let mut model = W3DModel::new("fixture".into());
+    model.hierarchy = Some(W3dHierarchy {
+        name: "FIXTURE_SKL".into(),
+        pivots: [("ROOT", u32::MAX), ("CHILD", 0)]
+            .into_iter()
+            .map(|(name, parent_idx)| W3dPivot {
+                name: name.into(),
+                parent_idx,
+                translation: [0.; 3],
+                euler_angles: [0.; 3],
+                rotation: [0., 0., 0., 1.],
+            })
+            .collect(),
+        pivot_fixups: Vec::new(),
+    });
+    let mut rigid_source = W3DMesh::new("rigid".into());
+    rigid_source.container_name = "FIXTURE_HLOD".into();
+    model.meshes.push(rigid_source);
+    model.hlods.push(W3dHlod {
+        version: 0x0001_0000,
+        name: "FIXTURE_HLOD".into(),
+        hierarchy_name: "FIXTURE_SKL".into(),
+        lods: vec![W3dHlodLod {
+            max_screen_size: f32::MAX,
+            subobjects: vec![W3dHlodSubObject {
+                name: "FIXTURE_HLOD.rigid".into(),
+                bone_index: 1,
+            }],
+        }],
+        aggregates: None,
+        proxies: None,
+        has_unrendered_aggregates: false,
+        has_invalid_trailing_records: false,
+    });
+    model.animations.push(raw_animation(
+        "MOVE",
+        "FIXTURE_SKL",
+        2,
+        30,
+        vec![motion(1, 0, 0, 1, vec![0.0, 0.55])],
+        Vec::new(),
+    ));
+    let mut rigid = item(7, "fixture", Vec3::new(-0.55, -0.25, 0.));
+    let mut skin = item(8, "fixture", Vec3::new(0.15, 0.55, 0.));
+    skin.mesh_index = 1;
+    for item in [&mut rigid, &mut skin] {
+        item.animation_binding = Some(W3dAnimationBinding::local(0));
+        item.animation_frame = 1.0;
+    }
+    let (child, visible) = model
+        .mesh_local_transform_and_visibility_for_binding(
+            0,
+            rigid.animation_binding.as_ref(),
+            rigid.animation_frame,
+        )
+        .unwrap();
+    assert!(visible);
+    assert_eq!(child.w_axis.x, 0.55);
+    rigid.set_mesh_local_transform(child);
+    graphics.cache_model("fixture".into(), model);
+
+    let rigid_model = triangle("rigid", Vec3::X);
+    let mut skin_model = triangle("skin", Vec3::Y);
+    Arc::get_mut(&mut skin_model)
+        .unwrap()
+        .set_vertex_bone_links(vec![1; 3]);
+    for (item, model) in [(&rigid, rigid_model), (&skin, skin_model)] {
+        forward.mesh_cache.insert(
+            format!(
+                "{}::{}::{}",
+                item.model_name, item.mesh_index, item.material_key
+            ),
+            model,
+        );
+    }
+
+    let skin_instance = forward
+        .prepare_mesh_instance(&graphics, &skin)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        skin_instance.bone_palette_view().unwrap().matrices[1],
+        child
+    );
+    let rigid_instance = forward
+        .prepare_mesh_instance(&graphics, &rigid)
+        .unwrap()
+        .unwrap();
+    assert_eq!(rigid_instance.transform, rigid.world_matrix * child);
+    assert!(
+        rigid_instance.bone_palette_view().is_none(),
+        "rigid mesh sampled an unused palette"
+    );
+
+    let mut render = |rigid: RenderItem, label| {
+        let image = readback_buffer(&device, label);
+        let mut read = |frame: &mut ww3d_engine::RenderFrame| {
+            copy_frame(frame, &image);
+            Ok(())
+        };
+        forward
+            .render(
+                &mut graphics,
+                &[rigid, skin.clone()],
+                &Mat4::IDENTITY,
+                &Mat4::IDENTITY,
+                Vec3::ZERO,
+                None,
+                None,
+                false,
+                None,
+                None,
+                Some(&mut read),
+                None,
+                None,
+                (0.0, 0.0, 32.0, 32.0),
+                wgpu::Color::BLACK,
+            )
+            .unwrap();
+        pixels(&device, &image)
+    };
+    let actual = render(rigid.clone(), "rigid-without-palette");
+    // This explicitly owned source still evaluates the same animation palette
+    // that the ordinary rigid path evaluated before the optimization.
+    rigid.bone_palette_source = RenderItemBonePaletteSource::HierarchyBindPose;
+    let with_palette = render(rigid, "rigid-with-palette-control");
+    for row in 0..32 {
+        let range = row * 256..(row * 256 + 32 * 4);
+        assert_eq!(actual[range.clone()], with_palette[range]);
+    }
+    assert!(
+        brightness(pixel(&actual, 16, 20)) > 32,
+        "animated rigid child"
+    );
+    assert!(
+        brightness(pixel(&actual, 27, 8)) > 32,
+        "actual skinned child"
+    );
+    assert!(
+        brightness(pixel(&actual, 18, 8)) < 8,
+        "unposed skin position"
+    );
+}
