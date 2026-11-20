@@ -492,11 +492,15 @@ fn load_exact_w3d_render_object_source(
         reader.read_to_end(&mut bytes).map_err(|error| {
             anyhow!("failed reading strict W3D source '{archive_path}': {error}")
         })?;
-        return model_loader
+        let mut model = model_loader
             .load_model_from_bytes(&bytes, source_stem)
             .map_err(|error| {
                 anyhow!("failed parsing strict W3D source '{archive_path}': {error}")
-            });
+            })?;
+        // Exact prototypes also resolve their HLOD's named HTree on demand.
+        // A separate skeleton file does not change the prototype identity.
+        model_loader.attach_missing_named_hlod_hierarchies(archive_system, &mut model);
+        return Ok(model);
     }
 
     Err(anyhow!(

@@ -287,6 +287,43 @@ mod tests {
     }
 
     #[test]
+    fn retail_infantry_pristine_pose_resolves_its_separate_named_hierarchy() {
+        let mut assets = crate::assets::AssetManager::new().unwrap();
+        assets.archive_file_system_mut().set_local_search_roots(Vec::new());
+        futures::executor::block_on(assets.archive_file_system_mut().load_big_file(
+            crate::fixture_content::retail_base_w3d_archive(),
+        )).unwrap();
+
+        let assets = std::sync::Mutex::new(assets);
+        for (model_key, hierarchy, animation) in [
+            ("UIRGrd_SKN", "UIRGrd_SKL", "UIRGrd_SKL.UIRGrd_RNB"),
+            ("UITunF_SKN", "UITunF_SKL", "UITunF_SKL.UITunF_WKA"),
+        ] {
+            let draw = AuthoredDrawModel {
+                model_key: model_key.into(),
+                animations: vec![AuthoredDrawAnimation {
+                    name: animation.into(),
+                    is_idle: false,
+                    distance_covered_token: None,
+                }],
+                ..Default::default()
+            };
+            let transforms = assets
+                .pristine_bones_for_selected_draw(&draw, 1.0, "Muzzle", 1, 1)
+                .expect("strict prototype must load its real HTree and HAnim");
+            assert_eq!(transforms.len(), 1);
+            assert!(transforms[0].w_axis.truncate().is_finite());
+
+            let manager = assets.lock().unwrap();
+            let prototype = manager.cached_w3d_render_object_prototype(model_key).unwrap();
+            let exact = manager.cached_w3d_render_object_source_model(&prototype).unwrap();
+            assert!(exact.hierarchy.as_ref().unwrap().name.eq_ignore_ascii_case(hierarchy));
+            assert!(manager.cached_w3d_draw_animation_binding(exact, animation).is_some());
+            assert!(manager.get_cached_model_ref(model_key).is_none());
+        }
+    }
+
+    #[test]
     fn selected_draw_uses_prototype_source_for_animation_without_presentation_cache() {
         let mut model = W3DModel::new("MISSILE_TEST".into());
         let pivot = |name: &str, parent_idx, translation| W3dPivot {

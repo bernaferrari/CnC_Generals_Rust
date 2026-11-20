@@ -309,7 +309,7 @@ impl W3DLoader {
     /// in this file, open `{HierarchyName}.w3d` through the existing archive
     /// path set and retain only that named HTree. Missing companions stay
     /// fail-closed (`Init_Default`); they must not abort geometry load.
-    fn attach_missing_named_hlod_hierarchies(
+    pub(in crate::assets) fn attach_missing_named_hlod_hierarchies(
         &self,
         archive_system: &mut ArchiveFileSystem,
         model: &mut W3DModel,
