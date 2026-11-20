@@ -761,7 +761,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
                 );
             }
         }
-        let offset =
+        let (rolled_radius, offset) =
             crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(p.scatter_radius, random);
         target_pos += offset;
         // C++ snaps Z to the victim pathfind layer so a miss hits dirt,
@@ -771,7 +771,11 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
                 target_pos.y = target.ground_height;
             }
         }
-        fire_target_id = None;
+        // Weapon.cpp:1127 checks the sampled radius at launch. A zero
+        // roll still consumes the angle draw and keeps the projectile's victim.
+        if rolled_radius > 0.0 {
+            fire_target_id = None;
+        }
     }
 
     // The firing owner captured any self-damage source position separately

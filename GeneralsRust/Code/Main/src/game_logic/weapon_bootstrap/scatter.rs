@@ -232,13 +232,13 @@ pub fn scatter_aim_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
 pub(crate) fn scatter_aim_offset_logic(
     scatter_radius: f32,
     random: &game_engine::common::random_value::SessionRandom,
-) -> glam::Vec3 {
+) -> (f32, glam::Vec3) {
     if scatter_radius <= 0.0 {
-        return glam::Vec3::ZERO;
+        return (0.0, glam::Vec3::ZERO);
     }
     let r = random.next_real(0.0, scatter_radius);
     let ang = random.next_real(0.0, std::f32::consts::TAU);
-    glam::Vec3::new(r * ang.cos(), 0.0, r * ang.sin())
+    (r, glam::Vec3::new(r * ang.cos(), 0.0, r * ang.sin()))
 }
 
 /// C++ `GeometryInfo::getCenterPosition` (Y-up host). Sphere Z-delta is 0.
@@ -294,8 +294,8 @@ mod tests {
     #[test]
     fn logic_scatter_is_not_pairing_deterministic() {
         let random = game_engine::common::random_value::SessionRandom::default();
-        let a = scatter_aim_offset_logic(15.0, &random);
-        let b = scatter_aim_offset_logic(15.0, &random);
+        let (_, a) = scatter_aim_offset_logic(15.0, &random);
+        let (_, b) = scatter_aim_offset_logic(15.0, &random);
         assert!(
             (a - b).length() > 1e-4,
             "successive logic RNG shots must not land on the same offset"

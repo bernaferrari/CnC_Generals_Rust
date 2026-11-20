@@ -359,68 +359,36 @@ fn tomahawk_missile_scatters_vs_infantry() {
 }
 
 #[test]
-fn patriot_scatter_misses_infantry_residual() {
-    use crate::game_logic::host_base_defense::PATRIOT_SCATTER_RADIUS_VS_INFANTRY;
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+fn retail_patriot_infantry_scatter_only_drops_tracking_on_a_positive_roll() {
+    use crate::game_logic::game_logic::accepted_projectile_owner_tests::
+        patriot_retail_battery_tests::world_with_infantry_target;
 
-    ensure_host_weapon_store();
-    let mut logic = GameLogic::new();
-    let mut patriot_tpl = ThingTemplate::new("USA_Patriot");
-    patriot_tpl
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(600.0)
-        .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(crate::game_logic::weapon_bootstrap::PATRIOT_SECONDARY_WEAPON);
-    logic
-        .templates
-        .insert("USA_Patriot".to_string(), patriot_tpl);
-    ensure_test_infantry_template(&mut logic);
-
-    let patriot = logic
-        .create_object("USA_Patriot", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
-        .expect("patriot");
-    let inf = logic
-        .create_object("TestInfantry", Team::GLA, glam::Vec3::new(50.0, 0.0, 0.0))
-        .expect("inf");
-    // Tiny geometry so scatter miss cone is active.
-    if let Some(o) = logic.objects.get_mut(&inf) {
-        o.set_selection_radius(0.5);
+    // The retail battery's primary weapon authors ScatterRadiusVsInfantry = 10.
+    for (first_draw, expected_offset) in [(0, 0.0), (0x8000_0000, 5.0)] {
+        let (mut world, battery, infantry) = world_with_infantry_target();
+        let infantry_position = world.host_object(infantry).unwrap().get_position();
+        let assets = world.application_assets().unwrap();
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            pristine_bones: Some(assets.as_ref()),
+            ..Default::default()
+        };
+        // The whole accepted-fire operation can also draw for other authored
+        // phases. Keep the scatter inputs fixed in this flight test.
+        world.logic_random.script_raw([first_draw; 16]);
+        assert_eq!(
+            world.attack_fire_weapon_update_with_effects(battery, infantry, 10.0, &mut effects),
+            crate::game_logic::AttackFireResult::Success,
+        );
+        let shots = world.combat_system.projectiles_snapshot();
+        assert_eq!(shots.len(), 1);
+        let missile = &shots[0];
+        assert_eq!(missile.projectile_object_name, "PatriotMissile");
+        assert!(missile.missile_motion.is_some());
+        assert_eq!(missile.target_id, (expected_offset == 0.0).then_some(infantry));
+        let offset = missile.target_position - infantry_position;
+        assert!((glam::Vec2::new(offset.x, offset.z).length() - expected_offset).abs() < 1e-4);
+        assert!(world.logic_random.script_remaining() <= 14);
     }
-    if let Some(p) = logic.objects.get_mut(&patriot) {
-        if let Some(w) = p.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-        }
-    }
-    let hp_before = logic.host_object(inf).unwrap().health.current;
-    let mut saw_scatter = false;
-    for f in 0..120u32 {
-        logic.frame = f;
-        logic.update_combat(&[patriot, inf], LOGIC_FRAME_TIMESTEP);
-        if logic.patriot_scatter_applied > 0 {
-            saw_scatter = true;
-        }
-        if logic.patriot_scatter_misses > 0 {
-            break;
-        }
-    }
-    assert!(saw_scatter, "expected patriot scatter peel vs infantry");
-    assert!((PATRIOT_SCATTER_RADIUS_VS_INFANTRY - 10.0).abs() < 0.01);
-    // Either miss was recorded, or a hit still damaged (deterministic seed dependent).
-    let hp_after = logic
-        .host_object(inf)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        logic.patriot_scatter_misses > 0 || hp_after < hp_before,
-        "scatter residual must miss or damage infantry (misses={} hp {}->{})",
-        logic.patriot_scatter_misses,
-        hp_before,
-        hp_after
-    );
-    assert!(logic.honesty_patriot_scatter_ok());
 }
 
 #[test]

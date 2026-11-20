@@ -31,14 +31,26 @@ fn definition(source: &str, header: &str) -> String {
 }
 
 pub(in crate::game_logic) fn world() -> (GameLogic, ObjectId, ObjectId) {
-    world_for_target(false, false)
+    world_for_target(RetailTarget::Vehicle, false)
 }
 
 pub(in crate::game_logic) fn world_with_air_target() -> (GameLogic, ObjectId, ObjectId) {
-    world_for_target(true, false)
+    world_for_target(RetailTarget::Aircraft, false)
 }
 
-fn world_for_target(air_target: bool, superweapon: bool) -> (GameLogic, ObjectId, ObjectId) {
+pub(in crate::game_logic) fn world_with_infantry_target() -> (GameLogic, ObjectId, ObjectId) {
+    world_for_target(RetailTarget::Infantry, false)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RetailTarget {
+    Vehicle,
+    Aircraft,
+    Infantry,
+}
+
+fn world_for_target(target_kind: RetailTarget, superweapon: bool) -> (GameLogic, ObjectId, ObjectId) {
+    let air_target = target_kind == RetailTarget::Aircraft;
     use crate::assets::ini_template_loader::{parse_weapon_definitions_ini_into, WeaponDefinitionLoadType};
     let weapon_text = base_ini("Weapon.ini");
     let mut weapons = HashMap::new();
@@ -99,16 +111,17 @@ fn world_for_target(air_target: bool, superweapon: bool) -> (GameLogic, ObjectId
     let buildings = base_ini(building_file);
     let battery = definition(&buildings, &format!("Object {battery_name}"));
     let power_plant = definition(&buildings, &format!("Object {plant_name}"));
-    let target = if air_target {
-        "Object RetailPatriotTarget\nKindOf = AIRCRAFT SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 200\nInitialHealth = 200\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n"
-    } else {
-        "Object RetailPatriotTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n"
+    let (kind, hp) = match target_kind {
+        RetailTarget::Aircraft => ("AIRCRAFT", 200),
+        RetailTarget::Vehicle => ("VEHICLE", 1000),
+        RetailTarget::Infantry => ("INFANTRY", 100),
     };
+    let target = format!("Object RetailPatriotTarget\nKindOf = {kind} SELECTABLE\nBody = ActiveBody Body\nMaxHealth = {hp}\nInitialHealth = {hp}\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n");
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
         ("AmericaPowerPlant.ini".into(), power_plant),
         ("FactionBuilding.ini".into(), battery),
         ("WeaponObjects.ini".into(), missile),
-        ("retail-patriot-target.ini".into(), target.into()),
+        ("retail-patriot-target.ini".into(), target),
     ]).unwrap()).unwrap();
     world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &objects).unwrap();
     let profile = world.projectile_definitions.get(projectile_name).expect("retail missile profile");
@@ -197,7 +210,7 @@ fn assert_missile_object_state_eq(a: &crate::game_logic::object::Object, b: &cra
 
 #[test]
 fn superweapon_general_retail_patriot_uses_its_own_model_and_missile() {
-    let (mut world, source, target) = world_for_target(false, true);
+    let (mut world, source, target) = world_for_target(RetailTarget::Vehicle, true);
     launch_one(&mut world, source, target);
     let position = world.combat_system.projectiles_snapshot()[0].position;
     let _ = world.update_with_dt(1.0 / 30.0);
@@ -208,14 +221,14 @@ fn superweapon_general_retail_patriot_uses_its_own_model_and_missile() {
 
 #[test]
 fn superweapon_missile_save_continues_the_same_owned_flight() {
-    let (mut original, source, target) = world_for_target(false, true);
+    let (mut original, source, target) = world_for_target(RetailTarget::Vehicle, true);
     launch_one(&mut original, source, target);
     let moved_target = Vec3::new(300.0, 30.0, 125.0);
     original.set_fixture_object_position(target, moved_target);
     let _ = original.update_with_dt(1.0 / 30.0);
     let id = original.combat_system.projectiles_snapshot()[0].id;
     assert_eq!(original.combat_system.projectiles_snapshot()[0].target_position, original.objects[&target].get_position());
-    let (mut peer, peer_source, peer_target) = world_for_target(false, true);
+    let (mut peer, peer_source, peer_target) = world_for_target(RetailTarget::Vehicle, true);
     launch_one(&mut peer, peer_source, peer_target);
     assert_eq!(peer.combat_system.projectiles_snapshot()[0].id, id);
     let peer_before = peer.objects[&id].clone();
@@ -223,7 +236,7 @@ fn superweapon_missile_save_continues_the_same_owned_flight() {
     let saved = builder.create_world_snapshot(&original).unwrap();
     let bytes = bincode_legacy::serialize(&saved).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
-    let (mut restored, _, _) = world_for_target(false, true);
+    let (mut restored, _, _) = world_for_target(RetailTarget::Vehicle, true);
     builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
     assert_eq!(restored.combat_system.projectiles_snapshot()[0].id, id);
     assert_eq!(restored.objects[&id].template_name, "PatriotMissileEMP");
@@ -251,7 +264,7 @@ fn superweapon_missile_save_continues_the_same_owned_flight() {
 #[test]
 fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
     use crate::presentation_frame::PresentationFrame;
-    let (mut original, source, target) = world_for_target(false, true);
+    let (mut original, source, target) = world_for_target(RetailTarget::Vehicle, true);
     launch_one(&mut original, source, target);
     let id = original.combat_system.projectiles_snapshot()[0].id;
     let initial = PresentationFrame::build_from_logic(&mut original, 0);
@@ -278,7 +291,7 @@ fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
     let saved = builder.create_world_snapshot(&original).unwrap();
     let bytes = bincode_legacy::serialize(&saved).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
-    let (mut restored, _, _) = world_for_target(false, true);
+    let (mut restored, _, _) = world_for_target(RetailTarget::Vehicle, true);
     builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
     assert_eq!(restored.objects[&id].template_name, "PatriotMissileEMP");
     let restored_frame = PresentationFrame::build_from_logic(&mut restored, 0);
@@ -301,7 +314,7 @@ fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
 #[test]
 fn lost_target_kill_self_retains_the_visible_retail_missile() {
     use crate::presentation_frame::PresentationFrame;
-    let (mut world, source, target) = world_for_target(false, true);
+    let (mut world, source, target) = world_for_target(RetailTarget::Vehicle, true);
     launch_one(&mut world, source, target);
     let id = world.combat_system.projectiles_snapshot()[0].id;
     for _ in 0..5 {
@@ -332,7 +345,7 @@ fn lost_target_kill_self_retains_the_visible_retail_missile() {
     let saved = builder.create_world_snapshot(&world).unwrap();
     let bytes = bincode_legacy::serialize(&saved).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
-    let (mut restored, _, _) = world_for_target(false, true);
+    let (mut restored, _, _) = world_for_target(RetailTarget::Vehicle, true);
     builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
     let before = world.objects[&id].get_position();
     assert_eq!(restored.objects[&id].get_position(), before);
@@ -394,8 +407,8 @@ fn retail_battery_shot_continues_after_encoded_world_save() {
 
 #[test]
 fn superweapon_retail_missile_motion_is_owned_by_its_world_even_with_matching_ids() {
-    let (mut first, source, target) = world_for_target(false, true);
-    let (mut second, other_source, other_target) = world_for_target(false, true);
+    let (mut first, source, target) = world_for_target(RetailTarget::Vehicle, true);
+    let (mut second, other_source, other_target) = world_for_target(RetailTarget::Vehicle, true);
     assert_eq!((source, target), (other_source, other_target));
     launch_one(&mut first, source, target);
     launch_one(&mut second, other_source, other_target);
