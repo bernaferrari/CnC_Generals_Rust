@@ -35,33 +35,26 @@ impl GameLogic {
         let Some(command_set) = definitions.sets.find_command_set_resolved(&set_name) else {
             return false;
         };
-        let button_names = (0..gamelogic::command_button::MAX_COMMANDS_PER_SET)
-            .map(|slot| {
-                self.find_control_bar_override(&set_name, slot as i32)
-                    .map(|value| value.map(str::to_string))
-                    .unwrap_or_else(|| command_set.get_button_at_position(slot).cloned())
-            })
-            .collect::<Vec<_>>();
-        let buildable = button_names
-            .into_iter()
-            .flatten()
-            .filter_map(|name| definitions.buttons.find_command_button_resolved(&name).cloned())
-            .filter(|button| {
-                matches!(button.command.as_str(), "UNIT_BUILD" | "DOZER_CONSTRUCT")
-            })
-            .map(|button| button.object.clone())
-            .collect::<Vec<_>>();
-        // C++ retains the LAST equivalent build button, then checks that
-        // button's template prerequisites. Cash is not part of this query.
-        buildable
-            .iter()
+        // BuildAssistant keeps the last equivalent button. Search backward
+        // and borrow the winning template name from the receiving catalog.
+        let has_overrides = !self.control_bar_overrides().is_empty();
+        let buildable = (0..gamelogic::command_button::MAX_COMMANDS_PER_SET)
             .rev()
-            .find(|name| {
-                self.templates
-                    .get(*name)
-                    .is_some_and(|template| template.is_equivalent_to(wanted))
-            })
-            .is_some_and(|name| self.script_player_can_build_template(player, name))
+            .find_map(|slot| {
+                let override_name = has_overrides
+                    .then(|| self.find_control_bar_override(&set_name, slot as i32))
+                    .flatten();
+                let name = override_name
+                    .unwrap_or_else(|| command_set.get_button_at_position(slot).map(String::as_str))?;
+                let button = definitions.buttons.find_command_button_resolved(name)?;
+                if !matches!(button.command.as_str(), "UNIT_BUILD" | "DOZER_CONSTRUCT") {
+                    return None;
+                }
+                let template = self.templates.get(&button.object)?;
+                template.is_equivalent_to(wanted).then_some(button.object.as_str())
+            });
+        // Prerequisites belong to the winning button. Cash is separate.
+        buildable.is_some_and(|name| self.script_player_can_build_template(player, name))
     }
 
     /// Player::onStructureConstructionComplete precedes CreateModules and is

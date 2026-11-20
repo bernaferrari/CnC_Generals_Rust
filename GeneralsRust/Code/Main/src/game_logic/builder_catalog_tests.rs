@@ -208,6 +208,36 @@ fn same_id_constructor_admission_preserves_peer_cash_and_task() {
 }
 
 #[test]
+fn constructor_uses_the_last_equivalent_button_before_checking_buildability() {
+    let mut objects = standard_objects();
+    objects.push(
+        crate::fixture_content::FixtureObject::new("CatalogScaffoldVariant")
+            .kind_of("STRUCTURE IMMOBILE SELECTABLE")
+            .health(1000.0)
+            .field("Buildable = No")
+            .field("BuildVariations = CatalogScaffold"),
+    );
+    let mut world = world_from(Team::USA, objects);
+    world
+        .admit_fixture_command_action_source(
+            "CommandButton CatalogVariantButton\n Command = DOZER_CONSTRUCT\n Object = CatalogScaffoldVariant\nEnd\n\
+             CommandSet CatalogVariantSet\n 1 = CatalogScaffoldBuildButton\n 2 = CatalogVariantButton\nEnd\n",
+        )
+        .unwrap();
+    let builder = world
+        .create_object_for_player("AmericaVehicleDozer", 0, Vec3::new(55.0, 0.0, 55.0))
+        .unwrap();
+    world.host_object_mut(builder).unwrap().command_set_override = Some("CatalogVariantSet".into());
+
+    assert_eq!(construct(&mut world, builder), CommandResult::InvalidCommand);
+    assert_eq!(world.get_player(0).unwrap().effective_supplies(), 1000);
+
+    world.set_control_bar_override("CatalogVariantSet", 1, None);
+    assert_eq!(construct(&mut world, builder), CommandResult::Success);
+    assert_eq!(world.get_player(0).unwrap().effective_supplies(), 700);
+}
+
+#[test]
 fn ensured_faction_catalog_does_not_reclassify_existing_authored_definition() {
     let mut objects = standard_objects_without("AmericaVehicleDozer");
     objects.push(
