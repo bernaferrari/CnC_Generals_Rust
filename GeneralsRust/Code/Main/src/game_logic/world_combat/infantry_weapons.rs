@@ -41,7 +41,7 @@ impl GameLogic {
                         .unwrap_or(-1),
                 ),
             );
-            let environment = self.observe_object_fx_environment();
+            let environment = self.observe_object_fx_environment_for(id);
             let audio_policy = self.queued_audio_events.policy().clone();
             let shroud = self.world_services.shroud();
             let terrain = self.world_services.terrain();

@@ -259,7 +259,7 @@ impl GameLogic {
                         || (!object.status.under_construction
                             && (object.missile_launcher_building.is_some()
                                 || crate::game_logic::host_missile_launcher_building_update::missile_launcher_ini_for_template(&object.template_name).is_some())))
-                        .then(|| self.observe_object_fx_environment())
+                        .then(|| self.observe_object_fx_environment_for(object_id))
                 });
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
@@ -553,7 +553,7 @@ impl GameLogic {
                 .objects
                 .get(&object_id)
                 .is_some_and(|object| object.structure_collapse_data.is_some())
-                .then(|| self.observe_object_fx_environment());
+                .then(|| self.observe_object_fx_environment_for(object_id));
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.poll_slow_death_phase_fx(self.frame);
                 #[cfg(feature = "game_client")]

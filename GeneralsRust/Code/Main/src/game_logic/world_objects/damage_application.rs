@@ -559,7 +559,7 @@ impl GameLogic {
             )
         };
         #[cfg(feature = "game_client")]
-        let fx_operation_environment = self.observe_object_fx_environment();
+        let fx_operation_environment = self.observe_object_fx_environment_for(victim_id);
         #[cfg(feature = "game_client")]
         let mut application = Self::with_object_fx_services(
             &mut self.session_view,
@@ -751,7 +751,7 @@ impl GameLogic {
 
             #[cfg(feature = "game_client")]
             {
-                let environment = self.observe_object_fx_environment();
+                let environment = self.observe_object_fx_environment_for(victim_id);
                 Self::with_object_fx_services(
                     &mut self.session_view,
                     self.queued_audio_events.policy().clone(),
@@ -958,7 +958,7 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let callback_secondary = self.observe_fx_list_die_secondary(victim_id);
         #[cfg(feature = "game_client")]
-        let fx_operation_environment = self.observe_object_fx_environment();
+        let fx_operation_environment = self.observe_object_fx_environment_for(victim_id);
         #[cfg(feature = "game_client")]
         let mut transition_yield = None;
         #[cfg(feature = "game_client")]
@@ -1015,7 +1015,7 @@ impl GameLogic {
             {
                 return Ok(None);
             }
-            let environment = self.observe_object_fx_environment();
+            let environment = self.observe_object_fx_environment_for(victim_id);
             Self::with_object_fx_services(
                 &mut self.session_view,
                 self.queued_audio_events.policy().clone(),
@@ -1228,7 +1228,7 @@ impl GameLogic {
                 Self::observe_host_fx_object(object, armor_player, self.world_services.shroud())
             });
         #[cfg(feature = "game_client")]
-        let fx_operation_environment = self.observe_object_fx_environment();
+        let fx_operation_environment = self.observe_object_fx_environment_for(victim_id);
         #[cfg(feature = "game_client")]
         let after_fx = Self::with_object_fx_services(
             &mut self.session_view,
@@ -1316,7 +1316,7 @@ impl GameLogic {
         #[cfg(feature = "game_client")]
         let finish_player = self.local_player_id();
         #[cfg(feature = "game_client")]
-        let fx_operation_environment = self.observe_object_fx_environment();
+        let fx_operation_environment = self.observe_object_fx_environment_for(victim_id);
         let body_particle_player = self.local_player_id();
         #[cfg(not(feature = "game_client"))]
         let mut body_particles =

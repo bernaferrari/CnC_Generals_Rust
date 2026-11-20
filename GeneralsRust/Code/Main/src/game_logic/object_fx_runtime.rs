@@ -28,19 +28,60 @@ pub(crate) struct ObjectFxEnvironment {
 }
 impl crate::game_logic::GameLogic {
     pub(crate) fn observe_object_fx_environment(&self) -> ObjectFxEnvironment {
+        let mut detected = HashSet::new();
+        let mut tunnel_counts = HashMap::new();
+        for object in self.host_objects().registered_values() {
+            if object.status.detected {
+                detected.insert(object.id);
+            }
+            if object.is_tunnel_network_style_container() {
+                tunnel_counts.insert(
+                    object.id,
+                    self.host_authoritative_occupant_count(object.id).unwrap_or(0),
+                );
+            }
+        }
+        self.capture_object_fx_environment(detected, tunnel_counts)
+    }
+
+    /// A callback that lends one primary needs only that Object's external
+    /// draw facts. Retain every current passenger in case the leading passenger
+    /// changes before a later nugget rereads the borrowed primary.
+    pub(crate) fn observe_object_fx_environment_for(
+        &self,
+        primary: crate::game_logic::ObjectId,
+    ) -> ObjectFxEnvironment {
+        let mut detected = HashSet::new();
+        let mut tunnel_counts = HashMap::new();
+        if let Some(object) = self.objects.get(&primary) {
+            detected.extend(object.contained_unit_ids().iter().copied().filter(|id| {
+                self.objects
+                    .get_registered(id)
+                    .is_some_and(|passenger| passenger.status.detected)
+            }));
+            if object.is_tunnel_network_style_container()
+                && self.objects.get_registered(&primary).is_some()
+            {
+                tunnel_counts.insert(
+                    primary,
+                    self.host_authoritative_occupant_count(primary).unwrap_or(0),
+                );
+            }
+        }
+        self.capture_object_fx_environment(detected, tunnel_counts)
+    }
+
+    fn capture_object_fx_environment(
+        &self,
+        detected: HashSet<crate::game_logic::ObjectId>,
+        tunnel_counts: HashMap<crate::game_logic::ObjectId, u16>,
+    ) -> ObjectFxEnvironment {
         let player = self.local_player_id();
-        let mut local_team = player
+        let local_team = player
             .and_then(|id| self.get_player(id))
             .map(|player| player.team)
-            .unwrap_or(crate::game_logic::Team::Neutral);
-        if local_team == crate::game_logic::Team::Neutral {
-            local_team = self
-                .local_player_id()
-                .and_then(|id| self.get_player(id))
-                .filter(|player| player.team != crate::game_logic::Team::Neutral)
-                .map(|player| player.team)
-                .unwrap_or(crate::game_logic::Team::USA);
-        }
+            .filter(|team| *team != crate::game_logic::Team::Neutral)
+            .unwrap_or(crate::game_logic::Team::USA);
         let mut localities = self
             .get_players()
             .keys()
@@ -56,30 +97,18 @@ impl crate::game_logic::GameLogic {
             .receiving_module_content
             .as_ref()
             .map(|content| content.shared_compatibility_templates());
-        let mut detected = HashSet::new();
-        let mut tunnel_counts = HashMap::new();
-        for object in self.host_objects().registered_values() {
-            if object.status.detected {
-                detected.insert(object.id);
-            }
-            if object.is_tunnel_network_style_container() {
-                tunnel_counts.insert(
-                    object.id,
-                    self.host_authoritative_occupant_count(object.id).unwrap_or(0),
-                );
-            }
-        }
         ObjectFxEnvironment {
             world_identity: std::sync::Arc::clone(&self.live_draw_playback_world),
             world_revision: self.host_visual_world_epoch(),
             frame: self.frame,
             player,
             weather: (
-                self.weather_state()
-                    .current_weather
-                    .to_ascii_lowercase()
-                    .contains("snow")
-                    && self.lighting_rules().force_models_to_follow_weather,
+                self.lighting_rules().force_models_to_follow_weather
+                    && self.weather_state()
+                        .current_weather
+                        .as_bytes()
+                        .windows(4)
+                        .any(|word| word.eq_ignore_ascii_case(b"snow")),
                 matches!(
                     self.lighting_rules().time_of_day,
                     game_engine::common::ini::ini_game_data::TimeOfDay::Night
@@ -129,29 +158,20 @@ impl ObjectFxEnvironment {
         let drawings = own
             .or_else(|| self.drawings.get(&name).cloned())
             .ok_or("missing receiving FX Draw definitions")?;
-        let first_detected = object
-            .contained_units()
-            .first()
-            .is_some_and(|id| self.detected.contains(id));
         let hide = object
             .building_data
             .as_ref()
             .is_some_and(|building| building.hide_garrisoned_state)
-            && !first_detected
-            && object.team != self.local_team;
+            && object.team != self.local_team
+            && !object
+                .contained_unit_ids()
+                .first()
+                .is_some_and(|id| self.detected.contains(id));
         let occupancy = self
             .tunnel_counts
             .get(&object.id)
             .copied()
-            .unwrap_or_else(|| {
-                object
-                    .building_data
-                    .as_ref()
-                    .map_or(object.occupants.len(), |building| {
-                        building.garrisoned_units.len()
-                    })
-                    .min(u16::MAX as usize) as u16
-            });
+            .unwrap_or_else(|| object.contained_unit_ids().len().min(u16::MAX as usize) as u16);
         let facts = crate::presentation_frame::object_native_draw_observation(
             object,
             self.frame,
@@ -637,5 +657,62 @@ impl crate::game_logic::combat::ProjectilePresentationRuntime for ObjectFxServic
             .find_particle_system_mut(id)?
             .attach_to_object(projectile.id.0);
         Some(id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::game_logic::{
+        BuildingData, BuildingType, GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate,
+    };
+
+    #[test]
+    fn borrowed_damage_fx_observes_the_receiving_garrison_after_the_lead_changes() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                "Object FXOwner\n Draw = W3DModelDraw DrawTag\n DefaultConditionState\n Model = OwnerModel\n End\n End\nEnd\n",
+                "fx_owner.ini",
+            )
+            .unwrap();
+        let definition = parser.get_definition("FXOwner").unwrap();
+        let mut template = ThingTemplate::new("FXOwner");
+        template.set_authored_draw_models(definition.model_name.as_deref(), &definition.draw_modules);
+        template.add_kind_of(KindOf::Structure);
+        let primary = ObjectId(10);
+        let first = ObjectId(11);
+        let second = ObjectId(12);
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Receiving", true));
+        let mut owner = Object::new(template, primary, Team::China);
+        let mut building = BuildingData::new(BuildingType::Bunker);
+        building.hide_garrisoned_state = true;
+        building.garrisoned_units = vec![first, second];
+        owner.building_data = Some(building);
+        world.add_object(owner);
+        for id in [first, second, ObjectId(13)] {
+            let mut passenger = Object::new(ThingTemplate::new("Passenger"), id, Team::China);
+            passenger.status.detected = id != first;
+            world.add_object(passenger);
+        }
+
+        let complete = world.observe_object_fx_environment();
+        let single = world.observe_object_fx_environment_for(primary);
+        assert!(complete.detected.contains(&ObjectId(13)));
+        assert_eq!(single.detected, [second].into_iter().collect());
+        let object = world.host_object_mut(primary).unwrap();
+        let garrisoned = 1u128 << crate::game_logic::host_enum_table_residual::garrisoned_model_bit();
+        let hidden = complete.source(object).unwrap().condition_bits;
+        assert_eq!(hidden & garrisoned, 0);
+        assert_eq!(single.source(object).unwrap().condition_bits, hidden);
+        object
+            .building_data
+            .as_mut()
+            .unwrap()
+            .garrisoned_units
+            .remove(0);
+        let revealed = complete.source(object).unwrap().condition_bits;
+        assert_ne!(revealed & garrisoned, 0);
+        assert_eq!(single.source(object).unwrap().condition_bits, revealed);
     }
 }
