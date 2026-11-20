@@ -48,7 +48,13 @@ impl TerrainVisualImpl {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ST_SHROUD overlay"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/shroud_overlay.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                concat!(
+                    include_str!("../shaders/projected_shroud_sample.wgsl"),
+                    include_str!("../shaders/shroud_overlay.wgsl"),
+                )
+                .into(),
+            ),
         });
         let multiply = Some(wgpu::BlendState {
             color: wgpu::BlendComponent {
@@ -132,14 +138,13 @@ impl TerrainVisualImpl {
             std::mem::size_of::<TreeGpuVertex>() as u64,
             wgpu::CompareFunction::LessEqual,
         ));
-        self.shroud_gpu.bind_layout = Some(bind_layout);
         self.shroud_gpu.params = Some(device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ST_SHROUD params"),
             size: 48,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }));
-        self.shroud_gpu.sampler = Some(Arc::new(device.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler = Arc::new(device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("ST_SHROUD dest sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -148,8 +153,67 @@ impl TerrainVisualImpl {
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
-        })));
+        }));
+        // C++ setupFlatWaterShader uses a white stage when the scene has no
+        // shroud. The immutable disabled uniform yields white without sampling.
+        let neutral_params = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Disabled projected shroud parameters"),
+            contents: bytemuck::bytes_of(&[0.0_f32; 12]),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let neutral_view = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("Disabled projected shroud placeholder"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
+        self.shroud_gpu.neutral_bind_group = Some(Self::make_shroud_bind_group(
+            device,
+            &bind_layout,
+            &neutral_view,
+            &sampler,
+            &neutral_params,
+        ));
+        self.shroud_gpu.bind_layout = Some(bind_layout);
+        self.shroud_gpu.sampler = Some(sampler);
         Ok(())
+    }
+
+    fn make_shroud_bind_group(
+        device: &wgpu::Device,
+        layout: &BindGroupLayout,
+        view: &TextureView,
+        sampler: &Sampler,
+        params: &Buffer,
+    ) -> BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ST_SHROUD dest bind"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: params.as_entire_binding(),
+                },
+            ],
+        })
     }
 
     /// Lend a synced R8 mask only to this device and this exact frozen input.
@@ -266,24 +330,8 @@ impl TerrainVisualImpl {
         ];
         queue.write_buffer(buf, 0, bytemuck::cast_slice(&params));
         if self.shroud_gpu.bind_group.is_none() {
-            self.shroud_gpu.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ST_SHROUD dest bind"),
-                layout: layout.as_ref(),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buf.as_entire_binding(),
-                    },
-                ],
-            }));
+            self.shroud_gpu.bind_group =
+                Some(Self::make_shroud_bind_group(device, layout, view, sampler, buf));
         }
         self.shroud_gpu.dirty = false;
         pixels.len()
@@ -313,8 +361,7 @@ impl TerrainVisualImpl {
             .iter()
             .chain(self.water_track_meshes.iter())
             .chain(self.shoreline_meshes.iter().filter(|_| include_shoreline))
-            .chain(self.polygon_water_meshes.iter())
-            .chain(self.water_grid_mesh.iter());
+            .chain(self.polygon_water_meshes.iter().filter(|mesh| mesh.river));
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, camera, &[]);
         pass.set_bind_group(1, shroud, &[]);

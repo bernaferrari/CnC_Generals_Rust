@@ -57,9 +57,9 @@ impl TerrainVisualImpl {
 
         // Create water render pipeline
         self.create_water_pipeline(device.as_ref())?;
+        self.create_shroud_overlay_pipelines(device.as_ref())?;
         self.create_river_pipeline(device.as_ref())?;
         self.ensure_water_materials(device.as_ref());
-        self.create_shroud_overlay_pipelines(device.as_ref())?;
         self.sync_shroud_dest_texture();
 
         // Create road render pipeline
@@ -1265,8 +1265,8 @@ impl TerrainVisualImpl {
     /// C++ static sort level 2: the whole water scene renders after opaque
     /// objects and shadows (W3DScene.cpp:833 Render_And_Clear_Static_Sort_Lists).
     /// GlobalData sea plane (drawSea) + water tracks + polygon rivers/trapezoids
-    /// (renderWater) + water grid mesh (renderWaterMesh), then the shroud pass
-    /// over the same geometry.
+    /// (renderWater) + water grid mesh (renderWaterMesh), and the separate
+    /// shroud passes for water that uses them.
     pub fn record_water_scene_draws(&self, pass: &mut RenderPass<'_>) {
         self.record_water_draws(pass);
         self.record_extra_water_draws(pass);

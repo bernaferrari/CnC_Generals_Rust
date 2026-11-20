@@ -14,6 +14,11 @@ impl TerrainVisualImpl {
                 "camera layout required for river pipeline".into(),
             ));
         };
+        let Some(shroud_layout) = self.shroud_gpu.bind_layout.as_ref() else {
+            return Err(TerrainError::GPUError(
+                "shroud layout required for trapezoid water".into(),
+            ));
+        };
         let bind_layout = Arc::new(device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
                 label: Some("JBA river bind layout"),
@@ -36,19 +41,37 @@ impl TerrainVisualImpl {
                 ],
             },
         ));
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let river_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("JBA river pipeline layout"),
             bind_group_layouts: &[Some(camera_layout.as_ref()), Some(bind_layout.as_ref())],
             immediate_size: 0,
         });
+        let trapezoid_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("JBA trapezoid pipeline layout"),
+            bind_group_layouts: &[
+                Some(camera_layout.as_ref()),
+                Some(bind_layout.as_ref()),
+                Some(shroud_layout.as_ref()),
+            ],
+            immediate_size: 0,
+        });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("JBA river shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/water_river.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                concat!(
+                    include_str!("../shaders/projected_shroud_sample.wgsl"),
+                    include_str!("../shaders/water_river.wgsl"),
+                )
+                .into(),
+            ),
         });
-        let make_pipeline = |label: &str, blend: wgpu::BlendState| {
+        let make_pipeline = |label: &str,
+                             layout: &wgpu::PipelineLayout,
+                             fragment: &str,
+                             blend: wgpu::BlendState| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
-                layout: Some(&pipeline_layout),
+                layout: Some(layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
@@ -57,7 +80,7 @@ impl TerrainVisualImpl {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs_main"),
+                    entry_point: Some(fragment),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Bgra8Unorm,
@@ -82,14 +105,24 @@ impl TerrainVisualImpl {
                 cache: None,
             })
         };
-        self.river_gpu.pipeline =
-            Some(make_pipeline("JBA river/trapezoid pipeline", wgpu::BlendState::ALPHA_BLENDING));
-        self.river_gpu.trapezoid_pipeline =
-            Some(make_pipeline("JBA trapezoid pipeline", wgpu::BlendState::ALPHA_BLENDING));
+        self.river_gpu.pipeline = Some(make_pipeline(
+            "JBA river pipeline",
+            &river_layout,
+            "fs_river",
+            wgpu::BlendState::ALPHA_BLENDING,
+        ));
+        self.river_gpu.trapezoid_pipeline = Some(make_pipeline(
+            "JBA trapezoid pipeline",
+            &trapezoid_layout,
+            "fs_trapezoid",
+            wgpu::BlendState::ALPHA_BLENDING,
+        ));
         // C++ drawRiverWater additive override (W3DWater.cpp:2882-2883):
         // SRCBLEND=SRCALPHA on top of PresetAdditiveShader => SRCALPHA, ONE.
         self.river_gpu.river_additive_pipeline = Some(make_pipeline(
             "JBA river additive pipeline",
+            &river_layout,
+            "fs_river",
             wgpu::BlendState {
                 color: wgpu::BlendComponent {
                     src_factor: wgpu::BlendFactor::SrcAlpha,
@@ -106,6 +139,8 @@ impl TerrainVisualImpl {
         // C++ setupFlatWaterShader additive (PresetAdditiveShader): ONE, ONE.
         self.river_gpu.trapezoid_additive_pipeline = Some(make_pipeline(
             "JBA trapezoid additive pipeline",
+            &trapezoid_layout,
+            "fs_trapezoid",
             wgpu::BlendState {
                 color: wgpu::BlendComponent {
                     src_factor: wgpu::BlendFactor::One,

@@ -469,6 +469,115 @@ fn water_test_bounds(areas: &[TerrainWaterArea]) -> (Vec2, Vec2) {
 
 #[test]
 #[ignore = "requires a serialized native GPU"]
+fn water_shroud_preserves_the_trapezoid_background_before_alpha_blend() {
+    use game_engine::common::common_services::{CommonServices, with_common_services};
+
+    let common = Arc::new(CommonServices::new());
+    with_common_services(&common, || {
+        let (device, queue) = native_water_test_device();
+        let mut visual = TerrainVisualImpl::new();
+        let mut water = visual.water_presentation().clone();
+        for setting in &mut water.settings {
+            setting.surface_color = (255.0, 255.0, 255.0, 128.0);
+        }
+        water.standing_water_color = (1.0, 0.7, 0.6);
+        let mut rules = visual.water_rules();
+        rules.feather_water = 0;
+        visual.admit_water_rules(rules);
+        visual.admit_water_presentation(&water).unwrap();
+        visual
+            .init_gpu_resources(device.clone(), queue.clone())
+            .unwrap();
+        // Keep the source below attachment saturation so the two blend orders
+        // can be compared independently of the machine's mounted artwork.
+        let solid = |rgba| {
+            TerrainVisualImpl::create_solid_rgba_texture(&device, &queue, rgba, "water shroud control")
+        };
+        visual.water_texture = Some(solid([96, 128, 160, 255]));
+        let details = visual.river_gpu.detail_views.as_mut().unwrap();
+        details.sparkle = solid([0, 0, 0, 255]).create_view(&Default::default());
+        details.edge = solid([0, 0, 0, 255]).create_view(&Default::default());
+        visual.ensure_water_materials(&device);
+        set_water_test_camera(&mut visual, &device, Vec2::splat(-1.0), Vec2::splat(9.0));
+
+        let read = |visual: &TerrainVisualImpl, background: wgpu::Color| {
+            let pixels = read_water_pixels_with_background(visual, &device, &queue, true, background);
+            let center = (8 * 32 + 16) * 4;
+            <[u8; 3]>::try_from(&pixels[center..center + 3]).unwrap()
+        };
+        let background = wgpu::Color {
+            r: 0.5,
+            g: 0.5,
+            b: 0.5,
+            a: 1.0,
+        };
+        let sample = |visual: &mut TerrainVisualImpl, is_river| {
+            visual.set_map_water_areas(vec![TerrainWaterArea {
+                points: vec![
+                    [0.0, 0.0, 0.0],
+                    [8.0, 0.0, 0.0],
+                    [8.0, 0.0, 8.0],
+                    [0.0, 0.0, 8.0],
+                ],
+                is_river,
+                river_start: 0,
+            }]);
+            let unshaded = [read(visual, wgpu::Color::BLACK), read(visual, background)];
+            visual.set_shroud_overlay_r8(2, 2, 4.0, [0.0, 0.0], &[128; 4]);
+            visual.sync_shroud_dest_texture();
+            let shaded = [read(visual, wgpu::Color::BLACK), read(visual, background)];
+            visual.clear_shroud_overlay();
+            assert_eq!(read(visual, background), unshaded[1]);
+            (unshaded, shaded)
+        };
+        let (river, shaded_river) = sample(&mut visual, true);
+        let (pool, shaded_pool) = sample(&mut visual, false);
+        let tint = [192, 128, 64];
+        visual.set_projected_shroud_overlay_r8(2, 2, 4.0, [0.0, 0.0], tint, &[128; 4]);
+        visual.sync_shroud_dest_texture();
+        let tinted_pool = [
+            read(&visual, wgpu::Color::BLACK),
+            read(&visual, background),
+        ];
+        let background_delta = |pixels: [[u8; 3]; 2]| {
+            std::array::from_fn::<_, 3, _>(|channel| {
+                i16::from(pixels[1][channel]) - i16::from(pixels[0][channel])
+            })
+        };
+        let river_delta = background_delta(river);
+        let river_shaded_delta = background_delta(shaded_river);
+        let pool_delta = background_delta(pool);
+        let pool_shaded_delta = background_delta(shaded_pool);
+        let pool_tinted_delta = background_delta(tinted_pool);
+        eprintln!(
+            "Water background contributions: separate river {river_delta:?} -> {river_shaded_delta:?}, trapezoid {pool_delta:?} -> {pool_shaded_delta:?}. Trapezoid water contribution {:?} -> {:?}",
+            pool[0], shaded_pool[0],
+        );
+        for channel in 0..3 {
+            let shroud = 128.0 / 255.0;
+            let post_blend = (f32::from(river_delta[channel]) * shroud).round() as i16;
+            assert!(river_delta[channel] > 16);
+            assert!(river_shaded_delta[channel].abs_diff(post_blend) <= 1);
+            let water_only = (f32::from(pool[0][channel]) * shroud).round() as u8;
+            assert!(pool[0][channel] > 8);
+            assert!(shaded_pool[0][channel].abs_diff(water_only) <= 1);
+            assert!(pool_delta[channel] > 16);
+            assert!(
+                pool_shaded_delta[channel].abs_diff(pool_delta[channel]) <= 1,
+                "the trapezoid shroud must leave the background contribution intact",
+            );
+            // The readback is BGRA, while the tint is RGB.
+            let colored_water =
+                (f32::from(pool[0][channel]) * shroud * f32::from(tint[2 - channel]) / 255.0)
+                    .round() as u8;
+            assert!(tinted_pool[0][channel].abs_diff(colored_water) <= 1);
+            assert!(pool_tinted_delta[channel].abs_diff(pool_delta[channel]) <= 1);
+        }
+    });
+}
+
+#[test]
+#[ignore = "requires a serialized native GPU"]
 fn adjacent_water_tracks_preserve_ordered_color_and_shroud_pixels() {
     let (device, queue) = native_water_test_device();
     let mut visual = TerrainVisualImpl::new();
@@ -1050,6 +1159,16 @@ fn read_water_pixels(
     queue: &wgpu::Queue,
     shroud: bool,
 ) -> Vec<u8> {
+    read_water_pixels_with_background(visual, device, queue, shroud, wgpu::Color::BLACK)
+}
+
+fn read_water_pixels_with_background(
+    visual: &TerrainVisualImpl,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    shroud: bool,
+    background: wgpu::Color,
+) -> Vec<u8> {
     let size = wgpu::Extent3d {
         width: 32,
         height: 16,
@@ -1092,7 +1211,7 @@ fn read_water_pixels(
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    load: wgpu::LoadOp::Clear(background),
                     store: wgpu::StoreOp::Store,
                 },
             })],

@@ -50,6 +50,13 @@ var alpha_edge_texture: texture_2d<f32>;
 @group(1) @binding(5)
 var<uniform> river: RiverParams;
 
+@group(2) @binding(0)
+var shroud_texture: texture_2d<f32>;
+@group(2) @binding(1)
+var shroud_sampler: sampler;
+@group(2) @binding(2)
+var<uniform> shroud: ShroudParams;
+
 @vertex
 fn vs_main(vertex: WaterVertex) -> VertexOutput {
     var out: VertexOutput;
@@ -68,8 +75,7 @@ fn vs_main(vertex: WaterVertex) -> VertexOutput {
 // The V scroll lives in the baked vertex coordinate
 // (-m_riverVOrigin + vScale*i + wobble, W3DWater.cpp:2834-2841), NOT here —
 // the vertex phase is recomputed every frame from river_v_origin.
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn shade_water(in: VertexOutput) -> vec4<f32> {
     let t0 = textureSample(river_texture, river_sampler, in.tex_coords);
     let t1 = textureSample(sparkle_texture, river_sampler, in.tex_coords);
     // C++ stage 2: camera-space world XZ * NOISE_REPEAT_FACTOR + m_riverVOrigin
@@ -93,4 +99,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     return vec4<f32>(rgb, alpha);
+}
+
+@fragment
+fn fs_river(in: VertexOutput) -> @location(0) vec4<f32> {
+    return shade_water(in);
+}
+
+@fragment
+fn fs_trapezoid(in: VertexOutput) -> @location(0) vec4<f32> {
+    let water = shade_water(in);
+    // C++ setupFlatWaterShader applies stage 3 to the source RGB before blending.
+    let mask = sample_projected_shroud(shroud_texture, shroud_sampler, shroud, in.world_position.xz);
+    return vec4<f32>(water.rgb * mask, water.a);
 }

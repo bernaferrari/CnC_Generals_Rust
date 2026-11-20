@@ -1221,9 +1221,18 @@ impl TerrainVisualImpl {
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
         }
-        if let (Some(trapezoid_pipeline), Some(trapezoid_bg)) = (
+        let shroud = if self.overlay.shroud_cells.is_empty() {
+            self.shroud_gpu.neutral_bind_group.as_ref()
+        } else {
+            self.shroud_gpu
+                .bind_group
+                .as_ref()
+                .or(self.shroud_gpu.neutral_bind_group.as_ref())
+        };
+        if let (Some(trapezoid_pipeline), Some(trapezoid_bg), Some(shroud)) = (
             trapezoid_pipeline,
             self.river_gpu.trapezoid_bind_group.as_ref(),
+            shroud,
         ) {
             // C++ renderWaterMesh draws with setupFlatWaterShader (trapezoid
             // shader); the trapezoid bind group carries `is_trapezoid = 1`
@@ -1239,6 +1248,7 @@ impl TerrainVisualImpl {
                     pass.set_pipeline(trapezoid_pipeline);
                     pass.set_bind_group(0, camera_bg, &[]);
                     pass.set_bind_group(1, trapezoid_bg, &[]);
+                    pass.set_bind_group(2, shroud, &[]);
                     started = true;
                 }
                 pass.set_vertex_buffer(0, mesh.vertex_slice());
