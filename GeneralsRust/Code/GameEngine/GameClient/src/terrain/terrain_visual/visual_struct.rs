@@ -102,6 +102,8 @@ pub struct TerrainVisualImpl {
     sun_color: [f32; 3],
     /// Ambient lighting color
     ambient_color: [f32; 3],
+    /// A complete terrain-light snapshot takes precedence over preview lights.
+    has_admitted_static_lighting: bool,
     /// Completed light observations from the client driving this terrain.
     dynamic_lights: Vec<DisplayDynamicLight>,
     /// Fog color

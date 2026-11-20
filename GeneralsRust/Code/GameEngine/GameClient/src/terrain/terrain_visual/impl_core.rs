@@ -239,6 +239,7 @@ impl TerrainVisualImpl {
             sun_direction: Vec3::new(0.0, -1.0, 0.0),
             sun_color: [1.0, 0.9, 0.8],
             ambient_color: [0.2, 0.2, 0.2],
+            has_admitted_static_lighting: false,
             dynamic_lights: Vec::new(),
             fog_color: [0.5, 0.6, 0.7],
             // C++ SceneClass: FogEnabled(false), FogStart(0), FogEnd(1000).

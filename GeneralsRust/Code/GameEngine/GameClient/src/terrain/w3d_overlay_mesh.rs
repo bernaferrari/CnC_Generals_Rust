@@ -294,30 +294,43 @@ pub fn compute_standing_water_diffuse(
     terrain_ambient: [f32; 3],
     terrain_lights: &[WaterTerrainLight],
 ) -> u32 {
+    compute_standing_water_diffuse_from_lights(
+        standing_color,
+        water_diffuse,
+        terrain_ambient,
+        terrain_lights
+            .iter()
+            .map(|light| (light.light_pos[2], light.diffuse)),
+    )
+}
+
+pub(crate) fn compute_standing_water_diffuse_from_lights(
+    standing_color: [f32; 3],
+    water_diffuse: u32,
+    terrain_ambient: [f32; 3],
+    terrain_lights: impl IntoIterator<Item = (f32, [f32; 3])>,
+) -> u32 {
     let mut shade_r;
     let mut shade_g;
     let mut shade_b;
-    if (standing_color[0] - 1.0).abs() < 1.0e-5
-        && (standing_color[1] - 1.0).abs() < 1.0e-5
-        && (standing_color[2] - 1.0).abs() < 1.0e-5
-    {
+    if standing_color == [1.0; 3] {
         shade_r = terrain_ambient[0];
         shade_g = terrain_ambient[1];
         shade_b = terrain_ambient[2];
-        for light in terrain_lights {
-            if -light.light_pos[2] > 0.0 {
-                let nz = -light.light_pos[2];
-                shade_r += nz * light.diffuse[0];
-                shade_g += nz * light.diffuse[1];
-                shade_b += nz * light.diffuse[2];
+        for (vertical_position, diffuse) in terrain_lights {
+            let nz = -vertical_position;
+            if nz > 0.0 {
+                shade_r += nz * diffuse[0];
+                shade_g += nz * diffuse[1];
+                shade_b += nz * diffuse[2];
             }
         }
         let water_r = (water_diffuse & 0xFF) as f32 / 255.0;
         let water_g = ((water_diffuse >> 8) & 0xFF) as f32 / 255.0;
         let water_b = ((water_diffuse >> 16) & 0xFF) as f32 / 255.0;
-        shade_r *= water_r * 255.0;
-        shade_g *= water_g * 255.0;
-        shade_b *= water_b * 255.0;
+        shade_r = shade_r * water_r * 255.0;
+        shade_g = shade_g * water_g * 255.0;
+        shade_b = shade_b * water_b * 255.0;
     } else {
         shade_r = standing_color[0] * 255.0;
         shade_g = standing_color[1] * 255.0;
@@ -328,12 +341,12 @@ pub fn compute_standing_water_diffuse(
             shade_b = 255.0;
         }
     }
-    let packed = (real_to_int(shade_b) as u32)
-        | ((real_to_int(shade_g) as u32) << 8)
-        | ((real_to_int(shade_r) as u32) << 16);
+    // BaseType.h REAL_TO_INT truncates before converting to an integer.
+    let packed = (shade_b as i32 as u32)
+        | ((shade_g as i32 as u32) << 8)
+        | ((shade_r as i32 as u32) << 16);
     packed | (water_diffuse & 0xFF00_0000)
 }
-
 
 #[derive(Clone, Copy)]
 struct RoadColumn {
@@ -1297,17 +1310,8 @@ mod tests {
             [0.2, 0.2, 0.2],
             &lights,
         );
-        let water_r = (water_diffuse & 0xFF) as f32 / 255.0;
-        let water_g = ((water_diffuse >> 8) & 0xFF) as f32 / 255.0;
-        let water_b = ((water_diffuse >> 16) & 0xFF) as f32 / 255.0;
-        let shade_r = (0.2 + 1.0 * 0.5) * water_r * 255.0;
-        let shade_g = (0.2 + 1.0 * 0.25) * water_g * 255.0;
-        let shade_b = (0.2 + 0.0) * water_b * 255.0;
-        let expect = (super::real_to_int(shade_b) as u32)
-            | ((super::real_to_int(shade_g) as u32) << 8)
-            | ((super::real_to_int(shade_r) as u32) << 16)
-            | 0x8000_0000;
-        assert_eq!(packed, expect);
+        // Executed original W3DWater.cpp diffuse block with REAL_TO_INT truncation.
+        assert_eq!(packed, 0x806b_5b33);
         assert_eq!(packed >> 24, 0x80);
 
         let black = compute_standing_water_diffuse([0.0, 0.0, 0.0], 0x40FF_FFFF, [0.0; 3], &[]);

@@ -16,7 +16,14 @@ impl TerrainVisualImpl {
     /// Admit the active C++ terrain lights for this visual's world. Existing
     /// baked vertices must be regenerated when their source lighting changes.
     pub fn admit_static_lighting(&mut self, lighting: super::chunk::TerrainStaticLighting) -> bool {
-        if !self.chunk_manager.admit_static_lighting(lighting) {
+        let first_admission = !std::mem::replace(&mut self.has_admitted_static_lighting, true);
+        let changed = self.chunk_manager.admit_static_lighting(lighting);
+        if changed || first_admission {
+            self.overlay.overlays_dirty |=
+                self.water_grid_enabled || !self.overlay.water_areas.is_empty();
+            self.overlay.water_grid_dirty |= self.water_grid_enabled;
+        }
+        if !changed {
             return false;
         }
         self.static_lighting_changed();

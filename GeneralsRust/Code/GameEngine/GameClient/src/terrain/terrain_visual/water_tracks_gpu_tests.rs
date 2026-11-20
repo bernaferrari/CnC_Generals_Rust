@@ -65,6 +65,7 @@ fn unchanged_water_and_shoreline_keep_their_gpu_buffers() {
 #[ignore = "requires native GPU and the mounted retail map and textures"]
 fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
     use game_engine::common::ini::ini::INILoadType;
+    use game_engine::common::ini::ini_game_data::LightingContentRules;
     use game_engine::common::ini::ini_water::WaterDefinitions;
     use game_engine::common::system::big_file_system::{BigArchiveBackend, BigFileSystem};
     use game_engine::common::system::file_system::get_file_system;
@@ -90,6 +91,12 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
         .open_file("Data/INI/Water.ini", 0)
         .unwrap()
         .read_to_string(&mut water_ini)
+        .unwrap();
+    let mut game_data_ini = String::new();
+    ini_archive
+        .open_file("Data/INI/GameData.ini", 0)
+        .unwrap()
+        .read_to_string(&mut game_data_ini)
         .unwrap();
     let source = tempfile::tempdir().unwrap();
     std::fs::hard_link(
@@ -283,6 +290,36 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
             crc32fast::hash(&shaded_phase_0),
         );
         assert_eq!(vertex_buffers_per_phase, vec![1; 5]);
+
+        // Stock afternoon GameData applied to the mounted geometry, using
+        // the original GlobalData.cpp default count for the receiving inputs.
+        let mut authored = LightingContentRules::default();
+        authored.num_global_lights = 3;
+        let authored = authored.overlay_ini_text(&game_data_ini).unwrap();
+        assert_eq!(authored.time_of_day as u8, visual.water_rules().time_of_day);
+        assert_eq!(authored.num_global_lights, 3);
+        let lights = &authored.terrain[authored.time_of_day as usize];
+        let ambient = &lights[0].ambient;
+        visual.admit_static_lighting(crate::terrain::chunk::TerrainStaticLighting {
+            lights: lights
+                .iter()
+                .map(|light| {
+                    let pos = &light.light_pos;
+                    let color = &light.diffuse;
+                    (Vec3::new(pos.x, pos.z, pos.y), [color.r, color.g, color.b])
+                })
+                .collect(),
+            ambient: [ambient.r, ambient.g, ambient.b],
+            scorch_diffuse: [1.0; 3],
+        });
+        let diffuse = visual.standing_water_diffuse_packed();
+        visual.rebuild_all_overlays();
+        let pixels = read_water_pixels(&visual, &replacement_device, &replacement_queue, true);
+        eprintln!(
+            "Retail GameData/Water.ini afternoon diffuse {diffuse:08x}, mounted water CRC32 {:08x}",
+            crc32fast::hash(&pixels)
+        );
+        assert_eq!(diffuse, 0xff83_8078);
     });
 }
 
@@ -669,6 +706,136 @@ fn river_uses_the_authored_edge_coordinate_and_alpha() {
             "River edge artwork leaves a background contribution of {delta:?}, original expected ~96"
         );
         assert!(delta.iter().all(|value| value.abs_diff(96) <= 1));
+    });
+}
+
+fn water_diffuse_test_lighting(count: usize) -> crate::terrain::chunk::TerrainStaticLighting {
+    let lights = [
+        (Vec3::NEG_Y, [0.125, 0.25, 0.0]),
+        (Vec3::NEG_Y * 0.5, [0.25, 0.0, 0.5]),
+        (Vec3::Y * 0.5, [1.0; 3]),
+    ];
+    crate::terrain::chunk::TerrainStaticLighting {
+        lights: lights[..count].to_vec(),
+        ambient: [0.125; 3],
+        scorch_diffuse: [0.0; 3],
+    }
+}
+
+fn admit_water_diffuse_test_presentation(visual: &mut TerrainVisualImpl) {
+    let mut rules = visual.water_rules();
+    rules.feather_water = 0;
+    visual.admit_water_rules(rules);
+    let mut water = visual.water_presentation().clone();
+    water.standing_water_color = (1.0, 1.0, 1.0);
+    for setting in &mut water.settings {
+        setting.surface_color = (255.0, 255.0, 255.0, 128.0);
+    }
+    visual.admit_water_presentation(&water).unwrap();
+}
+
+#[test]
+fn water_diffuse_uses_every_admitted_terrain_light_and_cpp_truncation() {
+    let mut visual = TerrainVisualImpl::new();
+    admit_water_diffuse_test_presentation(&mut visual);
+    visual.set_lighting(
+        Some(Vec3::NEG_Y.to_array()),
+        Some([0.125, 0.25, 0.0]),
+        Some([0.125; 3]),
+        None,
+        None,
+    );
+    let standalone = visual.standing_water_diffuse_packed();
+    let default_lighting = visual.chunk_manager.static_lighting().clone();
+    assert!(!visual.admit_static_lighting(default_lighting));
+    let admitted_default = visual.standing_water_diffuse_packed();
+    let colors: [_; 4] = std::array::from_fn(|count| {
+        visual.admit_static_lighting(water_diffuse_test_lighting(count));
+        visual.standing_water_diffuse_packed()
+    });
+    visual.set_lighting(
+        Some(Vec3::Y.to_array()),
+        Some([0.0; 3]),
+        Some([0.0; 3]),
+        None,
+        None,
+    );
+    let complete_after_standalone_setter = visual.standing_water_diffuse_packed();
+    let mut water = visual.water_presentation().clone();
+    water.standing_water_color = (0.6, 0.7, 1.0);
+    visual.admit_water_presentation(&water).unwrap();
+    let override_color = visual.standing_water_diffuse_packed();
+    eprintln!(
+        "Water diffuse for zero through three admitted lights {colors:08x?}, authored override {override_color:08x}"
+    );
+    // Original W3DWater.cpp sum/pack with BaseType.h REAL_TO_INT.
+    assert_eq!(colors, [0x801f_1f1f, 0x803f_5f1f, 0x805f_5f5f, 0x805f_5f5f]);
+    assert_eq!(standalone, 0x803f_5f1f);
+    assert_ne!(admitted_default, standalone);
+    assert_eq!(complete_after_standalone_setter, colors[3]);
+    assert_eq!(override_color, 0x8099_b2ff);
+}
+
+#[test]
+#[ignore = "requires a serialized native GPU"]
+fn polygon_water_uses_changed_terrain_lights_in_the_same_phase() {
+    use gamelogic::system::engine_stores::{new_world_services, with_world_services};
+
+    let world = new_world_services();
+    with_world_services(&world, || {
+        let (device, queue) = native_water_test_device();
+        let mut visual = TerrainVisualImpl::new();
+        admit_water_diffuse_test_presentation(&mut visual);
+        visual.admit_static_lighting(water_diffuse_test_lighting(1));
+        visual
+            .init_gpu_resources(device.clone(), queue.clone())
+            .unwrap();
+        let solid = |rgba| {
+            TerrainVisualImpl::create_solid_rgba_texture(
+                &device,
+                &queue,
+                rgba,
+                "water diffuse control",
+            )
+        };
+        visual.water_texture = Some(solid([255; 4]));
+        visual.river_gpu.detail_views.as_mut().unwrap().sparkle =
+            solid([0, 0, 0, 255]).create_view(&Default::default());
+        visual.ensure_water_materials(&device);
+        visual.set_map_water_areas(vec![TerrainWaterArea {
+            points: vec![
+                [0.0, 0.0, 0.0],
+                [8.0, 0.0, 0.0],
+                [8.0, 0.0, 8.0],
+                [0.0, 0.0, 8.0],
+            ],
+            is_river: false,
+            river_start: 0,
+        }]);
+        let capture = |visual: &mut TerrainVisualImpl| {
+            TerrainVisual::render(visual, &Mat4::IDENTITY, &Mat4::IDENTITY).unwrap();
+            set_water_test_camera(visual, &device, Vec2::splat(-1.0), Vec2::splat(9.0));
+            let pixels = read_water_pixels(visual, &device, &queue, true);
+            let center = (8 * 32 + 16) * 4;
+            <[u8; 3]>::try_from(&pixels[center..center + 3]).unwrap()
+        };
+        let first = capture(&mut visual);
+        let phase = visual.overlay.river_v_origin.to_bits();
+        assert!(visual.admit_static_lighting(water_diffuse_test_lighting(2)));
+        let second = capture(&mut visual);
+        assert_eq!(visual.overlay.river_v_origin.to_bits(), phase);
+        assert!(!visual.admit_static_lighting(water_diffuse_test_lighting(2)));
+        assert_eq!(capture(&mut visual), second);
+        eprintln!(
+            "Water at the same phase with one versus two admitted lights: {first:?} -> {second:?}"
+        );
+        for (actual, expected) in first
+            .into_iter()
+            .zip([16, 48, 32])
+            .chain(second.into_iter().zip([48; 3]))
+        {
+            assert!(actual.abs_diff(expected) <= 1);
+        }
     });
 }
 

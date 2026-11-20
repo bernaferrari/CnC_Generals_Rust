@@ -526,25 +526,32 @@ impl TerrainVisualImpl {
 
     fn standing_water_diffuse_packed(&self) -> u32 {
         let (r, g, b) = self.water_presentation.standing_water_color;
-        let standing_color = [r, g, b];
         let water_diffuse = pack_water_setting_diffuse(
             self.water_presentation
                 .setting_at(self.water_rules.time_of_day)
                 .surface_color,
         );
-        compute_standing_water_diffuse(
-            standing_color,
-            water_diffuse,
-            self.ambient_color,
-            &[WaterTerrainLight {
-                light_pos: [
-                    self.sun_direction.x,
-                    self.sun_direction.z,
-                    self.sun_direction.y,
-                ],
-                diffuse: self.sun_color,
-            }],
-        )
+        if self.has_admitted_static_lighting {
+            // W3DWater.cpp sums all admitted terrain lights. C++ Z-up maps
+            // to renderer Y-up, with lights pointing down contributing.
+            let lighting = self.chunk_manager.static_lighting();
+            compute_standing_water_diffuse_from_lights(
+                [r, g, b],
+                water_diffuse,
+                lighting.ambient,
+                lighting
+                    .lights
+                    .iter()
+                    .map(|(position, color)| (position.y, *color)),
+            )
+        } else {
+            compute_standing_water_diffuse_from_lights(
+                [r, g, b],
+                water_diffuse,
+                self.ambient_color,
+                std::iter::once((self.sun_direction.y, self.sun_color)),
+            )
+        }
     }
 
     fn sync_polygon_water_meshes(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
