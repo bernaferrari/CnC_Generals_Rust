@@ -132,4 +132,30 @@ mod tests {
         assert_eq!(real_to_int(f32::NAN), i32::MIN);
         assert_eq!(real_to_int(-7.9), -7);
     }
+
+    #[test]
+    fn original_x87_grid_thresholds_use_signed_nearest_with_24_bit_precision() {
+        // Run the source truncation and FISTP instructions with the control
+        // word 0x007f, capturing the predecessor, boundary, and successor of
+        // the 1000 / 40 quotient used for original partition dimensions.
+        let cases = [
+            (0x41c7_ffff, [24, 24, 25]),
+            (0x41c8_0000, [25, 25, 26]),
+            (0x41c8_0001, [25, 25, 26]),
+            (0xc1c8_0000, [-25, -26, -25]),
+            (0x4aff_ffff, [8_388_607, 8_388_607, 8_388_608]),
+            (0x4b00_0001, [8_388_609, 8_388_609, 8_388_610]),
+            (0x4eff_ffff, [2_147_483_520; 3]),
+            (0x4f00_0000, [i32::MIN; 3]),
+            (0xcf00_0001, [i32::MIN; 3]),
+        ];
+        for (bits, expected) in cases {
+            let value = f32::from_bits(bits);
+            assert_eq!(
+                [real_to_int(value), real_to_int_floor(value), real_to_int_ceil(value)],
+                expected,
+                "source operand {bits:08x}",
+            );
+        }
+    }
 }
