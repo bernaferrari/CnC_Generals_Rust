@@ -1239,30 +1239,18 @@ impl GameLogic {
             }
             let train_pos = train.get_position();
             let us_r = snap.hitch_radius.max(train.physics_collide_circle_radius());
-            let victims: Vec<ObjectId> = self
-                .objects
-                .registered_keys()
-                .copied()
-                .filter(|id| *id != snap.id)
-                .collect();
-            for vid in victims {
-                let Some(victim) = self.objects.get(&vid) else {
-                    continue;
-                };
-                if !victim.is_alive() {
-                    continue;
-                }
-                if victim.is_kind_of(KindOf::NoCollide) {
-                    continue;
-                }
-                let victim_is_rail = is_railroad_template(&victim.template_name)
-                    || self.with_railroad_registry(|r| r.get(vid).is_some());
-                if victim_is_rail {
+            for (&id, victim) in self.objects.registered() {
+                if id == snap.id || !victim.is_alive() || victim.is_kind_of(KindOf::NoCollide) {
                     continue;
                 }
                 let them_r = victim.physics_collide_circle_radius();
                 let dist = xz_dist(train_pos, victim.get_position());
                 if (us_r + them_r) - dist + 1.0 <= 0.0 {
+                    continue;
+                }
+                if self.railroad.get(id).is_some()
+                    || self.railroad.role_for_template(&victim.template_name).is_some()
+                {
                     continue;
                 }
                 let faction = leftover_railroad_faction_structure(victim);
