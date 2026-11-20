@@ -41,6 +41,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn treads_motive_force_caps_acceleration_and_default_braking_to_speed_delta() {
+        let mut template = LocomotorTemplate::new("TreadsSpeedDelta".into());
+        template.appearance = LocomotorAppearance::Treads;
+        template.max_speed = 3.0;
+        template.acceleration = 0.4;
+        let mut loco = Locomotor::new(Arc::new(template));
+        for (actual_speed, expected) in [(0.0, 0.4), (2.9, 0.1), (3.1, -0.1), (3.0, 0.0)] {
+            let (_, _, acceleration) = loco.move_towards_position_treads_physics(
+                Coord3D::ZERO,
+                0.0,
+                Coord3D::new(180.0, 0.0, 0.0),
+                180.0,
+                3.0,
+                actual_speed,
+                BodyDamageType::Pristine,
+                0.0,
+            );
+            assert!(
+                (acceleration - expected).abs() < 0.00001,
+                "treaded unit at {actual_speed}: expected {expected}, got {acceleration}"
+            );
+        }
+    }
+
     impl Drop for RegisteredObjectCleanup {
         fn drop(&mut self) {
             OBJECT_REGISTRY.unregister_object(self.0);

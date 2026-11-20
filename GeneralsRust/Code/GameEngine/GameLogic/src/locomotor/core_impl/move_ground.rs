@@ -102,14 +102,20 @@ impl Locomotor {
             }
         }
 
-        // Calculate acceleration force - matches C++ Locomotor.cpp:1230-1254
-        // C++ uses mass * acceleration and clamps accelForce <= mass * speedDelta
-        // We return the acceleration directly; the caller applies mass.
+        // Locomotor.cpp:1230–1252 caps the force at the amount needed to
+        // attain goal speed. Mass is applied by the caller.
         let speed_delta = goal_speed - current_speed;
-        let acceleration = if speed_delta > 0.0 {
+        let acceleration = if speed_delta == 0.0 {
+            0.0
+        } else if speed_delta > 0.0 {
             max_acceleration
         } else {
             -self.braking_factor * braking
+        };
+        let acceleration = if acceleration.abs() > speed_delta.abs() {
+            speed_delta
+        } else {
+            acceleration
         };
 
         (current_pos, desired_angle, acceleration)
