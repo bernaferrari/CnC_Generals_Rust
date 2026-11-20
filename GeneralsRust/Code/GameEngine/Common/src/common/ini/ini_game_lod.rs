@@ -198,7 +198,7 @@ impl GameLODManager {
         self.skip_options_persist = false;
     }
 
-    pub(crate) fn get_static_lod_level(&self) -> StaticGameLODLevel {
+    pub fn get_static_lod_level(&self) -> StaticGameLODLevel {
         self.current_static_lod
     }
     pub(crate) fn set_current_static_lod_level(&mut self, level: StaticGameLODLevel) {

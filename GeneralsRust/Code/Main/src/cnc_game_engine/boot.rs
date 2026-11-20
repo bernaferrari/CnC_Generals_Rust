@@ -1,6 +1,40 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+use game_engine::common::ini::ini_game_data::LightingContentRules;
+use game_engine::common::ini::ini_game_lod::{GameLODManager, StaticGameLODLevel};
+
 type StartupAssets = Mutex<crate::assets::manager::AssetManager>;
+
+struct StartupTerrainLod {
+    level: StaticGameLODLevel,
+    max_edges: i32,
+    max_opaque_edges: i32,
+    fade_delay: i32,
+}
+
+impl StartupTerrainLod {
+    fn capture(lod: &GameLODManager) -> Self {
+        let level = lod.get_static_lod_level();
+        // GameLOD init snapshots authored GameData tracks into Custom before Options.
+        let index = level.to_index().unwrap_or(StaticGameLODLevel::Custom as usize);
+        let preset = &lod.static_game_lod_info[index];
+        Self {
+            level,
+            max_edges: preset.max_tank_track_edges,
+            max_opaque_edges: preset.max_tank_track_opaque_edges,
+            fade_delay: preset.max_tank_track_fade_delay,
+        }
+    }
+
+    fn admit(self, world: &mut GameLogic, mut rules: LightingContentRules) {
+        rules.terrain_tracks.max_tank_track_edges = self.max_edges;
+        rules.terrain_tracks.max_tank_track_opaque_edges = self.max_opaque_edges;
+        rules.terrain_tracks.max_tank_track_fade_delay = self.fade_delay;
+        world.admit_lighting_rules_base(rules);
+        world.admit_static_lod_level(Some(self.level));
+    }
+}
+
 impl CnCGameEngine {
     async fn load_map_victory_rule_sources(
         assets: &StartupAssets,
@@ -140,18 +174,6 @@ impl CnCGameEngine {
             Self::allow_debug_startup_flags(),
         );
         rules.show_client_physics &= cli.show_client_physics;
-        // GameLOD init runs before receiving session creation. Capture its
-        // effective application track controls into this session baseline;
-        // later user changes arrive as typed HostOptionsRequest effects.
-        if let Some(global) = game_engine::common::ini::ini_game_data::get_global_data() {
-            let applied =
-                game_engine::common::ini::ini_game_data::TerrainTrackRules::from_global_data(
-                    &global.read(),
-                );
-            rules.terrain_tracks.max_tank_track_edges = applied.max_tank_track_edges;
-            rules.terrain_tracks.max_tank_track_opaque_edges = applied.max_tank_track_opaque_edges;
-            rules.terrain_tracks.max_tank_track_fade_delay = applied.max_tank_track_fade_delay;
-        }
         Ok(rules)
     }
 
@@ -355,6 +377,9 @@ impl CnCGameEngine {
         // GlobalData.writable.frames_per_second_limit / use_fps_limit
         // (GameEngine.cpp:535 setFramesPerSecondLimit).
         game_engine::common::game_lod::load_game_lod_ini_presets_and_options();
+        let startup_terrain_lod = StartupTerrainLod::capture(
+            &gamelogic::system::engine_stores::active_services().common().ini.game_lod.read(),
+        );
         // GameEngine::init sets m_maxFPS from the now-admitted application
         // defaults. Capture them as this engine's immutable baseline before
         // its startup worker or any later session can mutate compatibility data.
@@ -699,15 +724,11 @@ impl CnCGameEngine {
                 .await
                 .map_err(anyhow::Error::msg)?,
         );
-        game_logic.admit_lighting_rules_base(
+        startup_terrain_lod.admit(
+            &mut game_logic,
             Self::load_lighting_rules_baseline(&command_line.raw_args, &application_assets)
                 .await
                 .map_err(anyhow::Error::msg)?,
-        );
-        game_logic.admit_static_lod_level(
-            game_engine::common::ini::ini_game_lod::StaticGameLODLevel::from_str(
-                &game_engine::common::game_lod::get_static_lod(),
-            ),
         );
         // Copy the application-selected mask into the receiving simulation;
         // live OCL calls then advance a per-world debris generation counter.
@@ -2144,6 +2165,10 @@ mod ocl_content;
 #[cfg(test)]
 #[path = "camera_movement_boot_tests.rs"]
 mod camera_movement_rules_tests;
+
+#[cfg(test)]
+#[path = "boot/terrain_lod_tests.rs"]
+mod terrain_lod_tests;
 
 #[cfg(test)]
 mod loose_ini_authority_tests {
