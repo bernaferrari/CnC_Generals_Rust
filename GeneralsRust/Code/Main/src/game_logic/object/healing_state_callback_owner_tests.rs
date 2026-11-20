@@ -43,7 +43,7 @@ fn body() -> Object {
             name: format!("HealingState{}", state.ordinal()),
         });
     }
-    object.bone_fx_damage = Some(HostBoneFxDamageData::from_authored(authored));
+    object.bone_fx_damage = Some(Box::new(HostBoneFxDamageData::from_authored(authored)));
     object
 }
 

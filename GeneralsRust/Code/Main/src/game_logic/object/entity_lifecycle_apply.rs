@@ -167,7 +167,7 @@ fn apply_one(
         TAG_STRUCTURE_COLLAPSE => object.structure_collapse_data = Some(decode_payload(payload)?),
         TAG_KEEP_OBJECT_DIE => object.keep_object_die = Some(decode_payload(payload)?),
         TAG_WAVE_GUIDE => object.wave_guide_data = Some(decode_payload(payload)?),
-        TAG_BONE_FX_DAMAGE => object.bone_fx_damage = Some(decode_payload(payload)?),
+        TAG_BONE_FX_DAMAGE => object.bone_fx_damage = Some(Box::new(decode_payload(payload)?)),
         TAG_POISONED => object.poisoned_behavior = Some(decode_payload(payload)?),
         TAG_DEFECTION => object.defection_helper = Some(decode_payload(payload)?),
         TAG_FIRE_WEAPON_POWER => object.fire_weapon_power = Some(decode_payload(payload)?),

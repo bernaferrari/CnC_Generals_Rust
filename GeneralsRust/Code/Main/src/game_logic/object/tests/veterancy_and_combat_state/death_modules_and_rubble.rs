@@ -282,7 +282,7 @@ fn bone_fx_fires_on_body_damage_worsen() {
         delay_max: 0.0,
         name: "FX_ScudLauncherDamageTransition".into(),
     });
-    o.bone_fx_damage = Some(HostBoneFxDamageData::from_authored(authored));
+    o.bone_fx_damage = Some(Box::new(HostBoneFxDamageData::from_authored(authored)));
     o.health.current = 1000.0;
     o.health.maximum = 1000.0;
     o.refresh_model_condition_bits();
@@ -326,7 +326,7 @@ fn bone_fx_pristine_slots_fire_without_state_change() {
         delay_max: 0.0,
         name: "FX_ScudLauncherPristine".into(),
     });
-    o.bone_fx_damage = Some(HostBoneFxDamageData::from_authored(authored));
+    o.bone_fx_damage = Some(Box::new(HostBoneFxDamageData::from_authored(authored)));
     o.health.current = 1000.0;
     o.health.maximum = 1000.0;
     o.body_damage_state = HostBodyDamageType::Pristine;

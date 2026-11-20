@@ -8,6 +8,7 @@ use super::entity_lifecycle_residuals::{
     WeaponLockResidual,
 };
 use super::entity_lifecycle_tags::*;
+use crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData;
 use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
 use crate::game_logic::host_upgrade_die::HostUpgradeDieData;
 use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate, Weapon};
@@ -293,6 +294,57 @@ fn representative_objects_emit_present_groups_in_declaration_order() {
     factory.base_regenerate =
         Some(crate::game_logic::host_base_regenerate::HostBaseRegenerateData::default());
     attach_round_trip(&factory);
+}
+
+#[test]
+fn boxed_bone_fx_keeps_tagged_payload_bytes_and_absent_default() {
+    let mut residual = HostBoneFxDamageData::default();
+    residual.transitions = 7;
+    residual.last_fx = Some("FX_BoneDamageTransition".to_owned());
+
+    let legacy_payload = super::entity_lifecycle_inventory::encode_payload(&residual)
+        .expect("encode unboxed BoneFX payload");
+    let boxed = Box::new(residual.clone());
+    assert_eq!(
+        super::entity_lifecycle_inventory::encode_payload(&boxed)
+            .expect("encode boxed BoneFX payload"),
+        legacy_payload
+    );
+    assert_eq!(
+        serde_json::to_value(&boxed).unwrap(),
+        serde_json::to_value(&residual).unwrap()
+    );
+
+    let id = ObjectId(88);
+    let mut source = Object::new(ThingTemplate::new("BoneFxWireTest"), id, Team::USA);
+    assert!(source.bone_fx_damage.is_none());
+    let default_envelope = source
+        .entity_lifecycle_envelope()
+        .expect("capture default envelope");
+    assert!(default_envelope
+        .module_states
+        .iter()
+        .all(|state| state.tag != TAG_BONE_FX_DAMAGE));
+    source.bone_fx_damage = Some(boxed);
+    let envelope = source.entity_lifecycle_envelope().expect("capture envelope");
+    let component = envelope
+        .module_states
+        .iter()
+        .find(|state| state.tag == TAG_BONE_FX_DAMAGE)
+        .expect("BoneFXDamage tag");
+    assert_eq!(component.payload, legacy_payload);
+
+    let mut restored = Object::new(ThingTemplate::new("BoneFxWireTest"), id, Team::USA);
+    assert!(restored.bone_fx_damage.is_none());
+    restored
+        .entity_apply_lifecycle_envelope(&envelope)
+        .expect("apply BoneFX envelope");
+    let restored_bone = restored.bone_fx_damage.expect("restored BoneFX residual");
+    assert_eq!(restored_bone.transitions, 7);
+    assert_eq!(
+        restored_bone.last_fx.as_deref(),
+        Some("FX_BoneDamageTransition")
+    );
 }
 
 #[test]

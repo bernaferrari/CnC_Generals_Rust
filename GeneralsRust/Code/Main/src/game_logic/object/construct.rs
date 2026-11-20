@@ -335,7 +335,8 @@ impl Object {
             .and_then(|definition| definition.dozer_ai_is_worker())
             .unwrap_or(false);
         let bone_fx_damage =
-            crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_object_template(&template);
+            crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_object_template(&template)
+                .map(Box::new);
         Self {
             thing: Thing::new(template),
             id,
@@ -1171,7 +1172,8 @@ impl Object {
             .and_then(|definition| definition.dozer_ai_is_worker())
             .unwrap_or(false);
         let bone_fx_damage =
-            crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_object_template(&template);
+            crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_object_template(&template)
+                .map(Box::new);
         Self {
             thing: Thing::new(template),
             id,

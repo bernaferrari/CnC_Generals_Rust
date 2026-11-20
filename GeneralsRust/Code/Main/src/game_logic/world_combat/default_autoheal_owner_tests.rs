@@ -168,7 +168,7 @@ fn default_autoheal_bypasses_indestructible_and_delivers_healing_filtered_state_
         delay_max: 0.0,
         name: "ReceivingAutoHealPristine".into(),
     });
-    object.bone_fx_damage = Some(HostBoneFxDamageData::from_authored(authored));
+    object.bone_fx_damage = Some(Box::new(HostBoneFxDamageData::from_authored(authored)));
     owner.frame = 19;
     owner.update_default_auto_heal().unwrap();
     let object = owner.host_object(id).unwrap();

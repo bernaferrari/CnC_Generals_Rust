@@ -126,7 +126,7 @@ End
         delay_max: 0.0,
         name: "ContainmentHealingState".into(),
     });
-    object.bone_fx_damage = Some(HostBoneFxDamageData::from_authored(authored));
+    object.bone_fx_damage = Some(Box::new(HostBoneFxDamageData::from_authored(authored)));
     owner.frame = 101;
     (owner, container, passenger)
 }

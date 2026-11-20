@@ -381,7 +381,7 @@ mod tests {
             delay_max: 0.0,
             name: "BodyCommitRubbleFx".into(),
         });
-        object.bone_fx_damage = Some(HostBoneFxDamageData::from_authored(authored));
+        object.bone_fx_damage = Some(Box::new(HostBoneFxDamageData::from_authored(authored)));
         object.create_object_die = Some(HostCreateObjectDieData {
             ocl_name: "NeverAnOrdinaryHealthDeath".into(),
             spawn_templates: vec!["NeverAnOrdinaryHealthDeath".into()],

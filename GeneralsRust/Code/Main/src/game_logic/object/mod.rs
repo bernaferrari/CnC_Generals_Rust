@@ -1710,9 +1710,9 @@ pub struct Object {
     /// C++ FireWeaponWhenDead residual once-fired flag.
     #[serde(default)]
     pub fire_weapon_when_dead_fired: bool,
-    /// C++ BoneFXDamage residual.
+    /// C++ BoneFXDamage residual, allocated only for objects with that module.
     #[serde(default)]
-    pub bone_fx_damage: Option<crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData>,
+    pub bone_fx_damage: Option<Box<crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData>>,
     /// C++ PoisonedBehavior residual.
     #[serde(default)]
     pub poisoned_behavior:

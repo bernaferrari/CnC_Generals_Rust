@@ -1013,8 +1013,7 @@ impl crate::game_logic::Object {
                 &self.template_name,
             )
         {
-            // Only a present module writes the inline schedules and bone arrays.
-            self.bone_fx_damage = Some(module);
+            self.bone_fx_damage = Some(Box::new(module));
         }
     }
 }
@@ -1581,7 +1580,7 @@ mod owned_body_frame_tests {
         // update, so a damage-driven schedule is the one that stands.
         let mut data = HostBoneFxDamageData::from_authored(authored);
         data.active = true;
-        world.host_object_mut(id).unwrap().bone_fx_damage = Some(data);
+        world.host_object_mut(id).unwrap().bone_fx_damage = Some(Box::new(data));
         (world, id)
     }
     fn damage(world: &mut GameLogic, id: ObjectId, amount: f32, kind: DamageType) {
