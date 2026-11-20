@@ -160,7 +160,7 @@ impl LocalFileSystem {
     }
 
     /// Find a file in the search paths
-    fn find_file_path(&self, filename: &str) -> Option<PathBuf> {
+    fn find_file_path(&self, filename: &str, allow_current_directory: bool) -> Option<PathBuf> {
         // C++ engine paths are Win32 (`Data\\Scripts\\SkirmishScripts.scb`);
         // Win32LocalFileSystem hands them to the OS where `\\` is a separator.
         // On other hosts `\\` is an ordinary filename byte, so treat it as the
@@ -193,10 +193,11 @@ impl LocalFileSystem {
         // A truncated extract must not win; later search paths and the archive
         // backend still get a chance.
         let direct_path = Path::new(filename);
-        if let Some(path) = Self::resolve_existing_path_case_insensitive(direct_path) {
-            if let Some(path) = accept(path) {
-                return Some(path);
-            }
+        if (allow_current_directory || direct_path.is_absolute())
+            && let Some(path) = Self::resolve_existing_path_case_insensitive(direct_path)
+            && let Some(path) = accept(path)
+        {
+            return Some(path);
         }
 
         for search_path in &self.search_paths {
@@ -209,6 +210,18 @@ impl LocalFileSystem {
         }
 
         None
+    }
+
+    fn open_local_file(
+        &self,
+        filename: &str,
+        access: FileAccess,
+        allow_current_directory: bool,
+    ) -> Option<Box<dyn File>> {
+        let path = self.find_file_path(filename, allow_current_directory)?;
+        let mut file = LocalFile::new();
+        file.open(path.to_string_lossy().as_ref(), access).ok()?;
+        Some(Box::new(file))
     }
 
     /// Convert filesystem metadata to FileInfo
@@ -361,14 +374,11 @@ impl FileSystemBackend for LocalFileSystem {
     }
 
     fn open_mounted_file(&mut self, filename: &str, access: FileAccess) -> Option<Box<dyn File>> {
-        let path = self.find_file_path(filename)?;
-        let mut file = LocalFile::new();
-        file.open(path.to_string_lossy().as_ref(), access).ok()?;
-        Some(Box::new(file))
+        self.open_local_file(filename, access, false)
     }
 
     fn open_file(&mut self, filename: &str, access: FileAccess) -> Option<Box<dyn File>> {
-        if let Some(file) = self.open_mounted_file(filename, access) {
+        if let Some(file) = self.open_local_file(filename, access, true) {
             return Some(file);
         }
         if access.contains(FileAccess::WRITE) || !access.contains(FileAccess::READ) {
@@ -385,7 +395,7 @@ impl FileSystemBackend for LocalFileSystem {
     }
 
     fn does_file_exist(&self, filename: &str) -> bool {
-        if self.find_file_path(filename).is_some() {
+        if self.find_file_path(filename, true).is_some() {
             return true;
         }
         crate::common::system::archive_file_system::get_archive_file_system()
@@ -450,7 +460,7 @@ impl FileSystemBackend for LocalFileSystem {
     }
 
     fn get_file_info(&self, filename: &AsciiString) -> Option<FileInfo> {
-        if let Some(file_path) = self.find_file_path(filename.as_str()) {
+        if let Some(file_path) = self.find_file_path(filename.as_str(), true) {
             if let Ok(metadata) = fs::metadata(file_path) {
                 return Some(Self::metadata_to_file_info(&metadata));
             }
@@ -590,7 +600,7 @@ mod tests {
         fs::write(scripts.join("SkirmishScripts.scb"), b"CkMp").unwrap();
         let mut fs_backend = LocalFileSystem::new();
         fs_backend.add_search_path(&root);
-        let found = fs_backend.find_file_path("Data\\Scripts\\SkirmishScripts.scb");
+        let found = fs_backend.find_file_path("Data\\Scripts\\SkirmishScripts.scb", true);
         let _ = fs::remove_dir_all(&root);
         assert_eq!(
             found.map(|p| p.file_name().map(|n| n.to_os_string())),
@@ -775,7 +785,7 @@ mod tests {
         fs_backend.add_search_path(test_root.path());
         let request = "art/textures/MainMenuRuleruserinterface.tga";
         let resolved = fs_backend
-            .find_file_path(request)
+            .find_file_path(request, true)
             .expect("case-insensitive local lookup should resolve");
 
         // Win32LocalFileSystem.cpp:21-54 opens the requested file through the
@@ -897,6 +907,12 @@ mod tests {
         let mut receiving = crate::common::system::file_system::FileSystem::new();
         receiving.ensure_backend(LocalFileSystem::new);
         assert!(receiving.open_mounted_file(name, FileAccess::READ).is_none());
+        // This test's real cwd contains Cargo.toml. A caller with no CWD
+        // mount must not accidentally pick it up through a relative path.
+        assert!(Path::new("Cargo.toml").is_file());
+        assert!(receiving.open_mounted_file("Cargo.toml", FileAccess::READ).is_none());
+        receiving.ensure_backend(LocalFileSystem::new).add_search_path(".");
+        assert!(receiving.open_mounted_file("Cargo.toml", FileAccess::READ).is_some());
 
         let mut backend = LocalFileSystem::new();
         assert!(backend.does_file_exist(name));
