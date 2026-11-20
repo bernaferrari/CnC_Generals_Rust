@@ -1367,8 +1367,8 @@ impl CppState for AIAttackFireWeaponState {
         if self.attacking_object {
             if let Some(target) = victim {
                 let victim_id = target.read().ok().map(|g| g.get_id());
-                if let Ok(target_guard) = target.read() {
-                    let _ = owner_guard.fire_current_weapon_at_object(&*target_guard);
+                if let Some(victim_id) = victim_id {
+                    let _ = owner_guard.fire_current_weapon_at_target_id(victim_id);
                 }
 
                 if let Some(current_victim) = owner_guard.ai_fire_current_victim {

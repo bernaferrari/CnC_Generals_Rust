@@ -1060,6 +1060,7 @@ fn held_weapon_dispatches_installed_armed_friend_retaliation() {
     mounted_retaliation_response(RetaliationShot::HeldAtPosition);
     mounted_retaliation_response(RetaliationShot::HeldAtObject);
     mounted_retaliation_response(RetaliationShot::HeldAfterMoving);
+    mounted_retaliation_response(RetaliationShot::InstalledAttackObject);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1069,6 +1070,7 @@ enum RetaliationShot {
     HeldAtPosition,
     HeldAtObject,
     HeldAfterMoving,
+    InstalledAttackObject,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1090,9 +1092,10 @@ fn mounted_retaliation_response(shot: RetaliationShot) {
     let impact = Coord3D::new(105.0, 105.0, 0.0);
     let guard_position = Coord3D::new(140.0, 105.0, 0.0);
     let must_move = matches!(shot, RetaliationShot::HeldAfterMoving);
+    let installed_attack = matches!(shot, RetaliationShot::InstalledAttackObject);
     let mount = |world: &Arc<EngineStores>| {
         with_active_stores(world, || {
-            if must_move {
+            if must_move || installed_attack {
                 world.services().terrain().write().unwrap()
                     .try_restore_logic_height_map_with_effects(40, 40, &[0; 1600], &mut || {})
                     .unwrap();
@@ -1227,7 +1230,7 @@ End
             defender
                 .write()
                 .unwrap()
-                .set_logical_retaliation_mode_enabled(true);
+                .set_logical_retaliation_mode_enabled(!installed_attack);
             (source, victim, friend, weapon)
         })
     };
@@ -1292,6 +1295,22 @@ End
                 source.reload_all_ammo(true).unwrap();
                 source.fire_current_weapon_at_position(&impact).unwrap();
             }
+            RetaliationShot::InstalledAttackObject => {
+                let attacker_ai = source.read().unwrap().get_ai().unwrap();
+                let mut command = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::AttackObject,
+                    crate::ai::CommandSourceType::FromPlayer,
+                );
+                command.obj = Some(victim.read().unwrap().get_id());
+                command.int_value = crate::weapon::NO_MAX_SHOTS_LIMIT;
+                source.write().unwrap().reload_all_ammo(true).unwrap();
+                attacker_ai.lock().unwrap().execute_command(&command).unwrap();
+                for (frame, expected_health) in [(39, 100.0), (40, 0.0)] {
+                    get_game_logic().lock().unwrap().update(frame, || None).unwrap();
+                    attacker_ai.lock().unwrap().update().unwrap();
+                    assert_eq!(victim.read().unwrap().get_health(), expected_health);
+                }
+            }
             RetaliationShot::HeldAtObject => {
                 let target_id = victim.read().unwrap().get_id();
                 let mut source = source.write().unwrap();
@@ -1303,6 +1322,10 @@ End
         assert_eq!(victim.read().unwrap().get_health(), 0.0);
         assert!(victim.read().unwrap().is_effectively_dead());
         assert_eq!(friend.read().unwrap().get_health(), 100.0);
+        if installed_attack {
+            assert!(ai.is_idle());
+            return;
+        }
         assert!(!ai.is_idle());
         let ai = ai.lock().unwrap();
         assert_eq!(ai.get_goal_object_id(), source_id);
