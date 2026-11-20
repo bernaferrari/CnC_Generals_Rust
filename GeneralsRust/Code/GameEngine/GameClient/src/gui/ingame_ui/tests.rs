@@ -1119,7 +1119,16 @@ mod tests {
         Language::register_localized_string("SCRIPT:Typed", "Go.");
         let mut hud = crate::gui::ingame_ui::live_hud::LiveHud::default();
         let mut wm = crate::gui::window_manager::WindowManager::new();
-        apply_military_caption_style(&mut hud, (10.0, 340.0), 0xFFFF_FFFF, 12);
+        apply_military_caption_style(
+            &mut hud,
+            (10.0, 340.0),
+            0xFFFF_FFFF,
+            [
+                crate::gui::font::FontDesc::new("Courier New", 12, true),
+                crate::gui::font::FontDesc::new("Courier New", 12, false),
+            ],
+            0.7,
+        );
         start_military_subtitle(&mut hud, "SCRIPT:Typed", 5000, 1, &mut wm);
         let mut visible = 0;
         for frame in 1..200 {
@@ -1144,10 +1153,19 @@ mod tests {
         Language::register_localized_string("SCRIPT:Briefing", "Hold the line.");
         let mut hud = crate::gui::ingame_ui::live_hud::LiveHud::default();
         let mut wm = crate::gui::window_manager::WindowManager::new();
-        apply_military_caption_style(&mut hud, (10.0, 340.0), 0xFFFF_FFFF, 12);
+        apply_military_caption_style(
+            &mut hud,
+            (10.0, 340.0),
+            0xFFFF_FFFF,
+            [
+                crate::gui::font::FontDesc::new("Courier New", 12, true),
+                crate::gui::font::FontDesc::new("Courier New", 12, false),
+            ],
+            0.7,
+        );
         let frame = TheGameLogic::get_frame();
         start_military_subtitle(&mut hud, "SCRIPT:Briefing", 5000, frame, &mut wm);
-        let (text, _, color, pos, _) =
+        let (text, _, color, pos) =
             live_military_subtitle_draw(&mut hud, frame).expect("live caption must start");
         assert!(
             text.is_empty(),

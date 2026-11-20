@@ -4,10 +4,15 @@
 //! `InGameUISubsystem` / `impl_draw` snapshot used to dump the full string
 //! and never called `add_named_timer`. This module is the shared live state.
 
-use super::{MilitarySubtitle, NamedTimerData};
+use super::NamedTimerData;
 use crate::game_text::GameText;
-use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
-use std::collections::HashMap;
+use crate::gui::{
+    callbacks::diplomacy::update_diplomacy_briefing_text,
+    display_string::DisplayString,
+    font::{FontDesc, GameFont},
+    ui_renderer::{UIRect, UIRenderer},
+};
+use std::{collections::HashMap, sync::Arc};
 
 /// C++ `MAX_SUBTITLE_LINES` (InGameUI.h:235).
 const MAX_SUBTITLE_LINES: usize = 4;
@@ -25,14 +30,27 @@ const DEFAULT_SUPERWEAPON_FLASH: u32 = 0xFFFF_FF33;
 /// C++ `parseDurationReal` 0.5s at 30fps — visible READY blink.
 const DEFAULT_SUPERWEAPON_FLASH_FRAMES: u32 = 15;
 
+struct LiveMilitarySubtitle {
+    text: String,
+    next_byte: usize,
+    position: (f32, f32),
+    lifetime_frame: u32,
+    block_drawn: bool,
+    block_begin_frame: u32,
+    increment_on_frame: u32,
+    color: u32,
+    display_lines: Vec<DisplayString>,
+}
+
 pub struct LiveHud {
     counter_values: HashMap<String, i32>,
     /// Typed caption characters whose C++ `MilitarySubtitlesTyping` sound
     /// the owning UI has not played yet.
     pending_typing_sounds: u32,
-    subtitle: Option<MilitarySubtitle>,
+    subtitle: Option<LiveMilitarySubtitle>,
     caption_speed: i32,
-    caption_point_size: i32,
+    caption_fonts: [FontDesc; 2],
+    caption_resolution_adjustment: f32,
     caption_position: (f32, f32),
     caption_color: u32,
     named_timers: Vec<NamedTimerData>,
@@ -55,7 +73,11 @@ impl LiveHud {
             counter_values: HashMap::new(),
             subtitle: None,
             caption_speed: 1,
-            caption_point_size: 12,
+            caption_fonts: [
+                FontDesc::new("Courier New", 12, true),
+                FontDesc::new("Courier New", 12, false),
+            ],
+            caption_resolution_adjustment: 0.7,
             caption_position: INI_CAPTION_POSITION,
             caption_color: INI_CAPTION_COLOR,
             named_timers: Vec::new(),
@@ -127,36 +149,32 @@ pub fn start_military_subtitle(
         let lifetime_frame = frame + (30 * duration_ms.max(0) as u32) / 1000;
         let delay = super::InGameUI::military_caption_delay_frames();
         let pos = hud.caption_position;
-        hud.subtitle = Some(MilitarySubtitle {
+        hud.subtitle = Some(LiveMilitarySubtitle {
             text: title,
-            index: 0,
+            next_byte: 0,
             position: pos,
             lifetime_frame,
             block_drawn: true,
             block_begin_frame: frame,
-            block_pos: pos,
             increment_on_frame: frame + delay,
             color: hud.caption_color,
-            display_lines: vec![String::new()],
-            current_display_string: 0,
+            display_lines: vec![DisplayString::new()],
         });
     })(hud);
 }
 
-/// Apply InGameUI.ini MilitaryCaptionPosition / MilitaryCaptionColor to the live path.
+/// Admit the caption's authored origin, color, title font, and body font.
 pub fn apply_military_caption_style(
     hud: &mut LiveHud,
     position: (f32, f32),
     color: u32,
-    point_size: i32,
+    fonts: [FontDesc; 2],
+    resolution_adjustment: f32,
 ) {
-    (|hud: &mut LiveHud| {
-        hud.caption_position = position;
-        hud.caption_color = color;
-        if point_size > 0 {
-            hud.caption_point_size = point_size;
-        }
-    })(hud);
+    hud.caption_position = position;
+    hud.caption_color = color;
+    hud.caption_fonts = fonts;
+    hud.caption_resolution_adjustment = resolution_adjustment;
 }
 
 pub fn add_named_timer(hud: &mut LiveHud, name: &str, text: &str, is_countdown: bool) {
@@ -215,40 +233,25 @@ fn step_subtitle(hud: &mut LiveHud, frame: u32) {
     if subtitle.increment_on_frame >= frame {
         return;
     }
-    let Some(ch) = subtitle.text.chars().nth(subtitle.index) else {
+    let Some(ch) = subtitle.text[subtitle.next_byte..].chars().next() else {
         subtitle.increment_on_frame = subtitle.lifetime_frame + 1;
         return;
     };
+    subtitle.next_byte += ch.len_utf8();
     if ch == '\n' {
-        subtitle.block_pos.1 += hud.caption_point_size.max(1) as f32;
-        subtitle.current_display_string = subtitle.current_display_string.saturating_add(1);
-        if subtitle.current_display_string >= MAX_SUBTITLE_LINES {
-            subtitle.index = subtitle.text.chars().count();
+        if subtitle.display_lines.len() >= MAX_SUBTITLE_LINES {
+            subtitle.next_byte = subtitle.text.len();
         } else {
-            subtitle.block_pos.0 = subtitle.position.0;
-            if subtitle.display_lines.len() <= subtitle.current_display_string {
-                subtitle.display_lines.push(String::new());
-            }
+            subtitle.display_lines.push(DisplayString::new());
             subtitle.block_drawn = true;
             subtitle.increment_on_frame = frame + super::InGameUI::military_caption_delay_frames();
         }
     } else {
-        if subtitle.display_lines.is_empty() {
-            subtitle.display_lines.push(String::new());
-            subtitle.current_display_string = 0;
-        }
-        let line = subtitle
-            .current_display_string
-            .min(subtitle.display_lines.len().saturating_sub(1));
-        subtitle.display_lines[line].push(ch);
-        let printed = subtitle.display_lines[line].chars().count();
-        subtitle.block_pos.0 =
-            subtitle.position.0 + printed as f32 * hud.caption_point_size.max(1) as f32 * 0.6;
+        subtitle.display_lines.last_mut().unwrap().append_char(ch);
         subtitle.increment_on_frame = frame + hud.caption_speed.max(1) as u32;
         hud.pending_typing_sounds += 1;
     }
-    subtitle.index += 1;
-    if subtitle.index >= subtitle.text.chars().count() {
+    if subtitle.next_byte == subtitle.text.len() {
         subtitle.increment_on_frame = subtitle.lifetime_frame + 1;
     }
 }
@@ -322,23 +325,76 @@ fn step_to_frame(hud: &mut LiveHud, frame: u32) {
     step_named_timers(hud, frame);
 }
 
-/// Typed caption + blinking block for the live postDraw path.
-pub fn live_military_subtitle_draw(
+pub(crate) fn military_subtitle_is_active(hud: &LiveHud) -> bool {
+    hud.subtitle.is_some()
+}
+
+/// Draw the caption and its cursor using the same display strings and font metrics.
+pub(crate) fn paint_live_military_subtitle(
+    hud: &mut LiveHud,
+    renderer: &mut UIRenderer,
+    viewport: (f32, f32),
+) {
+    let Some(subtitle) = hud.subtitle.as_mut() else {
+        return;
+    };
+    let (width, height) = viewport;
+    let x = (subtitle.position.0 * (width / 800.0)) as i32;
+    let mut y = (subtitle.position.1 * (height / 600.0)) as i32;
+    let font_scale =
+        (1.0 + (width / 800.0 - 1.0) * hud.caption_resolution_adjustment).clamp(1.0, 2.0);
+    let drop_color = subtitle.color & 0xff00_0000;
+    let final_line = subtitle.display_lines.len() - 1;
+    for (index, line) in subtitle.display_lines.iter_mut().enumerate() {
+        let face = &hud.caption_fonts[usize::from(index > 0)];
+        let point_size = ((face.size as f32 * font_scale) as i32).clamp(1, 100);
+        if line.get_font().is_none_or(|font| {
+            font.desc.size != point_size || font.desc.bold != face.bold || font.desc.name != face.name
+        }) {
+            let desc = FontDesc::new(&face.name, point_size, face.bold);
+            let font = renderer
+                .registered_font(&desc)
+                .or_else(|| GameFont::new(desc).ok().map(Arc::new));
+            if let Some(font) = font {
+                line.set_font(font);
+            }
+        }
+        line.draw_with_renderer(renderer, x, y, subtitle.color, drop_color, 1, 1);
+        let (advance, line_height) = line.get_size();
+        if index == final_line && subtitle.block_drawn {
+            let cell = line.get_font().map_or(line_height, |font| font.height);
+            // Leave one pixel after typed text for the raster's right bearing.
+            let cursor_x = x + advance + i32::from(advance > 0);
+            renderer.draw_rect(
+                UIRect::new(
+                    cursor_x as f32,
+                    y as f32,
+                    (cell as f32 * 0.8).trunc(),
+                    cell as f32,
+                ),
+                argb_to_rgba(subtitle.color),
+                0.0,
+            );
+        }
+        y += line_height;
+    }
+}
+
+#[cfg(test)]
+pub(super) fn live_military_subtitle_draw(
     hud: &mut LiveHud,
     frame: u32,
-) -> Option<(String, bool, u32, (f32, f32), (f32, f32))> {
-    (|hud: &mut LiveHud| {
-        step_to_frame(hud, frame);
-        hud.subtitle.as_ref().map(|s| {
-            (
-                s.visible_text(),
-                s.block_drawn,
-                s.color,
-                s.position,
-                s.block_pos,
-            )
-        })
-    })(hud)
+) -> Option<(String, bool, u32, (f32, f32))> {
+    step_to_frame(hud, frame);
+    hud.subtitle.as_ref().map(|s| {
+        let text = s
+            .display_lines
+            .iter()
+            .map(DisplayString::get_text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        (text, s.block_drawn, s.color, s.position)
+    })
 }
 
 /// Formatted named-timer lines (text, x-fraction, color, ready-font).

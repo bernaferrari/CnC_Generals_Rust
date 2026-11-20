@@ -1999,7 +1999,33 @@ impl SubsystemInterface for InGameUISubsystem {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(settings) = game_engine::common::ini::ini_in_game_ui::get_in_game_ui_settings()
         {
+            use crate::gui::font::FontDesc;
+            use game_engine::common::ini::ini_language;
             let color = settings.military_caption_color;
+            let mut fonts = [
+                FontDesc::new(
+                    &settings.military_caption_title_font,
+                    settings.military_caption_title_point_size,
+                    settings.military_caption_title_bold,
+                ),
+                FontDesc::new(
+                    &settings.military_caption_font,
+                    settings.military_caption_point_size,
+                    settings.military_caption_bold,
+                ),
+            ];
+            let mut resolution_adjustment = 0.7;
+            if let Some(language) = ini_language::get_global_language_read() {
+                resolution_adjustment = language.resolution_font_size_adjustment;
+                for (font, localized) in fonts.iter_mut().zip([
+                    &language.military_caption_title_font,
+                    &language.military_caption_font,
+                ]) {
+                    if !localized.name.is_empty() && *localized != ini_language::FontDesc::default() {
+                        *font = FontDesc::new(&localized.name, localized.size, localized.bold);
+                    }
+                }
+            }
             crate::gui::ingame_ui::apply_military_caption_style(
                 &mut self.live_hud,
                 (
@@ -2010,7 +2036,8 @@ impl SubsystemInterface for InGameUISubsystem {
                     | ((color.red as u32) << 16)
                     | ((color.green as u32) << 8)
                     | color.blue as u32,
-                settings.military_caption_title_point_size,
+                fonts,
+                resolution_adjustment,
             );
         }
         self.clear_runtime_state();

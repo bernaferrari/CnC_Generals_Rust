@@ -234,13 +234,13 @@ client_random: &mut self.client_random,
         frame: u32,
     ) -> (
         Vec<(String, [f32; 4])>,
-        Option<String>,
+        bool,
         Vec<(String, String, bool)>,
         Vec<(String, [f32; 3], (u8, u8, u8, u8), u32, u32)>,
         Vec<game_engine::common::world_animation::WorldAnimationPresentation>,
     ) {
         let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() else {
-            return (Vec::new(), None, Vec::new(), Vec::new(), Vec::new());
+            return (Vec::new(), false, Vec::new(), Vec::new(), Vec::new());
         };
         let guard = ui;
         let messages: Vec<(String, [f32; 4])> = guard
@@ -261,9 +261,7 @@ client_random: &mut self.client_random,
             .collect();
 
         crate::gui::ingame_ui::step_live_hud(&mut guard.live_hud, frame);
-        let subtitle =
-            crate::gui::ingame_ui::live_military_subtitle_draw(&mut guard.live_hud, frame)
-                .map(|(text, _, _, _, _)| text);
+        let subtitle = crate::gui::ingame_ui::military_subtitle_is_active(&guard.live_hud);
         guard.play_live_hud_typing_sounds();
         // C++ draws named timers (0.05,0.7) and superweapon timers (0.7,0.7)
         // independently. Named lines must not replace the SW strip.
@@ -284,7 +282,7 @@ client_random: &mut self.client_random,
         let (messages, subtitle, timers, floating, world_anims) =
             self.packed_ingame_hud_snapshot(frame);
         counts.messages = messages.len() as u32;
-        counts.military_subtitles = u32::from(subtitle.is_some());
+        counts.military_subtitles = u32::from(subtitle);
         counts.superweapon_timers = timers.len() as u32;
         counts.floating_texts = floating.len() as u32;
 
@@ -311,10 +309,8 @@ client_random: &mut self.client_random,
                     .then_some(pos)
             })
             .collect();
-        let (subtitle_draw, named, timer_styles) =
+        let (named, timer_styles) =
             if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
-                let caption =
-                    crate::gui::ingame_ui::live_military_subtitle_draw(&mut ui.live_hud, frame);
                 let named = crate::gui::ingame_ui::live_named_timer_draw(&mut ui.live_hud, frame);
                 ui.play_live_hud_typing_sounds();
                 let styles: Vec<_> = timers
@@ -327,9 +323,9 @@ client_random: &mut self.client_random,
                         )
                     })
                     .collect();
-                (caption, named, styles)
+                (named, styles)
             } else {
-                (None, Vec::new(), Vec::new())
+                (Vec::new(), Vec::new())
             };
         if let Some(renderer) = self.ui_renderer.as_mut() {
             let (screen_w, screen_h) = renderer.screen_size();
@@ -354,34 +350,13 @@ client_random: &mut self.client_random,
                 y += 14.0;
             }
 
-            // C++ military subtitle (InGameUI.cpp:3461-3484) — typed lines + block.
-            if let Some((text, block_drawn, color, pos, block_pos)) = subtitle_draw {
-                let a = ((color >> 24) & 0xFF) as f32 / 255.0;
-                let r = ((color >> 16) & 0xFF) as f32 / 255.0;
-                let g = ((color >> 8) & 0xFF) as f32 / 255.0;
-                let b = (color & 0xFF) as f32 / 255.0;
-                let rgba = [r, g, b, a];
-                let mut y = pos.1 * (screen_h / 600.0);
-                let x = pos.0 * (screen_w / 800.0);
-                for line in text.split('\n') {
-                    let drop = [0.0, 0.0, 0.0, a];
-                    let _ =
-                        renderer.draw_text_simple(line, Vec2::new(x + 1.0, y + 1.0), 12.0, drop);
-                    let _ = renderer.draw_text_simple(line, Vec2::new(x, y), 12.0, rgba);
-                    y += 12.0;
-                }
-                if block_drawn {
-                    let _ = renderer.draw_rect(
-                        crate::gui::ui_renderer::UIRect::new(
-                            block_pos.0 * (screen_w / 800.0),
-                            block_pos.1 * (screen_h / 600.0),
-                            10.0,
-                            12.0,
-                        ),
-                        rgba,
-                        0.0,
-                    );
-                }
+            // C++ military subtitle (InGameUI.cpp:3461-3484).
+            if let Some(ui) = self.subsystem_manager.in_game_ui.as_mut() {
+                crate::gui::ingame_ui::paint_live_military_subtitle(
+                    &mut ui.live_hud,
+                    renderer,
+                    (screen_w, screen_h),
+                );
             }
 
             // Named timers (C++ InGameUI.cpp:3699-3784) at constructor pos 0.05, 0.7.
