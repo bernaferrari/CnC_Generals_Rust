@@ -243,7 +243,7 @@ fn alnum_lower_contains_any(s: &str, needles: &[&[u8]]) -> bool {
         .any(|needle| folded.windows(needle.len()).any(|w| w == *needle))
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RailroadTemplateRole {
     Locomotive,
     Carriage,
@@ -723,12 +723,24 @@ impl HostRailroadCar {
 #[derive(Debug, Clone, Default)]
 pub struct HostRailroadRegistry {
     cars: HashMap<ObjectId, HostRailroadCar>,
+    // This classification depends only on the exact template name.
+    template_roles:
+        game_engine::common::fast_hash::FxHashMap<String, Option<RailroadTemplateRole>>,
     /// Test / script inject: track used when TerrainLogic is empty.
     injected_tracks: HashMap<ObjectId, HostTrainTrack>,
     moved_count: u32,
 }
 
 impl HostRailroadRegistry {
+    fn role_for_template(&mut self, name: &str) -> Option<RailroadTemplateRole> {
+        if let Some(&role) = self.template_roles.get(name) {
+            return role;
+        }
+        let role = railroad_template_role(name);
+        self.template_roles.insert(name.to_owned(), role);
+        role
+    }
+
     pub fn get(&self, id: ObjectId) -> Option<&HostRailroadCar> {
         self.cars.get(&id)
     }
@@ -872,9 +884,9 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let pose_frame = self.frame;
-        // Keep the C++ list traversal order. Borrow each compatibility name
-        // and classify it once, even when many live Objects share it.
-        let mut template_roles = game_engine::common::fast_hash::FxHashMap::default();
+        // Keep the C++ list traversal order while reusing this world's
+        // template classifications on subsequent ticks.
+        let railroad = &mut self.railroad;
         let living: Vec<_> = self
             .objects
             .registered()
@@ -885,11 +897,8 @@ impl GameLogic {
                 if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
                     return None;
                 }
-                let name = obj.template_name.as_str();
-                let role = *template_roles
-                    .entry(name)
-                    .or_insert_with(|| railroad_template_role(name));
-                if role.is_none() && self.railroad.get(*id).is_none() {
+                let role = railroad.role_for_template(&obj.template_name);
+                if role.is_none() && railroad.get(*id).is_none() {
                     return None;
                 }
                 Some((*id, obj.get_position(), role))
@@ -1451,6 +1460,10 @@ mod tests {
         for _ in 0..30 {
             logic.update_railroads();
         }
+        assert_eq!(
+            logic.railroad.template_roles.get("CivilianTrainEngine"),
+            Some(&Some(RailroadTemplateRole::Locomotive))
+        );
         let after = logic.host_object(id).unwrap().get_position();
         assert!(
             after.x > start.x + 1.0,

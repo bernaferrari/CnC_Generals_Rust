@@ -673,17 +673,17 @@ impl GameLogic {
         if self.frame == 0 {
             return;
         }
-        for obj in self.objects.registered_values_mut() {
+        self.objects.for_each_registered_mut(|obj| {
             // UpdateModule's default disabled mask is empty: GameLogic skips
             // OpenContain::update while any disabled flag is present.
             if obj.has_disabled_type()
                 || obj.thing().template.contain_module.kind == ContainModuleKind::Parachute
             {
-                continue;
+                return;
             }
             obj.player_who_entered = None;
             Self::update_open_contain_door(obj);
-        }
+        });
     }
 
     pub(in crate::game_logic) fn update_open_contain_door(obj: &mut Object) {

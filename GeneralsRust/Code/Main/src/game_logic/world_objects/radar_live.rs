@@ -12,7 +12,7 @@ use game_engine::common::system::radar::{RadarBridgeSample, RadarTerrainPaintSou
 
 use game_engine::common::system::radar::{
     Coord3D, RadarMapSource, RadarObject, RadarObjectInsert, RadarObjectProvider,
-    RadarPriorityType, resolve_radar_object_color,
+    RadarPriorityType,
 };
 
 pub(crate) struct HostRadarMapState {
@@ -613,7 +613,6 @@ impl GameLogic {
             return;
         };
         let spec = self.host_radar_insert_spec(obj);
-        let _ = resolve_radar_object_color(&spec);
         {
             let radar = &mut self.radar;
             radar.add_live_object(spec);
@@ -645,12 +644,12 @@ impl GameLogic {
                 shroud.refresh_radar_shroud_for_player_into(local_id, self.frame, &mut self.radar);
             }
         }
-        let live: std::collections::HashSet<u32> = ids.iter().map(|id| id.0).collect();
         {
+            let objects = &self.objects;
             let radar = &mut self.radar;
             let stale: Vec<u32> = radar
                 .get_all_objects()
-                .filter(|obj| !live.contains(&obj.object_id))
+                .filter(|obj| objects.get_registered(&ObjectId(obj.object_id)).is_none())
                 .map(|obj| obj.object_id)
                 .collect();
             for id in stale {
@@ -672,6 +671,7 @@ impl GameLogic {
 mod tests {
     use super::*;
     use crate::game_logic::{Player, ThingTemplate};
+    use game_engine::common::system::radar::resolve_radar_object_color;
     use glam::Vec3;
 
     /// C++ Radar.cpp:118-125 queries live Drawable stealth/pose each update.
@@ -727,6 +727,11 @@ mod tests {
             blip.is_temporarily_hidden(),
             "enemy cloak after spawn must hide the blip"
         );
+
+        let retired = logic.objects.remove_owned(&id).unwrap();
+        logic.host_radar_sync_live_objects();
+        assert_eq!(retired.id, id);
+        assert!(logic.radar().get_all_objects().all(|blip| blip.object_id != id.0));
     }
 
     #[test]

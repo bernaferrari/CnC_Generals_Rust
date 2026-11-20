@@ -566,12 +566,10 @@ fn bars_get_with_state<'a>(
 
 /// C++ `setPauseAnimation(!getDrawable()->getShouldAnimate(m_animationsRequirePower))`.
 fn leftover_should_animate_for_presentation(
-    presentation: Option<&crate::presentation_frame::PresentationFrame>,
-    object_id: crate::game_logic::ObjectId,
+    object: Option<&crate::presentation_frame::RenderableObject>,
     consider_power: bool,
 ) -> bool {
-    let Some(ro) = presentation.and_then(|frame| frame.objects.iter().find(|o| o.id == object_id))
-    else {
+    let Some(ro) = object else {
         // C++ Drawable.cpp:638 — no object returns TRUE.
         return true;
     };
@@ -720,6 +718,7 @@ impl RenderPipeline {
     pub(super) fn advance_authored_draw_animation(
         &mut self,
         object_id: crate::game_logic::ObjectId,
+        animation_object: Option<&crate::presentation_frame::RenderableObject>,
         draw_module_index: u32,
         model: &crate::assets::W3DModel,
         source_template_name: &str,
@@ -866,8 +865,7 @@ impl RenderPipeline {
         }
         let Some(expected) = identity.animation.as_ref() else {
             let should_animate = leftover_should_animate_for_presentation(
-                self.presentation_frame.as_deref(),
-                object_id,
+                animation_object,
                 draw_model.animations_require_power.get(),
             );
             if let Some((binding, frame)) =
@@ -952,8 +950,7 @@ impl RenderPipeline {
             });
         }
         let should_animate = leftover_should_animate_for_presentation(
-            self.presentation_frame.as_deref(),
-            object_id,
+            animation_object,
             draw_model.animations_require_power.get(),
         );
         // setPauseAnimation reads stored Frame, then Set_Animation resets its
@@ -1201,11 +1198,7 @@ End
         assert!(!gamelogic::object::draw::object_should_animate_flags(
             true, false, true, false, false, false, false, false, false, true
         ));
-        assert!(leftover_should_animate_for_presentation(
-            None,
-            crate::game_logic::ObjectId(1),
-            true
-        ));
+        assert!(leftover_should_animate_for_presentation(None, true));
     }
 
     #[test]

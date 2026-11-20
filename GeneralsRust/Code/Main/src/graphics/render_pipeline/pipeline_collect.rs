@@ -187,6 +187,18 @@ impl RenderPipeline {
         // Share the immutable frame: copying its object roster and shroud bytes
         // here adds allocations on every draw without changing any render input.
         let presentation = self.presentation_frame.clone();
+        let animation_roster = std::cell::LazyCell::new(|| {
+            let frame = presentation.as_ref()?;
+            let mut objects = game_engine::common::fast_hash::FxHashMap::with_capacity_and_hasher(
+                frame.objects.len(),
+                Default::default(),
+            );
+            for object in &frame.objects {
+                // Preserve the first row selected by the previous ordered lookup.
+                objects.entry(object.id).or_insert(object);
+            }
+            Some(objects)
+        });
         // Consume detached restore data once against the frame actually drawn,
         // after any number of startup/load presentation handoffs.
         if let Some(frame) = presentation.as_deref() {
@@ -630,6 +642,8 @@ impl RenderPipeline {
                             let (animation_binding, anim_frame, weapon_controls) = self
                                 .advance_authored_draw_animation(
                                     object_id,
+                                    animation_roster.as_ref()
+                                        .and_then(|objects| objects.get(&object_id).copied()),
                                     draw_module_index,
                                     &w3d_model,
                                     template_name_owned.as_str(),
