@@ -1530,10 +1530,7 @@ fn assert_physical_construction_action(worker: bool) {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn installed_dozer_finishes_powered_build_and_takes_its_end_dock_path() {
-    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
-    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
     use crate::test_process::{TestProcess, run_bounded};
-    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
 
     const NAME: &str = concat!(module_path!(), "::installed_dozer_finishes_powered_build_and_takes_its_end_dock_path");
     if let TestProcess::ParentVerified = run_bounded(
@@ -1543,14 +1540,49 @@ fn installed_dozer_finishes_powered_build_and_takes_its_end_dock_path() {
         return;
     }
 
+    assert_physical_powered_construction_end(false);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn installed_worker_animates_powered_build_and_takes_its_end_dock_path() {
+    use crate::test_process::{TestProcess, run_bounded};
+
+    const NAME: &str = concat!(module_path!(), "::installed_worker_animates_powered_build_and_takes_its_end_dock_path");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_INSTALLED_WORKER_END_DOCK_CHILD",
+    ) {
+        return;
+    }
+
+    assert_physical_powered_construction_end(true);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn assert_physical_powered_construction_end(worker: bool) {
+    use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+
     let receiving = new_for_world();
     let peer = new_for_world();
-    let dozer = admit_physical_construction_builder(&receiving, false);
-    let worker = admit_physical_construction_builder(&peer, true);
-    let builder = dozer.read().unwrap().get_id();
-    assert_eq!(worker.read().unwrap().get_id(), builder);
-    let worker_pose = *worker.read().unwrap().get_position();
-    let player = with_active_stores(&receiving, || dozer.read().unwrap().get_controlling_player().unwrap());
+    let actor = admit_physical_construction_builder(&receiving, worker);
+    let peer_actor = admit_physical_construction_builder(&peer, !worker);
+    let builder = actor.read().unwrap().get_id();
+    assert_eq!(peer_actor.read().unwrap().get_id(), builder);
+    let peer_pose = *peer_actor.read().unwrap().get_position();
+    let drawable = Arc::new(RwLock::new(Drawable::new(
+        builder, builder, "ReceivingBuilder".into(), DrawableType::Animated,
+    )));
+    with_active_stores(&receiving, || actor.write().unwrap().set_drawable(Some(drawable.clone())));
+    let peer_drawable = Arc::new(RwLock::new(Drawable::new(
+        builder, builder, "PeerBuilder".into(), DrawableType::Animated,
+    )));
+    with_active_stores(&peer, || peer_actor.write().unwrap().set_drawable(Some(peer_drawable.clone())));
+    let peer_flags = peer_drawable.read().unwrap().get_model_conditions();
+    let player = with_active_stores(&receiving, || actor.read().unwrap().get_controlling_player().unwrap());
     player.write().unwrap().get_energy_mut().add_power_production(10);
     let place = |world: &Arc<EngineStores>, builder, x| with_active_stores(world, || {
         GameLogicBuildAssistantBackend.build_object_now(
@@ -1560,9 +1592,19 @@ fn installed_dozer_finishes_powered_build_and_takes_its_end_dock_path() {
     let site_id = place(&receiving, Some(builder), 290.);
     assert_eq!(place(&peer, None, 205.), site_id);
     let peer_site = peer.game_logic_mutex().lock().unwrap().find_object_by_id(site_id).unwrap();
-    let parent = dozer.read().unwrap().get_ai_update_interface().unwrap();
-    let authored_end = parent.lock().unwrap().get_dozer_ai_update_interface_mut().unwrap()
-        .build_end_dock_for_test().unwrap();
+    let parent = actor.read().unwrap().get_ai_update_interface().unwrap();
+    let mut parent_state = parent.lock().unwrap();
+    let authored_end = if worker {
+        let order = parent_state.get_worker_ai_update_interface_mut().unwrap()
+            .construction_order_for_test().unwrap();
+        let end = order.docks[DozerDockPoint::End as usize].unwrap();
+        // WorkerAIUpdate.cpp:633–639 assigns all three docks to the order point.
+        assert_eq!(order.docks, [Some(end); 3]);
+        end
+    } else {
+        parent_state.get_dozer_ai_update_interface_mut().unwrap().build_end_dock_for_test().unwrap()
+    };
+    drop(parent_state);
     let pathfinder = receiving.ai().read().unwrap().pathfinder().unwrap();
 
     with_active_stores(&receiving, || {
@@ -1570,23 +1612,31 @@ fn installed_dozer_finishes_powered_build_and_takes_its_end_dock_path() {
         let site = logic.lock().unwrap().find_object_by_id(site_id).unwrap();
         let mut started = None;
         let mut completed: Option<(Coord3D, Coord3D)> = None;
+        let mut end_delivered = false;
         for frame in 38..450 {
             logic.lock().unwrap().set_current_frame(frame.into());
             let mut ai = parent.lock().unwrap();
             if let Some((_, goal)) = completed {
                 ai.update().unwrap();
-                let path_installed = ai.get_path_destination() == Some(goal);
+                let worker_returned_to_idle = worker && !ai.is_waiting_for_path() && ai.is_idle();
+                let dozer_path_installed = !worker && ai.get_path_destination() == Some(goal);
                 drop(ai);
                 logic.lock().unwrap().update(frame, || None).unwrap();
-                if path_installed && dozer.read().unwrap().get_position().x < goal.x + 10.0 {
+                if worker_returned_to_idle
+                    || (dozer_path_installed && actor.read().unwrap().get_position().x < goal.x + 10.0)
+                {
+                    end_delivered = true;
                     break;
                 }
                 continue;
             }
 
-            let approach = *dozer.read().unwrap().get_position();
+            let approach = *actor.read().unwrap().get_position();
             ai.update().unwrap();
             let progress = site.read().unwrap().get_construction_percent();
+            let constructing = drawable.read().unwrap().get_model_conditions()
+                .contains(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
+            assert_eq!(constructing, progress > 0.0, "builder animation at frame {frame}");
             if progress > 0.0 && started.is_none() {
                 assert!((progress - 100.0 / 300.0).abs() < 0.00001);
                 started = Some(frame);
@@ -1599,20 +1649,32 @@ fn installed_dozer_finishes_powered_build_and_takes_its_end_dock_path() {
                 assert_eq!(ai.get_last_command_source(), CommandSourceType::FromAi);
                 let goal = ai.get_goal_position().expect("native retreat path goal");
                 assert!(goal.distance(authored_end) < crate::path::PATHFIND_CELL_SIZE_F);
-                assert!(approach.distance(goal) > 35.0);
-                assert!(!ai.get_dozer_ai_update_interface_mut().unwrap().is_task_pending(DozerTask::Build));
+                if worker {
+                    assert!(approach.distance(goal) < crate::path::PATHFIND_CELL_SIZE_F);
+                    assert!(ai.get_worker_ai_update_interface_mut().unwrap().construction_order_for_test().is_none());
+                } else {
+                    assert!(approach.distance(goal) > 35.0);
+                    assert!(!ai.get_dozer_ai_update_interface_mut().unwrap().is_task_pending(DozerTask::Build));
+                }
                 completed = Some((approach, goal));
             }
             drop(ai);
             logic.lock().unwrap().update(frame, || None).unwrap();
         }
-        let (approach, goal) = completed.expect("powered Dozer must complete and set its native retreat goal");
-        let final_pose = *dozer.read().unwrap().get_position();
-        assert!(final_pose.distance(approach) > 30.0);
-        assert!(final_pose.x < goal.x + 10.0);
+        let (approach, goal) = completed.expect("powered builder must complete and set its native End goal");
+        assert!(end_delivered, "installed AI must consume its End movement");
+        let final_pose = *actor.read().unwrap().get_position();
+        if worker {
+            assert!(final_pose.distance(goal) < crate::path::PATHFIND_CELL_SIZE_F);
+            assert_eq!(pathfinder.write().unwrap().pathfinding_system_mut().pending_path_request_count(), 0);
+        } else {
+            assert!(final_pose.distance(approach) > 30.0);
+            assert!(final_pose.x < goal.x + 10.0);
+        }
     });
 
-    assert_eq!(*worker.read().unwrap().get_position(), worker_pose);
+    assert_eq!(*peer_actor.read().unwrap().get_position(), peer_pose);
+    assert_eq!(peer_drawable.read().unwrap().get_model_conditions(), peer_flags);
     let peer_site = peer_site.read().unwrap();
     assert_eq!(peer_site.get_builder_id(), INVALID_ID);
     assert_eq!(peer_site.get_construction_percent(), 0.0);

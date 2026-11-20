@@ -1,4 +1,4 @@
-use crate::object::update::ai_update::dozer_ai_update::{DozerBuildSubTask, DozerDockPoint};
+use crate::object::update::ai_update::dozer_ai_update::{DozerAIUpdate, DozerBuildSubTask, DozerDockPoint};
 
 /// Worker AI update module data (matches C++ WorkerAIUpdateModuleData fields).
 #[derive(Debug, Clone)]
@@ -464,7 +464,14 @@ impl WorkerAIUpdate {
         most_recent
     }
 
-    fn clear_task(&mut self, task: WorkerDozerTaskSlot) {
+    fn clear_task(&mut self, task: WorkerDozerTaskSlot, owner: Option<&Arc<RwLock<Object>>>) {
+        // WorkerAIUpdate.cpp:783–822 ends the builder animation with its task.
+        if matches!(task, WorkerDozerTaskSlot::Build | WorkerDozerTaskSlot::Repair)
+            && let Some(owner) = owner
+            && let Ok(mut actor) = owner.write()
+        {
+            actor.clear_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
+        }
         let idx = task.as_index();
         self.dozer_tasks[idx] = WorkerTaskEntry::default();
         for point in &mut self.dozer_dock_points[idx] {
@@ -608,8 +615,6 @@ impl WorkerAIUpdate {
         target: Arc<RwLock<Object>>,
         owner_airborne: bool,
     ) -> Option<ObjectID> {
-        use crate::object::update::ai_update::dozer_ai_update::DozerAIUpdate;
-
         let mut dock = Coord3D::ZERO;
         let has_dock = matches!(task, WorkerDozerTaskSlot::Build | WorkerDozerTaskSlot::Repair);
         let (direct_target, target_id) = {
@@ -821,9 +826,9 @@ impl WorkerAIUpdate {
 
         const MIN_ACTION_TOLERANCE: Real = 70.0;
         let repair_rate = self.get_repair_health_per_second();
-        let clear_current = |this: &mut WorkerAIUpdate| {
+        let clear_current = |this: &mut WorkerAIUpdate, owner| {
             if let Some(current) = this.current_task {
-                this.clear_task(current);
+                this.clear_task(current, owner);
             }
         };
         let Some(target_id) = self.dozer_task.as_ref().map(|task| task.target_id) else {
@@ -831,7 +836,8 @@ impl WorkerAIUpdate {
         };
         let Some((owner, target)) = self.construction_objects(target_id) else {
             self.dozer_task = None;
-            clear_current(self);
+            let actor = self.owner.as_ref().and_then(std::sync::Weak::upgrade);
+            clear_current(self, actor.as_ref());
             return;
         };
         let task = self.dozer_task.as_mut().expect("active worker construction task");
@@ -839,6 +845,7 @@ impl WorkerAIUpdate {
             return;
         };
         let owner_pos = *owner_guard.get_position();
+        drop(owner_guard);
         let target_pos = *target_guard.get_position();
         let target_radius = target_guard
             .get_geometry_info()
@@ -867,7 +874,6 @@ impl WorkerAIUpdate {
                 }
                 position
             });
-            drop(owner_guard);
             task.dock_point = Some(dock);
             let mut command = AiCommandParams::new(AiCommandType::MoveToPosition, CommandSourceType::FromAi);
             command.pos = dock;
@@ -880,7 +886,7 @@ impl WorkerAIUpdate {
         }
 
         let building = matches!(task.task_type, WorkerDozerTaskType::Build | WorkerDozerTaskType::ResumeConstruction);
-        let owner_guard = if self.dozer_action_state == WorkerDozerActionState::DoAction
+        if self.dozer_action_state == WorkerDozerActionState::DoAction
             && building && task.build_sub_task != DozerBuildSubTask::DoBuildAtDock
         {
             let dock = self.current_task.and_then(|current| {
@@ -888,8 +894,6 @@ impl WorkerAIUpdate {
                 dock.valid.then_some(dock.location)
             });
             // WorkerAIUpdate.cpp:247–280 runs the same nested Dozer action.
-            // The inherited movement command takes its own Object borrow.
-            drop(owner_guard);
             match task.build_sub_task.advance_to_dock(ai, dock) {
                 Ok(true) => {}
                 result => {
@@ -897,11 +901,7 @@ impl WorkerAIUpdate {
                     return;
                 }
             }
-            let Ok(owner_guard) = owner.read() else { return };
-            owner_guard
-        } else {
-            owner_guard
-        };
+        }
 
         let mut build_complete_rebuild: Option<bool> = None;
 
@@ -912,9 +912,10 @@ impl WorkerAIUpdate {
                     && target_sole != INVALID_ID && target_sole != self.object_id;
                 if other_builder || other_repairer {
                     self.dozer_task = None;
-                    clear_current(self);
+                    clear_current(self, Some(&owner));
                     return;
                 }
+                let Ok(owner_guard) = owner.read() else { return };
                 let dock = task.dock_point.unwrap_or(target_pos);
                 let distance = ThePartitionManager::get_distance_squared_to_pos(
                     &owner_guard, &dock, crate::common::FROM_BOUNDING_SPHERE_2D,
@@ -922,6 +923,7 @@ impl WorkerAIUpdate {
                 let tolerance = MIN_ACTION_TOLERANCE.max(
                     owner_guard.get_geometry_info().get_bounding_sphere_radius() + 15.0,
                 );
+                drop(owner_guard);
                 if distance <= tolerance * tolerance {
                     if building && let Ok(mut target) = target.write() {
                         let _ = target.clear_and_set_model_condition_flags(
@@ -943,23 +945,21 @@ impl WorkerAIUpdate {
                 WorkerDozerTaskType::Repair => {
                     if target_sole != INVALID_ID && target_sole != self.object_id {
                         self.dozer_task = None;
-                        clear_current(self);
+                        clear_current(self, Some(&owner));
                         return;
                     }
-                    let Ok(target_guard) = target.read() else {
-                        self.dozer_task = None;
-                        return;
+                    let can_repair = {
+                        let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
+                            self.dozer_task = None;
+                            return;
+                        };
+                        ActionManager::can_repair_object(&owner_guard, &target_guard, CommandSourceType::FromAi)
                     };
-                    if !ActionManager::can_repair_object(
-                        &*owner_guard,
-                        &*target_guard,
-                        CommandSourceType::FromAi,
-                    ) {
+                    if !can_repair {
                         self.dozer_task = None;
-                        clear_current(self);
+                        clear_current(self, Some(&owner));
                         return;
                     }
-                    drop(target_guard);
                     let already_full = target
                         .read()
                         .ok()
@@ -968,13 +968,15 @@ impl WorkerAIUpdate {
                         .unwrap_or(false);
                     if already_full {
                         // C++ TheGameText / TheInGameUI of the dozer's engine.
-                        let message = crate::helpers::TheGameText::fetch_for(&owner_guard, "DOZER:RepairComplete");
-                        crate::helpers::TheInGameUI::display_message_for(&owner_guard, &message);
+                        if let Ok(owner_guard) = owner.read() {
+                            let message = crate::helpers::TheGameText::fetch_for(&owner_guard, "DOZER:RepairComplete");
+                            crate::helpers::TheInGameUI::display_message_for(&owner_guard, &message);
+                        }
                         if target_is_bridge_tower {
                             Self::remove_bridge_scaffolding(task.target_id);
                         }
                         self.dozer_task = None;
-                        self.clear_task(WorkerDozerTaskSlot::Repair);
+                        self.clear_task(WorkerDozerTaskSlot::Repair, Some(&owner));
                         return;
                     }
                     let can_heal = !target_is_bridge_tower
@@ -1004,7 +1006,7 @@ impl WorkerAIUpdate {
                         };
                         if !healed {
                             self.dozer_task = None;
-                            clear_current(self);
+                            clear_current(self, Some(&owner));
                             return;
                         }
                     }
@@ -1012,30 +1014,33 @@ impl WorkerAIUpdate {
                 WorkerDozerTaskType::ResumeConstruction => {
                     if target_builder_id != INVALID_ID && target_builder_id != self.object_id {
                         self.dozer_task = None;
-                        clear_current(self);
+                        clear_current(self, Some(&owner));
                         return;
                     }
-                    let Ok(target_guard) = target.read() else {
-                        self.dozer_task = None;
-                        return;
+                    let (can_resume, current_percent) = {
+                        let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
+                            self.dozer_task = None;
+                            return;
+                        };
+                        (
+                            ActionManager::can_resume_construction_of(&owner_guard, &target_guard, CommandSourceType::FromAi),
+                            target_guard.get_construction_percent(),
+                        )
                     };
-                    if !ActionManager::can_resume_construction_of(
-                        &*owner_guard,
-                        &*target_guard,
-                        CommandSourceType::FromAi,
-                    ) {
+                    if !can_resume {
                         self.dozer_task = None;
-                        clear_current(self);
+                        clear_current(self, Some(&owner));
                         return;
                     }
-                    let current_percent = target_guard.get_construction_percent();
                     // Completed/selling is pct < 0 (`CONSTRUCTION_COMPLETE = -1`).
                     if current_percent < 0.0 || current_percent >= 100.0 {
                         self.dozer_task = None;
-                        self.clear_task(WorkerDozerTaskSlot::Build);
+                        self.clear_task(WorkerDozerTaskSlot::Build, Some(&owner));
                         return;
                     }
-                    drop(target_guard);
+                    if let Ok(mut actor) = owner.write() {
+                        actor.set_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
+                    }
                     let frames = if task.build_total_frames > 0 {
                         task.build_total_frames
                     } else if let Ok(tg) = target.read() {
@@ -1070,8 +1075,12 @@ impl WorkerAIUpdate {
                 WorkerDozerTaskType::Build => {
                     if target_builder_id != INVALID_ID && target_builder_id != self.object_id {
                         self.dozer_task = None;
-                        clear_current(self);
+                        clear_current(self, Some(&owner));
                         return;
+                    }
+                    // DozerAIUpdate.cpp:507–514 sets this before every contribution.
+                    if let Ok(mut actor) = owner.write() {
+                        actor.set_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
                     }
                     let world = crate::system::engine_stores::active_services();
                     let construction_manager = &world.logic_managers().construction;
@@ -1138,21 +1147,20 @@ impl WorkerAIUpdate {
                 WorkerDozerTaskType::Fortify => {
                     // C++ path leaves fortify as a no-op; complete immediately so the worker AI does not stall.
                     self.dozer_task = None;
-                    self.clear_task(WorkerDozerTaskSlot::Fortify);
+                    self.clear_task(WorkerDozerTaskSlot::Fortify, Some(&owner));
                 }
             },
             WorkerDozerActionState::PickActionPos => {}
         }
-        // Completion can synchronously call back into the builder as well.
-        drop(owner_guard);
-
         if let Some(is_rebuild) = build_complete_rebuild {
             if let Err(error) = self.handle_build_completion(&owner, &target, is_rebuild) {
                 failure = Some(error);
                 return;
             }
+            let dock = self.dozer_dock_points[WorkerDozerTaskSlot::Build.as_index()][DozerDockPoint::End as usize];
+            DozerAIUpdate::move_to_end_dock(&owner, ai, dock.valid.then_some(dock.location));
             self.dozer_task = None;
-            self.clear_task(WorkerDozerTaskSlot::Build);
+            self.clear_task(WorkerDozerTaskSlot::Build, Some(&owner));
         }
         })();
         match failure {

@@ -1083,36 +1083,42 @@ impl DozerAIUpdate {
             }
         }
 
-        // DozerAIUpdate.cpp:631–639 adjusts the End dock then sends it to the
-        // same inherited AI before completing the construction action.
         let dock = self.get_dock_point(self.task_owner.current, DozerDockPoint::End);
-        Self::with_action_parent(owner, parent, |ai| {
-            let ignored = ai.get_ignored_obstacle_id();
-            let aircraft = ai.is_aircraft_that_adjusts_destination();
-            let end_pos = {
-                let Ok(object) = owner.read() else { return };
-                let mut end_pos = dock.unwrap_or(*object.get_position());
-                if let Some(loco_set) = ai.get_locomotor_set_clone() {
-                    let pathfinder = match object.owning_pathfinding_runtime() {
-                        Some(world) => world.ai().read().ok().and_then(|ai| ai.pathfinder()),
-                        None => crate::ai::the_ai().read().ok().and_then(|ai| ai.pathfinder()),
-                    };
-                    if let Some(pathfinder) = pathfinder.as_ref().and_then(|pathfinder| pathfinder.read().ok()) {
-                        let _ = pathfinder.adjust_possible_destination_for_object(
-                            &object, &loco_set, ignored, aircraft, &mut end_pos, None,
-                        );
-                    }
-                }
-                end_pos
-            };
-            let mut command = crate::ai::AiCommandParams::new(
-                crate::ai::AiCommandType::MoveToPosition,
-                CommandSourceType::FromAi,
-            );
-            command.pos = end_pos;
-            let _ = ai.execute_command(&command);
-        });
+        Self::with_action_parent(owner, parent, |ai| Self::move_to_end_dock(owner, ai, dock));
         Ok(())
+    }
+
+    // DozerAIUpdate.cpp:631–639 sends the adjusted End dock to the inherited
+    // AI before either builder completes its shared construction action.
+    pub(crate) fn move_to_end_dock(
+        owner: &Arc<RwLock<Object>>,
+        ai: &mut dyn AIUpdateInterface,
+        dock: Option<Coord3D>,
+    ) {
+        let ignored = ai.get_ignored_obstacle_id();
+        let aircraft = ai.is_aircraft_that_adjusts_destination();
+        let end_pos = {
+            let Ok(object) = owner.read() else { return };
+            let mut end_pos = dock.unwrap_or(*object.get_position());
+            if let Some(loco_set) = ai.get_locomotor_set_clone() {
+                let pathfinder = match object.owning_pathfinding_runtime() {
+                    Some(world) => world.ai().read().ok().and_then(|ai| ai.pathfinder()),
+                    None => crate::ai::the_ai().read().ok().and_then(|ai| ai.pathfinder()),
+                };
+                if let Some(pathfinder) = pathfinder.as_ref().and_then(|pathfinder| pathfinder.read().ok()) {
+                    let _ = pathfinder.adjust_possible_destination_for_object(
+                        &object, &loco_set, ignored, aircraft, &mut end_pos, None,
+                    );
+                }
+            }
+            end_pos
+        };
+        let mut command = crate::ai::AiCommandParams::new(
+            crate::ai::AiCommandType::MoveToPosition,
+            CommandSourceType::FromAi,
+        );
+        command.pos = end_pos;
+        let _ = ai.execute_command(&command);
     }
 
     pub fn update(&mut self) -> StateReturnType {
