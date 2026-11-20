@@ -1,11 +1,8 @@
 //! Per-render memo of values that are pure functions of one frozen frame.
 //!
-//! `unit_render_inputs()` is rebuilt (draw-model selection per object) by every
-//! render consumer: blob shadows, shadow volumes, prewarm and the mesh
-//! collect. C++ computes a Drawable's model state once per draw. The memo is
-//! only live between `arm` and `disarm` of one engine render, where the frame
-//! cannot change; outside that window every call computes fresh, so UI
-//! mutations (`Rc::make_mut` on the frame) can never observe a stale value.
+//! Blob shadows and prewarm share frozen draw-model selection. The mesh
+//! collector takes the list once those readers finish. The memo only lives
+//! between `arm` and `disarm` of one engine render, while the frame is frozen.
 use super::UnitRenderInput;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -42,6 +39,10 @@ impl RenderMemo {
         *self.unit_inputs.borrow_mut() = Some(Rc::clone(&computed));
         computed
     }
+
+    pub(crate) fn take_unit_inputs(&self) -> Option<Vec<UnitRenderInput>> {
+        self.unit_inputs.borrow_mut().take().map(Rc::unwrap_or_clone)
+    }
 }
 
 /// A copy of a frame starts unarmed and empty: the memo belongs to one frame.
@@ -55,5 +56,23 @@ impl Clone for RenderMemo {
 impl PartialEq for RenderMemo {
     fn eq(&self, _: &Self) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collector_takes_the_allocation_after_early_readers_finish() {
+        let memo = RenderMemo::default();
+        memo.arm();
+        let early_read = memo.unit_inputs(|| Vec::with_capacity(4));
+        let allocation = early_read.as_ptr();
+        drop(early_read);
+
+        let collected = memo.take_unit_inputs().unwrap();
+        assert_eq!(collected.as_ptr(), allocation);
+        assert!(memo.take_unit_inputs().is_none());
     }
 }

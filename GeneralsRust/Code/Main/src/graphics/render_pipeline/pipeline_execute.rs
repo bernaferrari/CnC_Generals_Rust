@@ -307,7 +307,7 @@ impl RenderPipeline {
             }
             #[cfg(feature = "game_client")]
             self.flush_native_props();
-            self.collect_render_items(
+            let volume_shadow_casters = self.collect_render_items(
                 graphics_system,
                 view_matrix,
                 projection_matrix,
@@ -382,7 +382,7 @@ impl RenderPipeline {
 
             // Sort render items for optimal rendering - equivalent to C++ RenderPipeline::SortRenderItems()
             let sort_started = std::time::Instant::now();
-            self.sort_render_items();
+            self.sort_render_items(&volume_shadow_casters);
             sort_elapsed = sort_started.elapsed();
             // Removed excessive logging
 

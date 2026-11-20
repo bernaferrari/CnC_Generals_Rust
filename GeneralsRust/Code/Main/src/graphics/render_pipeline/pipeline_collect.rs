@@ -169,7 +169,7 @@ impl RenderPipeline {
                 &crate::presentation_frame::PresentationFrame,
             ) -> std::result::Result<Option<Mat4>, String>,
         >,
-    ) -> Result<()> {
+    ) -> Result<HashSet<ObjectID>> {
         #[cfg(feature = "game_client")]
         let mut native_receiver = match source {
             super::native_frame_receiver::NativeCollectSource::Native(receiver) => Some(receiver),
@@ -224,12 +224,14 @@ impl RenderPipeline {
             .unwrap_or(false);
 
         // Snapshot-owned unit inputs for the main mesh pass (empty when no frame).
-        let mut unit_inputs: Vec<crate::presentation_frame::UnitRenderInput> =
-            if let Some(ref pres) = presentation {
-                pres.unit_render_inputs()
-            } else {
-                Vec::new()
-            };
+        let mut unit_inputs = presentation
+            .as_deref()
+            .map(crate::presentation_frame::PresentationFrame::take_unit_render_inputs)
+            .unwrap_or_default();
+        // Shadow admission uses the same canonical inputs as the early reads,
+        // before specialized meshes and materials modify the collector's rows.
+        let volume_shadow_casters =
+            crate::graphics::selection_renderer::volume_shadow_caster_ids(&unit_inputs);
         self.native_draw_world
             .live_draw_playback
             .retain(|key, _| key.is_alive());
@@ -1274,7 +1276,7 @@ impl RenderPipeline {
             );
         }
 
-        Ok(())
+        Ok(volume_shadow_casters)
     }
 
     pub(super) fn resolve_object_world_cull_sphere(
@@ -2274,23 +2276,14 @@ impl RenderPipeline {
     }
 
     /// Sort render items for optimal rendering - equivalent to C++ RenderPipeline::SortRenderItems()
-    pub(super) fn sort_render_items(&mut self) {
+    pub(super) fn sort_render_items(&mut self, volume_shadow_casters: &HashSet<ObjectID>) {
         self.render_items.sort_by(Self::compare_render_items);
-        self.mark_volume_shadow_casters();
-    }
-
-    /// C++ W3DModelDraw adds a W3DVolumetricShadow for `Shadow = SHADOW_VOLUME`
-    /// templates when 3D shadows are on; fogged/shrouded objects cast none
-    /// (`setFullyObscuredByShroud` -> `enableShadowInvisible`).
-    fn mark_volume_shadow_casters(&mut self) {
-        let casters: std::collections::HashSet<crate::game_logic::ObjectId> =
-            match (game_engine::common::game_lod::use_shadow_volumes(), self.presentation_frame.as_ref()) {
-                (true, Some(frame)) => crate::graphics::selection_renderer::volume_shadow_caster_ids(frame),
-                _ => Default::default(),
-            };
+        // C++ W3DModelDraw submits authored volumes only while 3D shadows are enabled.
+        let use_shadow_volumes = game_engine::common::game_lod::use_shadow_volumes();
         for item in &mut self.render_items {
-            item.casts_volume_shadow = item.render_pass == RenderPass::ForwardOpaque
-                && casters.contains(&item.object_id);
+            item.casts_volume_shadow = use_shadow_volumes
+                && item.render_pass == RenderPass::ForwardOpaque
+                && volume_shadow_casters.contains(&item.object_id);
         }
     }
 

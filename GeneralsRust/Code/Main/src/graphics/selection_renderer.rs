@@ -826,13 +826,11 @@ fn casts_volume(u: &crate::presentation_frame::UnitRenderInput) -> bool {
 /// Objects whose meshes cast stencil shadow volumes this frame (live,
 /// shadows enabled, not fogged or shrouded, template `SHADOW_VOLUME`).
 pub(crate) fn volume_shadow_caster_ids(
-    frame: &crate::presentation_frame::PresentationFrame,
+    inputs: &[crate::presentation_frame::UnitRenderInput],
 ) -> std::collections::HashSet<crate::game_logic::ObjectId> {
-    frame
-        .unit_render_inputs_shared()
+    inputs
         .iter()
-        .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
-        .filter(|u| casts_volume(u))
+        .filter(|u| casts_volume(u) && !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
         .map(|u| u.id)
         .collect()
 }
@@ -1723,7 +1721,7 @@ mod presentation_selection_tests {
         let without_volumes = collect_blob_shadows_from_presentation(&snap);
         set_volumes(previous);
 
-        assert!(volume_shadow_caster_ids(&snap).contains(&tank));
+        assert!(volume_shadow_caster_ids(&snap.unit_render_inputs()).contains(&tank));
         // SHADOW_DECAL still draws with either stencil setting.
         for decals in [with_volumes, without_volumes] {
             assert_eq!(decals.len(), 1);

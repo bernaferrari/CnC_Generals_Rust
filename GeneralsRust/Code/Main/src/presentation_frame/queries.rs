@@ -262,6 +262,13 @@ impl PresentationFrame {
             .unit_inputs(|| self.compute_unit_render_inputs())
     }
 
+    /// Finish the immutable input reads and hand the collector its mutable rows.
+    pub(crate) fn take_unit_render_inputs(&self) -> Vec<UnitRenderInput> {
+        self.render_memo
+            .take_unit_inputs()
+            .unwrap_or_else(|| self.compute_unit_render_inputs())
+    }
+
     /// Start a render during which this frame is not mutated.
     pub fn arm_render_memo(&self) {
         self.render_memo.arm();
