@@ -22,16 +22,39 @@ const DEFAULT_UPGRADE_NAME: &str = "DefaultUpgrade";
 /// Central registry for upgrade templates (C++ `UpgradeCenter`).
 #[derive(Clone, Debug, Default)]
 pub struct UpgradeCenter {
+    // Cloned readers share the definitions. A receiving INI overlay or image
+    // cache creates a private copy on first write.
+    catalog: Arc<UpgradeCatalog>,
+    /// C++ `m_nextTemplateMaskBit`.
+    next_template_mask_bit: u32,
+    /// C++ `buttonImagesCached` — one-shot during reset.
+    button_images_cached: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct UpgradeCatalog {
     /// Exact authored name -> template. C++ looks up by
     /// `NAMEKEY(name)`; `nameToKey` is case-sensitive, so exact-name lookup
     /// is the same identity without depending on a thread's key namespace.
     upgrades: HashMap<String, Arc<UpgradeTemplate>>,
     /// C++ `m_upgradeList`: head-inserted, so the newest template is first.
     upgrade_list: Vec<Arc<UpgradeTemplate>>,
-    /// C++ `m_nextTemplateMaskBit`.
-    next_template_mask_bit: u32,
-    /// C++ `buttonImagesCached` — one-shot during reset.
-    button_images_cached: bool,
+}
+
+impl UpgradeCatalog {
+    /// Replace an existing template in place (same list position and mask).
+    fn store_template(&mut self, template: Arc<UpgradeTemplate>) {
+        let name = template.get_name().as_str().to_owned();
+        match self
+            .upgrade_list
+            .iter_mut()
+            .find(|entry| entry.get_name().as_str() == name)
+        {
+            Some(entry) => *entry = template.clone(),
+            None => self.upgrade_list.push(template.clone()),
+        }
+        self.upgrades.insert(name, template);
+    }
 }
 
 impl UpgradeCenter {
@@ -61,11 +84,12 @@ impl UpgradeCenter {
         if crate::common::ini::ini_mapped_image::get_mapped_image_collection().is_none() {
             return;
         }
-        let list = std::mem::take(&mut self.upgrade_list);
+        let catalog = Arc::make_mut(&mut self.catalog);
+        let list = std::mem::take(&mut catalog.upgrade_list);
         for template in list {
             let mut owned = (*template).clone();
             owned.cache_button_image();
-            self.store_template(Arc::new(owned));
+            catalog.store_template(Arc::new(owned));
         }
         self.button_images_cached = true;
     }
@@ -105,38 +129,26 @@ impl UpgradeCenter {
         template.friend_set_upgrade_mask(mask);
 
         let template = Arc::new(template);
-        self.upgrades
+        let catalog = Arc::make_mut(&mut self.catalog);
+        catalog.upgrades
             .insert(template.get_name().as_str().to_owned(), template.clone());
-        self.upgrade_list.insert(0, template.clone());
+        catalog.upgrade_list.insert(0, template.clone());
         template
     }
 
     fn create_veterancy_upgrade(&mut self, level: &str) {
         // C++: up = newUpgrade(""); up->friend_makeVeterancyUpgrade(level);
         let template = self.new_upgrade(AsciiString::from(""));
-        self.upgrades.remove(template.get_name().as_str());
+        let catalog = Arc::make_mut(&mut self.catalog);
+        catalog.upgrades.remove(template.get_name().as_str());
         let mut owned = (*template).clone();
         owned.friend_make_veterancy_upgrade(level);
         let owned = Arc::new(owned);
-        self.upgrades
+        catalog.upgrades
             .insert(owned.get_name().as_str().to_owned(), owned.clone());
-        if let Some(slot) = self.upgrade_list.first_mut() {
+        if let Some(slot) = catalog.upgrade_list.first_mut() {
             *slot = owned;
         }
-    }
-
-    /// Replace an existing template in place (same list position and mask).
-    fn store_template(&mut self, template: Arc<UpgradeTemplate>) {
-        let name = template.get_name().as_str().to_owned();
-        match self
-            .upgrade_list
-            .iter_mut()
-            .find(|entry| entry.get_name().as_str() == name)
-        {
-            Some(entry) => *entry = template.clone(),
-            None => self.upgrade_list.push(template.clone()),
-        }
-        self.upgrades.insert(name, template);
     }
 
     /// C++ `UpgradeCenter::parseUpgradeDefinition` (Upgrade.cpp:451-473):
@@ -151,7 +163,7 @@ impl UpgradeCenter {
         };
         let mut template = (*existing).clone();
         let result = template.parse_from_ini(ini);
-        self.store_template(Arc::new(template));
+        Arc::make_mut(&mut self.catalog).store_template(Arc::new(template));
         if let Err(err) = &result {
             log::warn!("Failed to parse upgrade '{name}': {err:?}");
         }
@@ -160,15 +172,14 @@ impl UpgradeCenter {
 
     /// C++ `UpgradeCenter::findUpgrade`.
     pub fn find_upgrade(&self, name: &str) -> Option<Arc<UpgradeTemplate>> {
-        self.upgrades.get(name).cloned()
+        self.catalog.upgrades.get(name).cloned()
     }
 
     /// C++ `UpgradeCenter::findUpgradeByKey`.
     ///
-    /// `key` is in the calling thread's NameKeyGenerator namespace (Rust's
-    /// generator is thread-local; this center may be a clone built on another
-    /// thread). Resolve the key back to its name there and look up by name —
-    /// equal to C++ because `nameToKey` is a case-sensitive bijection.
+    /// Resolve `key` in the driving CommonServices namespace. A cloned catalog
+    /// may have been built in another namespace; exact names and masks remain
+    /// valid across those copies.
     pub fn find_upgrade_by_key(&self, key: NameKeyType) -> Option<Arc<UpgradeTemplate>> {
         let name = NameKeyGenerator::key_to_name(key)?;
         self.find_upgrade(&name)
@@ -181,17 +192,17 @@ impl UpgradeCenter {
 
     /// C++ `UpgradeCenter::firstUpgradeTemplate`.
     pub fn first_upgrade(&self) -> Option<Arc<UpgradeTemplate>> {
-        self.upgrade_list.first().cloned()
+        self.get_all_upgrades().first().cloned()
     }
 
     /// All templates in C++ list order (newest first).
     pub fn get_all_upgrades(&self) -> &[Arc<UpgradeTemplate>] {
-        &self.upgrade_list
+        &self.catalog.upgrade_list
     }
 
     /// C++ `UpgradeCenter::getUpgradeNames` (list order).
     pub fn get_upgrade_names(&self) -> Vec<AsciiString> {
-        self.upgrade_list
+        self.get_all_upgrades()
             .iter()
             .map(|template| template.get_name().clone())
             .collect()
@@ -205,13 +216,13 @@ impl UpgradeCenter {
 
     /// Number of registered upgrades.
     pub fn count(&self) -> usize {
-        self.upgrades.len()
+        self.catalog.upgrades.len()
     }
 
     /// C++ `Xfer::xferUpgradeMask` save half (Xfer.cpp): the names of every
     /// template whose mask is fully set, in upgrade-list order.
     pub fn upgrade_names_in_mask(&self, mask_bits: u128) -> Vec<String> {
-        self.upgrade_list
+        self.get_all_upgrades()
             .iter()
             .filter(|template| {
                 // A template past UPGRADE_MAX_COUNT owns no bit; never match it.
@@ -220,6 +231,55 @@ impl UpgradeCenter {
             })
             .map(|template| template.get_name().as_str().to_owned())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shared_upgrade_catalog_detaches_for_a_receiving_overlay() {
+        let _services = crate::common::common_services::CommonServicesScope::new();
+        let mut base = UpgradeCenter::new();
+        base.init();
+        let original = base.new_upgrade(AsciiString::from("Upgrade_Shared"));
+        base.new_upgrade(AsciiString::from("Upgrade_Newer"));
+        let mut map = base.clone();
+        let hud = base.clone();
+        assert!(Arc::ptr_eq(&map.catalog, &hud.catalog));
+
+        let mut ini = INI::new();
+        ini.with_inline_source("Upgrade Upgrade_Shared\nBuildCost = 777\nEnd\n", |ini| {
+            ini.read_line()?;
+            map.parse_upgrade_definition(ini)
+        })
+        .unwrap();
+
+        let overlaid = map.find_upgrade("Upgrade_Shared").unwrap();
+        assert_eq!(overlaid.get_cost(), 777);
+        assert_eq!(overlaid.get_mask(), original.get_mask());
+        assert_eq!(map.get_upgrade_names(), base.get_upgrade_names());
+        assert_eq!(
+            map.upgrade_names_in_mask(u128::MAX),
+            hud.upgrade_names_in_mask(u128::MAX),
+        );
+        assert_eq!(
+            map.first_upgrade().unwrap().get_name().as_str(),
+            "Upgrade_Newer",
+        );
+        assert!(Arc::ptr_eq(&base.catalog, &hud.catalog));
+        assert!(!Arc::ptr_eq(&map.catalog, &hud.catalog));
+        assert!(Arc::ptr_eq(
+            &hud.find_upgrade("Upgrade_Shared").unwrap(),
+            &original,
+        ));
+
+        let map_only = map.new_upgrade(AsciiString::from("Upgrade_MapOnly"));
+        let base_only = base.new_upgrade(AsciiString::from("Upgrade_BaseOnly"));
+        assert_eq!(map_only.get_mask(), base_only.get_mask());
+        assert!(hud.find_upgrade("Upgrade_MapOnly").is_none());
+        assert!(hud.find_upgrade("Upgrade_BaseOnly").is_none());
     }
 }
 

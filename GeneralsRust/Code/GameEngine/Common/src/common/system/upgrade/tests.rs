@@ -220,8 +220,8 @@ fn xfer_upgrade_mask_rejects_unknown_name() {
 fn cloned_center_lookups_survive_foreign_thread_key_namespace() {
     use crate::common::name_key_generator::NameKeyGenerator;
 
-    // Engine-lifetime center built on one thread (its keys: VETERAN = 1, ...).
-    let built = std::thread::spawn(|| {
+    let (built, producer_key) = std::thread::spawn(|| {
+        let _services = CommonServicesScope::new();
         let center = engine_center();
         load(
             &center,
@@ -229,18 +229,21 @@ fn cloned_center_lookups_survive_foreign_thread_key_namespace() {
         )
         .unwrap();
         let center = center.read().unwrap().clone();
-        center
+        let key = NameKeyGenerator::name_to_key("Upgrade_WorkerCompletionParity");
+        (center, key)
     })
     .join()
     .expect("producer thread");
 
     std::thread::spawn(move || {
-        // A world clone used on a thread whose generator allocated other
-        // names first: numeric key 1 now means something else.
+        let _services = CommonServicesScope::new();
+        // Both services bootstrap their default names, then allocate the next
+        // slot to different names.
         let world = built.clone();
         let unrelated = NameKeyGenerator::name_to_key("UnrelatedThreadLocalName");
         let worker_key = NameKeyGenerator::name_to_key("Upgrade_WorkerCompletionParity");
-        assert_eq!(unrelated, 1);
+        assert_eq!(unrelated, producer_key);
+        assert_ne!(worker_key, producer_key);
 
         assert!(world.find_upgrade_by_key(unrelated).is_none());
         let by_key = world.find_upgrade_by_key(worker_key).expect("by key");
