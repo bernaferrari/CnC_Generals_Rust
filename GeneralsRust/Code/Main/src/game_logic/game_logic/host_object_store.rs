@@ -11,6 +11,9 @@ mod registered_order;
 pub struct HostObjectStore {
     map: game_engine::common::fast_hash::FxHashMap<ObjectId, Object>,
     registration_order: Vec<ObjectId>,
+    // A mutable Object loan can change weapon or passenger observations even
+    // during input/script work with no advancement of the simulation frame.
+    object_revision: u64,
     // Namespace is a weak loan of the EXISTING GameLogic identity. Raw standalone
     // stores remain usable for registered fixtures, but cannot admit constructors.
     constructor_world: std::sync::Weak<()>,
@@ -32,12 +35,17 @@ struct FailedObjectRetirement {
 }
 
 impl HostObjectStore {
+    fn mark_objects_mutably_accessed(&mut self) {
+        self.object_revision = self.object_revision.wrapping_add(1);
+    }
+
     /// Explicit old-owner cleanup for reset/Drop, including a retained failed
     /// native destructor. No callbacks or ambient publication occur here.
     pub(in crate::game_logic) fn retire_owned_scalar_stamps(
         &mut self,
         partition: &mut crate::game_logic::partition_manager::PartitionManager,
     ) {
+        self.mark_objects_mutably_accessed();
         for id in &self.registration_order {
             self.map
                 .get_mut(id)
@@ -95,6 +103,7 @@ impl HostObjectStore {
     }
 
     pub(crate) fn suspend_ordinary_lookup_for_reset(&mut self) {
+        self.mark_objects_mutably_accessed();
         self.ordinary_lookup_hidden_ids = Some(self.registration_order.iter().copied().collect());
     }
 
@@ -129,6 +138,7 @@ impl HostObjectStore {
 
     /// Visit registered Objects in linked-list order with one mutable loan at a time.
     pub(in crate::game_logic) fn for_each_registered_mut(&mut self, mut visit: impl FnMut(&mut Object)) {
+        self.mark_objects_mutably_accessed();
         for id in &self.registration_order {
             visit(self.map.get_mut(id).expect("registered Object exists"));
         }
@@ -150,6 +160,7 @@ impl HostObjectStore {
             !self.map.contains_key(&id),
             "new Object admission cannot replace a live lifetime"
         );
+        self.mark_objects_mutably_accessed();
         self.registration_order.insert(0, id);
         if let Some(hidden) = self.ordinary_lookup_hidden_ids.as_mut() {
             hidden.remove(&id);
@@ -161,6 +172,7 @@ impl HostObjectStore {
     /// Restoration commits only validated, already registered lifetimes in place.
     #[cfg(test)]
     pub fn insert(&mut self, id: ObjectId, object: Object) -> Option<Object> {
+        self.mark_objects_mutably_accessed();
         if !self.map.contains_key(&id) {
             self.registration_order.insert(0, id);
         }
@@ -169,11 +181,13 @@ impl HostObjectStore {
 
     pub(crate) fn remove(&mut self, id: &ObjectId) -> Option<Object> {
         let object = self.map.remove(id)?;
+        self.mark_objects_mutably_accessed();
         self.registration_order.retain(|existing| existing != id);
         Some(object)
     }
 
     pub(crate) fn clear(&mut self) {
+        self.mark_objects_mutably_accessed();
         self.map.clear();
         self.registration_order.clear();
         self.ordinary_lookup_hidden_ids = None;
@@ -209,6 +223,7 @@ impl HostObjectStore {
     /// Mutable stable owner storage access; ordinary ID resolution must use
     /// `lookup_mut` so reset callback visibility follows C++ `m_objVector`.
     pub(crate) fn get_mut(&mut self, id: &ObjectId) -> Option<&mut Object> {
+        self.mark_objects_mutably_accessed();
         self.map.get_mut(id)
     }
 
@@ -220,7 +235,7 @@ impl HostObjectStore {
         {
             None
         } else {
-            self.map.get_mut(id)
+            self.get_mut(id)
         }
     }
 
@@ -230,6 +245,7 @@ impl HostObjectStore {
         &mut self,
         keys: [&ObjectId; N],
     ) -> [Option<&mut Object>; N] {
+        self.mark_objects_mutably_accessed();
         self.map.get_disjoint_mut(keys)
     }
 }
@@ -243,6 +259,7 @@ impl std::ops::Index<&ObjectId> for HostObjectStore {
 
 impl std::ops::IndexMut<&ObjectId> for HostObjectStore {
     fn index_mut(&mut self, id: &ObjectId) -> &mut Object {
+        self.mark_objects_mutably_accessed();
         self.map.get_mut(id).expect("Object ID is not registered")
     }
 }
@@ -432,6 +449,13 @@ impl<'a> HostObjectRead<'a> {
     ) -> impl DoubleEndedIterator<Item = &'a ObjectId> + ExactSizeIterator + 'a {
         self.registered_ids().iter()
     }
+    /// World provenance and a conservative revision for Object-owned values.
+    /// Plain reads and coupling observations do not change the revision.
+    pub(crate) fn observation_revision(self) -> Option<(std::sync::Weak<()>, u64)> {
+        let owner = &self.store.constructor_world;
+        (owner.strong_count() > 0).then(|| (owner.clone(), self.store.object_revision))
+    }
+
     pub(crate) fn registered_ids(self) -> &'a [ObjectId] {
         self.store.ordered_ids()
     }
@@ -477,6 +501,7 @@ impl HostObjectStore {
             world: self.constructor_world.clone(),
             actor: std::sync::Arc::downgrade(&object.visual_draw_identity_token),
         };
+        self.mark_objects_mutably_accessed();
         self.map.insert(object.id, object);
         Ok(receipt)
     }
@@ -510,6 +535,7 @@ impl HostObjectStore {
         if self.registration_order.contains(&receipt.id) {
             return Err("constructor lifetime already registered".into());
         }
+        self.mark_objects_mutably_accessed();
         self.registration_order.insert(0, receipt.id);
         Ok(())
     }
@@ -523,6 +549,7 @@ impl HostObjectStore {
     /// Bounded mutable registered traversal without unsafe or cloning Objects.
     /// This allocation holds references only, never competing gameplay state.
     pub fn registered_mut(&mut self) -> impl Iterator<Item = (&ObjectId, &mut Object)> {
+        self.mark_objects_mutably_accessed();
         registered_order::registered_mut(&mut self.map, &self.registration_order)
     }
 }

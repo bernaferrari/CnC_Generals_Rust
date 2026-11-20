@@ -197,6 +197,11 @@ fn contain_enter_exit_roster_and_container_destroy_ejects_before_remove() {
     assert!(logic.evacuate_container_now(bunker, false).unwrap());
     assert!(logic.host_object(bunker).unwrap().occupants.is_empty());
     assert!(logic.host_object(inf).unwrap().contained_by.is_none());
+    let evacuation_frame = logic.get_frame();
+    shadow.sync_from_host(&logic);
+    assert!(shadow.world().contain_roster().occupants(eid_b).is_empty());
+    assert_eq!(shadow.world().contain_roster().contained_by(eid_i), None);
+    assert_eq!(logic.get_frame(), evacuation_frame);
     logic.destroy_object(bunker);
     assert!(logic.host_object(bunker).unwrap().status.destroyed);
     logic.process_destroy_list();

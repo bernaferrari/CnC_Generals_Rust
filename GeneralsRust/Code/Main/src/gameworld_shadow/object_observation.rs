@@ -24,144 +24,13 @@ fn observe_production_item(
 }
 
 impl GameWorldShadow {
-    pub(super) fn refresh_mapped_from_host(
-        &mut self,
-        logic: &GameLogic,
-        oid: ObjectId,
+    // These fields read only the canonical Object and the receiving entity row.
+    // World context (shroud, map, players and mission registries) is refreshed
+    // separately below even during two presents of the same simulation frame.
+    fn observe_object_owned_runtime(
         obj: &crate::game_logic::Object,
-        eid: EntityId,
-        catalog: Option<&crate::assets::ww3d_asset_manager::ObjectCatalog>,
-        visibility: crate::fow_rendering::ObjectVisibility,
+        e: &mut gamelogic::world::entities::Entity,
     ) {
-        let pos = obj.get_position();
-        let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
-        let owner = self.owner_for_host_object(logic, obj);
-        let health = obj.health.current.max(0.0);
-        let Some(e) = self.world.world_mut().entity_mut(eid) else {
-            return;
-        };
-
-        // Mood is canonical Main state, including initial admission;
-        // observe it directly rather than replaying a mutation log.
-        e.idle_since_frame = obj.idle_since_frame;
-        e.mood_attack_check_rate = obj.mood_attack_check_rate;
-        e.auto_acquire_when_idle = obj.auto_acquire_when_idle();
-        obj.attack_priority_set
-            .as_deref()
-            .unwrap_or_default()
-            .clone_into(&mut e.attack_priority_set);
-
-        e.health = health;
-        e.transform = transform;
-        e.owner = owner;
-        {
-            e.attack_target = obj
-                .target
-                .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
-        }
-        e.move_target = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
-        e.max_health = obj.max_health.max(obj.health.current).max(1.0);
-        e.body_damage_state = obj.body_damage_state.ordinal();
-        e.selected = obj.selected;
-        e.destroyed = obj.status.destroyed;
-        e.death_type = obj.status.death_type.ordinal();
-        {
-            e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
-        }
-        e.is_rebuild_hole = obj.is_rebuild_hole;
-        obj.rebuild_template_name
-            .as_deref()
-            .unwrap_or_default()
-            .clone_into(&mut e.rebuild_template_name);
-        e.rebuild_ready_frame = obj.rebuild_ready_frame;
-        e.rebuild_spawner_id = obj.rebuild_spawner_id.map(|id| id.0);
-        e.rebuild_worker_id = obj.rebuild_worker_id.map(|id| id.0);
-        e.rebuild_reconstructing_id = obj.rebuild_reconstructing_id.map(|id| id.0);
-        e.producer_id = obj.producer_id.map(|id| id.0);
-        e.construction_complete_clear_frame = obj.construction_complete_clear_frame;
-        e.team_ordinal = Self::host_team_ordinal(obj.team);
-        e.selection_radius = obj.selection_radius.max(5.0);
-        e.crusher_level = obj.crusher_level;
-        e.crushable_level = obj.crushable_level;
-        e.front_crushed = obj.front_crushed;
-        e.back_crushed = obj.back_crushed;
-        e.user_1 = (obj.model_condition_bits
-            & (1u128 << crate::game_logic::host_enum_table_residual::user_1_model_bit()))
-            != 0;
-        e.user_2 = (obj.model_condition_bits
-            & (1u128 << crate::game_logic::host_enum_table_residual::user_2_model_bit()))
-            != 0;
-        e.vision_range = obj.vision_range;
-        e.shroud_clearing_range = obj.shroud_clearing_range;
-        {
-            e.under_construction = obj.status.under_construction;
-        }
-        e.sold = obj.status.sold;
-        e.reconstructing = obj.status.reconstructing;
-        e.unselectable = obj.status.unselectable;
-        e.deployed = obj.status.deployed;
-        e.moving = obj.status.moving;
-        e.attacking = obj.status.attacking;
-        e.is_firing_weapon = obj.status.is_firing_weapon;
-        e.is_aiming_weapon = obj.status.is_aiming_weapon;
-        e.team_color = obj.team_color;
-        e.power_provided = obj.power_provided;
-        e.power_consumed = obj.power_consumed;
-        e.object_type_ordinal = Self::host_object_type_ordinal(obj.object_type);
-        e.max_transport = obj.max_transport;
-        e.force_attack = obj.force_attack;
-        e.show_health_bar = obj.show_health_bar;
-        e.target_location = obj.target_location.map(|p| [p.x, p.y, p.z]);
-        e.guard_position = obj.active_guard_position().map(|p| [p.x, p.y, p.z]);
-        e.guard_target_host = obj.active_guard_target().map(|id| id.0).unwrap_or(0);
-        e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state());
-        e.occupant_count = obj.contained_unit_ids().len().min(u16::MAX as usize) as u16;
-        e.experience_points = obj.experience.current;
-        e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
-        e.stored_supplies = obj.stored_resources.supplies;
-        e.stealthed = obj.status.stealthed;
-        e.detected = obj.status.detected;
-        e.using_ability = obj.status.using_ability;
-        e.airborne_target = obj.status.airborne_target;
-        e.disabled_underpowered = obj.status.disabled_underpowered;
-        e.disabled_unmanned = obj.status.disabled_unmanned;
-        e.disabled_hacked = obj.status.disabled_hacked;
-        e.disabled_emp = obj.status.disabled_emp;
-        e.disabled_emp_until_frame = obj.status.disabled_emp_until_frame;
-        e.disabled_hacked_until_frame = obj.status.disabled_hacked_until_frame;
-        e.disabled_paralyzed_until_frame = obj.status.disabled_paralyzed_until_frame;
-        e.disabled_paralyzed = obj.status.disabled_paralyzed;
-        e.disabled_script_disabled = obj.status.disabled_script_disabled;
-        e.disabled_script_underpowered = obj.status.disabled_script_underpowered;
-        e.disabled_held = obj.status.disabled_held;
-        e.weapons_jammed = obj.status.weapons_jammed;
-        e.masked = obj.status.masked;
-        e.unattackable = obj.is_kind_of(crate::game_logic::KindOf::Unattackable);
-        e.dock_kind = obj.thing().template.dock_kind as u8;
-        e.capturable = obj.thing().template.capturable;
-        e.immune_to_capture = obj.thing().template.immune_to_capture;
-        e.capture_garrisonable = obj.thing().template.garrison_contain_max.is_some();
-        e.capture_power = obj.thing().template.capture_power as u8;
-        e.capture_power_ready = obj
-            .thing()
-            .template
-            .capture_power
-            .special_power_type()
-            .is_some_and(|power| logic.is_special_power_ready_for(oid, &power));
-        let hacker_disable_building = obj.thing().template.hacker_disable_building.as_ref();
-        e.hacker_disable_building_capable =
-            hacker_disable_building.is_some_and(|metadata| metadata.is_hacker_command());
-        e.hacker_disable_building_ready =
-            hacker_disable_building.is_some() && logic.is_hacker_disable_building_ready(oid);
-        if let Some((template_name, template_id)) =
-            Self::host_ready_structure_special_power_template(logic, obj)
-        {
-            e.special_power_ready_template_name = template_name;
-            e.special_power_ready_template_id = template_id;
-        } else {
-            e.special_power_ready_template_name.clear();
-            e.special_power_ready_template_id = 0;
-        }
         e.disguised = obj.status.disguised;
         e.disabled_subdued = obj.status.disabled_subdued;
         e.subdual_damage = obj.subdual_damage;
@@ -888,6 +757,150 @@ impl GameWorldShadow {
             e.aurora_bomb_has_aim = false;
         }
         e.aurora_bomb_mission_id = obj.aurora_bomb_mission_id.unwrap_or(0);
+    }
+
+    pub(super) fn refresh_mapped_from_host(
+        &mut self,
+        logic: &GameLogic,
+        oid: ObjectId,
+        obj: &crate::game_logic::Object,
+        eid: EntityId,
+        catalog: Option<&crate::assets::ww3d_asset_manager::ObjectCatalog>,
+        visibility: crate::fow_rendering::ObjectVisibility,
+        refresh_object_values: bool,
+    ) {
+        let pos = obj.get_position();
+        let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
+        let owner = self.owner_for_host_object(logic, obj);
+        let health = obj.health.current.max(0.0);
+        let Some(e) = self.world.world_mut().entity_mut(eid) else {
+            return;
+        };
+
+        // Mood is canonical Main state, including initial admission;
+        // observe it directly rather than replaying a mutation log.
+        e.idle_since_frame = obj.idle_since_frame;
+        e.mood_attack_check_rate = obj.mood_attack_check_rate;
+        e.auto_acquire_when_idle = obj.auto_acquire_when_idle();
+        obj.attack_priority_set
+            .as_deref()
+            .unwrap_or_default()
+            .clone_into(&mut e.attack_priority_set);
+
+        e.health = health;
+        e.transform = transform;
+        e.owner = owner;
+        {
+            e.attack_target = obj
+                .target
+                .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
+        }
+        e.move_target = obj.movement.target_position.map(|p| [p.x, p.y, p.z]);
+        e.max_health = obj.max_health.max(obj.health.current).max(1.0);
+        e.body_damage_state = obj.body_damage_state.ordinal();
+        e.selected = obj.selected;
+        e.destroyed = obj.status.destroyed;
+        e.death_type = obj.status.death_type.ordinal();
+        {
+            e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
+        }
+        e.is_rebuild_hole = obj.is_rebuild_hole;
+        obj.rebuild_template_name
+            .as_deref()
+            .unwrap_or_default()
+            .clone_into(&mut e.rebuild_template_name);
+        e.rebuild_ready_frame = obj.rebuild_ready_frame;
+        e.rebuild_spawner_id = obj.rebuild_spawner_id.map(|id| id.0);
+        e.rebuild_worker_id = obj.rebuild_worker_id.map(|id| id.0);
+        e.rebuild_reconstructing_id = obj.rebuild_reconstructing_id.map(|id| id.0);
+        e.producer_id = obj.producer_id.map(|id| id.0);
+        e.construction_complete_clear_frame = obj.construction_complete_clear_frame;
+        e.team_ordinal = Self::host_team_ordinal(obj.team);
+        e.selection_radius = obj.selection_radius.max(5.0);
+        e.crusher_level = obj.crusher_level;
+        e.crushable_level = obj.crushable_level;
+        e.front_crushed = obj.front_crushed;
+        e.back_crushed = obj.back_crushed;
+        e.user_1 = (obj.model_condition_bits
+            & (1u128 << crate::game_logic::host_enum_table_residual::user_1_model_bit()))
+            != 0;
+        e.user_2 = (obj.model_condition_bits
+            & (1u128 << crate::game_logic::host_enum_table_residual::user_2_model_bit()))
+            != 0;
+        e.vision_range = obj.vision_range;
+        e.shroud_clearing_range = obj.shroud_clearing_range;
+        {
+            e.under_construction = obj.status.under_construction;
+        }
+        e.sold = obj.status.sold;
+        e.reconstructing = obj.status.reconstructing;
+        e.unselectable = obj.status.unselectable;
+        e.deployed = obj.status.deployed;
+        e.moving = obj.status.moving;
+        e.attacking = obj.status.attacking;
+        e.is_firing_weapon = obj.status.is_firing_weapon;
+        e.is_aiming_weapon = obj.status.is_aiming_weapon;
+        e.team_color = obj.team_color;
+        e.power_provided = obj.power_provided;
+        e.power_consumed = obj.power_consumed;
+        e.object_type_ordinal = Self::host_object_type_ordinal(obj.object_type);
+        e.max_transport = obj.max_transport;
+        e.force_attack = obj.force_attack;
+        e.show_health_bar = obj.show_health_bar;
+        e.target_location = obj.target_location.map(|p| [p.x, p.y, p.z]);
+        e.guard_position = obj.active_guard_position().map(|p| [p.x, p.y, p.z]);
+        e.guard_target_host = obj.active_guard_target().map(|id| id.0).unwrap_or(0);
+        e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state());
+        e.occupant_count = obj.contained_unit_ids().len().min(u16::MAX as usize) as u16;
+        e.experience_points = obj.experience.current;
+        e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
+        e.stored_supplies = obj.stored_resources.supplies;
+        e.stealthed = obj.status.stealthed;
+        e.detected = obj.status.detected;
+        e.using_ability = obj.status.using_ability;
+        e.airborne_target = obj.status.airborne_target;
+        e.disabled_underpowered = obj.status.disabled_underpowered;
+        e.disabled_unmanned = obj.status.disabled_unmanned;
+        e.disabled_hacked = obj.status.disabled_hacked;
+        e.disabled_emp = obj.status.disabled_emp;
+        e.disabled_emp_until_frame = obj.status.disabled_emp_until_frame;
+        e.disabled_hacked_until_frame = obj.status.disabled_hacked_until_frame;
+        e.disabled_paralyzed_until_frame = obj.status.disabled_paralyzed_until_frame;
+        e.disabled_paralyzed = obj.status.disabled_paralyzed;
+        e.disabled_script_disabled = obj.status.disabled_script_disabled;
+        e.disabled_script_underpowered = obj.status.disabled_script_underpowered;
+        e.disabled_held = obj.status.disabled_held;
+        e.weapons_jammed = obj.status.weapons_jammed;
+        e.masked = obj.status.masked;
+        e.unattackable = obj.is_kind_of(crate::game_logic::KindOf::Unattackable);
+        e.dock_kind = obj.thing().template.dock_kind as u8;
+        e.capturable = obj.thing().template.capturable;
+        e.immune_to_capture = obj.thing().template.immune_to_capture;
+        e.capture_garrisonable = obj.thing().template.garrison_contain_max.is_some();
+        e.capture_power = obj.thing().template.capture_power as u8;
+        e.capture_power_ready = obj
+            .thing()
+            .template
+            .capture_power
+            .special_power_type()
+            .is_some_and(|power| logic.is_special_power_ready_for(oid, &power));
+        let hacker_disable_building = obj.thing().template.hacker_disable_building.as_ref();
+        e.hacker_disable_building_capable =
+            hacker_disable_building.is_some_and(|metadata| metadata.is_hacker_command());
+        e.hacker_disable_building_ready =
+            hacker_disable_building.is_some() && logic.is_hacker_disable_building_ready(oid);
+        if let Some((template_name, template_id)) =
+            Self::host_ready_structure_special_power_template(logic, obj)
+        {
+            e.special_power_ready_template_name = template_name;
+            e.special_power_ready_template_id = template_id;
+        } else {
+            e.special_power_ready_template_name.clear();
+            e.special_power_ready_template_id = 0;
+        }
+        if refresh_object_values {
+            Self::observe_object_owned_runtime(obj, e);
+        }
         e.aurora_bomb_mission_live = obj
             .aurora_bomb_mission_id
             .map(|mid| logic.aurora_bombs.has_mission(mid))

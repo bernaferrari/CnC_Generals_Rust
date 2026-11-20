@@ -209,3 +209,101 @@ fn movement_authority_path_follow_matches_host_only_golden() {
         "actual Main owner must move"
     );
 }
+
+#[test]
+fn same_frame_object_observation_reuse_preserves_live_context_and_owner() {
+    use gamelogic::common::ObjectShroudStatus;
+    use gamelogic::world::{WeaponSlotFacts, WorldMutation};
+
+    let make_world = |ammo| {
+        let mut world = GameLogic::new();
+        crate::fixture_content::admit_fixture_objects(
+            &mut world,
+            &[crate::fixture_content::FixtureObject::new("ObservedWeapon")
+                .kind_of("INFANTRY SELECTABLE")],
+        );
+        world.add_player(crate::game_logic::Player::new(0, Team::USA, "Viewer", true));
+        world.add_player(crate::game_logic::Player::new(1, Team::China, "Enemy", false));
+        let id = world
+            .create_object("ObservedWeapon", Team::China, glam::Vec3::ZERO)
+            .unwrap();
+        let actor = world.host_object_mut(id).unwrap();
+        actor.weapon = Some(Weapon {
+            clip_size: 10,
+            ammo: Some(ammo),
+            ..Weapon::default()
+        });
+        actor.subdual_damage = ammo as f32;
+        (world, id)
+    };
+
+    let (mut world, object) = make_world(7);
+    let (peer, peer_object) = make_world(8);
+    assert_eq!(object, peer_object);
+    let frame = world.get_frame();
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&world);
+    let entity = shadow.entity_for_host(object).unwrap();
+    let ammo = |shadow: &GameWorldShadow| {
+        shadow
+            .world()
+            .weapon_slots()
+            .slot(entity, WEAPON_SLOT_PRIMARY)
+            .unwrap()
+            .ammo
+    };
+    let owning_revision = shadow.observed_object_revision.as_ref().unwrap().host_revision;
+    assert_eq!(ammo(&shadow), 7);
+
+    // Shroud belongs to another receiving service and remains live even on a
+    // clean Object-owned revision. Ordinary external writes still resync.
+    {
+        let mut shroud = world.world_services.shroud().lock().unwrap();
+        shroud.mark_host_vision_ready();
+        shroud.mark_host_object_explored(0, object.0);
+        shroud.set_host_object_shroud_status(0, object.0, ObjectShroudStatus::Fogged);
+    }
+    shadow.sync_from_host(&world);
+    assert_eq!(shadow.observed_object_revision.as_ref().unwrap().host_revision, owning_revision);
+    let cached = shadow.world().entity(entity).unwrap();
+    assert_eq!(cached.fow_visibility_alpha, crate::fow_rendering::ObjectVisibility::FOGGED.visibility_alpha);
+    let cached = format!("{cached:?}");
+    shadow.observed_object_revision = None;
+    shadow.sync_from_host(&world);
+    assert_eq!(format!("{:?}", shadow.world().entity(entity).unwrap()), cached);
+
+    // Queue a receiving-only write that applies after the existing main copy.
+    // The next clean read must restore the actual Object values at this same frame.
+    shadow.world_mut().queue_mutation(WorldMutation::SetWeaponSlot {
+        target: entity,
+        slot: WEAPON_SLOT_PRIMARY,
+        facts: WeaponSlotFacts {
+            present: true,
+            clip_size: 10,
+            ammo: 1,
+            ..Default::default()
+        },
+    });
+    shadow.sync_from_host(&world);
+    assert_eq!(ammo(&shadow), 1);
+    assert!(shadow.observed_object_revision.is_none());
+    shadow.sync_from_host(&world);
+    assert_eq!(ammo(&shadow), 7);
+
+    let actor = world.host_object_mut(object).unwrap();
+    actor.weapon.as_mut().unwrap().ammo = Some(5);
+    actor.subdual_damage = 11.0;
+    let revised = world.host_objects().observation_revision().unwrap().1;
+    assert_ne!(revised, owning_revision);
+    shadow.sync_from_host(&world);
+    assert_eq!(ammo(&shadow), 5);
+    assert_eq!(shadow.world().entity(entity).unwrap().subdual_damage, 11.0);
+
+    shadow.sync_from_host(&peer);
+    assert_eq!(ammo(&shadow), 8);
+    assert_eq!(shadow.world().entity(entity).unwrap().subdual_damage, 8.0);
+    shadow.sync_from_host(&world);
+    assert_eq!(ammo(&shadow), 5);
+    assert_eq!(world.get_frame(), frame);
+    assert_eq!(peer.get_frame(), frame);
+}

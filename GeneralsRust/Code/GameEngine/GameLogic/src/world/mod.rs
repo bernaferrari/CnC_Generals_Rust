@@ -1510,6 +1510,11 @@ impl GameWorld {
         self.inner.player_mut(id)
     }
 
+    /// Whether an end-of-phase operation can still change observed state.
+    pub fn has_pending_mutations(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
     /// Queue a mutation for end-of-phase apply (does not mutate entities yet).
     pub fn queue_mutation(&mut self, m: WorldMutation) {
         let guard = entity_generation::guard_for(&self.inner.entities, &m);

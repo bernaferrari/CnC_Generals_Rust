@@ -44,6 +44,7 @@ pub struct GameWorldShadow {
     registered_host_ids: Vec<ObjectId>,
     sorted_host_ids: Vec<ObjectId>,
     checked_entity_roster: Option<(u32, u64)>,
+    observed_object_revision: Option<ObjectObservationRevision>,
     max_entities: usize,
     /// Host player id → dense GameWorld PlayerId
     host_player_to_gw: HashMap<u32, PlayerId>,
@@ -64,6 +65,13 @@ pub struct GameWorldShadow {
     artillery_pending_drops:
         Vec<crate::game_logic::host_artillery_barrage_flight::PendingArtilleryShellDrop>,
     carpet_pending_drops: Vec<crate::game_logic::host_carpet_bomb_flight::PendingCarpetBombDrop>,
+}
+
+#[derive(Debug)]
+struct ObjectObservationRevision {
+    host: std::sync::Weak<()>,
+    host_revision: u64,
+    entity_roster: (u32, u64),
 }
 
 #[cfg(test)]
