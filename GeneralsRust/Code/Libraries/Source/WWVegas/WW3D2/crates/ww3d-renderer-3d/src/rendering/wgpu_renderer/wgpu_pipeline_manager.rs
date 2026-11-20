@@ -324,85 +324,84 @@ impl WgpuPipelineManager {
                 }),
             ),
         };
-        let texture_bgls: Vec<wgpu::BindGroupLayout> =
-            if matches!(vertex_format, VertexFormat::Line) {
-                Vec::new()
-            } else {
-                (0..MAX_TEXTURE_STAGE_GROUPS)
-                    .map(|group_index| {
-                        let mut entries = Vec::with_capacity(TEXTURES_PER_GROUP * 3);
-                        for i in 0..TEXTURES_PER_GROUP {
-                            let binding_base = (i * 3) as u32;
-                            entries.push(wgpu::BindGroupLayoutEntry {
-                                binding: binding_base,
-                                visibility: wgpu::ShaderStages::FRAGMENT,
-                                ty: wgpu::BindingType::Texture {
-                                    multisampled: false,
-                                    view_dimension: wgpu::TextureViewDimension::D2,
-                                    sample_type: wgpu::TextureSampleType::Float {
-                                        filterable: true,
-                                    },
-                                },
-                                count: None,
-                            });
-                            entries.push(wgpu::BindGroupLayoutEntry {
-                                binding: binding_base + 1,
-                                visibility: wgpu::ShaderStages::FRAGMENT,
-                                ty: wgpu::BindingType::Texture {
-                                    multisampled: false,
-                                    view_dimension: wgpu::TextureViewDimension::Cube,
-                                    sample_type: wgpu::TextureSampleType::Float {
-                                        filterable: true,
-                                    },
-                                },
-                                count: None,
-                            });
-                            entries.push(wgpu::BindGroupLayoutEntry {
-                                binding: binding_base + 2,
-                                visibility: wgpu::ShaderStages::FRAGMENT,
-                                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                                count: None,
-                            });
-                        }
-                        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                            label: Some(&format!("Texture BGL Group {group_index}")),
-                            entries: &entries,
-                        })
-                    })
-                    .collect()
-            };
-
-        let color_bgl = if matches!(vertex_format, VertexFormat::Line) {
-            None
-        } else {
-            Some(
-                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Vertex Color BGL"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
-                }),
-            )
+        // The projected pass follows a material draw in the same render
+        // pass and only reads group 3. Its layout must end there so ordinary
+        // material bindings above that slot are outside its ABI.
+        let texture_group_count = match vertex_format {
+            VertexFormat::Line => 0,
+            VertexFormat::ProjectedShroudBasic | VertexFormat::ProjectedShroudSkinned => 1,
+            VertexFormat::Basic | VertexFormat::Skinned => MAX_TEXTURE_STAGE_GROUPS,
         };
+        let texture_bgls: Vec<wgpu::BindGroupLayout> = (0..texture_group_count)
+            .map(|group_index| {
+                let mut entries = Vec::with_capacity(TEXTURES_PER_GROUP * 3);
+                for i in 0..TEXTURES_PER_GROUP {
+                    let binding_base = (i * 3) as u32;
+                    entries.push(wgpu::BindGroupLayoutEntry {
+                        binding: binding_base,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float {
+                                filterable: true,
+                            },
+                        },
+                        count: None,
+                    });
+                    entries.push(wgpu::BindGroupLayoutEntry {
+                        binding: binding_base + 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                            sample_type: wgpu::TextureSampleType::Float {
+                                filterable: true,
+                            },
+                        },
+                        count: None,
+                    });
+                    entries.push(wgpu::BindGroupLayoutEntry {
+                        binding: binding_base + 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    });
+                }
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some(&format!("Texture BGL Group {group_index}")),
+                    entries: &entries,
+                })
+            })
+            .collect();
+
+        let color_bgl = material_mesh.then(|| {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Vertex Color BGL"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            })
+        });
 
         let mut bgls = vec![&camera_bgl];
         if material_mesh {
@@ -687,35 +686,26 @@ mod tests {
     /// Render one projected pass into a one-pixel target and read it back.
     ///
     /// This is intentionally a tiny, renderer-owned target rather than a
-    /// Main integration test: it proves the actual shader/bind layout and
-    /// `Zero / SrcColor` blend operation multiply an existing destination by
-    /// the frozen R8 shroud level.  Environments without a software adapter
-    /// may skip the test, just like the pipeline ABI test above.
+    /// The real mesh-to-shroud transition multiplies the destination by the
+    /// frozen R8 level with the ordinary material still bound at its slot.
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
+    #[ignore = "requires a native GPU adapter"]
     fn projected_shroud_headless_target_is_multiplied_by_frozen_level() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
-        let Some(adapter) =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                compatible_surface: None,
-                force_fallback_adapter: true,
-            apply_limit_buckets: false,
-            }))
-            .ok()
-        else {
-            return;
-        };
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+            .expect("native shroud regression GPU adapter");
         // STANDALONE DEVICE: #[cfg(test)] headless shroud test, not on the game path.
-        let Ok((device, queue)) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                label: Some("projected-shroud-headless-test"),
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: wgpu::Limits {
+                max_bind_groups: 8,
+                max_sampled_textures_per_shader_stage: 17,
                 ..Default::default()
-            }))
-        else {
-            return;
-        };
+            },
+            label: Some("projected-shroud-headless-test"),
+            ..Default::default()
+        }))
+        .expect("native shroud regression GPU device");
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);
@@ -735,6 +725,33 @@ mod tests {
             0,
             true,
         );
+        let material_pipeline = manager.get_or_create(
+            &ShaderClass::default(),
+            0,
+            false,
+            false,
+            false,
+            wgpu::PrimitiveTopology::TriangleList,
+            VertexFormat::Basic,
+            wgpu::TextureFormat::Rgba8Unorm,
+            Some(wgpu::TextureFormat::Depth32Float),
+            0,
+            true,
+        );
+        let colors = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ordinary mesh vertex colors"),
+            size: 16,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let material_colors = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ordinary mesh vertex color group"),
+            layout: &material_pipeline.get_bind_group_layout(MESH_COLOR_GROUP),
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: colors.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: colors.as_entire_binding() },
+            ],
+        });
 
         let color = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("projected-shroud-color"),
@@ -1031,9 +1048,14 @@ mod tests {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            // W3DScene appends shroud to the same mesh pass after its
+            // authored material. Bindings above its prefix remain set.
+            pass.set_pipeline(&material_pipeline);
+            pass.set_bind_group(4, &texture_group, &[]);
+            pass.set_bind_group(MESH_COLOR_GROUP, &material_colors, &[]);
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &camera_group, &[]);
-            pass.set_bind_group(1, &model_group, &[]);
+            pass.set_bind_group(1, &model_group, &[0, 0]);
             pass.set_bind_group(2, &uv_group, &[]);
             pass.set_bind_group(3, &texture_group, &[]);
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
