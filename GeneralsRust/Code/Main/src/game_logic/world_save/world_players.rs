@@ -14,6 +14,22 @@ fn host_slot_script_name(player: &Player) -> String {
 }
 
 impl GameLogic {
+    pub(crate) fn read_receiving_map_text(&self, source: &str) -> Option<String> {
+        let contents = if let Some(assets) = self.application_assets() {
+            let mut assets = assets.lock().unwrap_or_else(|error| error.into_inner());
+            super::script_loader::read_map_text_companion(
+                source,
+                Some(assets.archive_file_system_mut()),
+            )
+        } else {
+            super::script_loader::read_map_text_companion(source, None)
+        };
+        contents.unwrap_or_else(|error| {
+            log::warn!("{error}");
+            None
+        })
+    }
+
     /// ScriptEngine::newMap installs each side's ScriptList, which now holds
     /// the Player::initFromDict copy: a human's qualified Civilian scripts
     /// (Player.cpp:823-851), a skirmish AI's own side (Player.cpp:880-901).
@@ -489,10 +505,10 @@ impl GameLogic {
         let general_name = if self.is_loading_saved_snapshot() {
             None
         } else if let Some(native) = native.as_mut() {
-            let source = self.map_definition_source.as_deref()
-                .map(Path::new)
-                .unwrap_or(map_path);
-            native.admit_map_text(source)?
+            let fallback = map_path.to_string_lossy();
+            let source = self.map_definition_source.as_deref().unwrap_or(&fallback);
+            let contents = self.read_receiving_map_text(source);
+            native.admit_map_text(contents.as_deref())?
         } else {
             None
         };

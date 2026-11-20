@@ -461,9 +461,9 @@ pub(super) fn deliver_map_rank_ui(
 }
 #[cfg(feature = "game_client")]
 impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
-    fn admit_map_text(&mut self, map_path: &std::path::Path) -> Result<Option<String>, String> {
+    fn admit_map_text(&mut self, contents: Option<&str>) -> Result<Option<String>, String> {
         let Some(text) = self.game_text.as_ref() else { return Ok(None) };
-        game_client::core::GameClient::admit_map_text_to_store(text, map_path);
+        game_client::core::GameClient::admit_map_text_to_store_from_contents(text, contents);
         self.general_name()
     }
 

@@ -74,6 +74,39 @@ pub(crate) fn read_owned_definition_companions(
 }
 
 
+/// C++ loadMapINI resolves map.str beside the selected map through TheFileSystem.
+pub(crate) fn read_map_text_companion(
+    source: &str,
+    files: Option<&mut crate::assets::archive::ArchiveFileSystem>,
+) -> Result<Option<String>, String> {
+    let source = source.replace('\\', "/");
+    let Some(directory) = Path::new(&source).parent() else {
+        return Ok(None);
+    };
+    let path = directory.join("map.str");
+    let bytes = if let Some(files) = files {
+        files
+            .read_optional_definition_source(&path.to_string_lossy())
+            .map_err(|error| format!("Cannot read map text '{}': {error}", path.display()))?
+    } else {
+        let Some(path) = [path.clone(), directory.join("Map.str")]
+            .into_iter()
+            .find(|path| path.is_file())
+        else {
+            return Ok(None);
+        };
+        Some(fs::read(&path).map_err(|error| {
+            format!("Cannot read map text '{}': {error}", path.display())
+        })?)
+    };
+    bytes
+        .map(|bytes| {
+            String::from_utf8(bytes)
+                .map_err(|error| format!("Cannot decode map text '{}': {error}", path.display()))
+        })
+        .transpose()
+}
+
 fn selected_map_definition_companion(
     directory: &Path,
     names: &[&str],

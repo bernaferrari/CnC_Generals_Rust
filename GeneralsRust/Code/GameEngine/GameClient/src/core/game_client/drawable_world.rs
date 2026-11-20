@@ -451,6 +451,18 @@ impl GameClient {
         }
     }
 
+    /// Admit labels supplied by the receiving map's mounted file provider.
+    pub fn admit_map_text_to_store_from_contents(
+        store: &std::sync::RwLock<crate::game_text::GameText>,
+        contents: Option<&str>,
+    ) {
+        let mut text = store.write().unwrap_or_else(|error| error.into_inner());
+        text.reset_owned();
+        if let Some(contents) = contents {
+            text.replace_map_strings(contents);
+        }
+    }
+
     pub fn ensure_global_language_data(
         &mut self,
     ) -> std::sync::Arc<std::sync::RwLock<crate::global_language::GlobalLanguageData>> {

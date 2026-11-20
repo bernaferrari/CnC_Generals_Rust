@@ -1121,6 +1121,54 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn map_text_from_identical_virtual_paths_reaches_only_the_receiving_world() {
+        use game_client::{core::GameClient, game_text::GameText};
+        use std::sync::{Arc, Mutex, RwLock};
+
+        const MAP: &str = r"Maps\MapTextOwnerFixture\Owner.map";
+        const LABEL: &str = "SCRIPT:MountedMapTextOwnerFixture";
+        let mount = |value: &str| {
+            let root = tempfile::tempdir().unwrap();
+            let big = root.path().join("map-text.big");
+            let contents = format!("{LABEL}\n\"{value}\"\nEND\n");
+            create_single_file_big(&big, r"Maps\MapTextOwnerFixture\Map.str", contents.as_bytes()).unwrap();
+            let mut assets = crate::assets::AssetManager::new().unwrap();
+            let files = assets.archive_file_system_mut();
+            files.set_local_search_roots([root.path().to_path_buf()]);
+            pollster::block_on(files.load_big_file(big)).unwrap();
+            assert_eq!(files.get_statistics().total_archives, 1);
+            let mut world = crate::game_logic::GameLogic::new();
+            world.bind_application_assets(Arc::new(Mutex::new(assets)));
+            (root, world)
+        };
+        let (_first_root, first) = mount("First archive label");
+        let (_second_root, second) = mount("Second archive label");
+        let first_text = RwLock::new(GameText::default());
+        let second_text = RwLock::new(GameText::default());
+        let lookup = |text: &RwLock<GameText>| text.write().unwrap().fetch_owned(LABEL);
+
+        // The old disk-only path cannot see an archived companion.
+        GameClient::admit_map_text_to_store(&first_text, Path::new(MAP));
+        assert!(lookup(&first_text).starts_with("MISSING:"));
+        second.with_own_services(|| {
+            let contents = first.read_receiving_map_text(MAP);
+            GameClient::admit_map_text_to_store_from_contents(&first_text, contents.as_deref());
+        });
+        first.with_own_services(|| {
+            let contents = second.read_receiving_map_text(MAP);
+            GameClient::admit_map_text_to_store_from_contents(&second_text, contents.as_deref());
+        });
+        assert_eq!(lookup(&first_text), "First archive label");
+        assert_eq!(lookup(&second_text), "Second archive label");
+        let contents = first.read_receiving_map_text("Maps/Absent/Absent.map");
+        assert!(contents.is_none());
+        GameClient::admit_map_text_to_store_from_contents(&first_text, contents.as_deref());
+        assert!(lookup(&first_text).starts_with("MISSING:"));
+        assert_eq!(lookup(&second_text), "Second archive label");
+    }
+
     #[test]
     fn strict_definition_read_keeps_selected_local_before_same_named_big_and_true_missing() {
         let archive_root = tempfile::tempdir().unwrap();

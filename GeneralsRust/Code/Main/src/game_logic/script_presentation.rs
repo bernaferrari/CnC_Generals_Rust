@@ -450,7 +450,7 @@ pub(crate) struct NativeFactoryDrawableSource {
 pub(crate) trait NativeMapAdmission {
     /// Admit this attempt's map labels before PlayerList initialization.
     /// A headless admission has no GameText owner.
-    fn admit_map_text(&mut self, _map_path: &std::path::Path) -> Result<Option<String>, String> {
+    fn admit_map_text(&mut self, _contents: Option<&str>) -> Result<Option<String>, String> {
         Ok(None)
     }
     /// Fetch from the same receiving catalog after map text has been admitted.

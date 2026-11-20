@@ -64,11 +64,17 @@ impl GameText {
         self.map_strings.clear();
         self.map_strings_lower.clear();
         let content = fs::read_to_string(path)?;
-        parse_string_file(&content, &mut self.map_strings);
+        self.replace_map_strings(&content);
+        Ok(())
+    }
+
+    /// Decode labels already read by this game's mounted file provider.
+    pub fn replace_map_strings(&mut self, contents: &str) {
+        self.map_strings.clear();
+        parse_string_file(contents, &mut self.map_strings);
         self.map_strings_lower = self.map_strings.iter()
             .map(|(label, value)| (label.to_ascii_lowercase(), value.clone()))
             .collect();
-        Ok(())
     }
 
     pub fn reset_owned(&mut self) {
