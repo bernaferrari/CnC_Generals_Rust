@@ -1856,9 +1856,10 @@ impl JetAIUpdate {
         &mut self,
         ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
+        inherited_is_moving: bool,
     ) {
         self.get_producer_location(Some(ai));
-        self.update();
+        self.update_with_moving_or_waiting(Some(inherited_is_moving || ai.is_waiting_for_path()));
         let now = TheGameLogic::get_frame();
         let is_reloading = matches!(self.state_machine.state, Some(JetAIStateType::ReloadAmmo));
         let is_idle = (driver.get_current_state_id()
@@ -2629,6 +2630,10 @@ impl JetAIUpdate {
     }
 
     pub fn update(&mut self) {
+        self.update_with_moving_or_waiting(None);
+    }
+
+    fn update_with_moving_or_waiting(&mut self, moving_or_waiting: Option<bool>) {
         // Wave 309: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -2721,40 +2726,41 @@ impl JetAIUpdate {
             }
 
             let mut engine_toggle = None;
-            if !guard.is_kind_of(crate::common::KindOf::ProducedAtHelipad) {
-                let waiting_for_path = guard
-                    .get_ai_update_interface()
-                    .and_then(|ai| {
-                        ai.lock()
-                            .ok()
-                            .map(|ai_guard| ai_guard.is_waiting_for_path())
-                    })
-                    .unwrap_or(false);
-                if guard.get_drawable().is_some() {
-                    let should_enable = takeoff
-                        || landing
-                        || guard.is_significantly_above_terrain()
-                        || guard.is_moving()
-                        || waiting_for_path;
-                    if should_enable && !engines_on {
-                        engine_toggle = Some(true);
-                    } else if !should_enable && engines_on {
-                        engine_toggle = Some(false);
-                    }
+            if !guard.is_kind_of(crate::common::KindOf::ProducedAtHelipad)
+                && let Some(drawable) = guard.get_drawable()
+            {
+                // JetAIUpdate.cpp:1979–2004 reads inherited movement and waiting.
+                // During an installed UnitAI update that runtime is already borrowed.
+                let should_enable = takeoff
+                    || landing
+                    || guard.is_significantly_above_terrain()
+                    || moving_or_waiting.unwrap_or_else(|| {
+                        guard.is_moving()
+                            || guard
+                                .get_ai_update_interface()
+                                .and_then(|ai| {
+                                    ai.lock()
+                                        .ok()
+                                        .map(|ai_guard| ai_guard.is_waiting_for_path())
+                                })
+                                .unwrap_or(false)
+                    });
+                if should_enable && !engines_on {
+                    engine_toggle = Some((drawable, true));
+                } else if !should_enable && engines_on {
+                    engine_toggle = Some((drawable, false));
                 }
             }
 
             engine_toggle
         });
 
-        if let Some(enable) = engine_decision.flatten() {
-            let _ = self.with_object_mut(|guard| {
-                if let Some(drawable) = guard.get_drawable() {
-                    if let Ok(mut drawable_guard) = drawable.write() {
-                        drawable_guard.enable_ambient_sound_from_script(enable);
-                    }
-                }
-            });
+        if let Some((drawable, enable)) = engine_decision.flatten() {
+            // Restarting sound reads the Drawable's owning Object. The pose
+            // and engine decision are complete, so no Object guard spans it.
+            if let Ok(mut drawable) = drawable.write() {
+                drawable.enable_ambient_sound_from_script(enable);
+            }
             self.engines_on = enable;
         }
 

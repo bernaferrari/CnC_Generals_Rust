@@ -809,7 +809,11 @@ impl UnitAIUpdate {
             let _ = wander_ai.update(self);
             self.runtime.components.wander_ai = Some(wander_ai);
         }
-        if let Some(mut jet_ai) = self.runtime.components.jet_ai.take() {
+        if self.runtime.components.jet_ai.is_some() {
+            // The inherited query includes the installed Jet's pending command.
+            // Read it before moving the Jet component out for this phase.
+            let is_moving = self.is_moving();
+            let mut jet_ai = self.runtime.components.jet_ai.take().expect("installed Jet");
             if let Some(machine) = self.ai_state_machine.as_mut() {
                 let mut runtime = super::UnitAiStateRuntime {
                     runtime: &mut self.runtime,
@@ -818,7 +822,7 @@ impl UnitAIUpdate {
                     world: world.take(),
                     command_target: None,
                 };
-                jet_ai.update_with_ai(&mut runtime, &mut machine.driver());
+                jet_ai.update_with_ai(&mut runtime, &mut machine.driver(), is_moving);
                 world = runtime.world.take();
             }
             self.runtime.components.jet_ai = Some(jet_ai);
