@@ -321,29 +321,66 @@ const GEN_EXP_TITLE: &str = "GeneralsExpPoints.wnd:StaticTextTitle";
 
 type PurchaseScienceWindow = Option<std::rc::Rc<std::cell::RefCell<GameWindow>>>;
 
-/// Hide every rank cameo window and return them by rank/index, so the
-/// per-button pass that follows reuses one name lookup per window instead
-/// of walking the window tree again for each hide/enable/status step.
+fn purchase_science_window_slot(name: &str) -> Option<(usize, usize)> {
+    const PREFIX: &str = "GeneralsExpPoints.wnd:ButtonRank";
+    let (prefix, rest) = name.split_at_checked(PREFIX.len())?;
+    if !prefix.eq_ignore_ascii_case(PREFIX) {
+        return None;
+    }
+    let (rank, rest) = rest.split_at_checked(1)?;
+    let rank = match rank {
+        "1" => 0,
+        "3" => 1,
+        "8" => 2,
+        _ => return None,
+    };
+    let (number, index) = rest.split_at_checked("Number".len())?;
+    if !number.eq_ignore_ascii_case("Number")
+        || !index.bytes().all(|byte| byte.is_ascii_digit())
+        || (index.len() > 1 && index.starts_with('0'))
+    {
+        return None;
+    }
+    Some((rank, index.parse().ok()?))
+}
+
+fn collect_purchase_science_windows(
+    windows: &[std::rc::Rc<std::cell::RefCell<GameWindow>>],
+    ranks: &mut [Vec<PurchaseScienceWindow>; 3],
+    remaining: &mut usize,
+) {
+    for window in windows {
+        if *remaining == 0 {
+            return;
+        }
+        let value = window.borrow();
+        if let Some((rank, index)) = purchase_science_window_slot(value.get_name()) {
+            if let Some(slot) = ranks[rank].get_mut(index).filter(|slot| slot.is_none()) {
+                *slot = Some(window.clone());
+                *remaining -= 1;
+            }
+        }
+        collect_purchase_science_windows(value.children(), ranks, remaining);
+    }
+}
+
+/// Resolve the first tree match for each authored cameo in one walk. Hide
+/// them afterward in rank/index order to preserve focus and capture cleanup.
 fn leftover_hide_all_purchase_science_windows(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) -> [Vec<PurchaseScienceWindow>; 3] {
-    let mut hide_rank = |prefix: &str, count: usize| -> Vec<PurchaseScienceWindow> {
-        (0..count)
-            .map(|i| {
-                let win =
-                    leftover_find_window(&format!("GeneralsExpPoints.wnd:{prefix}{i}"), receiving_manager);
-                if let Some(win) = &win {
-                    let _ = receiving_manager.hide_window(win, true);
-                }
-                win
-            })
-            .collect()
-    };
-    [
-        hide_rank("ButtonRank1Number", MAX_PURCHASE_SCIENCE_RANK_1),
-        hide_rank("ButtonRank3Number", MAX_PURCHASE_SCIENCE_RANK_3),
-        hide_rank("ButtonRank8Number", MAX_PURCHASE_SCIENCE_RANK_8),
-    ]
+    let ranks = [
+        MAX_PURCHASE_SCIENCE_RANK_1,
+        MAX_PURCHASE_SCIENCE_RANK_3,
+        MAX_PURCHASE_SCIENCE_RANK_8,
+    ];
+    let mut remaining = ranks.iter().sum();
+    let mut windows = ranks.map(|count| vec![None; count]);
+    collect_purchase_science_windows(receiving_manager.get_window_list(), &mut windows, &mut remaining);
+    for window in windows.iter().flatten().flatten() {
+        let _ = receiving_manager.hide_window(window, true);
+    }
+    windows
 }
 
 /// C++ ControlBar.cpp:1118-1141 — bind rank cameo windows and USE_OVERLAY_STATES.
@@ -2766,6 +2803,44 @@ impl ControlBar {
 #[cfg(test)]
 mod science_vec_gate_tests {
     use super::*;
+
+    #[test]
+    fn purchase_science_rank_batch_keeps_first_case_insensitive_tree_match() {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|manager| {
+                let parent = manager.create_window(None, 0, 0, 100, 100, effects).unwrap();
+                let canonical = "GeneralsExpPoints.wnd:ButtonRank3Number10";
+                let mut make = |name: &str| {
+                    let window = manager
+                        .create_window(Some(&parent), 0, 0, 10, 10, effects)
+                        .unwrap();
+                    window.borrow_mut().set_name(name);
+                    manager.hide_window(&window, false).unwrap();
+                    window
+                };
+                let first_candidate = make(canonical);
+                let second_candidate = make("generalsexppoints.wnd:buttonrank3number10");
+                let distinct = make("GeneralsExpPoints.wnd:ButtonRank1Number0");
+                let padded = make("GeneralsExpPoints.wnd:ButtonRank1Number00");
+                let expected = manager.find_window_by_name(canonical).unwrap();
+                let other = if std::rc::Rc::ptr_eq(&expected, &first_candidate) {
+                    second_candidate
+                } else {
+                    first_candidate
+                };
+
+                let windows = leftover_hide_all_purchase_science_windows(manager);
+                assert!(std::rc::Rc::ptr_eq(windows[1][10].as_ref().unwrap(), &expected));
+                assert!(std::rc::Rc::ptr_eq(windows[0][0].as_ref().unwrap(), &distinct));
+                assert!(expected.borrow().is_hidden());
+                assert!(distinct.borrow().is_hidden());
+                assert!(!other.borrow().is_hidden());
+                assert!(!padded.borrow().is_hidden());
+                assert!(windows[2].iter().all(Option::is_none));
+            });
+        });
+    }
 
     #[test]
     fn science_vec_restricted_until_host_or_crate_owns() {
