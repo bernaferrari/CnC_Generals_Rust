@@ -1126,6 +1126,196 @@ fn actual_team_failure_stops_native_shell_and_fast_forward(engine: &mut CnCGameE
     );
 }
 
+#[cfg(feature = "game_client")]
+fn visual_physics_display_witness(engine: &mut CnCGameEngine) -> anyhow::Result<()> {
+    use crate::cnc_game_engine::GameState;
+    use crate::game_logic::{GameMode, locomotor_bootstrap::apply_host_locomotor_binding};
+    use game_client::drawable::drawable::BasicDrawable;
+    use game_client::physics_visual::PhysicsVisualAppearance;
+    use game_engine::common::ini::ini_locomotor::{LocomotorStore, load_locomotors_from_str};
+
+    const OBJECT: &str = "TivoVisualPhysicsCar";
+    const LOCOMOTOR: &str = "TivoVisualPhysicsWheels";
+    let admit = |world: &mut GameLogic| -> anyhow::Result<()> {
+        let mut locomotors = LocomotorStore::new_owned();
+        load_locomotors_from_str(
+            &mut locomotors,
+            "Locomotor TivoVisualPhysicsWheels\nSurfaces = GROUND\nSpeed = 60\nAppearance = FOUR_WHEELS\nBounceAmount = 0.4\nEnd\n",
+        )?;
+        world
+            .admit_locomotor_definitions(locomotors)
+            .map_err(anyhow::Error::msg)?;
+        world.admit_object_ini_sources([(
+            "TivoVisualPhysics.ini".into(),
+            "Object TivoVisualPhysicsCar\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nDraw = W3DModelDraw DrawTag\nDefaultConditionState\nModel = None\nEnd\nEnd\nEnd\n".into(),
+        )])?;
+        world
+            .start_new_game(GameMode::Replay)
+            .map_err(anyhow::Error::msg)?;
+        world.session_view.client_random.seed_random(17);
+        Ok(())
+    };
+    let move_car = |world: &mut GameLogic, id: ObjectId| {
+        let binding = world.resolve_receiving_locomotor(LOCOMOTOR).unwrap();
+        let car = world.host_object_mut(id).unwrap();
+        apply_host_locomotor_binding(car, &binding);
+        car.movement.velocity = Vec3::X * car.movement.max_speed;
+        car.set_ground_height_residual(0., false);
+        car.queue_second_material_pass(1.);
+    };
+
+    engine.abandon_startup_load_worker();
+    admit(&mut engine.game_logic)?;
+    engine.game_logic.require_native_drawable_owner();
+    engine.current_state = GameState::InGame;
+    engine.replay_fast_forward = true;
+    engine.game_logic.frame = 2;
+    engine.game_client.set_frame(2);
+
+    let visible = engine
+        .host_create_object(OBJECT, Team::USA, Vec3::new(1., 0., 1.))
+        .expect("native visible actor");
+    let hidden = engine
+        .host_create_object(OBJECT, Team::USA, Vec3::new(3., 0., 1.))
+        .expect("native hidden actor");
+    let outside = engine
+        .host_create_object(OBJECT, Team::USA, Vec3::new(10_000., 0., 10_000.))
+        .expect("native outside actor");
+    for id in [visible, hidden, outside] {
+        move_car(&mut engine.game_logic, id);
+    }
+
+    let mut peer = GameLogic::new();
+    admit(&mut peer)?;
+    let peer_car = peer
+        .create_object(OBJECT, Team::USA, Vec3::new(1., 0., 1.))
+        .expect("independent peer actor");
+    assert_eq!(peer_car, visible);
+    move_car(&mut peer, peer_car);
+    let peer_random = peer.session_view.client_random.seed_words();
+
+    engine
+        .host_finalize_presentation_after_logic()
+        .map_err(anyhow::Error::msg)?;
+    let frame = engine
+        .last_presentation_frame
+        .as_ref()
+        .expect("published replay observation");
+    assert!(frame.in_replay_game);
+    for id in [visible, hidden, outside] {
+        let facts = frame
+            .physics_visual_facts(id)
+            .expect("receiving visual physics inputs");
+        assert_eq!(facts.appearance, PhysicsVisualAppearance::WheelsFour);
+        assert!(facts.show_client_physics && !facts.body.significantly_above_terrain);
+        assert!(facts.params.bounce_kick > 0. && facts.body.cur_locomotor_speed > 0.);
+        assert!(facts.body.velocity_magnitude > facts.body.cur_locomotor_speed / 10.);
+    }
+
+    let epoch = engine.host_direct_visual_world_epoch;
+    let hidden_drawable = engine
+        .game_client
+        .presentation_direct_drawable_state(epoch, hidden.0)
+        .expect("hidden actor has native binding")
+        .binding_key
+        .drawable_id;
+    engine
+        .game_client
+        .find_drawable_by_id_mut(hidden_drawable)
+        .expect("hidden receiving Drawable")
+        .as_any_mut()
+        .downcast_mut::<BasicDrawable>()
+        .expect("typed receiving Drawable")
+        .set_drawable_hidden(true);
+
+    let before = engine.game_logic.session_view.client_random.seed_words();
+    let mut expected = engine.game_logic.session_view.client_random.clone();
+    expected.next_int(0, 3);
+    assert_ne!(before, expected.seed_words());
+    let opacity = |engine: &CnCGameEngine, id: ObjectId| {
+        engine
+            .game_client
+            .capture_presentation_material_opacities()
+            .into_iter()
+            .find(|(key, _)| key.host_epoch == epoch && key.object_id == id.0)
+            .expect("bound Drawable material state")
+            .1
+    };
+
+    engine
+        .complete_native_display_step()
+        .map_err(anyhow::Error::msg)?;
+    assert!(
+        !engine.should_present_w3d_frame(),
+        "TiVO at replay frame 2 must deny the GPU"
+    );
+    assert_eq!(
+        opacity(engine, visible),
+        0.8,
+        "visible actor entered CPU Draw"
+    );
+    assert_eq!(
+        opacity(engine, hidden),
+        0.8,
+        "in-region hidden actor faded before the visibility return"
+    );
+    assert_eq!(
+        opacity(engine, outside),
+        1.,
+        "out-of-region actor did not enter CPU Draw"
+    );
+    let draw_pose = |engine: &mut CnCGameEngine, id: ObjectId| {
+        let key = engine.game_client.presentation_direct_drawable_state(epoch, id.0)
+            .expect("native binding for completed Draw").binding_key;
+        engine.game_client.borrow_native_drawable_owner().native_draw_mesh_pose(key)
+            .expect("completed CPU Draw pose").1
+    };
+    let visible_pose = draw_pose(engine, visible).expect("wheel physics completed during CPU Draw");
+    assert!(visible_pose.is_finite());
+    assert_ne!(visible_pose, glam::Mat4::IDENTITY);
+    assert_eq!(draw_pose(engine, hidden), None);
+    assert_eq!(draw_pose(engine, outside), None);
+    let after = engine.game_logic.session_view.client_random.seed_words();
+    engine
+        .complete_native_display_step()
+        .map_err(anyhow::Error::msg)?;
+    assert!(!engine.should_present_w3d_frame());
+    assert_eq!(
+        opacity(engine, visible),
+        0.8,
+        "repeat Client frame did not offer another CPU Draw"
+    );
+    assert_eq!(
+        engine.game_logic.session_view.client_random.seed_words(),
+        after,
+        "repeat Client frame did not consume RNG"
+    );
+    assert_eq!(
+        peer.session_view.client_random.seed_words(),
+        peer_random,
+        "same-ID peer remained untouched"
+    );
+    assert_eq!(
+        after,
+        expected.seed_words(),
+        "admitted native CPU Draw must consume one wheel-bounce RNG draw even when TiVO denies the GPU"
+    );
+    assert_eq!(draw_pose(engine, visible), Some(visible_pose));
+
+    // Switch back to ordinary display without advancing Client time. The
+    // existing render route can submit/retry while the completed pose stays put.
+    engine.replay_fast_forward = false;
+    engine.complete_native_display_step().map_err(anyhow::Error::msg)?;
+    assert!(engine.should_present_w3d_frame());
+    for _ in 0..2 {
+        engine.render()?;
+        assert_eq!(draw_pose(engine, visible), Some(visible_pose));
+        assert_eq!(engine.game_logic.session_view.client_random.seed_words(), after);
+    }
+    println!("native CPU Draw advanced exactly one wheel-bounce RNG draw on a TiVO GPU-skip frame");
+    Ok(())
+}
+
 pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
     anyhow::ensure!(
         crate::gameworld_shadow::gameworld_shadow_enabled(),
@@ -1140,6 +1330,10 @@ pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
         );
     }
     let (_event_loop, _application_services, mut engine) = replay_fixture_engine()?;
+    #[cfg(feature = "game_client")]
+    if std::env::var_os("GENERALS_TIVO_VISUAL_PHYSICS_GATE").is_some() {
+        return visual_physics_display_witness(&mut engine);
+    }
     #[cfg(feature = "game_client")]
     if std::env::var_os("GENERALS_SKIRMISH_LONGEVITY_GATE_MAP").is_some() {
         // Keep the actual startup worker and admit its ordered retail content

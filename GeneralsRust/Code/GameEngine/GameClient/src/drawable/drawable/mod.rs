@@ -104,6 +104,9 @@ pub struct BasicDrawable {
     base_transform: Matrix4,
     /// C++ Drawable::m_instance: render-only local transform.
     instance_transform: Matrix4,
+    /// Last admitted CPU Draw, keyed to this exact native binding lifetime.
+    pub(crate) native_draw_physics_local:
+        Option<(crate::core::PresentationDirectDrawableBindingKey, glam::Mat4)>,
     instance_scale: f32,
     status: DrawableStatus,
     tint_status: TintStatus,
@@ -288,6 +291,7 @@ impl BasicDrawable {
             position: Vector3::zero(),
             base_transform: Matrix4::identity(),
             instance_transform: Matrix4::identity(),
+            native_draw_physics_local: None,
             instance_scale: 1.0,
             // C++ creates with DRAWABLE_STATUS_NONE; first Drawable::draw() then
             // setShadowsEnabled for living non-stealth-detected objects. Seed SHADOWS

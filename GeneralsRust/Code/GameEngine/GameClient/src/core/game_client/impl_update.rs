@@ -2231,7 +2231,7 @@ impl GameClient {
         phase: NativeDrawPhase,
     ) -> GameClientResult<()> {
         self.finish_presentation_shell_with_native_views_routed(
-            prepared, materials, views, phase, None, None, None, None,
+            prepared, materials, views, phase, None, None, None, None, None,
         )
     }
 
@@ -2253,34 +2253,12 @@ impl GameClient {
             Some((recorder, receive)),
             None,
             None,
-            Some(menu_world),
-        )
-    }
-
-    pub fn finish_presentation_shell_with_receiving_commands_and_object_lifecycle(
-        &mut self,
-        prepared: PreparedPresentationShell,
-        materials: &[NativeMaterialObservation],
-        views: &[NativeDrawView],
-        phase: NativeDrawPhase,
-        recorder: &game_engine::common::recorder::Recorder,
-        receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
-        lifecycle: &mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
-        menu_world: crate::gui::campaign_launch_host_bridge::MenuWorldFacts,
-    ) -> GameClientResult<()> {
-        self.finish_presentation_shell_with_native_views_routed(
-            prepared,
-            materials,
-            views,
-            phase,
-            Some((recorder, receive)),
-            Some(lifecycle),
             None,
             Some(menu_world),
         )
     }
 
-    pub fn finish_presentation_shell_with_receiving_commands_and_object_lifecycle_and_content(
+    pub fn finish_presentation_shell_with_receiving_draw(
         &mut self,
         prepared: PreparedPresentationShell,
         materials: &[NativeMaterialObservation],
@@ -2289,7 +2267,8 @@ impl GameClient {
         recorder: &game_engine::common::recorder::Recorder,
         receive: &mut dyn FnMut(Vec<GameMessage>) -> GameClientResult<()>,
         lifecycle: &mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
-        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+        content: Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
+        physics: &mut NativeDrawPhysics<'_>,
         menu_world: crate::gui::campaign_launch_host_bridge::MenuWorldFacts,
     ) -> GameClientResult<()> {
         self.finish_presentation_shell_with_native_views_routed(
@@ -2299,7 +2278,8 @@ impl GameClient {
             phase,
             Some((recorder, receive)),
             Some(lifecycle),
-            Some(content),
+            content,
+            Some(physics),
             Some(menu_world),
         )
     }
@@ -2316,6 +2296,7 @@ impl GameClient {
         )>,
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
         content: Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
+        physics: Option<&mut NativeDrawPhysics<'_>>,
         menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
     ) -> GameClientResult<()> {
         if !std::sync::Arc::ptr_eq(&prepared.owner, &self.presentation_shell_owner)
@@ -2327,24 +2308,15 @@ impl GameClient {
             ));
         }
         if !prepared.skip_draw {
-            if let Some(content) = content {
-                self.draw_native_views_with_object_lifecycle_and_content(
-                    prepared.frames,
-                    materials,
-                    views,
-                    phase,
-                    lifecycle,
-                    content,
-                )?;
-            } else {
-                self.draw_native_views_with_object_lifecycle(
-                    prepared.frames,
-                    materials,
-                    views,
-                    phase,
-                    lifecycle,
-                )?;
-            }
+            self.draw_native_views_with_receiving_state(
+                prepared.frames,
+                materials,
+                views,
+                phase,
+                lifecycle,
+                content,
+                physics,
+            )?;
         }
         self.finish_presentation_shell_routed(prepared, receive, menu_world)
     }

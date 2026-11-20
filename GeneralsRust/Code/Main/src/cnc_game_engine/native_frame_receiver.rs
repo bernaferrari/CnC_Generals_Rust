@@ -55,46 +55,35 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
             .map_err(|error| error.to_string())
     }
 
-    fn complete_physics_visual(
-        &mut self,
+    fn observe_draw_transforms(
+        &self,
         input: &mut crate::presentation_frame::UnitRenderInput,
-        frame: &crate::presentation_frame::PresentationFrame,
     ) -> std::result::Result<Option<Mat4>, String> {
-        let instance = if input.drawable_shroud.lifetime.is_direct_host_object() {
-            let identity = input
-                .draw_playback_identity
-                .as_ref()
-                .ok_or_else(|| "native draw instance has no frozen source birth".to_owned())?;
-            let object = self
-                .world
-                .host_object(input.id)
-                .ok_or_else(|| "native draw instance source is absent".to_owned())?;
-            if !self.world.matches_live_draw_playback_identity(object, identity) {
-                return Err(
-                    "native draw instance source belongs to another Object birth/world".into(),
-                );
-            }
-            let key = self
-                .drawables
-                .binding_key(self.host_epoch, input.id.0)
-                .ok_or_else(|| {
-                    "native draw instance has no receiving Drawable binding".to_owned()
-                })?;
-            Some(
-                self.drawables
-                    .instance_transform(key)
-                    .map_err(|error| error.to_string())?
-                    .into(),
-            )
-        } else {
-            None
-        };
-        self.world.host_physics_visuals.complete_input(
-            input,
-            frame,
-            &mut self.world.session_view.client_random,
-        );
-        Ok(instance)
+        if !input.drawable_shroud.lifetime.is_direct_host_object() {
+            return Ok(None);
+        }
+
+        let identity = input
+            .draw_playback_identity
+            .as_ref()
+            .ok_or_else(|| "native draw instance has no frozen source birth".to_owned())?;
+        let object = self
+            .world
+            .host_object(input.id)
+            .ok_or_else(|| "native draw instance source is absent".to_owned())?;
+        if !self.world.matches_live_draw_playback_identity(object, identity) {
+            return Err("native draw instance source belongs to another Object birth/world".into());
+        }
+        let key = self
+            .drawables
+            .binding_key(self.host_epoch, input.id.0)
+            .ok_or_else(|| "native draw instance has no receiving Drawable binding".to_owned())?;
+        let (instance, physics) = self
+            .drawables
+            .native_draw_mesh_pose(key)
+            .map_err(|error| error.to_string())?;
+        input.physics_visual_local = physics;
+        Ok(Some(instance))
     }
 
     fn receive_installed_state_particles(

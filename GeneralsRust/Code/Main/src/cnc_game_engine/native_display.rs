@@ -383,31 +383,25 @@ impl CnCGameEngine {
             let pending = self.native_display.pending.take();
             let menu_world = self.receiving_menu_world_facts();
             if let Some(pending) = pending {
-                self.with_native_particle_object_lifecycle(
-                    |client, lifecycle, pending_commands, content| {
+                self.with_native_display_draw_services(
+                    |client, lifecycle, pending_commands, content, physics| {
                         let mut receive = |messages| {
                             pending_commands
                                 .receive_client_messages(messages)
                                 .map_err(game_client::core::GameClientError::InvalidOperation)
                         };
-                        if let Some(content) = content {
-                            client.finish_presentation_shell_with_receiving_commands_and_object_lifecycle_and_content(
-                                pending.step,
-                                &pending.facts,
-                                &views,
-                                phase,
-                                pending_commands.recorder_owned(),
-                                &mut receive,
-                                lifecycle,
-                                content,
-                                menu_world,
-                            )
-                        } else {
-                            client.finish_presentation_shell_with_receiving_commands_and_object_lifecycle(
-                                pending.step, &pending.facts, &views, phase,
-                                pending_commands.recorder_owned(), &mut receive, lifecycle, menu_world,
-                            )
-                        }
+                        client.finish_presentation_shell_with_receiving_draw(
+                            pending.step,
+                            &pending.facts,
+                            &views,
+                            phase,
+                            pending_commands.recorder_owned(),
+                            &mut receive,
+                            lifecycle,
+                            content,
+                            physics,
+                            menu_world,
+                        )
                     },
                 )
                 .map_err(|error| error.to_string())?;
@@ -420,26 +414,17 @@ impl CnCGameEngine {
                     logic_frame: self.game_logic.frame,
                     client_frame: current_frame,
                 };
-                self.with_native_particle_object_lifecycle(
-                    |client, lifecycle, _pending_commands, content| {
-                        if let Some(content) = content {
-                            client.draw_native_views_with_object_lifecycle_and_content(
-                                frames,
-                                &facts,
-                                &views,
-                                phase,
-                                Some(lifecycle),
-                                content,
-                            )
-                        } else {
-                            client.draw_native_views_with_object_lifecycle(
-                                frames,
-                                &facts,
-                                &views,
-                                phase,
-                                Some(lifecycle),
-                            )
-                        }
+                self.with_native_display_draw_services(
+                    |client, lifecycle, _, content, physics| {
+                        client.draw_native_views_with_receiving_state(
+                            frames,
+                            &facts,
+                            &views,
+                            phase,
+                            Some(lifecycle),
+                            content,
+                            Some(physics),
+                        )
                     },
                 )
                 .map_err(|error| error.to_string())?;
@@ -449,19 +434,21 @@ impl CnCGameEngine {
     }
 
     #[cfg(feature = "game_client")]
-    fn with_native_particle_object_lifecycle<R>(
+    fn with_native_display_draw_services<R>(
         &mut self,
         operation: impl FnOnce(
             &mut game_client::core::game_client::GameClient,
             &mut game_client::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
             &mut crate::command_system::ReplayPendingState,
             Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
+            &mut game_client::core::game_client::NativeDrawPhysics<'_>,
         ) -> R,
     ) -> R {
         let client = &mut self.game_client;
-        self.game_logic.with_native_particle_object_lifecycle(
-            |lifecycle, pending_commands, content| {
-                operation(client, lifecycle, pending_commands, content)
+        self.game_logic.with_native_display_draw_services(
+            self.last_presentation_frame.as_deref(),
+            |lifecycle, pending_commands, content, physics| {
+                operation(client, lifecycle, pending_commands, content, physics)
             },
         )
     }

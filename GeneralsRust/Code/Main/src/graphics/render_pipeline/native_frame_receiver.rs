@@ -21,10 +21,9 @@ pub trait NativeFrameRenderReceiver {
         receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
     ) -> Result<Option<game_client::core::game_client::NativeAuxiliaryDrawObservation>, String>;
 
-    fn complete_physics_visual(
-        &mut self,
+    fn observe_draw_transforms(
+        &self,
         input: &mut crate::presentation_frame::UnitRenderInput,
-        frame: &crate::presentation_frame::PresentationFrame,
     ) -> std::result::Result<Option<Mat4>, String>;
     fn receive_installed_state_particles(
         &mut self,

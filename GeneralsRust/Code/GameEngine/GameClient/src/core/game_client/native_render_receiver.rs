@@ -70,6 +70,7 @@ impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
         phase: NativeDrawPhase,
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
         mut keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
+        mut physics: Option<&mut NativeDrawPhysics<'_>>,
     ) -> GameClientResult<()> {
         if frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
@@ -88,13 +89,14 @@ impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
                 // visiting the next receiver; this is not a union or GPU cull.
                 for id in self.drawables.native_roster_for_view(view)? {
                     self.drawables.advance_material_drawable(id, &facts)?;
-                    self.prepare_native_drawable_particles_with_assets_and_keys(
+                    self.prepare_native_drawable_for_view(
                         id,
                         particles,
                         assets,
                         public_bones,
                         frames.client_frame,
                         keys.as_deref_mut(),
+                        &mut physics,
                     )?;
                 }
             }
@@ -268,6 +270,24 @@ impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
         frame: u32,
         keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
     ) -> GameClientResult<()> {
+        self.prepare_native_drawable_for_view(
+            id, particles, assets, public_bones, frame, keys, &mut None,
+        )
+    }
+
+    fn prepare_native_drawable_for_view(
+        &mut self,
+        id: DrawableId,
+        particles: &mut crate::effects::particle_manager::ParticleSystemManager,
+        assets: Option<&ww3d_assets::AssetManager>,
+        public_bones: &[String],
+        frame: u32,
+        keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
+        physics: &mut Option<&mut NativeDrawPhysics<'_>>,
+    ) -> GameClientResult<()> {
+        let binding = self.drawables.presentation_direct_drawable_bindings
+            .get(&id)
+            .map(|binding| binding.binding_key);
         let drawable = self
             .drawables
             .drawable_map
@@ -279,13 +299,22 @@ impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
             if !visible {
                 return Ok(());
             }
+            let mut completed_physics = None;
+            if !drawable.fully_obscured_by_shroud()
+                && let (Some(binding), Some(advance)) = (binding, physics.as_deref_mut())
+            {
+                let local = advance(binding);
+                drawable.native_draw_physics_local = local.map(|local| (binding, local));
+                completed_physics = Some(local.unwrap_or(glam::Mat4::IDENTITY));
+            }
             let outcomes = drawable
-                .prepare_native_state_particles_with_keys(
+                .prepare_native_state_particles_for_draw(
                     particles,
                     assets,
                     public_bones,
                     frame,
                     keys,
+                    completed_physics,
                 )
                 .map_err(GameClientError::InvalidOperation)?;
             for (module_index, outcome) in outcomes {
@@ -692,6 +721,28 @@ impl drawable_world::DrawableState {
 }
 
 impl NativeDrawableOwner<'_> {
+    /// The exact installed instance and completed CPU physics matrices for this
+    /// binding. A render retry reads this value without advancing Draw.
+    pub fn native_draw_mesh_pose(
+        &self,
+        key: PresentationDirectDrawableBindingKey,
+    ) -> GameClientResult<(glam::Mat4, Option<glam::Mat4>)> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err(GameClientError::InvalidOperation(
+                "native mesh pose has a stale binding".into(),
+            ));
+        }
+        let drawable = self.drawables.drawable_map.get(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any().downcast_ref::<BasicDrawable>())
+            .ok_or_else(|| GameClientError::InvalidOperation(
+                "native mesh pose is missing its receiving Drawable".into(),
+            ))?;
+        let local = drawable.native_draw_physics_local
+            .filter(|(current, _)| *current == key)
+            .map(|(_, matrix)| matrix);
+        Ok((drawable.get_instance_transform().to_glam(), local))
+    }
+
     pub fn evaluate_frozen_direct_scene_shroud_candidates<I>(
         &mut self,
         logic_frame: u32,

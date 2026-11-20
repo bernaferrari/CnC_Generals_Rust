@@ -42,6 +42,10 @@ pub struct NativeDrawPhase {
     pub update_particles: bool,
 }
 
+/// Physics for an admitted native Drawable in the current CPU view.
+pub type NativeDrawPhysics<'a> =
+    dyn FnMut(PresentationDirectDrawableBindingKey) -> Option<glam::Mat4> + 'a;
+
 impl GameClient {
     fn invalidate_presentation_shell(&mut self) {
         self.presentation_shell_owner = std::sync::Arc::new(());
@@ -65,42 +69,30 @@ impl GameClient {
         phase: NativeDrawPhase,
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
     ) -> GameClientResult<()> {
-        self.draw_native_views_with_name_keys(frames, materials, views, phase, lifecycle, None)
-    }
-
-    pub fn draw_native_views_with_object_lifecycle_and_content(
-        &mut self,
-        frames: NativeParticleFrames,
-        materials: &[NativeMaterialObservation],
-        views: &[NativeDrawView],
-        phase: NativeDrawPhase,
-        lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
-        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
-    ) -> GameClientResult<()> {
-        let keys = content.receiving_name_keys_mut().ok_or_else(|| {
-            GameClientError::InvalidOperation(
-                "native Draw requires its receiving name-key owner".to_owned(),
-            )
-        })?;
-        self.draw_native_views_with_name_keys(
-            frames,
-            materials,
-            views,
-            phase,
-            lifecycle,
-            Some(keys),
+        self.draw_native_views_with_receiving_state(
+            frames, materials, views, phase, lifecycle, None, None,
         )
     }
 
-    fn draw_native_views_with_name_keys(
+    pub fn draw_native_views_with_receiving_state(
         &mut self,
         frames: NativeParticleFrames,
         materials: &[NativeMaterialObservation],
         views: &[NativeDrawView],
         phase: NativeDrawPhase,
         lifecycle: Option<&mut crate::effects::particle_manager::NativeParticleObjectLifecycle<'_>>,
-        keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
+        content: Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
+        physics: Option<&mut NativeDrawPhysics<'_>>,
     ) -> GameClientResult<()> {
+        let keys = content
+            .map(|content| {
+                content.receiving_name_keys_mut().ok_or_else(|| {
+                    GameClientError::InvalidOperation(
+                        "native Draw requires its receiving name-key owner".to_owned(),
+                    )
+                })
+            })
+            .transpose()?;
         if frames.client_frame != self.frame {
             return Err(GameClientError::InvalidOperation(
                 "native view Client frame mismatch".into(),
@@ -146,6 +138,7 @@ impl GameClient {
             phase,
             lifecycle,
             keys,
+            physics,
         )?;
         // FX retirement can reenter drawable teardown and its particle owner.
         // Preserve the prior boundary: no service guard crosses those callbacks.
@@ -219,6 +212,7 @@ impl GameClient {
             phase,
             lifecycle,
             keys,
+            None,
         )
     }
 }

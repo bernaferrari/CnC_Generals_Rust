@@ -411,12 +411,8 @@ impl RenderPipeline {
             // for this draw. Its canonical mutable owner remains in GameClient;
             // asset drawScale is baked separately from frozen instance scale.
             #[cfg(feature = "game_client")]
-            let instance = if let (Some(receiver), Some(frame)) =
-                (native_receiver.as_deref_mut(), presentation.as_deref())
-            {
-                receiver
-                    .complete_physics_visual(u, frame)
-                    .map_err(anyhow::Error::msg)?
+            let instance = if let Some(receiver) = native_receiver.as_deref() {
+                receiver.observe_draw_transforms(u).map_err(anyhow::Error::msg)?
             } else {
                 None
             };

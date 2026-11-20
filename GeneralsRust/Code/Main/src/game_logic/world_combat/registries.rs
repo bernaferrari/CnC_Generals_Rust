@@ -691,6 +691,21 @@ impl crate::game_logic::GameLogic {
             Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
         ) -> R,
     ) -> R {
+        self.with_native_display_draw_services(None, |lifecycle, commands, content, _| {
+            operation(lifecycle, commands, content)
+        })
+    }
+
+    pub(crate) fn with_native_display_draw_services<R>(
+        &mut self,
+        frame: Option<&crate::presentation_frame::PresentationFrame>,
+        operation: impl FnOnce(
+            &mut game_client::effects::particle_manager::NativeParticleObjectLifecycle<'_>,
+            &mut crate::command_system::ReplayPendingState,
+            Option<&mut game_engine::common::thing::module_factory::ModuleFactory>,
+            &mut game_client::core::game_client::NativeDrawPhysics<'_>,
+        ) -> R,
+    ) -> R {
         let player = self.local_player_id();
         let shroud = self.world_services.shroud();
         let objects = &self.objects;
@@ -723,12 +738,21 @@ impl crate::game_logic::GameLogic {
             ground_height: &ground,
             attached_object_lost: &mut lost,
         };
+        let physics = &mut self.host_physics_visuals;
+        let client_random = &mut self.session_view.client_random;
+        let mut advance_physics = |binding: game_client::core::PresentationDirectDrawableBindingKey| {
+            let frame = frame?;
+            let id = ObjectId(binding.object_id);
+            let object = objects.lookup(&id)?;
+            physics.advance_native_draw(frame, id, object.visual_object_generation, client_random)
+        };
         operation(
             &mut lifecycle,
             &mut self.replay_pending,
             self.receiving_module_content
                 .as_mut()
                 .map(|content| content.module_factory_mut()),
+            &mut advance_physics,
         )
     }
 }

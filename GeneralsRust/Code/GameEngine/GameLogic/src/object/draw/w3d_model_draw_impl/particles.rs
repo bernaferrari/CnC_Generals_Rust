@@ -538,6 +538,12 @@ impl W3DModelDraw {
         true
     }
 
+    /// C++ W3DModelDraw::doDrawModule follows only authored bone attachments.
+    pub fn follows_draw_particle_bones(&self) -> bool {
+        self.particle_systems.iter().any(|tracker| tracker.bone_index != 0)
+            && self.model_data().particles_attached_to_animated_bones
+    }
+
     /// C++ W3DModelDraw.cpp2653: update only this model's admitted trackers.
     /// A model without a render state still consumes the first-success slot.
     pub fn update_particle_bones_with_receiver(

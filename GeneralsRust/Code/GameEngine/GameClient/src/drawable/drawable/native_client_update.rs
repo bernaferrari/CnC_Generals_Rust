@@ -58,6 +58,19 @@ impl ClientParticleBoneRuntime for ReceivingParticleBones<'_, '_> {
     }
 }
 
+pub(super) fn update_draw_particle_bones(
+    model: &gamelogic::object::draw::W3DModelDraw,
+    world: glam::Mat4,
+    assets: Option<&ww3d_assets::AssetManager>,
+    particles: &mut ParticleSystemManager,
+) {
+    let pose = ReceivingBonePose { world, assets };
+    model.update_particle_bones_with_receiver(&mut ReceivingParticleBones {
+        particles: Some(particles),
+        pose: &pose,
+    });
+}
+
 pub(super) fn apply_cpp_particle_bone_transform(
     system: &mut crate::effects::particle_system::ParticleSystem,
     position: &Coord3D,

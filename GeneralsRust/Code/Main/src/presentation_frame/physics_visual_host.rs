@@ -1,7 +1,7 @@
 //! Host freeze + per-draw calc for C++ `Drawable::applyPhysicsXform`.
 //!
 //! Facts are collected at the presentation-frame boundary (previous logic
-//! frame) and the calc mutates persistent loco state on each present.
+//! frame) and each admitted CPU view Draw advances the owner’s loco state.
 
 use super::physics_visual_host_inputs::{
     ObjectVisualIni, host_geometry_radii, host_kindof_token, object_visual_ini,
@@ -77,6 +77,7 @@ pub(crate) struct HostPhysicsVisualState {
     active_ordinal: u64,
     world_epoch: u64,
     loco: HashMap<ObjectId, (u64, PhysicsVisualLocoState)>,
+    #[cfg(test)]
     pub(super) schedule: super::host_draw_schedule::HostDrawSchedule,
 }
 
@@ -159,6 +160,7 @@ impl HostPhysicsVisualState {
             self.loco.clear();
         }
         self.world_epoch = frame.world_epoch;
+        #[cfg(test)]
         self.schedule
             .begin_presented_frame(super::host_draw_schedule::HostPresentVisualInput {
                 visual_dt_ms: if frame.frozen {
@@ -171,6 +173,7 @@ impl HostPhysicsVisualState {
         true
     }
 
+    #[cfg(test)]
     pub(crate) fn complete_input(
         &mut self,
         input: &mut super::UnitRenderInput,
@@ -184,6 +187,7 @@ impl HostPhysicsVisualState {
         );
     }
 
+    #[cfg(test)]
     pub(super) fn local_matrix(
         &mut self,
         frame: &FrozenHostPhysicsVisuals,
@@ -194,6 +198,40 @@ impl HostPhysicsVisualState {
             return None;
         }
         let object = frame.objects.get(&id)?;
+        if let Some(matrix) = self.schedule.cached_applied_matrix(id) {
+            return Some(matrix);
+        }
+        if !self.schedule.should_calc_loco(id) {
+            return None;
+        }
+        let local = self.advance_matrix(id, object, rng)?;
+        self.schedule.note_loco_applied(id, local);
+        Some(local)
+    }
+
+    /// The native Display already admitted this particular CPU Draw. Overlap
+    /// between views deliberately calls the same Drawable again, in view order.
+    pub(crate) fn advance_native_draw(
+        &mut self,
+        frame: &super::PresentationFrame,
+        id: ObjectId,
+        generation: u64,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) -> Option<Mat4> {
+        let frame = &frame.host_physics_visuals;
+        if frame.frozen || !self.begin(frame) {
+            return None;
+        }
+        let object = frame.objects.get(&id).filter(|object| object.generation == generation)?;
+        self.advance_matrix(id, object, &mut LiveClientRng(client_random))
+    }
+
+    fn advance_matrix(
+        &mut self,
+        id: ObjectId,
+        object: &FrozenHostPhysicsObject,
+        rng: &mut impl ClientVisualRng,
+    ) -> Option<Mat4> {
         let facts = object.facts;
         let gates = PhysicsVisualInput {
             has_object: facts.body.has_object,
@@ -206,12 +244,6 @@ impl HostPhysicsVisualState {
             calculated_xform: None,
         };
         if !gates.permits_application() {
-            return None;
-        }
-        if let Some(matrix) = self.schedule.cached_applied_matrix(id) {
-            return Some(matrix);
-        }
-        if !self.schedule.should_calc_loco(id) {
             return None;
         }
         let mut loco = self
@@ -228,9 +260,7 @@ impl HostPhysicsVisualState {
             rng,
         )?;
         self.loco.insert(id, (object.generation, loco));
-        let local = glam_yup_physics_visual_local(xform);
-        self.schedule.note_loco_applied(id, local);
-        Some(local)
+        Some(glam_yup_physics_visual_local(xform))
     }
 
     #[cfg(test)]

@@ -241,6 +241,20 @@ impl BasicDrawable {
         creation_frame: u32,
         keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
     ) -> Result<Vec<(usize, NativeStateParticlePreparation)>, String> {
+        self.prepare_native_state_particles_for_draw(
+            particles, assets, public_bones, creation_frame, keys, None,
+        )
+    }
+
+    pub(crate) fn prepare_native_state_particles_for_draw(
+        &mut self,
+        particles: &mut ParticleSystemManager,
+        assets: Option<&ww3d_assets::AssetManager>,
+        public_bones: &[String],
+        creation_frame: u32,
+        keys: Option<&mut game_engine::common::name_key_generator::NameKeyNamespace>,
+        completed_physics: Option<glam::Mat4>,
+    ) -> Result<Vec<(usize, NativeStateParticlePreparation)>, String> {
         // C++ Drawable::draw requests Draw modules after visibility/admission.
         // Ordinary CU updates must not substitute for this Draw-entry phase.
         self.flush_dirty_model_condition();
@@ -258,6 +272,19 @@ impl BasicDrawable {
             fully_obscured: self.drawable_fully_obscured_by_shroud,
             creation_frame,
         };
+        let (position, base, instance, scale) =
+            (self.position, self.base_transform, self.instance_transform, self.instance_scale);
+        let draw_world = |local| {
+            // Drawable.cpp:2639–2653 applies instance then physics, and
+            // W3DModelDraw.cpp:2022 scales before following its bone attachments.
+            let world = Matrix4::translation(position).mul(&base).mul(&instance).to_glam()
+                * local * glam::Mat4::from_scale(glam::Vec3::splat(scale));
+            let swizzle = glam::Mat4::from_cols(
+                glam::Vec4::X, glam::Vec4::Z, glam::Vec4::Y, glam::Vec4::W,
+            );
+            swizzle * world * swizzle
+        };
+        let mut world = None;
         let mut receiver = ReceivingStateParticles {
             particles,
             assets,
@@ -277,7 +304,18 @@ impl BasicDrawable {
                 &context,
                 &mut receiver,
             ) {
-                outcomes.push((module_index, result?));
+                let outcome = result?;
+                if let Some(local) = completed_physics
+                    && matches!(outcome, NativeStateParticlePreparation::Prepared(true))
+                    && let Some(model) = module.as_any().downcast_ref::<W3DModelDraw>()
+                    && model.follows_draw_particle_bones()
+                {
+                    let world = *world.get_or_insert_with(|| draw_world(local));
+                    super::native_client_update::update_draw_particle_bones(
+                        model, world, assets, receiver.particles,
+                    );
+                }
+                outcomes.push((module_index, outcome));
             }
         }
         Ok(outcomes)
