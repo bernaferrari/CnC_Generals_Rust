@@ -151,13 +151,6 @@ fn should_retaliate(obj: &Object) -> bool {
 }
 
 pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
-    let eligible = victim.with_controlling_player(|player_guard| {
-        player_guard.is_logical_retaliation_mode_enabled()
-            && player_guard.get_player_type() == PlayerType::Human
-    });
-    if eligible != Some(true) {
-        return;
-    }
     if !should_retaliate_against_aggressor(victim, damager) {
         return;
     }

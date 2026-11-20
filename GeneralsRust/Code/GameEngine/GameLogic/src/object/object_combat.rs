@@ -68,7 +68,15 @@ impl Object {
         }
         let source_id = damage_info.input.source_id;
         // with_object would read-lock this object while attempt_damage holds the write.
-        if source_id != crate::common::INVALID_ID && source_id != self.id {
+        // ActiveBody.cpp:667–670 tests the victim's retaliation policy before
+        // inspecting the aggressor, which may be borrowed by the firing call.
+        if source_id != crate::common::INVALID_ID
+            && source_id != self.id
+            && self.with_controlling_player(|player| {
+                player.is_logical_retaliation_mode_enabled()
+                    && player.get_player_type() == PlayerType::Human
+            }) == Some(true)
+        {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object(source_id, |damager| {
                 crate::object::body::active_body::retaliate_nearby_friends(self, damager);
             });

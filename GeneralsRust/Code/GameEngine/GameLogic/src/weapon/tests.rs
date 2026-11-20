@@ -847,6 +847,20 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
             .unwrap()
             .update(40, || None)
             .unwrap();
+        // C++ ActiveBody.cpp:667–670 checks the defender before borrowing
+        // the aggressor. This firing entry already holds that aggressor.
+        let defender = victim.read().unwrap().get_controlling_player().unwrap();
+        assert_eq!(
+            defender.read().unwrap().get_player_type(),
+            crate::player::PlayerType::Human,
+        );
+        assert!(!defender.read().unwrap().is_logical_retaliation_mode_enabled());
+        {
+            let mut source = source.write().unwrap();
+            source.reload_all_ammo(true).unwrap();
+            source.fire_current_weapon_at_position(&impact).unwrap();
+        }
+        assert_eq!(victim.read().unwrap().get_health(), 80.0);
         let snapshot = {
             let source = source.read().unwrap();
             let (weapon, _) = source.get_current_weapon().unwrap();
