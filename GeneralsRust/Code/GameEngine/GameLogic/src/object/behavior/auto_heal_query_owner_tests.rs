@@ -366,3 +366,134 @@ fn authored_lookup_unwind_freezes_zero_pair_and_is_not_serialized() {
     );
     assert_eq!(restored.bytes(false), bytes);
 }
+
+#[test]
+fn installed_autoheal_keeps_its_first_wake_at_registration() {
+    if !child(concat!(
+        module_path!(),
+        "::installed_autoheal_keeps_its_first_wake_at_registration"
+    )) {
+        return;
+    }
+
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::system::game_logic::get_game_logic;
+    let first = new_for_world();
+    let second = new_for_world();
+    let admit = |world: &Arc<_>, frame: u32| {
+        with_active_stores(world, || {
+            assert!(ensure_thing_factory_exists());
+            game_engine::common::thing::module_factory::init_module_factory().unwrap();
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            let logic = get_game_logic();
+            logic.lock().unwrap().set_current_frame(u64::from(frame));
+            let ini = ["Yes", "No"]
+                .map(|active| {
+                    format!(
+                        r#"
+Object AuthoredHealBirth{active}
+    KindOf = INERT IMMOBILE
+    Body = ActiveBody Health
+        InitialHealth = 100
+        MaxHealth = 100
+    End
+    Behavior = AutoHealBehavior Heal
+        StartsActive = {active}
+        HealingAmount = 2
+        HealingDelay = 5000
+    End
+End
+"#
+                    )
+                })
+                .concat();
+            assert_eq!(
+                get_thing_factory()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .load_ini_text(&ini),
+                2
+            );
+            ["Yes", "No"].map(|active| {
+                let actor = TheThingFactory::get()
+                    .unwrap()
+                    .new_object_optional_team(
+                        TheThingFactory::find_template(&format!("AuthoredHealBirth{active}"))
+                            .unwrap(),
+                        None,
+                    )
+                    .unwrap();
+                let x = if active == "Yes" { 100.0 } else { 200.0 };
+                actor
+                    .write()
+                    .unwrap()
+                    .set_position(&Coord3D::new(x, 100.0, 0.0))
+                    .unwrap();
+                let (id, entry, registration) = {
+                    let actor = actor.read().unwrap();
+                    let registrations = actor.named_update_registrations("AutoHealBehavior");
+                    assert_eq!(registrations.len(), 1);
+                    (
+                        actor.get_id(),
+                        actor.find_module_by_name("AutoHealBehavior").unwrap(),
+                        registrations[0].clone(),
+                    )
+                };
+                let requested = entry.with_module(|module| {
+                    module
+                        .as_any_mut()
+                        .downcast_mut::<AutoHealBehaviorModule>()
+                        .unwrap()
+                        .behavior()
+                        .last_wake_sleep()
+                        .unwrap()
+                });
+                let deadline = match (active, requested) {
+                    ("Yes", UpdateSleepTime::Frames(delay @ 1..=150)) => frame + delay,
+                    ("No", UpdateSleepTime::Forever) => 0x3fff_ffff,
+                    _ => panic!("unexpected authored constructor sleep {requested:?}"),
+                };
+                assert_eq!(
+                    logic.lock().unwrap().sleepy_entry_for(&registration),
+                    Some((id, deadline))
+                );
+                (id, deadline, registration)
+            })
+        })
+    };
+    let [
+        (first_id, first_wake, first_registration),
+        (first_inactive_id, _, _),
+    ] = admit(&first, 37);
+    let [
+        (second_id, second_wake, second_registration),
+        (second_inactive_id, _, _),
+    ] = admit(&second, 211);
+    assert_eq!(first_id, second_id);
+    assert_eq!(first_inactive_id, second_inactive_id);
+    assert!(first_wake < second_wake);
+    with_active_stores(&first, || {
+        let logic = get_game_logic();
+        let mut logic = logic.lock().unwrap();
+        logic.update(first_wake - 1, || None).unwrap();
+        assert_eq!(
+            logic.sleepy_entry_for(&first_registration),
+            Some((first_id, first_wake))
+        );
+        logic.update(first_wake, || None).unwrap();
+        assert_eq!(
+            logic.sleepy_entry_for(&first_registration),
+            Some((first_id, 0x3fff_ffff))
+        );
+    });
+    with_active_stores(&second, || {
+        assert_eq!(
+            get_game_logic()
+                .lock()
+                .unwrap()
+                .sleepy_entry_for(&second_registration),
+            Some((second_id, second_wake))
+        );
+    });
+}

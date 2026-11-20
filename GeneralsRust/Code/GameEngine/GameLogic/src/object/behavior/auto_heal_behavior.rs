@@ -845,9 +845,10 @@ impl AutoHealBehavior {
         };
         Some(wake)
     }
-    pub(crate) fn construct_with_object_id(
+    fn construct_with_object_id(
         object_id: ObjectID,
         module_data: game_engine::common::thing::module::ModuleDataHandle,
+        birth_frame: Option<u32>,
     ) -> Self {
         let mut behavior = Self::construct_inert_with_object_id(object_id, module_data);
         let (radius_tmpl, initially_active, delay) = {
@@ -870,19 +871,29 @@ impl AutoHealBehavior {
             }
         }
 
-        if initially_active {
-            behavior.give_self_upgrade();
+        let sleep = if initially_active {
+            behavior.upgrade_executed = true;
             if delay > 0 {
                 let high = i32::try_from(delay).unwrap_or(i32::MAX);
-                let random_delay = GameLogicRandomValue(1, high) as UnsignedInt;
-                behavior.set_wake_frame(update_sleep_time(random_delay));
+                update_sleep_time(GameLogicRandomValue(1, high) as UnsignedInt)
             } else {
-                behavior.set_wake_frame(UPDATE_SLEEP_NONE);
+                UPDATE_SLEEP_NONE
             }
         } else {
-            behavior.set_wake_frame(UPDATE_SLEEP_FOREVER);
-        }
+            UPDATE_SLEEP_FOREVER
+        };
 
+        // GameLogic.cpp:3012–3021 sets the module's packed wake directly
+        // before Object registration. The first heap insertion reads it.
+        let wake = if sleep == UPDATE_SLEEP_FOREVER {
+            0x3fff_ffff
+        } else {
+            let frame = birth_frame.unwrap_or_else(TheGameLogic::get_frame);
+            frame.saturating_add(sleep.to_u32().max(1)).min(0x3fff_ffff)
+        };
+        behavior.next_call_frame_and_phase = (wake << 2)
+            | game_engine::common::thing::update_module::SleepyUpdatePhase::Normal as u32;
+        behavior.last_wake_sleep = Some(sleep);
         behavior.owned_birth_admitted = true;
         behavior
     }
@@ -910,7 +921,8 @@ impl AutoHealBehavior {
             .as_object()
             .map(|obj| obj.get_object_id())
             .unwrap_or(OBJECT_INVALID_ID);
-        Self::construct_with_object_id(object_id, module_data)
+        let birth_frame = crate::object::supplied_module_birth_frame(thing.as_ref());
+        Self::construct_with_object_id(object_id, module_data, birth_frame)
     }
 
     pub fn new_from_object_handle(
@@ -922,7 +934,7 @@ impl AutoHealBehavior {
             .ok()
             .map(|obj| obj.get_id())
             .unwrap_or(OBJECT_INVALID_ID);
-        Self::construct_with_object_id(object_id, module_data)
+        Self::construct_with_object_id(object_id, module_data, None)
     }
 
     /// Stop healing behavior
@@ -1689,7 +1701,7 @@ mod tests {
     #[test]
     fn auto_heal_processes_while_held() {
         let data = game_engine::common::thing::module::ModuleDataHandle::new(AutoHealBehaviorModuleData::new());
-        let behavior = AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, data);
+        let behavior = AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, data, Some(0));
         assert_eq!(
             UpdateModuleInterface::get_disabled_types_to_process(&behavior),
             DisabledMaskType::HELD
@@ -1713,7 +1725,7 @@ mod tests {
         // C++ AutoHealBehavior.cpp:136-157 — radius==0 onDamage resets StartHealingDelay
         // after update() returned UPDATE_SLEEP_FOREVER at max health (:218-219).
         let data = game_engine::common::thing::module::ModuleDataHandle::new(AutoHealBehaviorModuleData::default_auto_heal());
-        let mut behavior = AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, data);
+        let mut behavior = AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, data, Some(0));
         assert!(behavior.is_upgrade_active());
         behavior.last_wake_sleep = Some(UPDATE_SLEEP_FOREVER);
 
@@ -1733,7 +1745,7 @@ mod tests {
         let mut data = AutoHealBehaviorModuleData::default_auto_heal();
         data.start_healing_delay = 0;
         let mut behavior =
-            AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, game_engine::common::thing::module::ModuleDataHandle::new(data));
+            AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, game_engine::common::thing::module::ModuleDataHandle::new(data), Some(0));
         behavior.soonest_heal_frame = UnsignedInt::MAX;
         behavior.last_wake_sleep = Some(UPDATE_SLEEP_FOREVER);
         let mut damage = DamageInfo::default();
