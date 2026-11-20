@@ -566,7 +566,7 @@ impl ArchiveFileSystem {
     /// Collect aggregate statistics about the currently loaded archive set.
     pub fn get_statistics(&self) -> ArchiveStatistics {
         ArchiveStatistics {
-            total_archives: self.core.get_loaded_big_files().len(),
+            total_archives: self.core.loaded_archive_count(),
             total_files: self.core.total_physical_files(),
             unique_files: self.core.total_virtual_files(),
         }
@@ -1385,6 +1385,7 @@ mod tests {
             .into_iter()
             .map(|archive| archive.replace('\\', "/").to_ascii_lowercase())
             .collect();
+        assert_eq!(archive_system.get_statistics().total_archives, loaded.len());
 
         assert!(
             loaded.iter().any(|archive| archive.ends_with("/inizh.big")),

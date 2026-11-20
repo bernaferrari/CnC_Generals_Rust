@@ -194,6 +194,11 @@ impl ArchiveFileSystem {
             .load_big_files_from_directory(dir.as_str(), file_mask.as_str(), overwrite)
     }
 
+    /// Number of mounted archives.
+    pub fn loaded_archive_count(&self) -> usize {
+        self.big_system.loaded_archive_count()
+    }
+
     /// Forwarded access to the archive registry helpers.
     pub fn get_loaded_big_files(&self) -> Vec<AsciiString> {
         self.big_system.get_loaded_big_files()

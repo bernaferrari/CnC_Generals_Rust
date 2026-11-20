@@ -1446,6 +1446,11 @@ impl BigFileSystem {
         }
     }
 
+    /// Number of mounted archives.
+    pub fn loaded_archive_count(&self) -> usize {
+        self.archives.len()
+    }
+
     /// Get list of all loaded BIG files
     pub fn get_loaded_big_files(&self) -> Vec<AsciiString> {
         let mut names: Vec<AsciiString> = self
