@@ -513,46 +513,6 @@ impl ObjectDefinition {
         identity: &LiveDrawPlaybackIdentity,
         dest_models: Vec<AuthoredDrawModel>,
     ) -> Vec<AuthoredDrawModel> {
-        // The receiving selector emits one state per module in declaration order.
-        // Each module can update its own playback entry as soon as it is selected.
-        if dest_models
-            .windows(2)
-            .all(|pair| pair[0].module_index < pair[1].module_index)
-        {
-            use std::collections::hash_map::Entry;
-
-            return dest_models
-                .into_iter()
-                .map(|dest| {
-                    let module_index = dest.module_index;
-                    let dest_index = dest.selected_condition_state_index;
-                    let entry = playback_by_module.entry(identity.playback_key(module_index));
-                    let prior = match &entry {
-                        Entry::Occupied(entry) => {
-                            let state = entry.get();
-                            Some((module_index, state.current_index, state.animation_complete))
-                        }
-                        Entry::Vacant(_) => None,
-                    };
-                    let selected = if let Some(module) = modules.get(module_index as usize) {
-                        module.authored_state_after_transition(dest, prior)
-                    } else {
-                        dest
-                    };
-                    entry.insert_entry(LiveDrawPlayback {
-                        current_index: selected.selected_condition_state_index,
-                        next_index: (dest_index != selected.selected_condition_state_index)
-                            .then_some(dest_index),
-                        // isAnimationComplete(nullptr) is true at the next Draw.
-                        animation_complete: selected.is_transition && selected.model_key.is_empty(),
-                    });
-                    selected
-                })
-                .collect();
-        }
-
-        // A caller-provided roster may repeat a module. Resolve every row
-        // against its previous state and keep the first destination for that module.
         let dest_indices: Vec<(u32, u32)> = dest_models
             .iter()
             .map(|model| (model.module_index, model.selected_condition_state_index))
@@ -1238,48 +1198,6 @@ mod native_render_roster_tests {
                 .collect::<Vec<_>>(),
             vec![1, 3]
         );
-        let identity = LiveDrawPlaybackIdentity::new(().into(), ().into(), 1, 7, 1);
-        let mut playback = HashMap::new();
-        let selected = ObjectDefinition::apply_live_draw_transition_playback_from_modules(
-            &modules,
-            &mut playback,
-            &identity,
-            owned.clone(),
-        );
-        assert_eq!(selected, owned);
-        assert_eq!(playback.len(), 3);
-        for model in &selected {
-            let state = playback[&identity.playback_key(model.module_index)];
-            assert_eq!(state.current_index, model.selected_condition_state_index);
-            assert_eq!(state.next_index, None);
-        }
-    }
-
-    #[test]
-    fn repeated_caller_rows_keep_the_first_destination_for_the_module() {
-        let rows = vec![
-            AuthoredDrawModel {
-                module_index: 2,
-                selected_condition_state_index: 4,
-                model_key: "FirstCallerModel".into(),
-                ..Default::default()
-            },
-            AuthoredDrawModel {
-                module_index: 2,
-                selected_condition_state_index: 6,
-                model_key: "LastCallerModel".into(),
-                ..Default::default()
-            },
-        ];
-        let identity = LiveDrawPlaybackIdentity::new(().into(), ().into(), 1, 7, 1);
-        let mut playback = HashMap::new();
-        let selected = ObjectDefinition::apply_live_draw_transition_playback_from_modules(
-            &[], &mut playback, &identity, rows.clone(),
-        );
-        assert_eq!(selected, rows);
-        let state = playback[&identity.playback_key(2)];
-        assert_eq!(state.current_index, 6);
-        assert_eq!(state.next_index, Some(4));
     }
     #[test]
     fn native_render_roster_uses_only_explicit_no_selectable_state_template_fallback() {
