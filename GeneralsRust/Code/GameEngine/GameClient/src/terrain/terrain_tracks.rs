@@ -165,6 +165,7 @@ impl TerrainTracksRenderObjClass {
         self.total_edges_added = 0;
         self.bound = false;
         self.airborne = false;
+        self.owner_layer = TerrainTrackLayer::Ground;
         self.texture_name.clear();
     }
 
@@ -174,6 +175,7 @@ impl TerrainTracksRenderObjClass {
         self.width = width;
         self.length = length;
         self.texture_name = texture_name.into();
+        self.really_visible = true;
         self.bound = true;
     }
 
@@ -466,6 +468,7 @@ impl TerrainTracksRenderObjClassSystem {
     pub fn unbind_track(&mut self, handle: usize) {
         if let Some(track) = self.tracks.get_mut(handle) {
             track.bound = false;
+            track.owner_layer = TerrainTrackLayer::Ground;
         }
     }
 
@@ -866,5 +869,37 @@ mod tests {
             edge.endpoint_pos[0].z,
             20.0 + BRIDGE_OFFSET_FACTOR + 0.2 * MAP_XY_FACTOR
         );
+    }
+
+    #[test]
+    fn rebinding_a_faded_track_does_not_inherit_its_retired_drawable_layer() {
+        let mut tracks = TerrainTracksRenderObjClassSystem::new(TerrainTracksConfig {
+            max_terrain_tracks: 1,
+            ..config()
+        });
+        let ground = FlatTerrain;
+        let bridge = tracks.bind_track(4.0, 10.0, "bridge.tga").unwrap();
+        let old = tracks.track_mut(bridge).unwrap();
+        old.set_owner_layer(TerrainTrackLayer::Other);
+        old.set_really_visible(false);
+        for (x, time) in [(0.0, 0), (20.0, 1), (40.0, 2)] {
+            tracks.add_edge_to_track(bridge, &ground, x, 0.0, time);
+        }
+        tracks.unbind_track(bridge);
+        assert_eq!(tracks.track(bridge).unwrap().active_edge_count(), 2);
+        assert!(tracks.bind_track(4.0, 10.0, "ground.tga").is_none());
+
+        tracks.update(200);
+        tracks.update(201);
+        let replacement = tracks.bind_track(4.0, 10.0, "ground.tga").unwrap();
+        assert_eq!(replacement, bridge);
+        for (x, time) in [(0.0, 201), (20.0, 202), (40.0, 203)] {
+            tracks.add_edge_to_track(replacement, &ground, x, 0.0, time);
+        }
+
+        let mut flush = TerrainTracksFlush::default();
+        tracks.prepare_visible_draws(0, &mut flush);
+        assert_eq!(flush.ranges[0].texture_name, "ground.tga");
+        assert_eq!(flush.vertices[0].z, 10.0 + 0.2 * MAP_XY_FACTOR);
     }
 }
