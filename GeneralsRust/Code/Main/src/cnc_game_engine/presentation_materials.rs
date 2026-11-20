@@ -26,12 +26,11 @@ pub(super) fn prepare(
         .direct_host_drawables
         .iter()
         .filter(|direct| direct.resident)
-        .filter(|direct| {
-            logic
-                .host_object(crate::game_logic::ObjectId(direct.object.id.0))
-                .is_some()
+        .filter_map(|direct| {
+            let object = logic.host_object(direct.object.id)?;
+            Some((direct, object))
         })
-        .map(|direct| {
+        .map(|(direct, object)| {
             let frozen = &direct.object;
             let (_, effectively_dead) = frozen
                 .drawable_shroud
@@ -39,14 +38,6 @@ pub(super) fn prepare(
                 .ok_or_else(|| {
                     format!(
                         "resident material object {} lacks direct shroud facts",
-                        frozen.id.0
-                    )
-                })?;
-            let object = logic
-                .host_object(crate::game_logic::ObjectId(frozen.id.0))
-                .ok_or_else(|| {
-                    format!(
-                        "resident material object {} lacks its host owner",
                         frozen.id.0
                     )
                 })?;

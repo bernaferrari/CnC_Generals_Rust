@@ -413,17 +413,20 @@ impl CnCGameEngine {
                 ));
             }
         }
+        let mut audio_locality = game_engine::common::fast_hash::FxHashMap::default();
         let sync_entries = pres
             .direct_host_drawables
             .iter()
             .map(|direct| {
                 let o = &direct.object;
+                let audio_player = o.owner_player_id.map(|owner| owner as i32).unwrap_or(-1);
+                let locality = *audio_locality.entry(audio_player).or_insert_with(|| {
+                    self.game_logic.receiving_audio_locality_for_player(audio_player)
+                });
                 game_client::core::game_client::PresentationDrawableSync {
                     receiving_science_player: pres.receiving_science_player.clone(),
                     object_id: o.id.0,
-                    ambient_audio_locality: Some(self.game_logic.receiving_audio_locality_for_player(
-                        o.owner_player_id.map(|owner| owner as i32).unwrap_or(-1),
-                    )),
+                    ambient_audio_locality: Some(locality),
                     host_epoch,
                     // The direct-host roster was frozen from actual host
                     // ownership. It deliberately remains resident through
