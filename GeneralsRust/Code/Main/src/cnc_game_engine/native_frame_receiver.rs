@@ -2,7 +2,7 @@
 use super::*;
 use crate::graphics::render_pipeline::{
     FilterCameraMatrices, FrozenDirectDrawableSceneCandidate, FrozenDirectDrawableSceneDecision,
-    NativeFrameRenderReceiver, native_pose_loan::NativeInstalledPoseLoan,
+    NativeDrawableMeshObservation, NativeFrameRenderReceiver, native_pose_loan::NativeInstalledPoseLoan,
 };
 pub(super) struct NativeFrameReceiver<'a> {
     pub audio: Option<super::native_audio_effects::NativeAudioService<'a>>,
@@ -55,12 +55,12 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
             .map_err(|error| error.to_string())
     }
 
-    fn observe_draw_transforms(
+    fn observe_drawable_mesh(
         &self,
         input: &mut crate::presentation_frame::UnitRenderInput,
-    ) -> std::result::Result<Option<Mat4>, String> {
+    ) -> std::result::Result<NativeDrawableMeshObservation, String> {
         if !input.drawable_shroud.lifetime.is_direct_host_object() {
-            return Ok(None);
+            return Ok(NativeDrawableMeshObservation::default());
         }
 
         let identity = input
@@ -83,14 +83,20 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
             .native_draw_mesh_pose(key)
             .map_err(|error| error.to_string())?;
         input.physics_visual_local = physics;
-        if object.has_native_emp_update() {
-            let (scale, _) = self
+        let scene_light_tint = if object.has_native_emp_update() {
+            let (scale, color) = self
                 .drawables
                 .observe_emp_visual(key)
                 .map_err(|error| error.to_string())?;
             input.mesh_scale = scale;
-        }
-        Ok(Some(instance))
+            (color != [0.; 3]).then_some(crate::graphics::render_item::DrawableSceneLightTint(color))
+        } else {
+            None
+        };
+        Ok(NativeDrawableMeshObservation {
+            instance: Some(instance),
+            scene_light_tint,
+        })
     }
 
     fn receive_installed_state_particles(

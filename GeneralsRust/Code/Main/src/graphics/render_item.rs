@@ -635,12 +635,18 @@ pub struct RenderItem {
     pub poison_tinted: bool,
     /// C++ Drawable tint-status signed RGB (DISABLED/SUBDUAL/FRENZY).
     pub status_tint: [f32; 3],
+    /// Receiving Drawable color applied to the scene lights, outside the material cache.
+    pub(crate) scene_light_tint: Option<DrawableSceneLightTint>,
     /// C++ `m_hexColor` / player indicator color applied to HOUSECOLOR / ZHC.
     pub house_color: [f32; 4],
     /// The object's template has `Shadow = SHADOW_VOLUME` and shadows are on:
     /// its meshes are stencil shadow-volume casters (C++ W3DVolumetricShadow).
     pub casts_volume_shadow: bool,
 }
+
+/// Signed C++ Drawable color to add to object-scene lighting.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct DrawableSceneLightTint(pub(crate) [f32; 3]);
 
 impl RenderItem {
     /// Create new render item - equivalent to C++ RenderItem constructor
@@ -693,6 +699,7 @@ impl RenderItem {
             selection_flash_team_color: [1.0, 1.0, 1.0, 1.0],
             poison_tinted: false,
             status_tint: [0.0; 3],
+            scene_light_tint: None,
             house_color: [0.0; 4],
             casts_volume_shadow: false,
         }
@@ -967,6 +974,7 @@ impl RenderItem {
             parent.selection_flash_team_color,
         );
         self.apply_status_tint(parent.status_tint);
+        self.scene_light_tint = parent.scene_light_tint;
         self.presentation_opacity = parent.presentation_opacity;
         self.frozen_objectless_drawable_shroud = parent.frozen_objectless_drawable_shroud;
         self.terrain_prop_projected_shroud = parent.terrain_prop_projected_shroud;

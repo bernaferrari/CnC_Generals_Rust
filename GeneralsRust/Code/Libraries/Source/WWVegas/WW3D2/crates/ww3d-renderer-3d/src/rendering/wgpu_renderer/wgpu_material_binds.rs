@@ -122,7 +122,16 @@ struct LightingUniform {
     fog_params: [f32; 4],
     light_meta: [f32; 4],
     lights: [PackedLight; MAX_LIGHTS],
+    /// Material-scaled ambient RGB for a colored Drawable's lit additive pass.
+    /// The existing shader families bind only the prefix through `lights`.
+    drawable_additive_ambient: [f32; 4],
 }
+
+const _: () = {
+    assert!(std::mem::offset_of!(LightingUniform, lights) == 64);
+    assert!(std::mem::offset_of!(LightingUniform, drawable_additive_ambient) == 576);
+    assert!(std::mem::size_of::<LightingUniform>() == 592);
+};
 
 /// UV Texture Transform Uniform - GPU-side representation for texture coordinate transforms
 /// Maps to WGSL UVTransformUniform struct in shaders
@@ -248,6 +257,7 @@ impl WgpuMaterialBinds {
         material_specular: [f32; 4],
         material_emissive: [f32; 4],
         material_overrides: [f32; 4],
+        drawable_additive_ambient: Vec3,
         arena: &mut FrameUniformArena,
         // FOW visibility parameters (optional)
         visibility_alpha: Option<f32>,
@@ -281,7 +291,7 @@ impl WgpuMaterialBinds {
             visibility_pad: 0.0,
         };
 
-        let lighting_uniform = build_lighting_uniform(render_info);
+        let lighting_uniform = build_lighting_uniform(render_info, drawable_additive_ambient);
 
         let model_slice = arena.allocate(gpu, bytemuck::bytes_of(&model_uniform), 256)?;
         let lighting_slice = arena.allocate(gpu, bytemuck::bytes_of(&lighting_uniform), 256)?;
@@ -500,7 +510,10 @@ fn build_uv_transform_uniform(
     }
 }
 
-fn build_lighting_uniform(render_info: &RenderInfoClass) -> LightingUniform {
+fn build_lighting_uniform(
+    render_info: &RenderInfoClass,
+    drawable_additive_ambient: Vec3,
+) -> LightingUniform {
     let default_ambient = Vec3::splat(0.2);
     let fog_defaults = FogSettings {
         enabled: false,
@@ -546,6 +559,7 @@ fn build_lighting_uniform(render_info: &RenderInfoClass) -> LightingUniform {
         fog_params: [fog.start, fog.end, if fog.enabled { 1.0 } else { 0.0 }, 0.0],
         light_meta: [light_count as f32, 0.0, 0.0, 0.0],
         lights,
+        drawable_additive_ambient: vec3_to_array(drawable_additive_ambient, 0.0),
     }
 }
 

@@ -182,6 +182,7 @@ impl ForwardPass {
             queue,
             projected_shroud_uploader: crate::graphics::ProjectedShroudGpuUploader::default(),
             ghost_lighting_environment: None,
+            object_scene_lights: Default::default(),
             tactical_viewport: Default::default(),
             native_radar_frame: None,
             laser_vertex_buffer: None,
@@ -696,7 +697,7 @@ impl ForwardPass {
                 }
 
                 // Prepare mesh instance - handles missing models gracefully
-                match self.prepare_mesh_instance(graphics_system, item) {
+                match self.prepare_mesh_instance(graphics_system, item, lighting) {
                     Ok(Some(mesh)) => {
                         // C++ hides the locked Drawable during the refreshed
                         // filtered scene. Prepare its meshes once, then draw
@@ -876,23 +877,8 @@ impl ForwardPass {
         env.add_light(r3d, light);
 
         #[cfg(feature = "game_client")]
-        {
-            for pulse in lighting
-                .into_iter()
-                .flat_map(|lighting| lighting.dynamic_lights.iter())
-            {
-                if !pulse.enabled {
-                    continue;
-                }
-                // C++ map XYZ (z-up) → wgpu Y-up.
-                let position = Vec3::new(pulse.pos[0], pulse.pos[2], pulse.pos[1]);
-                let pulse_color = Vec3::from_array(pulse.color);
-                let range = pulse.far_atten_end.max(pulse.far_atten_start).max(0.1);
-                let intensity = pulse_color.max_element().max(0.01);
-                let mut point = LightClass::point(position, pulse_color, intensity, range);
-                point.enabled = true;
-                env.add_light(r3d, point);
-            }
+        for light in Self::dynamic_scene_lights(lighting) {
+            env.add_light(r3d, light);
         }
 
         static LOGGED_FALLBACK_LIGHTING: std::sync::OnceLock<()> = std::sync::OnceLock::new();
@@ -902,6 +888,60 @@ impl ForwardPass {
             );
         }
         Some(env)
+    }
+
+    #[cfg(feature = "game_client")]
+    fn dynamic_scene_lights(lighting: Option<&CachedLighting>) -> impl Iterator<Item = LightClass> {
+        lighting
+            .into_iter()
+            .flat_map(|lighting| lighting.dynamic_lights.iter())
+            .filter(|pulse| pulse.enabled)
+            .map(|pulse| {
+                let position = Vec3::new(pulse.pos[0], pulse.pos[2], pulse.pos[1]);
+                let color = Vec3::from_array(pulse.color);
+                let range = pulse.far_atten_end.max(pulse.far_atten_start).max(0.1);
+                LightClass::point(position, color, color.max_element().max(0.01), range)
+            })
+    }
+
+    fn build_drawable_light_environment(
+        &self,
+        tint: DrawableSceneLightTint,
+        center: Vec3,
+        lighting: Option<&CachedLighting>,
+    ) -> Option<Arc<LightEnvironmentClass>> {
+        let primary = self.object_scene_lights[0]?;
+        let mut env =
+            LightEnvironmentClass::for_drawable_color(center, Vec3::from_array(primary.ambient));
+        let tint = Vec3::from_array(tint.0);
+        for authored in self.object_scene_lights.into_iter().flatten() {
+            if !authored.object_light_active {
+                continue;
+            }
+            // W3DDisplay uses the authored light position as Transform.Z.
+            let authored_direction = Vec3::from_array(authored.render_light_pos());
+            let direction = if authored_direction == Vec3::ZERO {
+                Vec3::X
+            } else {
+                -authored_direction
+            };
+            let light = LightClass::directional(
+                direction,
+                Vec3::from_array(authored.diffuse) + tint,
+                1.0,
+            );
+            env.add_light(&self.renderer.renderer_3d, light);
+        }
+        // W3DScene adds the signed tint after the global lights and before dynamic lighting.
+        env.ambient += tint;
+        #[cfg(feature = "game_client")]
+        for light in Self::dynamic_scene_lights(lighting) {
+            env.add_light(&self.renderer.renderer_3d, light);
+        }
+        // The WGPU material evaluates world-space normals. Keep the original
+        // light ordering and ambient clamp while retaining directions in that basis.
+        env.pre_render_update(Mat4::IDENTITY);
+        Some(Arc::new(env))
     }
 
     /// Build the C++ `m_foggedLightEnv` equivalent for W3D ghosts. The ratio
@@ -1087,6 +1127,7 @@ impl ForwardPass {
         &mut self,
         graphics_system: &GraphicsSystem,
         item: &RenderItem,
+        lighting: Option<&CachedLighting>,
     ) -> Result<Option<Arc<MeshClass>>> {
         use ww3d_renderer_3d::rendering::mesh_system::MeshGeometryClass;
 
@@ -1148,6 +1189,13 @@ impl ForwardPass {
             mesh.set_projected_shroud_eligible(item.pushes_projected_shroud_pass());
             mesh.alpha_override = item.fow_visibility.visibility_alpha;
             mesh.is_hidden = item.fow_visibility.visibility_alpha <= 0.01;
+            if let Some(tint) = item.scene_light_tint {
+                mesh.set_lighting_environment(self.build_drawable_light_environment(
+                    tint,
+                    mesh.transform.w_axis.truncate(),
+                    lighting,
+                ));
+            }
         }
         mesh.set_presentation_opacity(item.presentation_opacity);
         // C++ `dx8renderer.cpp:1854-1886` Material_Override: HLOD ghosts force

@@ -34,6 +34,7 @@ struct LightingUniform {
     fog_params: vec4<f32>,
     light_meta: vec4<f32>,
     lights: array<PackedLight, 8>,
+    drawable_additive_ambient: vec4<f32>,
 };
 
 /// UV Texture Transform Uniform - texture coordinate mapper parameters
@@ -64,6 +65,7 @@ struct MaterialLayers {
     specular_weight: f32,
     env_stage_mask: u32,
     shiny_stage_mask: u32,
+    texture_modulation: vec3<f32>,
 };
 
 @group(0) @binding(0)
@@ -528,6 +530,7 @@ fn compute_material_layers(
         0.0,
         0u,
         0u,
+        vec3<f32>(1.0),
     );
     var has_diffuse = false;
     let reflection_dir = reflect(-view_dir, normal);
@@ -585,6 +588,7 @@ fn compute_material_layers(
         vertex_illumination = input.vertex_illumination;
     }
 
+    layers.texture_modulation = layers.diffuse;
     layers.diffuse = layers.diffuse * model.material_diffuse.xyz * vertex_diffuse.rgb;
     layers.alpha = clamp(layers.alpha * model.material_diffuse.w * vertex_diffuse.a, 0.0, 1.0);
     layers.emissive = layers.emissive + model.material_emissive.xyz + vertex_illumination.rgb;
@@ -727,7 +731,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     let specular = specular_sum * specular_tint * specular_scale;
-    let base_contrib = layers.diffuse * diffuse_sum;
+    var base_contrib = layers.diffuse * diffuse_sum;
+    let drawable_ambient = lighting.drawable_additive_ambient.xyz;
+    if any(drawable_ambient != vec3<f32>(0.0)) {
+        base_contrib += layers.texture_modulation * drawable_ambient;
+    }
     let environment_rgb = layers.environment;
     let env_specular = specular_strength * fresnel_term;
     let env_contrib = environment_rgb * (specular_tint * env_specular);

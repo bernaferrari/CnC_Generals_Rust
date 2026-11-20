@@ -213,6 +213,10 @@ impl RenderPipeline {
         self.native_draw_world
             .pending_client_drawable_imports
             .clear();
+        self.forward_pass.object_scene_lights = frame.as_ref().map_or_else(
+            Default::default,
+            |frame| frame.world_env.object_global_lights,
+        );
         self.presentation_frame = frame;
     }
 
@@ -343,6 +347,7 @@ impl RenderPipeline {
             &mut self.last_frame_time,
         );
         self.presentation_frame = None;
+        self.forward_pass.object_scene_lights = Default::default();
         self.presentation_direct_shroud_states.clear();
         self.presentation_direct_shroud_host_epoch = None;
         self.native_draw_world.pending_client_drawable_restore = None;
@@ -438,6 +443,7 @@ impl RenderPipeline {
     pub fn set_presentation_object_ids(&mut self, ids: Option<Vec<ObjectID>>) {
         if ids.is_none() {
             self.presentation_frame = None;
+            self.forward_pass.object_scene_lights = Default::default();
             #[cfg(feature = "game_client")]
             {
                 self.frozen_specialized_draw = None;

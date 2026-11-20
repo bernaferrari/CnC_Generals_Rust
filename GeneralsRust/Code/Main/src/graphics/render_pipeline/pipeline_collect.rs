@@ -423,11 +423,14 @@ impl RenderPipeline {
             // for this draw. Its canonical mutable owner remains in GameClient;
             // asset drawScale is baked separately from frozen instance scale.
             #[cfg(feature = "game_client")]
-            let instance = if let Some(receiver) = native_receiver.as_deref() {
-                receiver.observe_draw_transforms(u).map_err(anyhow::Error::msg)?
-            } else {
-                None
-            };
+            let NativeDrawableMeshObservation { instance, scene_light_tint } =
+                if let Some(receiver) = native_receiver.as_deref() {
+                    receiver.observe_drawable_mesh(u).map_err(anyhow::Error::msg)?
+                } else {
+                    NativeDrawableMeshObservation::default()
+                };
+            #[cfg(not(feature = "game_client"))]
+            let scene_light_tint = None;
             #[cfg(not(feature = "game_client"))]
             let instance = if let (Some(complete), Some(frame)) = (
                 complete_physics_visual.as_deref_mut(),
@@ -935,6 +938,7 @@ impl RenderPipeline {
                                 );
 
                                 render_item.apply_status_tint(u.status_tint);
+                                render_item.scene_light_tint = scene_light_tint;
                                 render_item.set_presentation_opacity(u.presentation_opacity);
                                 render_item
                                     .apply_heat_vision_second_pass(u.second_material_pass_opacity);
@@ -984,6 +988,7 @@ impl RenderPipeline {
                                 );
 
                                 aggregate_parent_item.apply_status_tint(u.status_tint);
+                                aggregate_parent_item.scene_light_tint = scene_light_tint;
                                 aggregate_parent_item.apply_house_color_livery(
                                     w3d_model
                                         .meshes

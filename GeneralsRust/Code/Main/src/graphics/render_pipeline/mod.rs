@@ -28,7 +28,7 @@ use super::minimap_renderer::{
     MinimapCoordinates, MinimapDimensions, MinimapTextureRenderer, UiTextureRegistrar,
 };
 use super::render_item::{
-    FrozenDirectSceneShroudRenderState, FrozenObjectlessDrawableShroudRenderState,
+    DrawableSceneLightTint, FrozenDirectSceneShroudRenderState, FrozenObjectlessDrawableShroudRenderState,
     GhostLightingRoute, RenderItem, RenderItemBonePaletteSource, RenderItemOwner,
     house_color_from_argb,
 };
@@ -922,6 +922,8 @@ pub struct ForwardPass {
     /// Per-frame C++ ghost light environment. Ghost meshes are always fogged
     /// and must not inherit the ordinary object/FOW light environment.
     ghost_lighting_environment: Option<Arc<LightEnvironmentClass>>,
+    object_scene_lights: [Option<crate::presentation_frame::PresentationPrimaryGlobalLight>;
+        game_engine::common::ini::ini_game_data::MAX_GLOBAL_LIGHTS],
     /// Immutable native UI input for this render handoff; never a camera owner.
     native_radar_frame: Option<crate::graphics::ui_radar::NativeRadarFrame>,
     tactical_viewport: crate::presentation_frame::camera::viewport::TacticalViewport,
@@ -1024,8 +1026,8 @@ struct NativeClientEffectFrame {
 #[cfg(feature = "game_client")]
 mod native_frame_receiver;
 #[cfg(all(feature = "game_client", feature = "integration-tests"))]
-pub use native_frame_receiver::NativeFrameRenderReceiver;
+pub use native_frame_receiver::{NativeDrawableMeshObservation, NativeFrameRenderReceiver};
 #[cfg(all(feature = "game_client", not(feature = "integration-tests")))]
-pub(crate) use native_frame_receiver::NativeFrameRenderReceiver;
+pub(crate) use native_frame_receiver::{NativeDrawableMeshObservation, NativeFrameRenderReceiver};
 #[cfg(feature = "integration-tests")]
 pub use native_pose_loan::NativeInstalledPoseLoan;

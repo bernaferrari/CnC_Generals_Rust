@@ -372,7 +372,7 @@ fn rigid_hanim_uses_the_child_transform_without_sampling_a_skin_palette() {
     }
 
     let skin_instance = forward
-        .prepare_mesh_instance(&graphics, &skin)
+        .prepare_mesh_instance(&graphics, &skin, None)
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -380,7 +380,7 @@ fn rigid_hanim_uses_the_child_transform_without_sampling_a_skin_palette() {
         child
     );
     let rigid_instance = forward
-        .prepare_mesh_instance(&graphics, &rigid)
+        .prepare_mesh_instance(&graphics, &rigid, None)
         .unwrap()
         .unwrap();
     assert_eq!(rigid_instance.transform, rigid.world_matrix * child);
@@ -438,3 +438,7 @@ fn rigid_hanim_uses_the_child_transform_without_sampling_a_skin_palette() {
         "unposed skin position"
     );
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "emp_scene_lighting_gpu_tests.rs"]
+mod emp_scene_lighting_gpu_tests;

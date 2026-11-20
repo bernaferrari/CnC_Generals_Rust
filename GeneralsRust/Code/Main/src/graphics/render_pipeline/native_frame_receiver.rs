@@ -6,6 +6,12 @@ pub(super) enum NativeCollectSource<'a> {
     FrozenPreview,
 }
 
+#[derive(Default)]
+pub struct NativeDrawableMeshObservation {
+    pub instance: Option<Mat4>,
+    pub(crate) scene_light_tint: Option<super::DrawableSceneLightTint>,
+}
+
 pub trait NativeFrameRenderReceiver {
     fn actor_draw_candidate_is_current(
         &self,
@@ -21,10 +27,10 @@ pub trait NativeFrameRenderReceiver {
         receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
     ) -> Result<Option<game_client::core::game_client::NativeAuxiliaryDrawObservation>, String>;
 
-    fn observe_draw_transforms(
+    fn observe_drawable_mesh(
         &self,
         input: &mut crate::presentation_frame::UnitRenderInput,
-    ) -> std::result::Result<Option<Mat4>, String>;
+    ) -> std::result::Result<NativeDrawableMeshObservation, String>;
     fn receive_installed_state_particles(
         &mut self,
         input: &crate::presentation_frame::UnitRenderInput,

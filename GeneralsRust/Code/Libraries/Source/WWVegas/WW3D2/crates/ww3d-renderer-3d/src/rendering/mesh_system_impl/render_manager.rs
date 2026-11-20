@@ -8,6 +8,7 @@
     clippy::all
 )]
 use super::{bind_cache::StageResources, *};
+use crate::material_system::ColorSourceType;
 use std::borrow::Cow;
 
 /// C++ `WW3DAssetManager::Get_Texture` parity (W3DAssetManager.cpp:127-225):
@@ -890,6 +891,7 @@ impl MeshRenderManager {
                 projection.shroud_color[2],
                 1.0,
             ],
+            Vec3::ZERO,
             arena,
             Some(1.0),
             Some(1.0),
@@ -1138,8 +1140,21 @@ impl MeshRenderManager {
             })?
         };
 
+        let vertex_material = pass.get_vertex_material();
         let (mut material_diffuse, material_specular, material_emissive) =
-            material_properties(pass.get_vertex_material());
+            material_properties(vertex_material);
+        // DX8Wrapper sets the Drawable's ambient and VertexMaterialClass applies
+        // its own ambient coefficient (dx8wrapper.cpp:3034, vertmaterial.cpp:920).
+        let drawable_additive_ambient = render_info
+            .lighting
+            .as_ref()
+            .and_then(LightEnvironmentClass::drawable_material_ambient)
+            .and_then(|ambient| {
+                let material = vertex_material?;
+                (material.use_lighting && material.ambient_color_source == ColorSourceType::Material)
+                    .then(|| ambient * material.ambient)
+            })
+            .unwrap_or(Vec3::ZERO);
         let material_overrides = [
             render_info.alpha_override * mesh.presentation_opacity(),
             render_info.material_pass_alpha_override,
@@ -1164,6 +1179,7 @@ impl MeshRenderManager {
             material_specular,
             material_emissive,
             material_overrides,
+            drawable_additive_ambient,
             arena,
             Some(visibility_alpha),
             Some(visibility_falloff),

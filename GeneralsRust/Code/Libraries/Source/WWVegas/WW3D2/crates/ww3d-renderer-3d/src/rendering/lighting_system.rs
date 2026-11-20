@@ -37,6 +37,7 @@ pub struct LightEnvironmentClass {
     fill_light: Option<InputLight>,
     fill_intensity: f32,
     sources: Vec<LightClass>,
+    includes_drawable_material_ambient: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -77,7 +78,22 @@ impl LightEnvironmentClass {
             fill_light: None,
             fill_intensity: 0.0,
             sources: Vec::new(),
+            includes_drawable_material_ambient: false,
         }
+    }
+
+    /// Light environment for an individually colored Drawable (W3DScene.cpp:638-671).
+    pub fn for_drawable_color(object_center: Vec3, scene_ambient: Vec3) -> Self {
+        Self {
+            ambient: scene_ambient,
+            object_center,
+            includes_drawable_material_ambient: true,
+            ..Self::new()
+        }
+    }
+
+    pub(crate) fn drawable_material_ambient(&self) -> Option<Vec3> {
+        self.includes_drawable_material_ambient.then_some(self.ambient)
     }
 
     /// C++ `LightEnvironmentClass::Reset`.
