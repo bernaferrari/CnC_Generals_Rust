@@ -1189,9 +1189,26 @@ impl GameLogic {
                         );
                     }
                 }
+                let frame = self.frame;
+                let mut awaken = |id, proxy: &UpdateModulePtr| {
+                    awaken_collision_physics(
+                        &mut self.sleepy_updates,
+                        &mut self.normal_updates,
+                        &mut self.module_lookup,
+                        id,
+                        proxy,
+                        frame,
+                    );
+                };
+                let mut physics = crate::object::collide::AuthoredContactPhysics {
+                    frame,
+                    world: &world,
+                    awaken: &mut awaken,
+                    handled_ground_contact: false,
+                };
                 let _ = system.process_collisions_with(
                     Some(&managers.collision_manager),
-                    Some(self.frame),
+                    Some(&mut physics),
                     |id| {
                         self.objects
                             .get(&id)

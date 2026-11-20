@@ -19,6 +19,103 @@ use game_engine::common::global_data;
 const MIN_STIFF: Real = 0.01;
 const MAX_STIFF: Real = 0.99;
 
+struct ContactOverlap {
+    delta: Coord3D,
+    radius: Real,
+    distance: Real,
+    overlap: Real,
+}
+
+fn contact_overlap(
+    owner: &GameObject,
+    other: &GameObject,
+    airborne: bool,
+) -> Option<ContactOverlap> {
+    let us = owner.get_geometry_info();
+    let them = other.get_geometry_info();
+    let mut delta = them.get_center_position(other.get_position())
+        - us.get_center_position(owner.get_position());
+    let (radius, other_radius, distance_squared) = if airborne {
+        (
+            us.get_bounding_sphere_radius(),
+            them.get_bounding_sphere_radius(),
+            delta.x * delta.x + delta.y * delta.y + delta.z * delta.z,
+        )
+    } else {
+        delta.z = 0.0;
+        (
+            us.get_bounding_circle_radius(),
+            them.get_bounding_circle_radius(),
+            delta.x * delta.x + delta.y * delta.y,
+        )
+    };
+    let radius_sum = radius + other_radius;
+    if distance_squared > radius_sum * radius_sum {
+        return None;
+    }
+    let distance = distance_squared.sqrt();
+    Some(ContactOverlap {
+        delta,
+        radius,
+        distance: if distance < 1.0 { 1.0 } else { distance },
+        overlap: radius_sum - distance,
+    })
+}
+
+fn immobile_contact_factor(
+    handle: &mut PhysicsBehaviorHandle,
+    owner: &GameObject,
+    stiffness: Real,
+) -> Real {
+    let stiffness = stiffness.clamp(MIN_STIFF, MAX_STIFF);
+    let mut magnitude = handle.velocity_magnitude();
+    let minimum = 1.0 / (LOGICFRAMES_PER_SECOND as Real * 5.0);
+    if magnitude < minimum {
+        magnitude = minimum;
+    }
+    -magnitude * handle.mass_with_cargo(Some(owner)) * stiffness
+}
+
+/// PhysicsUpdate.cpp:1244–1400 for a living, grounded, non-crushing actor
+/// contacting an immobile actor that has neither Physics nor AI. The caller
+/// applies the returned wake after releasing this mounted module.
+pub(super) fn ground_obstacle_contact(
+    handle: &mut PhysicsBehaviorHandle,
+    owner: &GameObject,
+    other: &GameObject,
+    frame: u32,
+    stiffness: Real,
+) -> bool {
+    // AIUpdate.cpp:1416–1431. A living AI actor declines the force
+    // when the other actor supplies no AI, before updating lastCollidee.
+    if owner.get_ai().is_some() {
+        return false;
+    }
+    let Some(ContactOverlap {
+        delta, distance, ..
+    }) = contact_overlap(owner, other, false)
+    else {
+        return false;
+    };
+    handle.state.last_collidee = other.get_id();
+    if !handle.state.has_flag(FLAG_ALLOW_COLLIDE_FORCE) {
+        return false;
+    }
+    let factor = immobile_contact_factor(handle, owner, stiffness);
+    handle.state.vel = Coord3D::ZERO;
+    handle.state.vel_mag = INVALID_VEL_MAG;
+    let force = Coord3D::new(
+        factor * delta.x / distance,
+        factor * delta.y / distance,
+        factor * delta.z / distance,
+    );
+    if !force.is_finite() {
+        return false;
+    }
+    handle.apply_force_with_obj_at(&force, Some(owner), frame, false);
+    !handle.state.has_flag(super::FLAG_IS_IN_UPDATE)
+}
+
 /// C++ PhysicsBehavior::onCollide.
 pub(super) fn on_collide(
     handle: &mut PhysicsBehaviorHandle,
@@ -151,44 +248,17 @@ pub(super) fn on_collide(
         // Continue — apply bounce unless collide force is off.
     }
 
-    let us_center = obj
-        .get_geometry_info()
-        .get_center_position(obj.get_position());
-    let them_center = other
-        .get_geometry_info()
-        .get_center_position(other.get_position());
-    let mut delta = Coord3D::new(
-        them_center.x - us_center.x,
-        them_center.y - us_center.y,
-        them_center.z - us_center.z,
-    );
-
-    let (us_radius, them_radius, dist_sqr) = if obj.is_above_terrain() {
-        (
-            obj.get_geometry_info().get_bounding_sphere_radius(),
-            other.get_geometry_info().get_bounding_sphere_radius(),
-            delta.x * delta.x + delta.y * delta.y + delta.z * delta.z,
-        )
-    } else {
-        delta.z = 0.0;
-        (
-            obj.get_geometry_info().get_bounding_circle_radius(),
-            other.get_geometry_info().get_bounding_circle_radius(),
-            delta.x * delta.x + delta.y * delta.y,
-        )
-    };
-    let radius_sum = us_radius + them_radius;
-    if dist_sqr > radius_sum * radius_sum {
+    let Some(ContactOverlap {
+        delta,
+        radius: us_radius,
+        distance: dist,
+        mut overlap,
+    }) = contact_overlap(&obj, &other, obj.is_above_terrain())
+    else {
         return;
-    }
+    };
 
     handle.state.last_collidee = other_id;
-
-    let mut dist = dist_sqr.sqrt();
-    let mut overlap = us_radius + them_radius - dist;
-    if dist < 1.0 {
-        dist = 1.0;
-    }
 
     if !handle.state.has_flag(FLAG_ALLOW_COLLIDE_FORCE) {
         return;
@@ -227,14 +297,8 @@ pub(super) fn on_collide(
 
         let stiffness = global_data::read_safe()
             .map(|data| data.structure_stiffness)
-            .unwrap_or(0.5)
-            .clamp(MIN_STIFF, MAX_STIFF);
-        let mut mag = handle.velocity_magnitude();
-        let min_bounce = 1.0 / (LOGICFRAMES_PER_SECOND as Real * 5.0);
-        if mag < min_bounce {
-            mag = min_bounce;
-        }
-        factor = -mag * handle.mass_with_cargo(Some(&obj)) * stiffness;
+            .unwrap_or(0.5);
+        factor = immobile_contact_factor(handle, &obj, stiffness);
 
         let rubble_h = global_data::read_safe()
             .map(|data| data.default_structure_rubble_height)

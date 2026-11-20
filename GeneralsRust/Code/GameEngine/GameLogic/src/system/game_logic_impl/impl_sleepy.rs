@@ -195,6 +195,56 @@ fn unregister_registered_update(
     }
 }
 
+fn insert_sleepy_registration(
+    queue: &mut SleepyUpdateQueue,
+    lookup: &mut HashMap<ObjectID, Vec<ModuleIdentity>>,
+    object_id: ObjectID,
+    module: UpdateModulePtr,
+    wake: UnsignedInt,
+) {
+    lookup
+        .entry(object_id)
+        .or_default()
+        .push(ModuleIdentity::of(&module));
+    let phase = module
+        .read()
+        .map(|module| module.get_update_phase())
+        .unwrap_or(SleepyUpdatePhase::Normal);
+    module
+        .write()
+        .expect("scheduled module poisoned")
+        .record_scheduled_wake(wake, phase);
+    queue.push(SleepyUpdateEntry {
+        wake_frame: wake,
+        phase,
+        module,
+        object_id,
+    });
+}
+
+fn awaken_collision_physics(
+    queue: &mut SleepyUpdateQueue,
+    normal: &mut Vec<NormalUpdateEntry>,
+    lookup: &mut HashMap<ObjectID, Vec<ModuleIdentity>>,
+    object_id: ObjectID,
+    module: &UpdateModulePtr,
+    frame: UnsignedInt,
+) {
+    // PhysicsUpdate.cpp:333. This contact runs after the current update heap
+    // has finished. Awake modules already due in this frame keep their wake.
+    let wake = frame.saturating_add(1).min(UPDATE_SLEEP_FOREVER_FRAMES);
+    if queue.entry_for(module).is_some() {
+        awaken_registered_update(queue, module, frame, wake);
+    } else if normal
+        .iter()
+        .any(|entry| entry.object_id == object_id && Arc::ptr_eq(&entry.module, module))
+    {
+        // Legacy births may have placed the zero-wake grant on the normal list.
+        unregister_registered_update(queue, normal, lookup, module);
+        insert_sleepy_registration(queue, lookup, object_id, Arc::clone(module), wake);
+    }
+}
+
 pub(crate) struct NativeScheduledUpdate {
     pub(crate) object_id: ObjectID,
     pub(crate) module: UpdateModulePtr,
@@ -690,11 +740,6 @@ impl GameLogic {
     ) {
         // Move one registration between categories/owners, never duplicate it.
         self.unregister_update_module(object_id, Arc::clone(&module));
-        self.module_lookup
-            .entry(object_id)
-            .or_default()
-            .push(ModuleIdentity::of(&module));
-
         // C++ GameLogic.cpp:3872-3899 — wake 0 (ctor never called setWakeFrame) becomes
         // the current frame, or 1 when the world is still on frame 0, so the module
         // can tick in the same frame it was registered.
@@ -704,21 +749,13 @@ impl GameLogic {
             wake_frame.min(UPDATE_SLEEP_FOREVER_FRAMES)
         };
 
-        let phase = module
-            .read()
-            .map(|module| module.get_update_phase())
-            .unwrap_or(SleepyUpdatePhase::Normal);
-
-        module
-            .write()
-            .expect("scheduled module poisoned")
-            .record_scheduled_wake(wake, phase);
-        self.sleepy_updates.push(SleepyUpdateEntry {
-            wake_frame: wake,
-            phase,
-            module,
+        insert_sleepy_registration(
+            &mut self.sleepy_updates,
+            &mut self.module_lookup,
             object_id,
-        });
+            module,
+            wake,
+        );
     }
     /// True when an AI update is already on the normal list or due at `now + 1` or sooner.
     pub fn ai_update_already_due(&self, object_id: ObjectID, now: UnsignedInt) -> bool {

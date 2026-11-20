@@ -61,6 +61,10 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "mounted_physics_tests.rs"]
+mod mounted_physics_tests;
+
 /// Main collision system coordinating all collision subsystems
 pub struct CollisionSystem {
     /// C++ `ThePartitionManager`: the world's single manager, shared with
@@ -69,10 +73,15 @@ pub struct CollisionSystem {
     /// Collision response handler
     response_handler: CollisionResponseHandler,
     /// Per-object collision configuration
-    object_configs: HashMap<ObjectId, CollisionResponseConfig>,
+    object_configs: HashMap<ObjectId, ConfiguredResponse>,
     /// Statistics
     collision_count: usize,
     frame_number: u64,
+}
+
+struct ConfiguredResponse {
+    config: CollisionResponseConfig,
+    from_birth: bool,
 }
 
 #[derive(Clone)]
@@ -146,7 +155,7 @@ impl CollisionSystem {
         self.pm_mut().register_object(id, position, geometry)?;
 
         if let Some(cfg) = config {
-            self.object_configs.insert(id, cfg);
+            self.set_collision_config(id, cfg);
         }
 
         Ok(())
@@ -179,7 +188,27 @@ impl CollisionSystem {
 
     /// Set collision response configuration for an object
     pub fn set_collision_config(&mut self, id: ObjectId, config: CollisionResponseConfig) {
-        self.object_configs.insert(id, config);
+        self.object_configs.insert(
+            id,
+            ConfiguredResponse {
+                config,
+                from_birth: false,
+            },
+        );
+    }
+
+    pub(crate) fn set_birth_collision_config(
+        &mut self,
+        id: ObjectId,
+        config: CollisionResponseConfig,
+    ) {
+        self.object_configs.insert(
+            id,
+            ConfiguredResponse {
+                config,
+                from_birth: true,
+            },
+        );
     }
 
     /// Process all collisions for this frame
@@ -202,7 +231,7 @@ impl CollisionSystem {
     pub(crate) fn process_collisions_with(
         &mut self,
         callbacks: Option<&CollisionManager>,
-        frame: Option<u32>,
+        mut physics: Option<&mut super::AuthoredContactPhysics<'_>>,
         find_object: impl Fn(ObjectId) -> Option<Arc<RwLock<Object>>>,
     ) -> Result<usize, CollisionError> {
         self.frame_number += 1;
@@ -217,7 +246,13 @@ impl CollisionSystem {
 
         // Test each pair and apply responses
         for (id_a, id_b) in contacts {
-            if self.test_and_respond_collision_with(id_a, id_b, callbacks, frame, &find_object)? {
+            if self.test_and_respond_collision_with(
+                id_a,
+                id_b,
+                callbacks,
+                physics.as_deref_mut(),
+                &find_object,
+            )? {
                 self.collision_count += 1;
             }
         }
@@ -249,7 +284,7 @@ impl CollisionSystem {
         id_a: ObjectId,
         id_b: ObjectId,
         callbacks: &CollisionManager,
-        frame: Option<u32>,
+        physics: Option<&mut super::AuthoredContactPhysics<'_>>,
         find_object: &impl Fn(ObjectId) -> Option<Arc<RwLock<Object>>>,
     ) -> Result<bool, CollisionError> {
         let Some((pos_a, geom_a, angle_a)) = self.pm().get_object_pose(id_a) else {
@@ -310,6 +345,7 @@ impl CollisionSystem {
             return Ok(false);
         }
 
+        let frame = physics.as_ref().map(|physics| physics.frame);
         if Self::should_ignore_ai_collision(&obj_a, frame)
             || Self::should_ignore_ai_collision(&obj_b, frame)
         {
@@ -324,11 +360,27 @@ impl CollisionSystem {
 
         self.handle_ai_collision(&obj_a, &obj_b);
 
+        let a_config = self.object_configs.get(&id_a);
+        let b_config = self.object_configs.get(&id_b);
+        let mut physics = physics.filter(|_| {
+            a_config.is_none_or(|config| config.from_birth)
+                && b_config.is_none_or(|config| config.from_birth)
+        });
+        if let Some(physics) = physics.as_deref_mut() {
+            physics.handled_ground_contact = false;
+        }
         // C++ processContactList calls the first side then the second if both
         // objects remain alive. wouldLikeToCollideWith is not a callback gate.
         let loc = Coord3D::new(cinfo.loc.x, cinfo.loc.y, cinfo.loc.z);
         let normal = Coord3D::new(cinfo.normal.x, cinfo.normal.y, cinfo.normal.z);
-        let _ = callbacks.handle_collision_for_owner(id_a, &obj_a, Some(&obj_b), &loc, &normal);
+        let _ = callbacks.handle_collision_for_owner(
+            id_a,
+            &obj_a,
+            Some(&obj_b),
+            &loc,
+            &normal,
+            physics.as_deref_mut(),
+        );
         let inv_normal = Coord3D::new(-normal.x, -normal.y, -normal.z);
         // C++ PartitionContactList::processContactList suppresses the paired
         // callback if either object was destroyed by the first side.
@@ -341,8 +393,17 @@ impl CollisionSystem {
             .map(|object| !object.is_destroyed())
             .unwrap_or(false);
         if object_a_alive && object_b_alive {
-            let _ =
-                callbacks.handle_collision_for_owner(id_b, &obj_b, Some(&obj_a), &loc, &inv_normal);
+            let _ = callbacks.handle_collision_for_owner(
+                id_b,
+                &obj_b,
+                Some(&obj_a),
+                &loc,
+                &inv_normal,
+                physics.as_deref_mut(),
+            );
+        }
+        if physics.is_some_and(|physics| physics.handled_ground_contact) {
+            return Ok(true);
         }
 
         // PhysicsUpdate.cpp:1181–1214 skips separation when either AI ignores
@@ -352,21 +413,27 @@ impl CollisionSystem {
             return Ok(true);
         }
 
-        if let Some(cfg) = self.object_configs.get(&id_a) {
+        if let Some(cfg) = a_config {
             let mut a_handle = obj_a.clone();
-            let _ = self
-                .response_handler
-                .apply_response(&mut a_handle, &obj_b, &cinfo, Some(cfg));
+            let _ = self.response_handler.apply_response(
+                &mut a_handle,
+                &obj_b,
+                &cinfo,
+                Some(&cfg.config),
+            );
         }
-        if let Some(cfg) = self.object_configs.get(&id_b) {
+        if let Some(cfg) = b_config {
             let mut b_handle = obj_b.clone();
             let inv = CollideLocAndNormal {
                 loc: cinfo.loc,
                 normal: Coord3D::new(-cinfo.normal.x, -cinfo.normal.y, -cinfo.normal.z),
             };
-            let _ = self
-                .response_handler
-                .apply_response(&mut b_handle, &obj_a, &inv, Some(cfg));
+            let _ = self.response_handler.apply_response(
+                &mut b_handle,
+                &obj_a,
+                &inv,
+                Some(&cfg.config),
+            );
         }
 
         Ok(true)

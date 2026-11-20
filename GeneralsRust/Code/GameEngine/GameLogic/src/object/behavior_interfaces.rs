@@ -163,6 +163,95 @@ impl BehaviorInterfaceHandle {
         Ok(BehaviorInterfaceLease { kind })
     }
 
+    pub(crate) fn ground_obstacle_contact(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        other: &Arc<RwLock<Object>>,
+        physics: &mut super::collide::AuthoredContactPhysics<'_>,
+    ) -> bool {
+        let BehaviorInterfaceKind::Template(behavior) = &self.kind else {
+            return false;
+        };
+        if behavior.entry.name() != "PhysicsBehavior" {
+            return false;
+        }
+        let (Ok(owner), Ok(other)) = (owner.read(), other.read()) else {
+            return false;
+        };
+        if owner.is_effectively_dead()
+            || owner.is_destroyed()
+            || other.is_destroyed()
+            || owner.is_kind_of(KindOf::Immobile)
+            || owner.is_kind_of(KindOf::Projectile)
+            || !other.is_kind_of(KindOf::Immobile)
+            || owner.get_projectile_update_interface().is_some()
+            || owner
+                .modules
+                .iter()
+                .any(|entry| entry.name() == "DumbProjectileBehavior")
+            || other.get_physics().is_some()
+            || other.get_ai().is_some()
+            || owner.get_contained_by().is_some()
+            || other.get_contained_by().is_some()
+            || owner.get_contain().is_some()
+            || owner.test_status(ObjectStatusTypes::Parachuting)
+            || (owner.is_kind_of(KindOf::Infantry)
+                && other.is_disabled_by_type(DisabledType::DisabledUnmanned))
+            || owner.can_crush_or_squish(&other, CrushSquishTestType::TestCrushOnly)
+            || other.can_crush_or_squish(&owner, CrushSquishTestType::TestCrushOnly)
+        {
+            return false;
+        }
+        let position = owner.get_position();
+        let layer = crate::path::PathfindLayerEnum::from_u32(owner.get_layer() as u32);
+        let Ok(terrain) = physics.world.terrain().read() else {
+            return false;
+        };
+        let ground = terrain.get_layer_height(position.x, position.y, layer, None, false);
+        drop(terrain);
+        if Object::is_above_terrain_height(position.z, ground) {
+            return false;
+        }
+        let Ok(proxy) = owner.installed_update_proxy_named("PhysicsBehavior") else {
+            return false;
+        };
+        use crate::contain_module_overrides::ActiveBehaviorModule;
+        use crate::object::behavior::physics_update::PhysicsBehaviorUpdate;
+        let stiffness = physics
+            .world
+            .common()
+            .system
+            .runtime_global_data
+            .read()
+            .structure_stiffness;
+        let Some(wake) = behavior
+            .entry
+            .try_with_module(|module| {
+                module
+                    .as_any_mut()
+                    .downcast_mut::<ActiveBehaviorModule<PhysicsBehaviorUpdate>>()
+                    .map(|module| {
+                        module.behavior_mut().ground_obstacle_contact(
+                            &owner,
+                            &other,
+                            physics.frame,
+                            stiffness,
+                        )
+                    })
+            })
+            .flatten()
+        else {
+            return false;
+        };
+        let id = owner.get_id();
+        drop(other);
+        drop(owner);
+        if wake {
+            (physics.awaken)(id, &proxy);
+        }
+        true
+    }
+
     /// Test/internal shared behavior retains its nonblocking access policy.
     /// Production views have only owned metadata and are always available.
     pub fn try_access(&mut self) -> Result<BehaviorInterfaceLease<'_>, BehaviorAccessError> {

@@ -325,7 +325,7 @@ impl GameLogic {
                 } else {
                     CollisionResponseConfig::default()
                 };
-                system.set_collision_config(object_id, cfg);
+                system.set_birth_collision_config(object_id, cfg);
                 Ok::<(), crate::object::collide::CollisionError>(())
             });
 

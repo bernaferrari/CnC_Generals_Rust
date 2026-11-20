@@ -503,6 +503,14 @@ impl From<CollisionError> for GameError {
     }
 }
 
+/// Receiving inputs for the mounted Physics callback during the contact pass.
+pub(crate) struct AuthoredContactPhysics<'a> {
+    pub frame: u32,
+    pub world: &'a crate::system::engine_stores::WorldServices,
+    pub awaken: &'a mut dyn FnMut(ObjectId, &crate::modules::UpdateModulePtr),
+    pub handled_ground_contact: bool,
+}
+
 /// Thread-safe collision manager for handling all collision events
 pub struct CollisionManager {
     modules: Arc<Mutex<HashMap<ObjectId, Vec<Box<dyn CollideModule>>>>>,
@@ -539,7 +547,7 @@ impl CollisionManager {
         loc: &Coord3D,
         normal: &Coord3D,
     ) -> Result<(), CollisionError> {
-        self.handle_collision_with_owner(object_id, None, other, loc, normal)
+        self.handle_collision_with_owner(object_id, None, other, loc, normal, None)
     }
 
     /// Dispatch a collision through the exact owner retained by the collision
@@ -551,8 +559,9 @@ impl CollisionManager {
         other: Option<&dyn GameObject>,
         loc: &Coord3D,
         normal: &Coord3D,
+        physics: Option<&mut AuthoredContactPhysics<'_>>,
     ) -> Result<(), CollisionError> {
-        self.handle_collision_with_owner(object_id, Some(owner), other, loc, normal)
+        self.handle_collision_with_owner(object_id, Some(owner), other, loc, normal, physics)
     }
 
     fn handle_collision_with_owner(
@@ -562,10 +571,11 @@ impl CollisionManager {
         other: Option<&dyn GameObject>,
         loc: &Coord3D,
         normal: &Coord3D,
+        physics: Option<&mut AuthoredContactPhysics<'_>>,
     ) -> Result<(), CollisionError> {
         // C++ Object::onCollide (Object.cpp:2369-2389) iterates every behavior
         // getCollide() — PhysicsBehaviorUpdate is one of those modules.
-        dispatch_behavior_collides_for_owner(object_id, owner, other);
+        dispatch_behavior_collides_for_owner(object_id, owner, other, physics);
 
         let mut modules = self
             .modules
@@ -659,6 +669,7 @@ fn dispatch_behavior_collides_for_owner(
     object_id: ObjectId,
     owner: Option<&Arc<RwLock<Object>>>,
     other: Option<&dyn GameObject>,
+    mut physics: Option<&mut AuthoredContactPhysics<'_>>,
 ) {
     let obj = owner
         .cloned()
@@ -675,6 +686,7 @@ fn dispatch_behavior_collides_for_owner(
     let behaviors = guard.get_behavior_modules();
     drop(guard);
     let other_id = other.map(|o| o.get_id()).unwrap_or(INVALID_ID);
+    let other_owner = physics.as_ref().and_then(|_| other?.as_object_handle());
     for mut behavior in behaviors {
         let obj = owner
             .cloned()
@@ -684,6 +696,14 @@ fn dispatch_behavior_collides_for_owner(
                 if guard.test_status(ObjectStatusTypes::NoCollisions) {
                     break;
                 }
+            }
+        }
+        if let (Some(physics), Some(owner), Some(other)) =
+            (physics.as_deref_mut(), owner, other_owner.as_ref())
+        {
+            if behavior.ground_obstacle_contact(owner, other, physics) {
+                physics.handled_ground_contact = true;
+                continue;
             }
         }
         let Ok(mut module) = behavior.try_access() else {

@@ -1292,6 +1292,24 @@ impl CollideModuleInterface for PhysicsBehaviorUpdate {
     }
 }
 
+impl PhysicsBehaviorUpdate {
+    pub(crate) fn ground_obstacle_contact(
+        &mut self,
+        owner: &GameObject,
+        other: &GameObject,
+        frame: u32,
+        stiffness: Real,
+    ) -> bool {
+        physics_collide::ground_obstacle_contact(
+            &mut self.physics_handle,
+            owner,
+            other,
+            frame,
+            stiffness,
+        )
+    }
+}
+
 impl Snapshotable for PhysicsBehaviorUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: XferVersion = 2;
