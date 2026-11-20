@@ -100,10 +100,35 @@ pub struct PresentationProjectile {
 
 impl PresentationProjectile {
     pub fn from_combat(p: &crate::game_logic::combat::Projectile) -> Self {
+        Self::from_combat_with_model(p, None)
+    }
+
+    pub(super) fn from_receiving_combat(
+        p: &crate::game_logic::combat::Projectile,
+        logic: &GameLogic,
+        condition_bits: u128,
+    ) -> Self {
+        let authored_model = logic
+            .get_templates()
+            .get(&p.projectile_object_name)
+            .and_then(|template| template.receiving_draw_models_ref())
+            .map(|models| models.first_model_key(condition_bits));
+        Self::from_combat_with_model(p, authored_model)
+    }
+
+    fn from_combat_with_model(
+        p: &crate::game_logic::combat::Projectile,
+        authored_model: Option<String>,
+    ) -> Self {
         let projectile_object_name = p.projectile_object_name.clone();
-        let model_key = crate::assets::mesh_asset_resolve::model_key_from_projectile_object(
-            &projectile_object_name,
-        );
+        let authored_model_is_invisible = authored_model
+            .as_deref()
+            .is_some_and(|model| model.is_empty() || model.eq_ignore_ascii_case("NULL"));
+        let model_key = authored_model.unwrap_or_else(|| {
+            crate::assets::mesh_asset_resolve::model_key_from_projectile_object(
+                &projectile_object_name,
+            )
+        });
         Self {
             id: p.id,
             position: p.position,
@@ -117,7 +142,7 @@ impl PresentationProjectile {
             is_homing: p.is_homing,
             projectile_object_name,
             model_key,
-            model_hidden: p.missile_drawable_hidden(),
+            model_hidden: p.missile_drawable_hidden() || authored_model_is_invisible,
             exhaust_name: p.exhaust_name.clone(),
         }
     }

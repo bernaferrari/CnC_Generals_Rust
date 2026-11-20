@@ -1654,11 +1654,18 @@ impl PresentationFrame {
             )
             .collect();
 
+        // DumbProjectileBehavior writes the pose without changing the Draw
+        // condition bank. Freeze the receiving source and environment here.
+        use crate::game_logic::host_enum_table_residual::{night_model_bit, snow_model_bit};
+        let projectile_conditions = (u128::from(world_env.is_night) << night_model_bit())
+            | (u128::from(world_env.is_snow) << snow_model_bit());
         let projectiles: Vec<PresentationProjectile> = logic
             .combat_system()
-            .projectiles_snapshot()
-            .into_iter()
-            .map(PresentationProjectile::from_combat)
+            .get_projectiles()
+            .values()
+            .map(|projectile| {
+                PresentationProjectile::from_receiving_combat(projectile, logic, projectile_conditions)
+            })
             .collect();
 
         // InGameUI floating text + MoneyPickUp Anim2D residual: freeze host registries.

@@ -16,6 +16,44 @@ const PRIMARY_STREAM: &str = "AuthoredPrimaryProjectileStream";
 const SECONDARY_STREAM: &str = "AuthoredSecondaryProjectileStream";
 const TERTIARY_STREAM: &str = "AuthoredTertiaryProjectileStream";
 
+#[test]
+fn mounted_projectile_draw_preserves_the_shell_model_and_invisible_flame() {
+    use crate::presentation_frame::PresentationFrame;
+
+    let source = super::patriot_retail_battery_tests::base_ini("Object/WeaponObjects.ini");
+    let mut parser = crate::assets::IniParser::new();
+    parser.parse_ini_content(&source, "WeaponObjects.ini").unwrap();
+    let mut world = GameLogic::new();
+    for name in ["BattleMasterTankShell", "OverlordTankShell", "DragonTankFlameProjectile"] {
+        let row = parser.get_definition(name).unwrap();
+        let template = GameLogic::build_template_from_object_definition(name, row, None);
+        world.get_templates_mut().insert(name.into(), template);
+        let combat = world.combat_system_mut();
+        let id = combat.fire_projectile(
+            Vec3::ZERO,
+            Vec3::X * 100.0,
+            &Weapon::default(),
+            ObjectId(100),
+            None,
+            30.0,
+        );
+        combat.projectile_mut(id).unwrap().projectile_object_name = name.into();
+    }
+
+    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    let draws = frame.projectile_render_inputs();
+    assert_eq!(draws.len(), 2);
+    for name in ["BattleMasterTankShell", "OverlordTankShell"] {
+        let shell = draws.iter().find(|draw| draw.projectile_object_name == name).unwrap();
+        assert!(shell.model_key.eq_ignore_ascii_case("AVTankShel"), "{shell:?}");
+    }
+    assert!(frame.projectiles.iter().any(|projectile| {
+        projectile.projectile_object_name == "DragonTankFlameProjectile"
+            && projectile.model_key.eq_ignore_ascii_case("NULL")
+            && projectile.model_hidden
+    }));
+}
+
 fn stream_world(slots: [&str; 3], missing_projectile: bool) -> GameLogic {
     use crate::assets::ini_template_loader::{
         WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
