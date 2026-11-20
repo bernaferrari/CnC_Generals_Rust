@@ -833,8 +833,8 @@ pub(crate) fn volume_shadow_caster_ids(
 /// Collect blob discs from a `PresentationFrame` snapshot.
 ///
 /// Identity fields come only from the immutable snapshot — not a live re-read
-/// of `GameLogic` objects. Dark discs drape frozen terrain height under every
-/// live `unit_render_inputs` pose that is not fogged or black-shrouded.
+/// of `GameLogic` objects. Projected shadows drape frozen terrain height for
+/// visible Drawables with an authored non-volume shadow type.
 pub fn collect_blob_shadows_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
 ) -> Vec<SelectedUnit> {
@@ -846,9 +846,12 @@ pub fn collect_blob_shadows_from_presentation(
         .unit_render_inputs_shared()
         .iter()
         .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
-        // W3DShadowManager routes volumes exclusively to the stencil manager,
-        // which returns NULL when 3D shadows are off (W3DVolumetricShadow.cpp:3832).
-        .filter(|u| !casts_volume(u))
+        // W3DModelDraw::allocateShadows skips SHADOW_NONE. W3DShadowManager
+        // routes volumes exclusively to the stencil manager.
+        .filter(|u| {
+            u.shadow_type_bits != crate::game_logic::host_enum_table_residual::SHADOW_NONE
+                && !casts_volume(u)
+        })
         .map(|u| {
             // The temporary projected shadow approximation uses authored decal
             // size or a bounding extent. Volume casters use the stencil pass.
@@ -1665,6 +1668,10 @@ mod presentation_selection_tests {
                     .field("Shadow = SHADOW_DECAL")
                     .kind_of("INFANTRY")
                     .health(100.0),
+                crate::fixture_content::FixtureObject::new("NoShadowInfantry")
+                    .field("Shadow = NONE")
+                    .kind_of("INFANTRY")
+                    .health(100.0),
             ],
         );
         crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg)
@@ -1675,8 +1682,20 @@ mod presentation_selection_tests {
         logic
             .create_object("DecalShadowInfantry", Team::USA, Vec3::new(14.0, 0.0, 16.0))
             .unwrap();
+        let no_shadow = logic
+            .create_object("NoShadowInfantry", Team::USA, Vec3::new(24.0, 0.0, 26.0))
+            .unwrap();
 
         let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let none = snap
+            .unit_render_inputs()
+            .into_iter()
+            .find(|unit| unit.id == no_shadow)
+            .unwrap();
+        assert_eq!(
+            none.shadow_type_bits,
+            crate::game_logic::host_enum_table_residual::SHADOW_NONE,
+        );
         let set_volumes = |enabled| {
             let mut runtime = game_engine::common::global_data::write_safe().unwrap();
             runtime.writable.use_shadow_volumes = enabled;
