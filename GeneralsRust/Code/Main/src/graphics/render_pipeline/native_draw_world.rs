@@ -94,6 +94,8 @@ pub(super) struct NativeDrawableLifetime {
     pub(super) identity: crate::assets::LiveDrawPlaybackIdentity,
     pub(super) auxiliary: Option<Arc<crate::game_logic::thing::ReceivingDrawModels>>,
     #[cfg(feature = "game_client")]
+    pub(super) last_mirrored_pose: Option<super::native_draw_source::MirroredDrawablePose>,
+    #[cfg(feature = "game_client")]
     pub(super) binding: Option<game_client::core::PresentationDirectDrawableBindingKey>,
 }
 #[derive(Default)]

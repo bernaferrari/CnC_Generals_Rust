@@ -49,6 +49,7 @@ fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() 
                     native_draw_world::NativeDrawableLifetime {
                         auxiliary: None,
                         identity: identity.clone(),
+                        last_mirrored_pose: None,
                         binding: state.native_client_binding,
                     },
                 )
@@ -112,6 +113,7 @@ fn residual_same_id_sibling_from_prior_generation_rejects_whole_source_query() {
                     native_draw_world::NativeDrawableLifetime {
                         auxiliary: None,
                         identity: identity.clone(),
+                        last_mirrored_pose: None,
                         binding: state.native_client_binding,
                     },
                 )
@@ -181,6 +183,7 @@ fn same_object_same_template_client_replacement_requires_actual_constructor_befo
                     native_draw_world::NativeDrawableLifetime {
                         auxiliary: None,
                         identity: identity.clone(),
+                        last_mirrored_pose: None,
                         binding: state.native_client_binding,
                     },
                 )

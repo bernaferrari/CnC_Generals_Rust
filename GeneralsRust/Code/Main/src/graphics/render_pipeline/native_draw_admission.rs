@@ -112,11 +112,39 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         source: Option<&crate::presentation_frame::UnitRenderInput>,
         graphics: &mut GraphicsSystem,
     ) {
-        self.receive_native_mutation_from_source(
-            mutation,
-            source.map(NativeDrawSource::display),
-            graphics,
-        );
+        let source = source.map(NativeDrawSource::display);
+        let owner = NativeDrawOwnerId::Actor(mutation.object_id());
+        let (mirror, finishes_mirror) = match &mutation {
+            PresentationDrawableMutation::TransformInstalled { source: sync, .. } => {
+                (source.and_then(|source| source.mirrored_pose(sync)), false)
+            }
+            PresentationDrawableMutation::ConditionsMarked { source: sync, .. } => {
+                (source.and_then(|source| source.mirrored_pose(sync)), true)
+            }
+            _ => (None, false),
+        };
+        // ConditionsMarked follows both mirror setters. Skip the pair only
+        // after this exact pose has already been observed on this birth.
+        // Actual constructor and Object setter callbacks still invalidate.
+        if let Some((identity, pose)) = mirror
+            && !finishes_mirror
+            && self
+                .native_drawable_lifetimes
+                .get(&owner)
+                .is_some_and(|lifetime| {
+                    lifetime.identity == *identity && lifetime.last_mirrored_pose == Some(pose)
+                })
+        {
+            return;
+        }
+        self.receive_native_mutation_from_source(mutation, source, graphics);
+        if let Some((identity, pose)) = mirror
+            && finishes_mirror
+            && let Some(lifetime) = self.native_drawable_lifetimes.get_mut(&owner)
+            && lifetime.identity == *identity
+        {
+            lifetime.last_mirrored_pose = Some(pose);
+        }
     }
 
     /// A factory callback supplies the current receiving object directly. A
@@ -352,6 +380,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                         native_draw_world::NativeDrawableLifetime {
                             auxiliary: None,
                             identity: identity.clone(),
+                            last_mirrored_pose: None,
                             #[cfg(feature = "game_client")]
                             binding: None,
                         },
@@ -384,6 +413,9 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             }
             NativeDrawMutation::TransformInstalled { transform, .. } => {
                 let Some(source) = source else { return };
+                if let Some(lifetime) = self.native_drawable_lifetimes.get_mut(&owner) {
+                    lifetime.last_mirrored_pose = None;
+                }
                 for ((object, _), state) in self
                     .drawable_visual_states
                     .range_mut(native_draw_world::owner_module_keys(owner))

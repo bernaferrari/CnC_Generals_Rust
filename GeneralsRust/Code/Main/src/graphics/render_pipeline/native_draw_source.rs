@@ -2,6 +2,17 @@
 //! This view owns no state and never captures a presentation frame.
 use super::*;
 
+/// One Object pose mirrored to GameClient, including facts that can change
+/// without an Object transform setter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct MirroredDrawablePose {
+    revision: u64,
+    position: [u32; 3],
+    orientation: u32,
+    scale: u32,
+    construction: Option<(u32, u32)>,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct NativeDrawSource<'a> {
     pub identity: Option<&'a crate::assets::LiveDrawPlaybackIdentity>,
@@ -16,6 +27,27 @@ pub(super) struct NativeDrawSource<'a> {
 }
 
 impl<'a> NativeDrawSource<'a> {
+    pub(super) fn mirrored_pose(
+        self,
+        sync: &game_client::core::game_client::PresentationDrawableSync,
+    ) -> Option<(&'a crate::assets::LiveDrawPlaybackIdentity, MirroredDrawablePose)> {
+        let identity = self.identity?;
+        let (revision, _) = identity.native_pose()?;
+        Some((
+            identity,
+            MirroredDrawablePose {
+                revision,
+                position: sync.position.map(f32::to_bits),
+                orientation: sync.orientation.to_bits(),
+                scale: self.mesh_scale.to_bits(),
+                construction: self.under_construction.then_some((
+                    self.construction_percent.to_bits(),
+                    self.max_height_above_position.to_bits(),
+                )),
+            },
+        ))
+    }
+
     pub(super) fn auxiliary(
         identity: &'a crate::assets::LiveDrawPlaybackIdentity,
         receiving: &'a crate::game_logic::thing::ReceivingDrawModels,
