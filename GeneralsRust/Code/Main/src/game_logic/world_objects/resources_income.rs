@@ -31,39 +31,48 @@ impl GameLogic {
     }
 
     pub(crate) fn admit_completed_structure_power(&mut self, player_id: u32) {
-        let totals = self.power_totals_for_player(player_id, Self::object_contributes_power);
+        let totals = self.power_totals_for_player(player_id);
         if let Some(player) = self.players.get_mut(&player_id) {
             Self::apply_derived_power(player, totals);
             Self::apply_power_sabotage(player, self.frame);
         }
     }
 
-    /// Shared C++-derived grid fold. The caller chooses the object-state
-    /// authority: ordinary ticks can read coupled state; snapshot completion
-    /// must use the receiving object's fully transferred local fields.
-    fn power_totals_for_player(
-        &self,
-        player_id: u32,
-        eligible: impl Fn(&Object) -> bool,
-    ) -> (i32, i32) {
-        self.objects
-            .registered_values()
-            .filter(|object| object.owner_player_id == Some(player_id))
-            .filter(|object| eligible(object))
-            .fold((0_i32, 0_i32), |(produced, consumed), object| {
-                // Object::friend_adjustPowerForPlayer: disabledness only
-                // excludes producers. Persisted production already includes
-                // any Overcharge bonus, so never replay that bonus on load.
-                let produced = if object.is_disabled() && object.power_provided > 0 {
-                    produced
-                } else {
-                    produced.saturating_add(object.power_provided)
-                };
-                (
-                    produced,
-                    consumed.saturating_add(object.power_consumed.abs()),
-                )
-            })
+    fn accumulate_object_power((produced, consumed): &mut (i32, i32), object: &Object) {
+        // Object::friend_adjustPowerForPlayer excludes disabled producers.
+        // Persisted production already includes any Overcharge bonus.
+        if object.power_provided <= 0 || !object.is_disabled() {
+            *produced = produced.saturating_add(object.power_provided);
+        }
+        *consumed = consumed.saturating_add(object.power_consumed.abs());
+    }
+
+    fn power_totals_for_player(&self, player_id: u32) -> (i32, i32) {
+        let mut totals = (0, 0);
+        for object in self.objects.registered_values() {
+            if object.owner_player_id == Some(player_id) && Self::object_contributes_power(object) {
+                Self::accumulate_object_power(&mut totals, object);
+            }
+        }
+        totals
+    }
+
+    fn all_player_power_totals(&self) -> game_engine::common::fast_hash::FxHashMap<u32, (i32, i32)> {
+        let mut totals: game_engine::common::fast_hash::FxHashMap<_, _> =
+            self.players.keys().map(|&id| (id, (0, 0))).collect();
+        // Read each Object once and keep the saturating fold in registration
+        // order for each individual controller, including same-faction Players.
+        for object in self.objects.registered_values() {
+            if object.power_provided == 0 && object.power_consumed == 0 {
+                continue;
+            }
+            if let Some(owner_totals) = object.owner_player_id.and_then(|id| totals.get_mut(&id)) {
+                if Self::object_contributes_power(object) {
+                    Self::accumulate_object_power(owner_totals, object);
+                }
+            }
+        }
+        totals
     }
 
     fn apply_derived_power(player: &mut Player, (produced, consumed): (i32, i32)) {
@@ -82,23 +91,17 @@ impl GameLogic {
     /// them before observers run. All object/status tails must finish first.
     /// This boundary does not age sabotage, publish economy events, or tick.
     pub(crate) fn restore_player_power(&mut self) {
-        let player_ids: Vec<u32> = self.players.keys().copied().collect();
-        for player_id in player_ids {
-            let totals = self.power_totals_for_player(player_id, |object| {
-                Self::object_contributes_power(object)
-            });
-            if let Some(player) = self.players.get_mut(&player_id) {
-                Self::apply_derived_power(player, totals);
-                Self::apply_power_sabotage(player, self.frame);
-            }
+        let totals = self.all_player_power_totals();
+        for (id, player) in &mut self.players {
+            Self::apply_derived_power(player, totals[id]);
+            Self::apply_power_sabotage(player, self.frame);
         }
     }
 
     /// Object::onDisabledEdge adjusts this owner's generation synchronously.
     /// Reuse the canonical grid fold without aging sabotage or replaying income.
     pub(in super::super) fn refresh_power_after_disabled_expiry(&mut self, player_id: u32) {
-        let totals = self
-            .power_totals_for_player(player_id, |object| Self::object_contributes_power(object));
+        let totals = self.power_totals_for_player(player_id);
         if let Some(player) = self.players.get_mut(&player_id) {
             Self::apply_derived_power(player, totals);
             Self::apply_power_sabotage(player, self.frame);
@@ -110,18 +113,10 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn update_player_resources(&mut self, dt: f32) {
-        // Team is only faction identity; same-faction players retain distinct
-        // grids. Preserve the existing ordinary coupled-aware eligibility.
-        let player_ids: Vec<u32> = self.players.keys().copied().collect();
-        for player_id in player_ids {
-            let totals = self.power_totals_for_player(player_id, |object| {
-                Self::object_contributes_power(object)
-            });
-            let Some(player) = self.players.get_mut(&player_id) else {
-                continue;
-            };
-            Self::apply_derived_power(player, totals);
+    pub(in super::super) fn update_player_resources(&mut self, _dt: f32) {
+        let totals = self.all_player_power_totals();
+        for (id, player) in &mut self.players {
+            Self::apply_derived_power(player, totals[id]);
             // Expiry and publication belong only to an ordinary update.
             if player.power_sabotaged_till_frame > 0
                 && self.frame > player.power_sabotaged_till_frame
@@ -133,7 +128,7 @@ impl GameLogic {
             // Shadow economy channel: effective supplies + power after host tick residual.
             self.economy_events.record(
                 player.id,
-                { player.resources.supplies },
+                player.resources.supplies,
                 player.power_available,
             );
         }
