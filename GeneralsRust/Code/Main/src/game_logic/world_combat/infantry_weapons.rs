@@ -2102,8 +2102,9 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
-            let attacking = obj.status.attacking
-                || matches!(obj.ai_state(), crate::game_logic::AIState::Attacking);
+            // RadiusDecalUpdate::update reads OBJECT_STATUS_IS_ATTACKING.
+            // Stop may clear it while the AI machine retains its attack state.
+            let attacking = obj.status.attacking;
             let Some(rd) = obj.radius_decal_update.as_mut() else {
                 continue;
             };

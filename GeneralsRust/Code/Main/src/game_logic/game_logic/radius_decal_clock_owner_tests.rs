@@ -317,6 +317,8 @@ fn radius_decal_same_owner_clock_control_and_real_stop_kill() {
                 .host_object_mut(id)
                 .unwrap()
                 .stop(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+            let stopped = world.host_object(id).unwrap();
+            assert!(!stopped.status.attacking);
             ordinary(&mut world, 3);
             let rd = world
                 .host_object(id)
@@ -325,7 +327,7 @@ fn radius_decal_same_owner_clock_control_and_real_stop_kill() {
                 .as_ref()
                 .unwrap();
             assert!(!rd.awake && rd.delivery_decal.is_empty());
-            assert!(!rd.kill_when_no_longer_attacking);
+            assert!(rd.kill_when_no_longer_attacking);
             assert_eq!(world.radius_decal_update_reg.attack_kills, 1);
         },
     );

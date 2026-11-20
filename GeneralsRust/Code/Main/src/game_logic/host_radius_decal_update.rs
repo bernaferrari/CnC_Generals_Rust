@@ -550,7 +550,6 @@ impl HostRadiusDecalUpdateData {
 
     pub fn kill_radius_decal(&mut self) {
         self.delivery_decal.clear();
-        self.kill_when_no_longer_attacking = false;
         self.awake = false;
     }
 
