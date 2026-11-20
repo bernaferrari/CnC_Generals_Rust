@@ -2104,9 +2104,21 @@ impl AssetManager {
     }
 
     pub fn get_cached_model_ref(&self, unit_name: &str) -> Option<&W3DModel> {
-        self.w3d_render_object_prototypes
-            .builtin_null_model(unit_name)
-            .or_else(|| self.model_cache.get(&unit_name.to_lowercase()))
+        Self::exact_cached_w3d_model(
+            &self.w3d_render_object_prototypes,
+            &self.model_cache,
+            unit_name,
+        )
+    }
+
+    fn exact_cached_w3d_model<'a>(
+        prototypes: &'a W3dRenderObjectPrototypeRegistry,
+        models: &'a HashMap<String, W3DModel>,
+        name: &str,
+    ) -> Option<&'a W3DModel> {
+        prototypes
+            .builtin_null_model(name)
+            .or_else(|| models.get(&name.to_lowercase()))
     }
 
     /// Return a resident exact C++ render-object prototype by full source name.
@@ -2229,19 +2241,31 @@ impl AssetManager {
     /// `Animation.w3d` rule and memoized (including misses) by full identity
     /// plus the compatible hierarchy, never by a model basename.
     pub fn prewarm_w3d_draw_animation_binding(&mut self, model_name: &str, identity: &str) -> bool {
-        let geometry_model = match self.load_w3d_model(model_name) {
-            Ok(model) => model,
-            Err(error) => {
-                warn!(
-                    "W3D Draw animation prewarm skipped: geometry '{}' for '{}' failed: {}",
-                    model_name, identity, error
-                );
-                return false;
-            }
+        let loaded_model;
+        let geometry_model = if let Some(model) = Self::exact_cached_w3d_model(
+            &self.w3d_render_object_prototypes,
+            &self.model_cache,
+            model_name,
+        ) {
+            model
+        } else {
+            // The loader also installs new aliases. Only an exact cache hit
+            // bypasses it, so the first request still owns that admission.
+            loaded_model = match self.load_w3d_model(model_name) {
+                Ok(model) => model,
+                Err(error) => {
+                    warn!(
+                        "W3D Draw animation prewarm skipped: geometry '{}' for '{}' failed: {}",
+                        model_name, identity, error
+                    );
+                    return false;
+                }
+            };
+            &loaded_model
         };
 
         prewarm_animation_for_geometry(
-            &geometry_model, model_name, identity, &self.model_loader,
+            geometry_model, model_name, identity, &self.model_loader,
             &mut self.archive_system, &mut self.companion_animation_cache,
         )
     }
