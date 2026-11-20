@@ -36,7 +36,7 @@ fn live_terrain_decals_remain_on_their_receiving_client() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-#[ignore = "requires serialized native GPU and mounted retail texture archive"]
+#[ignore = "requires serialized native GPU and mounted retail map and texture archives"]
 fn receiving_live_decal_rows_keep_pixels_and_remove_absent_casters() {
     use game_client_rust::display::image::load_image_from_engine_filesystem;
     use game_client_rust::effects::particle_renderer::{ParticleRenderer, ParticleUniforms};
@@ -207,7 +207,93 @@ fn receiving_live_decal_rows_keep_pixels_and_remove_absent_casters() {
             crc32fast::hash(&updated_pixels),
             crc32fast::hash(&live_pixels)
         );
+        check_sloped_decal(&mut renderer, &device, &queue, only_live[0].clone());
     });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn check_sloped_decal(
+    renderer: &mut game_client_rust::effects::particle_renderer::ParticleRenderer,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    mut decal: game_client_rust::effects::decals::DecalRenderItem,
+) {
+    use game_client_rust::effects::particle_renderer::ParticleUniforms;
+    use game_engine::common::system::big_file_system::BigFileSystem;
+    use gamelogic::system::map_loader::MapLoader;
+    use gamelogic::terrain::{TerrainLogic, get_terrain_logic};
+    use glam::{Mat4, Vec3, Vec4};
+    use std::io::Read;
+    use std::path::Path;
+
+    let retail = std::env::var_os("GENERALS_ASSETS_DIR").expect("mounted Zero Hour required");
+    let mut maps = BigFileSystem::new();
+    maps.open_archive_file(Path::new(&retail).join("Data/MapsZH.big"))
+        .unwrap();
+    let mut bytes = Vec::new();
+    maps.open_file("Maps/Lone Eagle/Lone Eagle.map", 0)
+        .unwrap()
+        .read_to_end(&mut bytes)
+        .unwrap();
+    let mut map = MapLoader::new();
+    map.load_map_from_bytes(&bytes).unwrap();
+    let terrain = get_terrain_logic();
+    let center = {
+        let mut terrain = terrain.write().unwrap();
+        terrain.try_load_map_geometry(map.to_map_data()).unwrap();
+        let (x, y) = (280.0, 200.0);
+        let lower = terrain.get_ground_height(x - 15.0, y - 10.0, None);
+        let upper = terrain.get_ground_height(x + 15.0, y + 10.0, None);
+        assert!((upper - lower).abs() > 8.0, "authored Lone Eagle slope");
+        Vec3::new(x, y, terrain.get_ground_height(x, y, None))
+    };
+
+    decal.position = center;
+    decal.size_x = 43.0;
+    decal.size_y = 33.0;
+    decal.rotation = 0.57;
+    decal.uv_offset = [0.017, -0.024];
+    let mut uniforms = ParticleUniforms {
+        view_matrix: Mat4::from_translation(-center).to_cols_array_2d(),
+        projection_matrix: Mat4::from_cols(
+            Vec4::new(1.0 / 35.0, 0.0, 0.0, 0.0),
+            Vec4::new(0.0, 1.0 / 35.0, 0.0, 0.0),
+            Vec4::new(0.0, 1.0 / 75.0, 1.0 / 100.0, 0.0),
+            Vec4::new(0.0, 0.0, 0.5, 1.0),
+        )
+        .to_cols_array_2d(),
+        screen_size: [32.0, 32.0],
+        ..Default::default()
+    };
+    let sloped = read_projected_decal_pixels(
+        renderer,
+        device,
+        queue,
+        std::slice::from_ref(&decal),
+        &uniforms,
+    );
+    assert_ne!(
+        sloped,
+        read_projected_decal_pixels(renderer, device, queue, &[], &uniforms)
+    );
+
+    *terrain.write().unwrap() = TerrainLogic::new();
+    uniforms.view_matrix =
+        Mat4::from_translation(Vec3::new(-center.x, -center.y, 0.0)).to_cols_array_2d();
+    let flat = read_projected_decal_pixels(renderer, device, queue, &[decal], &uniforms);
+    assert_ne!(
+        flat,
+        read_projected_decal_pixels(renderer, device, queue, &[], &uniforms)
+    );
+    assert_ne!(
+        sloped, flat,
+        "the mounted height samples affect native output"
+    );
+    eprintln!(
+        "Lone Eagle slope at {center:?}, sloped and flat decal CRCs {:08x} {:08x}",
+        crc32fast::hash(&sloped),
+        crc32fast::hash(&flat)
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]

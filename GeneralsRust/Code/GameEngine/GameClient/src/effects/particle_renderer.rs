@@ -212,86 +212,42 @@ fn drape_decal_vertices(decal: &DecalRenderItem) -> Vec<DecalVertex> {
     let cos_r = decal.rotation.cos();
     let base = decal.position;
     let color = decal.color;
-    let cells = DECAL_DRAPE_GRID;
-    let mut vertices = Vec::with_capacity(cells * cells * 6);
-    for iy in 0..cells {
-        let v0 = iy as f32 / cells as f32;
-        let v1 = (iy + 1) as f32 / cells as f32;
-        for ix in 0..cells {
-            let u0 = ix as f32 / cells as f32;
-            let u1 = (ix + 1) as f32 / cells as f32;
-            let corners = [
-                (
-                    u0,
-                    v0,
-                    -half_x + u0 * half_x * 2.0,
-                    -half_y + v0 * half_y * 2.0,
-                ),
-                (
-                    u1,
-                    v0,
-                    -half_x + u1 * half_x * 2.0,
-                    -half_y + v0 * half_y * 2.0,
-                ),
-                (
-                    u0,
-                    v1,
-                    -half_x + u0 * half_x * 2.0,
-                    -half_y + v1 * half_y * 2.0,
-                ),
-                (
-                    u1,
-                    v1,
-                    -half_x + u1 * half_x * 2.0,
-                    -half_y + v1 * half_y * 2.0,
-                ),
-            ];
-            let mut world = [[0.0f32; 3]; 4];
-            for (i, &(u, v, lx, ly)) in corners.iter().enumerate() {
-                let _ = (u, v);
-                let rot_x = lx * cos_r - ly * sin_r;
-                let rot_y = lx * sin_r + ly * cos_r;
-                let wx = base.x + rot_x;
-                let wy = base.y + rot_y;
-                let wz = sample_decal_ground_z(wx, wy, base.z) + DECAL_HEIGHT_LIFT;
-                world[i] = [wx, wy, wz];
+    const POINTS: usize = DECAL_DRAPE_GRID + 1;
+    // Adjacent cells share the same world position, height and UV at each corner.
+    let lattice: [[DecalVertex; POINTS]; POINTS] = std::array::from_fn(|iy| {
+        let v = iy as f32 / DECAL_DRAPE_GRID as f32;
+        let ly = -half_y + v * half_y * 2.0;
+        std::array::from_fn(|ix| {
+            let u = ix as f32 / DECAL_DRAPE_GRID as f32;
+            let lx = -half_x + u * half_x * 2.0;
+            let rot_x = lx * cos_r - ly * sin_r;
+            let rot_y = lx * sin_r + ly * cos_r;
+            let wx = base.x + rot_x;
+            let wy = base.y + rot_y;
+            let wz = sample_decal_ground_z(wx, wy, base.z) + DECAL_HEIGHT_LIFT;
+            DecalVertex {
+                position: [wx, wy, wz],
+                color,
+                uv: [u + decal.uv_offset[0], v + decal.uv_offset[1]],
             }
-            let verts = [
-                DecalVertex {
-                    position: world[0],
-                    color,
-                    uv: [
-                        corners[0].0 + decal.uv_offset[0],
-                        corners[0].1 + decal.uv_offset[1],
-                    ],
-                },
-                DecalVertex {
-                    position: world[1],
-                    color,
-                    uv: [
-                        corners[1].0 + decal.uv_offset[0],
-                        corners[1].1 + decal.uv_offset[1],
-                    ],
-                },
-                DecalVertex {
-                    position: world[2],
-                    color,
-                    uv: [
-                        corners[2].0 + decal.uv_offset[0],
-                        corners[2].1 + decal.uv_offset[1],
-                    ],
-                },
-                DecalVertex {
-                    position: world[3],
-                    color,
-                    uv: [
-                        corners[3].0 + decal.uv_offset[0],
-                        corners[3].1 + decal.uv_offset[1],
-                    ],
-                },
-            ];
-            vertices
-                .extend_from_slice(&[verts[0], verts[1], verts[2], verts[2], verts[1], verts[3]]);
+        })
+    });
+
+    let mut vertices = Vec::with_capacity(DECAL_DRAPE_GRID * DECAL_DRAPE_GRID * 6);
+    for iy in 0..DECAL_DRAPE_GRID {
+        for ix in 0..DECAL_DRAPE_GRID {
+            let top_left = lattice[iy][ix];
+            let top_right = lattice[iy][ix + 1];
+            let bottom_left = lattice[iy + 1][ix];
+            let bottom_right = lattice[iy + 1][ix + 1];
+            vertices.extend_from_slice(&[
+                top_left,
+                top_right,
+                bottom_left,
+                bottom_left,
+                top_right,
+                bottom_right,
+            ]);
         }
     }
     vertices
