@@ -13,6 +13,7 @@
 use bytemuck::{Pod, Zeroable};
 use dashmap::DashMap;
 use memmap2::MmapOptions;
+use once_cell::sync::OnceCell;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -325,7 +326,7 @@ pub struct AssetManager {
 
     // Specialized loaders
     w3d_loader: Arc<W3DLoader>,
-    audio_loader: Arc<AudioLoader>,
+    audio_loader: OnceCell<Arc<AudioLoader>>,
     texture_manager: Option<Arc<RwLock<TextureManager>>>,
     /// Exact Display pipeline owned by this GameClient, bound after display init.
     drawable_pipeline: Mutex<DrawablePipelineOwner>,
@@ -435,7 +436,6 @@ impl AssetManager {
         let memory_budget = (config.cache_size_mb as u64) * 1024 * 1024;
 
         let w3d_loader = Arc::new(W3DLoader::new()?);
-        let audio_loader = Arc::new(AudioLoader::new()?);
         let streaming_manager = Arc::new(StreamingManager::new(config.clone())?);
         let validator = Arc::new(AssetValidator::new());
         let localization = Arc::new(LocalizationManager::new(
@@ -456,7 +456,7 @@ impl AssetManager {
             load_queue: Arc::new(Mutex::new(VecDeque::new())),
             loading_semaphore: Arc::new(Semaphore::new(config.max_concurrent_loads)),
             w3d_loader,
-            audio_loader,
+            audio_loader: OnceCell::new(),
             texture_manager: None,
             drawable_pipeline: Mutex::new(DrawablePipelineOwner::default()),
             streaming_manager,
@@ -509,8 +509,18 @@ impl AssetManager {
         }
     }
 
-    pub fn audio_loader(&self) -> &Arc<AudioLoader> {
-        &self.audio_loader
+    /// Start the asset playback fallback on demand. The host can use its own
+    /// audio backend while this asset manager handles non-audio assets.
+    pub fn audio_loader(&self) -> Result<&Arc<AudioLoader>, AudioError> {
+        self.audio_loader
+            .get_or_try_init(|| AudioLoader::new().map(Arc::new))
+    }
+
+    fn audio_loader_for_instance(&self) -> Result<&AudioLoader, AudioError> {
+        self.audio_loader
+            .get()
+            .map(Arc::as_ref)
+            .ok_or_else(|| AudioError::EngineError("Sound instance not found".to_string()))
     }
 
     pub async fn play_audio_asset(
@@ -521,24 +531,28 @@ impl AssetManager {
         position: Option<Vec3>,
     ) -> Result<u64, AudioError> {
         self.audio_loader
+            .get()
+            .ok_or_else(|| AudioError::EngineError("Asset not found".to_string()))?
             .play_sound(handle, volume, pitch, position)
             .await
     }
 
     pub fn stop_audio_instance(&self, instance_id: u64) -> Result<(), AudioError> {
-        self.audio_loader.stop_sound(instance_id)
+        self.audio_loader_for_instance()?.stop_sound(instance_id)
     }
 
     pub fn pause_audio_instance(&self, instance_id: u64) -> Result<(), AudioError> {
-        self.audio_loader.pause_sound(instance_id)
+        self.audio_loader_for_instance()?.pause_sound(instance_id)
     }
 
     pub fn resume_audio_instance(&self, instance_id: u64) -> Result<(), AudioError> {
-        self.audio_loader.resume_sound(instance_id)
+        self.audio_loader_for_instance()?.resume_sound(instance_id)
     }
 
     pub fn is_audio_instance_playing(&self, instance_id: u64) -> bool {
-        self.audio_loader.is_sound_playing(instance_id)
+        self.audio_loader
+            .get()
+            .is_some_and(|loader| loader.is_sound_playing(instance_id))
     }
 
     pub fn set_audio_instance_volume(
@@ -546,7 +560,8 @@ impl AssetManager {
         instance_id: u64,
         volume: f32,
     ) -> Result<(), AudioError> {
-        self.audio_loader.set_sound_volume(instance_id, volume)
+        self.audio_loader_for_instance()?
+            .set_sound_volume(instance_id, volume)
     }
 
     /// Initialize asset manager with texture system integration
@@ -1013,17 +1028,17 @@ impl AssetManager {
                 }
             }
             AssetType::Audio => {
-                let settings = AudioLoadSettings::default();
-                if let Err(err) = self
-                    .audio_loader
-                    .load_audio_asset(&asset_data.data, &asset_data.descriptor.path, settings)
-                    .await
-                {
-                    log::warn!(
-                        "Audio decode failed for {}: {}",
-                        asset_data.descriptor.path.display(),
-                        err
-                    );
+                let path = &asset_data.descriptor.path;
+                let result = match self.audio_loader() {
+                    Ok(loader) => {
+                        loader
+                            .load_audio_asset(&asset_data.data, path, AudioLoadSettings::default())
+                            .await
+                    }
+                    Err(err) => Err(err),
+                };
+                if let Err(err) = result {
+                    log::warn!("Audio decode failed for {}: {}", path.display(), err);
                 }
             }
             _ => {}
@@ -1592,6 +1607,54 @@ impl SubsystemInterface for AssetManager {
             log::error!("Streaming update failed: {}", e);
         }
         Ok(())
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod audio_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn non_audio_work_and_unknown_sounds_leave_the_fallback_unstarted() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("plain.dat"), b"asset data").unwrap();
+        let manager = AssetManager::new(AssetConfig {
+            base_path: root.path().into(),
+            enable_hot_reload: false,
+            enable_validation: false,
+            ..AssetConfig::default()
+        })
+        .unwrap();
+
+        assert!(manager.audio_loader.get().is_none());
+        let handle = manager
+            .load_asset("plain.dat", AssetPriority::Normal)
+            .await
+            .unwrap();
+        assert_eq!(&manager.get_asset(handle).unwrap().data[..], b"asset data");
+        assert!(matches!(
+            manager
+                .load_asset("missing.dat", AssetPriority::Normal)
+                .await,
+            Err(AssetError::NotFound { .. })
+        ));
+        assert!(matches!(
+            manager.play_audio_asset(handle, None, None, None).await,
+            Err(AudioError::EngineError(message)) if message == "Asset not found"
+        ));
+        for result in [
+            manager.stop_audio_instance(1),
+            manager.pause_audio_instance(1),
+            manager.resume_audio_instance(1),
+            manager.set_audio_instance_volume(1, 0.5),
+        ] {
+            assert!(matches!(
+                result,
+                Err(AudioError::EngineError(message)) if message == "Sound instance not found"
+            ));
+        }
+        assert!(!manager.is_audio_instance_playing(1));
+        assert!(manager.audio_loader.get().is_none());
     }
 }
 
