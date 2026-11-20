@@ -840,6 +840,7 @@ impl WorkerAIUpdate {
             clear_current(self, actor.as_ref());
             return;
         };
+        let installed = self.owner.is_some();
         let task = self.dozer_task.as_mut().expect("active worker construction task");
         let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
             return;
@@ -1082,6 +1083,11 @@ impl WorkerAIUpdate {
                     if let Ok(mut actor) = owner.write() {
                         actor.set_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
                     }
+                    let frames = if installed {
+                        DozerAIUpdate::current_build_frames(&owner, &target)
+                    } else {
+                        task.build_total_frames.max(1)
+                    };
                     let world = crate::system::engine_stores::active_services();
                     let construction_manager = &world.logic_managers().construction;
                     // Resolve object data before borrowing the manager.
@@ -1114,7 +1120,7 @@ impl WorkerAIUpdate {
                                 task.target_id,
                                 self.object_id,
                                 max_health,
-                                task.build_total_frames.max(1),
+                                frames,
                                 task.is_rebuild,
                             ) {
                                 log::debug!(
@@ -1123,6 +1129,9 @@ impl WorkerAIUpdate {
                                 );
                             }
                             task.started_construction = true;
+                        }
+                        if installed {
+                            manager.set_build_frames(task.target_id, frames);
                         }
                         let completed = manager.update_for_dozer(self.object_id);
                         let progress = manager.get_progress(task.target_id).unwrap_or(0.0);

@@ -1682,6 +1682,82 @@ fn assert_physical_powered_construction_end(worker: bool) {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
+fn installed_worker_recalculates_the_receiving_build_rate_after_power_changes() {
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+
+    const NAME: &str = concat!(module_path!(), "::installed_worker_recalculates_the_receiving_build_rate_after_power_changes");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_INSTALLED_WORKER_BUILD_RATE_CHILD",
+    ) {
+        return;
+    }
+
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    let worker = admit_physical_construction_builder(&receiving, true);
+    let peer_dozer = admit_physical_construction_builder(&peer, false);
+    let builder = worker.read().unwrap().get_id();
+    assert_eq!(peer_dozer.read().unwrap().get_id(), builder);
+    let player = with_active_stores(&receiving, || worker.read().unwrap().get_controlling_player().unwrap());
+    let peer_player = with_active_stores(&peer, || peer_dozer.read().unwrap().get_controlling_player().unwrap());
+    player.write().unwrap().get_energy_mut().add_power_production(10);
+    peer_player.write().unwrap().get_energy_mut().add_power_production(5);
+    let place = |world: &Arc<EngineStores>, builder, x| with_active_stores(world, || {
+        GameLogicBuildAssistantBackend.build_object_now(
+            builder, "PhysicalConstructionSite", &BuildPosition { x, y: 105., z: 0. }, 0., 0,
+        ).unwrap()
+    });
+    let site_id = place(&receiving, Some(builder), 290.);
+    assert_eq!(place(&peer, None, 205.), site_id);
+    let peer_site = peer.game_logic_mutex().lock().unwrap().find_object_by_id(site_id).unwrap();
+    let parent = worker.read().unwrap().get_ai_update_interface().unwrap();
+
+    with_active_stores(&receiving, || {
+        let logic = receiving.game_logic_mutex();
+        let site = logic.lock().unwrap().find_object_by_id(site_id).unwrap();
+        let mut before = (0., site.read().unwrap().get_health());
+        let mut contributions = 0;
+        for frame in 38..120 {
+            logic.lock().unwrap().set_current_frame(frame.into());
+            parent.lock().unwrap().update().unwrap();
+            let after = {
+                let building = site.read().unwrap();
+                (building.get_construction_percent(), building.get_health())
+            };
+            logic.lock().unwrap().update(frame, || None).unwrap();
+            if after.0 == before.0 {
+                continue;
+            }
+            // ThingTemplate.cpp:1524–1558, DozerAIUpdate.cpp:515–526.
+            // Lost power uses the deliberate 0.01 default fixture floor.
+            let expected = [100.0 / 300.0, 100.0 / 30_000.0, 100.0 / 300.0][contributions];
+            let percent_delta = after.0 - before.0;
+            let health_delta = after.1 - before.1;
+            assert!((percent_delta - expected).abs() < 0.00001, "frame {frame} progress delta {percent_delta}, expected {expected}");
+            assert!((health_delta - expected).abs() < 0.00001, "frame {frame} health delta {health_delta}, expected {expected}");
+            before = after;
+            contributions += 1;
+            match contributions {
+                1 => player.write().unwrap().get_energy_mut().add_power_production(-10),
+                2 => player.write().unwrap().get_energy_mut().add_power_production(10),
+                _ => break,
+            }
+        }
+        assert_eq!(contributions, 3);
+    });
+
+    assert_eq!(peer_player.read().unwrap().get_energy().get_power(), 5);
+    let peer_site = peer_site.read().unwrap();
+    assert_eq!(peer_site.get_builder_id(), INVALID_ID);
+    assert_eq!(peer_site.get_construction_percent(), 0.0);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
 fn construction_model_uses_the_scaffolds_world_for_its_live_builder() {
     use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;

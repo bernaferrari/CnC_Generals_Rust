@@ -1088,6 +1088,16 @@ impl DozerAIUpdate {
         Ok(())
     }
 
+    // DozerAIUpdate.cpp:515–526 samples the builder's player every frame.
+    pub(crate) fn current_build_frames(owner: &Arc<RwLock<Object>>, target: &Arc<RwLock<Object>>) -> u32 {
+        let player = owner.read().ok().and_then(|actor| actor.get_controlling_player());
+        let Ok(template) = target.read().map(|building| Arc::clone(building.get_template())) else {
+            return 1;
+        };
+        let player = player.as_ref().and_then(|player| player.read().ok());
+        template.calc_time_to_build(player.as_deref().map(|player| player as &dyn Any)).max(1) as u32
+    }
+
     // DozerAIUpdate.cpp:631–639 sends the adjusted End dock to the inherited
     // AI before either builder completes its shared construction action.
     pub(crate) fn move_to_end_dock(
@@ -1441,26 +1451,7 @@ impl DozerAIUpdate {
                     // The current module scheduler cannot yet lend the world
                     // manager directly. Keep its guard around manager work only;
                     // object setters and completion callbacks can reenter it.
-                    let player = owner
-                        .read()
-                        .ok()
-                        .and_then(|guard| guard.get_controlling_player());
-                    let frames = if let Ok(target_guard) = target.read() {
-                        if let Some(player) = player.as_ref() {
-                            if let Ok(player_guard) = player.read() {
-                                target_guard
-                                    .get_template()
-                                    .calc_time_to_build(Some(&*player_guard))
-                                    .max(1) as u32
-                            } else {
-                                target_guard.get_template().calc_time_to_build(None).max(1) as u32
-                            }
-                        } else {
-                            target_guard.get_template().calc_time_to_build(None).max(1) as u32
-                        }
-                    } else {
-                        1
-                    };
+                    let frames = Self::current_build_frames(&owner, &target);
                     if !task.started_construction {
                         let max_health = if task.build_max_health > 0.0 {
                             task.build_max_health
