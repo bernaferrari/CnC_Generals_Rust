@@ -19,15 +19,25 @@ impl PresentationFrame {
         // shows a disabled completed structure so Sell/Stop/Rally stay reachable.
         // Under-construction is combat-disabled but must keep CancelConstruction.
         let usable = |o: &RenderableObject| !o.destroyed && !o.sold && !o.unselectable && !o.masked;
-        let by_id: std::collections::HashMap<ObjectId, &RenderableObject> =
-            self.objects.iter().map(|o| (o.id, o)).collect();
-        let mut selected_infos = Vec::with_capacity(self.selected.len().max(1));
-        for id in &self.selected {
-            if let Some(ro) = by_id.get(id) {
-                if !usable(ro) {
-                    continue;
+        let mut selected_infos = Vec::with_capacity(self.selected.len());
+        match self.selected.as_slice() {
+            [] => {}
+            [id] => {
+                // Match the index's last row on a repeated ID.
+                if let Some(ro) = self.objects.iter().rev().find(|o| o.id == *id)
+                    && usable(ro)
+                {
+                    selected_infos.push(Self::unit_display_info_from_renderable(ro));
                 }
-                selected_infos.push(Self::unit_display_info_from_renderable(ro));
+            }
+            ids => {
+                let by_id: game_engine::common::fast_hash::FxHashMap<_, _> =
+                    self.objects.iter().map(|o| (o.id, o)).collect();
+                for id in ids {
+                    if let Some(ro) = by_id.get(id).copied().filter(|o| usable(o)) {
+                        selected_infos.push(Self::unit_display_info_from_renderable(ro));
+                    }
+                }
             }
         }
         if selected_infos.is_empty() {
