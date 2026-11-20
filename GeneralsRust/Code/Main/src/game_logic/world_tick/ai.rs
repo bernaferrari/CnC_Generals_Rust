@@ -121,19 +121,22 @@ impl GameLogic {
             let mut missile_idle_audio: Option<(Option<String>, bool, Option<String>, glam::Vec3)> =
                 None;
             let mut fire_weapon_power_shot = false;
-            let height_die_terrain = {
-                let (pos, ground, name) = match self.objects.get(&object_id) {
-                    Some(o) => (o.get_position(), o.ground_height, o.template_name.clone()),
-                    None => (glam::Vec3::ZERO, 0.0, String::new()),
-                };
-                // C++ HeightDieUpdate.cpp:132-195 getGroundHeight + structures.
-                self.height_die_terrain_at(pos, &name, ground)
-            };
-            if self.objects.get(&object_id).is_some_and(|obj| {
-                obj.weapon_bonus_frenzy
-                    && obj.weapon_bonus_frenzy_until_frame > 0
-                    && self.frame >= obj.weapon_bonus_frenzy_until_frame
-            }) {
+            let (height_die_terrain, frenzy_expired) = self.objects.get(&object_id).map_or(
+                (0.0, false),
+                |object| {
+                    // C++ HeightDieUpdate.cpp:132–195 reads ground plus applicable structures.
+                    let height_die_terrain = self.height_die_terrain_at(
+                        object.get_position(),
+                        &object.template_name,
+                        object.ground_height,
+                    );
+                    let frenzy_expired = object.weapon_bonus_frenzy
+                        && object.weapon_bonus_frenzy_until_frame > 0
+                        && self.frame >= object.weapon_bonus_frenzy_until_frame;
+                    (height_die_terrain, frenzy_expired)
+                },
+            );
+            if frenzy_expired {
                 self.set_owned_frenzy_bonus(object_id, None, 0);
             }
             if let Some(obj) = self.objects.get_mut(&object_id) {
