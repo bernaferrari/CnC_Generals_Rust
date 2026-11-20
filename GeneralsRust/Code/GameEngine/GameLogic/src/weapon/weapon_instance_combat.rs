@@ -1663,8 +1663,7 @@ impl Weapon {
         self.apply_damage_to_object(obj_id, damage_info)
     }
 
-    /// Apply damage to a specific object - THE CRITICAL CONNECTION to Object system
-    /// Gets object from ObjectManager and calls attempt_damage() to apply actual damage
+    /// Weapon.cpp:1470 calls the actual victim's damage handlers.
     pub(crate) fn apply_damage_to_object(
         &mut self,
         obj_id: ObjectId,
@@ -1678,12 +1677,6 @@ impl Weapon {
             damage_info.input.damage_type,
             obj_id
         );
-
-        // Get the global object manager
-        let object_manager = get_object_manager();
-        let obj_mgr = object_manager.read().map_err(|e| {
-            WeaponError::SystemError(format!("Failed to read object manager: {}", e))
-        })?;
 
         if self.caller_source(obj_id).is_some() {
             self.queue_self_damage(self.build_engine_damage_info(damage_info));
@@ -1702,30 +1695,24 @@ impl Weapon {
             return result;
         }
 
-        // Borrow-first mutable access (no Arc clone).
-        let dealt = obj_mgr
-            .with_object_mut(obj_id, |obj| -> Result<f32, WeaponError> {
-                let mut engine_damage_info = self.build_engine_damage_info(damage_info);
-                let __base_arc = obj.base();
-                if let Ok(mut base) = __base_arc.write() {
-                    base.attempt_damage(&mut engine_damage_info).map_err(|e| {
-                        WeaponError::SystemError(format!("Failed to apply damage: {}", e))
-                    })?;
-                } else {
-                    return Err(WeaponError::SystemError(
-                        "Failed to acquire base object lock".to_string(),
-                    ));
-                }
-                damage_info.output.actual_damage_dealt =
-                    engine_damage_info.output.actual_damage_dealt;
-                damage_info.output.actual_damage_clipped =
-                    engine_damage_info.output.actual_damage_clipped;
-                damage_info.output.no_effect = engine_damage_info.output.no_effect;
-                Ok(engine_damage_info.output.actual_damage_dealt)
-            })
-            .ok_or(WeaponError::InvalidTarget)??;
-
-        Ok(dealt)
+        // Fallback lookup only. A damage callback such as RebuildHoleExposeDie
+        // can create a new object in this manager before it returns.
+        let base = get_object_manager()
+            .read()
+            .map_err(|error| {
+                WeaponError::SystemError(format!("Failed to read object manager: {error}"))
+            })?
+            .with_object(obj_id, |instance| instance.base())
+            .ok_or(WeaponError::InvalidTarget)?;
+        let mut engine_damage_info = self.build_engine_damage_info(damage_info);
+        base.write()
+            .map_err(|_| WeaponError::SystemError("Failed to acquire base object lock".into()))?
+            .attempt_damage(&mut engine_damage_info)
+            .map_err(|error| WeaponError::SystemError(format!("Failed to apply damage: {error}")))?;
+        damage_info.output.actual_damage_dealt = engine_damage_info.output.actual_damage_dealt;
+        damage_info.output.actual_damage_clipped = engine_damage_info.output.actual_damage_clipped;
+        damage_info.output.no_effect = engine_damage_info.output.no_effect;
+        Ok(engine_damage_info.output.actual_damage_dealt)
     }
 
     /// Random float generator using synchronized game-logic RNG.

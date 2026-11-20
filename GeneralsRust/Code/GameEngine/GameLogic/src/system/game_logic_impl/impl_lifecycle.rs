@@ -216,7 +216,7 @@ impl GameLogic {
         self.observe_object_id(object_id);
         // C++ GameLogic::registerObject prepends (GameLogic.cpp:3866).
         self.objects.insert(object_id, Arc::clone(&object));
-        self.prepend_to_object_list(object_id);
+        self.prepend_to_object_list(object_id, None);
 
         // Register in global registry
         OBJECT_REGISTRY.register_object(object_id, &object);
@@ -366,6 +366,14 @@ impl GameLogic {
         &mut self,
         object: Arc<RwLock<Object>>,
     ) -> Result<ObjectID, GameLogicError> {
+        self.track_object_in_update_list_with_borrowed_head(object, None)
+    }
+
+    pub(crate) fn track_object_in_update_list_with_borrowed_head(
+        &mut self,
+        object: Arc<RwLock<Object>>,
+        borrowed_head: Option<&mut Object>,
+    ) -> Result<ObjectID, GameLogicError> {
         let object_id = {
             let guard = object
                 .read()
@@ -397,7 +405,7 @@ impl GameLogic {
         self.observe_object_id(object_id);
         // C++ registerObject prepends (GameLogic.cpp:3866).
         self.objects.insert(object_id, Arc::clone(&object));
-        self.prepend_to_object_list(object_id);
+        self.prepend_to_object_list(object_id, borrowed_head);
 
         Ok(object_id)
     }
@@ -606,7 +614,7 @@ impl GameLogic {
     /// C++ `Object::prependToList(&m_objList)` — newest object is list head.
     /// Every caller has already inserted the handle into `self.objects`, so
     /// the link fixups run on scoped map borrows instead of a passed-in Arc.
-    fn prepend_to_object_list(&mut self, object_id: ObjectID) {
+    fn prepend_to_object_list(&mut self, object_id: ObjectID, borrowed_head: Option<&mut Object>) {
         let old_head = self.all_objects.first().copied();
         self.all_objects.insert(0, object_id);
         if let Some(object) = self.objects.get(&object_id) {
@@ -616,7 +624,10 @@ impl GameLogic {
             }
         }
         if let Some(old_id) = old_head {
-            if let Some(old_object) = self.objects.get(&old_id) {
+            // A death callback can create an object while holding the old head.
+            if let Some(old_object) = borrowed_head.filter(|object| object.get_id() == old_id) {
+                old_object.set_prev_object_id(Some(object_id));
+            } else if let Some(old_object) = self.objects.get(&old_id) {
                 if let Ok(mut old_guard) = old_object.write() {
                     old_guard.set_prev_object_id(Some(object_id));
                 }
@@ -1115,7 +1126,7 @@ impl GameLogic {
 
         // C++ restore lands on m_objList (prepend) and is findable.
         self.objects.insert(object_id, Arc::clone(&object_arc));
-        self.prepend_to_object_list(object_id);
+        self.prepend_to_object_list(object_id, None);
         OBJECT_REGISTRY.register_object(object_id, &object_arc);
 
         // Register with partition manager

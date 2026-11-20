@@ -602,6 +602,24 @@ impl DieModuleWrapper {
         self.die_module.as_mut().as_any_mut().downcast_mut()
     }
 
+    pub(crate) fn on_rebuild_hole_die_with_owner(
+        &mut self,
+        owner: &mut Object,
+        damage: &DamageInfo,
+    ) -> bool {
+        let Some(rebuild) = self
+            .die_module
+            .as_mut()
+            .as_any_mut()
+            .downcast_mut::<rebuild_hole_expose_die::RebuildHoleExposeDie>()
+        else {
+            return false;
+        };
+        debug_assert_eq!(self.object_id, owner.get_id());
+        rebuild.on_die(owner, damage);
+        true
+    }
+
     fn get_object_id(&self) -> ObjectID {
         self.object_id
     }

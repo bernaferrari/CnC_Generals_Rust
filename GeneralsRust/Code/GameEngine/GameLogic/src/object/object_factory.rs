@@ -252,6 +252,25 @@ impl ObjectFactory {
         flags: ObjectCreationFlags,
         extra_status: ObjectStatusMaskType,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
+        self.create_object_with_status_and_borrowed_head(
+            template_name,
+            position,
+            team,
+            flags,
+            extra_status,
+            None,
+        )
+    }
+
+    pub(crate) fn create_object_with_status_and_borrowed_head(
+        &mut self,
+        template_name: &str,
+        position: Coord3D,
+        team: Option<Arc<RwLock<Team>>>,
+        flags: ObjectCreationFlags,
+        extra_status: ObjectStatusMaskType,
+        borrowed_head: Option<&mut Object>,
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         self.create_object_inner(
             template_name,
             position,
@@ -266,6 +285,7 @@ impl ObjectFactory {
             None,
             None,
             None,
+            borrowed_head,
         )
     }
 
@@ -295,6 +315,7 @@ impl ObjectFactory {
             None,
             game_logic.owned_object_world(),
             game_logic.owned_player_list(),
+            None,
         )?;
         let owner = self
             .get_object(id)
@@ -334,6 +355,7 @@ impl ObjectFactory {
             Some(module_factory),
             game_logic.owned_object_world(),
             game_logic.owned_player_list(),
+            None,
         )?;
         let owner = self
             .get_object(id)
@@ -377,6 +399,7 @@ impl ObjectFactory {
             Some(module_factory),
             None,
             None,
+            None,
         )
     }
 
@@ -395,6 +418,7 @@ impl ObjectFactory {
         module_factory: Option<&ModuleFactory>,
         mut cave_system: Option<crate::object::ObjectWorld>,
         mut owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
+        borrowed_head: Option<&mut Object>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Get template
         let template = self.get_or_load_template(template_name)?;
@@ -409,6 +433,15 @@ impl ObjectFactory {
                 let mut logic = crate::system::game_logic::get_game_logic()
                     .lock()
                     .map_err(|_| "Object creation identity owner poisoned")?;
+                if let Some(prior_head) = borrowed_head.as_deref() {
+                    let same_world = prior_head
+                        .owning_world_services()
+                        .zip(logic.owning_world_services())
+                        .is_some_and(|(parent, receiving)| Arc::ptr_eq(&parent, &receiving));
+                    if !same_world || !logic.contains_object_id(prior_head.get_id()) {
+                        return Err("borrowed object does not belong to the receiving GameLogic".into());
+                    }
+                }
                 if cave_system.is_none() {
                     cave_system = logic.owned_object_world();
                 }
@@ -470,7 +503,7 @@ impl ObjectFactory {
 
         // Register the base object with the global GameLogic singleton
         if publish {
-            TheGameLogic::register_object(base_object.clone())
+            TheGameLogic::register_object_with_borrowed_head(base_object.clone(), borrowed_head)
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
         }
 

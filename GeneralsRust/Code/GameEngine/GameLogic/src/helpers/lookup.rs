@@ -842,9 +842,10 @@ impl TheThingFactory {
     > {
         self.new_object_with_team_handle_and_factory_flags(
             template,
-            team,
+            Some(team),
             status_bits,
             crate::object::object_factory::ObjectCreationFlags::NONE,
+            None,
         )
     }
 
@@ -855,18 +856,34 @@ impl TheThingFactory {
     ) -> Result<Arc<RwLock<crate::object::Object>>, Box<dyn std::error::Error + Send + Sync>> {
         self.new_object_with_team_handle_and_factory_flags(
             template,
-            team,
+            Some(team),
             crate::common::ObjectStatusTypes::UnderConstruction.into(),
             crate::object::object_factory::ObjectCreationFlags::DEFER_CONSTRUCTION_FOOTPRINT,
+            None,
+        )
+    }
+
+    pub(crate) fn new_rebuild_hole(
+        &self,
+        template: Arc<dyn crate::common::ThingTemplate>,
+        dying_object: &mut crate::object::Object,
+    ) -> Result<Arc<RwLock<crate::object::Object>>, Box<dyn std::error::Error + Send + Sync>> {
+        self.new_object_with_team_handle_and_factory_flags(
+            template,
+            dying_object.get_team(),
+            crate::common::ObjectStatusMaskType::NONE,
+            crate::object::object_factory::ObjectCreationFlags::NONE,
+            Some(dying_object),
         )
     }
 
     fn new_object_with_team_handle_and_factory_flags(
         &self,
         template: Arc<dyn crate::common::ThingTemplate>,
-        team: Arc<RwLock<crate::team::Team>>,
+        team: Option<Arc<RwLock<crate::team::Team>>>,
         status_bits: crate::common::ObjectStatusMaskType,
         factory_flags: crate::object::object_factory::ObjectCreationFlags,
+        borrowed_head: Option<&mut crate::object::Object>,
     ) -> Result<Arc<RwLock<crate::object::Object>>, Box<dyn std::error::Error + Send + Sync>> {
         use crate::object_manager::ObjectCreationFlags;
         use crate::object_manager::get_object_manager;
@@ -882,9 +899,10 @@ impl TheThingFactory {
             .create_object_with_factory_flags(
                 &template_name,
                 Coord3D::new(0.0, 0.0, 0.0),
-                Some(team),
+                team,
                 flags,
                 factory_flags,
+                borrowed_head,
             )
             .map_err(|e| e.to_string())?;
 

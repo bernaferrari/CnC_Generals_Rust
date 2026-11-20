@@ -1016,6 +1016,7 @@ impl ObjectManager {
             team,
             flags,
             crate::object::object_factory::ObjectCreationFlags::NONE,
+            None,
         )
     }
 
@@ -1026,6 +1027,7 @@ impl ObjectManager {
         team: Option<Arc<RwLock<Team>>>,
         flags: ObjectCreationFlags,
         additional_flags: crate::object::object_factory::ObjectCreationFlags,
+        borrowed_head: Option<&mut Object>,
     ) -> GameLogicResult<ObjectID> {
         let factory_flags = Self::map_creation_flags(flags) | additional_flags;
         // One exclusive factory guard covers creation and the base-object
@@ -1036,12 +1038,13 @@ impl ObjectManager {
                 GameLogicError::SystemNotInitialized("ObjectFactory lock poisoned".to_string())
             })?;
             let object_id = factory
-                .create_object_with_status(
+                .create_object_with_status_and_borrowed_head(
                     template_name,
                     position,
                     team.clone(),
                     factory_flags,
                     flags.status_mask,
+                    borrowed_head,
                 )
                 .map_err(|err| GameLogicError::SystemNotInitialized(err.to_string()))?;
             let base_object = factory

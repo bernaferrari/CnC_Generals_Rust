@@ -1550,10 +1550,15 @@ impl Object {
                 continue;
             }
             entry.with_module(|module| {
-                if let Some(die_module) = module_die_kind(module) {
-                    if let Some(damage) = damage_info {
-                        let _ = die_module.into_interface().on_die(damage);
+                if let (Some(mut die_module), Some(damage)) = (module_die_kind(module), damage_info) {
+                    // RebuildHoleExposeDie.cpp receives getObject() from the
+                    // current onDie dispatch. This parent is already borrowed.
+                    if let DieModuleKindMut::Wrapper(wrapper) = &mut die_module
+                        && wrapper.on_rebuild_hole_die_with_owner(self, damage)
+                    {
+                        return;
                     }
+                    let _ = die_module.into_interface().on_die(damage);
                 }
             });
         }

@@ -576,12 +576,19 @@ impl TheGameLogic {
     pub fn register_object(
         object: std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
     ) -> Result<(), GameError> {
+        Self::register_object_with_borrowed_head(object, None)
+    }
+
+    pub(crate) fn register_object_with_borrowed_head(
+        object: Arc<RwLock<crate::object::Object>>,
+        borrowed_head: Option<&mut crate::object::Object>,
+    ) -> Result<(), GameError> {
         let id = { object.read().map_err(|_| GameError::LockError)?.get_id() };
         OBJECT_REGISTRY.register_object(id, &object);
         register_legacy_object(&object);
 
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
-            let _ = logic.track_object_in_update_list(object);
+            let _ = logic.track_object_in_update_list_with_borrowed_head(object, borrowed_head);
         }
 
         Ok(())
