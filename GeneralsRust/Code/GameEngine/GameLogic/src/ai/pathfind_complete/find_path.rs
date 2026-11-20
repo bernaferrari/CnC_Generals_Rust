@@ -1,5 +1,13 @@
 use super::*;
 
+enum ClosestPathMode<'a> {
+    Normal,
+    Approach {
+        requested_destination: &'a mut Coord3D,
+        blocked_and_stuck: bool,
+    },
+}
+
 impl PathfindingSystem {
     pub(super) fn closest_search_should_prune(
         distance_sqr: f32,
@@ -501,10 +509,40 @@ impl PathfindingSystem {
 
     pub(crate) fn find_closest_path_with_observations(
         &mut self,
+        request: PathRequest,
+        downhill_only: Option<bool>,
+        aircraft_goal_only: Option<bool>,
+        observations: Option<&PathfindObservations>,
+    ) -> Result<PathResult, String> {
+        self.find_closest_path_impl(
+            request, downhill_only, aircraft_goal_only, observations, ClosestPathMode::Normal,
+        )
+    }
+
+    pub(crate) fn find_ground_approach_path_with_observations(
+        &mut self,
+        request: PathRequest,
+        downhill_only: bool,
+        observations: &PathfindObservations,
+        requested_destination: &mut Coord3D,
+        blocked_and_stuck: bool,
+    ) -> Result<PathResult, String> {
+        self.find_closest_path_impl(
+            request,
+            Some(downhill_only),
+            Some(false),
+            Some(observations),
+            ClosestPathMode::Approach { requested_destination, blocked_and_stuck },
+        )
+    }
+
+    fn find_closest_path_impl(
+        &mut self,
         mut request: PathRequest,
         downhill_only: Option<bool>,
         aircraft_goal_only: Option<bool>,
         observations: Option<&PathfindObservations>,
+        mode: ClosestPathMode<'_>,
     ) -> Result<PathResult, String> {
         if let Some(observations) = observations {
             request.is_human = observations.owner_is_human(request.object_id)?;
@@ -600,11 +638,18 @@ impl PathfindingSystem {
             .pathfinder
             .resolved_layer_at(start, requested_start_layer)
             .unwrap_or(requested_start_layer);
+        // AIUpdate.cpp:409–410 passes the blocked flag and 0.2 cost
+        // multiplier specifically for approach paths.
+        let (blocked, path_cost_multiplier) = match &mode {
+            ClosestPathMode::Normal => (false, 1.0),
+            ClosestPathMode::Approach { blocked_and_stuck, .. } => (*blocked_and_stuck, 0.2),
+        };
         let mut start_info = CheckMovementInfo {
             cell: start_cell,
             layer: requested_start_layer,
             radius,
             center_in_cell,
+            consider_transient: blocked,
             acceptable_surfaces: request.surfaces,
             ..Default::default()
         };
@@ -667,7 +712,6 @@ impl PathfindingSystem {
             None => Self::object_is_dozer(request.object_id),
         };
         let can_path_through_units = request.move_allies; // C++ canPathThroughUnits loosely
-        let path_cost_multiplier = 1.0f32;
         let ground_height = |cell: GridCoord| {
             let x = cell.x as f32 * PATHFIND_CELL_SIZE_F;
             let y = cell.y as f32 * PATHFIND_CELL_SIZE_F;
@@ -1106,6 +1150,11 @@ impl PathfindingSystem {
         let to_pos = if found_goal_cell && best_cell == goal_grid && best_layer == goal_layer {
             adjusted_to
         } else {
+            if let ClosestPathMode::Approach { requested_destination, .. } = mode {
+                // AIPathfind.cpp writes only X/Y of rawTo for the closest cell.
+                requested_destination.x = (best_cell.x as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+                requested_destination.y = (best_cell.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+            }
             let mut p = Coord3D::new(0.0, 0.0, 0.0);
             self.adjust_coord_to_cell_with_observations(
                 best_cell.x,
@@ -1141,7 +1190,7 @@ impl PathfindingSystem {
             &to_pos,
             surfaces,
             is_crusher,
-            false,
+            blocked,
             center_in_cell,
             request.object_id,
             observations,

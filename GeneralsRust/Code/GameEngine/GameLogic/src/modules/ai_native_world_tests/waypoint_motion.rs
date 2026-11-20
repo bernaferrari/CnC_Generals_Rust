@@ -801,3 +801,87 @@ fn kill_pilot_destroys_moving_rider_change_bike_on_owned_path() {
     drop(bike);
     assert!(!peer.source.read().unwrap().is_effectively_dead(), "same-ID peer untouched");
 }
+
+#[test]
+fn queued_ground_approach_installs_the_receiving_closest_path_and_final_goal() {
+    let mut game = new_game("OwnedApproach");
+    let mut peer = new_game("OwnedApproachPeer");
+    assert_eq!(
+        game.source.read().unwrap().get_id(),
+        peer.source.read().unwrap().get_id(),
+    );
+    let mut command =
+        AiCommandParams::new(AiCommandType::FollowWaypointPath, CommandSourceType::FromPlayer);
+    command.waypoint = Some(9_801);
+    for world in [&mut game, &mut peer] {
+        install_waypoints(world);
+        let interface = ai(&world.source);
+        world.operate(50, |context| {
+            let mut interface = interface.lock().unwrap();
+            interface
+                .execute_command_with_world(
+                    &AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromAI),
+                    context,
+                )
+                .unwrap();
+            interface.execute_command_with_world(&command, context).unwrap();
+            interface
+                .unit_ai_for_test()
+                .unwrap()
+                .mark_waiting_request_as_approach_for_test();
+        });
+    }
+    let requested = Coord3D::new(180.0, 30.0, 0.0);
+    let interface = ai(&game.source);
+    let observe = || {
+        interface
+            .lock()
+            .unwrap()
+            .unit_ai_for_test()
+            .unwrap()
+            .native_waypoint_observation_for_test()
+    };
+    assert_eq!(observe().requested_destination, requested);
+    game.pathfinder.set_cell_type_at(
+        &requested,
+        crate::ai::pathfind_astar::PathfindCellType::Impassable,
+    );
+    let peer_before = ai_snapshot(&peer, "OwnedApproachPeerLoco");
+    let mut processed = 0;
+    for frame in 51..55 {
+        processed += game
+            .operate(frame, |world| world.process_enter_path_queue(10))
+            .unwrap();
+    }
+    assert_eq!(processed, 1);
+    let observed = observe();
+    assert!(!observed.waiting_for_path);
+    let closest = observed.path_points.last().copied().expect("receiving closest path");
+    assert_ne!(closest, requested, "receiver's requested cell is impassable");
+    // The source's 0.2 approach cost permits a substantially closer endpoint
+    // than the ordinary 1.0 closest-search penalty on this straight route.
+    let cell_size = crate::path::PATHFIND_CELL_SIZE_F;
+    assert!(
+        (closest - requested).length() < 4.0 * cell_size,
+        "closest endpoint {closest:?} must still approach {requested:?}",
+    );
+    let last_cell = crate::common::ICoord2D::new(
+        (closest.x / cell_size).floor() as i32,
+        (closest.y / cell_size).floor() as i32,
+    );
+    assert_eq!(observed.pathfind_goal_cell, last_cell);
+    assert_eq!(
+        observed.requested_destination,
+        Coord3D::new(
+            (last_cell.x as f32 + 0.5) * cell_size,
+            (last_cell.y as f32 + 0.5) * cell_size,
+            requested.z,
+        ),
+        "C++ writes the closest cell center to the queued destination's X/Y",
+    );
+    assert_eq!(ai_snapshot(&peer, "OwnedApproachPeerLoco"), peer_before);
+    let peer_processed: usize = (101..105)
+        .map(|frame| peer.operate(frame, |world| world.process_enter_path_queue(10)).unwrap())
+        .sum();
+    assert_eq!(peer_processed, 1, "only driving the peer may drain its queue");
+}

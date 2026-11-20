@@ -484,6 +484,11 @@ impl UnitAIUpdate {
                     "supplied queued movement currently requires ordinary ground motion".into(),
                 );
             }
+            if self.runtime.data.is_approach_path
+                && self.runtime.data.locomotor_set.get_active().is_none()
+            {
+                return Err("supplied approach requires an active ground locomotor".into());
+            }
             let position = object.get_position();
             let height = terrain.get_ground_height(position.x, position.y, None);
             let allows_fall = match object.get_physics() {
@@ -503,7 +508,8 @@ impl UnitAIUpdate {
         if (!movement && state != Some(AIStateType::Enter as u32))
             || self.runtime.data.is_safe_path
             || self.runtime.data.is_attack_path
-            || self.runtime.data.is_approach_path
+            || (self.runtime.data.is_approach_path
+                && (!movement || !self.runtime.data.is_final_goal))
             || (!movement && self.runtime.data.is_final_goal)
         {
             return Err("supplied queue does not admit this path family".into());
@@ -541,6 +547,14 @@ impl UnitAIUpdate {
         Ok(found)
     }
 
+    #[cfg(test)]
+    pub(crate) fn mark_waiting_request_as_approach_for_test(&mut self) {
+        // Approach FSM production is separate from the queue consumer.
+        assert!(self.runtime.data.waiting_for_path);
+        self.runtime.data.is_approach_path = true;
+        self.runtime.data.is_final_goal = true;
+    }
+
     fn do_queued_pathfind_with_observations(
         &mut self,
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
@@ -563,11 +577,18 @@ impl UnitAIUpdate {
         if self.runtime.data.is_safe_path {
             return self.do_queued_safe_pathfind_with_pathfinder(pathfinder);
         }
-        if self.runtime.data.is_approach_path && !self.is_doing_ground_movement() {
-            self.runtime.data.is_approach_path = false;
-        }
         if self.runtime.data.is_approach_path {
-            return self.do_queued_approach_pathfind_with_pathfinder(destination, pathfinder);
+            // The supplied queue has already checked the active locomotor and
+            // whether this owner falls against the receiving terrain.
+            if observations.is_some() || self.is_doing_ground_movement() {
+                return self.do_queued_approach_pathfind_with_observations(
+                    destination,
+                    pathfinder,
+                    native.map(|_| frame),
+                    observations,
+                );
+            }
+            self.runtime.data.is_approach_path = false;
         }
         if self.runtime.data.is_attack_path {
             if self.try_finish_attack_path_with_pathfinder(pathfinder)? {
@@ -836,21 +857,34 @@ impl UnitAIUpdate {
         Ok(false)
     }
 
-    fn do_queued_approach_pathfind_with_pathfinder(
+    fn do_queued_approach_pathfind_with_observations(
         &mut self,
         destination: Coord3D,
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        frame: Option<u32>,
+        observations: Option<&crate::ai::pathfind_complete::PathfindObservations>,
     ) -> Result<bool, String> {
+        // AIUpdate.cpp:407–415 clears the previous path and reserves the
+        // closest path's final node through the same receiving pathfinder.
         self.destroy_path();
         let request = self.build_classic_path_request(destination, false)?;
         let (downhill_only, aircraft_goal_only) = self.native_path_movement_policy();
-        let result = pathfinder.find_closest_path_with_movement_policy(
-            request,
-            Some(downhill_only),
-            Some(aircraft_goal_only),
-        );
+        let result = match observations {
+            Some(receiving) => pathfinder.find_ground_approach_path_with_observations(
+                request,
+                downhill_only,
+                receiving,
+                &mut self.runtime.data.requested_destination,
+                self.runtime.data.blocked_and_stuck,
+            )?,
+            None => pathfinder.find_closest_path_with_movement_policy(
+                request,
+                Some(downhill_only),
+                Some(aircraft_goal_only),
+            ),
+        };
         if result.success && !result.waypoints.is_empty() {
-            self.install_path_result_with_pathfinder(&result, pathfinder)?;
+            self.install_path_result_at(&result, pathfinder, frame)?;
             return Ok(true);
         }
         Ok(false)
