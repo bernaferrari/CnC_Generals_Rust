@@ -43,8 +43,10 @@ pub struct NativeDrawPhase {
 }
 
 /// Physics for an admitted native Drawable in the current CPU view.
-pub type NativeDrawPhysics<'a> =
-    dyn FnMut(PresentationDirectDrawableBindingKey) -> Option<glam::Mat4> + 'a;
+pub type NativeDrawPhysics<'a> = dyn FnMut(
+    PresentationDirectDrawableBindingKey,
+    &mut Option<crate::drawable::LocoInfo>,
+) -> Option<glam::Mat4> + 'a;
 
 impl GameClient {
     fn invalidate_presentation_shell(&mut self) {

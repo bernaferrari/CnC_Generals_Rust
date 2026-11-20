@@ -125,7 +125,7 @@ pub struct BasicDrawable {
     tint_envelope: Option<TintEnvelope>,
     selection_flash_envelope: Option<TintEnvelope>,
     icon_info: Option<IconInfo>,
-    loco_info: Option<LocoInfo>,
+    pub(crate) loco_info: Option<LocoInfo>,
     /// Recoil-only pitch/roll. Not a full locomotor physics xform.
     recoil_visual: Matrix4,
     receives_dynamic_lights: bool,

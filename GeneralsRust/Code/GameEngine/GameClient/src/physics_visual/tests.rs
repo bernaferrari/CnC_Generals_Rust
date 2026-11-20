@@ -381,7 +381,7 @@ fn treads_overlap_mount_and_z_is_half_pre_integrate() {
     // before gravity. Stored overlap then gets -0.2 gravity.
     assert!((info.total_z - 2.0).abs() < 1e-5);
     assert!((loco.overlap_z - 3.8).abs() < 1e-5);
-    assert!((loco.overlap_z_vel + 0.2).abs() < 1e-5);
+    assert!((loco.overlap_z_velocity + 0.2).abs() < 1e-5);
 }
 
 #[test]
@@ -471,7 +471,7 @@ fn wheels_suspension_smooths_angle_by_ten() {
         &body,
         &mut rng,
     );
-    assert!((loco.wheel_angle - 0.04).abs() < 1e-5);
+    assert!((loco.wheel_info.wheel_angle - 0.04).abs() < 1e-5);
 }
 
 #[test]

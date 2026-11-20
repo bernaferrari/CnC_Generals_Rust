@@ -303,7 +303,7 @@ impl<'a, 'ambient> NativeRenderReceiver<'a, 'ambient> {
             if !drawable.fully_obscured_by_shroud()
                 && let (Some(binding), Some(advance)) = (binding, physics.as_deref_mut())
             {
-                let local = advance(binding);
+                let local = advance(binding, &mut drawable.loco_info);
                 drawable.native_draw_physics_local = local.map(|local| (binding, local));
                 completed_physics = Some(local.unwrap_or(glam::Mat4::IDENTITY));
             }

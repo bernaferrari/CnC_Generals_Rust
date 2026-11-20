@@ -153,16 +153,16 @@ fn integrate_overlap_z(
 ) {
     if overlap_z > loco.overlap_z {
         loco.overlap_z = overlap_z;
-        loco.overlap_z_vel = 0.0;
+        loco.overlap_z_velocity = 0.0;
     }
     let ztmp = loco.overlap_z / 2.0;
     if loco.overlap_z > 0.0 {
-        loco.overlap_z_vel -= 0.2;
-        loco.overlap_z += loco.overlap_z_vel;
+        loco.overlap_z_velocity -= 0.2;
+        loco.overlap_z += loco.overlap_z_velocity;
     }
     if loco.overlap_z <= 0.0 {
         loco.overlap_z = 0.0;
-        loco.overlap_z_vel = 0.0;
+        loco.overlap_z_velocity = 0.0;
     }
     info.total_z = ztmp;
 }

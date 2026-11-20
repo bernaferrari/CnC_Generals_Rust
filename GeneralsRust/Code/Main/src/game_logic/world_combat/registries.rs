@@ -740,12 +740,16 @@ impl crate::game_logic::GameLogic {
         };
         let physics = &mut self.host_physics_visuals;
         let client_random = &mut self.session_view.client_random;
-        let mut advance_physics = |binding: game_client::core::PresentationDirectDrawableBindingKey| {
-            let frame = frame?;
-            let id = ObjectId(binding.object_id);
-            let object = objects.lookup(&id)?;
-            physics.advance_native_draw(frame, id, object.visual_object_generation, client_random)
-        };
+        let mut advance_physics =
+            |binding: game_client::core::PresentationDirectDrawableBindingKey,
+             loco: &mut Option<game_client::drawable::LocoInfo>| {
+                let frame = frame?;
+                let id = ObjectId(binding.object_id);
+                let object = objects.lookup(&id)?;
+                physics.advance_native_draw(
+                    frame, id, object.visual_object_generation, loco, client_random,
+                )
+            };
         operation(
             &mut lifecycle,
             &mut self.replay_pending,

@@ -66,6 +66,7 @@ pub(crate) struct FrozenHostPhysicsObject {
 pub(crate) struct HostPhysicsVisualCapture {
     world_epoch: u64,
     frozen: bool,
+    #[cfg(test)]
     live_generations: HashMap<ObjectId, u64>,
     objects: HashMap<ObjectId, FrozenHostPhysicsObject>,
 }
@@ -75,7 +76,9 @@ pub(crate) struct HostPhysicsVisualState {
     pub(super) origin: std::sync::Arc<()>,
     next_ordinal: u64,
     active_ordinal: u64,
+    #[cfg(test)]
     world_epoch: u64,
+    #[cfg(test)]
     loco: HashMap<ObjectId, (u64, PhysicsVisualLocoState)>,
     #[cfg(test)]
     pub(super) schedule: super::host_draw_schedule::HostDrawSchedule,
@@ -93,6 +96,7 @@ impl HostPhysicsVisualState {
         HostPhysicsVisualCapture {
             world_epoch: logic.host_visual_world_epoch(),
             frozen: script_frozen || camera_frozen,
+            #[cfg(test)]
             live_generations: logic
                 .host_objects()
                 .registered()
@@ -132,6 +136,7 @@ impl HostPhysicsVisualState {
             .next_ordinal
             .checked_add(1)
             .expect("host physics frame ordinal exhausted");
+        #[cfg(test)]
         self.loco
             .retain(|id, (generation, _)| capture.live_generations.get(id) == Some(generation));
         FrozenHostPhysicsVisuals {
@@ -156,20 +161,22 @@ impl HostPhysicsVisualState {
             return true;
         }
         self.active_ordinal = frame.ordinal;
-        if self.world_epoch != frame.world_epoch {
-            self.loco.clear();
-        }
-        self.world_epoch = frame.world_epoch;
         #[cfg(test)]
-        self.schedule
-            .begin_presented_frame(super::host_draw_schedule::HostPresentVisualInput {
-                visual_dt_ms: if frame.frozen {
-                    0
-                } else {
-                    super::host_draw_schedule::HOST_VISUAL_FRAME_MS
-                },
-                frozen: frame.frozen,
-            });
+        {
+            if self.world_epoch != frame.world_epoch {
+                self.loco.clear();
+            }
+            self.world_epoch = frame.world_epoch;
+            self.schedule
+                .begin_presented_frame(super::host_draw_schedule::HostPresentVisualInput {
+                    visual_dt_ms: if frame.frozen {
+                        0
+                    } else {
+                        super::host_draw_schedule::HOST_VISUAL_FRAME_MS
+                    },
+                    frozen: frame.frozen,
+                });
+        }
         true
     }
 
@@ -204,7 +211,16 @@ impl HostPhysicsVisualState {
         if !self.schedule.should_calc_loco(id) {
             return None;
         }
-        let local = self.advance_matrix(id, object, rng)?;
+        let mut loco = self
+            .loco
+            .get(&id)
+            .filter(|(generation, _)| *generation == object.generation)
+            .map(|(_, loco)| loco.clone());
+        let local = Self::calculate_matrix(object, &mut loco, rng)?;
+        self.loco.insert(
+            id,
+            (object.generation, loco.expect("physics history after admission")),
+        );
         self.schedule.note_loco_applied(id, local);
         Some(local)
     }
@@ -216,6 +232,7 @@ impl HostPhysicsVisualState {
         frame: &super::PresentationFrame,
         id: ObjectId,
         generation: u64,
+        drawable_loco: &mut Option<game_client::drawable::LocoInfo>,
         client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Option<Mat4> {
         let frame = &frame.host_physics_visuals;
@@ -223,13 +240,12 @@ impl HostPhysicsVisualState {
             return None;
         }
         let object = frame.objects.get(&id).filter(|object| object.generation == generation)?;
-        self.advance_matrix(id, object, &mut LiveClientRng(client_random))
+        Self::calculate_matrix(object, drawable_loco, &mut LiveClientRng(client_random))
     }
 
-    fn advance_matrix(
-        &mut self,
-        id: ObjectId,
+    fn calculate_matrix(
         object: &FrozenHostPhysicsObject,
+        loco: &mut Option<PhysicsVisualLocoState>,
         rng: &mut impl ClientVisualRng,
     ) -> Option<Mat4> {
         let facts = object.facts;
@@ -243,23 +259,16 @@ impl HostPhysicsVisualState {
             script_time_frozen_script: facts.script_time_frozen_script,
             calculated_xform: None,
         };
-        if !gates.permits_application() {
+        if !gates.permits_application() || !facts.appearance.has_physics_xform() {
             return None;
         }
-        let mut loco = self
-            .loco
-            .get(&id)
-            .filter(|(generation, _)| *generation == object.generation)
-            .map(|(_, loco)| *loco)
-            .unwrap_or_default();
         let xform = calc_physics_visual_xform(
             facts.appearance,
-            &mut loco,
+            loco.get_or_insert_with(Default::default),
             &facts.params,
             &facts.body,
             rng,
         )?;
-        self.loco.insert(id, (object.generation, loco));
         Some(glam_yup_physics_visual_local(xform))
     }
 
@@ -267,7 +276,7 @@ impl HostPhysicsVisualState {
     pub(super) fn loco_state(&self, id: ObjectId) -> PhysicsVisualLocoState {
         self.loco
             .get(&id)
-            .map(|(_, loco)| *loco)
+            .map(|(_, loco)| loco.clone())
             .unwrap_or_default()
     }
 }

@@ -90,14 +90,26 @@ fn native_cpu_draw_pose_follows_view_order_and_binding_lifetime() {
     let [first, second] = ids.map(|id| key(&client, id, 71));
     let observations = [first, second].map(|key| NativeMaterialObservation {
         binding_key: key,
-        effectively_dead: false,
+        effectively_dead: key == second,
         frenzy: false,
         look: StealthLook::None,
         is_disguised: false,
         is_mine: false,
         friendly_opacity: 0.5,
-        pending_opacity: None,
+        pending_opacity: Some(1.0),
     });
+    client
+        .prepare_presentation_materials(&observations)
+        .unwrap();
+    let opacity = |client: &GameClient, key| {
+        client
+            .capture_presentation_material_opacities()
+            .into_iter()
+            .find(|(known, _)| *known == key)
+            .unwrap()
+            .1
+    };
+    assert_eq!(opacity(&client, second), 1.0);
     let view = |x| NativeDrawView {
         region: crate::display::client_draw_schedule::ViewAabb {
             lo: [-1., -1., -1.],
@@ -105,7 +117,8 @@ fn native_cpu_draw_pose_follows_view_order_and_binding_lifetime() {
         },
     };
     let mut draws = Vec::new();
-    let mut advance = |binding| {
+    let mut advance = |binding, loco: &mut Option<crate::drawable::LocoInfo>| {
+        loco.get_or_insert_with(Default::default).pitch_rate += 1.0;
         draws.push(binding);
         Some(glam::Mat4::from_translation(
             glam::Vec3::X * draws.len() as f32,
@@ -130,6 +143,28 @@ fn native_cpu_draw_pose_follows_view_order_and_binding_lifetime() {
         )
         .unwrap();
     assert_eq!(draws, [second, first, first]);
+    let pitch_rate = |client: &GameClient, id| {
+        client
+            .find_drawable_by_id(id)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BasicDrawable>()
+            .unwrap()
+            .get_loco_info()
+            .map(|loco| loco.pitch_rate)
+    };
+    assert_eq!(pitch_rate(&client, first.drawable_id), Some(2.0));
+    assert_eq!(pitch_rate(&client, second.drawable_id), Some(1.0));
+    assert_eq!(opacity(&client, first), 0.8 * 0.8);
+    assert_eq!(opacity(&client, second), 0.0);
+    assert_eq!(
+        client
+            .borrow_native_drawable_owner()
+            .native_draw_mesh_pose(second)
+            .unwrap()
+            .1,
+        Some(glam::Mat4::from_translation(glam::Vec3::X)),
+    );
     assert_eq!(
         client
             .borrow_native_drawable_owner()
@@ -143,6 +178,7 @@ fn native_cpu_draw_pose_follows_view_order_and_binding_lifetime() {
         .unwrap();
     let recreated = key(&client, ids[0], 72);
     assert_ne!(recreated, first);
+    assert_eq!(pitch_rate(&client, recreated.drawable_id), None);
     let owner = client.borrow_native_drawable_owner();
     assert!(owner.native_draw_mesh_pose(first).is_err());
     assert_eq!(owner.native_draw_mesh_pose(recreated).unwrap().1, None);

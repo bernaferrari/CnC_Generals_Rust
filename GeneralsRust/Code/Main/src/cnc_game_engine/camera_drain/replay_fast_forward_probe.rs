@@ -911,6 +911,210 @@ fn shell_to_skirmish_longevity_witness(engine: &mut CnCGameEngine) -> anyhow::Re
     Ok(())
 }
 
+/// Exercise the actual native archive and the first receiving CPU view Draw.
+#[cfg(feature = "game_client")]
+fn native_drawable_loco_archive_witness(engine: &mut CnCGameEngine) -> anyhow::Result<()> {
+    use game_client::core::{DrawableId, GameClient};
+    use game_client::drawable::{BasicDrawable, LocoInfo, WheelInfo};
+    use game_client::physics_visual::{
+        LiveClientRng, PhysicsVisualAppearance, calc_physics_visual_xform,
+        glam_yup_physics_visual_local,
+    };
+
+    const TEMPLATE: &str = "AmericaVehicleHumvee";
+    const SLOT: &str = "native-drawable-loco-continuation";
+    let loco = |client: &GameClient, object: ObjectId| {
+        let drawable = client.get_drawable_for_object(object.0)?;
+        client
+            .find_drawable_by_id(drawable)?
+            .as_any()
+            .downcast_ref::<BasicDrawable>()?
+            .get_loco_info()
+            .cloned()
+    };
+    let set_loco = |client: &mut GameClient, object: ObjectId, state: LocoInfo| {
+        let drawable = client
+            .get_drawable_for_object(object.0)
+            .expect("object Drawable");
+        *client
+            .find_drawable_by_id_mut(drawable)
+            .expect("receiving Drawable")
+            .as_any_mut()
+            .downcast_mut::<BasicDrawable>()
+            .expect("BasicDrawable")
+            .get_loco_info_mut() = state;
+    };
+    let draw = |engine: &mut CnCGameEngine, id: ObjectId| -> anyhow::Result<glam::Mat4> {
+        engine
+            .host_finalize_presentation_after_logic()
+            .map_err(anyhow::Error::msg)?;
+        engine
+            .game_client
+            .set_frame(engine.game_client.get_frame() + 1);
+        engine
+            .complete_native_display_step()
+            .map_err(anyhow::Error::msg)?;
+        let key = engine
+            .game_client
+            .presentation_direct_drawable_state(engine.host_direct_visual_world_epoch, id.0)
+            .expect("native binding for the admitted actor")
+            .binding_key;
+        engine
+            .game_client
+            .borrow_native_drawable_owner()
+            .native_draw_mesh_pose(key)
+            .map_err(|error| anyhow::anyhow!("{error}"))?
+            .1
+            .ok_or_else(|| {
+                anyhow::anyhow!("the actual native CPU Draw did not complete Humvee physics")
+            })
+    };
+
+    let mut spawn = engine.game_logic.session_view.target;
+    spawn.y = engine
+        .game_logic
+        .terrain_height_at(spawn)
+        .unwrap_or_default();
+    let id = engine
+        .host_create_object(TEMPLATE, Team::USA, spawn)
+        .expect("actual stock Humvee with a native Drawable");
+    // Let the local unit stamp its visibility before sampling the view phase.
+    longevity_frame(engine)?;
+    let before_cpu = loco(&engine.game_client, id);
+    let source_pose = draw(engine, id)?;
+    let source_loco = loco(&engine.game_client, id);
+    let source_epoch = engine.host_direct_visual_world_epoch;
+
+    let mut peer_world = GameLogic::new();
+    peer_world.add_object(crate::game_logic::Object::new(
+        ThingTemplate::new(TEMPLATE),
+        id,
+        Team::USA,
+    ));
+    let mut peer_client = GameClient::new()?;
+    let peer_drawable =
+        peer_client.register_drawable(Box::new(BasicDrawable::new(DrawableId(0))))?;
+    peer_client.bind_drawable_to_object(peer_drawable, id.0)?;
+    let peer_loco = LocoInfo {
+        pitch: -0.667,
+        yaw: -0.91,
+        ..Default::default()
+    };
+    set_loco(&mut peer_client, id, peer_loco.clone());
+    let peer_random = peer_world.session_view.client_random.seed_words();
+
+    // Fill fields a single ordinary pose does not vary, and keep the native
+    // archive layout test independent from any particular terrain slope.
+    let saved = LocoInfo {
+        pitch: 0.11,
+        pitch_rate: 0.12,
+        roll: -0.13,
+        roll_rate: -0.14,
+        yaw: 0.15,
+        acceleration_pitch: 0.16,
+        acceleration_pitch_rate: 0.17,
+        acceleration_roll: -0.18,
+        acceleration_roll_rate: -0.19,
+        overlap_z_velocity: -0.20,
+        overlap_z: 2.1,
+        wobble: -1.0,
+        yaw_modulator: 3.7,
+        pitch_modulator: 4.6,
+        wheel_info: WheelInfo {
+            front_left_height_offset: 0.23,
+            front_right_height_offset: 0.24,
+            rear_left_height_offset: 0.25,
+            rear_right_height_offset: 0.26,
+            wheel_angle: 0.27,
+            frames_airborne_counter: 28,
+            frames_airborne: 29,
+        },
+    };
+    set_loco(&mut engine.game_client, id, saved.clone());
+    engine
+        .host_save_game_from_ui(SLOT, "Native Drawable locomotor continuation")
+        .map_err(anyhow::Error::msg)?;
+    let decoded = engine.save_file_manager.load_game_snapshot(SLOT)?;
+    let bytes = decoded
+        .game_client_xfer
+        .as_deref()
+        .expect("full CHUNK_GameClient saved");
+    crate::save_load::snapshot::validate_game_client_xfer_bytes(bytes)?;
+    // The outgoing same numeric ObjectId now differs from the saved actor.
+    set_loco(&mut engine.game_client, id, LocoInfo::default());
+    engine
+        .host_load_game_authority(SLOT)
+        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+    assert_ne!(engine.host_direct_visual_world_epoch, source_epoch);
+
+    let mut restored = saved;
+    // These two oscillators are runtime-only in the original Xfer.
+    restored.yaw_modulator = 0.0;
+    restored.pitch_modulator = 0.0;
+    assert_eq!(loco(&engine.game_client, id), Some(restored.clone()));
+    engine
+        .host_finalize_presentation_after_logic()
+        .map_err(anyhow::Error::msg)?;
+    let facts = engine
+        .last_presentation_frame
+        .as_ref()
+        .expect("receiving frame")
+        .physics_visual_facts(id)
+        .expect("receiving Humvee physics facts");
+    assert_eq!(facts.appearance, PhysicsVisualAppearance::WheelsFour);
+    assert!(facts.show_client_physics && !facts.object_disabled_held);
+    let mut expected_loco = restored.clone();
+    let mut expected_random = engine.game_logic.session_view.client_random.clone();
+    let expected_xform = calc_physics_visual_xform(
+        facts.appearance,
+        &mut expected_loco,
+        &facts.params,
+        &facts.body,
+        &mut LiveClientRng(&mut expected_random),
+    )
+    .expect("one physics step from the archived state");
+    let mut cold_loco = LocoInfo::default();
+    let cold_xform = calc_physics_visual_xform(
+        facts.appearance,
+        &mut cold_loco,
+        &facts.params,
+        &facts.body,
+        &mut LiveClientRng(&mut engine.game_logic.session_view.client_random.clone()),
+    )
+    .expect("zero history is a distinct control");
+    let expected_pose = glam_yup_physics_visual_local(expected_xform);
+    assert_ne!(expected_pose, glam_yup_physics_visual_local(cold_xform));
+    assert_ne!(expected_pose, source_pose);
+    assert_eq!(
+        draw(engine, id)?,
+        expected_pose,
+        "first receiving CPU Draw discarded archive history"
+    );
+    assert_eq!(loco(&engine.game_client, id), Some(expected_loco.clone()));
+    engine
+        .complete_native_display_step()
+        .map_err(anyhow::Error::msg)?;
+    assert_eq!(
+        loco(&engine.game_client, id),
+        Some(expected_loco),
+        "same Client frame advanced twice"
+    );
+    assert!(
+        before_cpu.is_some() || source_loco.is_some(),
+        "source CPU Draw never wrote its canonical LocoInfo"
+    );
+    assert_eq!(loco(&peer_client, id), Some(peer_loco));
+    assert_eq!(
+        peer_world.session_view.client_random.seed_words(),
+        peer_random
+    );
+    println!(
+        "native Drawable archive restored all 19 C++ values and continued the first CPU Draw for Object {}",
+        id.0
+    );
+    Ok(())
+}
+
 fn actual_team_failure_stops_native_shell_and_fast_forward(engine: &mut CnCGameEngine) {
     use game_engine::common::{dict::Dict, well_known_keys::*};
     use gamelogic::scripting::core::{
@@ -1362,6 +1566,9 @@ pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
         .source.canonicalize()?;
         anyhow::ensure!(actual == expected, "startup Shell map differs from requested gate map");
         shell_to_skirmish_longevity_witness(&mut engine)?;
+        if std::env::var_os("GENERALS_NATIVE_DRAWABLE_LOCO_SAVE_GATE").is_some() {
+            native_drawable_loco_archive_witness(&mut engine)?;
+        }
         return Ok(());
     }
     // Keep the real startup producer owned outside synthetic command fixtures,
