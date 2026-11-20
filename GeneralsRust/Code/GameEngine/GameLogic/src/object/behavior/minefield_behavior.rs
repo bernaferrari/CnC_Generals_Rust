@@ -26,6 +26,7 @@ use crate::weapon::{WeaponTemplate, with_weapon_store};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::update_module::UpdateScheduleContext;
 use game_engine::common::thing::module::{
     Module as EngineModule, ModuleData as EngineModuleData, NameKeyType,
 };
@@ -364,7 +365,7 @@ impl MinefieldBehavior {
         TheGameLogic::get_frame()
     }
 
-    fn calc_sleep_time(&self) -> UpdateSleepTime {
+    fn calc_sleep_time(&self, now: UnsignedInt) -> UpdateSleepTime {
         if self.draining || self.scoot_frames_left > 0 {
             return UpdateSleepTime::None;
         }
@@ -376,7 +377,7 @@ impl MinefieldBehavior {
         if self.regenerates && self.module_data.read().stops_regen_after_creator_dies {
             sleep_time = sleep_time.min(
                 self.next_death_check_frame
-                    .saturating_sub(Self::current_frame()),
+                    .saturating_sub(now),
             );
         }
         if sleep_time == 0 {
@@ -514,8 +515,8 @@ impl MinefieldBehavior {
         if let Ok(mut object) = owner.write() {
             let _ = object.set_position(start);
         }
-        let sleep = self.calc_sleep_time();
-        let now = crate::helpers::TheGameLogic::get_frame();
+        let now = Self::current_frame();
+        let sleep = self.calc_sleep_time(now);
         self.next_call_frame_and_phase = match sleep {
             UpdateSleepTime::None => now.saturating_add(1),
             UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
@@ -565,13 +566,14 @@ impl MinefieldBehavior {
 
     fn update_internal(
         &mut self,
+        schedule: Option<&mut dyn UpdateScheduleContext>,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 410: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return Ok(UpdateSleepTime::None);
         }
 
-        let now = Self::current_frame();
+        let now = schedule.as_ref().map_or_else(Self::current_frame, |schedule| schedule.frame());
 
         if self.scoot_frames_left > 0 {
             if let Some(owner) = self.owner() {
@@ -617,25 +619,24 @@ impl MinefieldBehavior {
             && self.module_data.read().stops_regen_after_creator_dies
         {
             self.next_death_check_frame = now + self.module_data.read().creator_death_check_rate;
-            let producer_id = self
-                .owner()
-                .and_then(|owner| owner.read().ok().map(|object| object.get_producer_id()))
-                .unwrap_or(INVALID_ID);
-            // C++ only treats a *valid* producer as dead. INVALID_ID is not a dead creator,
-            // so unowned/cleared fields keep regenerating.
-            if producer_id != INVALID_ID {
-                let producer_dead = TheGameLogic::find_object_by_id(producer_id)
-                    .and_then(|producer| {
-                        producer
-                            .read()
-                            .ok()
-                            .map(|object| object.is_effectively_dead())
-                    })
+            let creator = self.owner().and_then(|owner| {
+                let actor = owner.read().ok()?;
+                let id = actor.get_producer_id();
+                (id != INVALID_ID).then(|| (id, actor.owning_world_services()))
+            });
+            // MinefieldBehavior.cpp:219–230 skips detached fields with INVALID_ID.
+            if let Some((creator_id, world)) = creator {
+                let producer = match world {
+                    Some(world) => world.object_registry().get_object(creator_id),
+                    None => TheGameLogic::find_object_by_id(creator_id),
+                };
+                let producer_dead = producer
+                    .and_then(|producer| producer.read().ok().map(|object| object.is_effectively_dead()))
                     .unwrap_or(true);
                 if producer_dead {
                     self.regenerates = false;
                     self.draining = true;
-                    self.stop_owner_auto_heal();
+                    self.stop_owner_auto_heal(schedule);
                 }
             }
         }
@@ -664,7 +665,7 @@ impl MinefieldBehavior {
             }
         }
 
-        Ok(self.calc_sleep_time())
+        Ok(self.calc_sleep_time(now))
     }
 
     fn on_collide_internal(&mut self, other_id: ObjectID) {
@@ -856,10 +857,21 @@ impl MinefieldBehavior {
         self.set_depleted_visuals(self.virtual_mines_remaining == 0);
     }
 
-    fn stop_owner_auto_heal(&self) {
+    fn stop_owner_auto_heal(&self, schedule: Option<&mut dyn UpdateScheduleContext>) {
         let Some(owner) = self.owner() else {
             return;
         };
+        if let Some(schedule) = schedule {
+            let registration = owner.read().ok().and_then(|actor| actor.auto_heal_update_registrations().next());
+            if let Some((entry, proxy)) = registration
+                && entry.with_module_downcast::<AutoHealBehaviorModule, _, _>(|module| {
+                    module.behavior_mut().stop_healing_owned();
+                }).is_some()
+            {
+                schedule.awaken(&proxy, UpdateSleepTime::Forever.to_u32());
+            }
+            return;
+        }
         let Some(module) = owner
             .read()
             .ok()
@@ -936,7 +948,14 @@ impl BehaviorModuleInterface for MinefieldBehavior {
 
 impl UpdateModuleInterface for MinefieldBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        self.update_internal()
+        self.update_internal(None)
+    }
+
+    fn update_scheduled(
+        &mut self,
+        schedule: &mut dyn UpdateScheduleContext,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        self.update_internal(Some(schedule))
     }
 }
 
@@ -1503,6 +1522,93 @@ mod tests {
         });
     }
 
+    fn mount_regrowing_mine(
+        world: &Arc<crate::system::engine_stores::EngineStores>,
+    ) -> [Arc<RwLock<GameObject>>; 3] {
+        use crate::system::game_logic::get_game_logic;
+        with_active_stores(world, || {
+            assert!(ensure_thing_factory_exists());
+            if get_module_factory().unwrap().is_none() {
+                init_module_factory().unwrap();
+            }
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            crate::initialize_weapon_store().unwrap();
+            get_game_logic().lock().unwrap().set_current_frame(37);
+            assert_eq!(
+                get_thing_factory()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .load_ini_text(
+                        r#"
+        Object RegrowthDisarmingDozer
+            KindOf = VEHICLE DOZER
+            Geometry = SPHERE
+            GeometryMajorRadius = 4
+            Body = ActiveBody Health
+                InitialHealth = 100
+                MaxHealth = 100
+            End
+            Behavior = DozerAIUpdate Dozer
+            End
+        End
+        Object RegrowthLinkedMine
+            KindOf = MINE IMMOBILE
+            Geometry = CYLINDER
+            GeometryMajorRadius = 2
+            Body = ActiveBody Health
+                InitialHealth = 100
+                MaxHealth = 100
+            End
+            Behavior = MinefieldBehavior Mines
+                NumVirtualMines = 8
+                Regenerates = Yes
+                StopsRegenAfterCreatorDies = Yes
+            DegenPercentPerSecondAfterCreatorDies = 3.33%
+            End
+            Behavior = AutoHealBehavior Heal
+                StartsActive = Yes
+                HealingAmount = 2
+                HealingDelay = 5000
+                StartHealingDelay = 15000
+            End
+        End
+        Object RegrowthMineCreator
+            KindOf = STRUCTURE IMMOBILE
+            Geometry = BOX
+            GeometryMajorRadius = 10
+            GeometryMinorRadius = 10
+            Body = ActiveBody Health
+                InitialHealth = 100
+                MaxHealth = 100
+            End
+        End
+        "#
+                    ),
+                3
+            );
+            let spawn = |name, x| {
+                let actor = TheThingFactory::get()
+                    .unwrap()
+                    .new_object_optional_team(TheThingFactory::find_template(name).unwrap(), None)
+                    .unwrap();
+                actor
+                    .write()
+                    .unwrap()
+                    .set_position(&Coord3D::new(x, 105.0, 0.0))
+                    .unwrap();
+                actor
+            };
+            let dozer = spawn("RegrowthDisarmingDozer", 105.0);
+            let mine = spawn("RegrowthLinkedMine", 108.0);
+            let producer = spawn("RegrowthMineCreator", 165.0);
+            mine.write()
+                .unwrap()
+                .set_producer(Some(&producer.read().unwrap()));
+            [dozer, mine, producer]
+        })
+    }
+
     #[test]
     fn mounted_disarm_restarts_auto_heal_and_regrows_first_virtual_mine() {
         #[cfg(not(target_arch = "wasm32"))]
@@ -1517,90 +1623,8 @@ mod tests {
         use crate::weapon::WeaponStore;
         let world = new_for_world();
         let peer = new_for_world();
-        let mount = |world: &Arc<_>| {
-            with_active_stores(world, || {
-                assert!(ensure_thing_factory_exists());
-                if get_module_factory().unwrap().is_none() {
-                    init_module_factory().unwrap();
-                }
-                crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
-                crate::initialize_weapon_store().unwrap();
-                get_game_logic().lock().unwrap().set_current_frame(37);
-                assert_eq!(
-                    get_thing_factory()
-                        .unwrap()
-                        .as_mut()
-                        .unwrap()
-                        .load_ini_text(
-                            r#"
-    Object RegrowthDisarmingDozer
-        KindOf = VEHICLE DOZER
-        Geometry = SPHERE
-        GeometryMajorRadius = 4
-        Body = ActiveBody Health
-            InitialHealth = 100
-            MaxHealth = 100
-        End
-        Behavior = DozerAIUpdate Dozer
-        End
-    End
-    Object RegrowthLinkedMine
-        KindOf = MINE IMMOBILE
-        Geometry = CYLINDER
-        GeometryMajorRadius = 2
-        Body = ActiveBody Health
-            InitialHealth = 100
-            MaxHealth = 100
-        End
-        Behavior = MinefieldBehavior Mines
-            NumVirtualMines = 8
-            Regenerates = Yes
-            StopsRegenAfterCreatorDies = Yes
-        End
-        Behavior = AutoHealBehavior Heal
-            StartsActive = Yes
-            HealingAmount = 2
-            HealingDelay = 5000
-            StartHealingDelay = 15000
-        End
-    End
-    Object RegrowthMineCreator
-        KindOf = STRUCTURE IMMOBILE
-        Geometry = BOX
-        GeometryMajorRadius = 10
-        GeometryMinorRadius = 10
-        Body = ActiveBody Health
-            InitialHealth = 100
-            MaxHealth = 100
-        End
-    End
-    "#
-                        ),
-                    3
-                );
-                let spawn = |name, x| {
-                    let actor = TheThingFactory::get()
-                        .unwrap()
-                        .new_object_optional_team(TheThingFactory::find_template(name).unwrap(), None)
-                        .unwrap();
-                    actor
-                        .write()
-                        .unwrap()
-                        .set_position(&Coord3D::new(x, 105.0, 0.0))
-                        .unwrap();
-                    actor
-                };
-                let dozer = spawn("RegrowthDisarmingDozer", 105.0);
-                let mine = spawn("RegrowthLinkedMine", 108.0);
-                let producer = spawn("RegrowthMineCreator", 165.0);
-                mine.write()
-                    .unwrap()
-                    .set_producer(Some(&producer.read().unwrap()));
-                (dozer, mine, producer)
-            })
-        };
-        let (dozer, mine, producer) = mount(&world);
-        let (peer_dozer, peer_mine, peer_producer) = mount(&peer);
+        let [dozer, mine, producer] = mount_regrowing_mine(&world);
+        let [peer_dozer, peer_mine, peer_producer] = mount_regrowing_mine(&peer);
         assert_eq!(
             dozer.read().unwrap().get_id(),
             peer_dozer.read().unwrap().get_id()
@@ -1705,6 +1729,122 @@ mod tests {
         });
         with_active_stores(&peer, || {
             assert_eq!(observe(&peer_mine), (100.0, u32::MAX, 8, false, false, false));
+        });
+    }
+
+    #[test]
+    fn mounted_creator_death_stops_regrowth_and_starts_drain_on_due_check() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            "object::behavior::minefield_behavior::tests::mounted_creator_death_stops_regrowth_and_starts_drain_on_due_check",
+            "GENERALS_MINE_CREATOR_DEATH_CHILD",
+        ) {
+            return;
+        }
+
+        use crate::system::game_logic::get_game_logic;
+        use crate::weapon::WeaponStore;
+        let world = new_for_world();
+        let peer = new_for_world();
+        let [dozer, mine, creator] = mount_regrowing_mine(&world);
+        let [_, peer_mine, peer_creator] = mount_regrowing_mine(&peer);
+        let creator_id = creator.read().unwrap().get_id();
+        assert_eq!(creator_id, peer_creator.read().unwrap().get_id());
+        assert_eq!(
+            mine.read().unwrap().get_id(),
+            peer_mine.read().unwrap().get_id()
+        );
+        let observe_heal = |mine: &Arc<RwLock<GameObject>>| {
+            let module = mine
+                .read()
+                .unwrap()
+                .module_by_name(&"AutoHealBehavior".into())
+                .unwrap();
+            module
+                .with_module_downcast::<AutoHealBehaviorModule, _, _>(|module| {
+                    let heal = module.behavior();
+                    (
+                        heal.stopped,
+                        heal.soonest_heal_frame,
+                        heal.next_call_frame_and_phase >> 2,
+                    )
+                })
+                .unwrap()
+        };
+        let peer_heal = observe_heal(&peer_mine);
+
+        with_active_stores(&world, || {
+            let mut weapon = WeaponTemplate::new("CreatorDeathDozerDisarm".into());
+            weapon.primary_damage = 1.0;
+            weapon.weapon_speed = 99999.0;
+            weapon.min_weapon_speed = 99999.0;
+            weapon.attack_range = 5.0;
+            weapon.damage_type = DamageType::Disarm;
+            weapon.clip_size = 1;
+            let source = dozer.read().unwrap().get_id();
+            let victim = mine.read().unwrap().get_id();
+            WeaponStore::create_and_fire_temp_weapon_at_target(&Arc::new(weapon), source, victim)
+                .unwrap();
+            assert_eq!(observe_heal(&mine).2, 487);
+            dozer
+                .write()
+                .unwrap()
+                .set_position(&Coord3D::new(305.0, 105.0, 0.0))
+                .unwrap();
+            let mut logic = get_game_logic().lock().unwrap();
+            for frame in 38..=517 {
+                if frame == 500 {
+                    logic.destroy_object(creator_id);
+                }
+                logic.update(frame, || None).unwrap();
+            }
+            assert!(logic.find_object_by_id(creator_id).is_none());
+            let (minefield, proxy, body) = {
+                let mine = mine.read().unwrap();
+                (
+                    mine.module_by_name(&"MinefieldBehavior".into()).unwrap(),
+                    mine.named_update_registrations("MinefieldBehavior")
+                        .pop()
+                        .unwrap(),
+                    mine.get_body_module().unwrap(),
+                )
+            };
+            let mine_state = || {
+                minefield
+                    .with_module_downcast::<MinefieldBehaviorModule, _, _>(|module| {
+                        let behavior = module.behavior_mut();
+                        (behavior.regenerates, behavior.draining)
+                    })
+                    .unwrap()
+            };
+            let health = || body.lock().unwrap().get_health();
+            assert_eq!(logic.sleepy_entry_for(&proxy), Some((victim, 518)));
+            assert_eq!(observe_heal(&mine), (false, 637, 637));
+            assert_eq!(mine_state(), (true, false));
+            assert!((health() - 2.1).abs() < 0.0001);
+
+            // The f38 creator poll repeats every 30 frames. f518 sees the exact
+            // retired creator, stops healing, and applies one native drain tick.
+            logic.update(518, || None).unwrap();
+            assert_eq!(observe_heal(&mine), (true, u32::MAX, 0x3fff_ffff));
+            assert_eq!(mine_state(), (false, true));
+            assert_eq!(logic.sleepy_entry_for(&proxy), Some((victim, 519)));
+            assert!((health() - 1.989).abs() < 0.0001);
+            logic.update(519, || None).unwrap();
+            assert!((health() - 1.878).abs() < 0.0001);
+            assert_eq!(body.lock().unwrap().get_last_healing_timestamp(), 487);
+            assert_eq!(observe_heal(&mine), (true, u32::MAX, 0x3fff_ffff));
+        });
+        with_active_stores(&peer, || {
+            assert_eq!(peer_mine.read().unwrap().get_health(), 100.0);
+            assert_eq!(observe_heal(&peer_mine), peer_heal);
+            assert!(
+                get_game_logic()
+                    .lock()
+                    .unwrap()
+                    .find_object_by_id(creator_id)
+                    .is_some_and(|actor| Arc::ptr_eq(&actor, &peer_creator))
+            );
         });
     }
 }

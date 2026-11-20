@@ -344,7 +344,7 @@ impl Object {
     }
 
     /// Loan the mounted AutoHeal entry and its own wake proxy in registration order.
-    pub(crate) fn auto_heal_damage_registrations(
+    pub(crate) fn auto_heal_update_registrations(
         &self,
     ) -> impl Iterator<Item = (BehaviorModuleHandle, UpdateModulePtr)> + '_ {
         self.update_module_registrations

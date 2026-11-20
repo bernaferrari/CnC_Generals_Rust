@@ -514,7 +514,7 @@ impl GameLogic {
             {
                 return;
             }
-            actor.auto_heal_damage_registrations().collect::<Vec<_>>()
+            actor.auto_heal_update_registrations().collect::<Vec<_>>()
         };
         for (entry, proxy) in registrations {
             if self.validate_owned_update_wake(&proxy).is_err() {

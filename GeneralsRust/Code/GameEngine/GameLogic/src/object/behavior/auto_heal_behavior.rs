@@ -968,12 +968,15 @@ impl AutoHealBehavior {
         Ok(())
     }
 
-    pub(crate) fn delete_owned(&mut self) -> Result<(), String> {
-        self.validate_delete_owned()?;
+    /// The driving scheduler commits the packed wake after this entry loan.
+    pub(crate) fn stop_healing_owned(&mut self) {
         self.stop_healing_state();
         self.last_wake_sleep = Some(UPDATE_SLEEP_FOREVER);
-        // The actual driving scheduler publishes the saved wake after this
-        // module loan ends. Never rediscover an identically numbered peer.
+    }
+
+    pub(crate) fn delete_owned(&mut self) -> Result<(), String> {
+        self.validate_delete_owned()?;
+        self.stop_healing_owned();
         Ok(())
     }
 
