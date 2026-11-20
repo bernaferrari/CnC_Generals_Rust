@@ -320,6 +320,10 @@ pub fn canonical_model_key_str(model_name: &str) -> &str {
 /// fallback table: a missing model must stay missing instead of borrowing a
 /// different unit's chassis, faction, damage, construction, or snow mesh.
 pub fn remap_model_key_alias(model_key: &str) -> String {
+    remapped_model_key(model_key).to_owned()
+}
+
+fn remapped_model_key(model_key: &str) -> &str {
     // Per-object per-frame caller (shadow refresh, presentation build): fold
     // case on the stack instead of allocating twice per lookup.
     let key = canonical_model_key_str(model_key);
@@ -332,7 +336,7 @@ pub fn remap_model_key_alias(model_key: &str) -> String {
         }
         None => model_key_alias_for_lower(&key.to_ascii_lowercase()),
     };
-    alias.map_or_else(|| key.to_string(), str::to_string)
+    alias.unwrap_or(key)
 }
 
 /// Alias table keyed by the lowercase canonical model key.
@@ -791,9 +795,23 @@ pub fn honesty_projectile_object_model_key_residual_ok() -> bool {
         && projectile_object_model_keys().len() >= 8
 }
 
-pub fn model_key_from_template(asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>, template: &ThingTemplate) -> String {
+pub fn model_key_from_template(
+    asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+    template: &ThingTemplate,
+) -> String {
+    let mut key = String::new();
+    update_model_key_from_template(&mut key, asset_manager, template);
+    key
+}
+
+pub(crate) fn update_model_key_from_template(
+    key: &mut String,
+    asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+    template: &ThingTemplate,
+) {
+    key.clear();
     if template.has_authored_no_model() {
-        return String::new();
+        return;
     }
     if let Some(model) = template
         .model_name
@@ -801,39 +819,47 @@ pub fn model_key_from_template(asset_manager: Option<&std::sync::Mutex<crate::as
         .map(str::trim)
         .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
     {
-        return remap_model_key_alias(model);
+        key.push_str(remapped_model_key(model));
+    } else {
+        append_drawable_model_key(key, asset_manager, &template.name);
     }
-    drawable_w3d_model_key(asset_manager, &template.name)
 }
 
 /// C++ W3DTreeDraw / W3DModelDraw load `ModelName` / ConditionState Model.
 /// ObjectReskin identities such as `TreeSpruce03` are never W3D basenames.
-pub fn drawable_w3d_model_key(asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>, object_or_model_name: &str) -> String {
-    let trimmed = object_or_model_name.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    // Ambient sound objects (`Amb_DesertVillageDayBirds`) are not meshes.
-    if trimmed.len() >= 4 && trimmed[..4].eq_ignore_ascii_case("amb_") {
-        return String::new();
-    }
-    if let Some(mapped) = authored_model_name_for_object(asset_manager, trimmed) {
-        return remap_model_key_alias(&mapped);
-    }
-    remap_model_key_alias(trimmed)
+pub fn drawable_w3d_model_key(
+    asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+    object_or_model_name: &str,
+) -> String {
+    let mut key = String::new();
+    append_drawable_model_key(&mut key, asset_manager, object_or_model_name);
+    key
 }
 
-fn authored_model_name_for_object(asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>, object_name: &str) -> Option<String> {
-    let manager = asset_manager?.lock().ok()?;
-    let mapped = manager.get_model_for_object(object_name)?;
-    let mapped = mapped.trim();
-    if mapped.is_empty() || mapped.eq_ignore_ascii_case("none") {
-        return None;
+fn append_drawable_model_key(
+    key: &mut String,
+    asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+    object_or_model_name: &str,
+) {
+    let trimmed = object_or_model_name.trim();
+    // Ambient sound objects (`Amb_DesertVillageDayBirds`) have no mesh.
+    if trimmed.is_empty()
+        || trimmed.get(..4).is_some_and(|prefix| prefix.eq_ignore_ascii_case("amb_"))
+    {
+        return;
     }
-    if mapped.eq_ignore_ascii_case(object_name) {
-        return None;
-    }
-    Some(mapped.to_string())
+    let mapped = asset_manager
+        .and_then(|manager| manager.lock().ok()?.get_model_for_object(trimmed));
+    let resolved = mapped
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| {
+            !model.is_empty()
+                && !model.eq_ignore_ascii_case("none")
+                && !model.eq_ignore_ascii_case(trimmed)
+        })
+        .unwrap_or(trimmed);
+    key.push_str(remapped_model_key(resolved));
 }
 
 /// Model key from presentation fields (model_key preferred, else template_name).
@@ -1470,6 +1496,23 @@ mod tests {
         let key = model_key_from_template(None, &t);
         assert!(!key.is_empty(), "USA_Ranger model key must be non-empty");
         assert_eq!(key.to_ascii_lowercase(), "airanger_s");
+    }
+
+    #[test]
+    fn reused_template_model_key_tracks_new_content_without_stale_suffix() {
+        let mut template = ThingTemplate::new("ObserverModelFixture");
+        let mut key = String::with_capacity(64);
+        template.set_model("models/avhumveeturret.w3d");
+        let storage = key.as_ptr();
+        update_model_key_from_template(&mut key, None, &template);
+        assert_eq!(key, "avhumveeturret");
+        template.set_model("USA_Ranger");
+        update_model_key_from_template(&mut key, None, &template);
+        assert_eq!(key, "airngr_skn");
+        assert_eq!(key.as_ptr(), storage);
+        assert_eq!(drawable_w3d_model_key(None, "ééświat.W3D"), "ééświat");
+        assert_eq!(drawable_w3d_model_key(None, "abcé.w3d"), "abcé");
+        assert!(drawable_w3d_model_key(None, "AMB_sound").is_empty());
     }
 
     #[test]

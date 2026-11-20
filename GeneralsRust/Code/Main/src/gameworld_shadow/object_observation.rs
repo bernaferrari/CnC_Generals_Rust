@@ -13,6 +13,7 @@ impl GameWorldShadow {
         oid: ObjectId,
         obj: &crate::game_logic::Object,
         eid: EntityId,
+        assets: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
     ) {
         let pos = obj.get_position();
         let transform = Transform::new([pos.x, pos.y, pos.z], obj.get_orientation());
@@ -162,7 +163,7 @@ impl GameWorldShadow {
             e.defection_final_white_flash = false;
         }
         e.fire_sound_loop_until_frame = obj.fire_sound_loop_until_frame;
-        e.fire_sound_loop_name = obj.fire_sound_loop_name.clone();
+        e.fire_sound_loop_name.clone_from(&obj.fire_sound_loop_name);
         if let Some(l) = obj.lifetime_update.as_ref() {
             e.lifetime_expire_at_frame = l.expire_at_frame;
             e.lifetime_active = l.active;
@@ -438,7 +439,7 @@ impl GameWorldShadow {
         e.no_collisions = obj.status.no_collisions;
         e.private_captured = obj.status.private_captured;
         e.is_surrendered = obj.is_surrendered;
-        e.emoticon_name = obj.emoticon_name.clone();
+        e.emoticon_name.clone_from(&obj.emoticon_name);
         e.emoticon_frames_left = obj.emoticon_frames_left;
         e.damage_fx_name = obj
             .pending_transition_damage_fx
@@ -492,7 +493,7 @@ impl GameWorldShadow {
                 }
                 if let Some(head) = bd.production_queue.first() {
                     e.production_progress = head.progress;
-                    e.production_template = head.template_name.clone();
+                    e.production_template.clone_from(&head.template_name);
                 } else {
                     e.production_progress = 0.0;
                     e.production_template.clear();
@@ -573,7 +574,7 @@ impl GameWorldShadow {
         e.kill_when_resting_on_ground = obj.kill_when_resting_on_ground;
         e.bounce_land_events = obj.bounce_land_events;
         e.last_bounce_fall_dy = obj.last_bounce_fall_dy;
-        e.bounce_sound_name = obj.bounce_sound_name.clone();
+        e.bounce_sound_name.clone_from(&obj.bounce_sound_name);
         e.last_bounce_volume = obj.last_bounce_volume;
         e.bounce_audio_pending = obj.bounce_audio_pending;
         e.allow_collide_force = obj.allow_collide_force;
@@ -1069,8 +1070,11 @@ impl GameWorldShadow {
             .map(|w| w.damage)
             .unwrap_or(0.0);
         e.display_name.clone_from(&obj.name);
-        e.model_key =
-            crate::assets::mesh_asset_resolve::model_key_from_template(logic.application_assets().as_deref(), obj.get_template());
+        crate::assets::mesh_asset_resolve::update_model_key_from_template(
+            &mut e.model_key,
+            assets,
+            obj.get_template(),
+        );
         e.model_condition_bits = obj.model_condition_bits;
         e.radar_extend_done_frame = obj.radar_extend_done_frame;
         e.radar_extend_complete = obj.radar_extend_complete;

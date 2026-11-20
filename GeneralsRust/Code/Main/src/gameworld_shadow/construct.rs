@@ -317,6 +317,7 @@ impl GameWorldShadow {
     pub fn sync_from_host(&mut self, logic: &GameLogic) {
         self.sync_players(logic);
         let obj_ids = self.sync_object_identities(logic);
+        let assets = logic.application_assets();
         for oid in obj_ids {
             let Some(obj) = logic.host_object(oid) else {
                 continue;
@@ -324,7 +325,7 @@ impl GameWorldShadow {
             let Some(&eid) = self.host_to_entity.get(&oid.0) else {
                 continue;
             };
-            self.refresh_mapped_from_host(logic, oid, obj, eid);
+            self.refresh_mapped_from_host(logic, oid, obj, eid, assets.as_deref());
             self.sync_weapon_slots_from_host(eid, obj);
         }
 
@@ -416,7 +417,7 @@ impl GameWorldShadow {
         cds.sort_by(|a, b| a.0.cmp(&b.0));
         pd.shared_special_power_cooldowns = cds;
         pd.is_human = p.is_human;
-        pd.name = p.name.clone();
+        pd.name.clone_from(&p.name);
     }
 
     pub(super) fn host_player_sciences(logic: &GameLogic, host_pid: u32) -> Vec<String> {
