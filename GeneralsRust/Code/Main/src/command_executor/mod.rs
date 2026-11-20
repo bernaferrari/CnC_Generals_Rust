@@ -114,7 +114,9 @@ pub use leftover::{
     take_leftover_dispatch_commands_from_common_stream, tick_live_beacon_client_updates,
     tick_live_beacon_client_updates_with_effects,
 };
-pub(crate) use leftover::{freeze_host_beacon_positions, host_object_is_beacon_for_player};
+pub(crate) use leftover::{
+    freeze_host_beacon_positions, host_beacon_template, host_object_is_beacon_for_player,
+};
 
 impl<'a> CommandExecutor<'a> {
     /// Create a new command executor with game logic reference

@@ -568,6 +568,7 @@ impl GameLogic {
             promotion_definitions: Default::default(),
             session_view: crate::presentation_frame::SessionView::default(),
             projected_shroud_cache: Default::default(),
+            cached_coarse_height_grid: None,
             logic_random: game_engine::common::random_value::SessionRandom::default(),
             logic_base_seed: 0,
 

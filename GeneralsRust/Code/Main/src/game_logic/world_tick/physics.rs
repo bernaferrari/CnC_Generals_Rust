@@ -8,6 +8,15 @@ fn stun_surface_at(terrain: &gamelogic::terrain::TerrainLogic, pos: glam::Vec3) 
     )
 }
 
+fn collision_center_lift(object: &Object) -> f32 {
+    use crate::game_logic::thing::HostGeometryType;
+    let geometry = object.geometry_info();
+    match geometry.geom_type {
+        HostGeometryType::Sphere => 0.0,
+        HostGeometryType::Box | HostGeometryType::Cylinder => geometry.height * 0.5,
+    }
+}
+
 impl GameLogic {
     /// C++ Weapon ContinueAttackRange residual (AIStates attack transfer).
     ///
@@ -348,15 +357,10 @@ impl GameLogic {
             };
             if has_ai && !dead_or_para {
                 let frame = self.frame;
-                let b_snap = match self.objects.get(&b_id) {
-                    Some(b) => b.clone(),
-                    None => return Ok(false),
-                };
-                let do_force = match self.objects.get_mut(&a_id) {
-                    Some(a) => {
-                        a.ai_process_collision(&b_snap, frame, is_ally, other_sees_us_as_ally)
-                    }
-                    None => return Ok(false),
+                let Some(do_force) = self.with_host_collision_pair(a_id, b_id, |a, b| {
+                    a.ai_process_collision(b, frame, is_ally, other_sees_us_as_ally)
+                }) else {
+                    return Ok(false);
                 };
                 if !do_force {
                     return Ok(true); // processCollision refused bounce
@@ -380,13 +384,19 @@ impl GameLogic {
         }
         // Mobile-mobile: AI processCollision residual (usually no bounce force).
         let frame = self.frame;
-        let b_snap = match self.objects.get(&b_id) {
-            Some(b) => b.clone(),
-            None => return Ok(false),
-        };
-        let allow_force = match self.objects.get_mut(&a_id) {
-            Some(a) => a.ai_process_collision(&b_snap, frame, is_ally, other_sees_us_as_ally),
-            None => return Ok(false),
+        let Some(obstacle_geometry) = self.with_host_collision_pair(a_id, b_id, |a, b| {
+            a.ai_process_collision(b, frame, is_ally, other_sees_us_as_ally)
+                .then(|| {
+                    // Yield commands can move other actors after this observation.
+                    (
+                        b.get_position(),
+                        collision_center_lift(b),
+                        b.physics_collide_sphere_radius(),
+                        b.physics_collide_circle_radius(),
+                    )
+                })
+        }) else {
+            return Ok(false);
         };
         let req_away = {
             let Some(a) = self.objects.get_mut(&a_id) else {
@@ -573,37 +583,24 @@ impl GameLogic {
                 }
             }
         }
-        if !allow_force {
+        let Some((them, them_lift, them_sphere, them_circle)) = obstacle_geometry else {
             return Ok(true); // AI handled / no force
-        }
+        };
         // C++ PhysicsUpdate.cpp:1278-1398: airborne = 3D sphere radii + delta;
         // ground = 2D circle; early-out if dist exceeds radius sum; overlap cap 5.
         if let Some(a) = self.objects.get_mut(&a_id) {
             if a.allow_collide_force {
-                let lift = |obj: &crate::game_logic::Object| {
-                    let g = &(*obj.geometry_info());
-                    match g.geom_type {
-                        crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
-                        crate::game_logic::thing::HostGeometryType::Box
-                        | crate::game_logic::thing::HostGeometryType::Cylinder => g.height * 0.5,
-                    }
-                };
                 let us = a.get_position();
-                let them = b_snap.get_position();
                 let airborne = a.is_above_terrain();
                 let us_r = if airborne {
                     a.physics_collide_sphere_radius()
                 } else {
                     a.physics_collide_circle_radius()
                 };
-                let them_r = if airborne {
-                    b_snap.physics_collide_sphere_radius()
-                } else {
-                    b_snap.physics_collide_circle_radius()
-                };
+                let them_r = if airborne { them_sphere } else { them_circle };
                 let dx = them.x - us.x;
                 let dy = if airborne {
-                    (them.y + lift(&b_snap)) - (us.y + lift(a))
+                    (them.y + them_lift) - (us.y + collision_center_lift(a))
                 } else {
                     0.0
                 };
@@ -614,7 +611,7 @@ impl GameLogic {
                     let dist = dist_sqr.sqrt();
                     let overlap = radius_sum - dist;
                     if overlap > 0.0 {
-                        let them_center = glam::Vec3::new(them.x, them.y + lift(&b_snap), them.z);
+                        let them_center = glam::Vec3::new(them.x, them.y + them_lift, them.z);
                         a.apply_overlap_collide_force(them_center, overlap, self.frame);
                     }
                 }
@@ -634,6 +631,22 @@ impl GameLogic {
             prop_id,
             &mut crate::game_logic::ScriptPresentationEffects::default(),
         )
+    }
+
+    fn with_host_collision_pair<T>(
+        &mut self,
+        actor_id: ObjectId,
+        obstacle_id: ObjectId,
+        operation: impl FnOnce(&mut Object, &Object) -> T,
+    ) -> Option<T> {
+        if actor_id == obstacle_id {
+            // Direct callers can present a self-pair. The partition never does.
+            let obstacle = self.objects.get(&obstacle_id)?.clone();
+            let actor = self.objects.get_mut(&actor_id)?;
+            return Some(operation(actor, &obstacle));
+        }
+        let [actor, obstacle] = self.objects.get_disjoint_mut([&actor_id, &obstacle_id]);
+        Some(operation(actor?, obstacle?))
     }
 
     pub(in super::super) fn try_topple_on_collide_with_effects(
@@ -662,7 +675,7 @@ impl GameLogic {
         let fx_player = self.local_player_id();
         let (kill_now, handled, stump, pos, ori) = {
             #[cfg(feature = "game_client")]
-            let fx_operation_environment = self.observe_object_fx_environment();
+            let fx_operation_environment = self.observe_object_fx_environment_for(prop_id);
             let Some(prop) = self.objects.get_mut(&prop_id) else {
                 return Ok(false);
             };

@@ -1219,7 +1219,10 @@ pub(crate) fn host_object_is_beacon_for_player(
         .is_some_and(|template| obj.get_template().is_equivalent_to(template))
 }
 
-fn host_beacon_template(logic: &GameLogic, player_id: u32) -> Option<&crate::game_logic::ThingTemplate> {
+pub(crate) fn host_beacon_template(
+    logic: &GameLogic,
+    player_id: u32,
+) -> Option<&crate::game_logic::ThingTemplate> {
     let player = logic.get_player(player_id)?;
     let expected = host_beacon_template_name(logic, player_id, player.team);
     if expected.is_empty() {

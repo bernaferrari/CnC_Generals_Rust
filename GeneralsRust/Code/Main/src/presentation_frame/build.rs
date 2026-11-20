@@ -380,7 +380,7 @@ impl PresentationFrame {
         // miss builders when sight_range / ObjectManager dual-world is incomplete.
         let local_team = super::live_draw_source::receiving_local_team(logic, local_player_id);
         let world_env =
-            PresentationWorldEnv::from_logic_with_runtime_heightmap(logic, runtime_heightmap);
+            PresentationWorldEnv::from_receiving_logic(logic, runtime_heightmap);
         // Freeze team base proximity once (camera snap / host residual).
         let local_team_base_position = logic.team_base_position(local_team);
         // Freeze terrain FOW grid once for this presentation frame (local player only).
@@ -447,6 +447,7 @@ impl PresentationFrame {
         let mut native_ghost_scale_sources = std::collections::HashMap::new();
         let mut structure_topple_transforms = std::collections::HashMap::new();
         let mut rider_change_rosters = RiderChangeRosters::new(logic);
+        let mut beacon_templates = game_engine::common::fast_hash::FxHashMap::default();
         for (obj, fow_visibility, drawable_shroud) in frozen_object_shrouds {
             // These facts also belong to registered Objects with hidden meshes.
             if obj.structure_topple_data.is_some() {
@@ -479,6 +480,15 @@ impl PresentationFrame {
             // the existing per-field fallbacks for linked teardown objects.
             let canonical = logic.host_object(obj.id);
             let body = canonical.unwrap_or(obj);
+            let is_beacon = canonical.is_some_and(|actor| {
+                let Some(owner) = actor.owner_player_id else {
+                    return false;
+                };
+                let template = *beacon_templates.entry(owner).or_insert_with(|| {
+                    crate::command_executor::host_beacon_template(logic, owner)
+                });
+                template.is_some_and(|template| actor.get_template().is_equivalent_to(template))
+            });
             let auth_health = body.health.current;
             let auth_dest = canonical.and_then(|object| object.movement.target_position);
             let auth_target = canonical.and_then(|object| object.target);
@@ -611,7 +621,7 @@ impl PresentationFrame {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 beacon_caption: crate::command_executor::host_beacon_caption(logic, obj.id),
-                is_beacon: crate::command_executor::host_object_is_beacon(logic, obj.id),
+                is_beacon,
                 team: garrison_apparent_team,
                 owner_player_id: obj.owner_player_id,
                 team_color: {

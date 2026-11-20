@@ -328,16 +328,16 @@ impl GameLogic {
                 let Some(object) = self.objects.get(&object_id) else {
                     continue;
                 };
-                let rates = self.receiving_weapon_rates_of_fire(object);
+                let rates = [0u8, 1, 2]
+                    .iter()
+                    .any(|&slot| object.weapon_slot(slot).is_some())
+                    .then(|| self.receiving_weapon_rates_of_fire(object));
                 let Some(obj) = self.objects.get_mut(&object_id) else {
                     continue;
                 };
                 // C++ ObjectWeaponStatusHelper every-frame getStatus:
                 // refill auto-reload clips and flip READY when ClipReloadTime elapses.
-                if [0u8, 1, 2]
-                    .iter()
-                    .any(|&slot| obj.weapon_slot(slot).is_some())
-                {
+                if let Some(rates) = rates {
                     obj.refresh_weapon_fire_status_at_frame(self.frame, &rates);
                 }
                 obj.tick_spy_vision_disabled(self.frame);

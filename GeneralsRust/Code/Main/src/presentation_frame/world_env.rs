@@ -587,7 +587,7 @@ pub struct PresentationWorldEnv {
     /// Fail-closed: not full SAGE heightmap mesh / bilinear retail sample grid.
     pub height_grid_w: u32,
     pub height_grid_h: u32,
-    pub height_samples: Vec<f32>,
+    pub height_samples: Arc<[f32]>,
     /// True when at least one sample came from live terrain (not empty default).
     pub height_samples_from_terrain: bool,
     /// Map road segments frozen for terrain-road bake without live GameLogic.
@@ -607,6 +607,118 @@ pub struct PresentationWorldEnv {
     pub initial_camera_position: Option<[f32; 3]>,
 }
 
+const COARSE_HEIGHT_GRID_WIDTH: u32 = 64;
+const COARSE_HEIGHT_GRID_HEIGHT: u32 = 64;
+
+#[derive(Clone)]
+struct CoarseHeightGrid {
+    samples: Arc<[f32]>,
+    has_terrain: bool,
+}
+
+impl CoarseHeightGrid {
+    fn sample(
+        (wmin, wmax): (glam::Vec3, glam::Vec3),
+        mut height_at: impl FnMut(glam::Vec3) -> Option<f32>,
+    ) -> Self {
+        let span_x = (wmax.x - wmin.x).max(1.0);
+        let span_z = (wmax.z - wmin.z).max(1.0);
+        let mut samples =
+            vec![0.0; (COARSE_HEIGHT_GRID_WIDTH * COARSE_HEIGHT_GRID_HEIGHT) as usize];
+        let mut has_terrain = false;
+        for (y, row) in samples
+            .chunks_exact_mut(COARSE_HEIGHT_GRID_WIDTH as usize)
+            .enumerate()
+        {
+            let v = (y as f32 + 0.5) / COARSE_HEIGHT_GRID_HEIGHT as f32;
+            let z = wmin.z + v * span_z;
+            for (x, height) in row.iter_mut().enumerate() {
+                let u = (x as f32 + 0.5) / COARSE_HEIGHT_GRID_WIDTH as f32;
+                let world = glam::Vec3::new(wmin.x + u * span_x, 0.0, z);
+                if let Some(h) = height_at(world) {
+                    *height = h;
+                    has_terrain = true;
+                }
+            }
+        }
+        Self {
+            samples: samples.into(),
+            has_terrain,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct CoarseBridgeDeck {
+    bounds: [u32; 4],
+    corners: [[u32; 3]; 4],
+    rubble: bool,
+}
+
+impl CoarseBridgeDeck {
+    fn from_bridge(bridge: &gamelogic::terrain::Bridge) -> Self {
+        let bounds = bridge.get_bounds();
+        let info = bridge.get_bridge_info();
+        Self {
+            bounds: [bounds.lo.x, bounds.lo.y, bounds.hi.x, bounds.hi.y].map(f32::to_bits),
+            corners: [info.from_left, info.from_right, info.to_left, info.to_right]
+                .map(|point| [point.x, point.y, point.z].map(f32::to_bits)),
+            rubble: info.cur_damage_state == gamelogic::common::BodyDamageType::Rubble,
+        }
+    }
+}
+
+fn coarse_bridge_decks(
+    terrain: &gamelogic::terrain::TerrainLogic,
+) -> impl Iterator<Item = CoarseBridgeDeck> + '_ {
+    std::iter::successors(terrain.get_first_bridge(), |bridge| bridge.get_next())
+        .map(CoarseBridgeDeck::from_bridge)
+}
+
+pub(crate) struct CachedCoarseHeightGrid {
+    owner: std::sync::Weak<std::sync::RwLock<gamelogic::terrain::TerrainLogic>>,
+    height_revision: u64,
+    bounds: [u32; 4],
+    bridges: Vec<CoarseBridgeDeck>,
+    grid: CoarseHeightGrid,
+}
+
+impl CachedCoarseHeightGrid {
+    fn reuse(
+        &self,
+        owner: &Arc<std::sync::RwLock<gamelogic::terrain::TerrainLogic>>,
+        terrain: &gamelogic::terrain::TerrainLogic,
+        bounds: (glam::Vec3, glam::Vec3),
+    ) -> Option<CoarseHeightGrid> {
+        (self.owner.as_ptr() == Arc::as_ptr(owner)
+            && self.height_revision == terrain.height_revision()
+            && self.bounds == Self::bounds_key(bounds)
+            // TerrainLogic's first matching span wins even when rubble.
+            // Compare the live list in order, without allocating on a hit.
+            && coarse_bridge_decks(terrain).eq(self.bridges.iter().copied()))
+        .then(|| self.grid.clone())
+    }
+
+    fn new(
+        owner: &Arc<std::sync::RwLock<gamelogic::terrain::TerrainLogic>>,
+        terrain: &gamelogic::terrain::TerrainLogic,
+        bounds: (glam::Vec3, glam::Vec3),
+        grid: CoarseHeightGrid,
+    ) -> Self {
+        Self {
+            owner: Arc::downgrade(owner),
+            height_revision: terrain.height_revision(),
+            bounds: Self::bounds_key(bounds),
+            bridges: coarse_bridge_decks(terrain).collect(),
+            grid,
+        }
+    }
+
+    fn bounds_key((wmin, wmax): (glam::Vec3, glam::Vec3)) -> [u32; 4] {
+        [wmin.x, wmin.z, wmax.x, wmax.z].map(f32::to_bits)
+    }
+}
+
 impl PresentationWorldEnv {
     pub fn from_logic(logic: &GameLogic) -> Self {
         Self::from_logic_with_runtime_heightmap(logic, None)
@@ -619,6 +731,44 @@ impl PresentationWorldEnv {
         logic: &GameLogic,
         runtime_heightmap: Option<Arc<PresentationRuntimeHeightmap>>,
     ) -> Self {
+        Self::from_logic_with_height_grid(logic, runtime_heightmap, None)
+    }
+
+    pub(super) fn from_receiving_logic(
+        logic: &mut GameLogic,
+        runtime_heightmap: Option<Arc<PresentationRuntimeHeightmap>>,
+    ) -> Self {
+        let bounds = logic.world_bounds();
+        let height_grid = {
+            let owner = logic.world_services.terrain();
+            let terrain = owner.read().unwrap_or_else(|error| error.into_inner());
+            let has_core_grid = terrain.has_height_map();
+            let reused = logic
+                .cached_coarse_height_grid
+                .as_ref()
+                .filter(|_| has_core_grid)
+                .and_then(|cached| cached.reuse(owner, &terrain, bounds));
+            if let Some(grid) = reused {
+                grid
+            } else {
+                let grid = CoarseHeightGrid::sample(bounds, |world| {
+                    logic.terrain_height_at_with_terrain_logic(world, Some(&terrain))
+                });
+                // Detached/no-map samplers have independent fallback sources.
+                // Keep their exact current query and drop any unloaded grid.
+                logic.cached_coarse_height_grid = has_core_grid
+                    .then(|| CachedCoarseHeightGrid::new(owner, &terrain, bounds, grid.clone()));
+                grid
+            }
+        };
+        Self::from_logic_with_height_grid(logic, runtime_heightmap, Some(height_grid))
+    }
+
+    fn from_logic_with_height_grid(
+        logic: &GameLogic,
+        runtime_heightmap: Option<Arc<PresentationRuntimeHeightmap>>,
+        height_grid: Option<CoarseHeightGrid>,
+    ) -> Self {
         let (wmin, wmax) = logic.world_bounds();
         let meta = logic.last_parsed_map_settings_ref();
         let heightmap_hint = logic
@@ -629,34 +779,16 @@ impl PresentationWorldEnv {
                     .and_then(|m| m.heightmap_path.as_ref())
                     .and_then(|p| p.to_str().map(|s| s.to_string()))
             });
-        // Coarse height grid for minimap residual (fixed 64×64 — small, deterministic).
-        const HG_W: u32 = 64;
-        const HG_H: u32 = 64;
-        let span_x = (wmax.x - wmin.x).max(1.0);
-        let span_z = (wmax.z - wmin.z).max(1.0);
-        let mut height_samples = vec![0.0f32; (HG_W * HG_H) as usize];
-        let mut height_samples_from_terrain = false;
-        {
+        let height_grid = height_grid.unwrap_or_else(|| {
             let terrain = logic
                 .world_services
                 .terrain()
                 .read()
                 .unwrap_or_else(|error| error.into_inner());
-            for (y, row) in height_samples.chunks_exact_mut(HG_W as usize).enumerate() {
-                let v = (y as f32 + 0.5) / HG_H as f32;
-                let z = wmin.z + v * span_z;
-                for (x, height) in row.iter_mut().enumerate() {
-                    let u = (x as f32 + 0.5) / HG_W as f32;
-                    let world = glam::Vec3::new(wmin.x + u * span_x, 0.0, z);
-                    if let Some(h) =
-                        logic.terrain_height_at_with_terrain_logic(world, Some(&terrain))
-                    {
-                        *height = h;
-                        height_samples_from_terrain = true;
-                    }
-                }
-            }
-        }
+            CoarseHeightGrid::sample((wmin, wmax), |world| {
+                logic.terrain_height_at_with_terrain_logic(world, Some(&terrain))
+            })
+        });
 
         let road_segments: Vec<PresentationRoadSegment> = logic
             .terrain_road_segments_snapshot()
@@ -806,10 +938,10 @@ impl PresentationWorldEnv {
             map_object_count: meta.as_ref().map(|m| m.objects.len() as u32).unwrap_or(0),
             has_map_metadata: meta.is_some(),
             prewarm_template_names,
-            height_grid_w: HG_W,
-            height_grid_h: HG_H,
-            height_samples,
-            height_samples_from_terrain,
+            height_grid_w: COARSE_HEIGHT_GRID_WIDTH,
+            height_grid_h: COARSE_HEIGHT_GRID_HEIGHT,
+            height_samples: height_grid.samples,
+            height_samples_from_terrain: height_grid.has_terrain,
             road_segments,
             bridge_segments,
             water_areas,
@@ -1134,3 +1266,7 @@ pub(super) fn current_model_environment(logic: &GameLogic) -> (bool, bool) {
     let is_snow = weather.contains("snow") && follow_weather;
     (is_snow, is_night)
 }
+
+#[cfg(test)]
+#[path = "coarse_height_grid_tests.rs"]
+mod coarse_height_grid_tests;

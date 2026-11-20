@@ -25,7 +25,7 @@ fn startup_camera_terrain_frame(
     frame.world_env.height_samples_from_terrain = true;
     frame.world_env.height_grid_w = 2;
     frame.world_env.height_grid_h = 2;
-    frame.world_env.height_samples = vec![777.0; 4];
+    frame.world_env.height_samples = vec![777.0; 4].into();
     frame.world_env.runtime_heightmap = Some(std::sync::Arc::new(map));
     frame
 }
