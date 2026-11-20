@@ -141,13 +141,14 @@ impl Object {
     }
 
     pub(super) fn clear_construction_completion_status(&mut self) {
-        let mask = ObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction)
-            | ObjectStatusMaskType::from_status(ObjectStatusTypes::Reconstructing);
+        // DozerAIUpdate.cpp:540–541 processes mines before clearing the
+        // separate RECONSTRUCTING flag.
         self.set_status_with_construction_refresh(
-            mask,
+            ObjectStatusTypes::UnderConstruction.into(),
             false,
             Self::maintain_partition_for_owning_world,
         );
+        self.clear_status(ObjectStatusTypes::Reconstructing.into());
     }
 
     fn set_status_with_construction_refresh(
@@ -246,8 +247,9 @@ impl Object {
                 match relationship {
                     Relationship::Enemies => {
                         if let Ok(mut obj_guard) = obj_arc.write() {
-                            obj_guard
-                                .kill(Some(DamageType::LandMine), Some(DeathType::Exploded));
+                            // Object.cpp:1001 calls kill() with its default
+                            // forced Unresistable/Normal damage descriptor.
+                            obj_guard.kill(None, None);
                         }
                     }
                     Relationship::Allies | Relationship::Neutral => {

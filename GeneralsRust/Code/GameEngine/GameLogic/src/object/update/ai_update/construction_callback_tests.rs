@@ -1143,6 +1143,112 @@ fn construction_completion_destroys_only_its_own_overlapping_neutral_mine() {
     assert!(peer_site.read().unwrap().is_under_construction());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn dozer_completion_uses_the_original_forced_kill_for_an_enemy_mine() {
+    use crate::common::{ObjectStatusTypes, Relationship};
+    use crate::damage::{DamageType, DeathType};
+    use crate::helpers::TheThingFactory;
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+    use game_engine::common::thing::thing_factory::get_thing_factory;
+
+    const NAME: &str = concat!(module_path!(), "::dozer_completion_uses_the_original_forced_kill_for_an_enemy_mine");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_DOZER_COMPLETION_KILL_PAYLOAD_CHILD",
+    ) {
+        return;
+    }
+
+    let spawn = |world: &Arc<EngineStores>| {
+        let builder = admit_physical_construction_builder(world, false);
+        with_active_stores(world, || {
+            let center = Coord3D::new(290.0, 105.0, 0.0);
+            let scaffold_id = GameLogicBuildAssistantBackend.build_object_now(
+                None,
+                "PhysicalConstructionSite",
+                &BuildPosition { x: center.x, y: center.y, z: center.z },
+                0.0,
+                0,
+            ).unwrap();
+            let logic = world.game_logic_mutex();
+            let scaffold = logic.lock().unwrap().find_object_by_id(scaffold_id).unwrap();
+            scaffold.write().unwrap().set_status(ObjectStatusTypes::Reconstructing.into(), true);
+            assert!(scaffold.read().unwrap().test_status(ObjectStatusTypes::UnderConstruction));
+
+            let enemy_team = Arc::new(RwLock::new(Team::new("CompletionMineOwner".into(), 401)));
+            enemy_team.write().unwrap().set_controlling_player_id(Some(1));
+            let mut enemy = Player::new(1);
+            enemy.set_default_team(Some(Arc::clone(&enemy_team)));
+            enemy.set_player_relationship_by_index(0, Relationship::Enemies);
+            world.services().players().write().unwrap().add_player(Arc::new(RwLock::new(enemy)));
+            let controller = scaffold.read().unwrap().get_controlling_player().unwrap();
+            controller.write().unwrap().set_player_relationship_by_index(1, Relationship::Enemies);
+            let source = "
+                Object ForcedKillConstructionMine
+                    KindOf = MINE IMMOBILE
+                    Geometry = CYLINDER
+                    GeometryMajorRadius = 2
+                    GeometryHeight = 2
+                    Body = ActiveBody Health
+                        MaxHealth = 20
+                        InitialHealth = 20
+                    End
+                End
+            ";
+            assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(source), 1);
+            let factory = TheThingFactory::get().unwrap();
+            let mine = factory.new_object_with_team_handle(
+                TheThingFactory::find_template("ForcedKillConstructionMine").unwrap(),
+                Arc::clone(&enemy_team),
+            ).unwrap();
+            // The ordinary defeat check excludes mines. Keep a live opponent
+            // while the partition consumes the factory mine's position.
+            let enemy_base = factory.new_object_with_team_handle(
+                TheThingFactory::find_template("PhysicalConstructionSite").unwrap(),
+                enemy_team,
+            ).unwrap();
+            enemy_base.write().unwrap().set_position(&Coord3D::new(345.0, 335.0, 0.0)).unwrap();
+            mine.write().unwrap().set_position(&center).unwrap();
+            logic.lock().unwrap().update(38, || None).unwrap();
+            assert_eq!(scaffold.read().unwrap().relationship_to(&mine.read().unwrap()), Relationship::Enemies);
+            let mine_id = mine.read().unwrap().get_id();
+            assert!(logic.lock().unwrap().partition_manager()
+                .find_objects_in_radius_by_center(center, 8.0).contains(&mine_id));
+            (builder, scaffold, mine)
+        })
+    };
+
+    let driving = new_for_world();
+    let peer = new_for_world();
+    let (builder, scaffold, mine) = spawn(&driving);
+    let (_, peer_scaffold, peer_mine) = spawn(&peer);
+    assert_eq!(scaffold.read().unwrap().get_id(), peer_scaffold.read().unwrap().get_id());
+    assert_eq!(mine.read().unwrap().get_id(), peer_mine.read().unwrap().get_id());
+    with_active_stores(&driving, || complete_dozer_for_test(&builder, &scaffold, true));
+
+    let mine = mine.read().unwrap();
+    let body = mine.get_body_module().unwrap();
+    let damage = body.lock().unwrap().get_last_damage_info().unwrap();
+    assert_eq!(damage.input.damage_type, DamageType::Unresistable);
+    assert_eq!(damage.input.death_type, DeathType::Normal);
+    assert_eq!(damage.input.source_id, INVALID_ID);
+    assert_eq!(damage.input.amount, 20.0);
+    assert!(damage.input.kill);
+    assert!(mine.is_effectively_dead());
+    assert_eq!(mine.get_health(), 0.0);
+    for status in [ObjectStatusTypes::UnderConstruction, ObjectStatusTypes::Reconstructing] {
+        assert!(!scaffold.read().unwrap().test_status(status));
+        assert!(peer_scaffold.read().unwrap().test_status(status));
+    }
+    assert_eq!(scaffold.read().unwrap().get_construction_percent(), crate::object::CONSTRUCTION_COMPLETE);
+    assert_eq!(peer_scaffold.read().unwrap().get_construction_percent(), 0.0);
+    assert_eq!(peer_mine.read().unwrap().get_health(), 20.0);
+}
+
 #[cfg(panic = "unwind")]
 #[test]
 fn completion_with_poisoned_body_keeps_the_installed_footprint_intact() {

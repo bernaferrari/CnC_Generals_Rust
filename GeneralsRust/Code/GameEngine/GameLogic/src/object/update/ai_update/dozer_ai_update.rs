@@ -1015,6 +1015,11 @@ impl DozerAIUpdate {
         is_rebuild: Bool,
         parent: &mut Option<&mut dyn AIUpdateInterface>,
     ) -> Result<(), String> {
+        // DozerAIUpdate.cpp:540–545 clears both status flags and visits mines
+        // before stopping the construction sound.
+        if let Ok(mut target_guard) = target.write() {
+            target_guard.clear_construction_completion_status();
+        }
         self.finish_building_sound();
 
         let mut target_display_name: Option<String> = None;
@@ -1022,8 +1027,6 @@ impl DozerAIUpdate {
         let mut controlling_player: Option<Arc<RwLock<crate::player::Player>>> = None;
 
         if let Ok(mut target_guard) = target.write() {
-            target_guard.clear_construction_completion_status();
-
             let _ = target_guard.clear_model_condition_flags(
                 ModelConditionFlags::AWAITING_CONSTRUCTION
                     | ModelConditionFlags::PARTIALLY_CONSTRUCTED
