@@ -1,6 +1,44 @@
 use super::*;
 use crate::fow_rendering::{ObjectShroudFrame, ProjectedShroudMetadata, ProjectedShroudSnapshot};
+use crate::game_logic::{Object, RiderChangeRiderMetadata};
 use gamelogic::common::ObjectShroudStatus;
+
+/// Reuse the same input roster across all bikes that share authored enter rules
+/// in this borrowed view. Scuttle state still belongs to each individual bike.
+pub(super) struct RiderChangeRosters<'a> {
+    logic: &'a GameLogic,
+    entries: Vec<(&'a [RiderChangeRiderMetadata], Vec<String>)>,
+}
+
+impl<'a> RiderChangeRosters<'a> {
+    pub(super) fn new(logic: &'a GameLogic) -> Self {
+        Self {
+            logic,
+            entries: Vec::new(),
+        }
+    }
+
+    pub(super) fn allowed_templates(&mut self, container: &'a Object) -> Vec<String> {
+        if !container.supports_authored_rider_change_normal_enter() {
+            return Vec::new();
+        }
+        let rows = &container.get_template().contain_module.rider_change_riders;
+        let can_enter = |row: &RiderChangeRiderMetadata| {
+            row.physical_enter_supported && row.active_locomotor_name.is_some()
+        };
+        if let Some((_, templates)) = self.entries.iter().find(|(previous, _)| {
+            previous.len() == rows.len()
+                && previous.iter().zip(rows).all(|(old, new)| {
+                    old.template_name == new.template_name && can_enter(old) == can_enter(new)
+                })
+        }) {
+            return templates.clone();
+        }
+        let templates = self.logic.rider_change_presentation_templates(container);
+        self.entries.push((rows, templates.clone()));
+        templates
+    }
+}
 
 /// Keep the host visibility decision identical in direct and shadow-backed frames.
 pub(super) fn hide_garrison_from_local(
@@ -383,6 +421,7 @@ impl PresentationFrame {
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().registered_len());
         let mut native_ghost_scale_sources = std::collections::HashMap::new();
         let mut structure_topple_transforms = std::collections::HashMap::new();
+        let mut rider_change_rosters = RiderChangeRosters::new(logic);
         for (obj, fow_visibility, drawable_shroud) in frozen_object_shrouds {
             // These facts also belong to registered Objects with hidden meshes.
             if obj.structure_topple_data.is_some() {
@@ -1002,7 +1041,7 @@ impl PresentationFrame {
                     != crate::game_logic::ContainModuleKind::None,
                 contain_module_kind: containment.thing().template.contain_module.kind,
                 contain_admission: containment.normal_enter_admission(),
-                rider_change_allowed_templates: logic.rider_change_presentation_templates(containment),
+                rider_change_allowed_templates: rider_change_rosters.allowed_templates(containment),
                 contain_allow_allies_inside: containment.thing().template.contain_module.allow_allies_inside,
                 contain_allow_enemies_inside: containment.thing().template.contain_module.allow_enemies_inside,
                 contain_allow_neutral_inside: containment.thing().template.contain_module.allow_neutral_inside,

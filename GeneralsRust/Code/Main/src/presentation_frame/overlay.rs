@@ -1978,6 +1978,7 @@ impl PresentationFrame {
             .map(|p| p.team)
             .unwrap_or(crate::game_logic::Team::Neutral);
         let mut stamped = 0usize;
+        let mut rider_change_rosters = super::build::RiderChangeRosters::new(logic);
         for ro in &mut self.objects {
             let Some(obj) = logic.host_object(ro.id) else {
                 continue;
@@ -2090,7 +2091,8 @@ impl PresentationFrame {
                 ro.contain_admission = contain_admission;
                 dirty = true;
             }
-            let rider_change_allowed_templates = logic.rider_change_presentation_templates(containment);
+            let rider_change_allowed_templates =
+                rider_change_rosters.allowed_templates(containment);
             if ro.rider_change_allowed_templates != rider_change_allowed_templates {
                 ro.rider_change_allowed_templates = rider_change_allowed_templates;
                 dirty = true;

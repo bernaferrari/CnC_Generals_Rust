@@ -1458,7 +1458,10 @@ End
             "presentation exposes the modeled SET_SLUGGISH Terrorist row"
         );
 
-        let mut disabled_first = game_logic.host_object(bike_id).unwrap().get_template().clone();
+        let source_roster = game_logic.host_object(bike_id).unwrap().get_template().clone();
+        let peer_bike_id = ObjectId(809);
+        game_logic.add_object(Object::new(source_roster.clone(), peer_bike_id, Team::GLA));
+        let mut disabled_first = source_roster;
         let rows = &mut disabled_first.contain_module.rider_change_riders;
         let mut rejected = rows.iter().find(|row| row.slot == 2).unwrap().clone();
         let mut alternate = rider_template("AlternateRebel");
@@ -1467,8 +1470,17 @@ End
         rejected.physical_enter_supported = false;
         game_logic.templates.insert(alternate.name.clone(), alternate);
         rows.insert(0, rejected);
-        let blocked = Object::new(disabled_first, ObjectId(809), Team::GLA);
-        let names = game_logic.rider_change_presentation_templates(&blocked);
+        let blocked_bike_id = ObjectId(810);
+        game_logic.add_object(Object::new(disabled_first, blocked_bike_id, Team::GLA));
+        let roster_frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
+        let peer_target = processor.presentation_target_hint(&roster_frame, peer_bike_id).unwrap();
+        assert_eq!(
+            peer_target.rider_change_allowed_templates,
+            target.rider_change_allowed_templates,
+        );
+        let names = processor
+            .presentation_target_hint(&roster_frame, blocked_bike_id).unwrap()
+            .rider_change_allowed_templates;
         assert!(names.iter().any(|name| name == "GLAInfantryRebel"));
         assert!(!names.iter().any(|name| name == "FactionRebelVariant"));
 
