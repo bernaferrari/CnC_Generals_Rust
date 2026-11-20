@@ -2225,3 +2225,183 @@ End
     }
     assert!(installed_emitter.is_some());
 }
+
+#[test]
+#[ignore = "requires native WGPU and mounted Zero Hour content"]
+fn mounted_emp_pulse_installs_stock_sparks_with_original_geometry_and_lifetime() {
+    use crate::game_logic::{CombatParticleKind, Player, ScriptPresentationEffects};
+
+    let retail = crate::fixture_content::retail_content_root()
+        .join("Command & Conquer Generals Zero Hour/Data/INIZH.big");
+    let mut files = crate::assets::ArchiveFileSystem::new();
+    files.set_local_search_roots(Vec::new());
+    futures::executor::block_on(files.load_big_file(retail)).unwrap();
+    let mut read_block = |path: &str, header: &str| {
+        let bytes = files
+            .read_optional_definition_source(path)
+            .unwrap()
+            .unwrap();
+        let source = String::from_utf8_lossy(&bytes);
+        let mut lines = source
+            .lines()
+            .skip_while(|line| !line.trim().eq_ignore_ascii_case(header));
+        let mut block = format!("{}\n", lines.next().expect(header));
+        for line in lines {
+            block.push_str(line);
+            block.push('\n');
+            if line.trim_end().eq_ignore_ascii_case("End") {
+                return block;
+            }
+        }
+        panic!("missing end for {header}");
+    };
+    let pulse = read_block(
+        "Data/INI/Object/System.ini",
+        "Object EMPPatriotEffectSpheroid",
+    );
+    let sparks = read_block("Data/INI/ParticleSystem.ini", "ParticleSystem EMPSparks");
+    let victim_definition = "
+Object EmpSparkSphereFixture
+  KindOf = VEHICLE
+  Body = ActiveBody Body
+    MaxHealth = 1000
+    InitialHealth = 1000
+  End
+  Geometry = Sphere
+  GeometryMajorRadius = 32
+  GeometryHeight = 1
+  GeometryIsSmall = No
+End
+";
+    let mut world = GameLogic::new();
+    world.frame = 40;
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([
+                ("Object/System.ini".into(), pulse),
+                ("emp-victim.ini".into(), victim_definition.into()),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+    world.add_player(Player::new(0, Team::USA, "USA", true));
+    let mut enemy = Player::new(1, Team::China, "China", true);
+    enemy.alliance_team = 1;
+    world.add_player(enemy);
+
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    let (device, queue, color, depth) = {
+        let engine = engine.lock();
+        (
+            engine.device(),
+            engine.queue(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+    };
+    let mut graphics = GraphicsSystem::new(device, queue, color, depth).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine, &graphics).unwrap();
+    let mut client = GameClient::new().unwrap();
+    let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+    let position = Vec3::new(160.0, 0.0, 160.0);
+    let victim = {
+        let (_, _, drawables) = client.split_frame_snow_and_drawable_owner();
+        let mut view = NativeRendererViewEffects::new(
+            pipeline.borrow_native_installed_poses(),
+            &mut graphics,
+            drawables,
+            EPOCH,
+            0,
+            receiving_native_drawable_policy(),
+            &mut retirement,
+        );
+        view.admit_map_particle_definitions(&[sparks]).unwrap();
+        let mut effects = ScriptPresentationEffects {
+            view: Some(&mut view),
+            ..Default::default()
+        };
+        let victim = world
+            .create_object_for_player_with_effects_checked(
+                "EmpSparkSphereFixture",
+                1,
+                position,
+                None,
+                &mut effects,
+            )
+            .unwrap()
+            .unwrap();
+        world
+            .create_object_for_player_with_effects_checked(
+                "EMPPatriotEffectSpheroid",
+                0,
+                position,
+                None,
+                &mut effects,
+            )
+            .unwrap()
+            .unwrap();
+        victim
+    };
+    for frame in 40..=43 {
+        assert_eq!(world.frame, frame);
+        assert_eq!(world.supw_patriot_emp_sparks_spawned(), 0);
+        let (_, _, drawables) = client.split_frame_snow_and_drawable_owner();
+        let mut view = NativeRendererViewEffects::new(
+            pipeline.borrow_native_installed_poses(),
+            &mut graphics,
+            drawables,
+            EPOCH,
+            0,
+            receiving_native_drawable_policy(),
+            &mut retirement,
+        );
+        world.tick_logic_frame_with_script_effects(
+            1.0 / 30.0,
+            None,
+            None,
+            ScriptPresentationEffects {
+                view: Some(&mut view),
+                ..Default::default()
+            },
+            |_| {},
+            |_| {},
+        );
+    }
+
+    assert_eq!(
+        world
+            .host_object(victim)
+            .unwrap()
+            .status
+            .disabled_emp_until_frame,
+        343
+    );
+    let instances = world
+        .combat_particles()
+        .systems_of_kind(CombatParticleKind::DisableFx);
+    // EMPUpdate.cpp uses a sphere's radius above its position and caps that
+    // height at 10 for the particle count. Its GeometryHeight field is irrelevant.
+    let expected = game_engine::base_type::real_to_int_ceil(
+        0.001 * (std::f32::consts::PI * 32.0 * 32.0 * 10.0),
+    ) as usize;
+    assert_eq!(expected, 33);
+    assert_eq!(instances.len(), expected);
+    let (_, _, mut drawables) = client.split_frame_snow_and_drawable_owner();
+    let particles = drawables.particle_systems_mut();
+    for receipt in instances {
+        assert_eq!(receipt.source_object, Some(victim));
+        assert_eq!(receipt.spawned_frame, 43);
+        assert_eq!(receipt.template_name, "EMPSparks");
+        assert_eq!(receipt.attachment.as_ref().unwrap().lifetime, Some(270));
+        let system = particles
+            .find_particle_system(receipt.client_system_id.expect("native EMPSparks binding"))
+            .expect("live receiving particle system");
+        assert_eq!(system.attached_object(), Some(victim.0));
+        assert!((1..=100).contains(&system.initial_delay_left()));
+    }
+}

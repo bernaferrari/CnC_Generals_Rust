@@ -646,7 +646,7 @@ impl GameLogic {
             leftover_emp_spark_dome_clamp, leftover_emp_spark_initial_delay,
             leftover_emp_spark_lifetime, leftover_emp_spark_z,
         };
-        use crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_area;
+        use crate::game_logic::HostGeometryType;
 
         let Some(victim) = self.objects.get(&victim_id) else {
             return;
@@ -654,20 +654,17 @@ impl GameLogic {
         let pos = victim.get_position();
         let yaw = victim.get_orientation();
         let geom = *victim.geometry_info();
-        let height = if geom.height > 0.0 {
-            geom.height
-        } else {
-            victim.selection_radius.max(1.0)
+        let height = geom.max_height_above_position();
+        let footprint = match geom.geom_type {
+            HostGeometryType::Sphere | HostGeometryType::Cylinder => {
+                let radius = geom.bounding_circle_radius();
+                std::f32::consts::PI * (radius * radius)
+            }
+            HostGeometryType::Box => 4.0 * geom.major_radius * geom.minor_radius,
         };
-        let footprint = leftover_disable_fx_footprint_area(
-            geom.authored,
-            geom.geom_type as u32,
-            geom.major_radius,
-            geom.minor_radius,
-            victim.selection_radius,
-        );
-        let volume = footprint.max(0.0) * height.clamp(0.0, 10.0);
-        let count = ((sparks_per_cubic_foot * volume).ceil() as i32).max(15);
+        let volume = footprint * height.min(10.0);
+        let count = game_engine::base_type::real_to_int_ceil(sparks_per_cubic_foot * volume)
+            .max(15);
         let lifetime = leftover_emp_spark_lifetime(disabled_duration_frames);
         let frame = self.frame;
         let is_shrouded = self.host_fx_object_is_shrouded(victim_id.0);

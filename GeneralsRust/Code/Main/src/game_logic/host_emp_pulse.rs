@@ -295,8 +295,7 @@ pub fn leftover_emp_spark_z(
     victim_height: f32,
     random: &game_engine::common::random_value::SessionRandom,
 ) -> f32 {
-    let hi = victim_height.max(3.0) as i32;
-    random.next_int(3, hi).max(3) as f32
+    random.next_int(3, victim_height as i32) as f32
 }
 
 /// C++ `GameLogicRandomValue(1, 100)` spark `setInitialDelay`.
