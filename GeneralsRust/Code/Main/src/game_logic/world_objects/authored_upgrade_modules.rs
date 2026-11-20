@@ -605,6 +605,73 @@ mod flag_tests {
     use super::AuthoredFlagUpgrades;
     use crate::game_logic::{GameLogic, Player, Team};
 
+    #[test]
+    fn mounted_flashbang_follows_the_authored_secondary_slot_and_upgrade_trigger() {
+        use crate::assets::ini_template_loader::{
+            WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+        };
+        use crate::game_logic::game_logic::accepted_projectile_owner_tests::patriot_retail_battery_tests::{
+            base_ini, definition,
+        };
+
+        const RANGER: &str = "AmericaInfantryRanger";
+        const RENAMED: &str = "MountedInfantryWithGrenade";
+        const NO_TRIGGER: &str = "AmericaInfantryRangerNoTrigger";
+        const UPGRADE: &str = "Upgrade_AmericaRangerFlashBangGrenade";
+        const RIFLE: &str = "RangerAdvancedCombatRifle";
+        const GRENADE: &str = "RangerFlashBangGrenadeWeapon";
+
+        let retail = definition(&base_ini("Object/AmericaInfantry.ini"), "Object AmericaInfantryRanger");
+        let renamed = retail.replacen(RANGER, RENAMED, 1);
+        let no_trigger = format!(
+            "Object {NO_TRIGGER}\nKindOf = INFANTRY\nBody = ActiveBody BodyTag\nMaxHealth = 100\nEnd\n\
+             WeaponSet\nConditions = None\nWeapon = PRIMARY {RIFLE}\nEnd\n\
+             WeaponSet\nConditions = PLAYER_UPGRADE\nWeapon = PRIMARY {RIFLE}\nWeapon = SECONDARY {GRENADE}\nEnd\nEnd\n"
+        );
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        world.add_player(Player::new(1, Team::USA, "Peer", false));
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(&mut world, UPGRADE, "PLAYER", 0, 1);
+        world.admit_object_ini_sources([(
+            "mounted-ranger-upgrade.ini".into(),
+            format!("Object AmericaBarracks\nEnd\n{retail}{renamed}{no_trigger}"),
+        )]).unwrap();
+
+        let weapon_source = base_ini("Weapon.ini");
+        let mut weapons = std::collections::HashMap::new();
+        for name in [RIFLE, GRENADE] {
+            let source = definition(&weapon_source, &format!("Weapon {name}"));
+            assert_eq!(parse_weapon_definitions_ini_into(
+                &mut weapons, &source, WeaponDefinitionLoadType::Normal,
+            ), 1);
+        }
+        world.admit_weapon_content_snapshot(
+            weapons.into_values().map(|rule| (rule.name.clone(), rule)).collect(),
+            &[],
+        ).unwrap();
+
+        let create = |world: &mut GameLogic, name, player| {
+            world.create_object_for_player(name, player, glam::Vec3::ZERO).unwrap()
+        };
+        let ranger = create(&mut world, RANGER, 0);
+        let renamed = create(&mut world, RENAMED, 0);
+        let no_trigger = create(&mut world, NO_TRIGGER, 0);
+        let other = create(&mut world, RANGER, 1);
+        for id in [ranger, renamed, no_trigger, other] {
+            assert!(world.host_object(id).unwrap().weapon_slot(1).is_none());
+        }
+        world.add_completed_player_upgrade(0, UPGRADE);
+        let later = create(&mut world, RANGER, 0);
+        for id in [ranger, renamed, later] {
+            let object = world.host_object(id).unwrap();
+            assert_eq!(object.selected_weapon_name(1), Some(GRENADE));
+            assert_eq!(object.weapon_slot(1).unwrap().damage, 35.0);
+        }
+        for id in [no_trigger, other] {
+            assert!(world.host_object(id).unwrap().weapon_slot(1).is_none());
+        }
+    }
+
     fn world(name: &str, modules: &str) -> (GameLogic, crate::game_logic::ObjectId) {
         let mut world = GameLogic::new();
         world.add_player(Player::new(0, Team::USA, "Owner", true));

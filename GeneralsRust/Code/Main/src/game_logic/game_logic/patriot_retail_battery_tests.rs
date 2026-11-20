@@ -16,7 +16,7 @@ pub(in crate::game_logic) fn base_ini(name: &str) -> String {
 
 // Top-level definitions in the retail files end with an unindented End;
 // nested Draw, WeaponSet and Behavior blocks must remain intact.
-fn definition(source: &str, header: &str) -> String {
+pub(in crate::game_logic) fn definition(source: &str, header: &str) -> String {
     let mut lines = source.lines().skip_while(|line| !line.trim().eq_ignore_ascii_case(header));
     let first = lines.next().expect("retail definition exists");
     let mut result = format!("{first}\n");
