@@ -44,6 +44,14 @@ pub fn resolve_retail_map_path(map_name: &str) -> Option<PathBuf> {
         return None;
     }
 
+    // Detached checkouts and independent test worlds can use the same
+    // explicitly supplied Maps directory as the native instance harness.
+    if let Some(root) = std::env::var_os("GENERALS_MAPS_DIR") {
+        if let Some(map) = find_map_in(&PathBuf::from(root).join("Maps"), map_name) {
+            return Some(map);
+        }
+    }
+
     let mut bases: Vec<PathBuf> = vec![PathBuf::from(".")];
     if let Ok(cwd) = std::env::current_dir() {
         bases.push(cwd.clone());
@@ -77,24 +85,25 @@ pub fn resolve_retail_map_path(map_name: &str) -> Option<PathBuf> {
             } else {
                 base.join(root)
             };
-            let dir = root_path.join(map_name);
-            let map_file = dir.join(format!("{map_name}.map"));
-            if map_file.is_file() {
-                return Some(map_file);
-            }
-            if dir.is_dir() {
-                if let Ok(rd) = std::fs::read_dir(&dir) {
-                    for ent in rd.flatten() {
-                        let p = ent.path();
-                        if p.extension().and_then(|e| e.to_str()) == Some("map") {
-                            return Some(p);
-                        }
-                    }
-                }
+            if let Some(map) = find_map_in(&root_path, map_name) {
+                return Some(map);
             }
         }
     }
     None
+}
+
+fn find_map_in(root: &Path, map_name: &str) -> Option<PathBuf> {
+    let directory = root.join(map_name);
+    let exact = directory.join(format!("{map_name}.map"));
+    if exact.is_file() {
+        return Some(exact);
+    }
+    std::fs::read_dir(directory)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("map"))
 }
 
 /// Honesty: default skirmish map (Defcon6) resolves when MapsZH is present.
