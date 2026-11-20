@@ -861,6 +861,7 @@ fn admit_vision_structure(
         let source = "
             Object CompletionVisionStructure
                 KindOf = STRUCTURE IMMOBILE
+                DisplayName = OBJECT:CompletionVisionStructure
                 Geometry = CYLINDER
                 GeometryMajorRadius = 10
                 GeometryHeight = 10
@@ -946,6 +947,46 @@ fn completed_structure_refreshes_vision_and_pending_unlook_in_its_own_world() {
     ]);
     assert!(after_peer == before_peer, "the peer shroud counters and pending heap stay unchanged");
     assert!(!peer_spatial.contains(&id), "completion must not move the peer's same-ID spatial entry");
+}
+
+#[test]
+fn construction_message_uses_authored_display_name_for_the_local_builder_only() {
+    use crate::common::Coord3D;
+    use crate::helpers::TheInGameUI;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use game_engine::common::language::Language;
+
+    let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
+    for local_index in [1, 0] {
+        let world = new_for_world();
+        with_active_stores(&world, || {
+            Language::register_localized_string("OBJECT:CompletionVisionStructure", "Centrale électrique");
+            Language::register_localized_string("DOZER:ConstructionComplete", "Construction terminée : %s");
+        });
+        let structure = admit_vision_structure(&world, Coord3D::new(105., 105., 0.), 37, 23);
+        let structure_id = structure.read().unwrap().get_id();
+        let team = structure.read().unwrap().get_team().unwrap();
+        let builder_id = 0xBA_0442;
+        let builder = Arc::new(RwLock::new(Object::new_test(builder_id, 100.)));
+        with_active_stores(&world, || {
+            world.services().players().write().unwrap().set_local_player_index(local_index);
+            world.game_logic_mutex().lock().unwrap().register_object(Arc::clone(&builder)).unwrap();
+            builder.write().unwrap().set_team(Some(team)).unwrap();
+            complete_dozer_for_test(&builder, &structure, false);
+        });
+        let messages = TheInGameUI::drain_displayed_messages(Some(world.services()));
+        with_active_stores(&world, || {
+            let mut logic = world.game_logic_mutex().lock().unwrap();
+            logic.destroy_object(structure_id);
+            logic.destroy_object(builder_id);
+            logic.cleanup_dead_objects().unwrap();
+        });
+        if local_index == 0 {
+            assert_eq!(messages, ["Construction terminée : Centrale électrique"]);
+        } else {
+            assert!(messages.is_empty(), "a remote builder does not announce completion to the local player");
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

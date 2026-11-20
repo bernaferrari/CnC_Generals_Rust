@@ -114,6 +114,10 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         &self.name
     }
 
+    fn get_display_name(&self) -> &str {
+        self.inner.get_display_name().as_str()
+    }
+
     fn structure_rubble_height(&self) -> Option<u8> {
         self.inner.structure_rubble_height()
     }

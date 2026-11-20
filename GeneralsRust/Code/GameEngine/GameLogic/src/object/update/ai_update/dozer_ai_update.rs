@@ -974,13 +974,14 @@ impl DozerAIUpdate {
             }
 
             let template = target_guard.get_template();
-            let display_name = template.get_name();
+            // DozerAIUpdate.cpp:602 uses the translated authored name.
+            let display_name = template.get_display_name();
             if display_name.is_empty() {
                 let fallback = crate::helpers::TheGameText::fetch_for(&target_guard, "INI:MissingDisplayName");
                 let template_name = template.get_name().as_str();
                 target_display_name = Some(fallback.replace("%s", template_name));
             } else {
-                target_display_name = Some(display_name.as_str().to_string());
+                target_display_name = Some(display_name.to_owned());
             }
             target_pos = Some(*target_guard.get_position());
             controlling_player = target_guard.get_controlling_player();

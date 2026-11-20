@@ -30,6 +30,10 @@ pub trait Snapshot {
 /// Thing template interface trait
 pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn get_name(&self) -> &AsciiString;
+    /// Generic templates without an authored display label use their object name.
+    fn get_display_name(&self) -> &str {
+        self.get_name().as_str()
+    }
     fn get_template_geometry_info(&self) -> GeometryInfo;
     fn get_template_geometry_type(&self) -> Option<EngineGeometryType> {
         None
