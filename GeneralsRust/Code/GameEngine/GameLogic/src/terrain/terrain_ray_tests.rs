@@ -37,6 +37,36 @@ fn source_fast_cell_conversion_preserves_negative_integer_and_signed_zero_cases(
 }
 
 #[test]
+fn receiving_cast_reads_restored_heights_and_misses_after_its_owner_resets() {
+    let loaded = |sample| {
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 4;
+        map.height = 4;
+        map.heightmap = vec![sample; 16];
+        let mut terrain = super::super::TerrainLogic::new();
+        terrain.try_load_map_geometry(map).unwrap();
+        terrain
+    };
+    let start = Vector3::new(15.0, 15.0, 100.0);
+    let end = Vector3::new(15.0, 15.0, -20.0);
+    let cast = |terrain: &super::super::TerrainLogic| terrain.cast_terrain_ray(start, end).unwrap();
+    let mut receiving = loaded(8);
+    let peer = loaded(16);
+    assert_eq!(cast(&receiving).result.contact_point.z, 5.0);
+    assert_eq!(cast(&peer).result.contact_point.z, 10.0);
+
+    receiving
+        .try_apply_logic_height_map_bytes_with_effects(&[24; 16], &mut || {})
+        .unwrap();
+    assert_eq!(cast(&receiving).result.contact_point.z, 15.0);
+    assert_eq!(cast(&peer).result.contact_point.z, 10.0);
+
+    receiving.reset();
+    assert!(!cast(&receiving).hit);
+    assert_eq!(cast(&peer).result.contact_point.z, 10.0);
+}
+
+#[test]
 fn original_46_cast_ray_input_rows_execute_receiving_borrowed_grid() {
     let expected: Vec<_> = include_str!("terrain_ray_expected.tsv")
         .lines()

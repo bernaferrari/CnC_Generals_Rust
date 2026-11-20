@@ -12,12 +12,16 @@ pub struct TerrainHeightSamples<'a> {
     border: i32,
 }
 
+/// Outcome of a ray cast with a fresh original collision result.
 pub struct TerrainRayCast {
+    /// Whether the source triangle walk found a hit.
     pub hit: bool,
+    /// Contact and surface recorded by the original ordered collision walk.
     pub result: CastResult,
 }
 
 impl<'a> TerrainHeightSamples<'a> {
+    /// Borrow the complete bordered grid after checking its dimensions and length.
     pub fn new(samples: &'a [u8], width: i32, height: i32, border: i32) -> Result<Self, String> {
         let len = usize::try_from(width)
             .ok()
@@ -61,6 +65,7 @@ impl<'a> TerrainHeightSamples<'a> {
             return Err("nonfinite terrain ray segment".into());
         }
         let ray = LineSegment::new(start, end);
+        let mut reverse_ray = None;
         let overhang = 64 + self.border;
         let mut bounds = AABox::from_min_max(
             Vector3::new(
@@ -88,8 +93,8 @@ impl<'a> TerrainHeightSamples<'a> {
                 }
                 clipping.fraction = 1.;
                 clipping.start_bad = false;
-                let reverse = LineSegment::new(end, start);
-                if CollisionMath::collide_line_aabox(&reverse, &bounds, &mut clipping)
+                let reverse = reverse_ray.get_or_insert_with(|| LineSegment::new(end, start));
+                if CollisionMath::collide_line_aabox(reverse, &bounds, &mut clipping)
                     && !clipping.start_bad
                 {
                     p1 = clipping.contact_point;
