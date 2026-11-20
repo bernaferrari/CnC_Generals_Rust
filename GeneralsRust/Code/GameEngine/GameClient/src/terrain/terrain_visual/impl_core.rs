@@ -600,6 +600,10 @@ impl TerrainVisualImpl {
         state: &gamelogic::terrain_water::WaterGridState,
     ) {
         if state.enabled {
+            // Original TerrainLogic::enableWaterGrid admits the authored angle and origin.
+            self.water_grid.lookup_basis = Some(WaterGridLookupBasis::from_configured_transform(
+                state.transform,
+            ));
             self.admit_water_state(state);
         } else {
             self.enable_water_grid(false);
@@ -712,13 +716,17 @@ impl TerrainVisualImpl {
                 let sample_grid = || {
                     let grid = self.grid?;
                     let (cells_x, cells_y, cell_size) = grid.resolution;
-                    let local = self
-                        .world_to_grid
-                        .get_or_init(|| grid.transform.inverse())
-                        .transform_point3(Vec3::new(x, y, 0.0));
-                    let gx = local.x / cell_size;
-                    let gy = local.y / cell_size;
                     let require_mesh_bounds = self.terrain.is_some();
+                    let (gx, gy) = match (require_mesh_bounds, grid.lookup_basis) {
+                        (true, Some(basis)) => basis.grid_coordinates(x, y, cell_size),
+                        _ => {
+                            let local = self
+                                .world_to_grid
+                                .get_or_init(|| grid.transform.inverse())
+                                .transform_point3(Vec3::new(x, y, 0.0));
+                            (local.x / cell_size, local.y / cell_size)
+                        }
+                    };
                     if require_mesh_bounds
                         && (!(0.0..=cells_x - 1.0).contains(&gx)
                             || !(0.0..=cells_y - 1.0).contains(&gy))

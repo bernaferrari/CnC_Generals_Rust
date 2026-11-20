@@ -3,7 +3,7 @@ use game_client::terrain::terrain_visual::{TerrainVisualImpl, TerrainVisualMotio
 use game_client::terrain::{BreezeInfo, water_tracks::WaterTrackType};
 use gamelogic::common::ICoord3D;
 use gamelogic::polygon_trigger::PolygonTrigger;
-use glam::Vec2;
+use glam::{Mat4, Vec2, Vec3};
 
 #[test]
 fn native_water_tracks_sample_the_receiving_polygon_and_visual_grid() {
@@ -36,6 +36,38 @@ fn native_water_tracks_sample_the_receiving_polygon_and_visual_grid() {
             flush_native(&first, &mut first_visual);
             assert_eq!(wake_heights(&first_visual), [31.5, 38.5, 4.5]);
             assert_eq!(wake_heights(&peer_visual), [18.5, 43.5, 4.5]);
+        },
+    );
+}
+
+#[test]
+fn native_water_tracks_keep_the_authored_grid_lookup_after_matrix_only_delivery() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "native_water_tracks_keep_the_authored_grid_lookup_after_matrix_only_delivery",
+        || {
+            let world = GameLogic::new();
+            install_water_areas(&world, 25, 22);
+            let mut visual = receiving_visual(35.0);
+            let authored = visual.capture_water_state();
+            visual.set_water_transform(0.0, -1000.0, 900.0, 35.0);
+            visual.admit_map_water_configuration(&authored);
+            flush_native(&world, &mut visual);
+            assert_eq!(wake_heights(&visual), [26.5, 36.5, 4.5]);
+
+            // Only the rendering transform changes. The original world-to-grid
+            // basis still comes from the authored map angle setter.
+            let mut moved = authored;
+            moved.transform = Mat4::from_translation(Vec3::new(2200.0, 3100.0, 39.0))
+                * Mat4::from_rotation_z(0.31);
+            visual.admit_water_state(&moved);
+            assert_eq!(visual.water_transform(), moved.transform);
+            flush_native(&world, &mut visual);
+            assert_eq!(wake_heights(&visual), [26.5, 40.5, 4.5]);
+
+            visual.set_water_transform(0.31, 2200.0, 3100.0, 39.0);
+            flush_native(&world, &mut visual);
+            assert_eq!(wake_heights(&visual), [26.5, 23.5, 4.5]);
         },
     );
 }

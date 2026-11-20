@@ -10,6 +10,7 @@ pub struct WaterGridCpuState {
     pub height_clamps: (f32, f32),
     pub attenuation: (f32, f32, f32, f32),
     pub transform: Mat4,
+    lookup_basis: Option<WaterGridLookupBasis>,
     pub resolution: (f32, f32, f32),
     pub height_deltas: BTreeMap<(i32, i32), f32>,
     pub point_motions: BTreeMap<(i32, i32), WaterGridPointMotion>,
@@ -22,11 +23,39 @@ impl Default for WaterGridCpuState {
             height_clamps: (0.0, 0.0),
             attenuation: (0.0, 0.0, 0.0, 0.0),
             transform: Mat4::IDENTITY,
+            lookup_basis: None,
             resolution: (0.0, 0.0, 1.0),
             height_deltas: BTreeMap::new(),
             point_motions: BTreeMap::new(),
             velocity_events: Vec::new(),
         }
+    }
+}
+
+/// W3DWater's angle setter stores these separately from the rendering transform.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct WaterGridLookupBasis {
+    origin: Vec2,
+    direction_x: Vec2,
+    direction_y: Vec2,
+}
+
+impl WaterGridLookupBasis {
+    fn from_configured_transform(transform: Mat4) -> Self {
+        Self {
+            origin: Vec2::new(transform.w_axis.x, transform.w_axis.y),
+            direction_x: Vec2::new(transform.x_axis.x, transform.x_axis.y),
+            direction_y: Vec2::new(transform.y_axis.x, transform.y_axis.y),
+        }
+    }
+
+    fn grid_coordinates(self, x: f32, y: f32, cell_size: f32) -> (f32, f32) {
+        let offset = Vec2::new(x, y) - self.origin;
+        let inverse_cell_size = 1.0 / cell_size;
+        (
+            inverse_cell_size * offset.dot(self.direction_x),
+            inverse_cell_size * offset.dot(self.direction_y),
+        )
     }
 }
 

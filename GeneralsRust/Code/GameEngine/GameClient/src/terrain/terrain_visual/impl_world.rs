@@ -345,11 +345,12 @@ impl TerrainVisualImpl {
 
     /// C++ `setWaterTransform(angle, x, y, z)`.
     pub fn set_water_transform(&mut self, angle: f32, x: f32, y: f32, z: f32) {
-        self.water_grid.transform =
-            Mat4::from_translation(Vec3::new(x, y, z)) * Mat4::from_rotation_z(angle);
+        let transform = Mat4::from_translation(Vec3::new(x, y, z)) * Mat4::from_rotation_z(angle);
+        self.water_grid.transform = transform;
+        self.water_grid.lookup_basis = Some(WaterGridLookupBasis::from_configured_transform(transform));
     }
 
-    /// C++ `setWaterTransform(Matrix3D*)`.
+    /// C++ `setWaterTransform(Matrix3D*)` changes the render transform alone.
     pub fn set_water_transform_matrix(&mut self, transform: Mat4) {
         self.water_grid.transform = transform;
     }
