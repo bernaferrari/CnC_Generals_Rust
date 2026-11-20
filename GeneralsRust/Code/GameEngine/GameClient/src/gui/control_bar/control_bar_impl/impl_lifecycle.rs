@@ -314,7 +314,6 @@ impl ControlBar {
                 receiving_manager,
             );
         }
-        super::control_bar_observer::init_observer_controls(receiving_manager);
         super::control_bar_observer::ensure_gen_arrow_from_mapped_images(&mut self.gen_arrow, receiving_manager);
 
         // C++ ControlBar::init ends with switchToContext(CB_CONTEXT_NONE)
@@ -327,6 +326,7 @@ impl ControlBar {
         if !self.ingame_entry_context_applied
             && leftover_find_window(CONTROL_BAR_PARENT, receiving_manager).is_some()
         {
+            super::control_bar_observer::init_observer_controls(receiving_manager);
             self.ingame_entry_context_applied = true;
             // C++ initControlBarObserver (ControlBar.cpp:2741) puts observer
             // bars straight into CB_CONTEXT_OBSERVER_LIST; everyone else gets
