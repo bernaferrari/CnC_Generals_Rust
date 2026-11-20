@@ -313,6 +313,13 @@ impl CollisionSystem {
             );
         }
 
+        // PhysicsUpdate.cpp:1181–1214 skips separation when either AI ignores
+        // the other object. Keep the contact callbacks above: infantry can
+        // capture an ignored unmanned vehicle during its Physics callback.
+        if Self::ignores_ai_obstacle(&obj_a, id_b) || Self::ignores_ai_obstacle(&obj_b, id_a) {
+            return Ok(true);
+        }
+
         if let Some(cfg) = self.object_configs.get(&id_a) {
             let mut a_handle = obj_a.clone();
             let _ = self
@@ -331,6 +338,13 @@ impl CollisionSystem {
         }
 
         Ok(true)
+    }
+
+    fn ignores_ai_obstacle(owner: &Arc<RwLock<crate::object::Object>>, other: ObjectId) -> bool {
+        let Some(ai) = owner.read().ok().and_then(|owner| owner.get_ai()) else {
+            return false;
+        };
+        ai.lock().is_ok_and(|ai| ai.get_ignored_obstacle_id() == other)
     }
 
     fn should_ignore_physics_collision(
@@ -987,6 +1001,7 @@ mod tests {
     struct RecordingCollisionAi {
         move_away_commands: Arc<Mutex<Vec<ObjectId>>>,
         moving_away_from: Option<ObjectId>,
+        ignored_obstacle: ObjectId,
         cur_max_blocked_speed: Real,
         need_to_rotate: bool,
         blocked: bool,
@@ -998,6 +1013,7 @@ mod tests {
             Self {
                 move_away_commands,
                 moving_away_from: None,
+                ignored_obstacle: crate::common::INVALID_ID,
                 cur_max_blocked_speed: 1.0,
                 need_to_rotate: false,
                 blocked: false,
@@ -1025,6 +1041,10 @@ mod tests {
 
         fn is_moving_away_from(&self, obj_id: ObjectId) -> bool {
             self.moving_away_from == Some(obj_id)
+        }
+
+        fn get_ignored_obstacle_id(&self) -> ObjectId {
+            self.ignored_obstacle
         }
 
         fn set_is_blocked(&mut self, blocked: bool) {
@@ -1315,6 +1335,58 @@ mod tests {
             *events.lock().unwrap(),
             vec![("owner-a", id_a, id_b), ("owner-b", id_b, id_a)]
         );
+    }
+
+    #[test]
+    fn an_ignored_obstacle_keeps_both_contact_callbacks_without_separation() {
+        let _test_lock = crate::test_sync::lock();
+        let id_a = 0xC011_1531;
+        let id_b = id_a + 1;
+        let owner_a = Arc::new(RwLock::new(crate::object::Object::new_test(id_a, 100.0)));
+        let owner_b = Arc::new(RwLock::new(crate::object::Object::new_test(id_b, 100.0)));
+        let _registry_cleanup = RegistryCleanup(vec![
+            (id_a, Arc::clone(&owner_a)),
+            (id_b, Arc::clone(&owner_b)),
+        ]);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut system = CollisionSystem::new();
+        for (label, id, owner, x) in [
+            ("owner-a", id_a, &owner_a, 105.0),
+            ("owner-b", id_b, &owner_b, 107.0),
+        ] {
+            let mut object = owner.write().unwrap();
+            object.set_position(&GameCoord3D::new(x, 105.0, 0.0)).unwrap();
+            object.push_behavior_module_for_test(Arc::new(Mutex::new(RegistrySwapCollideProbe {
+                label,
+                events: Arc::clone(&events),
+                action: ProbeAction::None,
+            })));
+            drop(object);
+            OBJECT_REGISTRY.register_object(id, owner);
+            system.register_object(
+                id,
+                Coord3D::new(x, 105.0, 0.0),
+                GeometryInfo::new_sphere(2.0, false),
+                Some(CollisionResponseConfig::default()),
+            ).unwrap();
+        }
+        let ai = Arc::new(Mutex::new(RecordingCollisionAi::new(Arc::default())));
+        owner_a.write().unwrap().set_ai_update_interface(Some(ai.clone()));
+        let poses = || [*owner_a.read().unwrap().get_position(), *owner_b.read().unwrap().get_position()];
+        let initial = poses();
+        let expected_callbacks = [("owner-a", id_a, id_b), ("owner-b", id_b, id_a)];
+
+        ai.lock().unwrap().ignored_obstacle = id_b;
+        assert!(system.test_and_respond_collision(id_a, id_b).unwrap());
+        assert_eq!(poses(), initial);
+        assert_eq!(*events.lock().unwrap(), expected_callbacks);
+
+        events.lock().unwrap().clear();
+        ai.lock().unwrap().ignored_obstacle = crate::common::INVALID_ID;
+        assert!(system.test_and_respond_collision(id_a, id_b).unwrap());
+        assert_ne!(poses()[0], initial[0]);
+        assert_ne!(poses()[1], initial[1]);
+        assert_eq!(*events.lock().unwrap(), expected_callbacks);
     }
 
     fn assert_a_destruction_suppresses_second_collision(destroy_a: bool) {
