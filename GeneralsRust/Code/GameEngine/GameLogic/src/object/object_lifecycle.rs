@@ -493,6 +493,7 @@ impl Object {
             is_receiving_difficulty_bonus: false,
             lifecycle: ObjectLifecycle::Alive,
             pathfinding_owner: None,
+            uses_classified_construction_footprint: false,
             ambient_lifecycle_admitted: true,
 
             #[cfg(any(debug_assertions, feature = "internal"))]
@@ -706,6 +707,23 @@ impl Object {
         Ok(())
     }
 
+    pub(crate) fn bind_scaffold_pathfinding_owner(
+        &mut self,
+        owner: &Arc<crate::system::engine_stores::EngineStores>,
+    ) -> Result<(), String> {
+        self.bind_pathfinding_owner(owner)?;
+        self.uses_classified_construction_footprint = true;
+        Ok(())
+    }
+
+    pub(crate) fn scaffold_pathfinding_owner(
+        &self,
+    ) -> Option<&Arc<crate::system::engine_stores::EngineStores>> {
+        self.pathfinding_owner
+            .as_ref()
+            .filter(|_| self.uses_classified_construction_footprint)
+    }
+
     /// Standalone deletion adapter; a GameLogic owner uses the bound world
     /// services below rather than discovering another world during cleanup.
     pub(crate) fn run_destructor_tail(&mut self) {
@@ -758,37 +776,7 @@ impl Object {
         &mut self,
         service: &mut impl FnMut(ObjectID, ObjectDestroyServiceAction),
     ) {
-        let pos = *self.get_position();
-        // Explicit Core owners stay pinned to this object. Unbound legacy
-        // objects retain the old TheAI/TheTerrainLogic fallback until their
-        // admission path is migrated as a complete pair.
-        let (terrain_owner, ai_owner) = match self.pathfinding_owner.as_ref() {
-            Some(owner) => (
-                Arc::clone(owner.services().terrain()),
-                Arc::clone(owner.ai()),
-            ),
-            None => (crate::terrain::get_terrain_logic(), crate::ai::the_ai()),
-        };
-        if let Ok(terrain) = terrain_owner.read() {
-            let footprint = crate::ai::object_footprint_positions_with_height(self, |x, y| {
-                terrain.get_layer_height(
-                    x,
-                    y,
-                    crate::path::PathfindLayerEnum::Ground,
-                    None,
-                    false,
-                )
-            })
-            .unwrap_or_else(|| vec![pos]);
-            if let Ok(ai) = ai_owner.read() {
-                if let Some(pathfinder) = ai.pathfinder() {
-                    if let Ok(mut pathfinder) = pathfinder.write() {
-                        pathfinder.remove_object_from_map_at_positions(&footprint);
-                        pathfinder.remove_wall_from_object(self);
-                    }
-                }
-            }
-        }
+        self.remove_destructor_footprint();
 
         if !self.is_kind_of(KindOf::Projectile) && !self.is_kind_of(KindOf::Inert) {
             service(self.id, ObjectDestroyServiceAction::MarkTriggerAreasChanged);
@@ -856,6 +844,48 @@ impl Object {
         // Once the pathfinding callback has run, a query Arc may retain this
         // finalized Object but no longer needs to keep the whole world alive.
         self.pathfinding_owner = None;
+    }
+
+    fn remove_destructor_footprint(&self) {
+        if let Some(owner) = self.scaffold_pathfinding_owner() {
+            // Object.cpp:584 removes the old cells by their owning ObjectID.
+            if let Err(error) = owner.classify_placed_scaffold_footprint(self, false) {
+                log::error!("cannot remove construction footprint {}: {error}", self.id);
+            }
+            return;
+        }
+
+        let pos = *self.get_position();
+        // Explicit Core owners stay pinned to this object. Unbound legacy
+        // objects retain the old TheAI/TheTerrainLogic fallback until their
+        // admission path is migrated as a complete pair.
+        let (terrain_owner, ai_owner) = match self.pathfinding_owner.as_ref() {
+            Some(owner) => (
+                Arc::clone(owner.services().terrain()),
+                Arc::clone(owner.ai()),
+            ),
+            None => (crate::terrain::get_terrain_logic(), crate::ai::the_ai()),
+        };
+        if let Ok(terrain) = terrain_owner.read() {
+            let footprint = crate::ai::object_footprint_positions_with_height(self, |x, y| {
+                terrain.get_layer_height(
+                    x,
+                    y,
+                    crate::path::PathfindLayerEnum::Ground,
+                    None,
+                    false,
+                )
+            })
+            .unwrap_or_else(|| vec![pos]);
+            if let Ok(ai) = ai_owner.read() {
+                if let Some(pathfinder) = ai.pathfinder() {
+                    if let Ok(mut pathfinder) = pathfinder.write() {
+                        pathfinder.remove_object_from_map_at_positions(&footprint);
+                        pathfinder.remove_wall_from_object(self);
+                    }
+                }
+            }
+        }
     }
 
     /// Internal destroy routine that performs per-object module cleanup

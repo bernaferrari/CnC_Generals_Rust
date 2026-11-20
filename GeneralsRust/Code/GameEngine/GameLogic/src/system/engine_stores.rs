@@ -709,6 +709,22 @@ impl EngineStores {
             .map_err(|error| format!("cannot borrow construction pathfinder: {error}"))?;
         pathfinder.refresh_completed_object_footprint(structure)
     }
+    pub(crate) fn classify_placed_scaffold_footprint(
+        &self,
+        scaffold: &crate::object::Object,
+        insert: bool,
+    ) -> Result<(), String> {
+        let pathfinder = self.ai.try_read()
+            .map_err(|err| format!("cannot borrow construction AI: {err}"))?
+            .pathfinder().ok_or("construction pathfinder missing")?;
+        let mut pathfinder = pathfinder.try_write()
+            .map_err(|err| format!("cannot borrow construction pathfinder: {err}"))?;
+        if insert {
+            pathfinder.add_object_to_pathfind_map(scaffold)
+        } else {
+            pathfinder.remove_object_from_pathfind_map(scaffold)
+        }
+    }
     pub fn ai_data(&self) -> &Arc<RwLock<AIDataStore>> {
         &self.ai_data
     }

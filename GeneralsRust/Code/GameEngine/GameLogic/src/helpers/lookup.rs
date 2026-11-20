@@ -807,6 +807,34 @@ impl TheThingFactory {
         std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
+        self.new_object_with_team_handle_and_factory_flags(
+            template,
+            team,
+            status_bits,
+            crate::object::object_factory::ObjectCreationFlags::NONE,
+        )
+    }
+
+    pub(crate) fn new_construction_scaffold(
+        &self,
+        template: Arc<dyn crate::common::ThingTemplate>,
+        team: Arc<RwLock<crate::team::Team>>,
+    ) -> Result<Arc<RwLock<crate::object::Object>>, Box<dyn std::error::Error + Send + Sync>> {
+        self.new_object_with_team_handle_and_factory_flags(
+            template,
+            team,
+            crate::common::ObjectStatusTypes::UnderConstruction.into(),
+            crate::object::object_factory::ObjectCreationFlags::DEFER_CONSTRUCTION_FOOTPRINT,
+        )
+    }
+
+    fn new_object_with_team_handle_and_factory_flags(
+        &self,
+        template: Arc<dyn crate::common::ThingTemplate>,
+        team: Arc<RwLock<crate::team::Team>>,
+        status_bits: crate::common::ObjectStatusMaskType,
+        factory_flags: crate::object::object_factory::ObjectCreationFlags,
+    ) -> Result<Arc<RwLock<crate::object::Object>>, Box<dyn std::error::Error + Send + Sync>> {
         use crate::object_manager::ObjectCreationFlags;
         use crate::object_manager::get_object_manager;
 
@@ -818,11 +846,12 @@ impl TheThingFactory {
         let object_id = get_object_manager()
             .write()
             .map_err(|_| "ObjectManager lock poisoned")?
-            .create_object(
+            .create_object_with_factory_flags(
                 &template_name,
                 Coord3D::new(0.0, 0.0, 0.0),
                 Some(team),
                 flags,
+                factory_flags,
             )
             .map_err(|e| e.to_string())?;
 

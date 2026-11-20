@@ -2402,6 +2402,8 @@ pub struct Object {
     lifecycle: ObjectLifecycle,
     /// World runtime that admitted this object, retained for last-Arc Drop.
     pathfinding_owner: Option<Arc<crate::system::engine_stores::EngineStores>>,
+    /// Explicit Core construction uses owner-keyed classification at placement and retirement.
+    uses_classified_construction_footprint: bool,
     /// Compatibility publication admits ambient destructor adapters. Prepared
     /// factory objects have no such admission; dropping them releases local data.
     ambient_lifecycle_admitted: bool,

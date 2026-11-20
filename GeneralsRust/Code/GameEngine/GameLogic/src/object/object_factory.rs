@@ -176,6 +176,7 @@ bitflags::bitflags! {
         const NO_PHYSICS = 1 << 7;         // Don't apply physics
         const NO_COLLISION = 1 << 8;       // Don't check collisions
         const IGNORE_PREREQUISITES = 1 << 9; // Ignore build prerequisites
+        const DEFER_CONSTRUCTION_FOOTPRINT = 1 << 10; // Classify after placement.
     }
 }
 
@@ -485,10 +486,15 @@ impl ObjectFactory {
                 .write()
                 .map_err(|e| format!("object write lock poisoned: {}", e))?
                 .run_on_create();
-            crate::system::game_logic::get_game_logic()
+            let mut logic = crate::system::game_logic::get_game_logic()
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .register_object_with_partition(object_id, &base_object);
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if flags.contains(ObjectCreationFlags::DEFER_CONSTRUCTION_FOOTPRINT) {
+                logic.register_scaffold_with_partition(object_id, &base_object)?;
+            } else {
+                logic.register_object_with_partition(object_id, &base_object);
+            }
+            drop(logic);
             base_object
                 .write()
                 .map_err(|e| format!("object write lock poisoned: {}", e))?

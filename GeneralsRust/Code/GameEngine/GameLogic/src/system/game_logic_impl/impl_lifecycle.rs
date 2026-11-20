@@ -254,6 +254,32 @@ impl GameLogic {
         object_id: ObjectID,
         object: &Arc<RwLock<Object>>,
     ) {
+        self.register_object_with_partition_impl(object_id, object, true);
+    }
+
+    /// Retain the actual Core pathfinder across construction placement.
+    /// Partition and collision membership are still admitted at birth.
+    pub(crate) fn register_scaffold_with_partition(
+        &mut self,
+        object_id: ObjectID,
+        object: &Arc<RwLock<Object>>,
+    ) -> Result<(), String> {
+        let has_core_pathfinder = if let Some(owner) = self.pathfinding_owner.as_ref() {
+            object.write().map_err(|err| err.to_string())?.bind_scaffold_pathfinding_owner(owner)?;
+            true
+        } else {
+            false
+        };
+        self.register_object_with_partition_impl(object_id, object, !has_core_pathfinder);
+        Ok(())
+    }
+
+    fn register_object_with_partition_impl(
+        &mut self,
+        object_id: ObjectID,
+        object: &Arc<RwLock<Object>>,
+        register_pathfinding: bool,
+    ) {
         if self.partition_manager().contains_object(object_id) {
             return;
         }
@@ -303,6 +329,9 @@ impl GameLogic {
                 Ok::<(), crate::object::collide::CollisionError>(())
             });
 
+            if !register_pathfinding {
+                return;
+            }
             let is_ai_controlled = obj.get_ai_update_interface().is_some();
             let is_obstacle = obj.is_kind_of(KindOf::Building)
                 || obj.is_kind_of(KindOf::Structure)

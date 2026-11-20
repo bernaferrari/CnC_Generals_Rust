@@ -52,17 +52,15 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
             }
         }?;
 
-        let team_guard = team.read().ok()?;
         let factory = TheThingFactory::get().ok()?;
         // C++ BuildAssistant.cpp:361-368 — structures spawn UNDER_CONSTRUCTION
         // so onCreate does not fire finished-building hooks (GrantUpgrade, power).
-        let mut starting_status = crate::common::ObjectStatusMaskType::NONE;
-        if template.is_kind_of(crate::common::KindOf::Structure) {
-            starting_status.set_status(crate::common::ObjectStatusTypes::UnderConstruction);
-        }
-        let new_object = factory
-            .new_object_with_status(template.clone(), &*team_guard, starting_status)
-            .ok()?;
+        let new_object = if template.is_kind_of(crate::common::KindOf::Structure) {
+            factory.new_construction_scaffold(Arc::clone(&template), team).ok()?
+        } else {
+            let team = team.read().ok()?;
+            factory.new_object(Arc::clone(&template), &team).ok()?
+        };
 
         let mut build_max_health = 0.0;
         if let Ok(guard) = new_object.read() {
@@ -92,13 +90,32 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
 
         // C++ DozerAIUpdate.cpp:1692-1696 / WorkerAIUpdate.cpp:404-408 —
         // flattenTerrain then snap Z to getGroundHeight before pathfind add.
-        if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
+        let terrain = crate::terrain::get_terrain_logic();
+        let ground_height = terrain.write().ok().map(|mut terrain| {
             terrain.flatten_terrain(&new_object);
-            let z = terrain.get_ground_height(pos.x, pos.y, None);
-            if let Ok(mut guard) = new_object.write() {
-                let _ = guard.set_position(&LogicCoord3D::new(pos.x, pos.y, z));
-            }
+            terrain.get_ground_height(pos.x, pos.y, None)
+        });
+        // The position callback reads terrain to update the object's area and height.
+        if let Some(z) = ground_height
+            && let Ok(mut guard) = new_object.write()
+        {
+            let _ = guard.set_position(&LogicCoord3D::new(pos.x, pos.y, z));
         }
+
+        // DozerAIUpdate.cpp:1699 and WorkerAIUpdate.cpp:411 classify the
+        // footprint from the snapped pose before the builder receives the task.
+        let placed = new_object.read().ok()?;
+        if let Some(owner) = placed.scaffold_pathfinding_owner()
+            && let Err(error) = owner.classify_placed_scaffold_footprint(&placed, true)
+        {
+            let id = placed.get_id();
+            let world = Arc::clone(owner.services());
+            drop(placed);
+            log::error!("cannot classify placed construction {id}: {error}");
+            let _ = world.destroy_logic_object(id);
+            return None;
+        }
+        drop(placed);
 
         if let Some(builder_id) = builder_id {
             if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
@@ -214,4 +231,176 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
 
 pub fn install_build_assistant_backend() {
     set_build_assistant_backend(Arc::new(GameLogicBuildAssistantBackend::default()));
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use crate::ai::Pathfinder;
+    use crate::ai::pathfind_complete::{PathfindCellType, SURFACE_GROUND};
+    use crate::object::Object;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::team::Team;
+    use std::sync::RwLock;
+
+    fn place(world: &Arc<EngineStores>, center: LogicCoord3D, angle: f32) -> ObjectID {
+        use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
+
+        with_active_stores(world, || {
+            assert!(ensure_thing_factory_exists());
+            world.services().terrain().write().unwrap().try_restore_logic_height_map_with_effects(
+                40, 40, &[100; 1600], &mut || {},
+            ).unwrap();
+            let definitions = "
+                Object FootprintScaffold
+                    KindOf = STRUCTURE IMMOBILE
+                    Geometry = BOX
+                    GeometryMajorRadius = 18
+                    GeometryMinorRadius = 4
+                    GeometryHeight = 12
+                End
+                Object ForeignFootprint
+                    KindOf = STRUCTURE IMMOBILE
+                    Geometry = CYLINDER
+                    GeometryMajorRadius = 3
+                    GeometryHeight = 8
+                End
+            ";
+            assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(definitions), 2);
+
+            let team = Arc::new(RwLock::new(Team::new("PlacementTeam".into(), 71)));
+            team.write().unwrap().set_controlling_player_id(Some(0));
+            let mut player = crate::player::Player::new(0);
+            player.set_default_team(Some(Arc::clone(&team)));
+            world.services().players().write().unwrap().add_player(Arc::new(RwLock::new(player)));
+
+            let builder = Arc::new(RwLock::new(Object::new_test(700, 100.)));
+            let foreign = Arc::new(RwLock::new(Object::new_test_from_template(
+                701,
+                100.,
+                TheThingFactory::find_template("ForeignFootprint").unwrap(),
+            )));
+            foreign.write().unwrap().set_position(&(center + LogicCoord3D::new(10., 0., 0.))).unwrap();
+            {
+                let mut logic = world.game_logic_mutex().lock().unwrap();
+                logic.register_object(Arc::clone(&builder)).unwrap();
+                logic.register_object(Arc::clone(&foreign)).unwrap();
+            }
+            builder.write().unwrap().set_team(Some(team)).unwrap();
+            {
+                let pathfinder = world.ai().read().unwrap().pathfinder().unwrap();
+                let mut pathfinder = pathfinder.write().unwrap();
+                pathfinder.reset_with_size(40, 40);
+                pathfinder.add_object_to_pathfind_map(&foreign.read().unwrap()).unwrap();
+            }
+
+            GameLogicBuildAssistantBackend
+                .build_object_now(
+                    Some(700),
+                    "FootprintScaffold",
+                    &Coord3D {x: center.x, y: center.y, z: 12.},
+                    angle,
+                    0,
+                )
+                .expect("actual build assistant must place the authored scaffold")
+        })
+    }
+
+    #[test]
+    fn ordered_scaffold_placement_stamps_its_owned_final_footprint() {
+        use crate::test_process::{TestProcess, run_bounded};
+        const NAME: &str = concat!(module_path!(), "::ordered_scaffold_placement_stamps_its_owned_final_footprint");
+        if let TestProcess::ParentVerified = run_bounded(
+            NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+            "GENERALS_CORE_SCAFFOLD_FOOTPRINT_CHILD",
+        ) {
+            return;
+        }
+
+        let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
+        let owning = new_for_world();
+        let peer = new_for_world();
+        let placed = LogicCoord3D::new(105., 105., 0.);
+        let peer_placed = LogicCoord3D::new(205., 205., 0.);
+        let peer_angle = std::f32::consts::FRAC_PI_2;
+        let peer_id = place(&peer, peer_placed, peer_angle);
+        let peer_pathfinder = peer.ai().read().unwrap().pathfinder().unwrap();
+        let owned_cells = |path: &Pathfinder, position: LogicCoord3D, id: ObjectID| {
+            (
+                path.get_cell_type_at(&position),
+                path.valid_movement_position_for_surfaces(SURFACE_GROUND, false, &position, Some(id)),
+            )
+        };
+        let before_peer = owned_cells(&peer_pathfinder.read().unwrap(), peer_placed, peer_id);
+        let id = place(&owning, placed, 0.);
+        assert_eq!(id, peer_id);
+        let ground_z = owning.services().terrain().read().unwrap().get_ground_height(placed.x, placed.y, None);
+        assert!(ground_z > 10.);
+        {
+            let logic = owning.game_logic_mutex().lock().unwrap();
+            let ordinary = logic.find_object_by_id(700).unwrap();
+            let ordinary = ordinary.read().unwrap();
+            assert!(ordinary.owning_pathfinding_runtime().is_some());
+            assert!(ordinary.scaffold_pathfinding_owner().is_none());
+            let structure = logic.find_object_by_id(id).unwrap();
+            let structure = structure.read().unwrap();
+            assert_eq!(*structure.get_position(), LogicCoord3D::new(placed.x, placed.y, ground_z));
+            assert_eq!(structure.get_orientation(), 0.);
+            assert_eq!(structure.get_height_above_terrain(), 0.);
+            assert_eq!(structure.get_builder_id(), 700);
+            assert!(structure.is_under_construction());
+            assert!(Arc::ptr_eq(&structure.owning_pathfinding_runtime().unwrap(), &owning));
+        }
+        {
+            let logic = peer.game_logic_mutex().lock().unwrap();
+            let structure = logic.find_object_by_id(peer_id).unwrap();
+            assert_eq!(structure.read().unwrap().get_orientation(), peer_angle);
+        }
+        assert_eq!(owned_cells(&peer_pathfinder.read().unwrap(), peer_placed, peer_id), before_peer);
+        let receiving = owning.ai().read().unwrap().pathfinder().unwrap();
+        let receiving = receiving.read().unwrap();
+        let origin = LogicCoord3D::new(5., 5., 0.);
+        let foreign = LogicCoord3D::new(115., 105., 0.);
+        let observed = [
+            owned_cells(&receiving, origin, id),
+            owned_cells(&receiving, placed, id),
+            owned_cells(&receiving, LogicCoord3D::new(95., 105., 0.), id),
+            owned_cells(&receiving, foreign, 701),
+            owned_cells(&receiving, foreign, id),
+        ];
+        assert_eq!(observed, [
+            (Some(PathfindCellType::Clear), true),
+            (Some(PathfindCellType::Obstacle), true),
+            (Some(PathfindCellType::Obstacle), true),
+            (Some(PathfindCellType::Obstacle), true),
+            (Some(PathfindCellType::Obstacle), false),
+        ]);
+        assert_eq!(before_peer, (Some(PathfindCellType::Obstacle), true));
+        {
+            let peer_pathfinder = peer_pathfinder.read().unwrap();
+            assert_eq!(owned_cells(&peer_pathfinder, placed, id), (Some(PathfindCellType::Clear), true));
+            assert_eq!(owned_cells(&peer_pathfinder, peer_placed + LogicCoord3D::Y * 10., id), (Some(PathfindCellType::Obstacle), true));
+            assert_eq!(owned_cells(&peer_pathfinder, peer_placed - LogicCoord3D::X * 10., id), (Some(PathfindCellType::Clear), true));
+        }
+        drop(receiving);
+
+        with_active_stores(&owning, || {
+            let (builder, structure) = {
+                let logic = owning.game_logic_mutex().lock().unwrap();
+                (logic.find_object_by_id(700).unwrap(), logic.find_object_by_id(id).unwrap())
+            };
+            crate::object::update::ai_update::dozer_ai_update::construction_callback_tests::complete_dozer_for_test(
+                &builder, &structure, false,
+            );
+            assert!(!structure.read().unwrap().is_under_construction());
+            let mut logic = owning.game_logic_mutex().lock().unwrap();
+            logic.destroy_object(id);
+            logic.cleanup_dead_objects().unwrap();
+        });
+        let receiving = owning.ai().read().unwrap().pathfinder().unwrap();
+        let receiving = receiving.read().unwrap();
+        assert_eq!(owned_cells(&receiving, placed, id), (Some(PathfindCellType::Clear), true));
+        assert_eq!(owned_cells(&receiving, foreign, 701), (Some(PathfindCellType::Obstacle), true));
+        assert_eq!(owned_cells(&peer_pathfinder.read().unwrap(), peer_placed, peer_id), before_peer);
+    }
 }

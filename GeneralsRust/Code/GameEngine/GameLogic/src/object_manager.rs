@@ -1010,7 +1010,24 @@ impl ObjectManager {
         team: Option<Arc<RwLock<Team>>>,
         flags: ObjectCreationFlags,
     ) -> GameLogicResult<ObjectID> {
-        let factory_flags = Self::map_creation_flags(flags);
+        self.create_object_with_factory_flags(
+            template_name,
+            position,
+            team,
+            flags,
+            crate::object::object_factory::ObjectCreationFlags::NONE,
+        )
+    }
+
+    pub(crate) fn create_object_with_factory_flags(
+        &mut self,
+        template_name: &str,
+        position: Coord3D,
+        team: Option<Arc<RwLock<Team>>>,
+        flags: ObjectCreationFlags,
+        additional_flags: crate::object::object_factory::ObjectCreationFlags,
+    ) -> GameLogicResult<ObjectID> {
+        let factory_flags = Self::map_creation_flags(flags) | additional_flags;
         // One exclusive factory guard covers creation and the base-object
         // fetch; neither re-enters the factory lock.
         let (object_id, base_object) = {
