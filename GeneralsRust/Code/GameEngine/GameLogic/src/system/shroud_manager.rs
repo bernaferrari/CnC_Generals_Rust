@@ -1345,17 +1345,17 @@ impl ShroudManager {
     ///
     /// Fail-closed vs full SAGE dirty-rect streaming — full grid copy for presentation.
     pub fn snapshot_grid_for_player(&self, player_id: u32) -> Option<Vec<u8>> {
-        if (player_id as usize) >= MAX_PLAYER_COUNT {
+        let player_id = player_id as usize;
+        if player_id >= MAX_PLAYER_COUNT {
             return None;
         }
         let grid = self.shroud_grid.as_ref()?;
-        let mut cells = Vec::with_capacity(grid.width * grid.height);
-        for y in 0..grid.height {
-            for x in 0..grid.width {
-                cells.push(grid.get_cell_state(player_id as usize, x, y) as u8);
-            }
-        }
-        Some(cells)
+        Some(
+            grid.cells
+                .iter()
+                .map(|cell| cell.shroud_levels[player_id].get_shroud_status() as u8)
+                .collect(),
+        )
     }
 
     /// Capture the exact persistent shroud payload used by save/load.
