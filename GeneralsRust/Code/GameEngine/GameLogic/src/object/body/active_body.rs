@@ -164,7 +164,17 @@ pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
         return;
     };
     let damager_id = damager.get_id();
-    let candidates = partition.get_objects_in_range(victim.get_position(), friends_radius);
+    let victim_position = *victim.get_position();
+    // The original query reads live positions. Both actors are already
+    // available, and neither can respond as a nearby friend below.
+    let candidates = partition.get_objects_in_range_with_borrowed_positions(
+        &victim_position,
+        friends_radius,
+        &[
+            (victim.get_id(), victim_position),
+            (damager_id, *damager.get_position()),
+        ],
+    );
     for friend_id in candidates {
         if friend_id == victim.get_id() || friend_id == damager_id {
             continue;

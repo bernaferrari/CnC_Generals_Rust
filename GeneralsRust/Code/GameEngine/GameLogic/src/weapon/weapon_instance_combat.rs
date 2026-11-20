@@ -687,7 +687,12 @@ impl Weapon {
                         && self.caller_source(obj_id).is_none()
                     {
                         victim.write().ok().and_then(|mut victim| {
-                            victim.attempt_damage(&mut target_damage_info).ok()?;
+                            victim
+                                .attempt_damage_with_attacker(
+                                    &mut target_damage_info,
+                                    borrowed_source.as_deref_mut(),
+                                )
+                                .ok()?;
                             Some(target_damage_info.output.actual_damage_dealt)
                         })
                     } else {
@@ -1686,28 +1691,24 @@ impl Weapon {
             .collect())
     }
 
+    /// Weapon.cpp:1470 calls the actual victim's damage handlers.
     fn apply_damage_to_object_with_source(
         &mut self,
         obj_id: ObjectId,
         damage_info: &mut crate::damage::DamageInfo,
-        borrowed_source: Option<&mut crate::object::Object>,
+        mut borrowed_source: Option<&mut Object>,
     ) -> Result<f32, WeaponError> {
-        if let Some(source) = borrowed_source.filter(|source| source.get_id() == obj_id) {
+        use crate::object_manager::get_object_manager;
+
+        if let Some(source) = borrowed_source
+            .as_deref_mut()
+            .filter(|source| source.get_id() == obj_id)
+        {
             source.attempt_damage(damage_info).map_err(|error| {
                 WeaponError::SystemError(format!("Failed to apply damage: {error}"))
             })?;
             return Ok(damage_info.output.actual_damage_dealt);
         }
-        self.apply_damage_to_object(obj_id, damage_info)
-    }
-
-    /// Weapon.cpp:1470 calls the actual victim's damage handlers.
-    pub(crate) fn apply_damage_to_object(
-        &mut self,
-        obj_id: ObjectId,
-        damage_info: &mut crate::damage::DamageInfo,
-    ) -> Result<f32, WeaponError> {
-        use crate::object_manager::get_object_manager;
 
         log::debug!(
             "Applying {} damage (type: {:?}) to object {}",
@@ -1723,7 +1724,7 @@ impl Weapon {
 
         if let Some(result) =
             crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj| {
-                obj.attempt_damage(damage_info)
+                obj.attempt_damage_with_attacker(damage_info, borrowed_source)
                     .map(|_| damage_info.output.actual_damage_dealt)
                     .map_err(|err| {
                         WeaponError::SystemError(format!("Failed to apply damage: {}", err))

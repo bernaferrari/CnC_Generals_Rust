@@ -57,7 +57,11 @@ impl Object {
     }
 
     /// C++ ActiveBody.cpp:655-701 after doDamageFX. The body cannot lock this object.
-    fn apply_post_damage_object_effects(&mut self, damage_info: &crate::damage::DamageInfo) {
+    fn apply_post_damage_object_effects(
+        &mut self,
+        damage_info: &crate::damage::DamageInfo,
+        attacker: Option<&Object>,
+    ) {
         let enable_repulsors = crate::ai::the_ai()
             .read()
             .ok()
@@ -77,9 +81,13 @@ impl Object {
                     && player.get_player_type() == PlayerType::Human
             }) == Some(true)
         {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(source_id, |damager| {
-                crate::object::body::active_body::retaliate_nearby_friends(self, damager);
-            });
+            use crate::object::body::active_body::retaliate_nearby_friends;
+            if let Some(attacker) = attacker {
+                retaliate_nearby_friends(self, attacker);
+            } else {
+                let _ = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(source_id, |damager| retaliate_nearby_friends(self, damager));
+            }
         }
     }
 
@@ -90,7 +98,16 @@ impl Object {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        match self.attempt_damage_with_return(damage_info) {
+        self.attempt_damage_with_attacker(damage_info, None)
+    }
+
+    /// A firing Object may already be borrowed across synchronous damage.
+    pub(crate) fn attempt_damage_with_attacker(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        attacker: Option<&mut Object>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match self.attempt_damage_inner(damage_info, attacker, None) {
             Ok(_) => Ok(()),
             Err(ObjectError::AlreadyDead) => Ok(()), // Silently ignore damage to dead objects for compatibility
             Err(e) => Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
@@ -2070,7 +2087,7 @@ impl Object {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<f32, ObjectError> {
-        self.attempt_damage_with_minefield(damage_info, None)
+        self.attempt_damage_inner(damage_info, None, None)
     }
 
     pub(crate) fn attempt_minefield_drain(
@@ -2092,8 +2109,9 @@ impl Object {
             })?;
         let mut damage =
             DamageInfo::with_simple(amount, self.id, DamageType::Unresistable, DeathType::Normal);
-        self.attempt_damage_with_minefield(
+        self.attempt_damage_inner(
             &mut damage,
+            None,
             Some(MountedMinefieldDrain {
                 module: &module,
                 destroy,
@@ -2101,15 +2119,30 @@ impl Object {
         )
     }
 
-    fn attempt_damage_with_minefield(
+    fn attempt_damage_inner(
         &mut self,
         damage_info: &mut DamageInfo,
+        attacker: Option<&mut Object>,
         mut minefield: Option<MountedMinefieldDrain<'_>>,
     ) -> Result<f32, ObjectError> {
         // C++ DamageInfo only has input.m_deathType / m_damageType. Callers that
         // set input (OCL diesOnBadLand: DAMAGE_WATER + DEATH_FLOODED) must have
         // those values visible on the compatibility fields after this call.
         damage_info.sync_from_input();
+        // Weapon.cpp:1460–1467 may attribute a projectile's damage to its
+        // launcher. The loan must name that source in this victim's world.
+        let mut attacker = attacker.filter(|source| {
+            if source.id != damage_info.input.source_id {
+                return false;
+            }
+            match (source.owning_world_services(), self.owning_world_services()) {
+                (Some(source_world), Some(victim_world)) => {
+                    Arc::ptr_eq(&source_world, &victim_world)
+                }
+                (None, None) => source.owner_world.is_none() && self.owner_world.is_none(),
+                _ => false,
+            }
+        });
 
         // Prevent damage to dead objects
         if self.is_effectively_dead() {
@@ -2152,6 +2185,8 @@ impl Object {
             if health_before_damage > 0.0 && damage_info.input.source_id != INVALID_ID {
                 if damage_info.input.source_id == self.id {
                     self.score_self_kill();
+                } else if let Some(attacker) = attacker.as_deref_mut() {
+                    attacker.score_the_kill(self);
                 } else {
                     let _ = crate::object::registry::OBJECT_REGISTRY
                         .with_object_mut(damage_info.input.source_id, |damager| {
@@ -2167,7 +2202,7 @@ impl Object {
                 }
             }
         }
-        self.apply_post_damage_object_effects(damage_info);
+        self.apply_post_damage_object_effects(damage_info, attacker.as_deref());
 
         if let Some(contain) = &self.contain {
             if let Ok(mut contain_guard) = contain.lock() {

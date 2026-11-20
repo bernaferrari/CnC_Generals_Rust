@@ -673,7 +673,7 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
     use crate::common::Relationship;
     use crate::helpers::TheThingFactory;
     use crate::object::Object;
-    use crate::player::Player;
+    use crate::player::{Player, PlayerTemplate};
     use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
     use crate::system::game_logic::get_game_logic;
     use crate::team::Team;
@@ -732,7 +732,7 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
         End
     End
     Object BorrowedPositionalVictim
-        KindOf = STRUCTURE IMMOBILE
+        KindOf = STRUCTURE IMMOBILE SCORE
         Geometry = CYLINDER
         GeometryMajorRadius = 2
         GeometryHeight = 4
@@ -758,6 +758,9 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
                 )));
                 team.write().unwrap().set_controlling_player_id(Some(index));
                 let mut player = Player::new(index as i32);
+                let mut template = PlayerTemplate::new(format!("BlastPlayer{index}"));
+                template.playable = true;
+                player.init(Arc::new(template));
                 player.set_default_team(Some(Arc::clone(&team)));
                 player.set_player_relationship_by_index(opponent, Relationship::Enemies);
                 world
@@ -811,6 +814,15 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
         let source = source.read().unwrap();
         let (weapon, _) = source.get_current_weapon().unwrap();
         Arc::clone(&weapon.template)
+    };
+    let score = |world: &EngineStores| {
+        let players = world.services().players().read().unwrap();
+        let attacker = players.get_player(0).unwrap().read().unwrap();
+        let defender = players.get_player(1).unwrap().read().unwrap();
+        (
+            attacker.get_score_keeper().get_total_buildings_destroyed(),
+            defender.get_score_keeper().get_total_buildings_lost(),
+        )
     };
     let shoot = || {
         with_active_stores(&driving, || {
@@ -882,6 +894,29 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
                 .live_registered(driving.services())
                 .is_some_and(|actor| Arc::ptr_eq(actor, &victim))
         );
+        assert_eq!(score(&driving), (0, 0));
+        victim.write().unwrap().set_health(10.0).unwrap();
+        // Keep this shot outside the preceding frame's damage history tie.
+        get_game_logic()
+            .lock()
+            .unwrap()
+            .update(42, || None)
+            .unwrap();
+        // C++ ActiveBody.cpp:641–670 credits the real killer before onDie
+        // and can still retaliate after death. Both need the actual firer.
+        defender
+            .write()
+            .unwrap()
+            .set_logical_retaliation_mode_enabled(true);
+        {
+            let mut source = source.write().unwrap();
+            source.reload_all_ammo(true).unwrap();
+            source.fire_current_weapon_at_position(&impact).unwrap();
+        }
+        assert_eq!(victim.read().unwrap().get_health(), 0.0);
+        assert!(victim.read().unwrap().is_effectively_dead());
+        assert_eq!(score(&driving), (1, 1));
+
         let mut logic = get_game_logic().lock().unwrap();
         logic.destroy_object(victim_id);
         logic.cleanup_dead_objects().unwrap();
@@ -897,6 +932,27 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
         assert_eq!(replacement.read().unwrap().get_health(), 100.0);
     });
     assert_eq!(peer_victim.read().unwrap().get_health(), 100.0);
+    assert_eq!(score(&peer), (0, 0));
+
+    // Equal numeric IDs do not let a foreign lender stand in for an
+    // unborrowed aggressor that actually belongs to the victim's world.
+    with_active_stores(&peer, || {
+        let mut damage = crate::damage::DamageInfo::with_simple(
+            100.0,
+            source_id,
+            crate::damage::DamageType::Unresistable,
+            crate::damage::DeathType::Normal,
+        );
+        let mut foreign_attacker = source.write().unwrap();
+        peer_victim
+            .write()
+            .unwrap()
+            .attempt_damage_with_attacker(&mut damage, Some(&mut foreign_attacker))
+            .unwrap();
+    });
+    assert_eq!(peer_victim.read().unwrap().get_health(), 0.0);
+    assert_eq!(score(&peer), (1, 1));
+    assert_eq!(score(&driving), (1, 1));
 }
 
 #[test]
