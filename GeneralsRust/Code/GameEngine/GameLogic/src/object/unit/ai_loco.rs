@@ -1056,7 +1056,10 @@ impl UnitAIUpdate {
     /// Native C++ `AIUpdateInterface::doLocomotor` POSITION_ON_PATH consumer
     /// (AIUpdate.cpp:2107-2187). It follows only the construction-bound owner;
     /// the standalone Unit projection is not consulted for native path state.
-    fn apply_native_position_on_path(&mut self) {
+    fn apply_native_position_on_path(
+        &mut self,
+        mut schedule: Option<&mut dyn game_engine::common::thing::update_module::UpdateScheduleContext>,
+    ) {
         let Some(owner) = self.runtime.owner.as_ref().and_then(Weak::upgrade) else {
             return;
         };
@@ -1241,20 +1244,30 @@ impl UnitAIUpdate {
         }
         let installed = physics.as_ref().and_then(|physics| {
             let proxy = physics.installed_update_proxy(&object).ok()?;
-            let scheduler = object
-                .owning_world_services()
-                .and_then(|world| world.object_registry().owning_logic())
-                .unwrap_or_else(crate::system::game_logic::get_game_logic);
-            let frame = scheduler.lock().ok()?.get_frame();
-            Some((physics, proxy, scheduler, frame))
+            let (frame, standalone_scheduler) = if let Some(schedule) = schedule.as_ref() {
+                (schedule.frame(), None)
+            } else {
+                let logic = object
+                    .owning_world_services()
+                    .and_then(|world| world.object_registry().owning_logic())
+                    .unwrap_or_else(crate::system::game_logic::get_game_logic);
+                let frame = logic.lock().ok()?.get_frame();
+                (frame, Some(logic))
+            };
+            Some((physics, proxy, standalone_scheduler, frame))
         });
         let mut wake_physics = || {
-            let (_, proxy, scheduler, frame) = installed.as_ref().expect("installed Physics update proxy");
-            let mut logic = scheduler
-                .lock()
-                .map_err(|_| "Physics wake scheduler poisoned".to_string())?;
+            let (_, proxy, standalone_scheduler, frame) =
+                installed.as_ref().expect("installed Physics update proxy");
+            let wake = frame.wrapping_add(1);
             // GameLogic.cpp:2971–2982 keeps an already-due update on this frame.
-            logic.friend_awaken_update_module(proxy, frame.wrapping_add(1));
+            if let Some(schedule) = schedule.as_deref_mut() {
+                schedule.awaken(proxy, wake);
+            } else if let Some(scheduler) = standalone_scheduler {
+                scheduler.lock()
+                    .map_err(|_| "Physics wake scheduler poisoned".to_string())?
+                    .friend_awaken_update_module(proxy, wake);
+            }
             Ok(())
         };
         let mut legacy_physics = if installed.is_none() {
@@ -1325,12 +1338,15 @@ impl UnitAIUpdate {
         self.runtime.data.do_final_position = false;
     }
 
-    pub(super) fn apply_stored_locomotor_goal(&mut self) {
+    pub(super) fn apply_stored_locomotor_goal(
+        &mut self,
+        schedule: Option<&mut dyn game_engine::common::thing::update_module::UpdateScheduleContext>,
+    ) {
         if self.runtime.data.movement_complete {
             return;
         }
         if self.runtime.data.locomotor_goal_type == 1 {
-            self.apply_native_position_on_path();
+            self.apply_native_position_on_path(schedule);
             return;
         }
         if self.runtime.data.locomotor_goal_type != 2 && self.runtime.data.locomotor_goal_type != 3

@@ -1539,10 +1539,7 @@ fn admit_physical_construction_builder(
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn installed_dozer_motive_force_wakes_physics_without_postponing_its_due_frame() {
-    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
-    use crate::system::engine_stores::{new_for_world, with_active_stores};
     use crate::test_process::{TestProcess, run_bounded};
-    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
 
     const NAME: &str = concat!(module_path!(), "::installed_dozer_motive_force_wakes_physics_without_postponing_its_due_frame");
     if let TestProcess::ParentVerified = run_bounded(
@@ -1550,6 +1547,60 @@ fn installed_dozer_motive_force_wakes_physics_without_postponing_its_due_frame()
         "GENERALS_CORE_INSTALLED_DOZER_MOTIVE_CHILD",
     ) {
         return;
+    }
+
+    assert_installed_motive_wake(false);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn installed_dozer_uses_the_driving_heap_for_position_on_path_motive() {
+    use crate::test_process::{TestProcess, run_bounded};
+
+    const NAME: &str = concat!(module_path!(), "::installed_dozer_uses_the_driving_heap_for_position_on_path_motive");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_INSTALLED_DOZER_HEAP_MOTIVE_CHILD",
+    ) {
+        return;
+    }
+    assert_installed_motive_wake(true);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn assert_installed_motive_wake(scheduled: bool) {
+    use crate::object::PhysicsInterfaceHandle;
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+    use game_engine::common::thing::update_module::{
+        SleepyUpdatePhase, UpdateModuleInterface, UpdateModulePtr, UpdateScheduleContext, UpdateSleepTime,
+    };
+
+    // Use the real heap/context for motive and the factory's exact parent and
+    // Physics. Production Dozer heap registration is a separate admission.
+    struct InstalledMotiveCallback {
+        parent: Arc<Mutex<dyn AIUpdateInterface>>,
+        physics: PhysicsInterfaceHandle,
+    }
+    impl UpdateModuleInterface for InstalledMotiveCallback {
+        fn update_scheduled(
+            &mut self,
+            context: &mut dyn UpdateScheduleContext,
+        ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+            self.parent.lock().unwrap().unit_ai_for_test().unwrap()
+                .update_with_scheduled_motive_for_test(context).unwrap();
+            let frame = context.frame();
+            assert!(self.physics.accumulated_force_acceleration().x > 0.);
+            let state = self.physics.access().unwrap();
+            assert!(state.is_motive_at(frame + 9).unwrap());
+            assert!(!state.is_motive_at(frame + 10).unwrap());
+            Ok(UpdateSleepTime::None)
+        }
+
+        fn get_update_phase(&self) -> SleepyUpdatePhase {
+            SleepyUpdatePhase::Initial
+        }
     }
 
     let receiving = new_for_world();
@@ -1576,12 +1627,21 @@ fn installed_dozer_motive_force_wakes_physics_without_postponing_its_due_frame()
         ).unwrap();
         let logic = receiving.game_logic_mutex();
         logic.lock().unwrap().register_sleepy_update_module(builder_id, proxy.clone(), 80);
+        if scheduled {
+            let callback: UpdateModulePtr = Arc::new(RwLock::new(InstalledMotiveCallback {
+                parent: Arc::clone(&parent),
+                physics: physics.clone(),
+            }));
+            logic.lock().unwrap().register_sleepy_update_module(builder_id, callback, 40);
+        }
         for frame in 38..=41 {
             logic.lock().unwrap().set_current_frame(frame.into());
             // AIUpdate.h:580 runs the actual cached AI in PHASE_INITIAL,
             // before GameLogic drives the installed Physics module.
-            parent.lock().unwrap().update().unwrap();
-            if frame >= 40 {
+            if !scheduled || frame < 40 {
+                parent.lock().unwrap().update().unwrap();
+            }
+            if !scheduled && frame >= 40 {
                 assert!(physics.accumulated_force_acceleration().x > 0.);
                 let state = physics.access().unwrap();
                 assert!(state.is_motive_at(frame + 9).unwrap());
@@ -1590,6 +1650,10 @@ fn installed_dozer_motive_force_wakes_physics_without_postponing_its_due_frame()
                 assert_eq!(logic.lock().unwrap().sleepy_entry_for(&proxy), Some((builder_id, 41)));
             }
             logic.lock().unwrap().update(frame, || None).unwrap();
+            if scheduled && frame == 40 {
+                assert_eq!(logic.lock().unwrap().sleepy_entry_for(&proxy), Some((builder_id, 41)));
+                assert_eq!(*dozer.read().unwrap().get_position(), initial_pose);
+            }
         }
         assert!(dozer.read().unwrap().get_position().x > initial_pose.x);
         let scaffold = logic.lock().unwrap().find_object_by_id(site).unwrap();

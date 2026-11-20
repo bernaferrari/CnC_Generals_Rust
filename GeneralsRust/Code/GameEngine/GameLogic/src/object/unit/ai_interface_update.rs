@@ -374,7 +374,7 @@ impl UnitAIUpdate {
         Ok(true)
     }
     pub(super) fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.update_with_optional_world(None)
+        self.update_with_optional_world(None, None)
     }
     /// The original installed parent-FSM phase, including synchronous terminal
     /// commands. The caller owns the surrounding AI/movement scheduler phases;
@@ -718,9 +718,18 @@ impl UnitAIUpdate {
             .finish_primary_step_with_world(&step, world)
     }
 
+    #[cfg(test)]
+    pub(crate) fn update_with_scheduled_motive_for_test(
+        &mut self,
+        schedule: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.update_with_optional_world(None, Some(schedule))
+    }
+
     fn update_with_optional_world(
         &mut self,
         mut world: Option<&mut dyn crate::modules::ai_world::AiWorld>,
+        schedule: Option<&mut dyn game_engine::common::thing::update_module::UpdateScheduleContext>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.runtime.data.is_blocked {
             self.runtime.data.blocked_frames = self.runtime.data.blocked_frames.saturating_add(1);
@@ -1373,7 +1382,7 @@ impl UnitAIUpdate {
             }
         }
 
-        self.apply_stored_locomotor_goal();
+        self.apply_stored_locomotor_goal(schedule);
         self.finish_completed_movement_like_cpp();
 
         let now = world
