@@ -570,9 +570,8 @@ impl GameClient {
     /// key still resolves to the same Drawable.
     ///
     /// This is the keyed counterpart to the legacy
-    /// [`Self::apply_presentation_pose_to_drawables`] helper.  Main's direct
-    /// host path must use this method so a visual-template replacement cannot
-    /// receive a pose captured for its predecessor.
+    /// [`Self::apply_presentation_pose_to_drawables`] helper for independent
+    /// pose updates outside direct Drawable synchronization.
     pub fn apply_frozen_direct_presentation_poses<I>(&mut self, entries: I) -> usize
     where
         I: IntoIterator<Item = FrozenDirectPresentationPose>,

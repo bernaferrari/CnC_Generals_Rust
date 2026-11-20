@@ -414,8 +414,7 @@ impl CnCGameEngine {
         let logic_frame = pres.frame.0;
         let host_epoch = self.host_direct_visual_world_epoch;
         let draw_module_cache = &self.draw_module_name_cache;
-        // Materialize every borrowed presentation fact before mutating
-        // GameClient, preserving the immutable host→client boundary.
+        // Validate every authored association before mutating GameClient.
         for direct in &pres.direct_host_drawables {
             if direct.resident
                 && direct.authored_client_template_required
@@ -529,27 +528,7 @@ impl CnCGameEngine {
                 }
             })
             .collect::<Vec<_>>();
-        let direct_sources = pres
-            .direct_host_drawables
-            .iter()
-            .filter(|direct| direct.resident)
-            .filter_map(|direct| {
-                let object = &direct.object;
-                let (raw_status, effectively_dead) =
-                    object.drawable_shroud.direct_game_client_status()?;
-                Some((
-                    object.id.0,
-                    raw_status,
-                    effectively_dead,
-                    [object.position.x, object.position.y, object.position.z],
-                    object.orientation,
-                    object.float_yaw,
-                    object.float_pitch,
-                ))
-            })
-            .collect::<Vec<_>>();
-
-        let native_sources: HashMap<_, _> = pres
+        let mut native_sources: game_engine::common::fast_hash::FxHashMap<_, _> = pres
             .direct_host_drawables
             .iter()
             .filter(|direct| direct.resident)
@@ -595,90 +574,53 @@ impl CnCGameEngine {
         // Creating precedes allocation of the real Client association. Only
         // now bind that exact lifetime to the already constructed Draw owner.
         // A changed key without Destroy/Creating is rejected, never relabeled.
-        let game_client = &self.game_client;
+        // Resolve each current binding once after sync. Both model admission
+        // and shroud use it. The sync above already installed the position
+        // and base transform for new and retained Drawables.
+        let direct_bindings = pres
+            .direct_host_drawables
+            .iter()
+            .filter(|direct| direct.resident)
+            .filter_map(|direct| {
+                let object = &direct.object;
+                let binding_key = self
+                    .game_client
+                    .presentation_direct_drawable_state(host_epoch, object.id.0)?
+                    .binding_key;
+                Some((
+                    object.id.0,
+                    binding_key,
+                    object.drawable_shroud.direct_game_client_status(),
+                ))
+            })
+            .collect::<Vec<_>>();
         self.render_pipeline
-            .admit_native_drawable_bindings(native_sources.iter().filter_map(
-                |(object_id, source)| {
-                    Some((
-                        source.identity?,
-                        game_client
-                            .presentation_direct_drawable_state(host_epoch, *object_id)?
-                            .binding_key,
-                    ))
+            .admit_native_drawable_bindings(direct_bindings.iter().filter_map(
+                |(object_id, binding_key, _)| {
+                    Some((native_sources.remove(object_id)?.identity?, *binding_key))
                 },
             ))
             .map_err(str::to_owned)?;
-        // Resolve the complete current binding *after* sync. The same runtime
-        // key then guards raw C++ shroud status and frozen pose, so an ordinary
-        // update preserves it while a visual replacement rejects predecessor
-        // frame data.
-        let direct_bindings = direct_sources
-            .into_iter()
-            .filter_map(
-                |(
-                    object_id,
-                    raw_status,
-                    effectively_dead,
-                    position,
-                    orientation,
-                    float_yaw,
-                    float_pitch,
-                )| {
-                    let binding_key = self
-                        .game_client
-                        .presentation_direct_drawable_state(host_epoch, object_id)?
-                        .binding_key;
-                    Some((
-                        binding_key,
-                        raw_status,
-                        effectively_dead,
-                        position,
-                        orientation,
-                        float_yaw,
-                        float_pitch,
-                    ))
-                },
-            )
-            .collect::<Vec<_>>();
         // C++ `GameClient::update` does not recompute bound Drawable shroud
         // state while visual time is frozen. The view/scene phase still runs
         // later against this retained client state, where a real eligible
         // Clear candidate may refresh its clear frame.
         if !presentation_time_frozen {
-            let shroud_entries = direct_bindings.iter().map(
-                |(binding_key, raw_status, effectively_dead, _, _, _, _)| {
-                    game_client::core::game_client::FrozenDirectShroudStatus {
+            let shroud_entries = direct_bindings.iter().filter_map(
+                |(_, binding_key, status)| {
+                    let (raw_status, effectively_dead) = (*status)?;
+                    Some(game_client::core::game_client::FrozenDirectShroudStatus {
                         binding_key: *binding_key,
-                        raw_status: *raw_status,
-                        effectively_dead: *effectively_dead,
-                    }
+                        raw_status,
+                        effectively_dead,
+                    })
                 },
             );
             let _ = self
                 .game_client
                 .apply_frozen_direct_shroud_statuses(logic_frame, shroud_entries);
         }
-        // Pose belongs to the identical direct binding rather than a raw
-        // ObjectID. Do not filter gameplay-destroyed records here: the direct
-        // source roster controls C++ Drawable residency.
-        let pose_entries = direct_bindings.into_iter().map(
-            |(binding_key, _, _, position, orientation, float_yaw, float_pitch)| {
-                game_client::core::game_client::FrozenDirectPresentationPose {
-                    binding_key,
-                    position,
-                    orientation,
-                    float_yaw,
-                    float_pitch,
-                }
-            },
-        );
-        let n = self
-            .game_client
-            .apply_frozen_direct_presentation_poses(pose_entries);
-        if n > 0 {
-            log::trace!("presentation pose applied to {n} drawables");
-        }
-        // Freeze specialized state after sync and pose application. Sharing
+        // Freeze specialized state after sync and shroud application. Sharing
         // this small completed bundle never mutates/copies the shared frame.
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             self.render_pipeline.capture_specialized_draw_inputs(
