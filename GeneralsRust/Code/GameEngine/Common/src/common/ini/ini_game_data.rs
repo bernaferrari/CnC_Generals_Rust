@@ -157,9 +157,9 @@ pub struct TerrainLighting {
 impl Default for TerrainLighting {
     fn default() -> Self {
         Self {
-            ambient: RGBColor::new(0.3, 0.3, 0.3),
-            diffuse: RGBColor::new(0.7, 0.7, 0.7),
-            light_pos: Coord3D::new(0.0, 0.0, 100.0),
+            ambient: RGBColor::black(),
+            diffuse: RGBColor::black(),
+            light_pos: Coord3D::new(0.0, 0.0, -1.0),
         }
     }
 }
@@ -789,13 +789,13 @@ impl GlobalData {
             force_models_to_follow_time_of_day: false,
             force_models_to_follow_weather: false,
 
-            // Initialize lighting arrays
+            // GlobalData.cpp initializes these before GameData.ini overlays.
             terrain_lighting: Default::default(),
             terrain_objects_lighting: Default::default(),
-            terrain_ambient: [RGBColor::new(0.3, 0.3, 0.3); MAX_GLOBAL_LIGHTS],
-            terrain_diffuse: [RGBColor::new(0.7, 0.7, 0.7); MAX_GLOBAL_LIGHTS],
-            terrain_light_pos: [Coord3D::new(0.0, 0.0, 100.0); MAX_GLOBAL_LIGHTS],
-            infantry_light_scale: [1.0; TIME_OF_DAY_COUNT],
+            terrain_ambient: [RGBColor::black(); MAX_GLOBAL_LIGHTS],
+            terrain_diffuse: [RGBColor::black(); MAX_GLOBAL_LIGHTS],
+            terrain_light_pos: [Coord3D::new(0.0, 0.0, -1.0); MAX_GLOBAL_LIGHTS],
+            infantry_light_scale: [1.5; TIME_OF_DAY_COUNT],
             script_override_infantry_light_scale: -1.0,
 
             solo_player_health_bonus_for_difficulty: [[1.0; DIFFICULTY_COUNT]; PLAYERTYPE_COUNT],
@@ -806,7 +806,7 @@ impl GlobalData {
             max_visible_non_occluder_or_occludee_objects: 1000,
             occluded_luminance_scale: 0.5,
 
-            num_global_lights: 2,
+            num_global_lights: 3,
             max_road_segments: 1000,
             max_road_vertex: 10000,
             max_road_index: 30000,
@@ -2685,10 +2685,31 @@ mod tests {
 
     #[test]
     fn test_terrain_lighting() {
-        let lighting = TerrainLighting::default();
-        assert!(lighting.ambient.r > 0.0);
-        assert!(lighting.diffuse.r > 0.0);
-        assert_eq!(lighting.light_pos.z, 100.0);
+        let data = GlobalData::new();
+        let black = RGBColor::black();
+        let down = |point: Coord3D| assert_eq!([point.x, point.y, point.z], [0.0, 0.0, -1.0]);
+        for row in data
+            .terrain_lighting
+            .iter()
+            .chain(&data.terrain_objects_lighting)
+            .flatten()
+        {
+            assert_eq!(row.ambient, black);
+            assert_eq!(row.diffuse, black);
+            down(row.light_pos);
+        }
+        assert_eq!(data.terrain_ambient, [black; 3]);
+        assert_eq!(data.terrain_diffuse, [black; 3]);
+        data.terrain_light_pos.into_iter().for_each(down);
+        assert_eq!(&data.infantry_light_scale[TIME_OF_DAY_FIRST..], &[1.5; 4]);
+        assert_eq!(data.script_override_infantry_light_scale, -1.0);
+        assert_eq!(data.num_global_lights, 3);
+
+        let rules = LightingContentRules::from_global_data(&data)
+            .overlay_ini_text("GameData\n NumberGlobalLights = 2\n End\n")
+            .unwrap();
+        assert_eq!(rules.num_global_lights, 2);
+        assert_eq!(rules.terrain[TimeOfDay::Afternoon as usize][2].diffuse, black);
     }
 
     #[test]

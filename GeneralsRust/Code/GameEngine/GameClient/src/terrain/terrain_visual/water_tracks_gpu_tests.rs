@@ -291,18 +291,19 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
         );
         assert_eq!(vertex_buffers_per_phase, vec![1; 5]);
 
-        // Stock afternoon GameData applied to the mounted geometry, using
-        // the original GlobalData.cpp default count for the receiving inputs.
-        let mut authored = LightingContentRules::default();
-        authored.num_global_lights = 3;
-        let authored = authored.overlay_ini_text(&game_data_ini).unwrap();
+        // Stock GameData supplies all three afternoon rows without a
+        // NumberGlobalLights override. Use the count received during startup.
+        let authored = LightingContentRules::default()
+            .overlay_ini_text(&game_data_ini)
+            .unwrap();
         assert_eq!(authored.time_of_day as u8, visual.water_rules().time_of_day);
-        assert_eq!(authored.num_global_lights, 3);
+        let light_count = authored.num_global_lights;
         let lights = &authored.terrain[authored.time_of_day as usize];
         let ambient = &lights[0].ambient;
         visual.admit_static_lighting(crate::terrain::chunk::TerrainStaticLighting {
             lights: lights
                 .iter()
+                .take(light_count.max(0) as usize)
                 .map(|light| {
                     let pos = &light.light_pos;
                     let color = &light.diffuse;
@@ -316,10 +317,11 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
         visual.rebuild_all_overlays();
         let pixels = read_water_pixels(&visual, &replacement_device, &replacement_queue, true);
         eprintln!(
-            "Retail GameData/Water.ini afternoon diffuse {diffuse:08x}, mounted water CRC32 {:08x}",
+            "Retail GameData/Water.ini afternoon {light_count} lights, diffuse {diffuse:08x}, mounted water CRC32 {:08x}",
             crc32fast::hash(&pixels)
         );
         assert_eq!(diffuse, 0xff83_8078);
+        assert_eq!(light_count, 3);
     });
 }
 
