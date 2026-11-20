@@ -1,7 +1,8 @@
 # Cargo configuration for the single GeneralsRust workspace.
 #
-# Profile defaults live in Cargo.toml. The debug overrides below also take
-# precedence over machine-wide Cargo configs that enable line tables.
+# Repeat the in-game dev optimization here so a machine-wide opt-level=0
+# cannot silently produce an unplayable dev binary. Workspace profiles keep
+# debug assertions enabled and control dev artifact size.
 # Do not add a second target-dir for rust-analyzer — that doubles disk use.
 
 [build]
@@ -10,6 +11,11 @@
 target-dir = "target"
 
 [profile.dev]
+opt-level = 2
+debug = false
+
+[profile.dev.package."*"]
+opt-level = 2
 debug = false
 
 [profile.test]

@@ -411,8 +411,9 @@ rodio_compat = { path = "Code/Libraries/Source/rodio_compat" }
 
 # Normal builds omit debug information to keep compile output bounded.
 # Use release-with-debug explicitly when source-level diagnosis is needed.
+# Keep debug assertions and incremental builds while making the game usable in dev.
 [profile.dev]
-opt-level = 0
+opt-level = 2
 debug = false
 incremental = true
 
