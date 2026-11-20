@@ -134,13 +134,9 @@ pub struct TerrainVisualImpl {
     water_texture: Option<Texture>,
     water_sampler: Option<Sampler>,
     water_texture_bind_group: Option<BindGroup>,
-    /// True when the bound albedo is the 1x1 teal fallback, not TWWater01.
+    /// True when the bound albedo is the 1x1 teal fallback.
     water_texture_is_fallback: bool,
     bound_standing_water_texture: String,
-    /// Last Water.ini standing-water name this visual attempted to bind.
-    /// C++ binds INI overrides once (WaterRenderObjClass::updateMapOverrides
-    /// on map load); re-binding every frame reloaded the DDS 60x/s.
-    requested_standing_water_texture: String,
     /// True once the water texture search found nothing; the teal fallback
     /// bind group stays in place and the search is not re-run per frame.
     water_texture_search_exhausted: bool,

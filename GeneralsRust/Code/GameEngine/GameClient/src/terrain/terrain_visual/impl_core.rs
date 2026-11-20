@@ -162,7 +162,6 @@ impl TerrainVisualImpl {
             water_texture_bind_group: None,
             water_texture_is_fallback: false,
             bound_standing_water_texture: String::new(),
-            requested_standing_water_texture: String::new(),
             water_texture_search_exhausted: false,
             water_additive_blend: false,
             river_gpu: RiverGpuState::default(),

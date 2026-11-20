@@ -17,6 +17,7 @@ impl TerrainVisualImpl {
             self.water_texture_bind_group = None;
             self.water_texture_search_exhausted = false;
             self.water_named_bind_groups.clear();
+            self.river_gpu = RiverGpuState::default();
         }
         self.device = Some(Arc::clone(&device));
         self.queue = Some(Arc::clone(&queue));
@@ -56,9 +57,8 @@ impl TerrainVisualImpl {
 
         // Create water render pipeline
         self.create_water_pipeline(device.as_ref())?;
-        self.ensure_water_texture_bind_group(device.as_ref());
         self.create_river_pipeline(device.as_ref())?;
-        self.ensure_river_bind_group(device.as_ref());
+        self.ensure_water_materials(device.as_ref());
         self.create_shroud_overlay_pipelines(device.as_ref())?;
         self.sync_shroud_dest_texture();
 
@@ -1930,8 +1930,7 @@ impl TerrainVisualImpl {
         }
         // A failed search stays failed: the teal fallback bind group is bound
         // and re-probing every frame re-read candidate paths per render call.
-        // `apply_water_transparency_map_overrides` clears this when the INI
-        // standing-water name changes.
+        // Water.ini admission clears this when the owner's effective settings change.
         if self.water_texture_search_exhausted {
             return;
         }
@@ -1993,24 +1992,6 @@ impl TerrainVisualImpl {
         self.water_texture_bind_group = Some(bind_group);
         self.water_texture_is_fallback = used_fallback;
         self.bound_standing_water_texture = source_name;
-    }
-
-    /// C++ `WaterRenderObjClass::updateMapOverrides` for this visual's owner.
-    fn apply_water_transparency_map_overrides(&mut self, device: &wgpu::Device) {
-        let wanted = self.water_presentation.standing_water_texture.clone();
-        // C++ applies the INI standing-water override when the map/Water.ini
-        // changes it, not per frame. Rebind only when the requested name
-        // differs from the last attempt: the loaded texture path (e.g.
-        // Art/Textures/water01.dds) rarely contains the INI name
-        // (TWWater01.tga), so the old contains() test forced a full
-        // DDS re-decode + upload every frame (~220 ms of the terrain pass).
-        if !wanted.is_empty() && wanted != self.requested_standing_water_texture {
-            self.requested_standing_water_texture = wanted;
-            self.water_texture_bind_group = None;
-            self.water_texture_is_fallback = true;
-            self.water_texture_search_exhausted = false;
-            self.ensure_water_texture_bind_group(device);
-        }
     }
 
     fn load_first_available_water_texture(

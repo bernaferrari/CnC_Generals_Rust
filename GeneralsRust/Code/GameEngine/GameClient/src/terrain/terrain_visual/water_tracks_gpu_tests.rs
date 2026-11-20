@@ -69,7 +69,6 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
     use game_engine::common::system::big_file_system::{BigArchiveBackend, BigFileSystem};
     use game_engine::common::system::file_system::get_file_system;
     use game_engine::common::system::subsystem_interface::SubsystemInterface;
-    use gamelogic::system::map_loader::MapLoader;
     use std::io::Read;
 
     let retail = std::env::var_os("GENERALS_ASSETS_DIR").expect("retail Zero Hour assets required");
@@ -109,34 +108,10 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
             files.init().unwrap();
         }
 
-        let mut loader = MapLoader::new();
-        loader.load_runtime_support_from_bytes(&bytes).unwrap();
-        let areas: Vec<_> = loader
-            .to_map_data()
-            .polygon_triggers
-            .iter()
-            .filter(|trigger| trigger.is_water_area() && trigger.get_num_points() > 2)
-            .map(|trigger| TerrainWaterArea {
-                points: (0..trigger.get_num_points())
-                    .map(|index| {
-                        let p = trigger.get_point(index).unwrap();
-                        // The native receiving terrain uses Y-up, like the Main delivery.
-                        [p.x as f32, p.z as f32, p.y as f32]
-                    })
-                    .collect(),
-                is_river: trigger.is_river(),
-                river_start: trigger.get_river_start(),
-            })
-            .collect();
+        let areas = mounted_water_areas(&bytes);
         assert_eq!(areas.len(), 3);
         assert_eq!(areas.iter().filter(|area| area.is_river).count(), 2);
-        let (min, max) = areas.iter().flat_map(|area| &area.points).fold(
-            (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
-            |(min, max), p| {
-                let v = Vec2::new(p[0], p[2]);
-                (min.min(v), max.max(v))
-            },
-        );
+        let (min, max) = water_test_bounds(&areas);
 
         let (device, queue) = native_water_test_device();
         let mut visual = TerrainVisualImpl::new();
@@ -153,8 +128,7 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
             visual.river_gpu.river_tex.as_ref().unwrap().width() > 1,
             "the native polygon shader must bind the mounted TWWater01 art",
         );
-        let min = min - Vec2::splat(20.0);
-        let max = max + Vec2::splat(20.0);
+        assert_eq!(visual.river_gpu.river_tex, visual.water_texture);
         set_water_test_camera(&mut visual, &device, min, max);
         visual.set_map_water_areas(areas.clone());
         assert!(
@@ -273,6 +247,193 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
             phase_0
         );
     });
+}
+
+#[test]
+#[ignore = "requires native GPU and the mounted retail campaign map and textures"]
+fn usa05_polygon_water_uses_the_mounted_map_standing_texture() {
+    use game_engine::common::ini::ini::INILoadType;
+    use game_engine::common::ini::ini_water::WaterDefinitions;
+    use game_engine::common::system::big_file_system::{BigArchiveBackend, BigFileSystem};
+    use game_engine::common::system::file_system::get_file_system;
+    use game_engine::common::system::subsystem_interface::SubsystemInterface;
+    use gamelogic::system::engine_stores::{new_world_services, with_world_services};
+    use std::io::Read;
+
+    let retail = std::env::var_os("GENERALS_ASSETS_DIR").expect("retail Zero Hour assets required");
+    let base = std::env::var_os("GENERALS_BASE_DIR").expect("retail Generals textures required");
+    let retail_data = Path::new(&retail).join("Data");
+    let mut maps = BigFileSystem::new();
+    maps.open_archive_file(retail_data.join("MapsZH.big"))
+        .unwrap();
+    let mut bytes = Vec::new();
+    maps.open_file("Maps/MD_USA05/MD_USA05.map", 0)
+        .unwrap()
+        .read_to_end(&mut bytes)
+        .unwrap();
+    let mut map_ini = String::new();
+    maps.open_file("Maps/MD_USA05/map.ini", 0)
+        .unwrap()
+        .read_to_string(&mut map_ini)
+        .unwrap();
+    let mut ini_archive = BigFileSystem::new();
+    ini_archive
+        .open_archive_file(retail_data.join("INIZH.big"))
+        .unwrap();
+    let mut water_ini = String::new();
+    ini_archive
+        .open_file("Data/INI/Water.ini", 0)
+        .unwrap()
+        .read_to_string(&mut water_ini)
+        .unwrap();
+    let source = tempfile::tempdir().unwrap();
+    for (data, name) in [
+        (retail_data, "TexturesZH.big"),
+        (Path::new(&base).join("Data"), "Textures.big"),
+    ] {
+        std::fs::hard_link(data.join(name), source.path().join(name)).unwrap();
+    }
+    let world = new_world_services();
+    with_world_services(&world, || {
+        let mut backend = BigArchiveBackend::new();
+        backend.add_search_path(source.path());
+        {
+            let files = get_file_system();
+            let mut files = files.lock().unwrap();
+            files.register_backend(Box::new(backend));
+            files.init().unwrap();
+        }
+        let stock = WaterDefinitions::default()
+            .overlay_ini_text(&water_ini, INILoadType::Overwrite)
+            .unwrap();
+        let water = stock
+            .overlay_ini_text(&map_ini, INILoadType::CreateOverrides)
+            .unwrap()
+            .presentation();
+        assert!(
+            water
+                .standing_water_texture
+                .eq_ignore_ascii_case("TSWater03.tga")
+        );
+        let mut default_art = water.clone();
+        default_art.standing_water_texture = stock.presentation().standing_water_texture;
+        assert!(
+            default_art
+                .standing_water_texture
+                .eq_ignore_ascii_case("TWWater01.tga")
+        );
+
+        let areas = mounted_water_areas(&bytes);
+        assert_eq!(areas.len(), 4);
+        assert!(
+            areas
+                .iter()
+                .all(|area| !area.is_river && area.points.len() == 4)
+        );
+        let (min, max) = water_test_bounds(&areas);
+        let (device, queue) = native_water_test_device();
+        let mut visual = TerrainVisualImpl::new();
+        visual.admit_water_presentation(&water).unwrap();
+        visual
+            .init_gpu_resources(device.clone(), queue.clone())
+            .unwrap();
+        visual.set_map_water_areas(areas.clone());
+        let read = |visual: &mut TerrainVisualImpl| {
+            set_water_test_camera(visual, &device, min, max);
+            read_water_pixels(visual, &device, &queue, true)
+        };
+        let authored = read(&mut visual);
+        assert!(authored.chunks_exact(4).any(|pixel| pixel[..3] != [0; 3]));
+        let initially_shared = visual.river_gpu.river_tex == visual.water_texture;
+        assert_eq!(
+            Path::new(&visual.bound_standing_water_texture)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("tswater03"),
+        );
+        let authored_material = visual.river_gpu.trapezoid_bind_group.clone();
+        let detail_views = |visual: &TerrainVisualImpl| {
+            let detail = visual.river_gpu.detail_views.as_ref().unwrap();
+            [detail.sparkle.clone(), detail.noise.clone(), detail.edge.clone()]
+        };
+        let original_details = detail_views(&visual);
+        let refresh = |visual: &mut TerrainVisualImpl| {
+            TerrainVisual::render(visual, &Mat4::IDENTITY, &Mat4::IDENTITY).unwrap();
+        };
+        refresh(&mut visual);
+        let unchanged_kept_group = visual.river_gpu.trapezoid_bind_group == authored_material;
+        assert_eq!(read(&mut visual), authored);
+
+        visual.admit_water_presentation(&default_art).unwrap();
+        refresh(&mut visual);
+        let default_pixels = read(&mut visual);
+        let changed_group = visual.river_gpu.trapezoid_bind_group != authored_material;
+        let default_shared = visual.river_gpu.river_tex == visual.water_texture;
+
+        let mut peer = TerrainVisualImpl::new();
+        peer.admit_water_presentation(&default_art).unwrap();
+        peer.init_gpu_resources(device.clone(), queue.clone()).unwrap();
+        peer.set_map_water_areas(areas);
+        visual.admit_water_presentation(&water).unwrap();
+        refresh(&mut visual);
+        assert_eq!(read(&mut visual), authored);
+        assert_eq!(read(&mut peer), default_pixels);
+        assert_eq!(detail_views(&visual), original_details);
+        let restored_shared = visual.river_gpu.river_tex == visual.water_texture;
+        eprintln!(
+            "USA05 installed-water shared {initially_shared}/{default_shared}/{restored_shared}, same retained {unchanged_kept_group}, changed group {changed_group}, authored CRC32 {:08x}, default CRC32 {:08x}",
+            crc32fast::hash(&authored),
+            crc32fast::hash(&default_pixels),
+        );
+        assert_eq!(
+            (
+                initially_shared,
+                unchanged_kept_group,
+                changed_group,
+                default_shared,
+                restored_shared
+            ),
+            (true, true, true, true, true)
+        );
+        assert_ne!(authored, default_pixels);
+    });
+}
+
+fn mounted_water_areas(bytes: &[u8]) -> Vec<TerrainWaterArea> {
+    use gamelogic::system::map_loader::MapLoader;
+
+    let mut loader = MapLoader::new();
+    loader.load_runtime_support_from_bytes(bytes).unwrap();
+    loader
+        .to_map_data()
+        .polygon_triggers
+        .iter()
+        .filter(|trigger| trigger.is_water_area() && trigger.get_num_points() > 2)
+        .map(|trigger| TerrainWaterArea {
+            points: (0..trigger.get_num_points())
+                .map(|index| {
+                    let p = trigger.get_point(index).unwrap();
+                    // The native receiving terrain uses Y-up, like the Main delivery.
+                    [p.x as f32, p.z as f32, p.y as f32]
+                })
+                .collect(),
+            is_river: trigger.is_river(),
+            river_start: trigger.get_river_start(),
+        })
+        .collect()
+}
+
+fn water_test_bounds(areas: &[TerrainWaterArea]) -> (Vec2, Vec2) {
+    let (min, max) = areas.iter().flat_map(|area| &area.points).fold(
+        (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
+        |(min, max), p| {
+            let v = Vec2::new(p[0], p[2]);
+            (min.min(v), max.max(v))
+        },
+    );
+    (min - Vec2::splat(20.0), max + Vec2::splat(20.0))
 }
 
 #[test]

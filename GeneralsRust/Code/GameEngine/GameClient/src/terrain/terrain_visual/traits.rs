@@ -60,7 +60,13 @@ impl SubsystemInterface for TerrainVisualImpl {
         );
         self.water_named_bind_groups.clear();
         self.road_named_bind_groups.clear();
+        self.water_texture = None;
+        self.water_texture_bind_group = None;
+        self.water_texture_search_exhausted = false;
+        self.river_gpu.river_tex = None;
         self.river_gpu.bind_group = None;
+        self.river_gpu.trapezoid_bind_group = None;
+        self.river_gpu.detail_views = None;
         self.shroud_gpu.bind_group = None;
         self.shroud_gpu.dest_texture = None;
         self.shroud_gpu.dest_view = None;
@@ -244,9 +250,7 @@ impl TerrainVisualImpl {
 
         if let Some(device) = self.device.as_ref().cloned() {
             self.sync_water_plane(device.as_ref())?;
-            if self.water_texture_bind_group.is_none() || self.water_texture_is_fallback {
-                self.ensure_water_texture_bind_group(device.as_ref());
-            }
+            self.ensure_water_materials(device.as_ref());
         }
 
         if tree_cpu_completed {
@@ -282,7 +286,6 @@ impl TerrainVisualImpl {
                     &snow.definition.snow_texture,
                 );
             }
-            self.apply_water_transparency_map_overrides(device.as_ref());
         }
         self.upload_snow_mesh(snow_camera.as_ref(), snow);
         if self.overlay.overlays_dirty {
@@ -552,7 +555,7 @@ impl TerrainVisualImpl {
             if self.water_grid_enabled && self.overlay.water_grid_dirty {
                 self.upload_water_grid_mesh(device.as_ref());
             }
-            self.ensure_river_bind_group(device.as_ref());
+            self.ensure_water_materials(device.as_ref());
         }
         self.sync_river_params();
         self.sync_shroud_dest_texture();

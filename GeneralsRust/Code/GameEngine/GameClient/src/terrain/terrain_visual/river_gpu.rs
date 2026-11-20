@@ -137,75 +137,50 @@ impl TerrainVisualImpl {
         Ok(())
     }
 
-    fn ensure_river_bind_group(&mut self, device: &wgpu::Device) {
-        if self.river_gpu.bind_group.is_some() && self.river_gpu.trapezoid_bind_group.is_some() {
+    // C++ WaterRenderObjClass::updateMapOverrides changes m_riverTexture to
+    // the owner's StandingWaterTexture (W3DWater.cpp:1110–1117).
+    fn ensure_water_materials(&mut self, device: &wgpu::Device) {
+        self.ensure_water_texture_bind_group(device);
+        let (Some(surface), Some(sampler), Some(layout), Some(params), Some(trapezoid_params)) = (
+            self.water_texture.as_ref(),
+            self.water_sampler.as_ref(),
+            self.river_gpu.bind_layout.as_ref(),
+            self.river_gpu.params.as_ref(),
+            self.river_gpu.trapezoid_params.as_ref(),
+        ) else {
+            return;
+        };
+        if self.river_gpu.bind_group.is_some()
+            && self.river_gpu.trapezoid_bind_group.is_some()
+            && self.river_gpu.river_tex.as_ref() == Some(surface)
+        {
             return;
         }
-        let Some(layout) = self.river_gpu.bind_layout.clone() else {
-            return;
-        };
-        let Some(queue) = self.queue.clone() else {
-            return;
-        };
-        let Some(params) = self.river_gpu.params.as_ref() else {
-            return;
-        };
-        let Some(trapezoid_params) = self.river_gpu.trapezoid_params.as_ref() else {
-            return;
-        };
-        // C++ m_riverTexture is standing water; extras are named TGA assets.
-        let river_tex = self
-            .load_first_available_named_texture(device, &["TWWater01.tga", "TWWater01.dds"], 1)
-            .unwrap_or_else(|| Self::create_fallback_water_texture(device, queue.as_ref()));
-        let sparkle = self
-            .load_first_available_named_texture(device, &["WaterSurfaceBubbles.tga"], 1)
-            .unwrap_or_else(|| {
-                Self::create_solid_rgba_texture(
-                    device,
-                    queue.as_ref(),
+        if self.river_gpu.detail_views.is_none() {
+            let Some(queue) = self.queue.as_ref() else {
+                return;
+            };
+            let load_view = |name, rgba, fallback_label| {
+                self.load_first_available_named_texture(device, &[name], 1)
+                    .unwrap_or_else(|| {
+                        Self::create_solid_rgba_texture(device, queue, rgba, fallback_label)
+                    })
+                    .create_view(&wgpu::TextureViewDescriptor::default())
+            };
+            self.river_gpu.detail_views = Some(RiverDetailViews {
+                sparkle: load_view(
+                    "WaterSurfaceBubbles.tga",
                     [220, 230, 255, 80],
                     "sparkle fallback",
-                )
+                ),
+                noise: load_view("Noise0000.tga", [90, 90, 90, 255], "noise fallback"),
+                edge: load_view("TWAlphaEdge.tga", [255, 255, 255, 255], "alpha-edge fallback"),
             });
-        let noise = self
-            .load_first_available_named_texture(device, &["Noise0000.tga"], 1)
-            .unwrap_or_else(|| {
-                Self::create_solid_rgba_texture(
-                    device,
-                    queue.as_ref(),
-                    [90, 90, 90, 255],
-                    "noise fallback",
-                )
-            });
-        let edge = self
-            .load_first_available_named_texture(device, &["TWAlphaEdge.tga"], 1)
-            .unwrap_or_else(|| {
-                Self::create_solid_rgba_texture(
-                    device,
-                    queue.as_ref(),
-                    [255, 255, 255, 255],
-                    "alpha-edge fallback",
-                )
-            });
-        if self.water_sampler.is_none() {
-            self.water_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("River Texture Sampler"),
-                address_mode_u: wgpu::AddressMode::Repeat,
-                address_mode_v: wgpu::AddressMode::Repeat,
-                address_mode_w: wgpu::AddressMode::Repeat,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::MipmapFilterMode::Linear,
-                ..Default::default()
-            }));
         }
-        let Some(sampler) = self.water_sampler.as_ref() else {
+        let Some(details) = self.river_gpu.detail_views.as_ref() else {
             return;
         };
-        let river_view = river_tex.create_view(&wgpu::TextureViewDescriptor::default());
-        let sparkle_view = sparkle.create_view(&wgpu::TextureViewDescriptor::default());
-        let noise_view = noise.create_view(&wgpu::TextureViewDescriptor::default());
-        let edge_view = edge.create_view(&wgpu::TextureViewDescriptor::default());
+        let river_view = surface.create_view(&wgpu::TextureViewDescriptor::default());
         let make_bind = |label: &str, params: &wgpu::Buffer| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some(label),
@@ -221,15 +196,15 @@ impl TerrainVisualImpl {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&sparkle_view),
+                        resource: wgpu::BindingResource::TextureView(&details.sparkle),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&noise_view),
+                        resource: wgpu::BindingResource::TextureView(&details.noise),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: wgpu::BindingResource::TextureView(&edge_view),
+                        resource: wgpu::BindingResource::TextureView(&details.edge),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
@@ -240,10 +215,7 @@ impl TerrainVisualImpl {
         };
         let bind = make_bind("JBA river bind", params);
         let trapezoid_bind = make_bind("JBA trapezoid bind", trapezoid_params);
-        self.river_gpu.river_tex = Some(river_tex);
-        self.river_gpu.sparkle_tex = Some(sparkle);
-        self.river_gpu.noise_tex = Some(noise);
-        self.river_gpu.edge_tex = Some(edge);
+        self.river_gpu.river_tex = Some(surface.clone());
         self.river_gpu.bind_group = Some(bind);
         self.river_gpu.trapezoid_bind_group = Some(trapezoid_bind);
     }

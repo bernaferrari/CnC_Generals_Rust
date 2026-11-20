@@ -482,9 +482,13 @@ struct RiverGpuState {
     trapezoid_params: Option<Buffer>,
     uploaded_phase: Option<u32>,
     river_tex: Option<Texture>,
-    sparkle_tex: Option<Texture>,
-    noise_tex: Option<Texture>,
-    edge_tex: Option<Texture>,
+    detail_views: Option<RiverDetailViews>,
+}
+
+struct RiverDetailViews {
+    sparkle: wgpu::TextureView,
+    noise: wgpu::TextureView,
+    edge: wgpu::TextureView,
 }
 
 struct NamedWaterBind {
