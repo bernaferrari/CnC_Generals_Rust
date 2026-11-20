@@ -409,11 +409,22 @@ fn installed_max_health_production_reacts_on_the_borrowed_loading_world() {
         return;
     }
     let _serial = crate::test_sync::lock();
+    use crate::common::audio::TimeOfDay;
     use crate::system::engine_stores::{new_for_world, with_active_stores};
     use crate::system::game_logic::{OwnedUpgradeCompletionServices, get_game_logic};
+    use game_engine::common::audio::game_audio::get_global_audio_manager;
+    use game_engine::common::audio::{AudioEventInfo, AudioType, ST_PLAYER};
     use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
 
     const UPGRADE: &str = "Upgrade_ProductionLoadingBody";
+    const AMBIENT: &str = "ProductionHealthAmbient";
+    let pending_ambient = || {
+        get_global_audio_manager()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .pending_play_request_count_for(AMBIENT)
+    };
     let admit = || {
         assert!(ensure_thing_factory_exists());
         if get_module_factory().unwrap().is_none() {
@@ -458,7 +469,30 @@ fn installed_max_health_production_reacts_on_the_borrowed_loading_world() {
         player.add_power_production(1);
         let player = Arc::new(RwLock::new(player));
         let services = crate::system::engine_stores::active_services();
-        services.players().write().unwrap().add_player(Arc::clone(&player));
+        {
+            let mut players = services.players().write().unwrap();
+            players.add_player(Arc::clone(&player));
+            players.set_local_player_index(0);
+        }
+        crate::helpers::TheAudio::of(&services).install_resolvers();
+        let ambient = AudioEventInfo {
+            audio_name: AMBIENT.into(),
+            sound_type: AudioType::SoundEffect,
+            sound_type_field: AudioType::SoundEffect,
+            type_field: ST_PLAYER,
+            sounds: vec!["ProductionHealthAmbient.wav".into()],
+            volume: 1.0,
+            pitch_shift_min: 1.0,
+            pitch_shift_max: 1.0,
+            loop_count: 1,
+            ..Default::default()
+        };
+        {
+            let audio = get_global_audio_manager().unwrap();
+            let mut audio = audio.lock().unwrap();
+            audio.init();
+            audio.register_audio_event_info(ambient.clone());
+        }
         let template = TheThingFactory::find_template("ProductionLoadingBody").unwrap();
         let owner = TheThingFactory::get()
             .unwrap()
@@ -475,6 +509,22 @@ fn installed_max_health_production_reacts_on_the_borrowed_loading_world() {
         assert!(drawable.read().unwrap().get_model_conditions().intersects(
             ModelConditionFlags::DAMAGED | ModelConditionFlags::REALLYDAMAGED
         ));
+        assert!(Arc::ptr_eq(
+            &owner.read().unwrap().get_controlling_player().unwrap(),
+            &player,
+        ));
+        {
+            let owner = owner.read().unwrap();
+            let mut drawable = drawable.write().unwrap();
+            drawable.set_custom_sound_ambient_info(Arc::new(ambient));
+            drawable.start_ambient_sound(&owner, TimeOfDay::Day);
+        }
+        assert!(pending_ambient() > 0);
+        get_global_audio_manager()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .remove_all_audio_requests();
         (owner, drawable, player)
     };
 
@@ -511,6 +561,7 @@ fn installed_max_health_production_reacts_on_the_borrowed_loading_world() {
     };
     with_active_stores(&receiving_world, || {
         complete_upgrade(player, true);
+        assert_eq!(pending_ambient(), 0);
     });
     assert_eq!(receiving.read().unwrap().get_health(), 150.0);
     assert_eq!(receiving.read().unwrap().get_max_health(), 150.0);
@@ -521,7 +572,9 @@ fn installed_max_health_production_reacts_on_the_borrowed_loading_world() {
     assert_eq!(peer.read().unwrap().get_max_health(), 100.0);
     assert_eq!(peer_drawable.read().unwrap().get_model_conditions(), peer_flags);
     with_active_stores(&peer_world, || {
+        assert_eq!(pending_ambient(), 0);
         complete_upgrade(peer_player, false);
+        assert_eq!(pending_ambient(), 1);
     });
     assert_eq!(peer.read().unwrap().get_health(), 150.0);
     assert!(!peer_drawable.read().unwrap().get_model_conditions().intersects(

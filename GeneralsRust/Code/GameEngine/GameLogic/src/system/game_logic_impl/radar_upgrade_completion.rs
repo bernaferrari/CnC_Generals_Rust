@@ -1,5 +1,6 @@
 //! Instance-owned execution of ProductionUpdate upgrade completion.
 use super::*;
+use crate::common::UpgradeMaskType;
 use crate::player::{PlayerList, RadarEdgeServices};
 use crate::upgrade::template::UpgradeTemplatePlayerExt;
 use crate::upgrade::{UpgradeCenter, UpgradeStatus, UpgradeTemplate, UpgradeType};
@@ -68,8 +69,24 @@ impl UpgradeCompletionServices for OwnedUpgradeCompletionServices<'_> {
             .max(0) as u32;
         match upgrade.get_upgrade_type() {
             UpgradeType::Object => {
-                let mut player = player.write().expect("production player poisoned");
-                logic.complete_object_upgrade_owned(object_id, &upgrade, &mut player, self.radar);
+                let completed = player
+                    .read()
+                    .expect("production player poisoned")
+                    .get_completed_upgrade_mask();
+                // The ambient sound callback may read the controlling player.
+                // Borrow mutable Player state only at the ordered radar grant.
+                logic.grant_object_upgrade_from_player(
+                    object_id,
+                    &upgrade,
+                    index,
+                    completed,
+                    &mut |proof| {
+                        player
+                            .write()
+                            .expect("production player poisoned")
+                            .add_radar_owned(proof, self.radar);
+                    },
+                );
             }
             UpgradeType::Player => {
                 let (roster, mask) = {
@@ -85,13 +102,15 @@ impl UpgradeCompletionServices for OwnedUpgradeCompletionServices<'_> {
                     if object.get_controlling_player_id() != Some(index as u32) {
                         continue;
                     }
-                    let mut player = player.write().expect("upgrade fanout player poisoned");
                     let frame = logic.frame;
                     object.apply_upgrade_modules_with_loading_state(
                         mask,
                         Some(logic.is_loading_map()),
                         &mut |owner, proof| {
-                            player.add_radar_owned(proof, self.radar);
+                            player
+                                .write()
+                                .expect("upgrade fanout player poisoned")
+                                .add_radar_owned(proof, self.radar);
                             owner.extend_radar_at(frame);
                         },
                     );
@@ -169,14 +188,30 @@ impl GameLogic {
         player: &mut Player,
         services: &mut dyn RadarEdgeServices,
     ) -> bool {
+        self.grant_object_upgrade_from_player(
+            object_id,
+            upgrade,
+            player.get_player_index(),
+            player.get_completed_upgrade_mask(),
+            &mut |proof| player.add_radar_owned(proof, services),
+        )
+    }
+
+    fn grant_object_upgrade_from_player(
+        &mut self,
+        object_id: ObjectID,
+        upgrade: &UpgradeTemplate,
+        player_index: PlayerIndex,
+        completed: UpgradeMaskType,
+        add_radar: &mut dyn FnMut(bool),
+    ) -> bool {
         let Some(owner) = self.objects.get(&object_id) else {
             return false;
         };
         let mut owner = owner.write().expect("production upgrade owner poisoned");
-        if owner.get_controlling_player_id() != Some(player.get_player_index() as u32) {
+        if owner.get_controlling_player_id() != Some(player_index as u32) {
             return false;
         }
-        let completed = player.get_completed_upgrade_mask();
         let frame = self.frame;
         crate::object::production::upgrade_completion::grant_object_upgrade(
             &mut owner,
@@ -184,7 +219,7 @@ impl GameLogic {
             completed,
             Some(self.is_loading_map()),
             &mut |owner, proof| {
-                player.add_radar_owned(proof, services);
+                add_radar(proof);
                 owner.extend_radar_at(frame);
             },
         );
