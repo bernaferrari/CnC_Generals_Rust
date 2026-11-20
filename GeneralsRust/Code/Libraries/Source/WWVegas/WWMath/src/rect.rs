@@ -1,8 +1,11 @@
+//! WWMath's legacy four-coordinate rectangle and safe geometry extensions.
+
 use super::Vector2;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 /// A 2D axis-aligned rectangle defined by left, top, right, bottom coordinates
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
 pub struct Rect {
     pub left: f32,
     pub top: f32,
@@ -172,10 +175,27 @@ impl Rect {
 
     /// Union this rectangle with another (expand to contain both)
     pub fn union_with(&mut self, other: &Rect) {
-        self.left = self.left.min(other.left);
-        self.top = self.top.min(other.top);
-        self.right = self.right.max(other.right);
-        self.bottom = self.bottom.max(other.bottom);
+        // Original MIN/MAX choose the right operand on ties and unordered comparisons.
+        self.left = if self.left < other.left {
+            self.left
+        } else {
+            other.left
+        };
+        self.top = if self.top < other.top {
+            self.top
+        } else {
+            other.top
+        };
+        self.right = if self.right > other.right {
+            self.right
+        } else {
+            other.right
+        };
+        self.bottom = if self.bottom > other.bottom {
+            self.bottom
+        } else {
+            other.bottom
+        };
     }
 
     /// Test if this rectangle contains a point
@@ -226,12 +246,17 @@ impl Rect {
         self.right <= self.left || self.bottom <= self.top
     }
 
-    /// Snap coordinates to unit grid
+    /// Snap each coordinate using the original bias followed by integer truncation.
+    /// Rust saturates the conversion when the biased quotient is outside the
+    /// signed 32-bit range, and converts NaN to zero.
     pub fn snap_to_units(&mut self, units: Vector2) {
-        self.left = (self.left / units.x + 0.5).floor() * units.x;
-        self.right = (self.right / units.x + 0.5).floor() * units.x;
-        self.top = (self.top / units.y + 0.5).floor() * units.y;
-        self.bottom = (self.bottom / units.y + 0.5).floor() * units.y;
+        fn snap(coordinate: f32, unit: f32) -> f32 {
+            (coordinate / unit + 0.5) as i32 as f32 * unit
+        }
+        self.left = snap(self.left, units.x);
+        self.right = snap(self.right, units.x);
+        self.top = snap(self.top, units.y);
+        self.bottom = snap(self.bottom, units.y);
     }
 
     /// Normalize the rectangle (ensure left < right, top < bottom)
