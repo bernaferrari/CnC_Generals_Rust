@@ -812,6 +812,100 @@ fn birth_physical_retirement_actor(
 }
 
 #[test]
+#[ignore = "requires native WGPU; run explicit isolated terrain-track retirement acceptance"]
+fn actual_tank_track_retires_with_its_own_drawable_and_keeps_the_peer() {
+    use game_client::terrain::terrain_visual::TerrainVisualImpl;
+
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut graphics = {
+        let engine = engine.lock();
+        GraphicsSystem::new(engine.device(), engine.queue(), engine.color_format(), engine.depth_format())
+            .unwrap()
+    };
+    graphics.cache_model(
+        crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
+        model("CameraModel", 0.0),
+    );
+    let name = "StrictTrackTank";
+    let make_world = || {
+        let mut world = GameLogic::new();
+        let source = "Object StrictTrackTank\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nDraw = W3DTankDraw TrackTag\nDefaultConditionState\nModel = CameraModel\nEnd\nTrackMarks = EXTnkTrack.tga\nEnd\nEnd\n";
+        world.admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([("track-test.ini".into(), source.into())])
+                .unwrap(),
+        ).unwrap();
+        world.require_native_drawable_owner();
+        world
+    };
+    let mut world = make_world();
+    let mut peer = make_world();
+    let mut client = GameClient::new().unwrap();
+    let mut peer_client = GameClient::new().unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine, &graphics).unwrap();
+    let id = birth_physical_retirement_actor(
+        &mut world, name, Vec3::new(20.0, 10.0, 20.0), &mut client, &mut pipeline, &mut graphics, EPOCH,
+    );
+    let peer_id = birth_physical_retirement_actor(
+        &mut peer, name, Vec3::new(60.0, 10.0, 20.0), &mut peer_client, &mut peer_pipeline, &mut graphics, EPOCH,
+    );
+    assert_eq!(id, peer_id);
+    let bind = |client: &mut GameClient, terrain: &mut TerrainVisualImpl| {
+        let mut owner = client.borrow_native_drawable_owner();
+        let key = owner.binding_key(EPOCH, id.0).unwrap();
+        assert!(owner.bind_installed_tank_track(key, "TrackTag", 14.0, terrain).unwrap());
+        assert!(!owner.bind_installed_tank_track(key, "TrackTag", 14.0, terrain).unwrap());
+        let mut bindings = owner.terrain_track_bindings_for_retirement(key).unwrap();
+        assert_eq!(bindings.len(), 1);
+        bindings.pop().unwrap()
+    };
+    let mut terrain = TerrainVisualImpl::new();
+    let mut peer_terrain = TerrainVisualImpl::new();
+    let local_binding = bind(&mut client, &mut terrain);
+    let peer_binding = bind(&mut peer_client, &mut peer_terrain);
+    assert_eq!(local_binding.slot(), peer_binding.slot());
+    assert!(!terrain.receives_terrain_track(&peer_binding));
+    pipeline.observe_animation_sync(1_234);
+    with_physical_retirement_view(&mut client, &mut pipeline, &mut graphics, EPOCH, |view| {
+        let mut effects = crate::game_logic::ScriptPresentationEffects {
+            view: Some(view),
+            terrain: Some(&mut terrain),
+            ..Default::default()
+        };
+        for x in [20.0, 40.0, 60.0] {
+            assert!(world.set_registered_object_position_with_effects(
+                id, Vec3::new(x, 10.0, 20.0), 4, &mut effects,
+            ));
+        }
+        world.objects.get_mut(&id).unwrap().status.stealthed = true;
+        assert!(world.set_registered_object_position_with_effects(
+            id, Vec3::new(80.0, 10.0, 20.0), 4, &mut effects,
+        ));
+        world.destroy_object_with_effects(id, &mut effects);
+        world.process_destroy_list_with_effects_checked(&mut effects).unwrap();
+        assert!(!world.objects.contains_key(&id));
+    });
+    assert!(client.borrow_native_drawable_owner().binding_key(EPOCH, id.0).is_none());
+    assert!(!terrain.receives_terrain_track(&local_binding));
+    let retired = terrain.terrain_tracks().track(local_binding.slot()).unwrap();
+    let edges = retired.active_edges(terrain.terrain_tracks().config().max_tank_track_edges);
+    assert_eq!(edges.len(), 3, "all intermediate source setter visits ran before retirement");
+    for (edge, x) in edges.iter().zip([40.0, 60.0, 80.0]) {
+        assert_eq!(edge.time_added, 1_234);
+        assert_eq!(edge.endpoint_pos[0], Vec3::new(x, 27.0, 2.0));
+    }
+    assert_eq!(edges.last().unwrap().alpha, 0.0);
+    assert!(peer_terrain.receives_terrain_track(&peer_binding));
+    assert_eq!(peer_terrain.terrain_tracks().track(peer_binding.slot()).unwrap().active_edge_count(), 0);
+    assert!(peer_client.borrow_native_drawable_owner().binding_key(EPOCH, peer_id.0).is_some());
+}
+
+#[test]
 #[ignore = "requires native WGPU; run explicit isolated physical-retirement acceptance"]
 fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects_stale_rebirth_including_no_draw()
  {
@@ -926,7 +1020,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
         EPOCH + 1,
         |runtime| {
             assert!(
-                runtime.retire_object_drawable(&old.identity).is_err(),
+                runtime.retire_object_drawable(&old.identity, None).is_err(),
                 "a foreign world cannot retire the same numeric ID"
             );
             assert!(
@@ -965,7 +1059,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
         |runtime| {
             let key = runtime.drawables.binding_key(EPOCH, id.0).unwrap();
             assert_ne!(key, old_key);
-            assert!(runtime.retire_object_drawable(&old.identity).is_err());
+            assert!(runtime.retire_object_drawable(&old.identity, None).is_err());
             assert_eq!(runtime.drawables.binding_key(EPOCH, id.0), Some(key));
             assert_eq!(
                 pose(runtime.sample_slave(&current, "CAMERA"))
@@ -1080,7 +1174,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 .drawables
                 .binding_key(EPOCH, no_draw_reborn.0)
                 .unwrap();
-            assert!(runtime.retire_object_drawable(&no_draw_old).is_err());
+            assert!(runtime.retire_object_drawable(&no_draw_old, None).is_err());
             assert_eq!(
                 runtime.drawables.binding_key(EPOCH, no_draw_reborn.0),
                 Some(key)
@@ -1186,7 +1280,7 @@ fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
             assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());
             assert!(!runtime.drawables.has_object_drawable(id.0));
             assert!(runtime.poses.has_drawable_lifetime(id.0));
-            assert!(runtime.retire_object_drawable(&identity).is_err());
+            assert!(runtime.retire_object_drawable(&identity, None).is_err());
             assert!(
                 runtime.poses.has_drawable_lifetime(id.0),
                 "failed preflight cannot erase surviving owner"
@@ -1194,7 +1288,7 @@ fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
             runtime.discard_map_attempt().unwrap();
             assert!(!runtime.poses.has_drawable_lifetime(id.0));
             assert!(
-                runtime.retire_object_drawable(&identity).is_ok(),
+                runtime.retire_object_drawable(&identity, None).is_ok(),
                 "both owners absent is genuine prebirth absence"
             );
         },
@@ -1280,9 +1374,10 @@ fn actual_client_reset_retires_renderer_receipts_before_logic_reset_and_preserve
         EPOCH,
         |runtime| {
             assert!(runtime.drawables.binding_key(EPOCH, id.0).is_none());
-            assert!(runtime.retire_object_drawable(&world.live_draw_playback_identity(
-                &world.objects[&id],
-            )).is_ok());
+            assert!(runtime.retire_object_drawable(
+                &world.live_draw_playback_identity(&world.objects[&id]),
+                None,
+            ).is_ok());
             world
                 .reset_with_effects_checked(&mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),

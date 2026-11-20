@@ -517,6 +517,58 @@ impl TerrainVisualImpl {
         &mut self.terrain_tracks
     }
 
+    pub fn receives_terrain_track(
+        &self,
+        binding: &gamelogic::object::draw::client_visual::NativeTerrainTrackBinding,
+    ) -> bool {
+        self.terrain_tracks.receives_track(binding)
+    }
+
+    pub fn has_receiving_tracks(&self) -> bool {
+        self.terrain_tracks.has_receiving_tracks()
+    }
+
+    pub fn retire_terrain_track(
+        &mut self,
+        binding: &gamelogic::object::draw::client_visual::NativeTerrainTrackBinding,
+    ) -> bool {
+        self.terrain_tracks.retire_receiving_track(binding)
+    }
+
+    pub(crate) fn apply_receiving_track_motion(
+        &mut self,
+        binding: &gamelogic::object::draw::client_visual::NativeTerrainTrackBinding,
+        logic: &gamelogic::terrain::TerrainLogic,
+        position: Vec3,
+        layer: gamelogic::path::PathfindLayerEnum,
+        stamp: i32,
+        cap: bool,
+        gravity: f32,
+    ) {
+        use crate::terrain::terrain_tracks::TerrainTrackLayer;
+        if !self.terrain_tracks.receives_track(binding) {
+            return;
+        }
+        let x = position.x;
+        let y = position.y;
+        let start = self.terrain_tracks.track_mut(binding.slot()).unwrap();
+        start.set_owner_layer(if layer == gamelogic::path::PathfindLayerEnum::Ground {
+            TerrainTrackLayer::Ground
+        } else {
+            TerrainTrackLayer::Other
+        });
+        let ground = LogicalTrackGround { logic, layer };
+        if cap {
+            self.terrain_tracks.add_cap_edge_to_track(binding.slot(), &ground, x, y, stamp);
+        } else {
+            // Thing::isSignificantlyAboveTerrain samples ground even on a bridge.
+            if position.z - logic.get_ground_height(x, y, None) > -9.0 * gravity {
+                start.set_airborne();
+            }
+            self.terrain_tracks.add_edge_to_track(binding.slot(), &ground, x, y, stamp);
+        }
+    }
+
     /// Append a tread mark with height sampling borrowed from this terrain.
     /// C++ W3DTerrainTracks::addEdgeToTrack samples TerrainLogic directly; the
     /// adapter must not reacquire the terrain owner while mutating its tracks.
@@ -1580,6 +1632,25 @@ impl TerrainTrackHeightProvider for TrackGround<'_> {
         self.0.map_or((0.0, Vec3::Z), |map| {
             (map.get_height_at(x, y), map.get_normal_at(x, y))
         })
+    }
+}
+
+struct LogicalTrackGround<'a> {
+    logic: &'a gamelogic::terrain::TerrainLogic,
+    layer: gamelogic::path::PathfindLayerEnum,
+}
+
+impl TerrainTrackHeightProvider for LogicalTrackGround<'_> {
+    fn ground_height_and_normal(&self, x: f32, y: f32) -> (f32, Vec3) {
+        let mut normal = gamelogic::common::Coord3D::new(0.0, 0.0, 1.0);
+        let height = self.logic.get_ground_height(x, y, Some(&mut normal));
+        (height, Vec3::new(normal.x, normal.y, normal.z))
+    }
+
+    fn layer_height_and_normal(&self, x: f32, y: f32) -> (f32, Vec3) {
+        let mut normal = gamelogic::common::Coord3D::new(0.0, 0.0, 1.0);
+        let height = self.logic.get_layer_height(x, y, self.layer, Some(&mut normal), true);
+        (height, Vec3::new(normal.x, normal.y, normal.z))
     }
 }
 

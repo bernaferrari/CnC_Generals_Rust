@@ -282,6 +282,10 @@ pub struct W3DTankDraw {
 }
 
 impl W3DTankDraw {
+    pub fn receiving_model_track(&mut self) -> &mut W3DModelDraw {
+        &mut self.base
+    }
+
     #[cfg(test)]
     pub(super) fn seed_retirement_test_particles(
         &mut self,

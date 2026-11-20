@@ -418,6 +418,23 @@ pub(crate) trait NativeViewEffects {
         source: &NativeObjectRetirement<'_>,
     ) -> Result<(), String>;
     #[cfg(feature = "game_client")]
+    fn retire_physical_object_drawable_with_terrain(
+        &mut self,
+        source: &NativeObjectRetirement<'_>,
+        _terrain: Option<&mut game_client::terrain::terrain_visual::TerrainVisualImpl>,
+    ) -> Result<(), String> {
+        self.retire_physical_object_drawable(source)
+    }
+    #[cfg(feature = "game_client")]
+    fn on_owned_track_position_installed(
+        &mut self,
+        _identity: &LiveDrawPlaybackIdentity,
+        _object: &super::Object,
+        _terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+        _logic: &std::sync::RwLock<gamelogic::terrain::TerrainLogic>,
+    ) {
+    }
+    #[cfg(feature = "game_client")]
     fn host_epoch(&self) -> u64;
     #[cfg(feature = "game_client")]
     fn admit_factory_drawable(
@@ -512,6 +529,11 @@ impl NativeTerrainUnitMove {
 
 /// One synchronous receiving native terrain loan; never stored by gameplay.
 pub(crate) trait NativeTerrainEffects {
+    #[cfg(feature = "game_client")]
+    fn track_terrain(&mut self) -> Option<&mut game_client::terrain::terrain_visual::TerrainVisualImpl> {
+        None
+    }
+
     /// Test/standalone effect recorders may intentionally omit tree simulation.
     /// The real receiving TerrainVisual implementation performs it synchronously.
     fn unit_moved(&mut self, _unit: NativeTerrainUnitMove, _frame: u32) {}
@@ -563,6 +585,10 @@ pub(crate) trait NativeTerrainEffects {
 }
 #[cfg(feature = "game_client")]
 impl NativeTerrainEffects for game_client::terrain::terrain_visual::TerrainVisualImpl {
+    fn track_terrain(&mut self) -> Option<&mut Self> {
+        Some(self)
+    }
+
     fn begin_tree_move(
         &mut self,
         unit: NativeTerrainUnitMove,

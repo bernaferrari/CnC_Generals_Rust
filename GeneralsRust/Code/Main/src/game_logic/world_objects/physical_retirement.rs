@@ -123,11 +123,14 @@ impl GameLogic {
                     Ok(())
                 };
             };
-            view.retire_physical_object_drawable(&crate::game_logic::NativeObjectRetirement {
-                identity: self.live_draw_playback_identity(object),
-                object,
-                live_objects: &self.objects,
-            })
+            view.retire_physical_object_drawable_with_terrain(
+                &crate::game_logic::NativeObjectRetirement {
+                    identity: self.live_draw_playback_identity(object),
+                    object,
+                    live_objects: &self.objects,
+                },
+                effects.terrain.as_deref_mut().and_then(|terrain| terrain.track_terrain()),
+            )
         }
         #[cfg(not(feature = "game_client"))]
         if self.requires_native_drawable_owner() {

@@ -245,6 +245,73 @@ impl NativeDrawableOwner<'_> {
             .map(|state| state.binding_key)
     }
 
+    pub fn terrain_track_bindings_for_retirement(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+    ) -> GameClientResult<Vec<gamelogic::object::draw::client_visual::NativeTerrainTrackBinding>> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err(GameClientError::InvalidOperation(
+                "terrain track retirement has a stale Drawable binding".into(),
+            ));
+        }
+        Ok(self.drawables.drawable_map.get_mut(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::drawable::BasicDrawable>())
+            .map_or_else(Vec::new, |drawable| drawable.receiving_track_bindings()))
+    }
+
+    pub fn bind_installed_tank_track(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+        module_tag: &str,
+        width: f32,
+        terrain: &mut crate::terrain::terrain_visual::TerrainVisualImpl,
+    ) -> GameClientResult<bool> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err(GameClientError::InvalidOperation(
+                "track admission has a stale Drawable binding".into(),
+            ));
+        }
+        let Some(model) = self.drawables.drawable_map.get_mut(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::drawable::BasicDrawable>())
+            .and_then(|drawable| drawable.receiving_tank_track_model(module_tag))
+        else {
+            return Ok(false);
+        };
+        Ok(model.bind_receiving_terrain_track(|texture| {
+            terrain.terrain_tracks_mut().bind_receiving_track(
+                width,
+                game_engine::map_object::MAP_XY_FACTOR,
+                texture,
+            )
+        }))
+    }
+
+    pub fn advance_installed_tank_tracks(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+        terrain: &mut crate::terrain::terrain_visual::TerrainVisualImpl,
+        logic: &gamelogic::terrain::TerrainLogic,
+        position: glam::Vec3,
+        layer: gamelogic::path::PathfindLayerEnum,
+        stealthed: bool,
+        stamp: i32,
+        gravity: f32,
+    ) {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return;
+        }
+        let Some(drawable) = self.drawables.drawable_map.get_mut(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::drawable::BasicDrawable>())
+        else {
+            return;
+        };
+        drawable.visit_receiving_tracks(|binding, shrouded| {
+            terrain.apply_receiving_track_motion(
+                binding, logic, position, layer, stamp, shrouded || stealthed, gravity,
+            );
+        });
+    }
+
     pub fn accepts_installed_state_particles(
         &mut self,
         key: PresentationDirectDrawableBindingKey,

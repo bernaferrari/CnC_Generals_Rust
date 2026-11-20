@@ -50,6 +50,13 @@ fn project_model_data_mut(data: &mut dyn ModuleData) -> &mut W3DModelDrawModuleD
     panic!("W3DModelDraw received incompatible module data")
 }
 
+use crate::object::draw::client_visual::NativeTerrainTrackBinding;
+
+enum ModelTerrainTrack {
+    Standalone(u32),
+    Receiving(NativeTerrainTrackBinding),
+}
+
 /// W3DModelDraw module instance
 ///
 /// Reference: W3DModelDraw in W3DModelDraw.h
@@ -137,7 +144,7 @@ pub struct W3DModelDraw {
     /// Current terrain decal type for this draw module.
     terrain_decal: TerrainDecalType,
     /// Bound terrain-track handle from `TheTerrainTracksRenderObjClassSystem`.
-    track_handle: Option<u32>,
+    track_handle: Option<ModelTerrainTrack>,
 
     /// Particle systems currently active for state bone attachments.
     particle_systems: Vec<ParticleSysTracker>,
@@ -567,7 +574,43 @@ impl W3DModelDraw {
     }
 
     pub(crate) fn take_terrain_track_for_deletion(&mut self) -> Option<u32> {
-        self.track_handle.take()
+        if let Some(ModelTerrainTrack::Standalone(handle)) = self.track_handle {
+            self.track_handle = None;
+            return Some(handle);
+        }
+        None
+    }
+
+    pub fn bind_receiving_terrain_track(
+        &mut self,
+        bind: impl FnOnce(&str) -> Option<NativeTerrainTrackBinding>,
+    ) -> bool {
+        if self.track_handle.is_some() {
+            return false;
+        }
+        let binding = {
+            let data = self.model_data();
+            if data.track_file.is_empty() {
+                return false;
+            }
+            bind(data.track_file.as_str())
+        };
+        let Some(binding) = binding else {
+            return false;
+        };
+        self.track_handle = Some(ModelTerrainTrack::Receiving(binding));
+        true
+    }
+
+    pub fn receiving_terrain_track(&self) -> Option<&NativeTerrainTrackBinding> {
+        match &self.track_handle {
+            Some(ModelTerrainTrack::Receiving(binding)) => Some(binding),
+            _ => None,
+        }
+    }
+
+    pub fn track_obscured_by_shroud(&self) -> bool {
+        self.fully_obscured_by_shroud
     }
 
     pub(crate) fn finish_template_shadow_deletion(&mut self) {
@@ -966,11 +1009,11 @@ impl W3DModelDraw {
             return;
         };
         let handle = client.bind_track(owner_id, MAP_XY_FACTOR, self.model_data().track_file.as_str());
-        self.track_handle = handle;
+        self.track_handle = handle.map(ModelTerrainTrack::Standalone);
     }
 
     fn update_terrain_track(&mut self) {
-        let Some(handle) = self.track_handle else {
+        let Some(ModelTerrainTrack::Standalone(handle)) = self.track_handle else {
             return;
         };
         let Some(client) = terrain_track_client() else {
@@ -1000,7 +1043,7 @@ impl W3DModelDraw {
     }
 
     fn cap_terrain_track(&mut self) {
-        let Some(handle) = self.track_handle else {
+        let Some(ModelTerrainTrack::Standalone(handle)) = self.track_handle else {
             return;
         };
         let Some(client) = terrain_track_client() else {
@@ -1023,7 +1066,7 @@ impl W3DModelDraw {
     }
 
     fn unbind_terrain_track(&mut self) {
-        if let Some(handle) = self.track_handle.take() {
+        if let Some(handle) = self.take_terrain_track_for_deletion() {
             if let Some(client) = terrain_track_client() {
                 client.unbind_track(handle);
             }

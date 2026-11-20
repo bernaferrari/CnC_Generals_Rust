@@ -32,6 +32,7 @@ mod native_client_retirement;
 mod native_client_update;
 mod native_laser;
 mod native_state_particles;
+mod native_terrain_tracks;
 mod selection_flash;
 mod snapshot;
 mod tint_envelope;

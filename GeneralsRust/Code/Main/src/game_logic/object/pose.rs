@@ -1756,6 +1756,19 @@ impl crate::game_logic::GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         #[cfg(feature = "game_client")]
+        if let Some(view) = effects.view.as_deref_mut()
+            && let Some(terrain) = effects.terrain.as_deref_mut().and_then(|terrain| terrain.track_terrain())
+            && terrain.has_receiving_tracks()
+            && let Some(object) = self.objects.get(&id).filter(|object| reaction.still_applies(object))
+        {
+            view.on_owned_track_position_installed(
+                &self.live_draw_playback_identity(object),
+                object,
+                terrain,
+                self.world_services.terrain().as_ref(),
+            );
+        }
+        #[cfg(feature = "game_client")]
         if let Some(mut cursor) = reaction.tree_move.take() {
             loop {
                 let unit = self

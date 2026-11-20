@@ -57,6 +57,28 @@ pub trait TerrainTrackClient: Send + Sync {
     fn set_airborne(&self, handle: u32);
 }
 
+/// One binding of a Draw module to a receiving terrain track slot. Equal
+/// slot numbers can be reused after fade or belong to different terrains.
+#[derive(Clone, Debug)]
+pub struct NativeTerrainTrackBinding {
+    slot: usize,
+    identity: Arc<()>,
+}
+
+impl NativeTerrainTrackBinding {
+    pub fn new(slot: usize) -> Self {
+        Self { slot, identity: Arc::new(()) }
+    }
+
+    pub fn slot(&self) -> usize {
+        self.slot
+    }
+
+    pub fn matches(&self, other: &Self) -> bool {
+        self.slot == other.slot && Arc::ptr_eq(&self.identity, &other.identity)
+    }
+}
+
 /// C++ `TerrainDecalTextureName` table in W3DModelDraw.cpp.
 pub fn terrain_decal_texture_name(decal_type: TerrainDecalType) -> &'static str {
     match decal_type {

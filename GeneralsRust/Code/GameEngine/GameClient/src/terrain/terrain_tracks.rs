@@ -2,6 +2,7 @@
 
 use game_engine::map_object::MAP_XY_FACTOR;
 use glam::Vec3;
+use gamelogic::object::draw::client_visual::NativeTerrainTrackBinding;
 
 /// C++ `MAX_TRACK_EDGE_COUNT`.
 pub const MAX_TRACK_EDGE_COUNT: usize = 100;
@@ -130,6 +131,7 @@ pub struct TerrainTracksRenderObjClass {
     length: f32,
     texture_name: String,
     owner_layer: TerrainTrackLayer,
+    receiving_binding: Option<NativeTerrainTrackBinding>,
     really_visible: bool,
 }
 
@@ -151,6 +153,7 @@ impl TerrainTracksRenderObjClass {
             length: DEFAULT_TRACK_SPACING,
             texture_name: String::new(),
             owner_layer: TerrainTrackLayer::Ground,
+            receiving_binding: None,
             really_visible: true,
         }
     }
@@ -166,6 +169,7 @@ impl TerrainTracksRenderObjClass {
         self.bound = false;
         self.airborne = false;
         self.owner_layer = TerrainTrackLayer::Ground;
+        self.receiving_binding = None;
         self.texture_name.clear();
     }
 
@@ -464,11 +468,46 @@ impl TerrainTracksRenderObjClassSystem {
         Some(handle)
     }
 
+    pub(crate) fn bind_receiving_track(
+        &mut self,
+        width: f32,
+        length: f32,
+        texture_name: &str,
+    ) -> Option<NativeTerrainTrackBinding> {
+        if !self.config.make_track_marks {
+            return None;
+        }
+        let slot = self.bind_track(width, length, texture_name)?;
+        let binding = NativeTerrainTrackBinding::new(slot);
+        self.tracks[slot].receiving_binding = Some(binding.clone());
+        Some(binding)
+    }
+
+    pub(crate) fn receives_track(&self, binding: &NativeTerrainTrackBinding) -> bool {
+        self.tracks
+            .get(binding.slot())
+            .and_then(|track| track.receiving_binding.as_ref())
+            .is_some_and(|current| current.matches(binding))
+    }
+
+    pub(crate) fn has_receiving_tracks(&self) -> bool {
+        self.used_modules.iter().any(|&slot| self.tracks[slot].receiving_binding.is_some())
+    }
+
+    pub(crate) fn retire_receiving_track(&mut self, binding: &NativeTerrainTrackBinding) -> bool {
+        if !self.receives_track(binding) {
+            return false;
+        }
+        self.unbind_track(binding.slot());
+        true
+    }
+
     /// C++ `unbindTrack`.
     pub fn unbind_track(&mut self, handle: usize) {
         if let Some(track) = self.tracks.get_mut(handle) {
             track.bound = false;
             track.owner_layer = TerrainTrackLayer::Ground;
+            track.receiving_binding = None;
         }
     }
 
@@ -901,5 +940,25 @@ mod tests {
         tracks.prepare_visible_draws(0, &mut flush);
         assert_eq!(flush.ranges[0].texture_name, "ground.tga");
         assert_eq!(flush.vertices[0].z, 10.0 + 0.2 * MAP_XY_FACTOR);
+    }
+
+    #[test]
+    fn receiving_track_retirement_rejects_a_peer_and_a_reused_slot() {
+        let rules = TerrainTracksConfig { max_terrain_tracks: 1, ..config() };
+        let mut local = TerrainTracksRenderObjClassSystem::new(rules);
+        let mut peer = TerrainTracksRenderObjClassSystem::new(rules);
+        let first = local.bind_receiving_track(4.0, 10.0, "first.tga").unwrap();
+        let foreign = peer.bind_receiving_track(4.0, 10.0, "peer.tga").unwrap();
+        assert_eq!(first.slot(), foreign.slot());
+        assert!(!local.retire_receiving_track(&foreign));
+        assert!(peer.receives_track(&foreign));
+
+        assert!(local.retire_receiving_track(&first));
+        local.update(100);
+        let next = local.bind_receiving_track(4.0, 10.0, "second.tga").unwrap();
+        assert_eq!(next.slot(), first.slot());
+        assert!(!local.retire_receiving_track(&first));
+        assert!(local.receives_track(&next));
+        assert!(peer.receives_track(&foreign));
     }
 }

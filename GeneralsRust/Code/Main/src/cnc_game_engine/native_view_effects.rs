@@ -114,6 +114,7 @@ impl<'a> NativeRendererViewEffects<'a> {
     fn retire_object_drawable(
         &mut self,
         identity: &crate::assets::LiveDrawPlaybackIdentity,
+        terrain: Option<&mut game_client::terrain::terrain_visual::TerrainVisualImpl>,
     ) -> Result<(), String> {
         let Some(key) = self
             .drawables
@@ -131,6 +132,15 @@ impl<'a> NativeRendererViewEffects<'a> {
         self.poses
             .validate_object_retirement(identity, key)
             .map_err(str::to_owned)?;
+        let tracks = self.drawables.terrain_track_bindings_for_retirement(key)
+            .map_err(|error| error.to_string())?;
+        if !tracks.is_empty()
+            && !terrain.as_deref().is_some_and(|terrain| {
+                tracks.iter().all(|binding| terrain.receives_terrain_track(binding))
+            })
+        {
+            return Err("physical Drawable retirement requires its bound track terrain".into());
+        }
         let cpu = self
             .retirement
             .retire(&mut self.drawables, Some(key.drawable_id));
@@ -139,6 +149,12 @@ impl<'a> NativeRendererViewEffects<'a> {
             .binding_key(self.host_epoch, identity.object_id())
             .is_none()
         {
+            if let Some(terrain) = terrain {
+                for binding in &tracks {
+                    let retired = terrain.retire_terrain_track(binding);
+                    debug_assert!(retired, "preflight validated this exact receiving terrain binding");
+                }
+            }
             self.poses
                 .retire_object_after_client(identity, key)
                 .map_err(str::to_owned)
@@ -498,6 +514,13 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         &mut self,
         source: &crate::game_logic::NativeObjectRetirement<'_>,
     ) -> Result<(), String> {
+        self.retire_physical_object_drawable_with_terrain(source, None)
+    }
+    fn retire_physical_object_drawable_with_terrain(
+        &mut self,
+        source: &crate::game_logic::NativeObjectRetirement<'_>,
+        terrain: Option<&mut game_client::terrain::terrain_visual::TerrainVisualImpl>,
+    ) -> Result<(), String> {
         let id = source.object.id;
         if source.identity.object_id() != id.0
             || source.live_objects.contains_key(&id)
@@ -507,7 +530,33 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
                 "physical Drawable retirement requires an unregistered owned Object".into(),
             );
         }
-        self.retire_object_drawable(&source.identity)
+        self.retire_object_drawable(&source.identity, terrain)
+    }
+    fn on_owned_track_position_installed(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        object: &crate::game_logic::Object,
+        terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+        logic: &std::sync::RwLock<gamelogic::terrain::TerrainLogic>,
+    ) {
+        let Some(key) = self.drawables.binding_key(self.host_epoch, identity.object_id()) else {
+            return;
+        };
+        if self.poses.validate_object_retirement(identity, key).is_err() {
+            return;
+        }
+        let logic = logic.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let position = object.get_position();
+        self.drawables.advance_installed_tank_tracks(
+            key,
+            terrain,
+            &logic,
+            Vec3::new(position.x, position.z, position.y),
+            gamelogic::path::PathfindLayerEnum::from_u32(u32::from(object.pathfind_layer)),
+            object.status.stealthed,
+            self.poses.current_animation_sync_ms() as i32,
+            object.physics_gravity(),
+        );
     }
     fn host_epoch(&self) -> u64 {
         self.host_epoch
