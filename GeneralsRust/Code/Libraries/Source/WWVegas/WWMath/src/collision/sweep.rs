@@ -67,7 +67,7 @@ impl CollisionMath {
             return false;
         }
 
-        let num = plane.dist - plane.normal.dot(line.start());
+        let num = plane.distance - plane.normal.dot(line.start());
         let t = num / den;
 
         // Check if intersection is within line segment
@@ -104,7 +104,7 @@ impl CollisionMath {
         if den == 0.0 {
             return false;
         }
-        let num = -(dot(plane.normal, line.get_p0()) - plane.dist);
+        let num = -(dot(plane.normal, line.get_p0()) - plane.distance);
         let t = num / den;
         if t < 0.0 || t > 1.0 {
             return false;
@@ -182,7 +182,7 @@ impl CollisionMath {
         result: &mut CastResult,
     ) -> bool {
         let extent = box_ref.project_to_axis(plane.normal);
-        let dist = plane.normal.dot(box_ref.center) - plane.dist;
+        let dist = plane.normal.dot(box_ref.center) - plane.distance;
         let move_dist = plane.normal.dot(*movement);
 
         let frac = if dist > extent {
@@ -385,7 +385,7 @@ impl CollisionMath {
         let extent = box_ref.extent.x * plane.normal.dot(a0).abs()
             + box_ref.extent.y * plane.normal.dot(a1).abs()
             + box_ref.extent.z * plane.normal.dot(a2).abs();
-        let dist = plane.normal.dot(box_ref.center) - plane.dist;
+        let dist = plane.normal.dot(box_ref.center) - plane.distance;
         let move_dist = plane.normal.dot(*movement);
 
         let frac = if dist > extent {

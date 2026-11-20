@@ -100,7 +100,7 @@ impl CollisionMath {
 
     /// Test overlap between plane and point
     pub fn overlap_test_plane_point(plane: &Plane, point: &Vector3) -> OverlapType {
-        let delta = point.dot(plane.normal) - plane.dist;
+        let delta = point.dot(plane.normal) - plane.distance;
         if delta > COINCIDENCE_EPSILON {
             OverlapType::Positive
         } else if delta < -COINCIDENCE_EPSILON {
@@ -129,7 +129,7 @@ impl CollisionMath {
 
     /// Test overlap between plane and sphere
     pub fn overlap_test_plane_sphere(plane: &Plane, sphere: &Sphere) -> OverlapType {
-        let dist = sphere.center.dot(plane.normal) - plane.dist;
+        let dist = sphere.center.dot(plane.normal) - plane.distance;
         if dist > sphere.radius {
             OverlapType::Positive
         } else if dist < -sphere.radius {
@@ -342,7 +342,7 @@ impl CollisionMath {
         let extent = box_ref.extent.x * plane.normal.dot(a0).abs()
             + box_ref.extent.y * plane.normal.dot(a1).abs()
             + box_ref.extent.z * plane.normal.dot(a2).abs();
-        let dist = plane.normal.dot(box_ref.center) - plane.dist;
+        let dist = plane.normal.dot(box_ref.center) - plane.distance;
         if dist > extent {
             OverlapType::Positive
         } else if dist < -extent {

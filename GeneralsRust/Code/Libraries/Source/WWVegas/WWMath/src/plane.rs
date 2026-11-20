@@ -1,11 +1,16 @@
+//! W3D `PlaneClass` in normal-distance form, with one canonical distance.
+
 use super::Vector3;
 use crate::sphere::Sphere;
 
 /// Side of a plane that a point or object lies on
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaneSide {
+    /// Positive side, original ordinal 0.
     Front = 0,
+    /// Negative side, original ordinal 1.
     Back = 1,
+    /// On the plane, original ordinal 2.
     On = 2,
 }
 
@@ -14,22 +19,19 @@ pub enum PlaneSide {
 /// The plane equation is: N·P = D
 /// Where N is the normal vector, P is any point on the plane, and D is the distance.
 ///
-/// Note: This uses the N·P = D form, not the Ax + By + Cz + D = 0 form.
-/// If you're used to the latter, the sign of D is inverted.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Plane {
+    /// The original `N` coefficient vector.
     pub normal: Vector3,
+    /// The original `D` coefficient, shared by geometry and collision queries.
     pub distance: f32,
-    // Legacy field alias for backward compatibility with collision code
-    pub dist: f32,
 }
 
 impl Default for Plane {
     fn default() -> Self {
         Self {
-            normal: Vector3::new(0.0, 0.0, 1.0),
+            normal: Vector3::Z,
             distance: 0.0,
-            dist: 0.0,
         }
     }
 }
@@ -37,30 +39,17 @@ impl Default for Plane {
 impl Plane {
     /// Create a new plane with explicit normal and distance
     pub fn new(normal: Vector3, distance: f32) -> Self {
-        Self {
-            normal,
-            distance,
-            dist: distance,
-        }
+        Self { normal, distance }
     }
 
     /// Create a plane from coefficients (nx, ny, nz, d)
     pub fn from_coefficients(nx: f32, ny: f32, nz: f32, d: f32) -> Self {
-        Self {
-            normal: Vector3::new(nx, ny, nz),
-            distance: d,
-            dist: d,
-        }
+        Self::new(Vector3::new(nx, ny, nz), d)
     }
 
     /// Create a plane from a normal vector and a point on the plane
     pub fn from_normal_and_point(normal: Vector3, point: Vector3) -> Self {
-        let distance = normal.dot(point);
-        Self {
-            normal,
-            distance,
-            dist: distance,
-        }
+        Self::new(normal, normal.dot(point))
     }
 
     /// Create a plane from three points
@@ -72,25 +61,18 @@ impl Plane {
 
     /// Set plane from coefficients
     pub fn set_coefficients(&mut self, nx: f32, ny: f32, nz: f32, d: f32) {
-        self.normal.x = nx;
-        self.normal.y = ny;
-        self.normal.z = nz;
-        self.distance = d;
-        self.dist = d;
+        self.set_normal_distance(Vector3::new(nx, ny, nz), d);
     }
 
     /// Set plane from normal and distance
     pub fn set_normal_distance(&mut self, normal: Vector3, distance: f32) {
         self.normal = normal;
         self.distance = distance;
-        self.dist = distance;
     }
 
     /// Set plane from normal and point
     pub fn set_normal_point(&mut self, normal: Vector3, point: Vector3) {
-        self.normal = normal;
-        self.distance = normal.dot(point);
-        self.dist = self.distance;
+        self.set_normal_distance(normal, normal.dot(point));
     }
 
     /// Set plane from three points
@@ -100,19 +82,18 @@ impl Plane {
         let cross = v1.cross(v2);
 
         if cross == Vector3::ZERO {
-            self.normal = Vector3::new(0.0, 0.0, 1.0);
+            self.normal = Vector3::Z;
             self.distance = 0.0;
         } else {
             let len2 = cross.length_squared();
             self.normal = if len2 != 0.0 { cross * (1.0 / len2.sqrt()) } else { cross };
             self.distance = self.normal.dot(p1);
         }
-        self.dist = self.distance;
     }
 
-    /// Compute intersection of a line segment with the plane
-    /// Returns (intersection_found, parameter_t)
-    /// If intersection_found is true, the intersection point is at p0 + t * (p1 - p0)
+    /// Find the intersection on the closed segment `p0 + t * (p1 - p0)`.
+    /// An exactly parallel segment returns `(false, 0.0)` because C++ leaves
+    /// the caller's output untouched. Other misses return their computed `t`.
     pub fn compute_intersection(&self, p0: Vector3, p1: Vector3) -> (bool, f32) {
         let direction = p1 - p0;
         let denominator = self.normal.dot(direction);
