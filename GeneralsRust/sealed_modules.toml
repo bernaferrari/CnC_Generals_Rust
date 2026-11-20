@@ -116,6 +116,11 @@ cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/plane.h"
 note = "One distance coefficient for geometry and collision. Original portable point/sphere edges and all three line-of-intersection branches verified. Rust returns zero parameter for parallel segments where C++ leaves caller output unwritten."
 
 [[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/triangle.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/tri.cpp"
+note = "Portable original containment, projection, normal bits, and axis-ray flag behavior verified, including tiny nonzero terms and the collinear distance rule. Rust stores initialized vertices and offers independent geometry helpers."
+
+[[module]]
 path = "Code/Libraries/Source/WWVegas/WWMath/src/wwmath_ids.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/wwmathids.h"
 note = "The WWMath base and all eleven curve persist factory IDs match the compiled original headers. Constants are immutable and fully documented."

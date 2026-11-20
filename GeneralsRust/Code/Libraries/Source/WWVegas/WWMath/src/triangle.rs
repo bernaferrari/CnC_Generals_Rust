@@ -1,18 +1,27 @@
+//! WWMath triangle geometry from `tri.h` and `tri.cpp`.
+//!
+//! The Rust triangle owns initialized vertices and a normal. The point and ray
+//! tests retain the original ordered floating-point and flag behavior.
+
 use super::{Vector2, Vector3, Vector4};
 use crate::EPSILON;
+use crate::vector2::perp_dot_product;
 
-/// Flags for triangle raycast operations
+/// No point or ray observation flags.
 pub const TRI_RAYCAST_FLAG_NONE: u8 = 0x00;
+/// The ray meets a projected triangle edge.
 pub const TRI_RAYCAST_FLAG_HIT_EDGE: u8 = 0x01;
+/// The ray origin lies on the triangle.
 pub const TRI_RAYCAST_FLAG_START_IN_TRI: u8 = 0x02;
 
 /// A 3D triangle defined by three vertices and a normal vector
 ///
 /// This triangle representation is used for collision detection and geometric operations.
-/// The triangle can hold references to vertices or own them directly.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Triangle {
+    /// Ordered triangle corners.
     pub vertices: [Vector3; 3],
+    /// Triangle normal, computed from the corners or provided by the caller.
     pub normal: Vector3,
 }
 
@@ -227,8 +236,8 @@ fn closest_point_on_line_segment(
     line_start + line_vec * clamped_t
 }
 
-/// Test if a point is inside a triangle in 2D
-/// This is a utility function used by triangle and raycast operations
+/// Test whether the point falls within the triangle projected onto two axes.
+/// A hit on the boundary ORs the edge bit into the caller’s flags.
 pub fn point_in_triangle_2d(
     tri_p0: Vector3,
     tri_p1: Vector3,
@@ -238,123 +247,54 @@ pub fn point_in_triangle_2d(
     axis2: usize,
     flags: &mut u8,
 ) -> bool {
-    // Based on checking signs of determinants - checking which side of each line a point lies
-    let p0p1 = Vector2::new(tri_p1[axis1] - tri_p0[axis1], tri_p1[axis2] - tri_p0[axis2]);
-    let p1p2 = Vector2::new(tri_p2[axis1] - tri_p1[axis1], tri_p2[axis2] - tri_p1[axis2]);
-    let p2p0 = Vector2::new(tri_p0[axis1] - tri_p2[axis1], tri_p0[axis2] - tri_p2[axis2]);
+    let projected = |point: Vector3| Vector2::new(point[axis1], point[axis2]);
+    let [a, b, c, point] = [tri_p0, tri_p1, tri_p2, test_point].map(projected);
+    let ab = b - a;
+    let bc = c - b;
+    let ca = a - c;
+    let winding = perp_dot_product(ab, c - a);
 
-    // Check which side P2 is relative to P0P1 to determine triangle winding
-    let p0p2 = Vector2::new(tri_p2[axis1] - tri_p0[axis1], tri_p2[axis2] - tri_p0[axis2]);
-    let p0p1p2 = Vector2::perp_dot(p0p1, p0p2);
-
-    if p0p1p2.abs() < EPSILON {
-        // Triangle is degenerate - handle as line segment
-        return handle_degenerate_triangle(tri_p0, tri_p1, tri_p2, test_point, axis1, axis2, flags);
-    }
-
-    // Triangle is not degenerate - test three sides
-    let side_factor = if p0p1p2 > 0.0 { 1.0 } else { -1.0 };
-    let mut factors = [0.0; 3];
-
-    // Test against each edge
-    let p0p_test = Vector2::new(
-        test_point[axis1] - tri_p0[axis1],
-        test_point[axis2] - tri_p0[axis2],
-    );
-    factors[0] = Vector2::perp_dot(p0p1, p0p_test);
-    if factors[0] * side_factor < 0.0 {
-        return false;
-    }
-
-    let p1p_test = Vector2::new(
-        test_point[axis1] - tri_p1[axis1],
-        test_point[axis2] - tri_p1[axis2],
-    );
-    factors[1] = Vector2::perp_dot(p1p2, p1p_test);
-    if factors[1] * side_factor < 0.0 {
-        return false;
-    }
-
-    let p2p_test = Vector2::new(
-        test_point[axis1] - tri_p2[axis1],
-        test_point[axis2] - tri_p2[axis2],
-    );
-    factors[2] = Vector2::perp_dot(p2p0, p2p_test);
-    if factors[2] * side_factor < 0.0 {
-        return false;
-    }
-
-    // Check if point is exactly on an edge
-    if factors[0].abs() < EPSILON || factors[1].abs() < EPSILON || factors[2].abs() < EPSILON {
-        *flags |= TRI_RAYCAST_FLAG_HIT_EDGE;
-    }
-
-    true
-}
-
-/// Handle degenerate triangle case (collinear points)
-fn handle_degenerate_triangle(
-    tri_p0: Vector3,
-    tri_p1: Vector3,
-    tri_p2: Vector3,
-    test_point: Vector3,
-    axis1: usize,
-    axis2: usize,
-    flags: &mut u8,
-) -> bool {
-    // Find the two outer points along the triangle's line
-    let p0p1 = Vector2::new(tri_p1[axis1] - tri_p0[axis1], tri_p1[axis2] - tri_p0[axis2]);
-    let p1p2 = Vector2::new(tri_p2[axis1] - tri_p1[axis1], tri_p2[axis2] - tri_p1[axis2]);
-    let p2p0 = Vector2::new(tri_p0[axis1] - tri_p2[axis1], tri_p0[axis2] - tri_p2[axis2]);
-
-    let p0p1_dist2 = p0p1.length_squared();
-    let p1p2_dist2 = p1p2.length_squared();
-    let p2p0_dist2 = p2p0.length_squared();
-
-    let (start_point, end_vec, max_dist2) = if p0p1_dist2 >= p1p2_dist2 && p0p1_dist2 >= p2p0_dist2
-    {
-        (tri_p0, p0p1, p0p1_dist2)
-    } else if p1p2_dist2 >= p2p0_dist2 {
-        (tri_p1, p1p2, p1p2_dist2)
-    } else {
-        (tri_p2, p2p0, p2p0_dist2)
-    };
-
-    if max_dist2 < EPSILON * EPSILON {
-        // All points coincide
-        let test_vec = Vector2::new(
-            test_point[axis1] - start_point[axis1],
-            test_point[axis2] - start_point[axis2],
-        );
-        if test_vec.length_squared() < EPSILON * EPSILON {
-            *flags |= TRI_RAYCAST_FLAG_HIT_EDGE;
-            return true;
+    if winding != 0.0 {
+        let side = if winding > 0.0 { 1.0 } else { -1.0 };
+        let mut edge_hit = false;
+        for (edge, origin) in [(ab, a), (bc, b), (ca, c)] {
+            let cross = perp_dot_product(edge, point - origin);
+            if cross * side < 0.0 {
+                return false;
+            }
+            edge_hit |= cross == 0.0;
         }
-        return false;
+        if edge_hit {
+            *flags |= TRI_RAYCAST_FLAG_HIT_EDGE;
+        }
+        return true;
     }
 
-    // Triangle is a line segment - check if test point is collinear and within bounds
-    let start_to_test = Vector2::new(
-        test_point[axis1] - start_point[axis1],
-        test_point[axis2] - start_point[axis2],
-    );
-
-    if Vector2::perp_dot(end_vec, start_to_test).abs() > EPSILON {
-        // Not collinear
-        return false;
-    }
-
-    // Collinear - check if within segment bounds
-    let end_to_test = start_to_test - end_vec;
-    if start_to_test.length_squared() <= max_dist2 && end_to_test.length_squared() <= max_dist2 {
-        *flags |= TRI_RAYCAST_FLAG_HIT_EDGE;
-        true
+    // The original computes the C→A distance from B→C's components. Keep
+    // that distance and its strict tie behavior for collinear triangles.
+    let ab_len2 = ab.length_squared();
+    let bc_len2 = bc.length_squared();
+    let (edge, offset, len2) = if ab_len2 > bc_len2 {
+        (ab, point - a, ab_len2)
     } else {
-        false
+        (ca, point - c, bc_len2)
+    };
+    let hit = if len2 != 0.0 {
+        perp_dot_product(edge, offset) == 0.0
+            && offset.length_squared() <= len2
+            && (offset - edge).length_squared() <= len2
+    } else {
+        offset.length_squared() == 0.0
+    };
+    if hit {
+        *flags |= TRI_RAYCAST_FLAG_HIT_EDGE;
     }
+    hit
 }
 
-/// Test a semi-infinite axis-aligned ray against a triangle
+/// Test a ray on a principal axis against a triangle with plane equation `Ax + By + Cz + D = 0`.
+/// Direction 0 follows the negative axis and direction 1 follows the positive axis.
+/// The caller’s unrelated flags are retained.
 #[allow(clippy::too_many_arguments)]
 pub fn cast_semi_infinite_axis_aligned_ray_to_triangle(
     tri_p0: Vector3,
@@ -396,14 +336,14 @@ pub fn cast_semi_infinite_axis_aligned_ray_to_triangle(
         true
     } else if result == 0.0 {
         // Ray start is on plane or ray is parallel to plane
-        if tri_plane[axis_r].abs() > EPSILON {
+        if tri_plane[axis_r] != 0.0 {
             // Start point is embedded in triangle plane
             *flags |= flags_2d & TRI_RAYCAST_FLAG_HIT_EDGE;
             *flags |= TRI_RAYCAST_FLAG_START_IN_TRI;
             true
         } else {
             // Ray is parallel to plane - check if start is in triangle
-            let triangle = Triangle::new(tri_p0, tri_p1, tri_p2);
+            let triangle = Triangle::with_normal(tri_p0, tri_p1, tri_p2, tri_plane.truncate());
             if triangle.contains_point(ray_start) {
                 *flags |= TRI_RAYCAST_FLAG_START_IN_TRI;
             }
