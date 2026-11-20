@@ -26,6 +26,13 @@ pub trait NativeFrameRenderReceiver {
         input: &mut crate::presentation_frame::UnitRenderInput,
         frame: &crate::presentation_frame::PresentationFrame,
     ) -> std::result::Result<Option<Mat4>, String>;
+    fn receive_installed_state_particles(
+        &mut self,
+        input: &crate::presentation_frame::UnitRenderInput,
+        module_tag: &str,
+        state_index: u32,
+        rows: Option<&[gamelogic::object::draw::draw_module::InstalledStateParticleRow]>,
+    ) -> std::result::Result<bool, String>;
     fn direct_scene_decisions(
         &mut self,
         candidates: &[FrozenDirectDrawableSceneCandidate],

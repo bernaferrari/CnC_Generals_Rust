@@ -1866,3 +1866,194 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
     );
     assert_ne!(event.get_playing_handle(), 0);
 }
+
+#[test]
+#[ignore = "requires native WGPU; run explicit installed particle pose acceptance"]
+fn visible_scaffold_particles_take_the_held_clip_bone_from_the_real_draw_receiver() {
+    use crate::assets::models::test_animation::{motion, raw_animation};
+    use game_client::core::game_client::PresentationModuleAdmission;
+    use game_client::effects::particle_manager::ParticleSystemTemplate;
+
+    let _ = env_logger::builder().is_test(true).try_init();
+    const SOURCE: &str = r#"
+Object StrictCameraOwner
+ KindOf = STRUCTURE IMMOBILE
+ Body = StructureBody StructureBodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Draw = W3DModelDraw OptionalDraw
+  MinLODRequired = HIGH
+  DefaultConditionState
+   Model = BaseModel
+  End
+ End
+ Draw = W3DModelDraw ScaffoldDraw
+  DefaultConditionState
+   Model = None
+   TransitionKey = DOWN
+  End
+  ConditionState = PARTIALLY_CONSTRUCTED
+   Model = ScaffoldModel
+   Animation = TREE.RAISE
+   AnimationMode = MANUAL
+   Flags = START_FRAME_LAST
+   TransitionKey = UP
+   ParticleSysBone = CAMERA BuildSmoke
+  End
+  TransitionState = DOWN UP
+   Model = ScaffoldModel
+   Animation = TREE.RAISE
+   AnimationMode = ONCE
+   Flags = START_FRAME_FIRST
+  End
+  TransitionState = UP DOWN
+   Model = ScaffoldModel
+   Animation = TREE.RAISE
+   AnimationMode = ONCE_BACKWARDS
+   Flags = START_FRAME_LAST
+  End
+ End
+End
+"#;
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    let (device, queue, color_format, depth_format) = {
+        let engine = engine.lock();
+        (engine.device(), engine.queue(), engine.color_format(), engine.depth_format())
+    };
+    let mut graphics = GraphicsSystem::new(device, queue, color_format, depth_format).unwrap();
+    let mut scaffold = model("ScaffoldModel", 0.);
+    scaffold.animations.push(raw_animation(
+        "RAISE", "TREE", 4, 1, vec![motion(1, 0, 0, 3, vec![0., 2., 4., 6.])], vec![],
+    ));
+    for (name, model) in [("BaseModel", model("BaseModel", 0.)), ("ScaffoldModel", scaffold)] {
+        graphics.cache_model(crate::assets::mesh_asset_resolve::canonical_model_key(name), model);
+    }
+    let mut pipeline = RenderPipeline::initialize(engine, &graphics).unwrap();
+    let mut world = GameLogic::new();
+    let mut rules = world.lighting_rules_baseline().clone();
+    rules.use_draw_module_lod = true;
+    world.admit_lighting_rules_base(rules);
+    world.admit_receiving_module_content(
+        crate::assets::ReceivingObjectContent::from_sources([(
+            "scaffold-gpu.ini".into(), SOURCE.into(),
+        )]).unwrap(),
+    ).unwrap();
+    let template = world.templates["StrictCameraOwner"].clone();
+    world.add_object(Object::new(template, ID, Team::USA));
+    let mut client = GameClient::new().unwrap();
+    client.borrow_native_drawable_owner().particle_systems_mut()
+        .register_template(Arc::new(ParticleSystemTemplate::new("BuildSmoke".into())));
+    let mut bridge = game_client::render_bridge::RenderBridge::new();
+    let snow = game_client::snow::SnowRenderState {
+        manager: Default::default(),
+        definition: Default::default(),
+    };
+    let assets = crate::assets::AssetManager::new().unwrap();
+    let mut modes = super::mouse::LookAtHostModes::default();
+    let active = 1u128 << crate::game_logic::host_enum_table_residual::partially_constructed_model_bit();
+    let mut installed_emitter = None;
+    let visual_world = gamelogic::helpers::ClientVisualHandle::new(Arc::clone(&world.world_services));
+    for (clock, bits) in [
+        (0, 0), (10, active), (1010, active), (2010, active), (3010, active),
+        (3011, active), (3012, active), (4000, active), (5000, active),
+        (5001, active), (5010, 0),
+    ] {
+        let object = world.host_object_mut(ID).unwrap();
+        object.set_status_under_construction(bits == active);
+        object.construction_percent = if bits == active { 0.25 } else { 1.0 };
+        if bits == active {
+            object.set_under_construction_model_conditions(true);
+        } else {
+            object.clear_under_construction_model_conditions();
+        }
+        let frame = std::rc::Rc::new(PresentationFrame::build_from_logic(&mut world, 0));
+        let source = frame.native_resident_drawable_inputs().into_iter()
+            .find(|source| source.id == ID).unwrap();
+        let expected_destination = if bits == active { "ScaffoldModel" } else { "" };
+        let ordinary = frame.unit_render_inputs().into_iter()
+            .find(|input| input.id == ID).unwrap();
+        let receiving = ordinary.receiving_draw_models.as_ref().unwrap();
+        let conditions = ordinary.model_condition_bits_with_combat_flags();
+        let selected = receiving.native_render_draws(conditions).unwrap();
+        assert_eq!(selected[1].model_key, expected_destination, "clock {clock}, mask {conditions:#x}");
+        assert!(ordinary.fow_should_render());
+        let policy = receiving_native_drawable_policy_for(&world);
+        let content = world.receiving_module_content.as_mut().unwrap();
+        let mut drawable = entry(&source);
+        drawable.under_construction = source.under_construction;
+        drawable.construction_percent = source.construction_percent;
+        drawable.module_admission = PresentationModuleAdmission::Authored(
+            content.admitted_template("StrictCameraOwner").unwrap(),
+        );
+        pipeline.observe_animation_sync(clock);
+        client.sync_presentation_drawables_observed_with_content(
+            [drawable], clock, content.module_factory_mut(), policy, |event| {
+                pipeline.receive_native_drawable_mutation(event, Some(&source), &mut graphics);
+            },
+        ).unwrap();
+        if clock == 0 {
+            let id = client.get_drawable_for_object(ID.0).unwrap();
+            let drawable = client.find_drawable_by_id_mut(id).unwrap().as_any_mut()
+                .downcast_mut::<game_client::drawable::BasicDrawable>().unwrap();
+            let tags: Vec<_> = drawable.get_draw_modules().iter()
+                .filter_map(|module| module.snapshot_module_identifier()).collect();
+            assert_eq!(tags, ["ScaffoldDraw"], "the preceding high-LOD Draw was omitted");
+        }
+        let mut drawables = client.borrow_native_drawable_owner();
+        let key = drawables.binding_key(EPOCH, ID.0).unwrap();
+        assert!(drawables.accepts_installed_state_particles(key, "ScaffoldDraw"));
+        pipeline.admit_native_drawable_binding(source.draw_playback_identity.as_ref().unwrap(), key)
+            .unwrap();
+        pipeline.set_presentation_frame(Some(frame));
+        let mut receiver = super::native_frame_receiver::NativeFrameReceiver {
+            audio: None,
+            world: &mut world,
+            drawables,
+            look_at_modes: &mut modes,
+            world_bounds: (Vec3::splat(-100.), Vec3::splat(100.)),
+            slave_source: None,
+            slave_binding_key: None,
+            host_epoch: EPOCH,
+            local_player_id: 0,
+            assets: &assets,
+            logic_frame: clock,
+        };
+        pipeline.execute(
+            &mut graphics, &mut bridge, &Mat4::IDENTITY, &Mat4::IDENTITY, Vec3::ZERO,
+            0., false, 0, false, &mut receiver, vec![], None, &snow, Vec2::ZERO, clock, None,
+        ).unwrap();
+        let active_systems: Vec<_> = receiver.drawables.particle_systems().draw_particle_systems()
+            .into_iter().filter(|system| !system.is_destroyed()).collect();
+        let saved = pipeline.capture_client_drawable_snapshot(&visual_world);
+        let scaffold = saved.drawables.iter().find(|row| row.draw_module_index == 1);
+        use crate::save_load::snapshot::ClientDrawableAnimationMode;
+        let animation = scaffold.and_then(|row| row.animation.as_ref());
+        let held = bits == active && animation.is_some_and(|clip| {
+            clip.mode == ClientDrawableAnimationMode::Manual
+        });
+        assert_eq!(active_systems.len(), usize::from(held), "clock {clock}: {scaffold:?}");
+        if clock == 1010 {
+            assert_eq!(
+                animation.map(|clip| &clip.mode), Some(&ClientDrawableAnimationMode::Once),
+                "clock {clock}, projected mask {conditions:#x}, actual rows {saved:?}",
+            );
+        }
+        if clock == 5000 {
+            assert!(held, "scaffold never admitted the held clip: {saved:?}");
+        }
+        if let Some(system) = active_systems.first() {
+            assert_eq!(system.attached_drawable_id(), key.drawable_id);
+            assert!(!system.is_saveable());
+            assert_eq!(system.position(), Vec3::new(6., 0., 0.));
+            let initial = installed_emitter.get_or_insert(system.system_id());
+            assert_eq!(*initial, system.system_id());
+        }
+    }
+    assert!(installed_emitter.is_some());
+}

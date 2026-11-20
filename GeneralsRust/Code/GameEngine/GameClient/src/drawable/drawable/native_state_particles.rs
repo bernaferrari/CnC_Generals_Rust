@@ -3,8 +3,10 @@ use super::*;
 use crate::effects::particle_manager::ParticleSystemManager;
 use gamelogic::common::Matrix3D;
 use gamelogic::object::draw::draw_module::{
-    ClientParticleStateRuntime, NativeStateParticleContext, NativeStateParticlePreparation,
+    ClientParticleStateRuntime, InstalledStateParticleRow, NativeStateParticleContext,
+    NativeStateParticlePreparation,
 };
+use gamelogic::object::draw::W3DModelDraw;
 
 struct ReceivingStateParticles<'a> {
     particles: &'a mut ParticleSystemManager,
@@ -99,6 +101,50 @@ impl ClientParticleStateRuntime for ReceivingStateParticles<'_> {
 }
 
 impl BasicDrawable {
+    pub(crate) fn installed_state_particle_module(
+        &mut self,
+        module_tag: &str,
+    ) -> Option<&mut W3DModelDraw> {
+        // The assigned source index can differ after Drawable's LOD admission.
+        let module = self.draw_modules.iter_mut()
+            .find(|module| module.snapshot_module_identifier() == Some(module_tag))?
+            .logic_module_mut()?;
+        let model = module.as_any_mut().downcast_mut::<W3DModelDraw>()?;
+        model.accepts_installed_state_particles().then_some(model)
+    }
+
+    pub(crate) fn receive_installed_state_particle_rows(
+        &mut self,
+        module_tag: &str,
+        state_index: u32,
+        rows: Option<&[InstalledStateParticleRow]>,
+        creation_frame: u32,
+        particles: &mut ParticleSystemManager,
+    ) -> Result<bool, String> {
+        let context = NativeStateParticleContext {
+            conditions: gamelogic::common::ModelConditionFlags::empty(),
+            instance_scale: self.instance_scale,
+            state_particles: !self.status.has(DrawableStatus::NO_STATE_PARTICLES),
+            drawable_id: self.id.0,
+            hidden: self.hidden
+                || self.hidden_by_stealth
+                || matches!(self.stealth_look, StealthLook::Invisible),
+            fully_obscured: self.drawable_fully_obscured_by_shroud,
+            creation_frame,
+        };
+        let mut receiver = ReceivingStateParticles {
+            particles,
+            assets: None,
+            public_bones: &[],
+            scale: context.instance_scale,
+            keys: None,
+        };
+        match self.installed_state_particle_module(module_tag) {
+            Some(module) => module.receive_installed_state_particles(state_index, rows, &context, &mut receiver),
+            None => Ok(false),
+        }
+    }
+
     pub(crate) fn native_state_particle_count(&mut self) -> usize {
         self.draw_modules
             .iter_mut()

@@ -150,6 +150,8 @@ impl GameLogic {
         &self,
         template_name: &str,
         condition_bits: u128,
+        object: Option<&Object>,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
     ) -> Vec<(String, String)> {
         if self.receiving_module_content.is_some() {
             let definition = self
@@ -157,11 +159,15 @@ impl GameLogic {
                 .as_ref()
                 .and_then(|definitions| definitions.get(template_name))
                 .map(std::sync::Arc::as_ref);
-            crate::game_logic::combat_particles::particle_sys_bones_for_receiving_definition(
-                definition,
-                template_name,
-                condition_bits,
-            )
+            definition.map_or_else(Vec::new, |definition| {
+                definition.particle_sys_bones_for_unowned_draws(condition_bits, |module_tag| {
+                    object.is_some_and(|object| {
+                        particle_owner.accepts_installed_state_particles(
+                            &self.live_draw_playback_identity(object), module_tag,
+                        )
+                    })
+                })
+            })
         } else {
             crate::game_logic::combat_particles::particle_sys_bones_for_template(
                 template_name,
@@ -179,7 +185,9 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
-        let bones = self.receiving_particle_sys_bones(&obj.template_name, obj.model_condition_bits);
+        let bones = self.receiving_particle_sys_bones(
+            &obj.template_name, obj.model_condition_bits, Some(obj), particle_owner,
+        );
         let pos = obj.get_position();
         let model = obj
             .thing()
@@ -228,8 +236,9 @@ impl GameLogic {
         let frame = self.frame;
         let mut bone_systems = self.combat_particles.active_bone_systems_by_owner();
         for (&id, obj) in self.objects.registered() {
-            let bones =
-                self.receiving_particle_sys_bones(&obj.template_name, obj.model_condition_bits);
+            let bones = self.receiving_particle_sys_bones(
+                &obj.template_name, obj.model_condition_bits, Some(obj), particle_owner,
+            );
             let owned = bone_systems.remove(&id).unwrap_or_default();
             if bones.is_empty() && owned.is_empty() {
                 // Nothing authored and nothing live to retire.
@@ -315,20 +324,20 @@ mod particle_sys_bone_owner_tests {
         let a = world_with_receiving_template("WorldAFire");
         let b = world_with_receiving_template("WorldBFire");
         assert_eq!(
-            a.receiving_particle_sys_bones("SharedFxOwner", 0),
+            a.receiving_particle_sys_bones("SharedFxOwner", 0, None, &mut ()),
             vec![("fire".to_owned(), "WorldAFire".to_owned())]
         );
         assert_eq!(
-            b.receiving_particle_sys_bones("SharedFxOwner", 0),
+            b.receiving_particle_sys_bones("SharedFxOwner", 0, None, &mut ()),
             vec![("fire".to_owned(), "WorldBFire".to_owned())]
         );
         assert!(a
-            .receiving_particle_sys_bones("MissingInReceivingCatalog", 0)
+            .receiving_particle_sys_bones("MissingInReceivingCatalog", 0, None, &mut ())
             .is_empty());
         let empty = world_with_empty_receiving_template("RepairVehiclesInAreaMarker");
         assert!(
             empty
-                .receiving_particle_sys_bones("RepairVehiclesInAreaMarker", 0)
+                .receiving_particle_sys_bones("RepairVehiclesInAreaMarker", 0, None, &mut ())
                 .is_empty(),
             "admitted empty definitions do not select legacy global or name fallback"
         );

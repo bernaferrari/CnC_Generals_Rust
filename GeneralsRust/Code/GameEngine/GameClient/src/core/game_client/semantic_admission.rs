@@ -244,6 +244,37 @@ impl NativeDrawableOwner<'_> {
             .presentation_direct_drawable_state(epoch, object)
             .map(|state| state.binding_key)
     }
+
+    pub fn accepts_installed_state_particles(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+        module_tag: &str,
+    ) -> bool {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return false;
+        }
+        self.drawables.drawable_map.get_mut(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::drawable::BasicDrawable>())
+            .and_then(|drawable| drawable.installed_state_particle_module(module_tag))
+            .is_some()
+    }
+
+    pub fn receive_installed_state_particle_rows(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+        module_tag: &str,
+        state_index: u32,
+        rows: Option<&[gamelogic::object::draw::draw_module::InstalledStateParticleRow]>,
+        frame: u32,
+    ) -> Result<bool, String> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err("native particle pose has a stale Drawable binding".into());
+        }
+        let drawable = self.drawables.drawable_map.get_mut(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::drawable::BasicDrawable>())
+            .ok_or("native particle pose has no receiving BasicDrawable")?;
+        drawable.receive_installed_state_particle_rows(module_tag, state_index, rows, frame, self.particles)
+    }
     /// Source OpenContain observes the actual receiving Drawable flags before
     /// redeployment, not the latest projected host condition snapshot.
     pub fn model_condition_bits(

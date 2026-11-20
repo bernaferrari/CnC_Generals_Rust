@@ -336,6 +336,14 @@ pub(crate) trait NativeViewEffects {
         None
     }
 
+    fn accepts_installed_state_particles(
+        &mut self,
+        _identity: &LiveDrawPlaybackIdentity,
+        _module_tag: &str,
+    ) -> bool {
+        false
+    }
+
     /// Query actual installed native bones at this immediate nugget point.
     /// The caller supplies fresh source observations from the receiving world.
     #[cfg(feature = "game_client")]

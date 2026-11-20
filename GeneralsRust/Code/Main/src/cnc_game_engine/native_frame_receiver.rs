@@ -96,6 +96,25 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
         );
         Ok(instance)
     }
+
+    fn receive_installed_state_particles(
+        &mut self,
+        input: &crate::presentation_frame::UnitRenderInput,
+        module_tag: &str,
+        state_index: u32,
+        rows: Option<&[gamelogic::object::draw::draw_module::InstalledStateParticleRow]>,
+    ) -> std::result::Result<bool, String> {
+        let Some(key) = self.drawables.binding_key(self.host_epoch, input.id.0) else {
+            return Ok(false);
+        };
+        if !self.actor_draw_candidate_is_current(key, input)? {
+            return Ok(false);
+        }
+        self.drawables.receive_installed_state_particle_rows(
+            key, module_tag, state_index, rows, self.logic_frame,
+        )
+    }
+
     fn direct_scene_decisions(
         &mut self,
         candidates: &[FrozenDirectDrawableSceneCandidate],

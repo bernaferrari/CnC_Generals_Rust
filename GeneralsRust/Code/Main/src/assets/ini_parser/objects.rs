@@ -573,10 +573,22 @@ impl ObjectDefinition {
 
     /// C++ current-state `ParticleSysBone` list across Draw modules.
     pub fn particle_sys_bones_for_conditions(&self, condition_bits: u128) -> Vec<(String, String)> {
+        self.particle_sys_bones_for_unowned_draws(condition_bits, |_| false)
+    }
+
+    pub(crate) fn particle_sys_bones_for_unowned_draws(
+        &self,
+        condition_bits: u128,
+        mut has_installed_particle_owner: impl FnMut(&str) -> bool,
+    ) -> Vec<(String, String)> {
         let mut bones = Vec::new();
         for module in &self.draw_modules {
             if let Ok(Some((_, state))) =
                 module.selected_condition_state_for_conditions(condition_bits)
+                && !state.particle_sys_bones.is_empty()
+                && !(module.condition_states.iter().any(|state| state.is_transition)
+                    && module.declaration.split_whitespace().nth(1)
+                        .is_some_and(&mut has_installed_particle_owner))
             {
                 bones.extend(state.particle_sys_bones.iter().cloned());
             }

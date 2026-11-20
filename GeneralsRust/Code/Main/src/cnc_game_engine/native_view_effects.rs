@@ -382,6 +382,19 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
             .map_err(|error| format!("native FX bone query unavailable: {error:?}"))
     }
 
+    fn accepts_installed_state_particles(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        module_tag: &str,
+    ) -> bool {
+        self.drawables
+            .binding_key(self.host_epoch, identity.object_id())
+            .is_some_and(|key| {
+                self.poses.validate_object_retirement(identity, key).is_ok()
+                    && self.drawables.accepts_installed_state_particles(key, module_tag)
+            })
+    }
+
     fn drawable_model_condition_bits(
         &mut self,
         source: &NativeSlaveSource,

@@ -46,6 +46,7 @@ pub(crate) struct ReceivingDrawModels {
     modules: Box<[crate::assets::DrawModuleDefinition]>,
     // Tokenized once during admission; native projection shares this exact list.
     module_class_names: std::sync::Arc<Vec<String>>,
+    transition_particle_modules: Box<[(u32, String)]>,
     /// Selection is a pure function of (immutable modules, bits); every object
     /// of this template asks for the same few condition masks every frame.
     select_cache: SelectCache,
@@ -131,6 +132,20 @@ impl ReceivingDrawModels {
             identity,
             dest,
         ))
+    }
+
+    pub(crate) fn transition_particle_modules(&self) -> &[(u32, String)] {
+        &self.transition_particle_modules
+    }
+
+    pub(crate) fn state_particle_rows(
+        &self,
+        module_index: u32,
+        state_index: u32,
+    ) -> Option<&[(String, String)]> {
+        Some(self.modules.get(module_index as usize)?
+            .condition_states.get(state_index as usize)?
+            .particle_sys_bones.as_slice())
     }
 
     pub(crate) fn first_object_draw(
@@ -2170,6 +2185,15 @@ impl ThingTemplate {
             base_model: self.model_name.clone(),
             select_cache: SelectCache::default(),
             modules: modules.to_vec().into_boxed_slice(),
+            transition_particle_modules: modules.iter().enumerate().filter_map(|(index, module)| {
+                let has_transition = module.condition_states.iter().any(|state| state.is_transition);
+                let has_particles = module.condition_states.iter().any(|state| !state.particle_sys_bones.is_empty());
+                if !(has_transition && has_particles && module.has_object_draw_interface()) {
+                    return None;
+                }
+                let tag = module.declaration.split_whitespace().nth(1)?;
+                Some((index as u32, tag.to_owned()))
+            }).collect(),
             module_class_names: std::sync::Arc::new(
                 modules
                     .iter()

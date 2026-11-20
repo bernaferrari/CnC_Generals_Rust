@@ -37,6 +37,13 @@ pub trait ParticleBindingAccess {
 /// Crate-private receiving pose capability. Keep NativeSlaveSource out of the
 /// public particle binding API; only admitted Main presentation paths need it.
 pub(crate) trait ReceivingParticlePoseAccess: ParticleBindingAccess {
+    fn accepts_installed_state_particles(
+        &mut self,
+        _identity: &crate::assets::LiveDrawPlaybackIdentity,
+        _module_tag: &str,
+    ) -> bool {
+        false
+    }
     /// Receiving live bones for one already admitted Draw source. None means
     /// this adapter has no native installed-pose capability.
     fn current_bone_transforms(
@@ -89,6 +96,16 @@ impl ParticleBindingAccess for crate::game_logic::ScriptPresentationEffects<'_> 
 }
 impl ReceivingParticlePoseAccess for () {}
 impl ReceivingParticlePoseAccess for crate::game_logic::ScriptPresentationEffects<'_> {
+    fn accepts_installed_state_particles(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        module_tag: &str,
+    ) -> bool {
+        self.view.as_deref_mut().is_some_and(|view| {
+            view.accepts_installed_state_particles(identity, module_tag)
+        })
+    }
+
     fn current_bone_transforms(
         &mut self,
         source: &crate::game_logic::NativeSlaveSource,

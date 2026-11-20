@@ -81,6 +81,8 @@ pub struct W3DModelDraw {
     /// Successful prefix remains owned until normal teardown; repeating the
     /// failed state cannot allocate or consume random inputs a second time.
     native_state_particle_failure: Option<String>,
+    /// Exact source row already prepared from the receiving animated RenderObj.
+    installed_state_particle_row: Option<u32>,
 
     /// Whether fully obscured by shroud
     fully_obscured_by_shroud: bool,
@@ -170,6 +172,7 @@ impl W3DModelDraw {
             weapon_recoil_info,
             need_recalc_bone_particle_systems: false,
             native_state_particle_failure: None,
+            installed_state_particle_row: None,
             fully_obscured_by_shroud: false,
             hidden: false,
             shadow_enabled: true,

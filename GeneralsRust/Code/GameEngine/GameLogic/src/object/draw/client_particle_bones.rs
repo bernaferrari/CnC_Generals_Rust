@@ -42,6 +42,15 @@ pub struct NativeStateParticleContext {
     pub creation_frame: u32,
 }
 
+/// One authored row from the installed RenderObj's current Draw state.
+#[derive(Debug, Clone)]
+pub struct InstalledStateParticleRow {
+    pub template: String,
+    pub bone_name: String,
+    /// An absent name has the source Get_Bone_Index zero result.
+    pub bone: Option<(i32, Matrix3D)>,
+}
+
 /// Selected static-model state/emitter operations on explicit receiving owners.
 pub trait ClientParticleStateRuntime {
     /// Original NAMEKEY phase, supplied by the same receiving content namespace.

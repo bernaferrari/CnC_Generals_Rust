@@ -104,6 +104,58 @@ fn context(frame: u32) -> NativeStateParticleContext {
         creation_frame: frame,
     }
 }
+
+#[test]
+fn installed_transition_rows_create_exact_bones_and_retire_on_change_and_reset() {
+    fn animated_draw() -> W3DModelDraw {
+        let draw = model();
+        let mut transition = ModelConditionInfo::new();
+        transition.anim_mode = AnimMode::Once;
+        transition.animations.push(W3DAnimationInfo::new(
+            AsciiString::from("AuthoredAnimation"), false, 0.0,
+        ));
+        draw.model_data_mut().transition_states.push(transition);
+        assert!(draw.accepts_installed_state_particles());
+        draw
+    }
+
+    let mut draw = animated_draw();
+    let mut receiver = Receiver::default();
+    assert!(!draw.receive_installed_state_particles(0, Some(&[]), &context(1), &mut receiver).unwrap());
+    assert!(!draw.receive_installed_state_particles(2, Some(&[]), &context(2), &mut receiver).unwrap());
+    assert!(receiver.events.is_empty());
+
+    let local = Matrix3D::from_translation(glam::Vec3::new(8.0, 0.0, 11.0));
+    let rows = [InstalledStateParticleRow {
+        template: "Smoke".into(),
+        bone_name: "FXBONE".into(),
+        bone: Some((7, local)),
+    }];
+    let opaque = NativeStateParticleContext { fully_obscured: true, ..context(3) };
+    assert!(!draw.receive_installed_state_particles(1, Some(&rows), &opaque, &mut receiver).unwrap());
+    assert!(receiver.events.is_empty());
+    assert!(draw.receive_installed_state_particles(1, None, &context(4), &mut receiver).unwrap());
+    assert!(!draw.receive_installed_state_particles(1, Some(&rows), &context(4), &mut receiver).unwrap());
+    assert!(!draw.receive_installed_state_particles(1, Some(&rows), &context(5), &mut receiver).unwrap());
+    assert_eq!(receiver.events, ["create:Smoke", "configure:41"]);
+    assert_eq!(receiver.configured, [(41, 91, 7, local, false)]);
+    assert_eq!(receiver.frame, Some(4));
+
+    assert!(!draw.receive_installed_state_particles(3, Some(&[]), &context(6), &mut receiver).unwrap());
+    assert_eq!(receiver.events.last().unwrap(), "destroy:41");
+    assert_eq!(draw.native_state_particle_count(), 0);
+
+    // A new receiver can reuse the same Drawable number without inheriting
+    // a previous state's receipt or retiring a peer's manager handle.
+    draw.retire_native_state_particles(&mut receiver);
+    let mut reborn = animated_draw();
+    let mut reborn_receiver = Receiver::default();
+    reborn.receive_installed_state_particles(1, Some(&rows), &context(7), &mut reborn_receiver).unwrap();
+    assert_eq!(reborn_receiver.events, ["create:Smoke", "configure:41"]);
+    assert_eq!(receiver.events.iter().filter(|event| event.as_str() == "destroy:41").count(), 1);
+    reborn.retire_native_state_particles(&mut reborn_receiver);
+}
+
 #[test]
 fn model_space_callback_can_write_shared_model_data() {
     let mut draw = model();

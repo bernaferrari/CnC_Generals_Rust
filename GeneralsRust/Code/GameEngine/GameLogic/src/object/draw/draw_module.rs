@@ -11,8 +11,8 @@ mod client_particle_bones;
 #[path = "projectile_launch.rs"]
 mod projectile_launch;
 pub use client_particle_bones::{
-    ClientParticleBoneRuntime, ClientParticleStateRuntime, NativeStateParticleContext,
-    NativeStateParticlePreparation,
+    ClientParticleBoneRuntime, ClientParticleStateRuntime, InstalledStateParticleRow,
+    NativeStateParticleContext, NativeStateParticlePreparation,
 };
 use game_engine::common::thing::module::{Module, ModuleData, ModuleInterfaceType, ModuleType};
 pub use projectile_launch::ProjectileLaunchPlan;

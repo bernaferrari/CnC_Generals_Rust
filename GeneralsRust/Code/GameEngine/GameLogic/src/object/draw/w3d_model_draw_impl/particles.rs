@@ -23,6 +23,7 @@ impl W3DModelDraw {
     /// its entry guard. Each phase is sampled after the previous callback.
     pub(crate) fn take_particle_systems_for_deletion(&mut self) -> Vec<UnsignedInt> {
         self.native_state_particle_failure = None;
+        self.installed_state_particle_row = None;
         self.particle_systems
             .drain(..)
             .map(|tracker| tracker.id)
@@ -31,6 +32,7 @@ impl W3DModelDraw {
 
     fn stop_client_particle_systems(&mut self) {
         self.native_state_particle_failure = None;
+        self.installed_state_particle_row = None;
         let Some(ps_manager) = TheParticleSystemManager::get() else {
             self.particle_systems.clear();
             return;
@@ -269,6 +271,81 @@ impl W3DModelDraw {
         for id in self.take_particle_systems_for_deletion() {
             receiver.destroy_particle_system(id);
         }
+    }
+
+    /// Animated transition-bearing emitters with a fixed attachment obey the
+    /// receiving installed pose. Bone-follow and TrackMarks retain their own
+    /// source requirements.
+    pub fn accepts_installed_state_particles(&self) -> bool {
+        let data = self.model_data();
+        !data.particles_attached_to_animated_bones
+            && data.track_file.is_empty()
+            && !data.transition_states.is_empty()
+            && data.transition_states.iter().any(|state| !state.animations.is_empty())
+            && data.condition_states.iter().chain(&data.transition_states).any(|state| {
+                !state.particle_sys_bones.is_empty()
+            })
+            && data.condition_states.iter().chain(&data.transition_states).all(|state| {
+                state.animations.len() <= 1
+                    && state.flags
+                        & ((1 << ACBIT_RANDOMSTART)
+                            | (1 << ACBIT_RESTART_ANIM_WHEN_COMPLETE)
+                            | ALL_MAINTAIN_FRAME_FLAGS)
+                        == 0
+                    && state.anim_min_speed_factor.is_finite()
+                    && state.anim_max_speed_factor.is_finite()
+                    && state.anim_max_speed_factor <= state.anim_min_speed_factor
+                    && state.weapon_recoil_bone.iter().all(|bone| bone.is_empty())
+            })
+    }
+
+    /// C++ setModelState retires the old trackers; doDrawModule creates the
+    /// current row when its installed hierarchy is ready.
+    pub fn receive_installed_state_particles(
+        &mut self,
+        state: u32,
+        rows: Option<&[InstalledStateParticleRow]>,
+        context: &NativeStateParticleContext,
+        receiver: &mut dyn ClientParticleStateRuntime,
+    ) -> Result<bool, String> {
+        if !self.accepts_installed_state_particles() {
+            return Err("installed particle pose belongs to an unsupported Draw module".into());
+        }
+        if self.installed_state_particle_row == Some(state) {
+            self.set_native_particle_visibility(context.hidden, context.fully_obscured, receiver);
+            return self.native_state_particle_failure.clone().map_or(Ok(false), Err);
+        }
+        self.retire_native_state_particles(receiver);
+        self.set_native_particle_visibility(context.hidden, context.fully_obscured, receiver);
+        if context.hidden || context.fully_obscured {
+            return Ok(false);
+        }
+        if !context.state_particles {
+            self.installed_state_particle_row = Some(state);
+            return Ok(false);
+        }
+        let Some(rows) = rows else {
+            return Ok(true);
+        };
+        self.installed_state_particle_row = Some(state);
+        for row in rows {
+            let id = match receiver.create_particle_system(&row.template, context.creation_frame) {
+                Ok(Some(id)) => id,
+                Ok(None) => continue,
+                Err(error) => {
+                    self.native_state_particle_failure = Some(error.clone());
+                    return Err(error);
+                }
+            };
+            let (bone_index, local) = row.bone.unwrap_or((0, Matrix3D::IDENTITY));
+            receiver.configure_particle_system(id, context.drawable_id, bone_index, &local, false);
+            self.particle_systems.push(ParticleSysTracker {
+                id,
+                bone_index,
+                bone_name: AsciiString::from(row.bone_name.as_str()),
+            });
+        }
+        Ok(false)
     }
 
     /// Selected static-model continuation at the real receiving Draw phase.

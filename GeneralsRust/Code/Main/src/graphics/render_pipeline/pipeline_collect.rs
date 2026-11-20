@@ -414,6 +414,37 @@ impl RenderPipeline {
             // drawable runtime at collection before borrowing any per-input
             // specialized draw payloads.
             u.apply_live_draw_transition_playback(self.forward_pass.application_assets.as_deref(), &mut self.native_draw_world.live_draw_playback);
+            #[cfg(feature = "game_client")]
+            let particle_draw_modules = match (
+                native_receiver.as_deref_mut(),
+                u.receiving_draw_models.as_deref(),
+                u.draw_playback_identity.as_ref(),
+            ) {
+                (Some(receiver), Some(source), Some(identity)) => {
+                    let mut pending = Vec::new();
+                    for (module, module_tag) in source.transition_particle_modules() {
+                        let Some(phase) = self.native_draw_world.live_draw_playback
+                            .get(&identity.playback_key(*module))
+                        else {
+                            continue;
+                        };
+                        let Some(rows) = source.state_particle_rows(*module, phase.current_index) else {
+                            continue;
+                        };
+                        // This stage also retires previous particles from a
+                        // Model=None or transition row that submits no mesh.
+                        match receiver.receive_installed_state_particles(
+                            &u, module_tag, phase.current_index, rows.is_empty().then_some(&[]),
+                        ) {
+                            Ok(true) => pending.push((*module, module_tag, phase.current_index, rows)),
+                            Ok(false) => {}
+                            Err(error) => warn!("Receiving Draw state particles for {object_id:?} module {module}: {error}"),
+                        }
+                    }
+                    pending
+                }
+                _ => Vec::new(),
+            };
             let world_matrix =
                 gameplay_to_render_transform(u.world_matrix_with_drawable_instance(instance));
             #[cfg(feature = "game_client")]
@@ -679,6 +710,36 @@ impl RenderPipeline {
                                     continue;
                                 }
                             };
+
+                            #[cfg(feature = "game_client")]
+                            if let Some((_, module_tag, state_index, rows)) = particle_draw_modules.iter()
+                                .find(|(module, _, _, _)| *module == draw_module_index)
+                                && let Some(receiver) = native_receiver.as_deref_mut()
+                            {
+                                use gamelogic::object::draw::draw_module::InstalledStateParticleRow;
+                                let state = self.native_draw_world.drawable_visual_states
+                                    .get_mut(&(NativeDrawOwnerId::Actor(object_id.0), draw_module_index))
+                                    .expect("the accepted Draw owns its installed particle pose");
+                                let instance_scale = Mat4::from_scale(Vec3::splat(u.mesh_scale));
+                                let prepared: Result<Vec<_>, _> = rows.iter()
+                                    .map(|(bone_name, template)| {
+                                        let bone = state.installed_client_bone(self.animation_sync_ms, bone_name)?
+                                            .map(|(index, local)| (index as i32, instance_scale * local));
+                                        Ok(InstalledStateParticleRow {
+                                            template: template.clone(),
+                                            bone_name: bone_name.clone(),
+                                            bone,
+                                        })
+                                    })
+                                    .collect::<Result<_, super::installed_draw_pose::NativeCameraPoseUnavailable>>();
+                                if let Err(error) = prepared.map_err(|error| format!("{error:?}"))
+                                    .and_then(|rows| receiver.receive_installed_state_particles(
+                                        &u, module_tag, *state_index, Some(&rows),
+                                    ))
+                                {
+                                    warn!("Receiving installed particle pose for {object_id:?} module {draw_module_index}: {error}");
+                                }
+                            }
 
                             // C++ `HLodClass::Update_Sub_Object_Transforms`
                             // samples its additional-model parent bones after

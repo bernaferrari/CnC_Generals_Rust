@@ -377,6 +377,14 @@ impl ObjectVisualState {
         sync_ms: u32,
         bone_name: &str,
     ) -> Result<Option<Mat4>, NativeCameraPoseUnavailable> {
+        self.installed_client_bone(sync_ms, bone_name).map(|bone| bone.map(|(_, local)| local))
+    }
+
+    pub(super) fn installed_client_bone(
+        &mut self,
+        sync_ms: u32,
+        bone_name: &str,
+    ) -> Result<Option<(usize, Mat4)>, NativeCameraPoseUnavailable> {
         use NativeCameraPoseUnavailable::*;
         let pose = match &mut self.installed_draw_pose {
             InstalledDrawObject::AwaitingAdmission => return Err(UnadmittedDrawableLifecycle),
@@ -418,7 +426,7 @@ impl ObjectVisualState {
         )
         .map_err(Bone)?;
         pose.hierarchy_valid = true;
-        Ok(Some(source))
+        Ok(Some((index, source)))
     }
 
     pub(super) fn installed_camera_pose(
