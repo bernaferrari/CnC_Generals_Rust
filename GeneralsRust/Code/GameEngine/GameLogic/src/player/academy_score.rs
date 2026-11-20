@@ -847,7 +847,7 @@ impl ScoreKeeper {
         self.add_object_built_obj_with_policy(object, Self::scoring_enabled());
     }
 
-    fn add_object_built_obj_with_policy(
+    pub(super) fn add_object_built_obj_with_policy(
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
         scoring_enabled: bool,

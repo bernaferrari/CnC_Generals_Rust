@@ -950,6 +950,71 @@ fn completed_structure_refreshes_vision_and_pending_unlook_in_its_own_world() {
     assert!(!peer_spatial.contains(&id), "completion must not move the peer's same-ID spatial entry");
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn construction_completion_uses_the_borrowed_score_policy_and_always_records_spending() {
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+
+    const NAME: &str = concat!(module_path!(), "::construction_completion_uses_the_borrowed_score_policy_and_always_records_spending");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME), "GENERALS_COMPLETION_SCORE_OWNER_CHILD",
+    ) {
+        return;
+    }
+
+    let admit = |world: &Arc<EngineStores>, frame, scoring_enabled| {
+        let existing = admit_vision_structure(world, Coord3D::new(105., 105., 0.), frame, 23);
+        with_active_stores(world, || {
+            let mut template = DefaultThingTemplate::new("CompletionScoreStructure".into());
+            template.add_kind_of(KindOf::Structure);
+            template.add_kind_of(KindOf::Score);
+            template.add_kind_of(KindOf::Immobile);
+            template.parse_object_fields_from_ini(&std::collections::HashMap::from([
+                ("BuildCost".to_owned(), "700".to_owned()),
+            ])).unwrap();
+            let site = Arc::new(RwLock::new(Object::new_test_from_template(
+                0xBA_0442, 100.0, Arc::new(template),
+            )));
+            let team = existing.read().unwrap().get_team().unwrap();
+            site.write().unwrap().set_team(Some(team)).unwrap();
+            site.write().unwrap().set_position(&Coord3D::new(135., 105., 0.)).unwrap();
+            let mut logic = world.game_logic_mutex().lock().unwrap();
+            logic.set_scoring_enabled(scoring_enabled);
+            logic.register_object(Arc::clone(&site)).unwrap();
+            let player = site.read().unwrap().get_controlling_player().unwrap();
+            (site, player)
+        })
+    };
+    let enabled = new_for_world();
+    let disabled = new_for_world();
+    let (enabled_site, enabled_player) = admit(&enabled, 37, true);
+    let (disabled_site, disabled_player) = admit(&disabled, 251, false);
+    assert_eq!(enabled_site.read().unwrap().get_id(), disabled_site.read().unwrap().get_id());
+
+    for (driving, published, site, player) in [
+        (&enabled, &disabled, &enabled_site, &enabled_player),
+        (&disabled, &enabled, &disabled_site, &disabled_player),
+    ] {
+        with_active_stores(driving, || {
+            let logic = driving.game_logic_mutex().lock().unwrap();
+            let _frame = crate::system::game_logic::enter_update_frame(logic.get_frame());
+            with_active_stores(published, || {
+                Player::on_structure_construction_complete_with_scoring(
+                    player, None, site, false, Some(logic.is_scoring_enabled()),
+                ).unwrap();
+            });
+        });
+    }
+
+    let enabled = enabled_player.read().unwrap();
+    let disabled = disabled_player.read().unwrap();
+    assert_eq!(enabled.get_score_keeper().get_total_buildings_built(), 1);
+    assert_eq!(disabled.get_score_keeper().get_total_buildings_built(), 0);
+    assert_eq!(enabled.get_score_keeper().get_total_money_spent(), 700);
+    assert_eq!(disabled.get_score_keeper().get_total_money_spent(), 700);
+}
+
 #[test]
 fn construction_completion_partition_pin_matches_both_receiving_logic_constructors() {
     use crate::system::engine_stores::{new_for_world, new_world_services};

@@ -38,6 +38,20 @@ impl Player {
         structure: &Arc<RwLock<Object>>,
         is_rebuild: Bool,
     ) -> Result<(), String> {
+        Self::on_structure_construction_complete_with_scoring(
+            player, builder_id, structure, is_rebuild, None,
+        )
+    }
+
+    /// The scheduled caller already borrows the GameLogic whose current
+    /// scoring bit controls ScoreKeeper.cpp:101–103.
+    pub(crate) fn on_structure_construction_complete_with_scoring(
+        player: &Arc<RwLock<Player>>,
+        builder_id: Option<ObjectID>,
+        structure: &Arc<RwLock<Object>>,
+        is_rebuild: Bool,
+        scoring_enabled: Option<bool>,
+    ) -> Result<(), String> {
         // No caller-held player/object guard may span these reentrant phases.
         let (structure_id, structure_world) = {
             let structure = structure
@@ -72,9 +86,12 @@ impl Player {
             if let (Ok(mut player_guard), Ok(structure_guard)) = (player.write(), structure.read())
             {
                 // C++ onStructureConstructionComplete → addObjectBuilt + addMoneySpent.
-                player_guard
-                    .score_keeper
-                    .add_object_built_obj(&*structure_guard);
+                if let Some(enabled) = scoring_enabled {
+                    player_guard.score_keeper
+                        .add_object_built_obj_with_policy(&*structure_guard, enabled);
+                } else {
+                    player_guard.score_keeper.add_object_built_obj(&*structure_guard);
+                }
                 let cost = structure_guard
                     .get_template()
                     .calc_cost_to_build(Some(&*player_guard))
