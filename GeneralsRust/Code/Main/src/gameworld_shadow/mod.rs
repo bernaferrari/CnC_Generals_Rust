@@ -32,8 +32,8 @@ pub use session::*;
 /// Session holding GameWorld + stable host↔entity ID maps.
 #[derive(Debug)]
 pub struct GameWorldShadow {
-    /// Tint owner when a presentation has no authoritative Main world.
-    pub(crate) drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes,
+    /// Tint owner for hostless presentation through the shared shadow API.
+    pub(crate) drawable_tint_envelopes: std::cell::RefCell<crate::game_logic::DrawableTintEnvelopes>,
     world: GameWorld,
     // Id-keyed lookup tables: iteration order never feeds sim decisions
     // (stale removal / metrics are order-independent), so use the Fx hasher.

@@ -43,7 +43,7 @@ impl GameWorldShadow {
     pub fn new(max_entities: usize) -> Self {
         Self {
             world: GameWorld::new(8),
-            drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
+            drawable_tint_envelopes: Default::default(),
             host_to_entity: Default::default(),
             entity_to_host: Default::default(),
             registered_host_ids: Vec::new(),

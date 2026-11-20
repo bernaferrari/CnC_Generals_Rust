@@ -965,12 +965,14 @@ impl UnitRenderInput {
 impl PresentationFrame {
     pub(crate) fn freeze_drawable_status_tints_from_logic(
         &mut self,
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
     ) {
-        logic.drawable_tint_envelopes.retain(|id| {
+        let objects = &logic.objects;
+        let owner = &mut logic.drawable_tint_envelopes;
+        owner.retain(|id| {
             if id & 0x8000_0000 == 0 {
-                logic.host_object(crate::game_logic::ObjectId(id)).is_some()
+                objects.lookup(&crate::game_logic::ObjectId(id)).is_some()
                     || shadow.is_some_and(|shadow| {
                         shadow
                             .entity_for_host(crate::game_logic::ObjectId(id))
@@ -987,14 +989,15 @@ impl PresentationFrame {
                 })
             }
         });
-        self.freeze_drawable_status_tints(&logic.drawable_tint_envelopes);
+        self.freeze_drawable_status_tints(owner);
     }
 
     pub(super) fn freeze_drawable_status_tints_from_shadow(
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) {
-        shadow.drawable_tint_envelopes.retain(|id| {
+        let mut owner = shadow.drawable_tint_envelopes.borrow_mut();
+        owner.retain(|id| {
             let entity = if id & 0x8000_0000 == 0 {
                 shadow.entity_for_host(crate::game_logic::ObjectId(id))
             } else {
@@ -1004,11 +1007,11 @@ impl PresentationFrame {
             };
             entity.is_some_and(|entity| shadow.world().entity(entity).is_some())
         });
-        self.freeze_drawable_status_tints(&shadow.drawable_tint_envelopes);
+        self.freeze_drawable_status_tints(&mut owner);
     }
 
     /// Sample client tint once after all object/authority overlays are complete.
-    fn freeze_drawable_status_tints(&mut self, owner: &crate::game_logic::DrawableTintEnvelopes) {
+    fn freeze_drawable_status_tints(&mut self, owner: &mut crate::game_logic::DrawableTintEnvelopes) {
         for ro in &mut self.objects {
             ro.status_tint = owner.sample(
                 ro.id.0,
@@ -1106,9 +1109,11 @@ mod tests {
         first.sync_from_host(&logic);
         first
             .drawable_tint_envelopes
+            .get_mut()
             .sample(id.0, 0, true, false, false, false);
         let dark = first
             .drawable_tint_envelopes
+            .get_mut()
             .sample(id.0, 30, true, false, false, false);
         let frame = PresentationFrame::build_from_gameworld(&mut first, 0, None);
         assert_eq!(frame.unit_render_inputs()[0].status_tint, dark);
@@ -1119,7 +1124,7 @@ mod tests {
         let entity = first.entity_for_host(id).unwrap();
         first.world_mut().world_mut().remove_entity(entity);
         let _ = PresentationFrame::build_from_gameworld(&mut first, 0, None);
-        assert!(first.drawable_tint_envelopes.capture(id.0).is_none());
+        assert!(first.drawable_tint_envelopes.get_mut().capture(id.0).is_none());
     }
 
     #[test]

@@ -971,12 +971,12 @@ impl HostTintEnvelope {
 /// sampling requires this explicit owner and the completed presentation frame.
 #[derive(Debug, Default)]
 pub(crate) struct DrawableTintEnvelopes {
-    envelopes: std::cell::RefCell<std::collections::HashMap<u32, HostTintEnvelope>>,
+    envelopes: game_engine::common::fast_hash::FxHashMap<u32, HostTintEnvelope>,
 }
 
 impl DrawableTintEnvelopes {
     pub(crate) fn sample(
-        &self,
+        &mut self,
         object_id: u32,
         logic_frame: u32,
         disabled_dark: bool,
@@ -985,8 +985,7 @@ impl DrawableTintEnvelopes {
         infantry: bool,
     ) -> [f32; 3] {
         let kind = tint_kind(disabled_dark, subdual, frenzy);
-        let mut envelopes = self.envelopes.borrow_mut();
-        let env = envelopes.entry(object_id).or_default();
+        let env = self.envelopes.entry(object_id).or_default();
         if !env.seen || env.last_kind != kind {
             if kind == TINT_KIND_NONE {
                 if env.seen {
@@ -1030,7 +1029,6 @@ pub struct DrawableTintEnvelopePersist {
 impl DrawableTintEnvelopes {
     pub(crate) fn capture(&self, object_id: u32) -> Option<DrawableTintEnvelopePersist> {
         self.envelopes
-            .borrow()
             .get(&object_id)
             .map(|env| DrawableTintEnvelopePersist {
                 current: env.current,
@@ -1043,8 +1041,8 @@ impl DrawableTintEnvelopes {
                 seen: env.seen,
             })
     }
-    pub(crate) fn restore(&self, object_id: u32, persist: DrawableTintEnvelopePersist) {
-        self.envelopes.borrow_mut().insert(
+    pub(crate) fn restore(&mut self, object_id: u32, persist: DrawableTintEnvelopePersist) {
+        self.envelopes.insert(
             object_id,
             HostTintEnvelope {
                 current: persist.current,
@@ -1058,11 +1056,11 @@ impl DrawableTintEnvelopes {
             },
         );
     }
-    pub(crate) fn retain(&self, mut alive: impl FnMut(u32) -> bool) {
-        self.envelopes.borrow_mut().retain(|id, _| alive(*id));
+    pub(crate) fn retain(&mut self, mut alive: impl FnMut(u32) -> bool) {
+        self.envelopes.retain(|id, _| alive(*id));
     }
-    pub(crate) fn clear(&self) {
-        self.envelopes.borrow_mut().clear();
+    pub(crate) fn clear(&mut self) {
+        self.envelopes.clear();
     }
 }
 
@@ -1343,7 +1341,7 @@ mod stealth_grant_tests {
 
     #[test]
     fn status_tint_envelope_ramps_disabled_then_releases() {
-        let owner = super::DrawableTintEnvelopes::default();
+        let mut owner = super::DrawableTintEnvelopes::default();
         let first = owner.sample(9001, 0, true, false, false, false);
         assert!(first[0] < -0.01 && first[0] > -0.5);
         let mut color = first;
@@ -1363,7 +1361,7 @@ mod stealth_grant_tests {
 
     #[test]
     fn subdual_envelope_uses_150_frame_attack() {
-        let owner = super::DrawableTintEnvelopes::default();
+        let mut owner = super::DrawableTintEnvelopes::default();
         let early = owner.sample(9002, 0, false, true, false, false);
         assert!(early[2] > 0.0 && early[2] < 0.8);
         let mut color = early;
