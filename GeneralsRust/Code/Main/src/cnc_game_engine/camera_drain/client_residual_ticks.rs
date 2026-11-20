@@ -483,7 +483,8 @@ impl CnCGameEngine {
             Some(remaining) => Some(step_budget.unwrap_or(1).min(remaining)),
             None => step_budget,
         };
-        // The observer only copies completed Main state at each fixed step.
+        // Preserve observer identities during fixed steps. The presentation
+        // copies the final Main state after the batch.
         let mut observer_slot = self.gameworld_shadow.take();
         let result =
             self.host_run_fast_forward_loop(dt, ff_steps, step_budget, observer_slot.as_mut());

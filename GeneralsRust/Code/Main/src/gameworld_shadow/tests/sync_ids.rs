@@ -32,6 +32,57 @@ fn shadow_stable_ids_across_sync() {
 }
 
 #[test]
+fn coalesced_presentation_keeps_per_step_entity_ids_for_short_lived_objects() {
+    let mut logic = GameLogic::new();
+    ensure_template(&mut logic, "ObservationUnit", 100.0);
+    let first = logic
+        .create_object("ObservationUnit", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let mut eager = GameWorldShadow::new(4);
+    let mut deferred = GameWorldShadow::new(4);
+    eager.sync_from_host(&logic);
+    deferred.sync_from_host(&logic);
+
+    let transient = logic
+        .create_object("ObservationUnit", Team::USA, Vec3::X)
+        .unwrap();
+    logic.frame = 1;
+    eager.sync_from_host(&logic);
+    assert_eq!(
+        crate::gameworld_shadow::observe_host_step(Some(&mut deferred), &mut logic),
+        2
+    );
+    assert_eq!(
+        deferred.entity_for_host(transient),
+        eager.entity_for_host(transient)
+    );
+
+    logic.destroy_object(transient).unwrap();
+    logic.process_destroy_list();
+    let survivor = logic
+        .create_object("ObservationUnit", Team::USA, Vec3::Y)
+        .unwrap();
+    logic.frame = 2;
+    eager.sync_from_host(&logic);
+    crate::gameworld_shadow::observe_host_step(Some(&mut deferred), &mut logic);
+    deferred.sync_from_host(&logic);
+
+    assert_eq!(deferred.world().frame(), 2);
+    assert_eq!(deferred.mapped_count(), eager.mapped_count());
+    assert_eq!(deferred.entity_for_host(first), eager.entity_for_host(first));
+    assert_eq!(
+        deferred.entity_for_host(survivor),
+        eager.entity_for_host(survivor)
+    );
+    assert_eq!(deferred.entity_for_host(transient), None);
+    let entity = deferred
+        .world()
+        .entity(deferred.entity_for_host(survivor).unwrap())
+        .unwrap();
+    assert_eq!(entity.transform.position.y, 1.0);
+}
+
+#[test]
 fn shadow_world_boundary_reset_clears_previous_identity_map() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("WorldBoundaryReset");

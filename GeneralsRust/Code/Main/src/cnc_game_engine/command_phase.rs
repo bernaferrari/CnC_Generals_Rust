@@ -241,11 +241,10 @@ impl CnCGameEngine {
                     playability,
                 );
             }
-            // Wave 682/925: post-logic host→GameWorld residual batch.
-            // The callback borrows this driving GameLogic after each
-            // completed step; all eager channels retain their order.
+            // Keep step-scoped events and observer identities in source order.
+            // Publication copies the final world fields after the batch.
             if !shell {
-                *presentation_entity_count = crate::gameworld_shadow::run_owned_host_boundary(
+                *presentation_entity_count = crate::gameworld_shadow::observe_host_step(
                     owned_observer.as_deref_mut(),
                     logic,
                 );
@@ -587,7 +586,7 @@ impl CnCGameEngine {
                             if reset_performed {
                                 interrupted = true;
                                 // The normal match observer is temporarily moved out of self;
-                                // clear this exact observer before any receiving post-step copy.
+                                // clear this exact observer before admitting new identities.
                                 if let Some(observer) = owned_observer.as_deref_mut() {
                                     observer.reset_for_world_boundary();
                                 }

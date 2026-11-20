@@ -259,9 +259,15 @@ impl GameWorldShadow {
         }
     }
 
-    pub fn sync_from_host(&mut self, logic: &GameLogic) {
-        self.sync_players(logic);
+    /// Keep the original per-step identity lifecycle, including short-lived
+    /// objects within a fast-forward batch. Copy roster fields at publication.
+    pub(crate) fn sync_host_step_identities(&mut self, logic: &GameLogic) {
+        self.sync_player_identities(logic);
+        self.sync_object_identities(logic);
+        self.world.set_frame(u64::from(logic.get_frame()));
+    }
 
+    fn sync_object_identities(&mut self, logic: &GameLogic) -> Vec<ObjectId> {
         let mut obj_ids: Vec<ObjectId> = logic.host_objects().registered_keys().copied().collect();
         obj_ids.sort_by_key(|id| id.0);
         // C++ GameLogic grows its ObjectID lookup vector when a newly
@@ -305,6 +311,12 @@ impl GameWorldShadow {
             let owner = self.owner_for_host_object(logic, obj);
             self.spawn_mapped(oid, obj, owner, transform, obj.health.current.max(0.0));
         }
+        obj_ids
+    }
+
+    pub fn sync_from_host(&mut self, logic: &GameLogic) {
+        self.sync_players(logic);
+        let obj_ids = self.sync_object_identities(logic);
         for oid in obj_ids {
             let Some(obj) = logic.host_object(oid) else {
                 continue;
@@ -418,33 +430,49 @@ impl GameWorldShadow {
             .unwrap_or_default()
     }
 
-    pub(super) fn sync_players(&mut self, logic: &GameLogic) {
-        // Rebuild player slots when count/identity changes; economy always refreshed.
-        let mut host_ids: Vec<u32> = logic.get_players().keys().copied().collect();
+    fn sync_player_identities(&mut self, logic: &GameLogic) {
+        let players = logic.get_players();
+        if players.len() == self.host_player_to_gw.len()
+            && players.keys().all(|id| self.host_player_to_gw.contains_key(id))
+        {
+            return;
+        }
+        let mut host_ids: Vec<u32> = players.keys().copied().collect();
         host_ids.sort_unstable();
-        let need_rebuild = host_ids.len() != self.host_player_to_gw.len()
-            || host_ids
-                .iter()
-                .any(|id| !self.host_player_to_gw.contains_key(id));
 
-        if need_rebuild {
-            // Fresh world would drop entities — only rebuild player table on the existing world
-            // by allocating missing players. Simpler: rebuild world players via new GameWorld
-            // only when empty map; otherwise update economy in place when possible.
-            if self.host_player_to_gw.is_empty() && self.host_to_entity.is_empty() {
-                let cap = host_ids.len().max(8).min(255);
-                self.world = GameWorld::new(cap);
+        self.host_player_to_gw.clear();
+        // Existing entities retain the receiving world and its player slots.
+        if self.host_to_entity.is_empty() {
+            let cap = host_ids.len().max(8).min(255);
+            self.world = GameWorld::new(cap);
+            for pid in &host_ids {
+                let Some(p) = logic.get_player(*pid) else {
+                    continue;
+                };
+                let team = match p.team {
+                    Team::USA => Some(0),
+                    Team::China => Some(1),
+                    Team::GLA => Some(2),
+                    Team::Neutral => None,
+                };
+                if let Some(gw_id) = self.world.allocate_player_with_economy(
+                    Some(p.name.clone()),
+                    team,
+                    p.is_human,
+                    p.resources.supplies,
+                    p.energy_available_at(logic.frame),
+                ) {
+                    self.host_player_to_gw.insert(*pid, gw_id);
+                }
             }
-            self.host_player_to_gw.clear();
-            // If world already has players from prior allocate, we still allocate on a fresh world
-            // when entity map empty. When entities exist, update economy only for known mapping.
-            if self.host_to_entity.is_empty() {
-                let cap = host_ids.len().max(8).min(255);
-                self.world = GameWorld::new(cap);
-                for pid in &host_ids {
-                    let Some(p) = logic.get_player(*pid) else {
-                        continue;
-                    };
+        } else {
+            // Entities live: keep existing GW players; rebuild host map by sorted order
+            // matching prior allocation order (dense 0..n).
+            for (idx, pid) in host_ids.iter().enumerate() {
+                let gw = PlayerId::from_index(idx as u8);
+                if self.world.player(gw).is_some() {
+                    self.host_player_to_gw.insert(*pid, gw);
+                } else if let Some(p) = logic.get_player(*pid) {
                     let team = match p.team {
                         Team::USA => Some(0),
                         Team::China => Some(1),
@@ -461,51 +489,14 @@ impl GameWorldShadow {
                         self.host_player_to_gw.insert(*pid, gw_id);
                     }
                 }
-            } else {
-                // Entities live: keep existing GW players; rebuild host map by sorted order
-                // matching prior allocation order (dense 0..n).
-                for (idx, pid) in host_ids.iter().enumerate() {
-                    let gw = PlayerId::from_index(idx as u8);
-                    if self.world.player(gw).is_some() {
-                        self.host_player_to_gw.insert(*pid, gw);
-                        if let Some(p) = logic.get_player(*pid) {
-                            if let Some(pd) = self.world.player_mut(gw) {
-                                Self::copy_host_player_residual(pd, p, logic.frame);
-                                pd.unlocked_sciences = Self::host_player_sciences(logic, *pid);
-                            }
-                        }
-                    } else if let Some(p) = logic.get_player(*pid) {
-                        let team = match p.team {
-                            Team::USA => Some(0),
-                            Team::China => Some(1),
-                            Team::GLA => Some(2),
-                            Team::Neutral => None,
-                        };
-                        if let Some(gw_id) = self.world.allocate_player_with_economy(
-                            Some(p.name.clone()),
-                            team,
-                            p.is_human,
-                            p.resources.supplies,
-                            p.energy_available_at(logic.frame),
-                        ) {
-                            self.host_player_to_gw.insert(*pid, gw_id);
-                        }
-                    }
-                }
-            }
-        } else {
-            // Economy + science absolute refresh.
-            for (hid, gw) in self.host_player_to_gw.clone() {
-                if let Some(p) = logic.get_player(hid) {
-                    if let Some(pd) = self.world.player_mut(gw) {
-                        Self::copy_host_player_residual(pd, p, logic.frame);
-                        pd.unlocked_sciences = Self::host_player_sciences(logic, hid);
-                    }
-                }
             }
         }
+    }
+
+    fn sync_players(&mut self, logic: &GameLogic) {
+        self.sync_player_identities(logic);
         // Always refresh science/power-bar residual for mapped players.
-        for (hid, gw) in self.host_player_to_gw.clone() {
+        for (&hid, &gw) in &self.host_player_to_gw {
             if let Some(p) = logic.get_player(hid) {
                 if let Some(pd) = self.world.player_mut(gw) {
                     Self::copy_host_player_residual(pd, p, logic.frame);

@@ -23,6 +23,8 @@ mod presentation;
 mod projectile_observation;
 mod session;
 mod weapon_observation;
+pub(crate) use host_observation_boundary::observe_host_step;
+#[cfg(test)]
 pub(crate) use host_observation_boundary::run_owned_host_boundary;
 pub use presentation::*;
 pub use session::*;

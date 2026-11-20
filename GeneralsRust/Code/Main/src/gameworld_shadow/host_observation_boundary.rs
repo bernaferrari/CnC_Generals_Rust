@@ -1,20 +1,32 @@
-//! Copy completed Main observations without advancing gameplay or destruction.
-//!
-//! No shadow tick or reverse write participates in this boundary;
-//! the projection cannot select another simulation authority.
+//! Complete the pending Main observations at the end of each logic step.
+//! Presentation separately copies the current world when it builds a frame.
 
 use super::{GameWorldShadow, presentation_entity_count_from_shadow};
 use crate::game_logic::GameLogic;
 
-/// Copy a completed Main phase into its observation. This boundary never
-/// admits gameplay effects or retires Objects; the driving session's checked
-/// end-of-frame phase owns physical destruction.
+fn complete_host_observations(logic: &mut GameLogic) {
+    let _ = logic.health_events.drain_for_host_boundary();
+    freeze_host_observations(logic);
+}
+
+pub(crate) fn observe_host_step(
+    shadow: Option<&mut GameWorldShadow>,
+    logic: &mut GameLogic,
+) -> usize {
+    complete_host_observations(logic);
+    shadow.map_or(0, |shadow| {
+        shadow.sync_host_step_identities(logic);
+        presentation_entity_count_from_shadow(shadow)
+    })
+}
+
+/// Fixtures can inspect the mirror immediately after completing a phase.
+#[cfg(test)]
 pub(crate) fn run_owned_host_boundary(
     shadow: Option<&mut GameWorldShadow>,
     logic: &mut GameLogic,
 ) -> usize {
-    let _ = logic.health_events.drain_for_host_boundary();
-    freeze_host_observations(logic);
+    complete_host_observations(logic);
     if let Some(shadow) = shadow {
         shadow.sync_from_host(logic);
         presentation_entity_count_from_shadow(shadow)
