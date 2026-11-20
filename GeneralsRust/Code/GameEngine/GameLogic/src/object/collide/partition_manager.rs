@@ -424,39 +424,46 @@ impl PartitionManager {
         );
         // C++ m_lastCell is worldToCell(position), not the first COI cell.
         let cell = CellCoord::from_world_pos(&position);
-        for &c in &cells {
-            self.cells
-                .entry(c)
-                .or_insert_with(PartitionCell::new)
-                .add(id);
-        }
-        self.objects.insert(
+        self.insert_partition_object(PartitionObject {
             id,
-            PartitionObject {
-                id,
-                position,
-                geometry,
-                cell,
-                cells,
-                angle,
-                shroud_last_cell: Some(cell),
-            },
-        );
+            position,
+            geometry,
+            cell,
+            cells,
+            angle,
+            shroud_last_cell: Some(cell),
+        });
         Ok(())
     }
-    pub fn unregister_object(&mut self, id: ObjectId) -> Result<(), CollisionError> {
-        if let Some(partition_obj) = self.objects.remove(&id) {
-            for cell in partition_obj.cells {
-                if let Some(bucket) = self.cells.get_mut(&cell) {
-                    bucket.remove(id);
-                    if bucket.is_empty() {
-                        self.cells.remove(&cell);
-                    }
+
+    fn insert_partition_object(&mut self, object: PartitionObject) {
+        for &cell in &object.cells {
+            self.cells
+                .entry(cell)
+                .or_insert_with(PartitionCell::new)
+                .add(object.id);
+        }
+        self.objects.insert(object.id, object);
+    }
+
+    fn remove_partition_object(&mut self, id: ObjectId) -> Option<PartitionObject> {
+        let object = self.objects.remove(&id)?;
+        for &cell in &object.cells {
+            if let Some(bucket) = self.cells.get_mut(&cell) {
+                bucket.remove(id);
+                if bucket.is_empty() {
+                    self.cells.remove(&cell);
                 }
             }
         }
+        Some(object)
+    }
+
+    pub fn unregister_object(&mut self, id: ObjectId) -> Result<(), CollisionError> {
+        let _ = self.remove_partition_object(id);
         Ok(())
     }
+
     pub fn update_object_position(
         &mut self,
         id: ObjectId,
@@ -475,20 +482,32 @@ impl PartitionManager {
         new_position: Coord3D,
         angle: f32,
     ) -> Result<(), CollisionError> {
-        let geometry = match self.objects.get(&id) {
-            Some(obj) => obj.geometry,
-            None => return Ok(()),
+        let Some(mut object) = self.remove_partition_object(id) else {
+            return Ok(());
         };
-        let prev_last_cell = self.objects.get(&id).and_then(|obj| obj.shroud_last_cell);
-        self.unregister_object(id)?;
-        self.register_object_oriented(id, new_position, geometry, angle)?;
-        if let Some(obj) = self.objects.get_mut(&id) {
-            let new_cell = obj.cell;
-            let changed = prev_last_cell != Some(new_cell);
-            obj.shroud_last_cell = Some(new_cell);
-            if changed {
-                self.cell_changed_events.push(id);
-            }
+        // The footprint raster depends only on XY, geometry and angle. Keep
+        // the existing bucket reinsertion order even when reusing its cells.
+        if object.position.x.to_bits() != new_position.x.to_bits()
+            || object.position.y.to_bits() != new_position.y.to_bits()
+            || object.angle.to_bits() != angle.to_bits()
+        {
+            drop(std::mem::take(&mut object.cells));
+            object.cells = super::partition_coi::cells_touched_for_geometry(
+                new_position.x,
+                new_position.y,
+                &object.geometry,
+                angle,
+            );
+        }
+        let previous_cell = object.shroud_last_cell;
+        object.position = new_position;
+        object.angle = angle;
+        object.cell = CellCoord::from_world_pos(&new_position);
+        object.shroud_last_cell = Some(object.cell);
+        let cell_changed = previous_cell != object.shroud_last_cell;
+        self.insert_partition_object(object);
+        if cell_changed {
+            self.cell_changed_events.push(id);
         }
         Ok(())
     }
@@ -2108,6 +2127,51 @@ mod tests {
         pm.update_object_position(7, first).unwrap();
         pm.build_contact_list();
         assert_eq!(pm.get_contact_list(), &[(7, 8)]);
+    }
+
+    #[test]
+    fn unchanged_planar_pose_reuses_the_footprint_and_keeps_cell_order() {
+        let mut pm = PartitionManager::new();
+        let geometry = GeometryInfo::new_box(150., 24., false);
+        let position = Coord3D::new(131., 126., 0.);
+        pm.register_object(7, position, geometry).unwrap();
+        pm.register_object(8, position, geometry).unwrap();
+        assert_eq!(pm.take_cell_changed_events(), [7, 8]);
+
+        let owner = pm.objects.get_mut(&7).unwrap();
+        // The original raster allocates a fresh Vec for this unchanged pose.
+        owner.cells.reserve_exact(128);
+        let capacity = owner.cells.capacity();
+        let footprint = owner.cells.clone();
+        assert!(footprint.len() > 1);
+        assert!(
+            footprint
+                .iter()
+                .all(|cell| pm.cells[cell].objects == [8, 7])
+        );
+
+        let raised = Coord3D::new(position.x, position.y, 12.);
+        pm.update_object_position(7, raised).unwrap();
+        assert_eq!(pm.objects[&7].cells.capacity(), capacity);
+        assert_eq!(pm.objects[&7].cells, footprint);
+        assert_eq!(pm.get_object_pose(7).unwrap().0, raised);
+        assert!(
+            footprint
+                .iter()
+                .all(|cell| pm.cells[cell].objects == [7, 8])
+        );
+        assert!(pm.take_cell_changed_events().is_empty());
+
+        let angle = std::f32::consts::FRAC_PI_2;
+        pm.update_object_pose(7, raised, angle).unwrap();
+        assert_eq!(pm.get_object_pose(7).unwrap().2, angle);
+        assert_ne!(pm.objects[&7].cells, footprint);
+        assert!(pm.take_cell_changed_events().is_empty());
+
+        let moved = Coord3D::new(301., raised.y, raised.z);
+        pm.update_object_pose(7, moved, angle).unwrap();
+        assert_eq!(pm.get_object_pose(7).unwrap().0, moved);
+        assert_eq!(pm.take_cell_changed_events(), [7]);
     }
 
     #[test]
