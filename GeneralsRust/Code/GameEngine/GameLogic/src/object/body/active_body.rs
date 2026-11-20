@@ -1823,24 +1823,27 @@ impl ActiveBody {
             let frame_now = current_frame();
             let history_tied = self.state.last_damage_timestamp == frame_now
                 || self.state.last_damage_timestamp == frame_now.wrapping_sub(1);
+            // ActiveBody.cpp:547–570 classifies the exact incoming actor
+            // and tests whether the earlier attacker is still registered.
+            let source_id = damage_info.input.source_id;
+            let attacker = context
+                .and_then(|context| context.attacker)
+                .filter(|source| source.get_id() == source_id);
+            let is_preferred = |source: &Object| {
+                source.is_kind_of(KindOf::Vehicle)
+                    || source.is_kind_of(KindOf::Infantry)
+                    || source.is_faction_structure()
+            };
             let incoming_preferred = if !history_tied {
                 None
-            } else if damage_info.input.source_id == self.owner_id {
+            } else if source_id == self.owner_id {
                 context
                     .map(|context| context.owner_is_preferred_source)
-                    .or_else(|| {
-                        OBJECT_REGISTRY.with_object(damage_info.input.source_id, |source| {
-                            source.is_kind_of(KindOf::Vehicle)
-                                || source.is_kind_of(KindOf::Infantry)
-                                || source.is_faction_structure()
-                        })
-                    })
+                    .or_else(|| OBJECT_REGISTRY.with_object(source_id, is_preferred))
+            } else if let Some(attacker) = attacker {
+                Some(is_preferred(attacker))
             } else {
-                OBJECT_REGISTRY.with_object(damage_info.input.source_id, |source| {
-                    source.is_kind_of(KindOf::Vehicle)
-                        || source.is_kind_of(KindOf::Infantry)
-                        || source.is_faction_structure()
-                })
+                OBJECT_REGISTRY.with_object(source_id, is_preferred)
             };
             let prior_source = self
                 .state
@@ -1848,12 +1851,14 @@ impl ActiveBody {
                 .as_ref()
                 .map(|damage| damage.input.source_id)
                 .unwrap_or(INVALID_ID);
-            self.record_damage_history(
-                damage_info,
-                frame_now,
-                incoming_preferred,
-                history_tied && OBJECT_REGISTRY.contains(prior_source),
-            );
+            let prior_exists = history_tied
+                && attacker
+                    .and_then(Object::owning_world_services)
+                    .map_or_else(
+                        || OBJECT_REGISTRY.contains(prior_source),
+                        |world| world.object_registry().contains(prior_source),
+                    );
+            self.record_damage_history(damage_info, frame_now, incoming_preferred, prior_exists);
 
             // C++ ActiveBody.cpp:574-583 — victim player remembers who attacked.
             let last_source_id = self

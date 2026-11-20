@@ -426,12 +426,11 @@ pub trait BodyModuleInterface: Send + Sync {
     }
 }
 
-/// Owner facts needed when damage is applied while Object already owns its
-/// registry write guard. In particular, the active body must not reacquire the
-/// owner's registry lock to classify a self-source.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BodyDamageContext {
+/// Actor facts the body can use while the damage caller holds Object guards.
+#[derive(Clone, Copy, Debug)]
+pub struct BodyDamageContext<'a> {
     pub(crate) owner_is_preferred_source: bool,
+    pub(crate) attacker: Option<&'a crate::object::Object>,
 }
 
 /// Base body module implementation

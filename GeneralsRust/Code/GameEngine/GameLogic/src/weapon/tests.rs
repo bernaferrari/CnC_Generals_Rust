@@ -895,12 +895,23 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
                 .is_some_and(|actor| Arc::ptr_eq(actor, &victim))
         );
         assert_eq!(score(&driving), (0, 0));
+        let last_damage = || {
+            let body = victim.read().unwrap().get_body_module().unwrap();
+            let body = body.lock().unwrap();
+            (
+                body.get_last_damage_timestamp(),
+                body.get_last_damage_info().unwrap().input.source_id,
+            )
+        };
+        let (prior_damage_frame, prior_attacker) = last_damage();
+        assert_eq!(prior_attacker, source_id);
         victim.write().unwrap().set_health(10.0).unwrap();
-        // Keep this shot outside the preceding frame's damage history tie.
+        // ActiveBody.cpp:547–570 selects this authored vehicle as the
+        // preferred source even when its caller already holds the Object.
         get_game_logic()
             .lock()
             .unwrap()
-            .update(42, || None)
+            .update(41, || None)
             .unwrap();
         // C++ ActiveBody.cpp:641–670 credits the real killer before onDie
         // and can still retaliate after death. Both need the actual firer.
@@ -916,6 +927,7 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
         assert_eq!(victim.read().unwrap().get_health(), 0.0);
         assert!(victim.read().unwrap().is_effectively_dead());
         assert_eq!(score(&driving), (1, 1));
+        assert_eq!(last_damage(), (prior_damage_frame + 1, source_id));
 
         let mut logic = get_game_logic().lock().unwrap();
         logic.destroy_object(victim_id);

@@ -1692,6 +1692,7 @@ mod tests {
                         &mut damage,
                         &BodyDamageContext {
                             owner_is_preferred_source: false,
+                            attacker: None,
                         },
                     )
                     .unwrap();

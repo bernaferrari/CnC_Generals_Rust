@@ -2163,6 +2163,7 @@ impl Object {
                 owner_is_preferred_source: self.is_kind_of(KindOf::Vehicle)
                     || self.is_kind_of(KindOf::Infantry)
                     || self.is_faction_structure(),
+                attacker: attacker.as_deref(),
             };
 
             body_guard
