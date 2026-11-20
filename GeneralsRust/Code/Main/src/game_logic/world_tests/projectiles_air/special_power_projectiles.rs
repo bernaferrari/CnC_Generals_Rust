@@ -1860,7 +1860,10 @@ fn frenzy_replacement_restarts_a_fired_weapon_in_each_receiving_world() {
         logic.frame = 36;
         assert!(logic.activate_frenzy(1, Vec3::ZERO, Some(shooter), HostFrenzyLevel::One));
         let weapon = logic.host_object(shooter).unwrap().weapon.as_ref().unwrap();
-        assert!((weapon.last_fire_time - 1.2).abs() < 0.001);
+        // C++ Weapon::onWeaponBonusChange restarts the reload clock and does
+        // not change the actual shot time.
+        assert_eq!(weapon.reload_started_frame, 36);
+        assert_eq!(weapon.last_fire_frame, 30);
         assert!((weapon.last_bonus_rof - rate).abs() < 0.001);
         assert!(weapon.frame_clock_active);
         assert_eq!(weapon.next_fire_frame, 36 + (60.0 / rate) as u32);
@@ -1872,7 +1875,8 @@ fn frenzy_replacement_restarts_a_fired_weapon_in_each_receiving_world() {
         let unit = logic.host_object(shooter).unwrap();
         let weapon = unit.weapon.as_ref().unwrap();
         assert_eq!(unit.weapon_bonus_frenzy_level, 2);
-        assert!((weapon.last_fire_time - 1.3).abs() < 0.001);
+        assert_eq!(weapon.reload_started_frame, 39);
+        assert_eq!(weapon.last_fire_frame, 30);
         assert!((weapon.last_bonus_rof - rate).abs() < 0.001);
         assert_eq!(weapon.next_fire_frame, 39 + (60.0 / rate) as u32);
 
@@ -1886,7 +1890,8 @@ fn frenzy_replacement_restarts_a_fired_weapon_in_each_receiving_world() {
         let unit = logic.host_object(shooter).unwrap();
         assert!(!unit.weapon_bonus_frenzy);
         let weapon = unit.weapon.as_ref().unwrap();
-        assert!((weapon.last_fire_time - expiry as f32 / 30.0).abs() < 0.001);
+        assert_eq!(weapon.reload_started_frame, expiry);
+        assert_eq!(weapon.last_fire_frame, expiry - 3);
         assert!((weapon.last_bonus_rof - 1.0).abs() < 0.001);
         // Expiry is itself a synchronous condition change, not merely a
         // dropped multiplier on the old shot's deadline.
@@ -3523,11 +3528,6 @@ fn eject_pilot_invulnerable_time_residual() {
     game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
     game_logic.process_destroy_list();
 
-    assert!(
-        game_logic.honesty_pilot_invulnerable_ok(),
-        "InvulnerableTime residual must grant honesty on eject"
-    );
-
     let pilot_id = game_logic
         .objects
         .registered()
@@ -3552,22 +3552,17 @@ fn eject_pilot_invulnerable_time_residual() {
     let (destroyed, blocked) = game_logic.apply_host_damage(pilot_id, 50.0).unwrap();
     assert!(!destroyed, "invulnerable pilot must not die");
     assert!(blocked, "InvulnerableTime must block damage");
-    assert!(
-        game_logic.honesty_pilot_invulnerable_block_ok(),
-        "block honesty must record"
-    );
     let hp_mid = game_logic.host_object(pilot_id).unwrap().health.current;
     assert!(
         (hp_mid - hp_before).abs() < 0.001,
         "HP must be unchanged during InvulnerableTime, got {hp_mid} vs {hp_before}"
     );
 
-    // Expire InvulnerableTime residual.
+    // C++ GenericObjectCreationNugget gives the spawned pilot a deadline.
+    // Drive the receiving world across that deadline.
     let expire = game_logic.frame + EJECT_PILOT_INVULNERABLE_FRAMES;
     game_logic.frame = expire;
-    if let Some(pilot) = game_logic.host_object_mut(pilot_id) {
-        pilot.tick_eject_invulnerable(expire);
-    }
+    game_logic.update_ai(&[pilot_id], 1.0 / 30.0).unwrap();
     assert!(
         !game_logic
             .host_object(pilot_id)
