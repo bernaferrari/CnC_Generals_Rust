@@ -442,6 +442,9 @@ impl GameLogic {
                     log::error!("Cannot admit receiving terrain: {error}");
                     return Ok(false);
                 }
+                // TerrainLogic::loadMap stores the selected geometry filename.
+                // Saved maps keep their extracted path, separate from pristine INI sources.
+                terrain.set_source_filename(map_path.to_string_lossy().as_ref().into());
                 // C++ GameLogic.cpp:1629 TheTerrainLogic->newMap after load.
                 // The effective definitions are borrowed only during local
                 // configuration; no GlobalData loan crosses native delivery.

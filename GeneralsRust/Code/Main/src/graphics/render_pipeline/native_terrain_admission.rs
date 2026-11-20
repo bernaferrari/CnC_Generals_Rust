@@ -76,7 +76,7 @@ impl RenderPipeline {
                 }),
         );
         visual
-            .load_heightmap_from_data(frozen.to_height_map(), hint, Some(world_size))
+            .load_receiving_map_heightmap(frozen.to_height_map(), hint, Some(world_size))
             .map_err(|error| anyhow::anyhow!("Terrain CPU map admission failed: {error}"))?;
         for mark in &env.authored_scorches {
             visual.add_scorch(mark.location, mark.radius, mark.kind);

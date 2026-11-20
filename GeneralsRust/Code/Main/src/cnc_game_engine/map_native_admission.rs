@@ -613,14 +613,53 @@ fn prepare_native_map_visual(
         ..Default::default()
     };
     let water = terrain.water_grid_state().clone();
+    let source = terrain.get_source_filename().clone();
     drop(terrain);
     let mut prepared_visual =
         RenderPipeline::prepare_native_terrain_cpu(&env).map_err(|error| error.to_string())?;
     if let Some(visual) = prepared_visual.as_mut() {
         visual.admit_map_water_configuration(&water);
+        admit_native_map_water_tracks(visual, world, source.as_str());
     }
     *visual = prepared_visual;
     Ok(())
+}
+
+#[cfg(feature = "game_client")]
+fn admit_native_map_water_tracks(
+    visual: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+    world: &crate::game_logic::GameLogic,
+    source: &str,
+) {
+    if source.is_empty() {
+        return;
+    }
+
+    // C++ W3DWaterTracks::loadTracks opens the selected TerrainLogic source
+    // with a .wak suffix. Admission binds records before the first draw tick.
+    let path = std::path::PathBuf::from(source.replace('\\', "/")).with_extension("wak");
+    let bytes = if let Some(assets) = world.application_assets() {
+        let mut assets = assets.lock().unwrap_or_else(|error| error.into_inner());
+        assets
+            .archive_file_system_mut()
+            .read_optional_definition_source(&path.to_string_lossy())
+    } else {
+        match std::fs::read(&path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    };
+    match bytes {
+        Ok(Some(bytes)) => match game_client::terrain::water_tracks::decode_wak_records(&bytes) {
+            Ok(records) => {
+                visual.water_tracks_mut().load_records(&records);
+            }
+            Err(error) => log::warn!("Cannot decode water tracks '{}': {error}", path.display()),
+        },
+        Ok(None) => {}
+        Err(error) => log::warn!("Cannot read water tracks '{}': {error}", path.display()),
+    }
 }
 
 #[cfg(feature = "game_client")]
@@ -683,6 +722,10 @@ impl RejectedNativeWorlds {
         }
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "water_track_sidecar_tests.rs"]
+mod water_track_sidecar_tests;
 
 #[cfg(test)]
 mod rejected_world_owner_tests {

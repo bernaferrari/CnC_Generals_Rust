@@ -11,12 +11,33 @@ impl TerrainVisualImpl {
         self.load_heightmap_with_world_size(path, None)
     }
 
-    /// Load terrain heightmap from runtime map data (C++ parity fallback when no external hint exists).
+    /// Load a standalone heightmap and its loose water-track companion.
     pub fn load_heightmap_from_data(
+        &mut self,
+        heightmap: HeightMap,
+        source_hint: Option<&Path>,
+        world_size: Option<(f32, f32)>,
+    ) -> TerrainResult<()> {
+        self.load_heightmap_from_data_inner(heightmap, source_hint, world_size, true)
+    }
+
+    /// Install the receiving map geometry. The map loader supplies water tracks
+    /// from the selected map file through its own filesystem.
+    pub fn load_receiving_map_heightmap(
+        &mut self,
+        heightmap: HeightMap,
+        source_hint: Option<&Path>,
+        world_size: Option<(f32, f32)>,
+    ) -> TerrainResult<()> {
+        self.load_heightmap_from_data_inner(heightmap, source_hint, world_size, false)
+    }
+
+    fn load_heightmap_from_data_inner(
         &mut self,
         mut heightmap: HeightMap,
         source_hint: Option<&Path>,
         world_size: Option<(f32, f32)>,
+        load_loose_water_tracks: bool,
     ) -> TerrainResult<()> {
         if heightmap.width == 0 || heightmap.height == 0 {
             return Err(TerrainError::HeightmapError(
@@ -69,7 +90,9 @@ impl TerrainVisualImpl {
         self.reset_draw_area_state();
         self.upload_extra_blend_overlay();
         self.apply_tree_world_bounds();
-        self.load_water_tracks_from_map();
+        if load_loose_water_tracks {
+            self.load_water_tracks_from_map();
+        }
         self.rebuild_shoreline();
         self.overlay.overlays_dirty = true;
         self.overlay.water_grid_dirty = true;
