@@ -858,8 +858,21 @@ fn actual_tank_track_retires_with_its_own_drawable_and_keeps_the_peer() {
     let bind = |client: &mut GameClient, terrain: &mut TerrainVisualImpl| {
         let mut owner = client.borrow_native_drawable_owner();
         let key = owner.binding_key(EPOCH, id.0).unwrap();
-        assert!(owner.bind_installed_tank_track(key, "TrackTag", 14.0, terrain).unwrap());
-        assert!(!owner.bind_installed_tank_track(key, "TrackTag", 14.0, terrain).unwrap());
+        assert!(
+            owner
+                .bind_installed_model_track(key, "TrackTag", || Some(14.0), terrain)
+                .unwrap()
+        );
+        assert!(
+            !owner
+                .bind_installed_model_track(
+                    key,
+                    "TrackTag",
+                    || panic!("an already-bound model cannot resample track width"),
+                    terrain,
+                )
+                .unwrap()
+        );
         let mut bindings = owner.terrain_track_bindings_for_retirement(key).unwrap();
         assert_eq!(bindings.len(), 1);
         bindings.pop().unwrap()

@@ -259,11 +259,11 @@ impl NativeDrawableOwner<'_> {
             .map_or_else(Vec::new, |drawable| drawable.receiving_track_bindings()))
     }
 
-    pub fn bind_installed_tank_track(
+    pub fn bind_installed_model_track(
         &mut self,
         key: PresentationDirectDrawableBindingKey,
         module_tag: &str,
-        width: f32,
+        installed_width: impl FnOnce() -> Option<f32>,
         terrain: &mut crate::terrain::terrain_visual::TerrainVisualImpl,
     ) -> GameClientResult<bool> {
         if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
@@ -273,11 +273,12 @@ impl NativeDrawableOwner<'_> {
         }
         let Some(model) = self.drawables.drawable_map.get_mut(&key.drawable_id)
             .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::drawable::BasicDrawable>())
-            .and_then(|drawable| drawable.receiving_tank_track_model(module_tag))
+            .and_then(|drawable| drawable.receiving_track_model(module_tag))
         else {
             return Ok(false);
         };
         Ok(model.bind_receiving_terrain_track(|texture| {
+            let width = installed_width()?;
             terrain.terrain_tracks_mut().bind_receiving_track(
                 width,
                 game_engine::map_object::MAP_XY_FACTOR,
@@ -286,7 +287,7 @@ impl NativeDrawableOwner<'_> {
         }))
     }
 
-    pub fn advance_installed_tank_tracks(
+    pub fn advance_installed_model_tracks(
         &mut self,
         key: PresentationDirectDrawableBindingKey,
         terrain: &mut crate::terrain::terrain_visual::TerrainVisualImpl,

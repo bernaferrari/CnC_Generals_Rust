@@ -547,7 +547,7 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         }
         let logic = logic.read().unwrap_or_else(|poisoned| poisoned.into_inner());
         let position = object.get_position();
-        self.drawables.advance_installed_tank_tracks(
+        self.drawables.advance_installed_model_tracks(
             key,
             terrain,
             &logic,
@@ -631,13 +631,17 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
             ));
         }
         // Factory creation installs the default RenderObj before the caller's
-        // first Object placement. The receiving tank module owns the marker.
+        // first Object placement. The receiving ModelDraw base owns the marker.
         if let Some(terrain) = terrain.filter(|terrain| terrain.track_mark_admission_enabled()) {
-            for (index, tag) in render.receiving_draw_models.tank_draw_module_tags() {
-                let Ok(width) = self.poses.installed_track_width(&render.identity, key, index) else {
-                    continue;
-                };
-                self.drawables.bind_installed_tank_track(key, tag, width, terrain)
+            let poses = &mut self.poses;
+            for (index, tag) in render.receiving_draw_models.model_track_draw_module_tags() {
+                self.drawables
+                    .bind_installed_model_track(
+                        key,
+                        tag,
+                        || poses.installed_track_width(&render.identity, key, index).ok(),
+                        terrain,
+                    )
                     .map_err(|error| error.to_string())?;
             }
         }

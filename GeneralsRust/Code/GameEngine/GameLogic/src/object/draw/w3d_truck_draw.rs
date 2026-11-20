@@ -333,6 +333,10 @@ impl W3DTruckDraw {
         self.base.bind_owner_id(owner_id);
     }
 
+    pub fn receiving_model_track(&mut self) -> &mut W3DModelDraw {
+        &mut self.base
+    }
+
     pub fn owner_id(&self) -> Option<ObjectID> {
         self.base.owner_id()
     }

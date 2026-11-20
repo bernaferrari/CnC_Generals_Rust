@@ -11,18 +11,47 @@ use game_engine::common::system::archive_file_system::ArchiveFileSystem;
 use std::io::Read;
 
 const EPOCH: u64 = 103;
-const TRACK_WIDTH: f32 = 18.573_772;
+
+struct RetailTrackUnit {
+    template: &'static str,
+    team: Team,
+    model: &'static str,
+    width: f32,
+    dds: Option<&'static str>,
+}
+
+const BATTLEMASTER: RetailTrackUnit = RetailTrackUnit {
+    template: "ChinaTankBattleMaster",
+    team: Team::China,
+    model: "NVBtMstr",
+    width: 18.573_772,
+    dds: None,
+};
+
+const DOZER: RetailTrackUnit = RetailTrackUnit {
+    template: "AmericaVehicleDozer",
+    team: Team::USA,
+    model: "AVCONSTDOZ_A",
+    width: 16.823_484,
+    dds: Some("Art/Textures/extiretrack2.dds"),
+};
 
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_tank_factory_binds_before_placement_and_client_reset_retires_own_marks() {
-    exercise_stock_tank_track_retirement(Retirement::Reset);
+    exercise_retail_track_retirement(BATTLEMASTER, Retirement::Reset);
 }
 
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_disguise_replacement_detaches_only_the_old_drawable_track() {
-    exercise_stock_tank_track_retirement(Retirement::Disguise);
+    exercise_retail_track_retirement(BATTLEMASTER, Retirement::Disguise);
+}
+
+#[test]
+#[ignore = "requires mounted retail sources and native WGPU"]
+fn retail_truck_dozer_binds_authored_track_and_loads_original_dds() {
+    exercise_retail_track_retirement(DOZER, Retirement::Reset);
 }
 
 enum Retirement {
@@ -30,7 +59,7 @@ enum Retirement {
     Disguise,
 }
 
-fn exercise_stock_tank_track_retirement(retirement: Retirement) {
+fn exercise_retail_track_retirement(unit: RetailTrackUnit, retirement: Retirement) {
     let install = std::path::PathBuf::from(std::env::var_os("GENERALS_BASE_DIR").unwrap());
     let mut archive = ArchiveFileSystem::new();
     archive
@@ -38,7 +67,7 @@ fn exercise_stock_tank_track_retirement(retirement: Retirement) {
         .unwrap();
     let mut code = Vec::new();
     archive
-        .open_file("Art/W3D/NVBtMstr.w3d", 0)
+        .open_file(&format!("Art/W3D/{}.w3d", unit.model), 0)
         .unwrap()
         .read_to_end(&mut code)
         .unwrap();
@@ -60,9 +89,9 @@ fn exercise_stock_tank_track_retirement(retirement: Retirement) {
         .unwrap()
     };
     graphics.cache_model(
-        crate::assets::mesh_asset_resolve::canonical_model_key("NVBtMstr"),
+        crate::assets::mesh_asset_resolve::canonical_model_key(unit.model),
         W3DLoader::new()
-            .load_model_from_bytes(&code, "NVBtMstr")
+            .load_model_from_bytes(&code, unit.model)
             .unwrap(),
     );
     let definitions = RetailWorldDefinitions::load().unwrap();
@@ -71,7 +100,7 @@ fn exercise_stock_tank_track_retirement(retirement: Retirement) {
         world
             .with_own_services_mut(|world| definitions.admit(world))
             .unwrap();
-        world.add_player(Player::new(0, Team::China, "Track Owner", true));
+        world.add_player(Player::new(0, unit.team, "Track Owner", true));
         world.require_native_drawable_owner();
         let mut logical_map = gamelogic::system::map_loader::MapData::new();
         logical_map.width = 16;
@@ -105,8 +134,8 @@ fn exercise_stock_tank_track_retirement(retirement: Retirement) {
             |world, effects| {
                 world
                     .create_object_with_script_effects_checked(
-                        "ChinaTankBattleMaster",
-                        Team::China,
+                        unit.template,
+                        unit.team,
                         position,
                         None,
                         effects,
@@ -163,11 +192,41 @@ fn exercise_stock_tank_track_retirement(retirement: Retirement) {
             assert_eq!(edge.time_added, 1234);
             assert_eq!(edge.endpoint_pos[0].x, x);
             assert!(
-                ((edge.endpoint_pos[0] - edge.endpoint_pos[1]).length() - TRACK_WIDTH).abs() < 1e-5
+                ((edge.endpoint_pos[0] - edge.endpoint_pos[1]).length() - unit.width).abs() < 1e-5
             );
         }
         edges
     };
+    if let Some(dds) = unit.dds {
+        let mut textures = ArchiveFileSystem::new();
+        textures
+            .open_archive_file(install.join("Textures.big").to_str().unwrap())
+            .unwrap();
+        let (device, queue) = {
+            let engine = engine.lock();
+            (engine.device(), engine.queue())
+        };
+        let terrain = render.native_terrain_mut().unwrap();
+        terrain.init_gpu_resources(device, queue).unwrap();
+        let mut requested = Vec::new();
+        terrain.prepare_tank_track_draws(|path| {
+            requested.push(path.to_owned());
+            let mut bytes = Vec::new();
+            textures
+                .open_file(path, 0)
+                .ok()?
+                .read_to_end(&mut bytes)
+                .ok()?;
+            assert_eq!(&bytes[..4], b"DDS ");
+            Some(bytes)
+        });
+        assert_eq!(
+            requested,
+            [dds],
+            "the original DDS uploads without a TGA fallback"
+        );
+        terrain.prepare_tank_track_draws(|_| panic!("the resident retail tread was reopened"));
+    }
     match retirement {
         Retirement::Disguise => {
             replace_with_retail_disguise(&mut world, &mut client, &mut render, &mut graphics, id);
@@ -324,7 +383,7 @@ fn track_binding(
     assert_eq!(
         bindings.len(),
         1,
-        "actual retail TankDraw constructor must bind one authored marker"
+        "actual retail Draw constructor must bind one authored marker"
     );
     bindings.pop().unwrap()
 }
