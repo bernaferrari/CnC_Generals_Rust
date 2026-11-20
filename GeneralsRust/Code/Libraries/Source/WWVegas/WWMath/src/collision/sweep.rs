@@ -519,25 +519,6 @@ impl CollisionMath {
     // Helper Functions
     // ========================================================================================
 
-    /// Check if a point is inside a triangle using barycentric coordinates
-    fn point_in_triangle(point: &Vector3, tri: &Triangle) -> bool {
-        let v0 = tri.vertices[2] - tri.vertices[0];
-        let v1 = tri.vertices[1] - tri.vertices[0];
-        let v2 = *point - tri.vertices[0];
-
-        let dot00 = v0.dot(v0);
-        let dot01 = v0.dot(v1);
-        let dot02 = v0.dot(v2);
-        let dot11 = v1.dot(v1);
-        let dot12 = v1.dot(v2);
-
-        let inv_denom = 1.0 / (dot00 * dot11 - dot01 * dot01);
-        let u = (dot11 * dot02 - dot01 * dot12) * inv_denom;
-        let v = (dot00 * dot12 - dot01 * dot02) * inv_denom;
-
-        (u >= 0.0) && (v >= 0.0) && (u + v <= 1.0)
-    }
-
     fn finalize_aabtri_collision(
         mut context: AABTriCollisionContext,
         result: &mut CastResult,

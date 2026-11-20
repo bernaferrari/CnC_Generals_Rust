@@ -3,7 +3,6 @@
 //! This module provides the fundamental mathematical constants and utility functions
 //! that are used throughout the WWMath library, converted from the original C++ wwmath.h.
 
-use std::f32;
 use std::sync::OnceLock;
 
 /// Mathematical constants from the original WWMath library

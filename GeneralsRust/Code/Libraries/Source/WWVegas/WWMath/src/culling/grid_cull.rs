@@ -600,12 +600,12 @@ impl CullSystem for GridCullSystem {
         let obj_id = object.get_id();
         let new_address = self.map_point_to_address(object.get_cull_box().center);
 
-        if let Some(link) = self.object_links.get(&obj_id) {
-            if link.grid_address != new_address {
-                // Object moved to different cell, need to relocate
-                self.unlink_object(object);
-                self.link_object_with_address(object.clone(), new_address);
-            }
+        if let Some(link) = self.object_links.get(&obj_id)
+            && link.grid_address != new_address
+        {
+            // Object moved to different cell, need to relocate
+            self.unlink_object(object);
+            self.link_object_with_address(object.clone(), new_address);
         }
     }
 

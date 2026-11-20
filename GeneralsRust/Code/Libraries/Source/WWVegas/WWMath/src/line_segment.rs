@@ -1,3 +1,10 @@
+//! W3D line segment geometry and cached direction from `LineSegClass`.
+//!
+//! Rust initializes the otherwise unspecified default and returns zeroed
+//! intersection values when the original would leave output arguments alone.
+//! Random endpoints consume the receiving caller's WWMath RNG in source order.
+//! Direction uses the original portable reciprocal square root.
+
 use super::{Matrix3D, Vector3, WWMath};
 
 /// A 3D line segment defined by two endpoints
@@ -195,10 +202,10 @@ impl LineSegment {
         self.dp = self.p1 - self.p0;
         self.direction = self.dp;
         let length_squared = self.dp.length_squared();
+        self.length = length_squared.sqrt();
         if length_squared != 0.0 {
-            self.direction *= 1.0 / length_squared.sqrt();
+            self.direction *= 1.0 / self.length;
         }
-        self.length = self.dp.length();
     }
 }
 

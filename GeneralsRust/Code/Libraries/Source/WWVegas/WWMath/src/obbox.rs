@@ -86,7 +86,7 @@ impl OBBox {
         for point in points {
             self.center += *point;
         }
-        self.center = self.center / points.len() as f32;
+        self.center /= points.len() as f32;
 
         // Compute extents along the computed axes
         self.extent = Vector3::ZERO;

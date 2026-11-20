@@ -441,10 +441,10 @@ impl AABTreeCullSystem {
             } else if big_child.borrow().bbox.contains_box(&obj_bbox) {
                 best_child = Some(big_child);
             }
-        } else if let Some(child) = node_ref.front.as_ref().or(node_ref.back.as_ref()) {
-            if child.borrow().bbox.contains_box(&obj_bbox) {
-                best_child = Some(child.clone());
-            }
+        } else if let Some(child) = node_ref.front.as_ref().or(node_ref.back.as_ref())
+            && child.borrow().bbox.contains_box(&obj_bbox)
+        {
+            best_child = Some(child.clone());
         }
 
         drop(node_ref);
@@ -676,14 +676,12 @@ impl CullSystem for AABTreeCullSystem {
         let obj_id = object.get_id();
 
         // Remove from current location
-        if let Some(link) = self.object_links.get(&obj_id) {
-            if let Some(ref weak_node) = link.node {
-                if let Some(node) = weak_node.upgrade() {
-                    if node.borrow_mut().remove_object(obj_id) {
-                        self.object_count -= 1;
-                    }
-                }
-            }
+        if let Some(link) = self.object_links.get(&obj_id)
+            && let Some(weak_node) = &link.node
+            && let Some(node) = weak_node.upgrade()
+            && node.borrow_mut().remove_object(obj_id)
+        {
+            self.object_count -= 1;
         }
 
         // Re-add to tree
@@ -697,14 +695,12 @@ impl CullSystem for AABTreeCullSystem {
     fn remove_object(&mut self, object: &Arc<dyn Cullable>) {
         let obj_id = object.get_id();
 
-        if let Some(link) = self.object_links.remove(&obj_id) {
-            if let Some(ref weak_node) = link.node {
-                if let Some(node) = weak_node.upgrade() {
-                    if node.borrow_mut().remove_object(obj_id) {
-                        self.object_count -= 1;
-                    }
-                }
-            }
+        if let Some(link) = self.object_links.remove(&obj_id)
+            && let Some(weak_node) = &link.node
+            && let Some(node) = weak_node.upgrade()
+            && node.borrow_mut().remove_object(obj_id)
+        {
+            self.object_count -= 1;
         }
     }
 
