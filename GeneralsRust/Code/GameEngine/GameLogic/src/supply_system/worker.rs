@@ -100,7 +100,6 @@ pub struct WorkerAIUpdate {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WorkerDozerTaskType {
     Repair,
-    ResumeConstruction,
     Build,
     Fortify,
 }
@@ -758,7 +757,9 @@ impl WorkerAIUpdate {
         let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
             return;
         };
-        if !ActionManager::can_resume_construction_of(&*owner_guard, &*target_guard, cmd_source) {
+        if !ActionManager::can_resume_construction_with_builder(
+            &owner_guard, &target_guard, cmd_source, self.active_build_target(),
+        ) {
             return;
         }
         // C++ resume is DOZER_TASK_BUILD: percent += 100/frames, heal max/frames.
@@ -774,7 +775,7 @@ impl WorkerAIUpdate {
             return;
         };
         self.dozer_task = Some(WorkerDozerTask {
-            task_type: WorkerDozerTaskType::ResumeConstruction,
+            task_type: WorkerDozerTaskType::Build,
             target_id,
             dock_point: None,
             failed_attempts: 0,
@@ -846,6 +847,10 @@ impl WorkerAIUpdate {
             return;
         };
         let owner_pos = *owner_guard.get_position();
+        let building = task.task_type == WorkerDozerTaskType::Build;
+        let changed_controller = installed && building
+            && self.dozer_action_state == WorkerDozerActionState::DoAction
+            && owner_guard.get_controlling_player_id() != target_guard.get_controlling_player_id();
         drop(owner_guard);
         let target_pos = *target_guard.get_position();
         let target_radius = target_guard
@@ -886,7 +891,13 @@ impl WorkerAIUpdate {
             return;
         }
 
-        let building = matches!(task.task_type, WorkerDozerTaskType::Build | WorkerDozerTaskType::ResumeConstruction);
+        // DozerAIUpdate.cpp:474–477 rechecks the controlling player in the
+        // shared action without re-running the command admission predicate.
+        if changed_controller {
+            self.dozer_task = None;
+            clear_current(self, Some(&owner));
+            return;
+        }
         if self.dozer_action_state == WorkerDozerActionState::DoAction
             && building && task.build_sub_task != DozerBuildSubTask::DoBuildAtDock
         {
@@ -1012,67 +1023,6 @@ impl WorkerAIUpdate {
                         }
                     }
                 }
-                WorkerDozerTaskType::ResumeConstruction => {
-                    if target_builder_id != INVALID_ID && target_builder_id != self.object_id {
-                        self.dozer_task = None;
-                        clear_current(self, Some(&owner));
-                        return;
-                    }
-                    let (can_resume, current_percent) = {
-                        let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
-                            self.dozer_task = None;
-                            return;
-                        };
-                        (
-                            ActionManager::can_resume_construction_of(&owner_guard, &target_guard, CommandSourceType::FromAi),
-                            target_guard.get_construction_percent(),
-                        )
-                    };
-                    if !can_resume {
-                        self.dozer_task = None;
-                        clear_current(self, Some(&owner));
-                        return;
-                    }
-                    // Completed/selling is pct < 0 (`CONSTRUCTION_COMPLETE = -1`).
-                    if current_percent < 0.0 || current_percent >= 100.0 {
-                        self.dozer_task = None;
-                        self.clear_task(WorkerDozerTaskSlot::Build, Some(&owner));
-                        return;
-                    }
-                    if let Ok(mut actor) = owner.write() {
-                        actor.set_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
-                    }
-                    let frames = if task.build_total_frames > 0 {
-                        task.build_total_frames
-                    } else if let Ok(tg) = target.read() {
-                        tg.get_template().calc_time_to_build(None).max(1) as u32
-                    } else {
-                        1
-                    } as f32;
-                    // C++ DozerAIUpdate.cpp:515-526: +100/frames percent and +max/frames HP.
-                    let new_percent = (current_percent + 100.0 / frames).min(100.0);
-                    if let Ok(mut target_write) = target.write() {
-                        target_write.set_construction_percent(new_percent);
-                        let max_health = if task.build_max_health > 0.0 {
-                            task.build_max_health
-                        } else {
-                            target_write
-                                .get_body_module()
-                                .map(|b| b.get_max_health())
-                                .unwrap_or(0.0)
-                        };
-                        if max_health > 0.0 {
-                            if let Some(body) = target_write.get_body_module() {
-                                let new_health =
-                                    (body.get_health() + max_health / frames).min(max_health);
-                                body.set_health(new_health);
-                            }
-                        }
-                    }
-                    if new_percent >= 100.0 {
-                        build_complete_rebuild = Some(task.is_rebuild);
-                    }
-                }
                 WorkerDozerTaskType::Build => {
                     if target_builder_id != INVALID_ID && target_builder_id != self.object_id {
                         self.dozer_task = None;
@@ -1090,22 +1040,21 @@ impl WorkerAIUpdate {
                     };
                     let world = crate::system::engine_stores::active_services();
                     let construction_manager = &world.logic_managers().construction;
-                    // Resolve object data before borrowing the manager.
-                    let max_health = if !task.started_construction {
-                        if task.build_max_health > 0.0 {
+                    // A Resume order enters the same C++ BUILD action. Start
+                    // tracking from the scaffold's existing percent and HP.
+                    let starting_progress = if !task.started_construction {
+                        let Ok(building) = target.read() else {
+                            self.dozer_task = None;
+                            return;
+                        };
+                        let max_health = if task.build_max_health > 0.0 {
                             task.build_max_health
                         } else {
-                            let Ok(target_guard) = target.read() else {
-                                self.dozer_task = None;
-                                return;
-                            };
-                            target_guard
-                                .get_body_module()
-                                .map(|body| body.get_max_health())
-                                .unwrap_or(0.0)
-                        }
+                            building.get_body_module().map(|body| body.get_max_health()).unwrap_or(0.0)
+                        };
+                        Some((max_health, building.get_construction_percent(), building.get_health()))
                     } else {
-                        0.0
+                        None
                     };
                     let (completed, progress, current_health) = {
                         let mut manager = match construction_manager.write() {
@@ -1115,18 +1064,16 @@ impl WorkerAIUpdate {
                                 return;
                             }
                         };
-                        if !task.started_construction {
-                            if let Err(err) = manager.start_construction(
+                        if let Some((max_health, percent, health)) = starting_progress {
+                            match manager.start_construction(
                                 task.target_id,
                                 self.object_id,
                                 max_health,
                                 frames,
                                 task.is_rebuild,
                             ) {
-                                log::debug!(
-                                    "WorkerAIUpdate::update_dozer_task start_construction failed: {}",
-                                    err
-                                );
+                                Ok(()) => manager.seed_from_structure(task.target_id, percent, health),
+                                Err(error) => log::debug!("WorkerAIUpdate::update_dozer_task start_construction failed: {error}"),
                             }
                             task.started_construction = true;
                         }
@@ -1134,11 +1081,13 @@ impl WorkerAIUpdate {
                             manager.set_build_frames(task.target_id, frames);
                         }
                         let completed = manager.update_for_dozer(self.object_id);
-                        let progress = manager.get_progress(task.target_id).unwrap_or(0.0);
+                        let progress = manager.get_progress(task.target_id);
                         let current_health = manager.get_current_health(task.target_id);
                         (completed, progress, current_health)
                     };
-                    if let Ok(mut target_write) = target.write() {
+                    if let Some(progress) = progress
+                        && let Ok(mut target_write) = target.write()
+                    {
                         target_write.set_construction_percent(progress);
                         if let Some(health) = current_health {
                             if let Err(err) = target_write.set_health(health) {
@@ -1148,6 +1097,8 @@ impl WorkerAIUpdate {
                                 );
                             }
                         }
+                        target_write.set_producer_id(self.object_id);
+                        target_write.set_builder_id(self.object_id);
                     }
                     if completed == Some(task.target_id) {
                         build_complete_rebuild = Some(task.is_rebuild);

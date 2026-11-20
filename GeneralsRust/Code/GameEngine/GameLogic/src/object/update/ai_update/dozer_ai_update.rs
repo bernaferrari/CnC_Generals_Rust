@@ -563,6 +563,14 @@ impl DozerAIUpdate {
         range
     }
 
+    fn active_build_target(&self) -> Option<ObjectID> {
+        if self.get_current_task() != DozerTask::Build {
+            return None;
+        }
+        let target = self.get_task_target(DozerTask::Build);
+        (target != INVALID_ID).then_some(target)
+    }
+
     pub fn get_current_task(&self) -> DozerTask {
         self.task_owner.current
     }
@@ -912,7 +920,9 @@ impl DozerAIUpdate {
         let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
             return;
         };
-        if !ActionManager::can_resume_construction_of(&*owner_guard, &*target_guard, cmd_source) {
+        if !ActionManager::can_resume_construction_with_builder(
+            &owner_guard, &target_guard, cmd_source, self.active_build_target(),
+        ) {
             return;
         }
         // C++ privateResumeConstruction -> newTask(DOZER_TASK_BUILD) uses
@@ -1787,6 +1797,10 @@ impl DozerAIUpdate {
 }
 
 impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
+    fn active_build_target(&self) -> Option<ObjectID> {
+        DozerAIUpdate::active_build_target(self)
+    }
+
     #[cfg(test)]
     fn owned_state_observation_for_test(&self) -> Option<DozerOwnedObservation> {
         Some(DozerAIUpdate::owned_state_observation_for_test(self))

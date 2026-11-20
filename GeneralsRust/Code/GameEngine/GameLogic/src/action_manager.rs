@@ -1084,12 +1084,39 @@ impl TheActionManager {
         true
     }
 
-    /// Can `obj` resume construction of `object_being_constructed`
-    /// (C++ ActionManager::canResumeConstructionOf).
+    /// Can `obj` resume construction of `object_being_constructed` (C++ ActionManager::canResumeConstructionOf).
     pub fn can_resume_construction_of(
         obj: &Object,
         object_being_constructed: &Object,
         command_source: CommandSourceType,
+    ) -> bool {
+        Self::can_resume_construction_with(obj, object_being_constructed, command_source, |builder| {
+            Self::builder_active_target(obj, object_being_constructed, builder)
+        })
+    }
+
+    /// The receiving command already owns its parent AI. Its own incumbent
+    /// task is available without reacquiring that same mutex.
+    pub(crate) fn can_resume_construction_with_builder(
+        obj: &Object,
+        object_being_constructed: &Object,
+        command_source: CommandSourceType,
+        active_target: Option<ObjectID>,
+    ) -> bool {
+        Self::can_resume_construction_with(obj, object_being_constructed, command_source, |builder| {
+            if builder == obj.get_id() {
+                active_target
+            } else {
+                Self::builder_active_target(obj, object_being_constructed, builder)
+            }
+        })
+    }
+
+    fn can_resume_construction_with(
+        obj: &Object,
+        object_being_constructed: &Object,
+        command_source: CommandSourceType,
+        active_target: impl FnOnce(ObjectID) -> Option<ObjectID>,
     ) -> bool {
         // Wave 347: empty dual-world → false.
         if dual_world_registry_unavailable() {
@@ -1112,27 +1139,13 @@ impl TheActionManager {
             return false;
         }
 
-        // C++ ActionManager.cpp:463-485 — DozerAI current BUILD task + BUILD target.
-        let builder_id = object_being_constructed.get_builder_id();
-        if builder_id != crate::common::INVALID_ID {
-            if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
-                if let Ok(builder_guard) = builder.read() {
-                    if let Some(ai) = builder_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            use crate::object::update::ai_update::dozer_ai_update::DozerTask;
-                            let build_pending = ai_guard
-                                .get_dozer_ai_update_interface_mut()
-                                .is_some_and(|dozer| dozer.is_task_pending(DozerTask::Build));
-                            if build_pending
-                                && ai_guard.get_goal_object_id()
-                                    == object_being_constructed.get_id()
-                            {
-                                return false;
-                            }
-                        }
-                    }
-                }
-            }
+        // ActionManager.cpp:458–485 consults the recorded builder's current
+        // DOZER_TASK_BUILD target for both Worker and Dozer controllers.
+        let builder = object_being_constructed.get_builder_id();
+        if builder != crate::common::INVALID_ID
+            && active_target(builder) == Some(object_being_constructed.get_id())
+        {
+            return false;
         }
 
         if is_object_shrouded_for_action(obj, object_being_constructed, command_source) {
@@ -1140,6 +1153,25 @@ impl TheActionManager {
         }
 
         true
+    }
+
+    fn builder_active_target(obj: &Object, site: &Object, builder: ObjectID) -> Option<ObjectID> {
+        let ai = if builder == obj.get_id() {
+            obj.get_ai_update_interface()?
+        } else {
+            let incumbent = match site.owning_world_services() {
+                Some(world) => world.object_registry().get_object(builder),
+                None => TheGameLogic::find_object_by_id(builder),
+            }?;
+            let ai = incumbent.read().ok()?.get_ai_update_interface()?;
+            ai
+        };
+        let mut ai = ai.lock().ok()?;
+        if let Some(dozer) = ai.get_dozer_ai_update_interface_mut() {
+            dozer.active_build_target()
+        } else {
+            ai.get_worker_ai_update_interface_mut()?.active_build_target()
+        }
     }
 
     /// Can `obj` enter `object_to_enter` (C++ ActionManager::canEnterObject).

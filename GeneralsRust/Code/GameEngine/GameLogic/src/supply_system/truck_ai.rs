@@ -633,6 +633,13 @@ impl SupplyTruckAIInterface for WorkerAIUpdate {
 }
 
 impl WorkerAIUpdateInterface for WorkerAIUpdate {
+    fn active_build_target(&self) -> Option<ObjectID> {
+        if self.current_task != Some(WorkerDozerTaskSlot::Build) {
+            return None;
+        }
+        self.get_task_target(WorkerDozerTaskSlot::Build)
+    }
+
     #[cfg(test)]
     fn construction_order_for_test(&self) -> Option<WorkerBuildOrderObservation> {
         let task = WorkerDozerTaskSlot::Build.as_index();

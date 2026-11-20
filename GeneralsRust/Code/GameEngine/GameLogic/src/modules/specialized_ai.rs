@@ -75,6 +75,11 @@ pub trait SupplyTruckAIInterface: Send + Sync {
 
 /// Worker AI update interface (build/repair tasks).
 pub trait WorkerAIUpdateInterface: Send + Sync {
+    /// The exact site of the current construction task, if any.
+    fn active_build_target(&self) -> Option<ObjectID> {
+        None
+    }
+
     #[cfg(test)]
     fn construction_order_for_test(&self) -> Option<crate::supply_system::WorkerBuildOrderObservation> {
         None
@@ -94,6 +99,11 @@ pub trait WorkerAIUpdateInterface: Send + Sync {
 
 /// Dozer AI update interface (build tasks).
 pub trait DozerAIUpdateInterface: Send + Sync {
+    /// The exact site of the current construction task, if any.
+    fn active_build_target(&self) -> Option<ObjectID> {
+        None
+    }
+
     #[cfg(test)]
     fn owned_state_observation_for_test(
         &self,
