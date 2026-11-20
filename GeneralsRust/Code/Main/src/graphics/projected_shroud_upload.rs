@@ -267,20 +267,39 @@ impl ProjectedShroudGpuUploader {
         &self,
         snapshot: &ProjectedShroudSnapshot,
     ) -> Option<FrozenProjectedShroudTexture> {
-        let extent = snapshot.texture_extent()?;
         let resident = self.resident?;
-        if resident.extent != extent
-            || resident.texture_fingerprint != snapshot.texture_fingerprint()
+        if snapshot.texture_extent()? != resident.extent
+            || snapshot.texture_fingerprint() != resident.texture_fingerprint
         {
             return None;
         }
+        self.binding_for_synced_texture(snapshot, resident)
+    }
+
+    /// Upload and bind the same frozen frame without hashing the R8 pixels
+    /// again at the boundary between the upload and renderer.
+    pub(crate) fn sync_renderer_binding(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        snapshot: &ProjectedShroudSnapshot,
+    ) -> Option<FrozenProjectedShroudTexture> {
+        let target = self.sync(device, queue, snapshot).target?;
+        self.binding_for_synced_texture(snapshot, target)
+    }
+
+    fn binding_for_synced_texture(
+        &self,
+        snapshot: &ProjectedShroudSnapshot,
+        target: ProjectedShroudTextureState,
+    ) -> Option<FrozenProjectedShroudTexture> {
         let texture = self.texture.as_ref()?;
         let projection = ProjectedShroudProjection::from_cpp_grid(
             snapshot.draw_origin_xy,
             snapshot.cell_size_xy,
-            extent,
+            target.extent,
             snapshot.metadata.shroud_color_rgb,
-            snapshot.content_fingerprint(),
+            snapshot.content_fingerprint_with_texture(target.texture_fingerprint),
         )?;
         Some(FrozenProjectedShroudTexture::new(
             Arc::clone(&texture.view),
@@ -393,5 +412,44 @@ mod tests {
         );
         assert_eq!(plan.action, ProjectedShroudUploadAction::Deactivate);
         assert_eq!(plan.target, None);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "requires a native GPU adapter"]
+    fn sync_binding_reuses_bytes_for_a_new_projection_and_rejects_stale_snapshots() {
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+        let clear = snapshot(1, 1, vec![PresentationFowGrid::CELL_VISIBLE]);
+        let mut shifted = clear.clone();
+        shifted.draw_origin_xy = [10.0, 50.0];
+        shifted.metadata.shroud_color_rgb = [100, 125, 150];
+        let fogged = snapshot(1, 1, vec![PresentationFowGrid::CELL_EXPLORED]);
+        let mut uploader = ProjectedShroudGpuUploader::default();
+
+        let first = uploader.sync_renderer_binding(&device, &queue, &clear).unwrap();
+        let second = uploader.sync_renderer_binding(&device, &queue, &shifted).unwrap();
+        assert_ne!(first.projection(), second.projection());
+        assert_eq!(
+            second.projection().content_fingerprint,
+            shifted.content_fingerprint()
+        );
+        assert_eq!(uploader.upload_count(), 1);
+        assert_eq!(uploader.allocation_count(), 1);
+
+        let third = uploader.sync_renderer_binding(&device, &queue, &fogged).unwrap();
+        assert_eq!(
+            third.projection().content_fingerprint,
+            fogged.content_fingerprint()
+        );
+        assert_eq!(uploader.upload_count(), 2);
+        assert_eq!(uploader.allocation_count(), 1);
+        assert!(uploader.renderer_binding(&shifted).is_none());
+        assert!(uploader
+            .sync_renderer_binding(&device, &queue, &ProjectedShroudSnapshot::inactive())
+            .is_none());
+        assert!(uploader.resident_state().is_none());
     }
 }

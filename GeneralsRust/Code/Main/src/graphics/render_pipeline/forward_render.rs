@@ -547,14 +547,11 @@ impl ForwardPass {
                 &inactive_projected_shroud
             }
         };
-        self.projected_shroud_uploader.sync(
+        let projected_shroud_binding = self.projected_shroud_uploader.sync_renderer_binding(
             self.device.as_ref(),
             self.queue.as_ref(),
             projected_shroud,
         );
-        let projected_shroud_binding = self
-            .projected_shroud_uploader
-            .renderer_binding(projected_shroud);
         self.ghost_lighting_environment =
             Self::build_always_fogged_light_environment(lighting, &self.renderer.renderer_3d).map(Arc::new);
 

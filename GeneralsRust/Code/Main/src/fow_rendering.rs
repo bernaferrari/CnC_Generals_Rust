@@ -701,11 +701,15 @@ impl ProjectedShroudSnapshot {
     /// tint/level metadata.  Presentation determinism checks should use this,
     /// while a texture uploader should use [`Self::texture_fingerprint`].
     pub fn content_fingerprint(&self) -> u64 {
+        self.content_fingerprint_with_texture(self.texture_fingerprint())
+    }
+
+    pub(crate) fn content_fingerprint_with_texture(&self, texture_fingerprint: u64) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
         let mut h = DefaultHasher::new();
-        self.texture_fingerprint().hash(&mut h);
+        texture_fingerprint.hash(&mut h);
         self.grid_width.hash(&mut h);
         self.grid_height.hash(&mut h);
         self.draw_origin_xy[0].to_bits().hash(&mut h);
