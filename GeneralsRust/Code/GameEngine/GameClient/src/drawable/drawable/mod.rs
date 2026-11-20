@@ -60,6 +60,7 @@ pub use types::{
 };
 
 pub use icons::{Anim2DIcon, Icon, IconInfo, IconType};
+pub(crate) use icons::DisabledIconContent;
 
 pub use tint_envelope::{
     DEF_ATTACK_FRAMES, DEF_DECAY_FRAMES, DEF_SUSTAIN_FRAMES, DEFAULT_TINT_COLOR_FADE_RATE,

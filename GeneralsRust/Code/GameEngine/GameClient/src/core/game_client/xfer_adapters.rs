@@ -369,8 +369,15 @@ pub(crate) fn xfer_game_client_state(
 
                 let (mut drawable, receiving_position) =
                     drawable.ok_or(RuntimeXferStatus::InvalidData)?;
-                drawable.xfer_snapshot(&mut adapter)
-                    .map_err(|_| RuntimeXferStatus::InvalidData)?;
+                let disabled_content = client
+                    .owned_world_animations
+                    .disabled_icon_content(client.input_authority);
+                if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
+                    basic.xfer_with_audio(&mut adapter, None, false, disabled_content)
+                } else {
+                    drawable.xfer_snapshot(&mut adapter)
+                }
+                .map_err(|_| RuntimeXferStatus::InvalidData)?;
                 let id = drawable.get_id();
                 let binding_object_id = if object_id != INVALID_ID {
                     Some(object_id)

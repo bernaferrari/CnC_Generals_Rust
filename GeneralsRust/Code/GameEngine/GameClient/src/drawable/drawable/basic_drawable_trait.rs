@@ -392,7 +392,7 @@ impl Drawable for BasicDrawable {
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.xfer_with_audio(xfer, None, false)
+        self.xfer_with_audio(xfer, None, false, DisabledIconContent::Compatibility)
     }
 
     fn xfer_snapshot_for_native_load(
@@ -402,7 +402,7 @@ impl Drawable for BasicDrawable {
             &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
         >,
     ) -> Result<(), String> {
-        self.xfer_with_audio(xfer, audio_device, true)
+        self.xfer_with_audio(xfer, audio_device, true, DisabledIconContent::Compatibility)
     }
 
     fn load_post_process_with_audio(

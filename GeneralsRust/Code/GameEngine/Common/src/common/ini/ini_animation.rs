@@ -367,6 +367,19 @@ impl OwnedAnim2DTemplates {
     pub fn find(&self, name: &str) -> Option<&Anim2DTemplate> {
         self.templates.get(name)
     }
+    pub fn detached_template(&self, name: &str) -> Option<Anim2DTemplate> {
+        let template = self.find(name)?;
+        Some(Anim2DTemplate {
+            name: template.name.clone(),
+            images: template.images.clone(),
+            num_frames: template.num_frames,
+            frames_between_updates: template.frames_between_updates,
+            anim_mode: template.anim_mode,
+            randomize_start_frame: template.randomize_start_frame,
+            next_template: None,
+        })
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Anim2DTemplate)> {
         self.templates
             .iter()

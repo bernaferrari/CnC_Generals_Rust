@@ -301,8 +301,12 @@ impl GameClient {
         audio_device: Option<
             &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
         >,
+        disabled_content: DisabledIconContent<'_>,
     ) -> Result<(), String> {
         if xfer.get_xfer_mode() == CommonXferMode::Load {
+            if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
+                return basic.xfer_with_audio(xfer, audio_device, true, disabled_content);
+            }
             return drawable.xfer_snapshot_for_native_load(xfer, audio_device);
         }
         drawable.xfer_snapshot(xfer)
@@ -2093,6 +2097,7 @@ impl GameClient {
                     drawable.as_mut(),
                     xfer,
                     self.native_audio_device.as_ref(),
+                    DisabledIconContent::Compatibility,
                 )?;
 
                 xfer.end_block().map_err(|e| format!("{:?}", e))?;
@@ -2254,6 +2259,7 @@ impl GameClient {
                     drawable.as_mut(),
                     xfer,
                     self.native_audio_device.as_ref(),
+                    self.owned_world_animations.disabled_icon_content(self.input_authority),
                 )?;
 
                 if native_receiving {

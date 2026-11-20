@@ -43,6 +43,28 @@ impl Anim2D {
         collection_system: Option<Arc<Mutex<Anim2DCollection>>>,
         client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Arc<Mutex<Self>> {
+        // The C++ constructor leaves registered animations stamped at zero.
+        let initial_stamp = if collection_system.is_some() {
+            0
+        } else {
+            TheGameLogic::get_frame()
+        };
+        let anim = Self::new_detached(template, initial_stamp, client_random);
+        if let Some(collection) = collection_system {
+            Self::attach_to_collection(&anim, &collection);
+        }
+        anim
+    }
+
+    pub(crate) fn new_for_restore(template: Arc<RwLock<Anim2DTemplate>>) -> Arc<Mutex<Self>> {
+        Self::new_detached(template, 0, &mut Default::default())
+    }
+
+    fn new_detached(
+        template: Arc<RwLock<Anim2DTemplate>>,
+        initial_stamp: u32,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) -> Arc<Mutex<Self>> {
         let mut anim = Self {
             current_frame: 0,
             last_update_frame: 0,
@@ -54,24 +76,12 @@ impl Anim2D {
             alpha: 1.0,
             collection_system: None,
         };
-
-        // The C++ constructor leaves registered animations stamped at zero.
-        let initial_stamp = if collection_system.is_some() {
-            0
-        } else {
-            TheGameLogic::get_frame()
-        };
         if template.read().is_randomized_start_frame() {
             anim.randomize_current_frame_at(client_random, initial_stamp);
         } else {
             anim.reset_at(initial_stamp);
         }
-
-        let anim = Arc::new(Mutex::new(anim));
-        if let Some(collection) = collection_system {
-            Self::attach_to_collection(&anim, &collection);
-        }
-        anim
+        Arc::new(Mutex::new(anim))
     }
 
     pub(crate) fn attach_to_collection(
@@ -228,6 +238,19 @@ impl Anim2D {
         self.draw_internal(&name, x, y, x + width, y + height, renderer);
     }
 
+    pub(crate) fn draw_sized_with_receiving_images(
+        &self,
+        rect: UIRect,
+        images: &mut crate::display::image::ImageCollection,
+        renderer: &mut crate::gui::UIRenderer,
+    ) {
+        let template = self.template.read();
+        let Some(name) = template.get_frame_name(self.current_frame) else {
+            return;
+        };
+        self.draw_frame_from_images(images, name, rect, renderer);
+    }
+
     fn draw_internal(
         &mut self,
         image_name: &str,
@@ -237,37 +260,43 @@ impl Anim2D {
         end_y: i32,
         renderer: &mut crate::gui::UIRenderer,
     ) {
-        let color = argb_to_rgba_u8(0xFFFFFFFF, self.alpha);
-
         let rect = UIRect::new(
             start_x as f32,
             start_y as f32,
             (end_x - start_x) as f32,
             (end_y - start_y) as f32,
         );
-
-        let _ = (|| {
-            let client_images = get_client_images();
-            let mut collection = client_images.write();
-            let image = collection.find_image_by_name_mut(image_name)?;
-            if image.get_gpu_texture().is_none() {
-                let _ = image.create_gpu_texture(renderer.device(), renderer.queue());
-            }
-            let gpu = image.get_gpu_texture()?;
-            let uv = image.get_uv();
-            renderer.draw_textured_rect(
-                rect,
-                Arc::new(gpu.view().clone()),
-                color,
-                Some(UIRect::new(uv.min.x, uv.min.y, uv.width(), uv.height())),
-                0.0,
-            );
-            Some(())
-        })();
-
+        let client_images = get_client_images();
+        self.draw_frame_from_images(&mut client_images.write(), image_name, rect, renderer);
         if self.collection_system.is_none() && !self.status.contains(Anim2DStatus::FROZEN) {
             self.try_next_frame();
         }
+    }
+
+    fn draw_frame_from_images(
+        &self,
+        images: &mut crate::display::image::ImageCollection,
+        name: &str,
+        rect: UIRect,
+        renderer: &mut crate::gui::UIRenderer,
+    ) {
+        let Some(image) = images.find_image_by_name_mut(name) else {
+            return;
+        };
+        if image.get_gpu_texture().is_none() {
+            let _ = image.create_gpu_texture(renderer.device(), renderer.queue());
+        }
+        let Some(gpu) = image.get_gpu_texture() else {
+            return;
+        };
+        let uv = image.get_uv();
+        renderer.draw_textured_rect(
+            rect,
+            Arc::new(gpu.view().clone()),
+            argb_to_rgba_u8(0xFFFF_FFFF, self.alpha),
+            Some(UIRect::new(uv.min.x, uv.min.y, uv.width(), uv.height())),
+            0.0,
+        );
     }
 
     fn try_next_frame(&mut self) {

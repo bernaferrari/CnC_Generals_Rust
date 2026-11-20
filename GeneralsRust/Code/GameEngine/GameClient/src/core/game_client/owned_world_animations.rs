@@ -1,6 +1,7 @@
 // Parsed world-animation metadata and native image resources for one client.
 // No Anim2D instance/Arc/Mutex or global definition lookup is used per draw.
-use game_engine::common::ini::ini_animation::{Anim2DMode, OwnedAnim2DTemplates};
+use crate::drawable::drawable::DisabledIconContent;
+use game_engine::common::ini::ini_animation::{Anim2DMode, Anim2DTemplate, OwnedAnim2DTemplates};
 use game_engine::common::ini::ini_mapped_image::OwnedMappedImages;
 
 #[derive(Debug, Clone)]
@@ -12,6 +13,7 @@ struct WorldAnimationDefinition {
 #[derive(Default)]
 struct OwnedWorldAnimations {
     definitions: std::collections::BTreeMap<String, WorldAnimationDefinition>,
+    disabled_icon_template: Option<std::sync::Arc<parking_lot::RwLock<Anim2DTemplate>>>,
     images: crate::display::image::ImageCollection,
     instances: std::collections::BTreeMap<u64, WorldAnimationPlayback>,
     host_epoch: Option<u64>,
@@ -38,6 +40,9 @@ impl OwnedWorldAnimations {
         let owned_images = crate::display::image::ImageCollection::from_owned_mapped_images(images);
         Self {
             definitions,
+            disabled_icon_template: templates
+                .detached_template("Disabled")
+                .map(|template| std::sync::Arc::new(parking_lot::RwLock::new(template))),
             images: owned_images,
             instances: std::collections::BTreeMap::new(),
             host_epoch: None,
@@ -45,6 +50,15 @@ impl OwnedWorldAnimations {
             logic_frame: 0,
         }
     }
+    fn disabled_icon_content(&self, authority: ClientInputAuthority) -> DisabledIconContent<'_> {
+        match authority {
+            ClientInputAuthority::NativeHosted => {
+                DisabledIconContent::Receiving(self.disabled_icon_template.as_ref())
+            }
+            ClientInputAuthority::StandaloneCore => DisabledIconContent::Compatibility,
+        }
+    }
+
     /// Retire per-world playback only; immutable definitions and native image
     /// resources belong to the application Client and survive match reset.
     fn clear_runtime(&mut self) {

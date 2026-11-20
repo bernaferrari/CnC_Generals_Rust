@@ -51,6 +51,7 @@ impl BasicDrawable {
             &std::sync::Arc<std::sync::Mutex<game_engine::common::audio::AudioManager>>,
         >,
         native_receiving_context: bool,
+        disabled_icon_content: DisabledIconContent<'_>,
     ) -> Result<(), String> {
         // PARITY_NOTE: C++ Drawable::xfer is at version 7 (Drawable.cpp line 4900).
         // Rust version 3 adds object_id, drawable module stub, and instance_is_identity.
@@ -326,7 +327,7 @@ impl BasicDrawable {
                 }
                 XferMode::Load => {
                     let mut icon_info = IconInfo::new();
-                    icon_info.xfer_cpp_layout(xfer)?;
+                    icon_info.xfer_cpp_layout_with_disabled_content(xfer, disabled_icon_content)?;
                     self.icon_info = if icon_info.icons.is_empty() {
                         None
                     } else {
@@ -346,7 +347,7 @@ impl BasicDrawable {
                     self.icon_info = Some(IconInfo::new());
                 }
                 if let Some(ref mut icon_info) = self.icon_info {
-                    icon_info.xfer(xfer)?;
+                    icon_info.xfer_versioned_with_disabled_content(xfer, disabled_icon_content)?;
                 }
             } else {
                 self.icon_info = None;
@@ -758,7 +759,7 @@ impl Snapshotable for BasicDrawable {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.xfer_with_audio(xfer, None, false)
+        self.xfer_with_audio(xfer, None, false, DisabledIconContent::Compatibility)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {

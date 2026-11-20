@@ -734,6 +734,7 @@ client_random: &mut self.client_random,
 
         if let Some(renderer) = self.ui_renderer.as_mut() {
             let drawables = &mut self.drawables.state;
+            let content = self.owned_world_animations.disabled_icon_content(self.input_authority);
             for (id, overlay) in &overlays {
                 let disabled = if overlay.show_disabled && overlay.health_region.is_some() {
                     drawables
@@ -741,10 +742,21 @@ client_random: &mut self.client_random,
                         .get_mut(id)
                         .and_then(|drawable| drawable.downcast_mut::<BasicDrawable>())
                         .and_then(|drawable| {
-                            drawable.disabled_icon_for_draw(&drawables.anim2d, &mut self.client_random)
+                            drawable.disabled_icon_for_draw(
+                                &drawables.anim2d,
+                                content,
+                                &mut self.client_random,
+                            )
                         })
                 } else {
                     None
+                };
+                let disabled = match (disabled, content) {
+                    (Some(icon), DisabledIconContent::Receiving(_)) => {
+                        self.receiving_ui_images.as_mut().map(|images| (icon, Some(images)))
+                    }
+                    (Some(icon), DisabledIconContent::Compatibility) => Some((icon, None)),
+                    (None, _) => None,
                 };
                 draw_overlay_anim2d_icons(renderer, overlay, disabled, &mut self.client_random);
             }
@@ -831,7 +843,10 @@ client_random: &mut self.client_random,
 fn draw_overlay_anim2d_icons(
     renderer: &mut crate::gui::ui_renderer::UIRenderer,
     overlay: &crate::drawable::drawable::DrawableOverlayData,
-    disabled: Option<&dyn crate::drawable::drawable::Icon>,
+    disabled: Option<(
+        &dyn crate::drawable::drawable::Icon,
+        Option<&mut crate::display::image::ImageCollection>,
+    )>,
     client_random: &mut game_engine::common::random_value::RandomState,
 ) {
     use crate::drawable::drawable::{Anim2DIcon, ICoord2D, Vector3};
@@ -892,15 +907,16 @@ fn draw_overlay_anim2d_icons(
             try_icon(renderer, "BombRemote", x, y, size, [1.0, 0.45, 0.1, 0.95]);
         }
     }
-    if let Some(icon) = disabled {
+    if let Some((icon, images)) = disabled {
         let size = bar_w * 0.3;
         let x = lo.x as f32;
-        let y = hi.y as f32 - (size + bar_h);
-        icon.render(
-            Vector3::new(x, y, 0.0),
-            Vector3::new(size.max(1.0), size.max(1.0), 0.0),
-            renderer,
-        );
+        let y = (hi.y as f32 - (size + bar_h)).trunc();
+        let size = size.max(1.0).trunc();
+        if let Some(images) = images {
+            icon.render_with_receiving_images(UIRect::new(x, y, size, size), images, renderer);
+        } else {
+            icon.render(Vector3::new(x, y, 0.0), Vector3::new(size, size, 0.0), renderer);
+        }
     }
     if overlay.show_enthusiastic {
         let name = if overlay.show_subliminal {

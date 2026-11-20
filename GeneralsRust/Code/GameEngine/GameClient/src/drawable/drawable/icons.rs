@@ -88,6 +88,13 @@ impl IconType {
     }
 }
 
+/// Definition available to this drawable's receiving HUD and archive reader.
+#[derive(Clone, Copy)]
+pub(crate) enum DisabledIconContent<'a> {
+    Compatibility,
+    Receiving(Option<&'a Arc<RwLock<Anim2DTemplate>>>),
+}
+
 /// Icon information for drawable objects
 #[derive(Debug, Clone)]
 pub struct IconInfo {
@@ -142,14 +149,40 @@ impl IconInfo {
     }
 
     pub(crate) fn xfer_cpp_layout(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_cpp_layout_with_disabled_content(xfer, DisabledIconContent::Compatibility)
+    }
+
+    pub(crate) fn xfer_cpp_layout_with_disabled_content(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        disabled_content: DisabledIconContent<'_>,
+    ) -> Result<(), String> {
         let mut icon_count = self.icons.len().min(u8::MAX as usize) as u8;
         xfer.xfer_unsigned_byte(&mut icon_count)
             .map_err(|e| format!("{:?}", e))?;
 
-        self.xfer_icon_entries(xfer, icon_count)
+        self.xfer_icon_entries(xfer, icon_count, disabled_content)
     }
 
-    fn xfer_icon_entries(&mut self, xfer: &mut dyn Xfer, icon_count: u8) -> Result<(), String> {
+    pub(crate) fn xfer_versioned_with_disabled_content(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        disabled_content: DisabledIconContent<'_>,
+    ) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("{:?}", e))?;
+
+        self.xfer_cpp_layout_with_disabled_content(xfer, disabled_content)
+    }
+
+    fn xfer_icon_entries(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        icon_count: u8,
+        disabled_content: DisabledIconContent<'_>,
+    ) -> Result<(), String> {
         match xfer.get_xfer_mode() {
             XferMode::Save | XferMode::Crc => {
                 for icon_type in IconType::XFER_ORDER {
@@ -193,12 +226,21 @@ impl IconInfo {
                     let mut template_name = String::new();
                     xfer.xfer_ascii_string(&mut template_name)
                         .map_err(|e| format!("{:?}", e))?;
-                    let icon = // Snapshot load restores the saved frame; the start-frame draw has no
-                    // receiving stream here (ownerless Xfer path).
-                    Anim2DIcon::from_template_name(
-                        &template_name,
-                        &mut game_engine::common::random_value::RandomState::default(),
-                    )?;
+                    let icon = match (icon_type, disabled_content) {
+                        (IconType::Disabled, DisabledIconContent::Receiving(template)) => {
+                            let template = template
+                                .filter(|template| template.read().get_name().as_str() == template_name)
+                                .ok_or_else(|| format!("Unknown receiving Anim2D template '{template_name}'"))?;
+                            Anim2DIcon {
+                                anim: Anim2D::new_for_restore(Arc::clone(template)),
+                                template_name,
+                            }
+                        }
+                        _ => Anim2DIcon::from_template_name(
+                            &template_name,
+                            &mut game_engine::common::random_value::RandomState::default(),
+                        )?,
+                    };
                     icon.xfer(xfer)?;
 
                     self.icons.insert(icon_type, Arc::new(icon));
@@ -247,16 +289,7 @@ impl Snapshotable for IconInfo {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut icon_count = self.icons.len().min(u8::MAX as usize) as u8;
-        xfer.xfer_unsigned_byte(&mut icon_count)
-            .map_err(|e| format!("{:?}", e))?;
-
-        self.xfer_icon_entries(xfer, icon_count)
+        self.xfer_versioned_with_disabled_content(xfer, DisabledIconContent::Compatibility)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -277,6 +310,7 @@ impl BasicDrawable {
     pub(crate) fn disabled_icon_for_draw(
         &mut self,
         collection: &Arc<Mutex<Anim2DCollection>>,
+        content: DisabledIconContent<'_>,
         client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Option<&dyn Icon> {
         use std::collections::hash_map::Entry;
@@ -284,12 +318,21 @@ impl BasicDrawable {
         let stored = match icons.icons.entry(IconType::Disabled) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let icon = Anim2DIcon::from_template_name_in_collection(
-                    "Disabled",
-                    Some(Arc::clone(collection)),
-                    client_random,
-                )
-                .ok()?;
+                let icon = match content {
+                    DisabledIconContent::Receiving(template) => Anim2DIcon::new(
+                        Arc::clone(template?),
+                        Some(Arc::clone(collection)),
+                        client_random,
+                    ),
+                    DisabledIconContent::Compatibility => {
+                        Anim2DIcon::from_template_name_in_collection(
+                            "Disabled",
+                            Some(Arc::clone(collection)),
+                            client_random,
+                        )
+                        .ok()?
+                    }
+                };
                 entry.insert(Arc::new(icon))
             }
         };
@@ -306,6 +349,13 @@ impl BasicDrawable {
 /// Trait for drawable icons
 pub trait Icon: std::fmt::Debug + Send + Sync {
     fn render(&self, position: Vector3, size: Vector3, renderer: &mut crate::gui::UIRenderer);
+    fn render_with_receiving_images(
+        &self,
+        _rect: crate::gui::ui_renderer::UIRect,
+        _images: &mut crate::display::image::ImageCollection,
+        _renderer: &mut crate::gui::UIRenderer,
+    ) {
+    }
     fn anim2d_template_name(&self) -> Option<&str> {
         None
     }
@@ -376,6 +426,17 @@ impl Icon for Anim2DIcon {
             size.y as i32,
             renderer,
         );
+    }
+
+    fn render_with_receiving_images(
+        &self,
+        rect: crate::gui::ui_renderer::UIRect,
+        images: &mut crate::display::image::ImageCollection,
+        renderer: &mut crate::gui::UIRenderer,
+    ) {
+        self.anim
+            .lock()
+            .draw_sized_with_receiving_images(rect, images, renderer);
     }
 
     fn anim2d_template_name(&self) -> Option<&str> {

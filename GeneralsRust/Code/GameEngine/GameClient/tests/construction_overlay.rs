@@ -1,7 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use game_client_rust::{
-    core::game_client::{GameClient, ReceivingDrawablePolicy},
+    core::game_client::{ClientInputAuthority, GameClient, ReceivingDrawablePolicy},
     display::image::{Image, Region2D, get_mapped_image_collection},
     drawable::{
         DrawableExt,
@@ -16,11 +16,18 @@ use game_engine::common::{
     ascii_string::AsciiString,
     ini::{
         INI, INILoadType,
-        ini_animation::ensure_anim2d_collection,
-        ini_mapped_image::{Image as MappedImage, ensure_mapped_image_collection},
+        ini_animation::{OwnedAnim2DTemplates, ensure_anim2d_collection},
+        ini_mapped_image::{
+            Image as MappedImage, ImageCollection as MappedImages, OwnedMappedImages,
+            Region2D as MappedRegion, ensure_mapped_image_collection,
+        },
     },
     name_key_generator::NameKeyNamespace,
-    system::big_file_system::BigFileSystem,
+    system::{
+        big_file_system::{BigArchiveBackend, BigFileSystem},
+        file_system::get_file_system,
+        subsystem_interface::SubsystemInterface,
+    },
     thing::{
         module::StaticGameLodLevel, module_factory::ModuleFactory,
         receiving_module_content::ReceivingModuleContent,
@@ -279,24 +286,30 @@ fn installed_construction_label_renders_without_missing_disabled_icon() {
     });
 }
 
-/// Install the real template and its first three authored atlas rows.
-fn mount_stock_disabled_animation() {
+const LIGHTNING_FRAMES: [(&str, [f32; 4]); 3] = [
+    ("SCPLightning000", [171., 159., 203., 191.]),
+    ("SCPLightning001", [205., 169., 237., 201.]),
+    ("SCPLightning002", [239., 169., 271., 201.]),
+];
+
+fn stock_disabled_animation_ini() -> String {
     let game = PathBuf::from(std::env::var_os("GENERALS_ASSETS_DIR").unwrap());
     let animation = archive_entry(game.join("Data/INIZH.big"), "Data/INI/Animation2D.ini");
     let animation = String::from_utf8_lossy(&animation);
     let index = animation.find("Animation Disabled").unwrap();
-    let block = animation[index..]
+    animation[index..]
         .lines()
         .take_while(|line| line.trim() != "End")
         .collect::<Vec<_>>()
         .join("\n")
-        + "\nEnd\n";
+        + "\nEnd\n"
+}
+
+/// Install the real template and its first three authored atlas rows.
+fn mount_stock_disabled_animation() {
+    let block = stock_disabled_animation_ini();
     let atlas = stock_disabled_atlas();
-    for (name, [left, top, right, bottom]) in [
-        ("SCPLightning000", [171., 159., 203., 191.]),
-        ("SCPLightning001", [205., 169., 237., 201.]),
-        ("SCPLightning002", [239., 169., 271., 201.]),
-    ] {
+    for (name, [left, top, right, bottom]) in LIGHTNING_FRAMES {
         let mut metadata = MappedImage::new();
         metadata.set_name(name.to_owned());
         ensure_mapped_image_collection().write().add_image(metadata);
@@ -370,137 +383,220 @@ fn installed_disabled_animation_ticks_once_and_resumes_from_the_owned_snapshot()
     with_world_services(&world, || {
         mount_stock_disabled_animation();
 
-        let instance = wgpu::Instance::default();
-        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
-        let (device, queue) = (Arc::new(device), Arc::new(queue));
-        let new_client = || {
-            let mut renderer = UIRenderer::new(
-                Arc::clone(&device),
-                Arc::clone(&queue),
-                wgpu::TextureFormat::Rgba8Unorm,
-            )
-            .unwrap();
-            renderer.set_screen_size(WIDTH, HEIGHT);
-            let mut client = GameClient::new().unwrap();
-            client.set_ui_renderer(renderer);
-            client
-        };
-        let draw = |client: &mut GameClient, logic_frame| {
-            client.update_cpp_snow_and_anim2d(0.0, logic_frame);
-            client.ui_renderer_mut().unwrap().begin_overlay_frame();
-            assert_eq!(client.draw_live_ingame_hud(logic_frame).icon_overlays, 1);
-            let renderer = client.ui_renderer_mut().unwrap();
-            render_pixels(renderer, &device, &queue)
-        };
-        let lit = |frame: &[u8]| {
-            frame
-                .chunks_exact(4)
-                .filter(|px| px[..3] != [0, 0, 0])
-                .count()
-        };
+        verify_disabled_playback(None);
+    });
+}
 
-        let mut first = new_client();
-        let id = first
-            .register_drawable_with_template(
-                Box::new(BasicDrawable::new(DrawableId::INVALID)),
-                Some("DisabledPlaybackFixture".to_owned()),
-            )
-            .unwrap();
-        admit_disabled_state(&mut first, id, true);
-        let initial = draw(&mut first, 10);
-        assert_eq!(lit(&initial), 0, "archived frame 000 is fully transparent");
-        assert!(
-            draw(&mut first, 10) == initial,
-            "same logic frame repaints unchanged"
-        );
+#[test]
+#[ignore = "requires mounted retail INIZH.big and base Textures.big and native GPU"]
+fn hosted_disabled_draw_and_load_use_boot_admission_without_legacy_assets() {
+    let world = new_world_services();
+    with_world_services(&world, || {
+        let base = PathBuf::from(std::env::var_os("GENERALS_BASE_DIR").unwrap());
+        let mut backend = BigArchiveBackend::new();
+        backend.add_search_path(base.join("Data"));
+        {
+            let files = get_file_system();
+            let mut files = files.lock().unwrap();
+            files.register_backend(Box::new(backend));
+            files.init().unwrap();
+        }
 
-        let frame_001 = draw(&mut first, 11);
-        assert!(
-            lit(&frame_001) > 0,
-            "stock frame 001 draws on the next owning tick"
-        );
-        assert!(draw(&mut first, 11) == frame_001);
-        assert!(
-            draw(&mut first, 12) == frame_001,
-            "stock 66 ms rounds up to two logic frames"
-        );
-
-        let save = first
-            .capture_xfer_bytes_with_owned_auxiliaries(&[])
+        let mut mapped = MappedImages::new();
+        for (name, [left, top, right, bottom]) in LIGHTNING_FRAMES {
+            let mut frame = MappedImage::new();
+            frame.set_name(name.to_owned());
+            frame.set_filename("SCGameUserInterface512_002.tga".to_owned());
+            frame.set_texture_width(512);
+            frame.set_texture_height(512);
+            frame.image_size.x = 32;
+            frame.image_size.y = 32;
+            frame.set_uv(MappedRegion::new(
+                left / 512.,
+                top / 512.,
+                right / 512.,
+                bottom / 512.,
+            ));
+            mapped.add_image(frame);
+        }
+        let images = OwnedMappedImages::from_collection(&mapped);
+        let templates = OwnedAnim2DTemplates::default()
+            .overlay_ini_text(&stock_disabled_animation_ini(), &|name| {
+                images.find(name).is_some()
+            })
             .unwrap();
-        let mut content =
-            ReceivingModuleContent::new(ModuleFactory::new_receiving(NameKeyNamespace::new()));
-        content
-            .load_ini_text(
-                "Object DisabledPlaybackFixture\nBuildCost = 1\nEnd",
-                INILoadType::Overwrite,
-            )
-            .unwrap();
-        let mut restored = new_client();
-        restored
-            .restore_from_xfer_bytes_with_receiving_content(
-                &save,
-                &mut content,
-                ReceivingDrawablePolicy {
-                    time_of_day: Some(game_client_rust::system::TimeOfDay::Afternoon),
-                    use_draw_module_lod: true,
-                    static_game_lod: StaticGameLodLevel::High,
-                    use_tree_sway: true,
-                },
-            )
-            .unwrap();
-        admit_disabled_state(&mut restored, id, true);
-        restored
-            .find_drawable_by_id_mut(id)
-            .unwrap()
-            .downcast_mut::<BasicDrawable>()
-            .unwrap()
-            .get_icon_info_mut()
-            .update(13);
-        let restored_frame_002 = draw(&mut restored, 13);
-        assert!(lit(&restored_frame_002) > 0);
-        assert!(
-            restored_frame_002 != frame_001,
-            "loaded clock advances before the first paint"
-        );
-        assert!(
-            draw(&mut first, 12) == frame_001,
-            "same-ID peer keeps its 001 frame"
-        );
-        first
-            .find_drawable_by_id_mut(id)
-            .unwrap()
-            .downcast_mut::<BasicDrawable>()
-            .unwrap()
-            .overlay_data
-            .visible = false;
-        first.update_cpp_snow_and_anim2d(0.0, 13);
-        first.ui_renderer_mut().unwrap().begin_overlay_frame();
-        assert_eq!(first.draw_live_ingame_hud(13).icon_overlays, 0);
-        admit_disabled_state(&mut first, id, true);
-        assert!(
-            draw(&mut first, 13) == restored_frame_002,
-            "registration still advances while the HUD overlay is suppressed"
-        );
-        assert!(draw(&mut restored, 13) == restored_frame_002);
-
-        admit_disabled_state(&mut first, id, false);
-        assert_eq!(lit(&draw(&mut first, 14)), 0);
-        admit_disabled_state(&mut first, id, true);
         assert_eq!(
-            lit(&draw(&mut first, 15)),
-            0,
-            "next disable starts freshly at frame 000"
+            templates.find("Disabled").unwrap().get_frame_name(1),
+            Some("SCPLightning001")
         );
-        assert!(draw(&mut first, 16) == frame_001);
-        assert!(draw(&mut restored, 13) == restored_frame_002);
-        println!(
-            "Stock Disabled 000→001→002: lit pixels {}, {}, {}. Save/load, paused owner and retired/reapplied playback verified.",
-            lit(&initial),
-            lit(&frame_001),
-            lit(&restored_frame_002)
+        assert!(
+            ensure_anim2d_collection()
+                .read()
+                .find_template(&AsciiString::from("Disabled"))
+                .is_none()
+        );
+        assert!(
+            get_mapped_image_collection()
+                .read()
+                .find_image_by_name("SCPLightning001")
+                .is_none()
+        );
+        verify_disabled_playback(Some((&templates, &images)));
+        assert!(
+            ensure_anim2d_collection()
+                .read()
+                .find_template(&AsciiString::from("Disabled"))
+                .is_none()
+        );
+        assert!(
+            get_mapped_image_collection()
+                .read()
+                .find_image_by_name("SCPLightning001")
+                .is_none()
         );
     });
+}
+
+fn verify_disabled_playback(startup: Option<(&OwnedAnim2DTemplates, &OwnedMappedImages)>) {
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let (device, queue) = (Arc::new(device), Arc::new(queue));
+    let new_client = || {
+        let mut renderer = UIRenderer::new(
+            Arc::clone(&device),
+            Arc::clone(&queue),
+            wgpu::TextureFormat::Rgba8Unorm,
+        )
+        .unwrap();
+        renderer.set_screen_size(WIDTH, HEIGHT);
+        let authority = if startup.is_some() {
+            ClientInputAuthority::NativeHosted
+        } else {
+            ClientInputAuthority::StandaloneCore
+        };
+        let mut client = GameClient::new_with_input_authority(authority).unwrap();
+        client.set_ui_renderer(renderer);
+        if let Some((templates, images)) = startup {
+            client.admit_receiving_ui_images(images);
+            client.admit_owned_world_animations(templates, images);
+        }
+        client
+    };
+    let draw = |client: &mut GameClient, logic_frame| {
+        client.update_cpp_snow_and_anim2d(0.0, logic_frame);
+        client.ui_renderer_mut().unwrap().begin_overlay_frame();
+        assert_eq!(client.draw_live_ingame_hud(logic_frame).icon_overlays, 1);
+        let renderer = client.ui_renderer_mut().unwrap();
+        render_pixels(renderer, &device, &queue)
+    };
+    let lit = |frame: &[u8]| {
+        frame
+            .chunks_exact(4)
+            .filter(|px| px[..3] != [0, 0, 0])
+            .count()
+    };
+
+    let mut first = new_client();
+    let id = first
+        .register_drawable_with_template(
+            Box::new(BasicDrawable::new(DrawableId::INVALID)),
+            Some("DisabledPlaybackFixture".to_owned()),
+        )
+        .unwrap();
+    admit_disabled_state(&mut first, id, true);
+    let initial = draw(&mut first, 10);
+    assert_eq!(lit(&initial), 0, "archived frame 000 is fully transparent");
+    assert!(
+        draw(&mut first, 10) == initial,
+        "same logic frame repaints unchanged"
+    );
+
+    let frame_001 = draw(&mut first, 11);
+    assert!(
+        lit(&frame_001) > 0,
+        "stock frame 001 draws on the next owning tick"
+    );
+    assert!(draw(&mut first, 11) == frame_001);
+    assert!(
+        draw(&mut first, 12) == frame_001,
+        "stock 66 ms rounds up to two logic frames"
+    );
+
+    let save = first
+        .capture_xfer_bytes_with_owned_auxiliaries(&[])
+        .unwrap();
+    let mut content =
+        ReceivingModuleContent::new(ModuleFactory::new_receiving(NameKeyNamespace::new()));
+    content
+        .load_ini_text(
+            "Object DisabledPlaybackFixture\nBuildCost = 1\nEnd",
+            INILoadType::Overwrite,
+        )
+        .unwrap();
+    let mut restored = new_client();
+    restored
+        .restore_from_xfer_bytes_with_receiving_content(
+            &save,
+            &mut content,
+            ReceivingDrawablePolicy {
+                time_of_day: Some(game_client_rust::system::TimeOfDay::Afternoon),
+                use_draw_module_lod: true,
+                static_game_lod: StaticGameLodLevel::High,
+                use_tree_sway: true,
+            },
+        )
+        .unwrap();
+    admit_disabled_state(&mut restored, id, true);
+    restored
+        .find_drawable_by_id_mut(id)
+        .unwrap()
+        .downcast_mut::<BasicDrawable>()
+        .unwrap()
+        .get_icon_info_mut()
+        .update(13);
+    let restored_frame_002 = draw(&mut restored, 13);
+    assert!(lit(&restored_frame_002) > 0);
+    assert!(
+        restored_frame_002 != frame_001,
+        "loaded clock advances before the first paint"
+    );
+    assert!(
+        draw(&mut first, 12) == frame_001,
+        "same-ID peer keeps its 001 frame"
+    );
+    first
+        .find_drawable_by_id_mut(id)
+        .unwrap()
+        .downcast_mut::<BasicDrawable>()
+        .unwrap()
+        .overlay_data
+        .visible = false;
+    first.update_cpp_snow_and_anim2d(0.0, 13);
+    first.ui_renderer_mut().unwrap().begin_overlay_frame();
+    assert_eq!(first.draw_live_ingame_hud(13).icon_overlays, 0);
+    admit_disabled_state(&mut first, id, true);
+    assert!(
+        draw(&mut first, 13) == restored_frame_002,
+        "registration still advances while the HUD overlay is suppressed"
+    );
+    assert!(draw(&mut restored, 13) == restored_frame_002);
+
+    admit_disabled_state(&mut first, id, false);
+    assert_eq!(lit(&draw(&mut first, 14)), 0);
+    admit_disabled_state(&mut first, id, true);
+    assert_eq!(
+        lit(&draw(&mut first, 15)),
+        0,
+        "next disable starts freshly at frame 000"
+    );
+    assert!(draw(&mut first, 16) == frame_001);
+    assert!(draw(&mut restored, 13) == restored_frame_002);
+    println!(
+        "Stock Disabled 000→001→002: lit pixels {}, {}, {}. Save/load, paused owner and retired/reapplied playback verified.",
+        lit(&initial),
+        lit(&frame_001),
+        lit(&restored_frame_002)
+    );
 }
