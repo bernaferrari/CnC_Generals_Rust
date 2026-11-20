@@ -143,6 +143,134 @@ fn adjacent_water_tracks_preserve_ordered_color_and_shroud_pixels() {
             ("wave256.tga", 6)
         ]
     );
+
+    check_projected_shroud_uploads(&mut visual, &device, &queue);
+}
+
+fn check_projected_shroud_uploads(
+    visual: &mut TerrainVisualImpl,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) {
+    let (width, height) = (67, 41);
+    let origin = [-17.0, -13.0];
+    let mut cells: Vec<_> = (0..width * height)
+        .map(|index| (20 + (index * 17 + index / width * 9) % 235) as u8)
+        .collect();
+    visual.set_shroud_overlay_r8(width, height, 1.0, origin, &cells);
+    let mask_bytes = visual.sync_shroud_dest_texture();
+    let r8_pixels = read_water_pixels(visual, device, queue, true);
+    let unshrouded = read_water_pixels(visual, device, queue, false);
+    assert_ne!(r8_pixels, unshrouded);
+    let texture = visual.shroud_gpu.dest_texture.as_ref().unwrap();
+    assert_eq!((texture.width(), texture.height()), (67, 41));
+    assert_eq!(texture.format(), wgpu::TextureFormat::R8Unorm);
+    assert_eq!(mask_bytes, cells.len());
+
+    // Compare all pixels with the old replicated RGBA format through the same
+    // sampler, projection parameters, mesh, and native terrain shroud shader.
+    let rgba = legacy_shroud_binding(visual, device, queue, &cells, 67, 41);
+    let r8 = visual.shroud_gpu.bind_group.replace(rgba).unwrap();
+    assert_eq!(read_water_pixels(visual, device, queue, true), r8_pixels);
+    visual.shroud_gpu.bind_group = Some(r8);
+    for _ in 0..90 {
+        visual.set_shroud_overlay_r8(width, height, 1.0, origin, &cells);
+        assert_eq!(visual.sync_shroud_dest_texture(), 0);
+    }
+    assert_eq!(read_water_pixels(visual, device, queue, true), r8_pixels);
+    visual.set_shroud_overlay_r8(width, height, 1.0, origin, &cells[..cells.len() - 1]);
+    assert_eq!(visual.sync_shroud_dest_texture(), 0);
+    eprintln!(
+        "shroud native frame CRC32 {:08x}, projected mask {mask_bytes} bytes, 90 identical updates 0 bytes",
+        crc32fast::hash(&r8_pixels),
+    );
+
+    visual.set_shroud_level(18, 13, 255);
+    cells[13 * width as usize + 18] = 255;
+    assert_eq!(visual.sync_shroud_dest_texture(), mask_bytes);
+    let after_cell = read_water_pixels(visual, device, queue, true);
+    assert_ne!(after_cell, r8_pixels);
+    visual.set_shroud_level(18, 13, 255);
+    assert_eq!(visual.sync_shroud_dest_texture(), 0);
+
+    visual.set_shroud_overlay_r8(width, height, 1.0, [-18.0, -13.0], &cells);
+    assert_eq!(visual.sync_shroud_dest_texture(), mask_bytes);
+    let after_origin = read_water_pixels(visual, device, queue, true);
+    assert_ne!(after_origin, after_cell);
+    visual.create_shroud_overlay_pipelines(device).unwrap();
+    assert_eq!(visual.sync_shroud_dest_texture(), mask_bytes);
+    assert_eq!(read_water_pixels(visual, device, queue, true), after_origin);
+
+    visual.clear_shroud_overlay();
+    assert_eq!(visual.sync_shroud_dest_texture(), 1);
+    assert_eq!(read_water_pixels(visual, device, queue, true), unshrouded);
+    visual.clear_shroud_overlay();
+    assert_eq!(visual.sync_shroud_dest_texture(), 0);
+}
+
+fn legacy_shroud_binding(
+    visual: &TerrainVisualImpl,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    cells: &[u8],
+    width: u32,
+    height: u32,
+) -> wgpu::BindGroup {
+    let size = wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("prior RGBA terrain shroud test control"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let pixels: Vec<_> = cells
+        .iter()
+        .flat_map(|&cell| [cell, cell, cell, 255])
+        .collect();
+    queue.write_texture(
+        texture.as_image_copy(),
+        &pixels,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * width),
+            rows_per_image: Some(height),
+        },
+        size,
+    );
+    let view = texture.create_view(&Default::default());
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("prior RGBA terrain shroud test control"),
+        layout: visual.shroud_gpu.bind_layout.as_ref().unwrap(),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(
+                    visual.shroud_gpu.sampler.as_ref().unwrap(),
+                ),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: visual
+                    .shroud_gpu
+                    .params
+                    .as_ref()
+                    .unwrap()
+                    .as_entire_binding(),
+            },
+        ],
+    })
 }
 
 #[test]

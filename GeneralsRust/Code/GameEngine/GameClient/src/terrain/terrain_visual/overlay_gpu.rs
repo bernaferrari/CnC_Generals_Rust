@@ -89,6 +89,7 @@ impl TerrainVisualImpl {
         }
         let idx = (cell_y * self.overlay.shroud_width + cell_x) as usize;
         if let Some(slot) = self.overlay.shroud_cells.get_mut(idx) {
+            self.shroud_gpu.dirty |= *slot != alpha;
             *slot = alpha;
             self.overlay.overlays_dirty = true;
         }
@@ -108,11 +109,16 @@ impl TerrainVisualImpl {
         self.overlay.shroud_cell_size = cell_size.max(1.0);
         self.overlay.shroud_origin = origin;
         self.overlay.shroud_cells = vec![255u8; (width as usize).saturating_mul(height as usize)];
+        self.shroud_gpu.dirty = true;
     }
 
     /// Remove the previous world's projected shroud. An inactive presentation
     /// snapshot has no shroud pass and must not reuse a prior map's texture.
     pub fn clear_shroud_overlay(&mut self) {
+        self.shroud_gpu.dirty |= self.overlay.shroud_width != 0
+            || self.overlay.shroud_height != 0
+            || self.overlay.shroud_cell_size != 0.0
+            || self.overlay.shroud_origin != [0.0; 2];
         self.overlay.shroud_cells.clear();
         self.overlay.shroud_width = 0;
         self.overlay.shroud_height = 0;
@@ -125,8 +131,8 @@ impl TerrainVisualImpl {
     /// Live feed path (per presentation frame, `RenderPipeline::
     /// update_minimap_fow_texture`): an identical payload is a no-op, and a
     /// same-size update reuses the existing cell buffer — only the shroud
-    /// state changes, which `sync_shroud_dest_texture` re-uploads to the GPU
-    /// each terrain update. C++ `W3DShroud` replays terrain geometry with its
+    /// state changes, which `sync_shroud_dest_texture` uploads on the next
+    /// terrain update. C++ `W3DShroud` replays terrain geometry with its
     /// destination texture; a fog update must preserve static chunk meshes.
     /// Oversized payloads are truncated; undersized payloads are
     /// rejected (fail-open: previous overlay state retained).
@@ -162,6 +168,7 @@ impl TerrainVisualImpl {
             self.overlay.shroud_origin = origin;
         }
         self.overlay.shroud_cells[..expected].copy_from_slice(&data[..expected]);
+        self.shroud_gpu.dirty = true;
     }
 
     pub fn shroud_alpha_at_world(&self, world_x: f32, world_z: f32) -> f32 {

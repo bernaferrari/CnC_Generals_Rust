@@ -376,7 +376,7 @@ struct ShroudGpuState {
     water_pipeline: Option<wgpu::RenderPipeline>,
     road_pipeline: Option<wgpu::RenderPipeline>,
     tree_pipeline: Option<wgpu::RenderPipeline>,
-    uploaded_len: usize,
+    dirty: bool,
 }
 
 #[derive(Default)]

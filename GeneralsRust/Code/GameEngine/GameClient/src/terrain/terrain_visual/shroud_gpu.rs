@@ -109,6 +109,8 @@ impl TerrainVisualImpl {
         };
         // C++ HeightMap.cpp:2138 replays the same terrain VB under the
         // W3DShroud material pass after roads and terrain tracks.
+        // The destination view and binding belong to the same device as these pipelines.
+        self.shroud_gpu = ShroudGpuState::default();
         self.shroud_gpu.terrain_pipeline = Some(make(
             "ST_SHROUD terrain",
             std::mem::size_of::<TerrainVertex>() as u64,
@@ -150,126 +152,110 @@ impl TerrainVisualImpl {
         Ok(())
     }
 
-    fn sync_shroud_dest_texture(&mut self) {
-        let Some(device) = self.device.as_ref() else {
-            return;
-        };
-        let Some(queue) = self.queue.as_ref() else {
-            return;
+    /// Upload the changed projected mask. Returns the number of mask bytes queued.
+    fn sync_shroud_dest_texture(&mut self) -> usize {
+        if !self.shroud_gpu.dirty && self.shroud_gpu.bind_group.is_some() {
+            return 0;
+        }
+        let (Some(device), Some(queue), Some(layout), Some(sampler), Some(buf)) = (
+            self.device.as_ref(),
+            self.queue.as_ref(),
+            self.shroud_gpu.bind_layout.as_ref(),
+            self.shroud_gpu.sampler.as_ref(),
+            self.shroud_gpu.params.as_ref(),
+        ) else {
+            return 0;
         };
         let width = self.overlay.shroud_width.max(0) as u32;
         let height = self.overlay.shroud_height.max(0) as u32;
         let cells = &self.overlay.shroud_cells;
-        let (w, h, pixels) = if width == 0 || height == 0 || cells.is_empty() {
-            (1u32, 1u32, vec![255u8, 255, 255, 255])
+        let enabled = width > 0 && height > 0 && !cells.is_empty();
+        let (w, h) = if enabled { (width, height) } else { (1, 1) };
+        let texel_count = w as usize * h as usize;
+        let pixels: std::borrow::Cow<'_, [u8]> = if !enabled {
+            std::borrow::Cow::Borrowed(&[255])
+        } else if let Some(full_grid) = cells.get(..texel_count) {
+            std::borrow::Cow::Borrowed(full_grid)
         } else {
-            let mut rgba = vec![255u8; (width * height * 4) as usize];
-            let n = cells.len().min((width * height) as usize);
-            for i in 0..n {
-                let a = cells[i];
-                let o = i * 4;
-                rgba[o] = a;
-                rgba[o + 1] = a;
-                rgba[o + 2] = a;
-                rgba[o + 3] = 255;
-            }
-            (width, height, rgba)
+            let mut padded = cells.clone();
+            padded.resize(texel_count, 255);
+            std::borrow::Cow::Owned(padded)
+        };
+        let extent = wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
         };
         let need_new = self
             .shroud_gpu
             .dest_texture
             .as_ref()
-            .map(|t| t.width() != w || t.height() != h)
-            .unwrap_or(true);
+            .is_none_or(|texture| texture.width() != w || texture.height() != h);
         if need_new {
-            let tex = device.create_texture(&wgpu::TextureDescriptor {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("W3DShroud dest"),
-                size: wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
+                size: extent,
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                // ST_SHROUD samples only the normalized red channel.
+                format: wgpu::TextureFormat::R8Unorm,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
-            self.shroud_gpu.dest_view =
-                Some(tex.create_view(&wgpu::TextureViewDescriptor::default()));
-            self.shroud_gpu.dest_texture = Some(tex);
+            self.shroud_gpu.dest_view = Some(texture.create_view(&Default::default()));
+            self.shroud_gpu.dest_texture = Some(texture);
             self.shroud_gpu.bind_group = None;
         }
-        if let Some(tex) = self.shroud_gpu.dest_texture.as_ref() {
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: tex,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &pixels,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(w * 4),
-                    rows_per_image: Some(h),
-                },
-                wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-        let enabled = if width > 0 && height > 0 && !cells.is_empty() {
-            1.0f32
-        } else {
-            0.0
+        let (Some(texture), Some(view)) = (
+            self.shroud_gpu.dest_texture.as_ref(),
+            self.shroud_gpu.dest_view.as_ref(),
+        ) else {
+            return 0;
         };
+        queue.write_texture(
+            texture.as_image_copy(),
+            &pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(w),
+                rows_per_image: Some(h),
+            },
+            extent,
+        );
         let params = [
             self.overlay.shroud_origin[0],
             self.overlay.shroud_origin[1],
             self.overlay.shroud_cell_size.max(1.0),
-            enabled,
+            if enabled { 1.0 } else { 0.0 },
             w as f32,
             h as f32,
             0.0,
             0.0,
         ];
-        if let Some(buf) = self.shroud_gpu.params.as_ref() {
-            queue.write_buffer(buf, 0, bytemuck::cast_slice(&params));
-        }
+        queue.write_buffer(buf, 0, bytemuck::cast_slice(&params));
         if self.shroud_gpu.bind_group.is_none() {
-            let (Some(layout), Some(view), Some(sampler), Some(buf)) = (
-                self.shroud_gpu.bind_layout.as_ref(),
-                self.shroud_gpu.dest_view.as_ref(),
-                self.shroud_gpu.sampler.as_ref(),
-                self.shroud_gpu.params.as_ref(),
-            ) else {
-                return;
-            };
-            self.shroud_gpu.bind_group =
-                Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("ST_SHROUD dest bind"),
-                    layout: layout.as_ref(),
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(sampler),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: buf.as_entire_binding(),
-                        },
-                    ],
-                }));
+            self.shroud_gpu.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("ST_SHROUD dest bind"),
+                layout: layout.as_ref(),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: buf.as_entire_binding(),
+                    },
+                ],
+            }));
         }
-        self.shroud_gpu.uploaded_len = cells.len();
+        self.shroud_gpu.dirty = false;
+        pixels.len()
     }
 
     /// C++ applies the shroud in a second pass over the same water geometry
