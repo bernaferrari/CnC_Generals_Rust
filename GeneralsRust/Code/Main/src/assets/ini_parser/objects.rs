@@ -608,6 +608,14 @@ impl ObjectDefinition {
     ) -> Vec<(String, String)> {
         let mut bones = Vec::new();
         for module in &self.draw_modules {
+            // Transition states cannot win the current condition match.
+            if !module
+                .condition_states
+                .iter()
+                .any(|state| !state.is_transition && !state.particle_sys_bones.is_empty())
+            {
+                continue;
+            }
             if let Ok(Some((_, state))) =
                 module.selected_condition_state_for_conditions(condition_bits)
                 && !state.particle_sys_bones.is_empty()
@@ -1181,6 +1189,54 @@ mod native_render_roster_tests {
         module.condition_states.push(state);
         module
     }
+
+    #[test]
+    fn particle_bones_follow_selected_module_order_and_receiving_owner() {
+        let empty = module("W3DModelDraw", "Empty");
+        let mut transition_only = module("W3DModelDraw", "Transition");
+        transition_only.condition_states[0].is_transition = true;
+        transition_only.condition_states[0]
+            .particle_sys_bones
+            .push(("hidden".into(), "TransitionFx".into()));
+        let mut first = module("W3DModelDraw", "First");
+        first.declaration = "W3DModelDraw FirstOwner".into();
+        first.condition_states[0]
+            .particle_sys_bones
+            .push(("first".into(), "FirstFx".into()));
+        first
+            .condition_states
+            .extend(transition_only.condition_states.iter().cloned());
+        let mut last = module("W3DModelDraw", "Last");
+        last.condition_states[0]
+            .particle_sys_bones
+            .push(("last".into(), "LastFx".into()));
+        let mut object = ObjectDefinition::new("ParticleOwner".into());
+        object.draw_modules = vec![empty, first, transition_only, last];
+
+        let mut owner_checks = Vec::new();
+        let installed = object.particle_sys_bones_for_unowned_draws(0, |tag| {
+            owner_checks.push(tag.to_owned());
+            true
+        });
+        assert_eq!(owner_checks, ["FirstOwner"]);
+        assert_eq!(installed, [("last".to_owned(), "LastFx".to_owned())]);
+        assert_eq!(
+            object.particle_sys_bones_for_conditions(0),
+            [
+                ("first".to_owned(), "FirstFx".to_owned()),
+                ("last".to_owned(), "LastFx".to_owned()),
+            ]
+        );
+
+        object.draw_modules[0].condition_states[0]
+            .particle_sys_bones
+            .push(("new".into(), "NewFx".into()));
+        assert_eq!(
+            object.particle_sys_bones_for_conditions(0)[0],
+            ("new".to_owned(), "NewFx".to_owned())
+        );
+    }
+
     #[test]
     fn native_render_roster_preserves_non_camera_modules_empty_models_and_authored_indices() {
         let modules = [
