@@ -4155,6 +4155,7 @@ dependencies = [
  "libc",
  "log",
  "lz4",
+ "math_utilities",
  "memmap2 0.9.11",
  "meshopt",
  "metal 0.33.0",

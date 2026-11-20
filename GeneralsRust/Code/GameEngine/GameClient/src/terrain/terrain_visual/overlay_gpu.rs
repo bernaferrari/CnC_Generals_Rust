@@ -7,6 +7,7 @@ use super::*;
 
 use crate::system::smudge::get_smudge_manager;
 use game_engine::map_object::MAP_XY_FACTOR as MAP_XY;
+use wwmath::wwmath::WWMath;
 
 const NUM_BUMP_FRAMES: i32 = 32;
 const WATER_GRID_DAMP: f32 = 0.93;
@@ -1318,7 +1319,7 @@ fn bake_trapezoid_water(
             let du = i as f32 * du_step;
             let vertex = origin + u_vec1 * du + v_vec1 * dv + (v_vec2 - v_vec1) * (dv * du);
             // C++ feather branch: wave displaces Z and the wave height feeds
-            // back into U/V; flat branch: plain sine-scroll UVs.
+            // back into U/V. The flat branch uses the original sine lookup.
             let (tu, tv, y) = if feather_wave {
                 let wave = ((const_c + vertex.x * const_d).sin() - 1.0) * 0.5;
                 (
@@ -1328,8 +1329,8 @@ fn bake_trapezoid_water(
                 )
             } else {
                 (
-                    vertex.x * oo_water + const_a * (const_c + vertex.x * const_d).sin(),
-                    vertex.z * oo_water + const_b * (const_c + vertex.z * const_d).sin(),
+                    vertex.x * oo_water + const_a * WWMath::fast_sin(const_c + vertex.x * const_d),
+                    vertex.z * oo_water + const_b * WWMath::fast_sin(const_c + vertex.z * const_d),
                     vertex.y,
                 )
             };
@@ -1405,9 +1406,8 @@ fn bake_river_strip(
         if outer >= n as i32 {
             outer = 0;
         }
-        let wobble = -v_origin
-            + v_scale * i as f32
-            + (2.0 * std::f32::consts::PI * (v_scale * i as f32) - const_a).sin() / 22.0;
+        let v = v_scale * i as f32;
+        let wobble = -v_origin + v + WWMath::fast_sin(2.0 * std::f32::consts::PI * v - const_a) / 22.0;
         verts.push(crate::terrain::SeaPatchVertex {
             x: inner_pt[0],
             y: inner_pt[1],
@@ -1496,6 +1496,43 @@ mod overlay_gpu_tests {
         );
         assert!(verts.iter().any(|v| (v.y - 5.0).abs() < 1.0e-3));
         assert!(verts.iter().any(|v| (v.y - 6.0).abs() < 1.0e-3));
+    }
+
+    #[test]
+    fn animated_water_uvs_use_the_original_lookup_table() {
+        // First signed bank value on Lone Eagle at the first water update,
+        // from the original drawRiverWater + WWMath::Fast_Sin source.
+        let banks = [
+            [0.0, 5.0, 0.0],
+            [0.0, 5.0, 20.0],
+            [40.0, 6.0, 20.0],
+            [40.0, 6.0, 0.0],
+        ];
+        let (river, _) = bake_river_strip(&banks, 0, 0.002, 0xffff_ffff).unwrap();
+        // Lone Eagle's 8×4 pond control with the original flat-water setting.
+        let pond = [
+            [798.0, 7.0, 3216.0],
+            [1058.0, 7.0, 3016.0],
+            [924.0, 7.0, 2917.0],
+            [753.0, 7.0, 3082.0],
+        ];
+        let (flat, _) = bake_trapezoid_water(&pond, 0.0, 0.0, 0xffff_ffff, 0);
+        let max_ulps = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            0
+        } else {
+            2
+        };
+        for (actual, expected) in [
+            (river[0].tv.to_bits(), 0xbb14_f1e4),
+            (river[1].tv.to_bits(), 0xbb14_f1e4),
+            (flat[7].tu.to_bits(), 0x40e2_56ba),
+            (flat[7].tv.to_bits(), 0x41a0_b37f),
+        ] {
+            assert!(
+                actual.abs_diff(expected) <= max_ulps,
+                "got {actual:08x}, expected {expected:08x}"
+            );
+        }
     }
 
     #[test]
