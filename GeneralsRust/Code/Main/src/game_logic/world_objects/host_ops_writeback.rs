@@ -880,49 +880,40 @@ impl GameLogic {
     /// Occupant/garrison count on the receiving world.
     /// TunnelContain redirects to the controlling player's TunnelTracker.
     pub fn host_authoritative_occupant_count(&self, id: ObjectId) -> Option<u16> {
-        let id = self.redirected_containment_owner(id);
-        let o = self.host_object(id)?;
-        if o.is_tunnel_network_style_container()
-        {
-            return Some(
-                self.tunnel_network
-                    .contain_count(o.tunnel_system_key())
-                    .min(u16::MAX as usize) as u16,
-            );
-        }
-        if o.is_cave_style_container() {
-            return Some(
-                self.cave_system
-                    .contain_count(o.cave_index)
-                    .min(u16::MAX as usize) as u16,
-            );
-        }
-        let count = o
-            .building_data
-            .as_ref()
-            .map_or(o.occupants.len(), |building| {
-                building.garrisoned_units.len()
-            });
-        Some(count.min(u16::MAX as usize) as u16)
+        let outer = self.host_object(id)?;
+        Some(self.occupant_count_at(self.redirected_containment_object(outer)))
+    }
+
+    pub(crate) fn occupant_count_at(&self, container: &Object) -> u16 {
+        let count = if container.is_tunnel_network_style_container() {
+            self.tunnel_network.contain_count(container.tunnel_system_key())
+        } else if container.is_cave_style_container() {
+            self.cave_system.contain_count(container.cave_index)
+        } else {
+            container.contained_unit_ids().len()
+        };
+        count.min(u16::MAX as usize) as u16
     }
 
     /// Authoritative contained-unit list. Tunnels export the shared player pool
     /// so every entrance shows the same ControlBar inventory.
     pub fn host_authoritative_contained_units(&self, id: ObjectId) -> Vec<ObjectId> {
-        let id = self.redirected_containment_owner(id);
-        let Some(o) = self.host_object(id) else {
+        let Some(outer) = self.host_object(id) else {
             return Vec::new();
         };
-        if o.is_tunnel_network_style_container()
-        {
+        self.contained_units_at(self.redirected_containment_object(outer))
+    }
+
+    pub(crate) fn contained_units_at(&self, container: &Object) -> Vec<ObjectId> {
+        if container.is_tunnel_network_style_container() {
             return self
                 .tunnel_network
-                .contained_for_player(o.tunnel_system_key());
+                .contained_for_player(container.tunnel_system_key());
         }
-        if o.is_cave_style_container() {
-            return self.cave_system.contained_for_index(o.cave_index);
+        if container.is_cave_style_container() {
+            return self.cave_system.contained_for_index(container.cave_index);
         }
-        o.contained_units()
+        container.contained_units()
     }
 
     /// Current move destination; None means the receiving object is stopped.

@@ -860,6 +860,24 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
         PresentationSelectedUnitHint, PresentationTargetHint,
     };
     use crate::presentation_frame::PresentationFrame;
+    use game_engine::common::system::archive_file_system::ArchiveFileSystem;
+    use std::io::Read;
+
+    let Some(install) = crate::map_frame_scenario::find_lone_eagle_retail_install() else {
+        eprintln!("retail INI archives unavailable");
+        return;
+    };
+    let mut archive = ArchiveFileSystem::new();
+    archive.add_search_path(&install);
+    archive.init().expect("mount retail archives");
+    let mut read_source = |path: &str| {
+        let mut bytes = Vec::new();
+        archive
+            .open_file(path, 0)
+            .and_then(|mut source| source.read_to_end(&mut bytes))
+            .unwrap_or_else(|error| panic!("read mounted retail Object INI {path}: {error}"));
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
 
     fn selected_object_source(text: &str, name: &str) -> String {
         let lines = text.lines().collect::<Vec<_>>();
@@ -881,42 +899,40 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
     }
 
     fn retail_definition(
-        relative_path: &str,
+        source_path: &str,
+        contents: &str,
         object_name: &str,
     ) -> (crate::assets::ObjectDefinition, String) {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../..")
-            .join(relative_path);
-        let contents = std::fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("read retail Object INI {}: {error}", path.display()));
         let mut parser = IniParser::new();
         parser
-            .parse_ini_content(&contents, &path.display().to_string())
-            .unwrap_or_else(|error| panic!("parse retail Object INI {}: {error}", path.display()));
+            .parse_ini_content(contents, source_path)
+            .unwrap_or_else(|error| panic!("parse retail Object INI {source_path}: {error}"));
         let definition = parser
             .get_definition(object_name)
             .cloned()
-            .unwrap_or_else(|| panic!("{object_name} missing from {}", path.display()));
-        (definition, selected_object_source(&contents, object_name))
+            .unwrap_or_else(|| panic!("{object_name} missing from {source_path}"));
+        (definition, selected_object_source(contents, object_name))
     }
 
     let cases = [
         (
             "AmericaVehicleChinook",
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaAir.ini",
+            "Data/INI/Object/AmericaAir.ini",
             Team::USA,
             0,
         ),
         (
             "ChinaVehicleSupplyTruck",
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/ChinaVehicle.ini",
+            "Data/INI/Object/ChinaVehicle.ini",
             Team::China,
             1,
         ),
     ];
 
+    let buildings = read_source("Data/INI/Object/FactionBuilding.ini");
     for (object_name, source_path, team, player_id) in cases {
-        let (definition, source) = retail_definition(source_path, object_name);
+        let (definition, source) =
+            retail_definition(source_path, &read_source(source_path), object_name);
         let template =
             GameLogic::build_template_from_object_definition(object_name, &definition, None);
         assert!(
@@ -934,10 +950,6 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
 
         // Real collector prerequisites remain real content even though this
         // fixture is testing Gather, not producing either collector.
-        let building_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../..")
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini");
-        let buildings = std::fs::read_to_string(&building_path).unwrap();
         let mut sources = vec![(source_path.into(), source)];
         // Preserve the selected declarations' actual FactionBuilding order.
         for name in [

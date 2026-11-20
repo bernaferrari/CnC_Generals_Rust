@@ -422,7 +422,31 @@ impl PresentationFrame {
             0
         });
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().registered_len());
+        let mut native_ghost_scale_sources = std::collections::HashMap::new();
+        let mut structure_topple_transforms = std::collections::HashMap::new();
         for (obj, fow_visibility, drawable_shroud) in frozen_object_shrouds {
+            // These facts also belong to registered Objects with hidden meshes.
+            if obj.structure_topple_data.is_some() {
+                structure_topple_transforms.insert(obj.id, obj.get_transform_matrix());
+            }
+            let remembers_ghost = obj.is_kind_of(KindOf::Immobile)
+                && !obj.get_template().default_draw_without_fog_memory;
+            if obj.drawable_hidden && !remembers_ghost {
+                continue;
+            }
+            let draw_identity = logic.live_draw_playback_identity(obj);
+            if remembers_ghost {
+                use crate::game_logic::game_logic::world_objects::fog_ghosts::HostGhostScaleSource;
+                let scale = obj.drawable_instance_scale;
+                native_ghost_scale_sources.insert(
+                    obj.id,
+                    HostGhostScaleSource {
+                        identity: draw_identity.clone(),
+                        asset_scale: scale,
+                        instance_scale: scale,
+                    },
+                );
+            }
             // C++ Drawable::setDrawableHidden — ride-hide hijacker has no mesh.
             if obj.drawable_hidden {
                 continue;
@@ -446,11 +470,15 @@ impl PresentationFrame {
                         max_shots,
                     })
                 });
-            let auth_occupants = logic.host_authoritative_occupant_count(obj.id);
-            let authoritative_contained = logic.host_authoritative_contained_units(obj.id);
-            let containment_id = logic.redirected_containment_owner(obj.id);
-            let containment = logic.host_object(containment_id).unwrap_or(obj);
-            let redirected_capacity = (containment_id != obj.id)
+            let resolved_containment =
+                canonical.map(|outer| logic.redirected_containment_object(outer));
+            let auth_occupants =
+                resolved_containment.map(|container| logic.occupant_count_at(container));
+            let mut authoritative_contained = resolved_containment
+                .map(|container| logic.contained_units_at(container))
+                .unwrap_or_default();
+            let containment = resolved_containment.unwrap_or(obj);
+            let redirected_capacity = (containment.id != obj.id)
                 .then(|| containment.transport_capacity());
             let shared_containment =
                 obj.is_tunnel_network_style_container() || obj.is_cave_style_container();
@@ -542,6 +570,7 @@ impl PresentationFrame {
             // first occupant is DETECTED or local player is apparent controller.
             let garrison_hide_from_local =
                 hide_garrison_from_local(logic, obj, local_team, &authoritative_contained);
+            let authoritative_contained_count = authoritative_contained.len();
             let garrison_apparent_team = if garrison_hide_from_local {
                 obj.building_data
                     .as_ref()
@@ -554,7 +583,7 @@ impl PresentationFrame {
             let renderable = RenderableObject {
                 receiving_draw_models: obj.get_template().receiving_draw_models(),
                 status_tint: [0.0; 3],
-                draw_playback_identity: Some(logic.live_draw_playback_identity(obj)),
+                draw_playback_identity: Some(draw_identity),
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 beacon_caption: crate::command_executor::host_beacon_caption(logic, obj.id),
@@ -702,18 +731,17 @@ impl PresentationFrame {
                 garrisoned_units: if garrison_hide_from_local {
                     Vec::new()
                 } else {
-                    if shared_containment {
-                        authoritative_contained.clone()
-                    } else {
-                        authoritative_contained.iter().copied().take(32).collect()
+                    if !shared_containment {
+                        authoritative_contained.truncate(32);
                     }
+                    authoritative_contained
                 },
 
-                normal_enter_authoritative_occupant_count: Some(authoritative_contained.len()),
+                normal_enter_authoritative_occupant_count: Some(authoritative_contained_count),
                 stealth_garrison_occupant_count: if shared_containment {
                     0
                 } else {
-                    obj.contained_units()
+                    obj.contained_unit_ids()
                         .iter()
                         .filter(|id| {
                             logic.host_object(**id).is_some_and(|occupant| {
@@ -1837,15 +1865,6 @@ impl PresentationFrame {
             particle_systems.len(),
         );
 
-        let native_ghost_scale_sources = logic.host_objects().registered_values().filter(|object| {
-            object.is_kind_of(KindOf::Immobile) && !object.get_template().default_draw_without_fog_memory
-        }).map(|object| {
-            let scale = object.drawable_instance_scale;
-            (object.id, crate::game_logic::game_logic::world_objects::fog_ghosts::HostGhostScaleSource {
-                identity: logic.live_draw_playback_identity(object),
-                asset_scale: scale, instance_scale: scale,
-            })
-        }).collect();
         #[cfg(feature = "game_client")]
         let purchase_science = super::science_purchase::freeze(logic, local_player_id);
         #[cfg(feature = "game_client")]
@@ -1951,12 +1970,7 @@ impl PresentationFrame {
             ai_difficulty: logic.get_difficulty(),
             game_mode: logic.game_mode(),
             objects,
-            structure_topple_transforms: logic
-                .host_objects()
-                .registered()
-                .filter(|(_, object)| object.structure_topple_data.is_some())
-                .map(|(id, object)| (*id, object.get_transform_matrix()))
-                .collect(),
+            structure_topple_transforms,
             direct_host_drawables,
             #[cfg(feature = "game_client")]
             host_physics_visuals,

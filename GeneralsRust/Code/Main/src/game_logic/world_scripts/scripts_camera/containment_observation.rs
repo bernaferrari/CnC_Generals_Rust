@@ -5,26 +5,26 @@ impl GameLogic {
     /// CPP OverlordContain157: only the active outer front's real interface
     /// redirects. This never searches another world or fabricates a bunker.
     pub(crate) fn redirected_containment_owner(&self, id: ObjectId) -> ObjectId {
-        let Some(outer) = self.host_object(id) else {
-            return id;
-        };
+        self.host_object(id)
+            .map_or(id, |outer| self.redirected_containment_object(outer).id)
+    }
+
+    pub(crate) fn redirected_containment_object<'a>(&'a self, outer: &'a Object) -> &'a Object {
         if !outer.is_overlord_style_container() || !outer.overlord_redirection_active {
-            return id;
+            return outer;
         }
         let Some(child) = outer.occupants.first().copied() else {
-            return id;
+            return outer;
         };
-        if child == id {
-            return id;
+        if child == outer.id {
+            return outer;
         }
-        if self.host_object(child).is_some_and(|object| {
-            object.contained_by == Some(id)
-                && object.thing().template.contain_module.kind != ContainModuleKind::None
-        }) {
-            child
-        } else {
-            id
-        }
+        self.host_object(child)
+            .filter(|object| {
+                object.contained_by == Some(outer.id)
+                    && object.thing().template.contain_module.kind != ContainModuleKind::None
+            })
+            .unwrap_or(outer)
     }
 
     pub(crate) fn contained_units_for_interface(&self, id: ObjectId) -> Vec<ObjectId> {
