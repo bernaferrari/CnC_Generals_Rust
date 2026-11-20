@@ -334,17 +334,21 @@ async fn main() {
         }
     };
 
-    let (is_windowed, is_fullscreen) = resolve_window_mode(&cmd_args);
     let (width, height) = resolve_startup_resolution(&cmd_args);
-    let startup_position =
-        generals_main::win_main::centered_startup_position(&event_loop, width, height);
-    let window_attributes = generals_main::win_main::startup_window_attributes(
-        width,
-        height,
-        is_windowed,
-        is_fullscreen,
-        startup_position,
-    );
+    let window_attributes = if runtime_host_headless {
+        generals_main::win_main::startup_headless_window_attributes(width, height)
+    } else {
+        let (is_windowed, is_fullscreen) = resolve_window_mode(&cmd_args);
+        let startup_position =
+            generals_main::win_main::centered_startup_position(&event_loop, width, height);
+        generals_main::win_main::startup_window_attributes(
+            width,
+            height,
+            is_windowed,
+            is_fullscreen,
+            startup_position,
+        )
+    };
 
     // =========================================================================
     // PHASE 11: GAME MAIN LOOP (matches GameMain call, WinMain.cpp:1043)

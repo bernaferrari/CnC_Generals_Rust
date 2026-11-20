@@ -15,7 +15,7 @@
 use anyhow::{Context, Result};
 use winit::{
     self,
-    dpi::{LogicalSize, PhysicalPosition},
+    dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
     event_loop::EventLoop,
     window::{Fullscreen, Window, WindowAttributes, WindowLevel},
 };
@@ -160,6 +160,14 @@ pub fn startup_window_attributes(
     attributes
 }
 
+/// A headless run needs a WGPU surface at the requested pixel dimensions.
+/// Keep it hidden from creation and independent of the desktop display mode.
+pub fn startup_headless_window_attributes(width: u32, height: u32) -> WindowAttributes {
+    startup_window_attributes(width, height, false, false, None)
+        .with_inner_size(PhysicalSize::new(width.max(1), height.max(1)))
+        .with_visible(false)
+}
+
 fn centered_startup_position_from_monitor(
     monitor_position: PhysicalPosition<i32>,
     monitor_size: winit::dpi::PhysicalSize<u32>,
@@ -246,5 +254,14 @@ mod tests {
             fullscreen_attributes.fullscreen,
             Some(Fullscreen::Borderless(None))
         ));
+    }
+
+    #[test]
+    fn headless_startup_uses_hidden_physical_pixel_surface() {
+        let attributes = super::startup_headless_window_attributes(640, 360);
+        assert_eq!(attributes.inner_size, Some(PhysicalSize::new(640, 360).into()));
+        assert!(!attributes.visible);
+        assert!(attributes.fullscreen.is_none());
+        assert_eq!(attributes.window_level, WindowLevel::Normal);
     }
 }
