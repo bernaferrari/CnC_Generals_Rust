@@ -1134,82 +1134,58 @@ struct HorzLine {
 /// DiscreteCircle - Generates pixel-perfect circles using Bresenham's algorithm
 /// Matches C++ DiscreteCircle from DiscreteCircle.cpp (lines 49-114)
 struct DiscreteCircle {
-    edges: Vec<HorzLine>,
+    x_center: i32,
     y_center: i32,
-    y_center_doubled: i32,
+    radius: i32,
 }
 
 impl DiscreteCircle {
-    /// Create a new discrete circle centered at (x_center, y_center) with given radius
-    /// Matches C++ DiscreteCircle::DiscreteCircle() from lines 49-57
     fn new(x_center: i32, y_center: i32, radius: i32) -> Self {
-        let y_center_doubled = y_center << 1;
-        let mut edges = Vec::with_capacity((radius << 1) as usize);
-
-        Self::generate_edge_pairs(x_center, y_center, radius, &mut edges);
-        Self::remove_duplicates(&mut edges);
-
         Self {
-            edges,
+            x_center,
             y_center,
-            y_center_doubled,
+            radius,
         }
     }
 
-    /// Get the edges (horizontal lines) of the circle
-    fn edges(&self) -> &[HorzLine] {
-        &self.edges
+    /// Emit the final Bresenham span at each height, in source order.
+    /// DiscreteCircle.cpp retains that span when it removes duplicate rows.
+    fn edges(&self) -> impl Iterator<Item = HorzLine> {
+        let mut x = 0;
+        let mut y = self.radius;
+        let mut d = (1 - y) << 1;
+        std::iter::from_fn(move || {
+            if y < 0 {
+                return None;
+            }
+            let row = y;
+            loop {
+                let half_width = x;
+                if d + y > 0 {
+                    y -= 1;
+                    d -= (y << 1) - 1;
+                }
+                if x > d {
+                    x += 1;
+                    d += (x << 1) + 1;
+                }
+                if y != row {
+                    return Some(HorzLine {
+                        x_start: self.x_center - half_width,
+                        x_end: self.x_center + half_width,
+                        y_pos: self.y_center + row,
+                    });
+                }
+            }
+        })
     }
 
-    /// Get the y-coordinate of the center
     fn y_center(&self) -> i32 {
         self.y_center
     }
 
-    /// Get the doubled y-coordinate of the center (for bottom half rendering)
     fn y_center_doubled(&self) -> i32 {
-        self.y_center_doubled
-    }
-
-    /// Generate edge pairs using Bresenham's midpoint circle algorithm
-    /// Matches C++ DiscreteCircle::generateEdgePairs() from lines 71-95
-    fn generate_edge_pairs(x_center: i32, y_center: i32, radius: i32, edges: &mut Vec<HorzLine>) {
-        // Uses Bresenham to generate points
-        let mut x = 0;
-        let mut y = radius;
-        let mut d = (1 - radius) << 1;
-
-        while y >= 0 {
-            let hl = HorzLine {
-                x_start: x_center - x,
-                x_end: x_center + x,
-                y_pos: y_center + y,
-            };
-            edges.push(hl);
-
-            if d + y > 0 {
-                y -= 1;
-                d -= (y << 1) - 1;
-            }
-
-            if x > d {
-                x += 1;
-                d += (x << 1) + 1;
-            }
-        }
-    }
-
-    /// Remove duplicate horizontal lines (same y position)
-    /// Matches C++ DiscreteCircle::removeDuplicates() from lines 98-114
-    fn remove_duplicates(edges: &mut Vec<HorzLine>) {
-        let mut i = 0;
-        while i < edges.len() {
-            if i + 1 < edges.len() && edges[i].y_pos == edges[i + 1].y_pos {
-                edges.remove(i);
-            } else {
-                i += 1;
-            }
-        }
+        self.y_center << 1
     }
 }
 

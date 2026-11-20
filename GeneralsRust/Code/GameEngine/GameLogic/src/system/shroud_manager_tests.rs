@@ -833,7 +833,7 @@ fn test_cell_shroud_level_multiple_lookers() {
 #[test]
 fn test_discrete_circle_basic() {
     let circle = DiscreteCircle::new(10, 10, 5);
-    assert!(!circle.edges().is_empty(), "Circle should have edges");
+    assert!(circle.edges().next().is_some(), "Circle should have edges");
     assert_eq!(circle.y_center(), 10);
     assert_eq!(circle.y_center_doubled(), 20);
 }
@@ -842,7 +842,7 @@ fn test_discrete_circle_basic() {
 fn test_discrete_circle_radius_zero() {
     let circle = DiscreteCircle::new(5, 5, 0);
     // Should have at least one edge at center
-    assert!(!circle.edges().is_empty());
+    assert!(circle.edges().next().is_some());
 }
 
 #[test]
