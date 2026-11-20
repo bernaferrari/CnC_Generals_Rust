@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::common::Coord3D as LogicCoord3D;
 use crate::helpers::{TheGameLogic, TheThingFactory};
+use crate::object::contain::transport_contain::selected_locomotor_is_airborne;
 use crate::object::production::construction::FoundationValidator;
 use crate::player::player_list;
 use game_engine::common::system::build_assistant::{
@@ -143,8 +144,11 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
                         }
                     };
 
-                    if let Some(ai) = builder_guard.get_ai_update_interface() {
+                    let ai = builder_guard.get_ai_update_interface();
+                    drop(builder_guard);
+                    if let Some(ai) = ai {
                         if let Ok(mut ai_guard) = ai.try_lock() {
+                            let owner_airborne = selected_locomotor_is_airborne(&*ai_guard);
                             if let Some(worker_ai) = ai_guard.get_worker_ai_update_interface_mut() {
                                 worker_ai.set_build_task(
                                     new_object.read().map(|g| g.get_id()).unwrap_or(0),
@@ -160,6 +164,7 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
                                     total_build_frames,
                                     build_max_health,
                                     false,
+                                    owner_airborne,
                                 );
                             }
                         }

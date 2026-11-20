@@ -1065,6 +1065,119 @@ fn construction_message_uses_authored_display_name_for_the_local_builder_only() 
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
+fn build_assistant_assigns_the_installed_dozer_without_relocking_its_parent() {
+    use crate::common::{Coord3D, LocomotorSetType};
+    use crate::helpers::TheThingFactory;
+    use crate::locomotor::{LocomotorTemplate, SURFACE_GROUND};
+    use crate::object::contain::transport_contain::selected_locomotor_is_airborne;
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::get_thing_factory;
+
+    const NAME: &str = concat!(module_path!(), "::build_assistant_assigns_the_installed_dozer_without_relocking_its_parent");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_INSTALLED_DOZER_ASSIGNMENT_CHILD",
+    ) {
+        return;
+    }
+    let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
+
+    fn admit_dozer(world: &Arc<EngineStores>) -> Arc<RwLock<Object>> {
+        let existing = admit_vision_structure(world, Coord3D::new(305., 305., 0.), 37, 23);
+        let team = existing.read().unwrap().get_team().unwrap();
+        with_active_stores(world, || {
+            if get_module_factory().unwrap().is_none() {
+                init_module_factory().unwrap();
+            }
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            let mut locomotor = LocomotorTemplate::new("CompletionDozerGround".into());
+            locomotor.surfaces = SURFACE_GROUND;
+            locomotor.max_speed = 3.0;
+            locomotor.acceleration = 0.1;
+            world.services().locomotor_store().register_template(locomotor);
+            let definitions = "
+                Object CompletionInstalledDozer
+                    KindOf = VEHICLE DOZER
+                    Body = ActiveBody Health
+                        MaxHealth = 100
+                        InitialHealth = 100
+                    End
+                    Behavior = DozerAIUpdate OrderedDock
+                    End
+                    Locomotor = SET_NORMAL CompletionDozerGround
+                End
+            ";
+            assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(definitions), 1);
+            let template = TheThingFactory::find_template("CompletionInstalledDozer").unwrap();
+            let dozer = TheThingFactory::get().unwrap().new_object_with_team_handle(template, team).unwrap();
+            let mut object = dozer.write().unwrap();
+            object.set_position(&Coord3D::new(65., 105., 0.)).unwrap();
+            let parent = object.get_ai_update_interface().expect("installed cached UnitAI");
+            drop(object);
+            let mut parent = parent.lock().unwrap();
+            parent.choose_locomotor_set(LocomotorSetType::Normal).unwrap();
+            let mut selected_surfaces = None;
+            parent.with_cur_locomotor(&mut |locomotor| {
+                selected_surfaces = Some(locomotor.get_legal_surfaces());
+            });
+            assert_eq!(selected_surfaces, Some(SURFACE_GROUND));
+            assert_eq!(
+                parent.get_dozer_ai_update_interface_mut().expect("installed Dozer behavior").get_current_task(),
+                DozerTask::Invalid
+            );
+            dozer
+        })
+    }
+
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    let dozer = admit_dozer(&receiving);
+    let peer_dozer = admit_dozer(&peer);
+    let dozer_id = dozer.read().unwrap().get_id();
+    assert_eq!(peer_dozer.read().unwrap().get_id(), dozer_id);
+    let place = |world: &Arc<EngineStores>, builder, x| with_active_stores(world, || {
+        GameLogicBuildAssistantBackend.build_object_now(
+            builder, "CompletionVisionStructure", &BuildPosition { x, y: 105., z: 0. }, 0., 0,
+        ).unwrap()
+    });
+
+    let peer_target_id = place(&peer, None, 205.);
+    let target_id = place(&receiving, Some(dozer_id), 105.);
+    assert_eq!(peer_target_id, target_id);
+    let parent = dozer.read().unwrap().get_ai_update_interface().unwrap();
+    let mut parent = parent.lock().unwrap();
+    let dozer = parent.get_dozer_ai_update_interface_mut().unwrap();
+    assert_eq!(dozer.get_current_task(), DozerTask::Build);
+    assert!(dozer.is_task_pending(DozerTask::Build));
+    drop(parent);
+    let other_parent = peer_dozer.read().unwrap().get_ai_update_interface().unwrap();
+    let mut other_parent = other_parent.lock().unwrap();
+    assert_eq!(
+        other_parent.get_dozer_ai_update_interface_mut().unwrap().get_current_task(),
+        DozerTask::Invalid
+    );
+    let target = receiving.game_logic_mutex().lock().unwrap().find_object_by_id(target_id).unwrap();
+    let other_target = peer.game_logic_mutex().lock().unwrap().find_object_by_id(target_id).unwrap();
+    assert_eq!(target.read().unwrap().get_builder_id(), dozer_id);
+    assert_eq!(other_target.read().unwrap().get_builder_id(), INVALID_ID);
+
+    // BuildAssistant stamps builder provenance before calling the Dozer. An
+    // unclaimed peer scaffold also exercises the Dozer's own setBuilder step.
+    with_active_stores(&peer, || {
+        let owner_airborne = selected_locomotor_is_airborne(&*other_parent);
+        let dozer = other_parent.get_dozer_ai_update_interface_mut().unwrap();
+        dozer.set_build_task(peer_target_id, 30, 100., false, owner_airborne);
+        assert!(dozer.is_task_pending(DozerTask::Build));
+    });
+    assert_eq!(other_target.read().unwrap().get_builder_id(), dozer_id);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
 fn destroying_a_looking_structure_uses_the_driving_clock_outside_update() {
     use crate::common::Coord3D;
     use crate::system::engine_stores::{new_for_world, with_active_stores};

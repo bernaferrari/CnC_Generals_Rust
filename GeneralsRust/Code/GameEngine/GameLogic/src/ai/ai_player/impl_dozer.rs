@@ -4,6 +4,7 @@
 #![allow(unused_imports)]
 
 use super::*;
+use crate::object::contain::transport_contain::selected_locomotor_is_airborne;
 
 impl AIPlayer {
     /// C++ `AIPlayer::buildStructureWithDozer` (AIPlayer.cpp) — core path residual.
@@ -276,8 +277,15 @@ impl AIPlayer {
             .flatten()
         {
             if let Ok(mut ai_g) = ai.try_lock() {
+                let owner_airborne = selected_locomotor_is_airborne(&*ai_g);
                 if let Some(dozer_ai) = ai_g.get_dozer_ai_update_interface_mut() {
-                    dozer_ai.set_build_task(bldg_id, total_build_frames, build_max_health, false);
+                    dozer_ai.set_build_task(
+                        bldg_id,
+                        total_build_frames,
+                        build_max_health,
+                        false,
+                        owner_airborne,
+                    );
                 } else if let Some(worker_ai) = ai_g.get_worker_ai_update_interface_mut() {
                     worker_ai.set_build_task(bldg_id, total_build_frames, build_max_health, false);
                 }

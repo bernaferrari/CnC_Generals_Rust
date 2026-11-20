@@ -24,6 +24,7 @@ use crate::object::behavior::behavior_module::{
     BehaviorModuleData, RebuildHoleBehaviorInterface, xfer_update_module_base_state,
 };
 use crate::object::behavior::sticky_bomb_update::StickyBombUpdate;
+use crate::object::contain::transport_contain::selected_locomotor_is_airborne;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::scripting::engine::transfer_object_name;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -391,9 +392,12 @@ impl RebuildHoleBehavior {
                 }
             }
 
-            if let Ok(worker_guard) = worker_arc.write() {
-                if let Some(ai) = worker_guard.get_ai_update_interface() {
+            if let Ok(worker_guard) = worker_arc.read() {
+                let ai = worker_guard.get_ai_update_interface();
+                drop(worker_guard);
+                if let Some(ai) = ai {
                     if let Ok(mut ai_guard) = ai.try_lock() {
+                        let owner_airborne = selected_locomotor_is_airborne(&*ai_guard);
                         let total_build_frames = {
                             let player_opt = hole_player_id.and_then(|id| {
                                 let player_list = crate::player::player_list();
@@ -432,6 +436,7 @@ impl RebuildHoleBehavior {
                                 total_build_frames,
                                 build_max_health,
                                 true,
+                                owner_airborne,
                             );
                         }
                     }

@@ -114,13 +114,14 @@ pub trait DozerAIUpdateInterface: Send + Sync {
         Err("Dozer has no supplied primary reset".into())
     }
 
-    /// Assign a build task for a newly created construction site.
+    /// Assign a build task using the installed parent's selected locomotor.
     fn set_build_task(
         &mut self,
         _building_id: ObjectID,
         _total_build_frames: u32,
         _max_health: f32,
         _is_rebuild: bool,
+        _owner_airborne: bool,
     ) {
     }
 

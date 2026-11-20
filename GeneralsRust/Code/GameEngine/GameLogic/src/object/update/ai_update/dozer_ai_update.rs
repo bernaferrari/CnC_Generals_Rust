@@ -598,6 +598,15 @@ impl DozerAIUpdate {
     }
 
     pub fn new_task(&mut self, task: DozerTask, target_id: ObjectID) {
+        self.new_task_with_locomotor(task, target_id, None);
+    }
+
+    fn new_task_with_locomotor(
+        &mut self,
+        task: DozerTask,
+        target_id: ObjectID,
+        owner_airborne: Option<bool>,
+    ) {
         // Wave 351: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -618,12 +627,38 @@ impl DozerAIUpdate {
 
         if task == DozerTask::Build || task == DozerTask::Repair {
             let mut position = Coord3D::ZERO;
-            let target_id = Self::find_good_build_or_repair_position_and_target(
+            let dock_target_id = Self::find_good_build_or_repair_position_and_target_with_locomotor(
                 &owner_guard,
                 &target_guard,
                 &mut position,
+                owner_airborne,
             )
             .unwrap_or(target_id);
+            let dock_target = if dock_target_id == target_id {
+                Some(Arc::clone(&target))
+            } else {
+                crate::object::registry::OBJECT_REGISTRY.get_object(dock_target_id)
+            };
+            let target_pos = if dock_target_id == target_id {
+                *target_guard.get_position()
+            } else {
+                dock_target
+                    .as_ref()
+                    .and_then(|target| target.read().ok().map(|target| *target.get_position()))
+                    .unwrap_or_else(|| *target_guard.get_position())
+            };
+            let builder_id = owner_guard.get_id();
+            drop(target_guard);
+            drop(owner_guard);
+
+            // DozerAIUpdate.cpp newTask claims the selected scaffold before
+            // publishing the dock. Release the position read before setBuilder.
+            if task == DozerTask::Build
+                && let Some(target) = dock_target
+                && let Ok(mut target) = target.write()
+            {
+                target.set_builder_id(builder_id);
+            }
             let idx = task.as_index();
             self.task_owner.docks[idx][DozerDockPoint::Start.as_index()] = DozerDockPointInfo {
                 valid: true,
@@ -632,13 +667,6 @@ impl DozerAIUpdate {
             self.task_owner.docks[idx][DozerDockPoint::Action.as_index()] = DozerDockPointInfo {
                 valid: true,
                 location: position,
-            };
-            let target_pos = if target_id != target_guard.get_id() {
-                crate::object::registry::OBJECT_REGISTRY
-                    .with_object(target_id, |guard| *guard.get_position())
-                    .unwrap_or_else(|| *target_guard.get_position())
-            } else {
-                *target_guard.get_position()
             };
             let mut offset = position - target_pos;
             offset.z = 0.0;
@@ -656,15 +684,7 @@ impl DozerAIUpdate {
                 valid: true,
                 location: end_pos,
             };
-            if task == DozerTask::Build {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
-                    target_id,
-                    |target_write| {
-                        target_write.set_builder(Some(&owner_guard));
-                    },
-                );
-            }
-            self.task_owner.requests[task.as_index()].target_id = target_id;
+            self.task_owner.requests[task.as_index()].target_id = dock_target_id;
         }
 
         if self.task_owner.requests[task.as_index()].target_id == INVALID_ID {
@@ -909,9 +929,10 @@ impl DozerAIUpdate {
         total_build_frames: u32,
         max_health: f32,
         is_rebuild: bool,
+        owner_airborne: bool,
     ) {
         self.task_owner.construct_is_rebuild = is_rebuild;
-        self.new_task(DozerTask::Build, building_id);
+        self.new_task_with_locomotor(DozerTask::Build, building_id, Some(owner_airborne));
         self.dozer_task = Some(DozerActionTask {
             task_type: DozerTask::Build,
             target_id: building_id,
@@ -1511,6 +1532,20 @@ impl DozerAIUpdate {
         target: &Object,
         position_out: &mut Coord3D,
     ) -> bool {
+        Self::find_good_build_or_repair_position_with_locomotor(
+            me,
+            target,
+            position_out,
+            me.is_using_airborne_locomotor(),
+        )
+    }
+
+    fn find_good_build_or_repair_position_with_locomotor(
+        me: &Object,
+        target: &Object,
+        position_out: &mut Coord3D,
+        owner_airborne: bool,
+    ) -> bool {
         let mut working = *target.get_position();
         let mut best = working;
         let mut offset = *me.get_position() - *target.get_position();
@@ -1529,11 +1564,10 @@ impl DozerAIUpdate {
         options.min_radius = 0.0;
         options.max_radius = 100.0;
         options.source_to_path_to_dest_id = Some(me.get_id());
-        if !me.is_using_airborne_locomotor() {
-            options.max_z_delta = 10.0;
-        }
-        if me.is_using_airborne_locomotor() {
+        if owner_airborne {
             options.ignore_object_id = Some(target.get_id());
+        } else {
+            options.max_z_delta = 10.0;
         }
 
         let found = if let Some(partition) = ThePartitionManager::get() {
@@ -1550,10 +1584,22 @@ impl DozerAIUpdate {
         target: &Object,
         position_out: &mut Coord3D,
     ) -> Option<ObjectID> {
+        Self::find_good_build_or_repair_position_and_target_with_locomotor(
+            me, target, position_out, None,
+        )
+    }
+
+    fn find_good_build_or_repair_position_and_target_with_locomotor(
+        me: &Object,
+        target: &Object,
+        position_out: &mut Coord3D,
+        owner_airborne: Option<bool>,
+    ) -> Option<ObjectID> {
         // Wave 351: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
+        let owner_airborne = owner_airborne.unwrap_or_else(|| me.is_using_airborne_locomotor());
 
         if target.is_kind_of(KindOf::Bridge) {
             let mut best_dist_sq = f32::MAX;
@@ -1566,7 +1612,9 @@ impl DozerAIUpdate {
                     continue;
                 };
                 let mut tmp = Coord3D::ZERO;
-                if Self::find_good_build_or_repair_position(me, &tower_guard, &mut tmp) {
+                if Self::find_good_build_or_repair_position_with_locomotor(
+                    me, &tower_guard, &mut tmp, owner_airborne,
+                ) {
                     let dx = me.get_position().x - tmp.x;
                     let dy = me.get_position().y - tmp.y;
                     let dist_sq = dx * dx + dy * dy;
@@ -1581,7 +1629,9 @@ impl DozerAIUpdate {
                 return Some(tower_id);
             }
         }
-        let _ = Self::find_good_build_or_repair_position(me, target, position_out);
+        let _ = Self::find_good_build_or_repair_position_with_locomotor(
+            me, target, position_out, owner_airborne,
+        );
         Some(target.get_id())
     }
 
@@ -1651,8 +1701,9 @@ impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
         total_build_frames: u32,
         max_health: f32,
         is_rebuild: bool,
+        owner_airborne: bool,
     ) {
-        self.set_build_task(building_id, total_build_frames, max_health, is_rebuild);
+        self.set_build_task(building_id, total_build_frames, max_health, is_rebuild, owner_airborne);
     }
 
     fn cancel_task(&mut self, task: DozerTask) {
