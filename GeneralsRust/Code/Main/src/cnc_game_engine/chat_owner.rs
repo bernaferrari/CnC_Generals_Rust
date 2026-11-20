@@ -20,26 +20,25 @@ pub(super) fn chat_world_facts_from_world(
     let local = world.get_players().get(&local_id)?;
     let admission = world.initial_skirmish_admission.as_deref();
     let source_info = admission.and_then(|admission| admission.source.as_ref());
-    let mut local_slot = admission
+    let admitted_local_slot = admission
         .and_then(|admission| admission.local_slot)
         .and_then(|slot| u8::try_from(slot).ok())
         .filter(|slot| *slot < 8);
     let mut slots = [None; 8];
     // C++ InGameChat.cpp:198-223 resolves named player0..player7.
     // Display names, faction, raw player ID and hash-map order are not slots.
-    for (slot, observation) in slots.iter_mut().enumerate() {
-        let name = format!("player{slot}");
-        let Some(player) = world
-            .get_players()
-            .values()
-            .find(|player| player.map_side.map_player_name == name)
-        else {
+    for player in world.get_players().values() {
+        let Some(suffix) = player.map_side.map_player_name.strip_prefix("player") else {
             continue;
         };
-        let is_local = player.id == local_id;
-        if is_local && local_slot.is_none() {
-            local_slot = Some(slot as u8);
+        let [digit @ b'0'..=b'7'] = suffix.as_bytes() else {
+            continue;
+        };
+        let slot = usize::from(*digit - b'0');
+        if slots[slot].is_some() {
+            continue;
         }
+        let is_local = player.id == local_id;
         let mutually_allied = world.player_relationship(local_id, player.id)
             == gamelogic::common::Relationship::Allies
             && world.player_relationship(player.id, local_id)
@@ -47,12 +46,18 @@ pub(super) fn chat_world_facts_from_world(
         // A source GameInfo retains its exact slot mute. Direct non-network
         // admissions have no mutable lobby; GameSlot.cpp's constructor is unmuted.
         let muted = source_info.is_some_and(|info| info.slots[slot].is_muted);
-        *observation = Some(ChatSlotFacts {
+        slots[slot] = Some(ChatSlotFacts {
             is_local,
             mutually_allied,
             muted,
         });
     }
+    let local_slot = admitted_local_slot.or_else(|| {
+        slots
+            .iter()
+            .position(|slot| slot.is_some_and(|facts| facts.is_local))
+            .map(|slot| slot as u8)
+    });
     Some(ChatWorldFacts {
         multiplayer,
         local_player_active: local.is_alive && !local.is_observer,
@@ -86,6 +91,11 @@ mod tests {
             );
             world.add_player(local);
             world.add_player(other);
+            for (id, name) in [(92, "Player1"), (93, "player06"), (94, "player8")] {
+                let mut decoy = Player::new(id, Team::USA, "display", false);
+                decoy.map_side.map_player_name = name.into();
+                world.add_player(decoy);
+            }
         }
         let first = chat_world_facts_from_world(&owner, true).unwrap();
         let second = chat_world_facts_from_world(&peer, true).unwrap();
@@ -93,6 +103,10 @@ mod tests {
         assert_eq!(second.local_slot, Some(3));
         assert!(first.local_player_active);
         assert!(!second.local_player_active);
+        assert_eq!(
+            first.slots.map(|slot| slot.is_some()),
+            [true, false, false, true, false, false, false, false]
+        );
         assert_eq!(first.player_mask(&InGameChatType::Allies), (1 << 3) | 1);
         assert_eq!(second.player_mask(&InGameChatType::Allies), 1 << 3);
         peer.reset();
