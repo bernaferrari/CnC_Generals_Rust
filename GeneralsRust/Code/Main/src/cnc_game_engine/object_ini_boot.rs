@@ -169,6 +169,33 @@ const STANDALONE_DEFINITION_PATHS: &[&str] = &[
 ];
 
 impl StandaloneStartupSources {
+    /// Read an explicitly selected retail install without discovering another
+    /// install's archives or loose INIs.
+    pub(crate) fn load_from_retail_install(install: &Path) -> Result<Self, String> {
+        use game_engine::common::system::archive_file_system::ArchiveFileSystem;
+        use std::io::Read;
+
+        let root = install
+            .to_str()
+            .ok_or_else(|| format!("Retail install path is not UTF-8: {}", install.display()))?;
+        let mut archive = ArchiveFileSystem::new();
+        archive.add_search_path(install);
+        archive.init().map_err(|error| {
+            format!("Initializing retail archives at {}: {error}", install.display())
+        })?;
+        capture_standalone_startup_sources(archive.virtual_paths(), &[root], |name| {
+            if !archive.does_file_exist(name) {
+                return Ok(None);
+            }
+            let mut bytes = Vec::new();
+            archive
+                .open_file(name, 0)
+                .and_then(|mut file| file.read_to_end(&mut bytes))
+                .map_err(|error| format!("Reading retail archive entry {name}: {error}"))?;
+            Ok(Some(bytes))
+        })
+    }
+
     /// Build one receiving world's owned startup content from the shared sources.
     pub fn admit(&self) -> Result<crate::assets::ReceivingStartupContent, String> {
         crate::assets::ReceivingStartupContent::from_sources(
@@ -198,20 +225,26 @@ impl StandaloneStartupSources {
 
 /// Read the startup definition sources once, without admitting them to a world.
 pub fn load_standalone_startup_sources() -> Result<StandaloneStartupSources, String> {
+    let mut archive = crate::assets::archive::ArchiveFileSystem::new();
+    pollster::block_on(archive.init()).map_err(|error| format!("Initializing startup archives: {error}"))?;
+    let roots = super::CnCGameEngine::startup_ini_disk_roots();
+    capture_standalone_startup_sources(archive.list_all_files(), &roots, |name| {
+        archive.read_optional_definition_source(name).map_err(|error| error.to_string())
+    })
+}
+
+fn capture_standalone_startup_sources(
+    archive_paths: Vec<String>,
+    roots: &[&str],
+    mut read_archive: impl FnMut(&str) -> Result<Option<Vec<u8>>, String>,
+) -> Result<StandaloneStartupSources, String> {
     use game_engine::common::ini::INILoadType;
     use game_engine::common::rts::science::ScienceNameFacts;
     use game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions;
     use std::sync::Arc;
 
-    let mut archive = crate::assets::archive::ArchiveFileSystem::new();
-    pollster::block_on(archive.init()).map_err(|error| format!("Initializing startup archives: {error}"))?;
-    let roots = super::CnCGameEngine::startup_ini_disk_roots();
-    let paths = ordered_object_source_paths(Vec::new(), archive.list_all_files(), &roots);
-    let mut read = |path: &str| {
-        read_receiving_object_source(path, &roots, |name| {
-            archive.read_optional_definition_source(name).map_err(|error| error.to_string())
-        })
-    };
+    let paths = ordered_object_source_paths(Vec::new(), archive_paths, roots);
+    let mut read = |path: &str| read_receiving_object_source(path, roots, &mut read_archive);
     let mut science_sources = Vec::new();
     for (path, overwrite) in [
         ("Data/INI/Default/Science.ini", false),

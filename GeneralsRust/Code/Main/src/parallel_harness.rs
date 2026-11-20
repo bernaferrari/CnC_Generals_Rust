@@ -16,16 +16,18 @@ use game_engine::common::ini::ini_game_data::{CameraMovementRules, ProductionEne
 use game_engine::common::ini::ini_locomotor::LocomotorStore;
 use game_engine::common::ini::ini_multiplayer::MultiplayerSettings;
 use game_engine::common::rts::player_template::PlayerTemplateStore;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Retail map every harness instance plays.
 pub const HARNESS_MAP: &str = "Lone Eagle";
+const HARNESS_MAP_FILE: &str = "Maps/Lone Eagle/Lone Eagle.map";
 
 /// Immutable retail content read once and shared by all instances.
 pub struct SharedSkirmishAssets {
     definitions: RetailWorldDefinitions,
     map_path: PathBuf,
+    install_root: Option<PathBuf>,
 }
 
 /// Everything C++ GameEngine::init loads before a game can start (GlobalData,
@@ -163,19 +165,82 @@ impl std::fmt::Display for HarnessAssetError {
     }
 }
 
+fn explicit_retail_install(path: &Path) -> Result<PathBuf, HarnessAssetError> {
+    use game_engine::common::system::install_layout::find_file_case_insensitive;
+
+    let root = path.canonicalize().map_err(|error| {
+        HarnessAssetError::Missing(format!(
+            "GENERALS_RETAIL_CONTENT_ROOT {} ({error})",
+            path.display()
+        ))
+    })?;
+    let root = if root
+        .file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case("Data"))
+    {
+        root.parent().unwrap_or(&root).to_path_buf()
+    } else {
+        root
+    };
+    [
+        root.join("Command & Conquer Generals Zero Hour"),
+        root.join("Command and Conquer Generals Zero Hour"),
+        root,
+    ]
+    .into_iter()
+    .find(|install| {
+        install.join("Data").is_dir() || find_file_case_insensitive(install, "INIZH.big").is_some()
+    })
+    .ok_or_else(|| HarnessAssetError::Missing(format!("Zero Hour install at {}", path.display())))
+}
+
+fn explicit_retail_map(install: &Path) -> Result<PathBuf, HarnessAssetError> {
+    use game_engine::common::system::{
+        archive_file_system::ArchiveFileSystem, install_layout::find_file_case_insensitive,
+    };
+
+    let loose_map = install.join(HARNESS_MAP_FILE);
+    if loose_map.is_file() {
+        return Ok(loose_map);
+    }
+    let maps = [install, &install.join("Data")]
+        .into_iter()
+        .find_map(|dir| find_file_case_insensitive(dir, "MapsZH.big"))
+        .ok_or_else(|| {
+            HarnessAssetError::Missing(format!("{HARNESS_MAP} and MapsZH.big at {}", install.display()))
+        })?;
+    let mut archive = ArchiveFileSystem::new();
+    archive
+        .open_archive_file(&maps.to_string_lossy())
+        .map_err(|error| HarnessAssetError::Invalid(format!("{}: {error}", maps.display())))?;
+    if !archive.does_file_exist(HARNESS_MAP_FILE) {
+        return Err(HarnessAssetError::Missing(format!(
+            "{HARNESS_MAP_FILE} in {}",
+            maps.display()
+        )));
+    }
+    // Keep the virtual path so the mounted world can resolve Map.ini and
+    // other companions from the same directory inside the retail archives.
+    Ok(PathBuf::from(HARNESS_MAP_FILE))
+}
+
 impl SharedSkirmishAssets {
     /// Read the retail definition sources and resolve [`HARNESS_MAP`].
+    /// `GENERALS_RETAIL_CONTENT_ROOT` overrides automatic install discovery.
     pub fn load_retail() -> Result<Self, HarnessAssetError> {
-        // Same retail discovery as the Lone Eagle gates: GENERALS_RETAIL_DIR /
-        // GENERALS_ASSETS_DIR or a known windows_game install, so the probe
-        // also runs from worktrees without a local windows_game.
-        let _ = crate::map_frame_scenario::ensure_assets_env_for_tests();
-        let map_path = crate::map_frame_scenario::lone_eagle_map_path()
-            .map(PathBuf::from)
-            .ok_or_else(|| HarnessAssetError::Missing(format!("{HARNESS_MAP}.map")))?;
+        let install_root = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
+            .map(|root| explicit_retail_install(Path::new(&root)))
+            .transpose()?;
+        let map_path = match install_root.as_deref() {
+            Some(install) => explicit_retail_map(install)?,
+            None => crate::map_frame_scenario::lone_eagle_map_path()
+                .map(PathBuf::from)
+                .ok_or_else(|| HarnessAssetError::Missing(format!("{HARNESS_MAP}.map")))?,
+        };
         Ok(Self {
-            definitions: RetailWorldDefinitions::load()?,
+            definitions: RetailWorldDefinitions::load_from_install(install_root.as_deref())?,
             map_path,
+            install_root,
         })
     }
 
@@ -194,10 +259,18 @@ impl SharedSkirmishAssets {
 impl RetailWorldDefinitions {
     /// Read the retail definition sources the application boot admits.
     pub fn load() -> Result<Self, HarnessAssetError> {
+        Self::load_from_install(None)
+    }
+
+    fn load_from_install(install: Option<&Path>) -> Result<Self, HarnessAssetError> {
         // Owned parse scope: these catalogs are built here, then handed to
         // every instance by value; no instance's services observe the parse.
         let _scope = game_engine::common::common_services::CommonServicesScope::new();
-        let startup = load_standalone_startup_sources().map_err(HarnessAssetError::Invalid)?;
+        let startup = match install {
+            Some(install) => StandaloneStartupSources::load_from_retail_install(install),
+            None => load_standalone_startup_sources(),
+        }
+        .map_err(HarnessAssetError::Invalid)?;
         for file in ["GameData.ini", "PlayerTemplate.ini", "Locomotor.ini", "Multiplayer.ini"] {
             if startup.definition_texts(file).next().is_none() {
                 return Err(HarnessAssetError::Missing(file.into()));
@@ -364,6 +437,18 @@ impl HeadlessSkirmish {
             let mut file_system = application.services().application.file_system
                 .lock()
                 .map_err(|error| format!("cannot lock the skirmish filesystem: {error}"))?;
+            if let Some(install) = &assets.install_root {
+                use game_engine::common::system::{
+                    big_file_system::BigArchiveBackend, local_file_system::LocalFileSystem,
+                };
+
+                file_system
+                    .ensure_backend(LocalFileSystem::new)
+                    .add_search_path(install);
+                file_system
+                    .ensure_backend(BigArchiveBackend::new)
+                    .add_search_path(install);
+            }
             crate::subsystem_manager::FileSystemSubsystem::mount_common_files(&mut file_system)
                 .map_err(|error| error.to_string())?;
             drop(file_system);
@@ -661,6 +746,37 @@ impl HeadlessSkirmish {
             orientation: 0.0,
         });
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod retail_root_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_retail_root_preserves_the_selected_install() {
+        let content = tempfile::tempdir().unwrap();
+        let install = content.path().join("Command & Conquer Generals Zero Hour");
+        let data = install.join("Data");
+        std::fs::create_dir_all(&data).unwrap();
+        let selected_install = install.canonicalize().unwrap();
+        for candidate in [content.path(), &install, &data] {
+            assert_eq!(explicit_retail_install(candidate).unwrap(), selected_install);
+        }
+        assert!(explicit_retail_install(&content.path().join("absent")).is_err());
+        assert!(explicit_retail_map(&install).is_err());
+        let loose_map = install.join(HARNESS_MAP_FILE);
+        std::fs::create_dir_all(loose_map.parent().unwrap()).unwrap();
+        std::fs::write(&loose_map, []).unwrap();
+        assert_eq!(explicit_retail_map(&install).unwrap(), loose_map);
+
+        let archive_only = content.path().join("archive-only");
+        std::fs::create_dir(&archive_only).unwrap();
+        std::fs::write(archive_only.join("inizh.big"), []).unwrap();
+        assert_eq!(
+            explicit_retail_install(&archive_only).unwrap(),
+            archive_only.canonicalize().unwrap()
+        );
     }
 }
 
