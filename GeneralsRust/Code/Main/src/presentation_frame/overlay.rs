@@ -1,5 +1,7 @@
 use super::*;
+use crate::game_logic::KindOfSet;
 use game_engine::common::fast_hash::{FxHashMap, FxHashSet};
+use std::sync::Arc;
 
 impl PresentationFrame {
     /// Freeze the only clip record currently owned by a coupled GameWorld
@@ -1143,11 +1145,11 @@ impl PresentationFrame {
         }
         // KindOf bitset residual → presentation ORDER vector.
         {
-            let kinds = Self::kinds_from_presentation_bits(ent.kind_of_bits);
+            let kinds = KindOfSet::presentation_bank_kinds(ent.kind_of_bits);
             if obj.kind_of.iter().copied().ne(kinds) {
                 obj.kind_of.clear();
                 obj.kind_of
-                    .extend(Self::kinds_from_presentation_bits(ent.kind_of_bits));
+                    .extend(KindOfSet::presentation_bank_kinds(ent.kind_of_bits));
                 dirty = true;
             }
             if obj.unattackable != ent.unattackable {
@@ -1256,54 +1258,6 @@ impl PresentationFrame {
     /// Host-only presentation fields stay at safe defaults until a later cutover.
     /// Fail-closed: not full build_from_logic parity (weapons, FOW grid, FX, etc.).
 
-    /// Wave 490: decode entity `kind_of_bits` using host presentation ORDER residual.
-    fn kinds_from_presentation_bits(mut bits: u32) -> impl Iterator<Item = crate::game_logic::KindOf> {
-        use crate::game_logic::KindOf;
-        const ORDER: [KindOf; u32::BITS as usize] = [
-            KindOf::Structure,
-            KindOf::Infantry,
-            KindOf::Vehicle,
-            KindOf::Aircraft,
-            KindOf::Projectile,
-            KindOf::Resource,
-            KindOf::Selectable,
-            KindOf::Attackable,
-            KindOf::CommandCenter,
-            KindOf::Worker,
-            KindOf::Hero,
-            KindOf::SupplyCenter,
-            KindOf::PowerPlant,
-            KindOf::FSBarracks,
-            KindOf::FSWarFactory,
-            KindOf::FSAirfield,
-            KindOf::FSInternetCenter,
-            KindOf::FSPower,
-            KindOf::FSBaseDefense,
-            KindOf::FSSupplyDropzone,
-            KindOf::FSSupplyCenter,
-            KindOf::FSSuperweapon,
-            KindOf::FSStrategyCenter,
-            KindOf::FSFake,
-            KindOf::FSTechnology,
-            KindOf::FSBlackMarket,
-            KindOf::FSAdvancedTech,
-            KindOf::Harvestable,
-            KindOf::Powered,
-            KindOf::IgnoredInGui,
-            // Must remain aligned with Object::presentation_kind_of_bits.
-            KindOf::Dozer,
-            KindOf::Harvester,
-        ];
-        std::iter::from_fn(move || {
-            if bits == 0 {
-                return None;
-            }
-            let index = bits.trailing_zeros() as usize;
-            bits &= bits - 1;
-            Some(ORDER[index])
-        })
-    }
-
     pub fn renderable_from_gameworld_entity(
         asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
         host_id: crate::game_logic::ObjectId,
@@ -1320,7 +1274,7 @@ impl PresentationFrame {
             host_id,
             ent,
             command_set_name,
-            draw_models,
+            draw_models.into(),
         )
     }
 
@@ -1380,7 +1334,7 @@ impl PresentationFrame {
         host_id: crate::game_logic::ObjectId,
         ent: &gamelogic::world::entities::Entity,
         command_set_name: String,
-        draw_models: Vec<crate::assets::AuthoredDrawModel>,
+        draw_models: Arc<[crate::assets::AuthoredDrawModel]>,
     ) -> RenderableObject {
         let team = match ent.team_ordinal {
             0 => crate::game_logic::Team::USA,
@@ -1404,7 +1358,7 @@ impl PresentationFrame {
         };
         let moving = vel.length_squared() > 1e-6 || move_destination.is_some();
         let model_key = draw_models.first().map(|model| model.model_key.clone());
-        let kind_of: Vec<_> = Self::kinds_from_presentation_bits(ent.kind_of_bits).collect();
+        let kind_of: Vec<_> = KindOfSet::presentation_bank_kinds(ent.kind_of_bits).collect();
         RenderableObject {
             receiving_draw_models: None,
             status_tint: [0.0; 3],
@@ -1700,9 +1654,7 @@ impl PresentationFrame {
                 use crate::game_logic::host_sub_objects_upgrade::{
                     HostSubObjectVisibility, sub_objects_for_upgrade_tags,
                 };
-                let tags: std::collections::HashSet<String> =
-                    ent.applied_upgrade_names.iter().cloned().collect();
-                let applied = sub_objects_for_upgrade_tags(&tags, &ent.template.name);
+                let applied = sub_objects_for_upgrade_tags(&ent.applied_upgrade_names, &ent.template.name);
                 let mut vis = HostSubObjectVisibility::default();
                 if applied.matched {
                     vis.apply_show_hide(&applied.show, &applied.hide);
@@ -1832,7 +1784,7 @@ impl PresentationFrame {
             // Draw model by Object identity. Later presentation/render code
             // must not apply suffix-based reselection.
             model_key,
-            draw_models: draw_models.into(),
+            draw_models,
             // GameWorld carries the originating template's authored Object INI
             // scale.  Keep it frozen instead of recovering scale from a unit
             // name compatibility table.
@@ -1935,7 +1887,7 @@ impl PresentationFrame {
                 host_id,
                 ent,
                 command_set_name,
-                draw_models,
+                draw_models.into(),
             ));
             appended += 1;
         }
@@ -2419,8 +2371,12 @@ impl PresentationFrame {
         self.objects.clear();
         self.objects.reserve(world.entity_count());
         let asset_manager = self.asset_owner.0.as_deref();
+        let catalog = asset_manager.map(|assets| {
+            assets.lock().map(|assets| assets.object_catalog()).map_err(|_| ())
+        });
         let mut updated = 0;
         let mut command_sets = FxHashMap::default();
+        let mut draw_selections = FxHashMap::default();
         for ent in world.entities() {
             if ent.destroyed && ent.health <= 0.0 {
                 continue;
@@ -2430,12 +2386,27 @@ impl PresentationFrame {
                 .unwrap_or_else(|| crate::game_logic::ObjectId(0x8000_0000 | ent.id.get()));
             let command_set_name =
                 Self::template_command_set_name(&mut command_sets, &ent.template.name, ent);
-            let authored = Self::select_gameworld_draw_models(asset_manager, ent);
+            let authored: Option<Arc<[crate::assets::AuthoredDrawModel]>> = match &catalog {
+                Some(Ok(catalog)) => draw_selections
+                    .entry((ent.template.name.as_str(), ent.model_condition_bits))
+                    .or_insert_with(|| {
+                        catalog
+                            .select_draw_models_for_object_conditions(
+                                &ent.template.name,
+                                ent.model_condition_bits,
+                            )
+                            .map(Arc::from)
+                    })
+                    .clone(),
+                // A poisoned catalogue suppresses authored Draw models.
+                Some(Err(())) => Some(Arc::from([])),
+                None => None,
+            };
             let draw_models_are_current = authored.is_some()
                 || ent.model_key.trim().is_empty()
                 || ent.model_key.trim() == ent.template.name.trim();
             let draw_models = authored
-                .unwrap_or_else(|| Self::gameworld_fallback_draw_models(asset_manager, ent, None));
+                .unwrap_or_else(|| Self::gameworld_fallback_draw_models(asset_manager, ent, None).into());
             let mut object = Self::renderable_from_gameworld_entity_with_command_set(
                 host_id,
                 ent,

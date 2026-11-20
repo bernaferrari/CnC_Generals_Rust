@@ -38,6 +38,22 @@ impl ObjectCatalog {
             .entry(name.trim().to_ascii_lowercase())
             .or_insert_with(|| name.to_string());
     }
+
+    fn resolve(&self, name: &str) -> Option<&ObjectDefinition> {
+        self.object_definitions.get(name).or_else(|| {
+            let normalized = WW3DAssetManager::normalize_object_key(name);
+            let canonical = self.normalized_name_lookup.get(&normalized)?;
+            self.object_definitions.get(canonical)
+        })
+    }
+
+    pub(crate) fn select_draw_models_for_object_conditions(
+        &self,
+        name: &str,
+        bits: u128,
+    ) -> Option<Vec<AuthoredDrawModel>> {
+        self.resolve(name)?.select_draw_models_for_conditions(bits)
+    }
 }
 
 /// Read-only retail content shared by the engines one host runs (the
@@ -825,8 +841,8 @@ impl WW3DAssetManager {
         object_name: &str,
         condition_bits: u128,
     ) -> Option<Vec<AuthoredDrawModel>> {
-        self.resolve_object_definition(object_name, None)
-            .and_then(|definition| definition.select_draw_models_for_conditions(condition_bits))
+        self.catalog
+            .select_draw_models_for_object_conditions(object_name, condition_bits)
     }
 
     /// Get the full object definition
@@ -846,18 +862,11 @@ impl WW3DAssetManager {
         object_name: &str,
         _model_hint: Option<&str>,
     ) -> Option<&ObjectDefinition> {
-        if let Some(def) = self.catalog.object_definitions.get(object_name) {
-            return Some(def);
-        }
+        self.catalog.resolve(object_name)
+    }
 
-        let normalized_key = Self::normalize_object_key(object_name);
-        if let Some(canonical) = self.catalog.normalized_name_lookup.get(&normalized_key) {
-            if let Some(def) = self.catalog.object_definitions.get(canonical) {
-                return Some(def);
-            }
-        }
-
-        None
+    pub(super) fn object_catalog(&self) -> Arc<ObjectCatalog> {
+        Arc::clone(&self.catalog)
     }
 
     /// Get all loaded object definitions

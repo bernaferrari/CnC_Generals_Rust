@@ -1454,6 +1454,11 @@ impl AssetManager {
             .select_draw_models_for_object_conditions(object_name, condition_bits)
     }
 
+    /// Immutable view retained while a presentation roster resolves its Draw rows.
+    pub(crate) fn object_catalog(&self) -> Arc<super::ww3d_asset_manager::ObjectCatalog> {
+        self.ww3d_manager.object_catalog()
+    }
+
     /// Apply C++ `findTransitionForSig` playback for one live object.
     pub(crate) fn apply_live_draw_transition_playback(
         &self,
@@ -2771,6 +2776,57 @@ pub fn toggle_cnc_music() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gameworld_projection_shares_only_the_receiving_catalogues_equal_draw_selections() {
+        use crate::game_logic::{GameLogic, Object, ObjectId, Team, ThingTemplate};
+        use crate::gameworld_shadow::GameWorldShadow;
+        use crate::presentation_frame::PresentationFrame;
+
+        fn frame(pristine: &str, damaged: &str) -> PresentationFrame {
+            let root = tempfile::tempdir().unwrap();
+            let source = root.path().join("Data/INI/Default/Object.ini");
+            std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+            std::fs::write(
+                source,
+                format!("Object SharedDraw\n  Draw = W3DModelDraw ModelTag\n    DefaultConditionState\n      Model = {pristine}\n    End\n    ConditionState = DAMAGED\n      Model = {damaged}\n    End\n  End\nEnd\n"),
+            )
+            .unwrap();
+            let mut assets = super::AssetManager::new().unwrap();
+            assets.archive_system.set_local_search_roots([root.path().to_owned()]);
+            futures::executor::block_on(assets.ww3d_manager.initialize(&mut assets.archive_system))
+                .unwrap();
+            let mut logic = GameLogic::new();
+            logic.bind_application_assets(std::sync::Arc::new(std::sync::Mutex::new(assets)));
+            let mut template = ThingTemplate::new("SharedDraw");
+            template.set_health(100.0);
+            for index in 1..=3 {
+                logic.add_object(Object::new(template.clone(), ObjectId(index), Team::USA));
+            }
+            let mut shadow = GameWorldShadow::new(32);
+            shadow.sync_from_host(&logic);
+            let entity = shadow.entity_for_host(ObjectId(3)).unwrap();
+            shadow.world_mut().world_mut().entity_mut(entity).unwrap().model_condition_bits =
+                1 << crate::game_logic::host_enum_table_residual::MC_BIT_DAMAGED;
+            let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
+            assert_eq!(frame.rebuild_objects_from_gameworld(&shadow), 3);
+            frame
+        }
+
+        let left = frame("LeftPristine", "None");
+        let right = frame("RightPristine", "RightDamaged");
+        for (frame, name) in [(&left, "LeftPristine"), (&right, "RightPristine")] {
+            let base = frame.objects.iter().find(|row| row.id == ObjectId(1)).unwrap();
+            let equal = frame.objects.iter().find(|row| row.id == ObjectId(2)).unwrap();
+            assert_eq!(base.model_key.as_deref(), Some(name));
+            assert!(std::sync::Arc::ptr_eq(&base.draw_models, &equal.draw_models));
+        }
+        let left_damaged = left.objects.iter().find(|row| row.id == ObjectId(3)).unwrap();
+        let right_damaged = right.objects.iter().find(|row| row.id == ObjectId(3)).unwrap();
+        assert!(left_damaged.draw_models.is_empty());
+        assert!(left_damaged.model_key.is_none());
+        assert_eq!(right_damaged.model_key.as_deref(), Some("RightDamaged"));
+    }
+
     use super::*;
     use crate::assets::{
         AuthoredDrawWeaponBoneBindings, AuthoredDrawWeaponBoneSlot, W3DMesh, W3DModel,

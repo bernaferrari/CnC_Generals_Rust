@@ -97,16 +97,20 @@ pub fn sub_objects_for_upgrade(upgrade: &str, template_name: &str) -> SubObjects
 }
 
 /// Resolve bomb-truck subobjects from the full set of applied upgrade tags.
-pub fn sub_objects_for_upgrade_tags(
-    tags: &std::collections::HashSet<String>,
+pub fn sub_objects_for_upgrade_tags<'a>(
+    tags: impl IntoIterator<Item = &'a String>,
     template_name: &str,
 ) -> SubObjectsUpgradeApply {
-    let t = template_name.to_ascii_lowercase();
     let mut out = SubObjectsUpgradeApply::default();
+    let mut tags = tags.into_iter().peekable();
+    if tags.peek().is_none() {
+        return out;
+    }
+    let t = template_name.to_ascii_lowercase();
 
     // Helix
     if t.contains("helix") {
-        let has_napalm = tags.iter().any(|x| {
+        let has_napalm = tags.any(|x| {
             let n = x.to_ascii_lowercase();
             n.contains("helixnapalm") || n.contains("helix_napalm")
         });
@@ -121,16 +125,18 @@ pub fn sub_objects_for_upgrade_tags(
         return out;
     }
 
-    let bio = tags.iter().any(|x| {
+    let mut bio = false;
+    let mut he = false;
+    for x in tags {
         let n = x.to_ascii_lowercase();
-        n.contains("biobomb") || n.contains("bio_bomb")
-    });
-    let he = tags.iter().any(|x| {
-        let n = x.to_ascii_lowercase();
-        n.contains("highexplosive")
+        bio |= n.contains("biobomb") || n.contains("bio_bomb");
+        he |= n.contains("highexplosive")
             || n.contains("high_explosive")
-            || (n.contains("explosive") && n.contains("bomb") && !n.contains("bio"))
-    });
+            || (n.contains("explosive") && n.contains("bomb") && !n.contains("bio"));
+        if bio && he {
+            break;
+        }
+    }
 
     if bio && he {
         out.show.push("Bombload04");

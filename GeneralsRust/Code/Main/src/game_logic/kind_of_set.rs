@@ -140,16 +140,19 @@ impl KindOfSet {
         bits
     }
 
-    pub(crate) fn presentation_order(self) -> impl Iterator<Item = KindOf> {
-        let mut bits = self.presentation_bits();
-        let prefix = std::iter::from_fn(move || {
+    pub(crate) fn presentation_bank_kinds(mut bits: u32) -> impl Iterator<Item = KindOf> {
+        std::iter::from_fn(move || {
             if bits == 0 {
                 return None;
             }
             let index = bits.trailing_zeros() as usize;
             bits &= bits - 1;
             Some(PRESENTATION_ORDER[index])
-        });
+        })
+    }
+
+    pub(crate) fn presentation_order(self) -> impl Iterator<Item = KindOf> {
+        let prefix = Self::presentation_bank_kinds(self.presentation_bits());
         let suffix = KindOfSetIter {
             remaining: self.bits & !PRESENTATION_KIND_BITS.1,
             kinds: KindOf::ALL_KIND_OF,
@@ -319,6 +322,11 @@ mod tests {
         .into_iter()
         .collect();
         assert_eq!(set.presentation_bits(), (1 << 2) | (1 << 4) | (1 << 30));
+        assert!(KindOfSet::presentation_bank_kinds(set.presentation_bits()).eq([
+            KindOf::Vehicle,
+            KindOf::Projectile,
+            KindOf::Dozer,
+        ]));
         assert!(set.presentation_order().eq([
             KindOf::Vehicle,
             KindOf::Projectile,
