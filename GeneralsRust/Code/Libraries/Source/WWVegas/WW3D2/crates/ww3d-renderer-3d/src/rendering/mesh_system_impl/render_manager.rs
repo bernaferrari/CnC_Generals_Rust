@@ -933,15 +933,40 @@ impl MeshRenderManager {
             resources.retain_buffer(Arc::clone(&binds.uv_transform_buffer));
             resources.set_bind_group(render_pass, 2, Arc::clone(&binds.bind_group));
         } else {
-            let binds = WgpuMaterialBinds::uv_transform(
-                self.gpu_device.wgpu_device(),
-                pipeline.as_ref(),
-                2,
-                None,
-                render_info.time,
-            )?;
-            resources.retain_buffer(Arc::clone(&binds.buffer));
-            resources.set_bind_group(render_pass, 2, Arc::clone(&binds.bind_group));
+            // World-space shroud projection has no authored UV transform.
+            // Retain one neutral uniform for this rigid pipeline layout.
+            const PROJECTED_UV_GROUP: u32 = 2;
+            let gpu = &self.gpu_device;
+            let key = super::bind_cache::UniformGroupKey {
+                pipeline: pipeline_id,
+                group: PROJECTED_UV_GROUP,
+                contents: 0,
+            };
+            let binds = self.bind_cache.per_pass_group(key, || {
+                WgpuMaterialBinds::uv_transform_in_arena(
+                    gpu.as_ref(),
+                    pipeline.as_ref(),
+                    PROJECTED_UV_GROUP,
+                    None,
+                    0.0,
+                    arena,
+                )
+                .map(|uv| {
+                    #[cfg(test)]
+                    {
+                        self.stats.projected_shroud_rigid_uv_binds_created += 1;
+                    }
+                    super::bind_cache::CachedGroup {
+                        bind_group: uv.bind_group,
+                        buffers: vec![uv.buffer],
+                    }
+                })
+            })?;
+            binds
+                .buffers
+                .into_iter()
+                .for_each(|buffer| resources.retain_buffer(buffer));
+            resources.set_bind_group(render_pass, PROJECTED_UV_GROUP, binds.bind_group);
         }
 
         let projected_kind = usize::from(prepared.is_skinned);

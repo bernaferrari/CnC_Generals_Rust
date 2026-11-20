@@ -217,8 +217,15 @@ fn projected_texture_groups_are_reused_by_live_rigid_and_skinned_draws() {
         let readback = static_sort_pixel_readback(renderer);
         renderer.end_frame().unwrap();
         assert_eq!(renderer.stats().draw_calls, draws, "native mesh and shroud draw count");
-        let binds = renderer.renderer.lock().unwrap().mesh_stats().projected_shroud_texture_binds_created;
-        (binds, mapped_static_sort_pixel(renderer, &readback))
+        let (texture_binds, rigid_uv_binds) = {
+            let inner = renderer.renderer.lock().unwrap();
+            let stats = inner.mesh_stats();
+            (
+                stats.projected_shroud_texture_binds_created,
+                stats.projected_shroud_rigid_uv_binds_created,
+            )
+        };
+        (texture_binds, rigid_uv_binds, mapped_static_sort_pixel(renderer, &readback))
     };
 
     let before = draw(&mut first, Some(binding(&first_view, &sampler, 1)));
@@ -234,18 +241,25 @@ fn projected_texture_groups_are_reused_by_live_rigid_and_skinned_draws() {
     let peer_repeat = draw(&mut peer, Some(binding(&peer_view, &sampler, 1)));
     eprintln!("projected texture-group allocations and actual draw pixels: {:?}",
         [before, repeat, peer_before, update, sampler_change, view_change, restore, clear, after_clear, peer_repeat]);
-    assert_eq!(before.1, repeat.1);
-    assert_eq!(update.1, sampler_change.1);
-    assert_eq!(update.1, restore.1);
-    assert_eq!(view_change.1, peer_before.1);
-    assert_eq!(peer_repeat.1, peer_before.1);
-    assert_eq!(after_clear.1, update.1);
-    assert!(update.1[0] < before.1[0] && before.1[0] < peer_before.1[0]);
-    assert!(peer_before.1[0] < clear.1[0]);
+    assert_eq!(before.2, repeat.2);
+    assert_eq!(update.2, sampler_change.2);
+    assert_eq!(update.2, restore.2);
+    assert_eq!(view_change.2, peer_before.2);
+    assert_eq!(peer_repeat.2, peer_before.2);
+    assert_eq!(after_clear.2, update.2);
+    assert!(update.2[0] < before.2[0] && before.2[0] < peer_before.2[0]);
+    assert!(peer_before.2[0] < clear.2[0]);
     assert_eq!(
         [before.0, repeat.0, peer_before.0, update.0, sampler_change.0, view_change.0, restore.0, clear.0, after_clear.0, peer_repeat.0],
         [2, 0, 2, 0, 2, 2, 2, 0, 2, 0],
         "one group per actual pipeline, bound only when the frozen resources change",
+    );
+
+    assert_eq!(
+        [before.1, repeat.1, peer_before.1, update.1, sampler_change.1, view_change.1,
+         restore.1, clear.1, after_clear.1, peer_repeat.1],
+        [1, 1, 1, 1, 1, 1, 1, 0, 1, 1],
+        "each native pass uses one neutral rigid projected UV binding",
     );
 }
 

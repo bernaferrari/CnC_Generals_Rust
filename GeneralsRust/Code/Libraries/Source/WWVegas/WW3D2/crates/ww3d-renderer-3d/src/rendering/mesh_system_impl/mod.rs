@@ -233,6 +233,8 @@ pub struct MeshRenderStats {
     pub vertex_color_passes: u32,
     #[cfg(test)]
     pub(crate) projected_shroud_texture_binds_created: u32,
+    #[cfg(test)]
+    pub(crate) projected_shroud_rigid_uv_binds_created: u32,
 }
 
 /// Mesh geometry flags
