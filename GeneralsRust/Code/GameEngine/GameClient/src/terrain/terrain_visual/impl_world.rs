@@ -1631,6 +1631,46 @@ mod track_ground_ownership_tests {
         assert!(first.terrain_tracks().track(a).unwrap().have_cap());
         assert!(!second.terrain_tracks().track(b).unwrap().have_cap());
     }
+
+    #[test]
+    fn sloped_track_edges_and_caps_keep_the_cpp_cross_product_width() {
+        crate::test_support::ensure_ambient_host();
+        let mut visual = TerrainVisualImpl::new();
+        let mut map = HeightMap::new(16, 16, 200.0, 10.0);
+        for row in map.heights.chunks_exact_mut(16) {
+            for (x, height) in row.iter_mut().enumerate() {
+                *height = x as f32 * 7.5 / 200.0;
+            }
+        }
+        visual.load_heightmap_from_data(map, None, None).unwrap();
+        let handle = visual
+            .terrain_tracks_mut()
+            .bind_track(4.0, 10.0, "extnktrack.tga")
+            .unwrap();
+        for (x, time) in [(20.0, 100), (40.0, 133), (60.0, 166)] {
+            visual.add_track_edge(handle, x, 40.0, time);
+        }
+        visual.add_track_cap(handle, 80.0, 40.0, 199);
+
+        let track = visual.terrain_tracks().track(handle).unwrap();
+        let edges = track.active_edges(MAX_TRACK_EDGE_COUNT);
+        assert_eq!(edges.len(), 3);
+        for (edge, (x, stamp)) in edges.iter().zip([(40.0, 133), (60.0, 166), (80.0, 199)]) {
+            // Grade 0.75 gives normal (-0.6, 0, 0.8), so the C++ cross
+            // product with the unit heading is (0, -0.8, 0).
+            let z = x * 0.75 + 2.0;
+            let expected = [Vec3::new(x, 41.6, z), Vec3::new(x, 38.4, z)];
+            for (actual, expected) in edge.endpoint_pos.into_iter().zip(expected) {
+                assert!(
+                    actual.abs_diff_eq(expected, 0.0001),
+                    "track endpoint {actual:?} should be {expected:?}",
+                );
+            }
+            assert_eq!(edge.time_added, stamp);
+        }
+        assert_eq!(edges.last().unwrap().alpha, 0.0);
+        assert!(track.have_cap());
+    }
 }
 
 #[cfg(test)]

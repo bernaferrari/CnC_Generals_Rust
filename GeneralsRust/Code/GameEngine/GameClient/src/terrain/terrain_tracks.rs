@@ -221,7 +221,8 @@ impl TerrainTracksRenderObjClass {
         self.reserve_edge_slot(max_edges);
         dir.z = 0.0;
         let dir = dir.normalize_or_zero();
-        let side = dir.cross(normal).normalize_or_zero();
+        // W3DTerrainTracks keeps the cross-product length on slopes.
+        let side = dir.cross(normal);
         let alpha = if self.airborne || self.active_edge_count <= 1 {
             0.0
         } else {
@@ -270,7 +271,7 @@ impl TerrainTracksRenderObjClass {
         self.reserve_edge_slot(max_edges);
         dir.z = 0.0;
         let dir = dir.normalize_or_zero();
-        let side = dir.cross(normal).normalize_or_zero();
+        let side = dir.cross(normal);
         self.write_top_edge(pos, side, sync_time, 0.0);
         self.last_anchor = pos;
         self.active_edge_count += 1;
