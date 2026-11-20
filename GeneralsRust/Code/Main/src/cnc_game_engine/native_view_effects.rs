@@ -222,6 +222,31 @@ impl<'a> NativeRendererViewEffects<'a> {
         self.policy.use_tree_sway = world.lighting_rules().use_tree_sway;
         self.policy.time_of_day = world.native_lighting_time_of_day();
     }
+    fn update_owned_track_geometry(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        object: &crate::game_logic::Object,
+        terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+        logic: &std::sync::RwLock<gamelogic::terrain::TerrainLogic>,
+        force_cap: bool,
+    ) {
+        let position = object.get_position();
+        let poses = &self.poses;
+        self.drawables.advance_installed_model_tracks(
+            self.host_epoch,
+            identity.object_id(),
+            terrain,
+            |key| {
+                poses.validate_object_retirement(identity, key).ok()?;
+                Some(logic.read().unwrap_or_else(|poisoned| poisoned.into_inner()))
+            },
+            Vec3::new(position.x, position.z, position.y),
+            gamelogic::path::PathfindLayerEnum::from_u32(u32::from(object.pathfind_layer)),
+            force_cap || object.status.stealthed,
+            self.poses.current_animation_sync_ms() as i32,
+            object.physics_gravity(),
+        );
+    }
     pub(super) fn on_level_start(
         &mut self,
         world: &crate::game_logic::GameLogic,
@@ -539,22 +564,16 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
         logic: &std::sync::RwLock<gamelogic::terrain::TerrainLogic>,
     ) {
-        let position = object.get_position();
-        let poses = &self.poses;
-        self.drawables.advance_installed_model_tracks(
-            self.host_epoch,
-            identity.object_id(),
-            terrain,
-            |key| {
-                poses.validate_object_retirement(identity, key).ok()?;
-                Some(logic.read().unwrap_or_else(|poisoned| poisoned.into_inner()))
-            },
-            Vec3::new(position.x, position.z, position.y),
-            gamelogic::path::PathfindLayerEnum::from_u32(u32::from(object.pathfind_layer)),
-            object.status.stealthed,
-            self.poses.current_animation_sync_ms() as i32,
-            object.physics_gravity(),
-        );
+        self.update_owned_track_geometry(identity, object, terrain, logic, false);
+    }
+    fn on_owned_track_drawable_hidden(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        object: &crate::game_logic::Object,
+        terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+        logic: &std::sync::RwLock<gamelogic::terrain::TerrainLogic>,
+    ) {
+        self.update_owned_track_geometry(identity, object, terrain, logic, true);
     }
     fn host_epoch(&self) -> u64 {
         self.host_epoch

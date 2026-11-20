@@ -773,14 +773,11 @@ impl GameLogic {
             obj.set_status_force_attack(false);
             obj.target = Some(container_id);
             let containment_actor_id = obj.id;
-            Self::set_owned_containment_in_parts(
-                &mut self.objects,
-                &mut self.partition_manager,
-                &mut self.ai_groups,
-                &mut self.pathfinding_system,
+            self.set_owned_containment_with_track_effects(
                 containment_actor_id,
-                Some(container_id),
+                container_id,
                 enclosing_garrison,
+                effects,
             );
             // C++ onContaining snaps enclosing occupants to the building
             // origin. Fire Base (IsEnclosingContainer=No) stays at stations.

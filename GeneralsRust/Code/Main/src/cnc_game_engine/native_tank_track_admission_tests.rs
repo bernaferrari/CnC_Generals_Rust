@@ -39,6 +39,15 @@ const DOZER: RetailTrackUnit = RetailTrackUnit {
     dds: Some("Art/Textures/extiretrack2.dds"),
 };
 
+const QUAD_CANNON: RetailTrackUnit = RetailTrackUnit {
+    template: "GLAVehicleQuadCannon",
+    team: Team::GLA,
+    model: "UVQuadCann",
+    expansion_model: false,
+    width: 16.734_961,
+    dds: None,
+};
+
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_tank_factory_binds_before_placement_and_client_reset_retires_own_marks() {
@@ -55,6 +64,12 @@ fn retail_disguise_replacement_detaches_only_the_old_drawable_track() {
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_tank_registered_yaw_updates_and_caps_its_track_without_translation() {
     exercise_retail_track(BATTLEMASTER, TrackExercise::TurnInPlace);
+}
+
+#[test]
+#[ignore = "requires mounted retail sources and native WGPU"]
+fn retail_quad_cannon_entering_tunnel_caps_its_track_before_redeployment() {
+    exercise_retail_track(QUAD_CANNON, TrackExercise::TunnelEnter);
 }
 
 #[test]
@@ -98,23 +113,14 @@ fn retail_wrapper_tracks_overlord_truck() {
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_wrapper_tracks_tank_truck() {
-    exercise_retail_track(
-        RetailTrackUnit {
-            template: "GLAVehicleQuadCannon",
-            team: Team::GLA,
-            model: "UVQuadCann",
-            expansion_model: false,
-            width: 16.734_961,
-            dds: None,
-        },
-        TrackExercise::Reset,
-    );
+    exercise_retail_track(QUAD_CANNON, TrackExercise::Reset);
 }
 
 enum TrackExercise {
     Reset,
     Disguise,
     TurnInPlace,
+    TunnelEnter,
 }
 
 fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
@@ -245,7 +251,10 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
         assert_eq!(track.active_edge_count(), 0);
     }
 
-    let placements: &[f32] = if matches!(exercise, TrackExercise::TurnInPlace) {
+    let placements: &[f32] = if matches!(
+        exercise,
+        TrackExercise::TurnInPlace | TrackExercise::TunnelEnter
+    ) {
         &[45.0, 70.0, 95.0]
     } else {
         &[45.0, 70.0]
@@ -374,6 +383,36 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
             assert_eq!(peer.active_edge_count(), 0);
             return;
         }
+        TrackExercise::TunnelEnter => {
+            assert_eq!(edges_before.last().unwrap().alpha, 1.0);
+            with_view(
+                &mut client,
+                &mut render,
+                &mut graphics,
+                &mut world,
+                |world, effects| enter_retail_tunnel(world, id, effects),
+            );
+            let terrain = render.native_terrain().unwrap();
+            let tracks = terrain.terrain_tracks();
+            let track = tracks.track(receipt.slot()).unwrap();
+            let mut expected = edges_before;
+            expected.last_mut().unwrap().alpha = 0.0;
+            assert_eq!(
+                track.active_edges(tracks.config().max_tank_track_edges),
+                expected,
+                "enclosing OpenContain must cap the existing strip before redeploying the rider"
+            );
+            assert!(track.have_anchor() && track.have_cap());
+            let peer = peer_render
+                .native_terrain()
+                .unwrap()
+                .terrain_tracks()
+                .track(peer_receipt.slot())
+                .unwrap();
+            assert!(peer.have_anchor() && peer.have_cap());
+            assert_eq!(peer.active_edge_count(), 0);
+            return;
+        }
     }
     let terrain = render.native_terrain().unwrap();
     assert!(!terrain.receives_terrain_track(&receipt));
@@ -396,6 +435,44 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
             .unwrap()
             .receives_terrain_track(&peer_receipt)
     );
+}
+
+fn enter_retail_tunnel(
+    world: &mut GameLogic,
+    id: ObjectId,
+    effects: &mut ScriptPresentationEffects<'_>,
+) {
+    use crate::command_system::{CommandType, GameCommand};
+
+    world.with_own_services_mut(|world| {
+        let tunnel = world
+            .create_object_with_script_effects_checked(
+                "GLATunnelNetwork",
+                Team::GLA,
+                Vec3::new(103.0, 0.0, 20.0),
+                None,
+                effects,
+            )
+            .unwrap()
+            .unwrap();
+        world.queue_command(GameCommand {
+            command_type: CommandType::Enter { target_id: tunnel },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::UNIX_EPOCH,
+            selected_units: vec![id],
+            modifier_keys: Default::default(),
+        });
+        world.process_commands_with_effects(effects);
+        world
+            .update_ai_with_effects(&[id, tunnel], 1.0 / 30.0, effects)
+            .unwrap();
+        let rider = world.objects.get(&id).unwrap();
+        assert_eq!(rider.contained_by, Some(tunnel));
+        assert!(rider.drawable_is_effectively_hidden());
+        assert_eq!(rider.get_position(), Vec3::new(103.0, 0.0, 20.0));
+        assert_eq!(world.tunnel_network_residual_enters(), 1);
+    });
 }
 
 fn rotate_registered_tank_in_place(

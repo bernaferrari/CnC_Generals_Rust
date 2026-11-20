@@ -3,20 +3,80 @@
 use super::PartitionManager;
 use crate::game_logic::game_logic::ai_group_owner::AiGroupOwner;
 use crate::game_logic::pathfinding::PathfindingSystem;
-use crate::game_logic::{GameLogic, HostObjectStore, KindOf, ObjectId};
+use crate::game_logic::{
+    GameLogic, HostObjectStore, KindOf, Object, ObjectId, ScriptPresentationEffects,
+};
 use std::sync::Arc;
 impl GameLogic {
     /// Split OpenContain world membership from onContainedBy/onRemovedFrom so
     /// module callbacks observe the original intermediate state.
     pub(crate) fn change_owned_containment_world_membership(&mut self, id: ObjectId, add: bool) {
-        change_world_membership(&mut self.objects, &mut self.partition_manager,
-            &mut self.ai_groups, &mut self.pathfinding_system, id, add, &mut Vec::new(), true);
+        change_world_membership(
+            &mut self.objects,
+            &mut self.partition_manager,
+            &mut self.ai_groups,
+            &mut self.pathfinding_system,
+            id,
+            add,
+            &mut Vec::new(),
+            true,
+            &mut |_| {},
+        );
     }
 
     /// TunnelTracker::loadPostProcess visits only the saved passenger itself.
     pub(crate) fn restore_cave_passenger_world_membership(&mut self, id: ObjectId) {
-        change_world_membership(&mut self.objects, &mut self.partition_manager,
-            &mut self.ai_groups, &mut self.pathfinding_system, id, false, &mut Vec::new(), false);
+        change_world_membership(
+            &mut self.objects,
+            &mut self.partition_manager,
+            &mut self.ai_groups,
+            &mut self.pathfinding_system,
+            id,
+            false,
+            &mut Vec::new(),
+            false,
+            &mut |_| {},
+        );
+    }
+
+    pub(in crate::game_logic) fn set_owned_containment_with_track_effects(
+        &mut self,
+        id: ObjectId,
+        container: ObjectId,
+        enclosing: bool,
+        _effects: &mut ScriptPresentationEffects<'_>,
+    ) {
+        Self::set_owned_containment_in_parts_observed(
+            &mut self.objects,
+            &mut self.partition_manager,
+            &mut self.ai_groups,
+            &mut self.pathfinding_system,
+            id,
+            Some(container),
+            enclosing,
+            &mut |_actor| {
+                #[cfg(feature = "game_client")]
+                if let Some(view) = _effects.view.as_deref_mut()
+                    && let Some(terrain) = _effects
+                        .terrain
+                        .as_deref_mut()
+                        .and_then(|terrain| terrain.track_terrain())
+                    && terrain.has_receiving_tracks()
+                {
+                    let identity = Self::live_draw_playback_identity_in_world(
+                        &self.live_draw_playback_world,
+                        self.visual_world_epoch,
+                        _actor,
+                    );
+                    view.on_owned_track_drawable_hidden(
+                        &identity,
+                        _actor,
+                        terrain,
+                        self.world_services.terrain().as_ref(),
+                    );
+                }
+            },
+        );
     }
 
     /// Explicit split fields permit audio/movement loans to remain independent.
@@ -30,6 +90,22 @@ impl GameLogic {
         id: ObjectId,
         container: Option<ObjectId>,
         enclosing: bool,
+    ) {
+        Self::set_owned_containment_in_parts_observed(
+            objects, partition, ai_groups, pathfinding, id, container, enclosing, &mut |_| {},
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn set_owned_containment_in_parts_observed(
+        objects: &mut HostObjectStore,
+        partition: &mut PartitionManager,
+        ai_groups: &mut AiGroupOwner,
+        pathfinding: &mut PathfindingSystem,
+        id: ObjectId,
+        container: Option<ObjectId>,
+        enclosing: bool,
+        on_effective_hide: &mut impl FnMut(&Object),
     ) {
         let actor = objects
             .get(&id)
@@ -49,6 +125,7 @@ impl GameLogic {
                 false,
                 &mut Vec::new(),
                 true,
+                on_effective_hide,
             );
         } else if container.is_none() && was_enclosed && !partition.is_registered(id.0) {
             change_world_membership(
@@ -60,6 +137,7 @@ impl GameLogic {
                 true,
                 &mut Vec::new(),
                 true,
+                on_effective_hide,
             );
         }
         let actor = objects
@@ -68,6 +146,7 @@ impl GameLogic {
         actor.finish_containment_reference_with_partition_owner(container, enclosing, partition);
     }
 }
+#[allow(clippy::too_many_arguments)]
 fn change_world_membership(
     objects: &mut HostObjectStore,
     partition: &mut PartitionManager,
@@ -77,6 +156,7 @@ fn change_world_membership(
     add: bool,
     path: &mut Vec<ObjectId>,
     recurse: bool,
+    on_effective_hide: &mut impl FnMut(&Object),
 ) {
     assert!(
         !path.contains(&id),
@@ -96,7 +176,12 @@ fn change_world_membership(
             ai_groups.remove_if_birth(id, &Arc::downgrade(&actor.visual_draw_identity_token));
             partition.unregister_object(id.0);
         }
+        let was_hidden = actor.drawable_hidden;
         actor.set_drawable_hidden(!add);
+        // Drawable::setDrawableHidden dispatches its effective flag on a raw state change.
+        if was_hidden != actor.drawable_hidden && actor.drawable_is_effectively_hidden() {
+            on_effective_hide(actor);
+        }
         // OpenContain removes the rider from the pathfinder after hiding it.
         // Mobile position and goal cells remain owned by the receiving grid.
         if !add
@@ -153,6 +238,7 @@ fn change_world_membership(
                 add,
                 path,
                 true,
+                on_effective_hide,
             );
         }
     }

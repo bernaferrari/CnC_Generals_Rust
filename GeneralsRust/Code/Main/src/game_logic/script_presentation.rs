@@ -435,6 +435,15 @@ pub(crate) trait NativeViewEffects {
     ) {
     }
     #[cfg(feature = "game_client")]
+    fn on_owned_track_drawable_hidden(
+        &mut self,
+        _identity: &LiveDrawPlaybackIdentity,
+        _object: &super::Object,
+        _terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+        _logic: &std::sync::RwLock<gamelogic::terrain::TerrainLogic>,
+    ) {
+    }
+    #[cfg(feature = "game_client")]
     fn host_epoch(&self) -> u64;
     #[cfg(feature = "game_client")]
     fn admit_factory_drawable(
