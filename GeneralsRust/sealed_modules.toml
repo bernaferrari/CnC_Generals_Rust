@@ -116,6 +116,11 @@ cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/plane.h"
 note = "One distance coefficient for geometry and collision. Original portable point/sphere edges and all three line-of-intersection branches verified. Rust returns zero parameter for parallel segments where C++ leaves caller output unwritten."
 
 [[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/wwmath_ids.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/wwmathids.h"
+note = "The WWMath base and all eleven curve persist factory IDs match the compiled original headers. Constants are immutable and fully documented."
+
+[[module]]
 path = "Code/Libraries/Source/WWVegas/WWMath/src/vector2i.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/vector2i.h"
 note = "Original signed extrema, component offsets, equality, Set, and distinct-vector Swap verified against portable C++. Glam provides initialized defaults and checked indexing, and Rust disallows aliased mutable swaps."
