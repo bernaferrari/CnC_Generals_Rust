@@ -31,6 +31,17 @@ impl std::fmt::Debug for EngineThingTemplateAdapter {
 }
 
 impl EngineThingTemplateAdapter {
+    fn convert_audio_event(
+        sound: &game_engine::common::audio::audio_event_rts::AudioEventRts,
+    ) -> crate::common::audio::AudioEventRts {
+        let name = if sound.event_name.is_empty() {
+            &sound.filename_to_load
+        } else {
+            &sound.event_name
+        };
+        crate::common::audio::AudioEventRts::new(name.clone())
+    }
+
     fn convert_module_info(
         info: &game_engine::common::thing::thing_template::ModuleInfo,
     ) -> Vec<crate::common::TemplateModuleInfo> {
@@ -175,13 +186,35 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
 
     fn get_per_unit_sound(&self, name: &str) -> Option<crate::common::audio::AudioEventRts> {
         let key = game_engine::common::rts::AsciiString::from(name);
-        let sound = self.inner.get_per_unit_sound(&key)?;
-        let event_name = if !sound.event_name.is_empty() {
-            sound.event_name.clone()
-        } else {
-            sound.filename_to_load.clone()
-        };
-        Some(crate::common::audio::AudioEventRts::new(event_name))
+        self.inner
+            .get_per_unit_sound(&key)
+            .map(Self::convert_audio_event)
+    }
+
+    // ThingTemplate.cpp:182–185. The Drawable chooses damaged-state fallback
+    // after resolving these separate authored slots.
+    fn get_sound_ambient(&self) -> Option<crate::common::audio::AudioEventRts> {
+        self.inner
+            .get_sound_ambient()
+            .map(Self::convert_audio_event)
+    }
+
+    fn get_sound_ambient_damaged(&self) -> Option<crate::common::audio::AudioEventRts> {
+        self.inner
+            .get_sound_ambient_damaged()
+            .map(Self::convert_audio_event)
+    }
+
+    fn get_sound_ambient_really_damaged(&self) -> Option<crate::common::audio::AudioEventRts> {
+        self.inner
+            .get_sound_ambient_really_damaged()
+            .map(Self::convert_audio_event)
+    }
+
+    fn get_sound_ambient_rubble(&self) -> Option<crate::common::audio::AudioEventRts> {
+        self.inner
+            .get_sound_ambient_rubble()
+            .map(Self::convert_audio_event)
     }
 
     fn get_voice_attack(&self) -> crate::common::audio::AudioEventRts {
@@ -1170,6 +1203,85 @@ impl crate::system::engine_stores::WorldServices {
     /// C++ `GameTextManager::reset` (GameText.cpp:395) of the map-string table for this world.
     pub fn clear_map_string_file(&self) {
         self.map_string_overlay().write().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
+#[cfg(test)]
+mod world_thing_audio_tests {
+    use super::TheThingFactory;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use game_engine::common::thing::thing_factory::{
+        ensure_thing_factory_exists, get_thing_factory,
+    };
+
+    #[test]
+    fn inherited_factory_ambient_slots_use_their_own_world_and_keep_no_sound() {
+        let _lock = crate::test_sync::lock();
+        let receiving = new_for_world();
+        let peer = new_for_world();
+        let install = |name: &str| {
+            assert!(ensure_thing_factory_exists());
+            let source = format!(
+                "Object DefaultThingTemplate
+                    SoundAmbient = {name}
+                    SoundAmbientDamaged = DamageCue
+                    SoundAmbientReallyDamaged = ReallyDamageCue
+                    SoundAmbientRubble = RubbleCue
+                End
+                Object AmbientOwner
+                End
+                Object QuietOwner
+                    SoundAmbientDamaged = NoSound
+                    SoundAmbientRubble = NoSound
+                End"
+            );
+            assert_eq!(
+                get_thing_factory()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .load_ini_text(&source),
+                3
+            );
+            (
+                TheThingFactory::find_template("AmbientOwner").unwrap(),
+                TheThingFactory::find_template("QuietOwner").unwrap(),
+            )
+        };
+
+        let (owner, quiet) = with_active_stores(&receiving, || install("ReceivingAmbient"));
+        let (foreign, _) = with_active_stores(&peer, || install("PeerAmbient"));
+        with_active_stores(&peer, || {
+            assert_eq!(
+                owner.get_sound_ambient().unwrap().get_event_name(),
+                "ReceivingAmbient"
+            );
+            assert_eq!(
+                owner.get_sound_ambient_damaged().unwrap().get_event_name(),
+                "DamageCue"
+            );
+            assert_eq!(
+                owner
+                    .get_sound_ambient_really_damaged()
+                    .unwrap()
+                    .get_event_name(),
+                "ReallyDamageCue"
+            );
+            assert_eq!(
+                owner.get_sound_ambient_rubble().unwrap().get_event_name(),
+                "RubbleCue"
+            );
+            assert!(quiet.get_sound_ambient_damaged().is_none());
+            assert!(quiet.get_sound_ambient_rubble().is_none());
+            assert_eq!(
+                quiet.get_sound_ambient().unwrap().get_event_name(),
+                "ReceivingAmbient"
+            );
+            assert_eq!(
+                foreign.get_sound_ambient().unwrap().get_event_name(),
+                "PeerAmbient"
+            );
+        });
     }
 }
 
