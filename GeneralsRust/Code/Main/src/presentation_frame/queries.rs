@@ -1229,7 +1229,7 @@ impl PresentationFrame {
                     }
                 }
             } else {
-                for draw_model in &o.draw_models {
+                for draw_model in o.draw_models.iter() {
                     if !draw_model.model_key.is_empty() && seen.insert(draw_model.model_key.clone())
                     {
                         keys.push(draw_model.model_key.clone());

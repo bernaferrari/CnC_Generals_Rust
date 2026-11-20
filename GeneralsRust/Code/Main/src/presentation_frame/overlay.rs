@@ -249,20 +249,24 @@ impl PresentationFrame {
             let draw_models = if let Some(models) = obj.receiving_draw_models.as_deref() {
                 models.select(ent.model_condition_bits)
             } else {
-                Self::select_gameworld_draw_models(asset_manager, ent).unwrap_or_else(|| {
-                    Self::gameworld_fallback_draw_models(
-                        asset_manager,
-                        ent,
-                        Some(ent.model_key.as_str()),
-                    )
-                })
+                Self::select_gameworld_draw_models(asset_manager, ent)
+                    .unwrap_or_else(|| {
+                        Self::gameworld_fallback_draw_models(
+                            asset_manager,
+                            ent,
+                            Some(ent.model_key.as_str()),
+                        )
+                    })
+                    .into()
             };
             let model_key = draw_models.first().map(|model| model.model_key.clone());
             if obj.model_key != model_key {
                 obj.model_key = model_key;
                 dirty = true;
             }
-            if obj.draw_models != draw_models {
+            if !std::sync::Arc::ptr_eq(&obj.draw_models, &draw_models)
+                && obj.draw_models != draw_models
+            {
                 obj.draw_models = draw_models;
                 dirty = true;
             }
@@ -1828,7 +1832,7 @@ impl PresentationFrame {
             // Draw model by Object identity. Later presentation/render code
             // must not apply suffix-based reselection.
             model_key,
-            draw_models,
+            draw_models: draw_models.into(),
             // GameWorld carries the originating template's authored Object INI
             // scale.  Keep it frozen instead of recovering scale from a unit
             // name compatibility table.

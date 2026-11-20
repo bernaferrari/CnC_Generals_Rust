@@ -23,6 +23,20 @@ fn receiving_model_frame_rejects_shadow_alias_and_selects_its_own_condition_tabl
         peer_frame.objects[0].model_key.as_deref(),
         Some("PeerPristine")
     );
+    let models = &peer_frame.objects[0].draw_models;
+    assert!(std::sync::Arc::ptr_eq(
+        models,
+        &peer_frame.direct_host_drawables[0].object.draw_models,
+    ));
+    let input = UnitRenderInput::from_renderable(&peer_frame.objects[0]);
+    assert!(std::sync::Arc::ptr_eq(models, &input.draw_models));
+    let wire = bincode::config::legacy();
+    let legacy = bincode::serde::encode_to_vec(models.to_vec(), wire).unwrap();
+    assert_eq!(bincode::serde::encode_to_vec(models, wire).unwrap(), legacy);
+    let (restored, consumed): (std::sync::Arc<[crate::assets::AuthoredDrawModel]>, _) =
+        bincode::serde::decode_from_slice(&legacy, wire).unwrap();
+    assert_eq!(consumed, legacy.len());
+    assert_eq!(restored, *models);
     let mut frame = PresentationFrame::build_from_logic(&mut world, 0);
     assert!(frame.objects[0].model_key.is_none());
     assert!(frame.objects[0].draw_models.is_empty());

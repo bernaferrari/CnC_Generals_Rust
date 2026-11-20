@@ -404,7 +404,8 @@ fn unit_render_inputs_keep_distinct_source_draw_modules() {
             model_key: "ProbeDoor".to_string(),
             ..Default::default()
         },
-    ];
+    ]
+    .into();
 
     // Exercise the ordinary frozen-row handoff with its authored models.
     // A resident drawable supplies its own immutable visual template instead.

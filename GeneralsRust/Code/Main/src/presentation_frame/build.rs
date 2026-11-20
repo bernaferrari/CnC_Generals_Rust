@@ -484,6 +484,7 @@ impl PresentationFrame {
                         fallback_draw_models.as_slice(),
                         model_condition_bits,
                     )
+                    .into()
                 });
             let model_key = draw_models.first().map(|model| model.model_key.clone());
             // Wave 75: freeze mesh scale residual (common combat = 1.0; CINE/weapon peels).

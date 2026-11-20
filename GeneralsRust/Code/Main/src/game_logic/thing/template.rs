@@ -211,11 +211,7 @@ impl ReceivingDrawModels {
             .unwrap_or_else(|| self.base_model.clone().unwrap_or_default())
     }
 
-    pub(crate) fn select(&self, bits: u128) -> Vec<crate::assets::AuthoredDrawModel> {
-        self.select_shared(bits).to_vec()
-    }
-
-    pub(crate) fn select_shared(&self, bits: u128) -> Arc<[AuthoredDrawModel]> {
+    pub(crate) fn select(&self, bits: u128) -> Arc<[AuthoredDrawModel]> {
         self.native_render_selection(bits)
             .map(|selection| selection.visible)
             .unwrap_or_default()
@@ -2272,7 +2268,7 @@ impl ThingTemplate {
     pub(crate) fn authored_draw_models_for_conditions(
         &self,
         bits: u128,
-    ) -> Option<Vec<crate::assets::AuthoredDrawModel>> {
+    ) -> Option<Arc<[AuthoredDrawModel]>> {
         self.authored_draw_modules
             .as_deref()
             .map(|models| models.select(bits))
@@ -2364,10 +2360,7 @@ mod authored_model_identity_tests {
         assert_eq!(authored.get_model_name(), "");
         assert_eq!(authored.get_w3d_filename(), "");
         assert!(crate::assets::model_key_from_template(None, &authored).is_empty());
-        assert_eq!(
-            authored.authored_draw_models_for_conditions(0),
-            Some(Vec::new())
-        );
+        assert!(authored.authored_draw_models_for_conditions(0).unwrap().is_empty());
         assert_eq!(peer.get_model_name(), "USA_Ranger");
         assert!(peer.authored_draw_models_for_conditions(0).is_none());
         for absent in ["", "None", " NONE "] {

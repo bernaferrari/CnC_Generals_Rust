@@ -402,17 +402,17 @@ impl UnitRenderInput {
         // name here; that would render a pristine proxy instead. Older saved
         // presentation frames only carry `model_key`, so synthesize one module
         // for that back-compatible representation.
-        let mut draw_models = ro.draw_models.clone();
-        if draw_models.is_empty() {
-            if let Some(model_key) = ro.model_key.as_deref().filter(|key| !key.trim().is_empty()) {
-                draw_models.push(crate::assets::AuthoredDrawModel {
+        let draw_models = match ro.model_key.as_deref() {
+            Some(model_key) if ro.draw_models.is_empty() && !model_key.trim().is_empty() => {
+                std::sync::Arc::from([crate::assets::AuthoredDrawModel {
                     module_index: 0,
-                    model_key: model_key.to_string(),
+                    model_key: model_key.to_owned(),
                     ..Default::default()
-                });
+                }])
             }
-        }
-        Self::with_draw_models(ro, draw_models.into())
+            _ => std::sync::Arc::clone(&ro.draw_models),
+        };
+        Self::with_draw_models(ro, draw_models)
     }
 
     fn with_draw_models(
@@ -607,7 +607,7 @@ impl UnitRenderInput {
     ) {
         let bits = self.model_condition_bits_with_combat_flags();
         let dest = match self.receiving_draw_models.as_deref() {
-            Some(models) => models.select_shared(bits),
+            Some(models) => models.select(bits),
             None => crate::assets::resolve_presentation_draw_models_for_conditions(
                 asset_manager,
                 &self.template_name,

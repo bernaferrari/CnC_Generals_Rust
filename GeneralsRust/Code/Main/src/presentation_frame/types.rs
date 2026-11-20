@@ -1039,7 +1039,7 @@ pub struct RenderableObject {
     /// retained for snapshot compatibility and UI/prewarm callers; rendering
     /// submits this whole list without deduplicating same-name modules.
     #[serde(default)]
-    pub draw_models: Vec<crate::assets::AuthoredDrawModel>,
+    pub draw_models: std::sync::Arc<[crate::assets::AuthoredDrawModel]>,
     /// Mesh scale residual (Object INI Scale; common combat units retail **1.0**).
     /// Snapshot-owned so the unit mesh pass does not re-read live template Scale.
     /// Fail-closed: not full draw-scale bone / animation scale matrix.

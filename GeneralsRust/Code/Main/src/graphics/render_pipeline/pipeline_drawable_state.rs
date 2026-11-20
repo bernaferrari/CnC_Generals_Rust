@@ -1056,7 +1056,7 @@ End
         let absent = receiving.apply_live_draw_transition_playback(0, &identity, &mut playback).unwrap();
         assert!(absent.is_empty());
         assert_eq!(playback[&key].current_index, 0);
-        assert!(Arc::ptr_eq(&absent, &receiving.select_shared(0)));
+        assert!(Arc::ptr_eq(&absent, &receiving.select(0)));
         let forward = receiving.apply_live_draw_transition_playback(partially, &identity, &mut playback).unwrap();
         assert_eq!(forward[0].animation_mode, Mode::Once);
         assert_eq!(playback[&key].next_index, Some(1));
@@ -1067,7 +1067,7 @@ End
         playback.get_mut(&key).unwrap().animation_complete = true;
         let active = receiving.apply_live_draw_transition_playback(partially, &identity, &mut playback).unwrap();
         assert_eq!(active[0].animation_mode, Mode::Manual);
-        assert!(Arc::ptr_eq(&active, &receiving.select_shared(partially)));
+        assert!(Arc::ptr_eq(&active, &receiving.select(partially)));
         assert_eq!(playback[&key].next_index, None);
         assert_eq!(authored_animation_start_frame(&active[0], 4), 3.0);
 
