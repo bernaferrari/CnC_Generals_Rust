@@ -82,6 +82,31 @@ mod receiving_tests {
         world.evaluate_and_execute_scripts(1.0 / 30.0);
     }
     #[test]
+    fn named_map_rejects_stale_same_id_first_receipt_and_hides_later_live_duplicate() {
+        let (mut world, id) = world("Stale");
+        let live_birth = Arc::clone(&world.host_object(id).unwrap().visual_draw_identity_token);
+        let stale_birth = Arc::new(());
+        world.named_script_cache.seed([
+            ("Stale".into(), id, Arc::clone(&stale_birth)),
+            ("Stale".into(), id, Arc::clone(&live_birth)),
+            ("stale".into(), id, Arc::clone(&live_birth)),
+        ]);
+        drop(stale_birth);
+
+        let expected = std::collections::HashMap::from([("stale".to_owned(), id.0)]);
+        assert_eq!(world.host_object_id_by_script_name("Stale"), None);
+        assert_eq!(world.host_named_unit_id_map(), expected);
+        assert_eq!(
+            world.named_script_cache.wire(),
+            [("Stale".into(), id.0), ("Stale".into(), id.0), ("stale".into(), id.0)]
+        );
+
+        world.named_script_cache.entries[0].target = None;
+        assert!(world.named_script_cache.did_exist("Stale"));
+        assert_eq!(world.host_named_unit_id_map(), expected);
+    }
+
+    #[test]
     fn actual_first_script_update_seeds_once_and_plain_set_name_does_not_rewrite_cached_pointer() {
         crate::game_logic::game_logic::pose_owner_tests::isolated_at(
             module_path!(),

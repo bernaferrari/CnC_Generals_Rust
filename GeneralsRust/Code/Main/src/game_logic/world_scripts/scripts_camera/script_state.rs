@@ -250,21 +250,6 @@ impl GameLogic {
         count
     }
 
-    /// Read-only host name→ObjectId map for crate script evaluator.
-    /// Does **not** populate OBJECT_REGISTRY or wrap crate `Object`s.
-    pub fn host_named_unit_id_map(&self) -> std::collections::HashMap<String, u32> {
-        let mut map = std::collections::HashMap::new();
-        for (name, _raw) in self.named_script_cache.wire() {
-            // A first tombstone hides later duplicate live rows.
-            let id = self
-                .host_object_id_by_script_name(&name)
-                .map_or(0, |id| id.0);
-            map.entry(name).or_insert(id);
-        }
-        map.retain(|_, raw| *raw != 0);
-        map
-    }
-
     pub fn host_named_unit_id(&self, name: &str) -> Option<ObjectId> {
         self.host_object_id_by_script_name(name)
     }

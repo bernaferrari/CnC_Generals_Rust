@@ -244,10 +244,7 @@ impl GameLogic {
     /// session's live objects. THIS_OBJECT belongs to the supplied script context.
     pub fn host_object_id_by_script_name(&self, unit_name: &str) -> Option<ObjectId> {
         let target = self.named_script_cache.lookup(unit_name)?;
-        self.objects
-            .get(&target.id)
-            .filter(|object| target.matches(object.id, &object.visual_draw_identity_token))
-            .map(|object| object.id)
+        self.resolve_named_script_target(target).map(|object| object.id)
     }
 
     /// Apply NAMED_STOP/START/SET/ADD_SPECIAL_POWER_COUNTDOWN to a named host object.

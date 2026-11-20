@@ -1,6 +1,7 @@
 //! ScriptEngine.cpp5975–6003,7068–7168,7693: one ordered named request vector.
 //! Runtime targets retain the existing Object birth identity, never a second ID ledger.
 use super::ObjectId;
+use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 #[derive(Clone, Debug)]
 pub(crate) struct NamedScriptTarget {
@@ -175,6 +176,32 @@ impl NamedScriptCache {
 }
 
 impl super::GameLogic {
+    /// Resolve a cache receipt only while its original Object birth is live.
+    pub(crate) fn resolve_named_script_target(
+        &self,
+        target: &NamedScriptTarget,
+    ) -> Option<&crate::game_logic::object::Object> {
+        self.objects
+            .get(&target.id)
+            .filter(|object| target.matches(object.id, &object.visual_draw_identity_token))
+    }
+
+    /// Project each first literal name and its live birth for script queries.
+    pub fn host_named_unit_id_map(&self) -> HashMap<String, u32> {
+        let mut names = HashMap::with_capacity(self.named_script_cache.entries.len());
+        for row in &self.named_script_cache.entries {
+            names.entry(row.name.clone()).or_insert_with(|| {
+                row.target
+                    .as_ref()
+                    .and_then(|target| self.resolve_named_script_target(target))
+                    .map_or(0, |object| object.id.0)
+            });
+        }
+        // A first tombstone or stale receipt must hide any later duplicate.
+        names.retain(|_, id| *id != 0);
+        names
+    }
+
     pub(crate) fn initialize_receiving_named_script_cache(&mut self) {
         self.named_script_cache
             .seed(self.objects.registered_values().map(|object| {
@@ -204,9 +231,7 @@ impl super::GameLogic {
         let birth = Arc::clone(&target.visual_draw_identity_token);
         let old = self.named_script_cache.transfer(name, to, &birth, named);
         let color = old.and_then(|old| {
-            self.objects
-                .get(&old.id)
-                .filter(|object| old.matches(object.id, &object.visual_draw_identity_token))
+            self.resolve_named_script_target(&old)
                 .map(|object| object.custom_indicator_color)
         });
         let target = self
