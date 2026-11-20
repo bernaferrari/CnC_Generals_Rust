@@ -10,7 +10,7 @@
 
 use crate::cnc_game_engine::{StandaloneStartupSources, load_standalone_startup_sources};
 use crate::game_logic::GameLogic;
-use crate::skirmish_config::{SkirmishMatchConfig, apply_skirmish_config, golden_skirmish_config};
+use crate::skirmish_config::{SkirmishMatchConfig, apply_skirmish_config, golden_skirmish_config_in};
 use game_engine::common::ini::INILoadType;
 use game_engine::common::ini::ini_game_data::{CameraMovementRules, ProductionEnergyRules};
 use game_engine::common::ini::ini_locomotor::LocomotorStore;
@@ -258,7 +258,10 @@ impl SharedSkirmishAssets {
     }
 
     fn match_config(&self, seed: u32) -> SkirmishMatchConfig {
-        let mut config = golden_skirmish_config(&self.map_path.to_string_lossy());
+        let mut config = golden_skirmish_config_in(
+            &self.map_path.to_string_lossy(),
+            &self.definitions.player_templates,
+        );
         config.random_seed = seed;
         config
     }

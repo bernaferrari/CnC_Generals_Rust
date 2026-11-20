@@ -6,6 +6,7 @@
 use crate::ai::AIDifficulty;
 use crate::game_logic::{GameLogic, GameMode, Player, PlayerTemplateIdentity, Team};
 use crate::ui::skirmish_menu::{Faction, GameRules, GameSlot, MAX_SLOTS, PlayerType};
+use game_engine::common::rts::player_template::PlayerTemplateStore;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "game_client")]
@@ -63,7 +64,6 @@ impl SkirmishPlayerTemplateSelection {
     /// selected identity failure before changing the simulation; do not turn
     /// it into a different base faction.
     pub fn exact_template_name(template_name: &str) -> Self {
-        let requested_name = template_name.trim().to_string();
         // Config builders may run before a GameLogic bind; use a temporary
         // CommonServices so PlayerTemplate lookup is not ambient-dependent.
         let _common = if game_engine::common::common_services::try_common_services().is_none() {
@@ -73,6 +73,11 @@ impl SkirmishPlayerTemplateSelection {
         };
         game_engine::common::ini::ensure_player_templates_loaded();
         let store = game_engine::common::rts::player_template::get_player_template_store();
+        Self::exact_template_name_in(template_name, &store)
+    }
+
+    fn exact_template_name_in(template_name: &str, store: &PlayerTemplateStore) -> Self {
+        let requested_name = template_name.trim().to_string();
         let Some(template_index) = store
             .find_template_index(&requested_name)
             .and_then(|index| i32::try_from(index).ok())
@@ -260,6 +265,22 @@ pub fn config_from_skirmish_menu(
 
 /// Golden skirmish: USA human vs Medium GLA AI on a fixed map name.
 pub fn golden_skirmish_config(map: &str) -> SkirmishMatchConfig {
+    golden_skirmish_config_with(map, SkirmishPlayerTemplateSelection::exact_template_name)
+}
+
+pub(crate) fn golden_skirmish_config_in(
+    map: &str,
+    store: &PlayerTemplateStore,
+) -> SkirmishMatchConfig {
+    golden_skirmish_config_with(map, |name| {
+        SkirmishPlayerTemplateSelection::exact_template_name_in(name, store)
+    })
+}
+
+fn golden_skirmish_config_with(
+    map: &str,
+    select_template: impl Fn(&str) -> SkirmishPlayerTemplateSelection,
+) -> SkirmishMatchConfig {
     SkirmishMatchConfig {
         source_game_info: None,
         recorded_palette: None,
@@ -279,7 +300,7 @@ pub fn golden_skirmish_config(map: &str) -> SkirmishMatchConfig {
                 slot_index: 0,
                 is_human: true,
                 is_active: true,
-                player_template: SkirmishPlayerTemplateSelection::base_faction("USA"),
+                player_template: select_template("FactionAmerica"),
                 faction: "USA".into(),
                 color_rgb: (0, 0, 200),
                 team: 0,
@@ -291,7 +312,7 @@ pub fn golden_skirmish_config(map: &str) -> SkirmishMatchConfig {
                 slot_index: 1,
                 is_human: false,
                 is_active: true,
-                player_template: SkirmishPlayerTemplateSelection::base_faction("GLA"),
+                player_template: select_template("FactionGLA"),
                 faction: "GLA".into(),
                 color_rgb: (200, 0, 0),
                 team: 1,
