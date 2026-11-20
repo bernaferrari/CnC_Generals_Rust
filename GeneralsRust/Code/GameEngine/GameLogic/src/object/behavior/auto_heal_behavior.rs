@@ -906,7 +906,9 @@ impl AutoHealBehavior {
     }
 
     pub fn on_destroy(&mut self) {
-        self.stop_healing();
+        // AutoHealBehavior.cpp:111–116 tears down radius FX. GameLogic
+        // retires the destroyed owner's registration through its own queue.
+        self.stop_healing_owned();
         if self.radius_particle_system_id != INVALID_PARTICLE_SYSTEM_ID {
             if let Some(manager) = TheParticleSystemManager::get() {
                 manager.destroy_particle_system(self.radius_particle_system_id);

@@ -1479,6 +1479,14 @@ impl Object {
     /// Handle object death - called when health reaches zero
     /// This is the entry point for death - it sets up the death state and then calls on_die()
     pub fn handle_death(&mut self, damage_info: Option<&DamageInfo>) {
+        self.handle_death_with_destroy(damage_info, None);
+    }
+
+    pub(super) fn handle_death_with_destroy(
+        &mut self,
+        damage_info: Option<&DamageInfo>,
+        destroy: Option<&mut dyn FnMut(&mut Object)>,
+    ) {
         // Prevent multiple death calls
         if self.is_effectively_dead() {
             return;
@@ -1508,7 +1516,7 @@ impl Object {
         // Call the main on_die method which handles all object-level death logic
         // If we have damage_info, call on_die; otherwise create a default one
         if let Some(damage) = damage_info {
-            self.on_die(damage);
+            self.on_die_with_destroy(damage, destroy);
         } else {
             // Create a default damage info for death without damage
             let default_damage = DamageInfo {
@@ -1522,14 +1530,18 @@ impl Object {
                 },
                 ..Default::default()
             };
-            self.on_die(&default_damage);
+            self.on_die_with_destroy(&default_damage, destroy);
         }
 
         log::debug!("Object {} death processing complete", self.id);
     }
 
     /// Call OnDie hooks on all modules that support the die interface
-    pub(super) fn call_on_die_hooks(&mut self, damage_info: Option<&DamageInfo>) {
+    fn call_on_die_hooks(
+        &mut self,
+        damage_info: Option<&DamageInfo>,
+        mut destroy: Option<&mut dyn FnMut(&mut Object)>,
+    ) {
         let mut authored_contain = false;
         for entry in self.death_callback_entries() {
             let contain = entry.with_module(|module| {
@@ -1544,11 +1556,16 @@ impl Object {
                 }
                 continue;
             }
-            let destroy = entry.with_module(|module| {
+            let destroys_actor = entry.with_module(|module| {
                 let (Some(mut die_module), Some(damage)) = (module_die_kind(module), damage_info)
                 else {
                     return false;
                 };
+                // MinefieldBehavior.cpp:500–503 calls destroyObject directly.
+                // GameLogic may visit this same entry during onDelete.
+                if matches!(die_module, DieModuleKindMut::Minefield(_)) {
+                    return true;
+                }
                 if let DieModuleKindMut::Wrapper(wrapper) = &mut die_module {
                     if let Some(applies) = wrapper.destroy_die_applicable(self, damage) {
                         return applies;
@@ -1563,10 +1580,13 @@ impl Object {
                 let _ = die_module.into_interface().on_die(damage);
                 false
             });
-            if destroy {
-                // GameLogic immediately runs onDestroy/onDelete, which can
-                // inspect every mounted module, including this DestroyDie.
-                TheGameLogic::destroy_borrowed_object(self);
+            if destroys_actor {
+                // GameLogic immediately runs onDestroy/onDelete after this entry loan.
+                if let Some(destroy) = destroy.as_deref_mut() {
+                    destroy(self);
+                } else {
+                    TheGameLogic::destroy_borrowed_object(self);
+                }
             }
         }
         // Unauthored helper fixtures have no tag to visit. Factory-installed
@@ -1649,6 +1669,14 @@ impl Object {
     /// - Multiple calls are prevented by has_died_already flag
     /// - This should only be called internally by handle_death()
     pub fn on_die(&mut self, damage_info: &DamageInfo) {
+        self.on_die_with_destroy(damage_info, None);
+    }
+
+    fn on_die_with_destroy(
+        &mut self,
+        damage_info: &DamageInfo,
+        destroy: Option<&mut dyn FnMut(&mut Object)>,
+    ) {
         #[cfg(any(debug_assertions, feature = "internal"))]
         {
             if self.has_died_already {
@@ -1669,7 +1697,7 @@ impl Object {
 
         // FIRST, call our die modules
         log::debug!("Object {} calling die modules", self.id);
-        self.call_on_die_hooks(Some(damage_info));
+        self.call_on_die_hooks(Some(damage_info), destroy);
 
         self.on_die_remove_from_radar();
 

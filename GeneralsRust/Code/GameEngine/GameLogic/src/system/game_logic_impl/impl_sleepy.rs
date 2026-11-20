@@ -62,6 +62,7 @@ struct UpdateExecutionContext<'a> {
     objects: &'a HashMap<ObjectID, Arc<RwLock<Object>>>,
     owner_id: ObjectID,
     normal_cursor: Option<&'a mut usize>,
+    minefield_drain: Option<f32>,
     minefield: Option<MinefieldWindow<'a>>,
 }
 
@@ -94,6 +95,12 @@ fn awaken_registered_update(
 impl UpdateScheduleContext for UpdateExecutionContext<'_> {
     fn loading_map(&self) -> Option<bool> {
         Some(self.loading_map)
+    }
+
+    fn stage_minefield_drain(&mut self, amount: f32) -> bool {
+        debug_assert!(self.minefield_drain.is_none());
+        self.minefield_drain = Some(amount);
+        true
     }
 
     fn owned_minefield_services(
@@ -385,6 +392,7 @@ impl GameLogic {
                 })
             });
             let mut completed_upgrade = None;
+            let mut minefield_drain = None;
             let sleep = if should_process {
                 // Legacy callers still use this bridge; explicit scheduling
                 // callbacks below do not discover it or lock GameLogic again.
@@ -402,6 +410,7 @@ impl GameLogic {
                             objects: &self.objects,
                             owner_id: object_id,
                             normal_cursor: None,
+                            minefield_drain: None,
                             minefield: minefield.as_mut().map(|services| MinefieldWindow {
                                 services: &mut **services,
                                 objects: &self.objects,
@@ -411,6 +420,9 @@ impl GameLogic {
                             }),
                         };
                         let result = update.update_scheduled(&mut context);
+                        if result.is_ok() {
+                            minefield_drain = context.minefield_drain;
+                        }
                         completed_upgrade = update.take_completed_upgrade();
                         match result {
                             Ok(sleep) => sleep,
@@ -434,6 +446,9 @@ impl GameLogic {
             } else {
                 UpdateSleepTime::None
             };
+            if let Some(amount) = minefield_drain {
+                self.apply_scheduled_minefield_drain(object_id, &module, amount);
+            }
             if let Some(services) = minefield.as_mut() {
                 self.apply_minefield_effects(&mut minefield_effects, &mut **services);
             }
@@ -639,6 +654,7 @@ impl GameLogic {
                     })
                 });
                 let mut completed_upgrade = None;
+                let mut minefield_drain = None;
                 let _cur = (services.is_none() && minefield.is_none()).then(|| enter_cur_update_module(&handle));
                 if let Ok(mut module) = handle.write() {
                     let mut context = UpdateExecutionContext {
@@ -652,6 +668,7 @@ impl GameLogic {
                         objects: &self.objects,
                         owner_id: object_id,
                         normal_cursor: Some(&mut cursor),
+                        minefield_drain: None,
                         minefield: minefield.as_mut().map(|services| MinefieldWindow {
                             services: &mut **services,
                             objects: &self.objects,
@@ -661,6 +678,9 @@ impl GameLogic {
                         }),
                     };
                     let result = module.update_scheduled(&mut context);
+                    if result.is_ok() {
+                        minefield_drain = context.minefield_drain;
+                    }
                     completed_upgrade = module.take_completed_upgrade();
                     match result {
                         Ok(UpdateSleepTime::None) => {}
@@ -678,6 +698,9 @@ impl GameLogic {
                         }
                     }
                 }
+                if let Some(amount) = minefield_drain {
+                    self.apply_scheduled_minefield_drain(object_id, &handle, amount);
+                }
                 if let Some(services) = minefield.as_mut() {
                     self.apply_minefield_effects(&mut minefield_effects, &mut **services);
                 }
@@ -685,6 +708,26 @@ impl GameLogic {
                     self.finish_scheduled_upgrade(&handle, object_id, &name, &mut **services);
                 }
             }
+        }
+    }
+
+    /// Finish the current callback before the next heap entry. A lethal drain
+    /// may visit the same installed Minefield as part of Object::onDie.
+    fn apply_scheduled_minefield_drain(
+        &mut self,
+        object_id: ObjectID,
+        current: &UpdateModulePtr,
+        amount: f32,
+    ) {
+        let Some(owner) = self.objects.get(&object_id).cloned() else {
+            return;
+        };
+        let Ok(mut owner) = owner.write() else {
+            return;
+        };
+        let mut destroy = |owner: &mut Object| self.destroy_object_with_borrowed_owner(owner);
+        if let Err(error) = owner.attempt_minefield_drain(amount, current, &mut destroy) {
+            warn!("Scheduled minefield drain for object {object_id} failed: {error}");
         }
     }
 
@@ -727,6 +770,7 @@ impl GameLogic {
             objects: &self.objects,
             owner_id: object_id,
             normal_cursor: None,
+            minefield_drain: None,
             minefield: None,
         };
         update.resume_completed_upgrade(&mut context);

@@ -7,6 +7,11 @@
 use super::object_impl_imports::*;
 use super::*;
 
+struct MountedMinefieldDrain<'a> {
+    module: &'a BehaviorModuleHandle,
+    destroy: &'a mut dyn FnMut(&mut Object),
+}
+
 impl Object {
     /// C++ ActiveBody::setCorrectDamageState rubble effects. Used when the
     /// body cannot `try_write` this object because the caller already holds it.
@@ -2057,6 +2062,42 @@ impl Object {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<f32, ObjectError> {
+        self.attempt_damage_with_minefield(damage_info, None)
+    }
+
+    pub(crate) fn attempt_minefield_drain(
+        &mut self,
+        amount: Real,
+        current: &UpdateModulePtr,
+        destroy: &mut dyn FnMut(&mut Object),
+    ) -> Result<f32, ObjectError> {
+        let module = self
+            .update_module_registrations
+            .iter()
+            .find(|registration| Arc::ptr_eq(&registration.module, current))
+            .and_then(|registration| self.modules.get(registration.module_index?))
+            .filter(|entry| entry.name().as_str().eq_ignore_ascii_case("MinefieldBehavior"))
+            .cloned()
+            .map(BehaviorModuleHandle::new)
+            .ok_or_else(|| {
+                ObjectError::BodyModuleError("scheduled Minefield is no longer installed".into())
+            })?;
+        let mut damage =
+            DamageInfo::with_simple(amount, self.id, DamageType::Unresistable, DeathType::Normal);
+        self.attempt_damage_with_minefield(
+            &mut damage,
+            Some(MountedMinefieldDrain {
+                module: &module,
+                destroy,
+            }),
+        )
+    }
+
+    fn attempt_damage_with_minefield(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        mut minefield: Option<MountedMinefieldDrain<'_>>,
+    ) -> Result<f32, ObjectError> {
         // C++ DamageInfo only has input.m_deathType / m_damageType. Callers that
         // set input (OCL diesOnBadLand: DAMAGE_WATER + DEATH_FLOODED) must have
         // those values visible on the compatibility fields after this call.
@@ -2088,6 +2129,14 @@ impl Object {
                 .map_err(|e| ObjectError::BodyModuleError(e.to_string()))?;
             drop(body_guard);
         }
+        if let Some(drain) = &minefield
+            && self.get_health() < health_before_damage
+        {
+            use crate::object::behavior::minefield_behavior::MinefieldBehaviorModule;
+            drain.module.with_module_downcast::<MinefieldBehaviorModule, _, _>(|module| {
+                module.behavior_mut().apply_drain_damage(self);
+            });
+        }
         self.apply_structure_rubble_pose();
         // C++ ActiveBody.cpp:649-653: onDie, then doDamageFX. The body skipped
         // FX because this caller holds the object write lock.
@@ -2102,7 +2151,8 @@ impl Object {
                         });
                 }
             }
-            self.handle_death(Some(damage_info));
+            let destroy = minefield.take().map(|drain| drain.destroy);
+            self.handle_death_with_destroy(Some(damage_info), destroy);
             if let Some(body) = &self.body {
                 if let Ok(mut body_guard) = body.lock() {
                     body_guard.do_damage_fx_after_death(damage_info);

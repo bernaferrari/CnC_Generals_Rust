@@ -566,7 +566,7 @@ impl MinefieldBehavior {
 
     fn update_internal(
         &mut self,
-        schedule: Option<&mut dyn UpdateScheduleContext>,
+        mut schedule: Option<&mut dyn UpdateScheduleContext>,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 410: empty dual-world → None.
         if dual_world_registry_unavailable() {
@@ -636,7 +636,10 @@ impl MinefieldBehavior {
                 if producer_dead {
                     self.regenerates = false;
                     self.draining = true;
-                    self.stop_owner_auto_heal(schedule);
+                    match &mut schedule {
+                        Some(schedule) => self.stop_owner_auto_heal(Some(&mut **schedule)),
+                        None => self.stop_owner_auto_heal(None),
+                    }
                 }
             }
         }
@@ -652,6 +655,12 @@ impl MinefieldBehavior {
                 let amount = (max_health * self.module_data.read().health_percent_to_drain_per_second)
                     / LOGICFRAMES_PER_SECOND as Real;
                 if amount > 0.0 {
+                    if schedule
+                        .as_mut()
+                        .is_some_and(|schedule| schedule.stage_minefield_drain(amount))
+                    {
+                        return Ok(self.calc_sleep_time(now));
+                    }
                     if let Ok(mut object) = owner.write() {
                         let mut damage = DamageInfo::with_simple(
                             amount,
@@ -791,6 +800,46 @@ impl MinefieldBehavior {
         let _ = self.detonate_once(&det_pt);
     }
 
+    fn expected_virtual_mines(
+        &self,
+        health: Real,
+        max_health: Real,
+        damage_type: DamageType,
+    ) -> UnsignedInt {
+        let mine_count = self.module_data.read().num_virtual_mines;
+        let ratio = mine_count as Real * health / max_health;
+        // MinefieldBehavior.cpp:443–448 uses the original signed x87 conversions.
+        let expected = if damage_type == DamageType::Healing {
+            game_engine::base_type::real_to_int_floor(ratio)
+        } else {
+            game_engine::base_type::real_to_int_ceil(ratio)
+        };
+        (expected.max(0) as UnsignedInt).min(mine_count)
+    }
+
+    /// MinefieldBehavior.cpp:446–469. A self-sourced draining hit changes
+    /// the count to the Body's expected value without detonating a mine.
+    pub(crate) fn apply_drain_damage(&mut self, owner: &mut GameObject) {
+        if self.ignore_damage {
+            return;
+        }
+        let Some(body) = owner.get_body_module() else {
+            return;
+        };
+        let expected = {
+            let Ok(body) = body.lock() else {
+                return;
+            };
+            self.expected_virtual_mines(
+                body.get_health(),
+                body.get_max_health(),
+                DamageType::Unresistable,
+            )
+        };
+        self.virtual_mines_remaining = expected;
+        Self::apply_depleted_visuals(owner, expected == 0);
+    }
+
     fn on_damage_internal(&mut self, damage_info: &mut DamageInfo) {
         if self.ignore_damage {
             return;
@@ -813,16 +862,8 @@ impl MinefieldBehavior {
                 })
                 .unwrap_or((0.0, 1.0, Coord3D::new(0.0, 0.0, 0.0)));
 
-            let mine_count = self.module_data.read().num_virtual_mines;
-            let expected_f = mine_count as Real * health / max_health;
-            // MinefieldBehavior.cpp:443–448 uses the original x87 conversion
-            // for the signed count, which rounds positive integral damage up.
-            let expected = if damage_info.input.damage_type == DamageType::Healing {
-                game_engine::base_type::real_to_int_floor(expected_f)
-            } else {
-                game_engine::base_type::real_to_int_ceil(expected_f)
-            };
-            let expected = (expected.max(0) as UnsignedInt).min(mine_count);
+            let expected =
+                self.expected_virtual_mines(health, max_health, damage_info.input.damage_type);
 
             if self.virtual_mines_remaining <= expected {
                 self.virtual_mines_remaining = expected;
@@ -1533,6 +1574,16 @@ mod tests {
             }
             crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
             crate::initialize_weapon_store().unwrap();
+            crate::weapon::with_weapon_store_mut(|store| {
+                let mut blast = WeaponTemplate::new("RegrowthMineDetonation".into());
+                blast.primary_damage = 99.0;
+                blast.primary_damage_radius = 20.0;
+                blast.attack_range = 20.0;
+                blast.weapon_speed = 99999.0;
+                blast.min_weapon_speed = 99999.0;
+                let _ = store.add_weapon_template(blast);
+            })
+            .unwrap();
             get_game_logic().lock().unwrap().set_current_frame(37);
             assert_eq!(
                 get_thing_factory()
@@ -1561,10 +1612,11 @@ mod tests {
                 MaxHealth = 100
             End
             Behavior = MinefieldBehavior Mines
+                DetonationWeapon = RegrowthMineDetonation
                 NumVirtualMines = 8
                 Regenerates = Yes
                 StopsRegenAfterCreatorDies = Yes
-            DegenPercentPerSecondAfterCreatorDies = 3.33%
+                DegenPercentPerSecondAfterCreatorDies = 3.33%
             End
             Behavior = AutoHealBehavior Heal
                 StartsActive = Yes
@@ -1733,10 +1785,10 @@ mod tests {
     }
 
     #[test]
-    fn mounted_creator_death_stops_regrowth_and_starts_drain_on_due_check() {
+    fn mounted_creator_death_drains_and_retires_mine_on_original_frames() {
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
-            "object::behavior::minefield_behavior::tests::mounted_creator_death_stops_regrowth_and_starts_drain_on_due_check",
+            "object::behavior::minefield_behavior::tests::mounted_creator_death_drains_and_retires_mine_on_original_frames",
             "GENERALS_MINE_CREATOR_DEATH_CHILD",
         ) {
             return;
@@ -1747,7 +1799,7 @@ mod tests {
         let world = new_for_world();
         let peer = new_for_world();
         let [dozer, mine, creator] = mount_regrowing_mine(&world);
-        let [_, peer_mine, peer_creator] = mount_regrowing_mine(&peer);
+        let [peer_dozer, peer_mine, peer_creator] = mount_regrowing_mine(&peer);
         let creator_id = creator.read().unwrap().get_id();
         assert_eq!(creator_id, peer_creator.read().unwrap().get_id());
         assert_eq!(
@@ -1773,24 +1825,40 @@ mod tests {
         };
         let peer_heal = observe_heal(&peer_mine);
 
-        with_active_stores(&world, || {
-            let mut weapon = WeaponTemplate::new("CreatorDeathDozerDisarm".into());
-            weapon.primary_damage = 1.0;
-            weapon.weapon_speed = 99999.0;
-            weapon.min_weapon_speed = 99999.0;
-            weapon.attack_range = 5.0;
-            weapon.damage_type = DamageType::Disarm;
-            weapon.clip_size = 1;
+        let mut weapon = WeaponTemplate::new("CreatorDeathDozerDisarm".into());
+        weapon.primary_damage = 1.0;
+        weapon.weapon_speed = 99999.0;
+        weapon.min_weapon_speed = 99999.0;
+        weapon.attack_range = 5.0;
+        weapon.damage_type = DamageType::Disarm;
+        weapon.clip_size = 1;
+        let weapon = Arc::new(weapon);
+        let disarm = |dozer: &Arc<RwLock<GameObject>>, mine: &Arc<RwLock<GameObject>>| {
             let source = dozer.read().unwrap().get_id();
             let victim = mine.read().unwrap().get_id();
-            WeaponStore::create_and_fire_temp_weapon_at_target(&Arc::new(weapon), source, victim)
-                .unwrap();
-            assert_eq!(observe_heal(&mine).2, 487);
+            WeaponStore::create_and_fire_temp_weapon_at_target(&weapon, source, victim).unwrap();
             dozer
                 .write()
                 .unwrap()
                 .set_position(&Coord3D::new(305.0, 105.0, 0.0))
                 .unwrap();
+            victim
+        };
+        with_active_stores(&world, || {
+            let blast_witness = TheThingFactory::get()
+                .unwrap()
+                .new_object_optional_team(
+                    TheThingFactory::find_template("RegrowthMineCreator").unwrap(),
+                    None,
+                )
+                .unwrap();
+            blast_witness
+                .write()
+                .unwrap()
+                .set_position(&Coord3D::new(125.0, 105.0, 0.0))
+                .unwrap();
+            let victim = disarm(&dozer, &mine);
+            assert_eq!(observe_heal(&mine).2, 487);
             let mut logic = get_game_logic().lock().unwrap();
             for frame in 38..=517 {
                 if frame == 500 {
@@ -1813,27 +1881,49 @@ mod tests {
                 minefield
                     .with_module_downcast::<MinefieldBehaviorModule, _, _>(|module| {
                         let behavior = module.behavior_mut();
-                        (behavior.regenerates, behavior.draining)
+                        assert!(behavior.module_data.read().detonation_weapon.is_some());
+                        (
+                            behavior.regenerates,
+                            behavior.draining,
+                            behavior.virtual_mines_remaining,
+                        )
                     })
                     .unwrap()
             };
             let health = || body.lock().unwrap().get_health();
             assert_eq!(logic.sleepy_entry_for(&proxy), Some((victim, 518)));
             assert_eq!(observe_heal(&mine), (false, 637, 637));
-            assert_eq!(mine_state(), (true, false));
+            assert_eq!(mine_state(), (true, false, 0));
             assert!((health() - 2.1).abs() < 0.0001);
 
             // The f38 creator poll repeats every 30 frames. f518 sees the exact
             // retired creator, stops healing, and applies one native drain tick.
             logic.update(518, || None).unwrap();
             assert_eq!(observe_heal(&mine), (true, u32::MAX, 0x3fff_ffff));
-            assert_eq!(mine_state(), (false, true));
+            assert_eq!(mine_state(), (false, true, 1));
+            assert!(!mine.read().unwrap().test_status(ObjectStatusTypes::Masked));
             assert_eq!(logic.sleepy_entry_for(&proxy), Some((victim, 519)));
             assert!((health() - 1.989).abs() < 0.0001);
             logic.update(519, || None).unwrap();
             assert!((health() - 1.878).abs() < 0.0001);
             assert_eq!(body.lock().unwrap().get_last_healing_timestamp(), 487);
             assert_eq!(observe_heal(&mine), (true, u32::MAX, 0x3fff_ffff));
+            for frame in 520..=535 {
+                logic.update(frame, || None).unwrap();
+            }
+            assert!((health() - 0.102).abs() < 0.0001);
+            assert!(logic.find_object_by_id(victim).is_some());
+            assert_eq!(mine_state(), (false, true, 1));
+            logic.update(536, || None).unwrap();
+            assert_eq!(health(), 0.0);
+            assert_eq!(mine_state(), (false, true, 0));
+            assert!(logic.find_object_by_id(victim).is_none());
+            assert!(logic.sleepy_entry_for(&proxy).is_none());
+            assert_eq!(blast_witness.read().unwrap().get_health(), 100.0);
+            let death = body.lock().unwrap().get_last_damage_info().unwrap();
+            assert_eq!(death.input.source_id, victim);
+            assert_eq!(death.input.damage_type, DamageType::Unresistable);
+            assert_eq!(death.input.death_type, DeathType::Normal);
         });
         with_active_stores(&peer, || {
             assert_eq!(peer_mine.read().unwrap().get_health(), 100.0);
@@ -1845,6 +1935,16 @@ mod tests {
                     .find_object_by_id(creator_id)
                     .is_some_and(|actor| Arc::ptr_eq(&actor, &peer_creator))
             );
+            peer_mine.write().unwrap().set_producer(None);
+            let peer_victim = disarm(&peer_dozer, &peer_mine);
+            assert_eq!(peer_mine.read().unwrap().get_producer_id(), INVALID_ID);
+            let mut logic = get_game_logic().lock().unwrap();
+            for frame in 38..=536 {
+                logic.update(frame, || None).unwrap();
+            }
+            assert!(logic.find_object_by_id(peer_victim).is_some());
+            assert!((peer_mine.read().unwrap().get_health() - 2.1).abs() < 0.0001);
+            assert_eq!(observe_heal(&peer_mine), (false, 637, 637));
         });
     }
 }

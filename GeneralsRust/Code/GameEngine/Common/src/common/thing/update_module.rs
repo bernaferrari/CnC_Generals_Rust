@@ -81,6 +81,10 @@ pub trait UpdateScheduleContext {
     fn loading_map(&self) -> Option<bool> {
         None
     }
+    /// Finish the mounted mine's drain after its current module loan ends.
+    fn stage_minefield_drain(&mut self, _amount: f32) -> bool {
+        false
+    }
     /// Owned minefield services for the driving match.
     /// Scheduling-only contexts own no world and return None.
     fn owned_minefield_services(&mut self) -> Option<&mut dyn OwnedMinefieldServices> {
