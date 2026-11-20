@@ -84,6 +84,49 @@ impl NativeInstalledPoseLoan<'_> {
     pub(crate) fn current_animation_sync_ms(&self) -> u32 {
         self.animation_sync_ms
     }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn installed_track_width(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        key: game_client::core::PresentationDirectDrawableBindingKey,
+        module_index: u32,
+    ) -> Result<f32, NativeCameraPoseUnavailable> {
+        use game_client::terrain::terrain_tracks::compute_track_spacing;
+        use installed_draw_pose::InstalledDrawObject;
+        use NativeCameraPoseUnavailable::*;
+
+        self.validate_binding(identity, key, module_index)?;
+        let state = self.drawable_visual_states
+            .get_mut(&(identity.owner_id(), module_index))
+            .ok_or(UnadmittedDrawableLifecycle)?;
+        if state.native_instance_scale != Some(1.0) || !state.native_condition_supported {
+            return Err(UnadmittedDrawableLifecycle);
+        }
+        let pose = match &state.installed_draw_pose {
+            InstalledDrawObject::Ready(pose) => pose,
+            InstalledDrawObject::NoRenderObject => return Err(NoRenderObject),
+            InstalledDrawObject::AwaitingAdmission => return Err(UnadmittedDrawableLifecycle),
+        };
+
+        let has_pivot = |name| {
+            pose.model.source_named_bone_index(name)
+                .map(|index| index.is_some_and(|index| index != 0))
+                .map_err(Bone)
+        };
+        // C++ only evaluates bone transforms after both indices resolve.
+        if !has_pivot("TREADFX01")? || !has_pivot("TREADFX02")? {
+            return Ok(compute_track_spacing(None, None));
+        }
+        let left = state.installed_client_bone_transform(self.animation_sync_ms, "TREADFX01")?
+            .ok_or(UnadmittedDrawableLifecycle)?;
+        let right = state.installed_client_bone_transform(self.animation_sync_ms, "TREADFX02")?
+            .ok_or(UnadmittedDrawableLifecycle)?;
+        Ok(compute_track_spacing(
+            Some(left.w_axis.truncate()),
+            Some(right.w_axis.truncate()),
+        ))
+    }
     /// Stamp the actual post-sync Client lifetime on the existing Draw owner.
     /// A changed key requires a real Destroy/Creating producer, never relabeling.
     #[cfg(feature = "game_client")]

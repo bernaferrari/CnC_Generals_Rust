@@ -26,6 +26,62 @@ fn admitted(identity: LiveDrawPlaybackIdentity) -> ObjectVisualState {
         ..Default::default()
     }
 }
+
+#[test]
+#[ignore = "requires licensed base Generals W3D.big under GENERALS_BASE_DIR"]
+fn stock_battlemaster_width_comes_from_the_installed_source_tread_pivots() {
+    use super::super::native_draw_world::NativeDrawWorld;
+    use crate::assets::models::W3DLoader;
+    use game_engine::common::system::archive_file_system::ArchiveFileSystem;
+    use std::io::Read;
+
+    let base = std::path::PathBuf::from(std::env::var_os("GENERALS_BASE_DIR").unwrap());
+    let mut archive = ArchiveFileSystem::new();
+    archive.open_archive_file(base.join("W3D.big").to_str().unwrap()).unwrap();
+    let actual = identity(&Arc::new(()), &Arc::new(()), 9);
+    let peer = identity(&Arc::new(()), &Arc::new(()), 9);
+    let mut world = NativeDrawWorld::default();
+    world.native_drawable_lifetimes.insert(
+        actual.owner_id(),
+        native_draw_world::NativeDrawableLifetime {
+            auxiliary: None,
+            identity: actual.clone(),
+            last_mirrored_pose: None,
+            binding: Some(key(3)),
+        },
+    );
+    let mut failed = pipeline_collect::FailedModelResolutions::default();
+    let selected = crate::assets::AuthoredDrawModel::default();
+    for model in ["NVBtMstr", "NVBtMstr_D"] {
+        let mut source = Vec::new();
+        archive.open_file(&format!("Art/W3D/{model}.w3d"), 0).unwrap()
+            .read_to_end(&mut source).unwrap();
+        let stock = W3DLoader::new().load_model_from_bytes(&source, model).unwrap();
+        let mut state = admitted(actual.clone());
+        state.installed_draw_pose = InstalledDrawObject::Ready(InstalledDrawPose::created(
+            Arc::new(stock), Mat4::from_translation(Vec3::new(30., 50., 20.)), &selected, None,
+        ));
+        state.native_pending_condition = None;
+        world.drawable_visual_states.insert((actual.owner_id(), 2), state);
+        let mut loan = world.borrow_installed_poses(&mut failed, 1_234, None);
+        assert_eq!(
+            loan.installed_track_width(&peer, key(3), 2),
+            Err(NativeCameraPoseUnavailable::UnadmittedDrawableLifecycle),
+        );
+        let width = loan.installed_track_width(&actual, key(3), 2).unwrap();
+        assert!((width - 18.573_772).abs() < 1e-5, "unexpected source width {width}");
+    }
+    let mut state = admitted(actual.clone());
+    let mut loan = world.borrow_installed_poses(&mut failed, 1_234, None);
+    loan.drawable_visual_states.insert((actual.owner_id(), 2), state.clone());
+    assert_eq!(loan.installed_track_width(&actual, key(3), 2), Err(NativeCameraPoseUnavailable::NoRenderObject));
+    state.installed_draw_pose = InstalledDrawObject::Ready(InstalledDrawPose::created(
+        Arc::new(W3DModel::new("MeshWithoutTreadPivots".into())), Mat4::IDENTITY, &selected, None,
+    ));
+    loan.drawable_visual_states.insert((actual.owner_id(), 2), state);
+    assert_eq!(loan.installed_track_width(&actual, key(3), 2), Ok(14.0));
+}
+
 #[test]
 fn same_id_peer_reset_and_replacement_cannot_query_or_consume_installed_owner() {
     let world = Arc::new(());
