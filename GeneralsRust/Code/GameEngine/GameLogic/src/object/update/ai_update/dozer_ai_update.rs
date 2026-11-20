@@ -971,6 +971,7 @@ impl DozerAIUpdate {
         owner: &Arc<RwLock<Object>>,
         target: &Arc<RwLock<Object>>,
         is_rebuild: Bool,
+        parent: &mut Option<&mut dyn AIUpdateInterface>,
     ) -> Result<(), String> {
         self.finish_building_sound();
 
@@ -1056,38 +1057,35 @@ impl DozerAIUpdate {
             }
         }
 
-        if let Ok(owner_guard) = owner.read() {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let mut end_pos = self
-                        .get_dock_point(self.task_owner.current, DozerDockPoint::End)
-                        .unwrap_or(*owner_guard.get_position());
-                    if let Some(loco_set) = ai_guard.get_locomotor_set_clone() {
-                        let ai_store = crate::ai::the_ai();
-                        if let Ok(ai_sys) = ai_store.read() {
-                            if let Some(pf_arc) = ai_sys.pathfinder() {
-                                if let Ok(pf) = pf_arc.read() {
-                                    let _ = pf.adjust_possible_destination_for_object(
-                                        &owner_guard,
-                                        &loco_set,
-                                        ai_guard.get_ignored_obstacle_id(),
-                                        ai_guard.is_aircraft_that_adjusts_destination(),
-                                        &mut end_pos,
-                                        None,
-                                    );
-                                }
-                            }
-                        }
+        // DozerAIUpdate.cpp:631–639 adjusts the End dock then sends it to the
+        // same inherited AI before completing the construction action.
+        let dock = self.get_dock_point(self.task_owner.current, DozerDockPoint::End);
+        Self::with_action_parent(owner, parent, |ai| {
+            let ignored = ai.get_ignored_obstacle_id();
+            let aircraft = ai.is_aircraft_that_adjusts_destination();
+            let end_pos = {
+                let Ok(object) = owner.read() else { return };
+                let mut end_pos = dock.unwrap_or(*object.get_position());
+                if let Some(loco_set) = ai.get_locomotor_set_clone() {
+                    let pathfinder = match object.owning_pathfinding_runtime() {
+                        Some(world) => world.ai().read().ok().and_then(|ai| ai.pathfinder()),
+                        None => crate::ai::the_ai().read().ok().and_then(|ai| ai.pathfinder()),
+                    };
+                    if let Some(pathfinder) = pathfinder.as_ref().and_then(|pathfinder| pathfinder.read().ok()) {
+                        let _ = pathfinder.adjust_possible_destination_for_object(
+                            &object, &loco_set, ignored, aircraft, &mut end_pos, None,
+                        );
                     }
-                    let mut params = crate::ai::AiCommandParams::new(
-                        crate::ai::AiCommandType::MoveToPosition,
-                        crate::ai::CommandSourceType::FromAi,
-                    );
-                    params.pos = end_pos;
-                    let _ = ai_guard.execute_command(&params);
                 }
-            }
-        }
+                end_pos
+            };
+            let mut command = crate::ai::AiCommandParams::new(
+                crate::ai::AiCommandType::MoveToPosition,
+                CommandSourceType::FromAi,
+            );
+            command.pos = end_pos;
+            let _ = ai.execute_command(&command);
+        });
         Ok(())
     }
 
@@ -1176,11 +1174,11 @@ impl DozerAIUpdate {
 
     fn with_action_parent<T>(
         owner: &Arc<RwLock<Object>>,
-        parent: Option<&mut dyn AIUpdateInterface>,
+        parent: &mut Option<&mut dyn AIUpdateInterface>,
         action: impl FnOnce(&mut dyn AIUpdateInterface) -> T,
     ) -> Option<T> {
         if let Some(parent) = parent {
-            return Some(action(parent));
+            return Some(action(&mut **parent));
         }
         let cached = owner.read().ok()?.get_ai_update_interface()?;
         let mut parent = cached.lock().ok()?;
@@ -1190,7 +1188,7 @@ impl DozerAIUpdate {
     fn advance_build_dock(
         &mut self,
         owner: &Arc<RwLock<Object>>,
-        parent: Option<&mut dyn AIUpdateInterface>,
+        parent: &mut Option<&mut dyn AIUpdateInterface>,
     ) -> Result<bool, String> {
         if self.task_owner.build_sub_task == DozerBuildSubTask::DoBuildAtDock {
             return Ok(true);
@@ -1225,7 +1223,7 @@ impl DozerAIUpdate {
 
     fn update_dozer_task(
         &mut self,
-        parent: Option<&mut dyn AIUpdateInterface>,
+        mut parent: Option<&mut dyn AIUpdateInterface>,
         installed_owner: Option<&Arc<RwLock<Object>>>,
     ) -> Result<(), String> {
         let mut failure = None;
@@ -1286,7 +1284,7 @@ impl DozerAIUpdate {
                 });
             drop(owner_guard);
             task.dock_point = Some(dock);
-            let dispatch = Self::with_action_parent(&owner, parent, |ai| {
+            let dispatch = Self::with_action_parent(&owner, &mut parent, |ai| {
                 ai.ignore_obstacle_id(task.target_id)?;
                 let mut command = crate::ai::AiCommandParams::new(
                     crate::ai::AiCommandType::MoveToPosition, CommandSourceType::FromAi,
@@ -1336,7 +1334,7 @@ impl DozerAIUpdate {
                         self.task_owner.build_sub_task = DozerBuildSubTask::SelectBuildDockLocation;
                     }
                     self.action_state = DozerActionState::DoAction;
-                } else if Self::with_action_parent(&owner, parent, |ai| ai.is_idle()).unwrap_or(false) {
+                } else if Self::with_action_parent(&owner, &mut parent, |ai| ai.is_idle()).unwrap_or(false) {
                     task.dock_point = None;
                     self.action_state = DozerActionState::PickActionPos;
                 }
@@ -1408,7 +1406,7 @@ impl DozerAIUpdate {
                 DozerTask::Build => {
                     // DozerAIUpdate.cpp:481–510 issues the Action dock as a
                     // separate inherited move, even when it matches Start.
-                    match self.advance_build_dock(&owner, parent) {
+                    match self.advance_build_dock(&owner, &mut parent) {
                         Ok(true) => {}
                         result => {
                             failure = result.err();
@@ -1509,6 +1507,7 @@ impl DozerAIUpdate {
                             &owner,
                             &target,
                             self.task_owner.construct_is_rebuild,
+                            &mut parent,
                         ) {
                             failure = Some(error);
                             return;
@@ -1793,6 +1792,11 @@ impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
     #[cfg(test)]
     fn build_dock_sub_task_for_test(&self) -> DozerBuildSubTask {
         self.get_build_sub_task()
+    }
+
+    #[cfg(test)]
+    fn build_end_dock_for_test(&self) -> Option<Coord3D> {
+        self.get_dock_point(DozerTask::Build, DozerDockPoint::End)
     }
 
     fn validate_owned_snapshot(&self) -> Result<(), String> {

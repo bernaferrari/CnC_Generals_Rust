@@ -114,6 +114,11 @@ pub trait DozerAIUpdateInterface: Send + Sync {
         crate::object::update::ai_update::dozer_ai_update::DozerBuildSubTask::SelectBuildDockLocation
     }
 
+    #[cfg(test)]
+    fn build_end_dock_for_test(&self) -> Option<crate::common::Coord3D> {
+        None
+    }
+
     fn validate_owned_snapshot(&self) -> Result<(), String> {
         Err("Dozer owned snapshot unavailable".into())
     }
