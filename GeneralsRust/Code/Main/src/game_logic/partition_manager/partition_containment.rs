@@ -56,25 +56,17 @@ impl GameLogic {
             enclosing,
             &mut |_actor| {
                 #[cfg(feature = "game_client")]
-                if let Some(view) = _effects.view.as_deref_mut()
-                    && let Some(terrain) = _effects
-                        .terrain
-                        .as_deref_mut()
-                        .and_then(|terrain| terrain.track_terrain())
-                    && terrain.has_receiving_tracks()
-                {
-                    let identity = Self::live_draw_playback_identity_in_world(
-                        &self.live_draw_playback_world,
-                        self.visual_world_epoch,
-                        _actor,
-                    );
-                    view.on_owned_track_drawable_hidden(
-                        &identity,
-                        _actor,
-                        terrain,
-                        self.world_services.terrain().as_ref(),
-                    );
-                }
+                _effects.cap_owned_drawable_tracks(
+                    _actor,
+                    self.world_services.terrain().as_ref(),
+                    || {
+                        Self::live_draw_playback_identity_in_world(
+                            &self.live_draw_playback_world,
+                            self.visual_world_epoch,
+                            _actor,
+                        )
+                    },
+                );
             },
         );
     }

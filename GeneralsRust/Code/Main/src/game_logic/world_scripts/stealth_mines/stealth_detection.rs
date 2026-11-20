@@ -64,7 +64,7 @@ impl GameLogic {
         // The batched StealthUpdate work precedes detector scans. Its
         // setStealthLook material command must also precede the detector's
         // setSecondMaterialPassOpacity(1), just as in those native updates.
-        self.apply_local_stealth_look_and_heat_vision();
+        self.apply_local_stealth_look_and_heat_vision(effects);
 
 
         // Collect active detectors (alive, not under construction) that are due
@@ -511,7 +511,10 @@ impl GameLogic {
 
     /// C++ StealthUpdate.cpp:748-751 `hintDetectableWhileUnstealthed` and
     /// :807-811 local-player `setStealthLook`.
-    pub(super) fn apply_local_stealth_look_and_heat_vision(&mut self) {
+    pub(super) fn apply_local_stealth_look_and_heat_vision(
+        &mut self,
+        _effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         use crate::game_logic::host_upgrades::calc_stealthed_status_for_player;
         let local = self.local_player_id();
         let local_inactive = local
@@ -570,6 +573,21 @@ impl GameLogic {
                     obj.queue_changed_stealth_material(look_u8, is_disguised);
                     obj.camo_stealth_look = look_u8;
                     obj.update_drawable_hidden_status();
+                    // Drawable::setStealthLook dispatches effective hide without a pose change.
+                    #[cfg(feature = "game_client")]
+                    if obj.drawable_is_effectively_hidden() {
+                        _effects.cap_owned_drawable_tracks(
+                            obj,
+                            self.world_services.terrain().as_ref(),
+                            || {
+                                Self::live_draw_playback_identity_in_world(
+                                    &self.live_draw_playback_world,
+                                    self.visual_world_epoch,
+                                    obj,
+                                )
+                            },
+                        );
+                    }
                 }
             }
             self.admit_object_drawable_deselection(id);

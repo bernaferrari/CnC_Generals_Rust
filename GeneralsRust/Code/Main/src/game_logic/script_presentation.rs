@@ -718,6 +718,24 @@ pub(crate) struct ScriptPresentationEffects<'a> {
     pub(crate) trigger_world: Option<&'a std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
 }
 impl ScriptPresentationEffects<'_> {
+    #[cfg(feature = "game_client")]
+    pub(in crate::game_logic) fn cap_owned_drawable_tracks(
+        &mut self,
+        actor: &super::Object,
+        logic: &std::sync::RwLock<gamelogic::terrain::TerrainLogic>,
+        make_identity: impl FnOnce() -> LiveDrawPlaybackIdentity,
+    ) {
+        if let Some(view) = self.view.as_deref_mut()
+            && let Some(terrain) = self
+                .terrain
+                .as_deref_mut()
+                .and_then(|terrain| terrain.track_terrain())
+            && terrain.has_receiving_tracks()
+        {
+            view.on_owned_track_drawable_hidden(&make_identity(), actor, terrain, logic);
+        }
+    }
+
     /// Reject an invalid supplied native mode before the driving world starts
     /// script/command/module callbacks. Headless sessions need no device owner.
     pub(crate) fn validate_projected_radius_recipient(

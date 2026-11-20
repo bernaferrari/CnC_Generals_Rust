@@ -74,6 +74,12 @@ fn retail_quad_cannon_entering_tunnel_caps_its_track_before_redeployment() {
 
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
+fn retail_tank_stationary_invisible_stealth_look_caps_its_track() {
+    exercise_retail_track(BATTLEMASTER, TrackExercise::InvisibleStealth);
+}
+
+#[test]
+#[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_truck_dozer_binds_authored_track_and_loads_original_dds() {
     exercise_retail_track(DOZER, TrackExercise::Reset);
 }
@@ -121,6 +127,7 @@ enum TrackExercise {
     Disguise,
     TurnInPlace,
     TunnelEnter,
+    InvisibleStealth,
 }
 
 fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
@@ -253,7 +260,7 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
 
     let placements: &[f32] = if matches!(
         exercise,
-        TrackExercise::TurnInPlace | TrackExercise::TunnelEnter
+        TrackExercise::TurnInPlace | TrackExercise::TunnelEnter | TrackExercise::InvisibleStealth
     ) {
         &[45.0, 70.0, 95.0]
     } else {
@@ -383,14 +390,31 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
             assert_eq!(peer.active_edge_count(), 0);
             return;
         }
-        TrackExercise::TunnelEnter => {
+        TrackExercise::TunnelEnter | TrackExercise::InvisibleStealth => {
             assert_eq!(edges_before.last().unwrap().alpha, 1.0);
+            let entering_tunnel = matches!(exercise, TrackExercise::TunnelEnter);
+            if !entering_tunnel {
+                let mut observer = Player::new(1, Team::USA, "Enemy Track Observer", true);
+                observer.set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+                world.add_player(observer);
+                world
+                    .get_player_mut(0)
+                    .unwrap()
+                    .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+                assert!(world.select_local_player(Some(1)));
+            }
             with_view(
                 &mut client,
                 &mut render,
                 &mut graphics,
                 &mut world,
-                |world, effects| enter_retail_tunnel(world, id, effects),
+                |world, effects| {
+                    if entering_tunnel {
+                        enter_retail_tunnel(world, id, effects);
+                    } else {
+                        hide_retail_track_by_stealth_look(world, id, effects);
+                    }
+                },
             );
             let terrain = render.native_terrain().unwrap();
             let tracks = terrain.terrain_tracks();
@@ -400,9 +424,10 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
             assert_eq!(
                 track.active_edges(tracks.config().max_tank_track_edges),
                 expected,
-                "enclosing OpenContain must cap the existing strip before redeploying the rider"
+                "effective Drawable hide must cap the existing strip"
             );
-            assert!(track.have_anchor() && track.have_cap());
+            assert!(track.have_cap());
+            assert_eq!(track.have_anchor(), entering_tunnel);
             let peer = peer_render
                 .native_terrain()
                 .unwrap()
@@ -434,6 +459,30 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
             .native_terrain()
             .unwrap()
             .receives_terrain_track(&peer_receipt)
+    );
+}
+
+fn hide_retail_track_by_stealth_look(
+    world: &mut GameLogic,
+    id: ObjectId,
+    effects: &mut ScriptPresentationEffects<'_>,
+) {
+    let rider = world.objects.get_mut(&id).unwrap();
+    assert!(!rider.drawable_is_effectively_hidden());
+    let initial_pose = (rider.get_transform_matrix(), rider.native_pose_revision());
+    rider.set_status_stealthed(true);
+    world.with_own_services_mut(|world| {
+        world
+            .update_stealth_and_detection_with_effects(effects)
+            .unwrap();
+    });
+    let rider = world.objects.get(&id).unwrap();
+    assert!(!rider.drawable_hidden);
+    assert!(rider.drawable_is_effectively_hidden());
+    assert_eq!(
+        (rider.get_transform_matrix(), rider.native_pose_revision()),
+        initial_pose,
+        "the look update must hide the model without another pose write"
     );
 }
 
@@ -582,7 +631,7 @@ fn with_view<T>(
         graphics,
         client.borrow_native_drawable_owner(),
         EPOCH,
-        0,
+        world.local_player_id().unwrap_or(0),
         receiving_native_drawable_policy_for(world),
         &mut retirement,
     );
