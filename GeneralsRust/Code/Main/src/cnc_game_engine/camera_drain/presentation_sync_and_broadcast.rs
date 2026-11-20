@@ -61,7 +61,7 @@ impl CnCGameEngine {
                     }
                     alive
                 },
-                |mutation| native_owner.receive_native_drawable_mutation(mutation, None, graphics),
+                |mutation| native_owner.receive_native_display_mutation(mutation, None, graphics),
             )
             .map_err(|error| error.to_string())?;
         self.host_forget_destroyed_objects_in_frame(dead.into_inner());

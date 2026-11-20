@@ -549,10 +549,14 @@ impl CnCGameEngine {
             })
             .collect::<Vec<_>>();
 
-        let native_source_inputs: HashMap<_, _> = pres
-            .native_resident_drawable_inputs()
-            .into_iter()
-            .map(|unit| (unit.id.0, unit))
+        let native_sources: HashMap<_, _> = pres
+            .direct_host_drawables
+            .iter()
+            .filter(|direct| direct.resident)
+            .map(|direct| (
+                direct.object.id.0,
+                crate::graphics::render_pipeline::NativeDrawSource::display_resident(direct),
+            ))
             .collect();
         let sync_ms = self.render_pipeline.current_animation_sync_ms();
         let draw_policy =
@@ -570,16 +574,16 @@ impl CnCGameEngine {
                     content.module_factory_mut(),
                     draw_policy,
                     |mutation| {
-                        let source = native_source_inputs.get(&mutation.object_id());
-                        native_owner.receive_native_drawable_mutation(mutation, source, graphics);
+                        let source = native_sources.get(&mutation.object_id()).copied();
+                        native_owner.receive_native_display_mutation(mutation, source, graphics);
                     },
                 )
                 .map_err(|error| error.to_string())?
         } else {
             self.game_client
                 .sync_presentation_drawables_observed(sync_entries, sync_ms, |mutation| {
-                    let source = native_source_inputs.get(&mutation.object_id());
-                    native_owner.receive_native_drawable_mutation(mutation, source, graphics);
+                    let source = native_sources.get(&mutation.object_id()).copied();
+                    native_owner.receive_native_display_mutation(mutation, source, graphics);
                 })
                 .map_err(|error| error.to_string())?
         };
@@ -593,10 +597,10 @@ impl CnCGameEngine {
         // A changed key without Destroy/Creating is rejected, never relabeled.
         let game_client = &self.game_client;
         self.render_pipeline
-            .admit_native_drawable_bindings(native_source_inputs.iter().filter_map(
+            .admit_native_drawable_bindings(native_sources.iter().filter_map(
                 |(object_id, source)| {
                     Some((
-                        source.draw_playback_identity.as_ref()?,
+                        source.identity?,
                         game_client
                             .presentation_direct_drawable_state(host_epoch, *object_id)?
                             .binding_key,

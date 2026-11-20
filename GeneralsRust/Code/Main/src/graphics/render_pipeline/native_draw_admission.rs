@@ -23,10 +23,20 @@ impl RenderPipeline {
         self.animation_sync_ms
     }
 
+    #[cfg(test)]
     pub(crate) fn receive_native_drawable_mutation(
         &mut self,
         mutation: PresentationDrawableMutation<'_>,
         source: Option<&crate::presentation_frame::UnitRenderInput>,
+        graphics: &mut GraphicsSystem,
+    ) {
+        self.receive_native_display_mutation(mutation, source.map(NativeDrawSource::display), graphics);
+    }
+
+    pub(crate) fn receive_native_display_mutation(
+        &mut self,
+        mutation: PresentationDrawableMutation<'_>,
+        source: Option<NativeDrawSource<'_>>,
         graphics: &mut GraphicsSystem,
     ) {
         if let PresentationDrawableMutation::TerrainPropAdded { source, request } = mutation {
@@ -116,10 +126,9 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
     pub(crate) fn receive_native_drawable_mutation(
         &mut self,
         mutation: PresentationDrawableMutation<'_>,
-        source: Option<&crate::presentation_frame::UnitRenderInput>,
+        source: Option<NativeDrawSource<'_>>,
         graphics: &mut GraphicsSystem,
     ) {
-        let source = source.map(NativeDrawSource::display);
         let owner = NativeDrawOwnerId::Actor(mutation.object_id());
         let (mirror, finishes_mirror) = match &mutation {
             PresentationDrawableMutation::TransformInstalled { source: sync, .. } => {

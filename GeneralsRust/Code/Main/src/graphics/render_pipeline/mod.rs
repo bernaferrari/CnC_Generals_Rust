@@ -952,6 +952,8 @@ mod native_auxiliary_draw;
 mod native_draw_admission;
 #[cfg(feature = "game_client")]
 mod native_draw_source;
+#[cfg(feature = "game_client")]
+pub(crate) use native_draw_source::NativeDrawSource;
 pub(crate) mod native_draw_world;
 pub(crate) mod native_pose_loan;
 pub(crate) use installed_draw_pose::NativeCameraPoseUnavailable;
