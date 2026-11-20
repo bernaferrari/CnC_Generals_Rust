@@ -162,4 +162,14 @@ fn shadow_renderable_uses_receiving_asset_catalogue_for_same_object_name() {
     assert_eq!(model(&left_frame), "FirstTreeMesh");
     assert_eq!(model(&right_frame), "SecondTreeMesh");
     assert_eq!(model(&left_frame), "FirstTreeMesh");
+
+    let mut observed = crate::gameworld_shadow::GameWorldShadow::new(16);
+    let observe = |shadow: &mut crate::gameworld_shadow::GameWorldShadow, world: &GameLogic| {
+        shadow.sync_from_host(world);
+        let id = shadow.entity_for_host(ObjectId(42)).unwrap();
+        shadow.world().entity(id).unwrap().model_key.clone()
+    };
+    assert_eq!(observe(&mut observed, &left), "FirstTreeMesh");
+    assert_eq!(observe(&mut observed, &right), "SecondTreeMesh");
+    assert_eq!(observe(&mut observed, &left), "FirstTreeMesh");
 }

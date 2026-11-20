@@ -809,6 +809,26 @@ pub(crate) fn update_model_key_from_template(
     asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
     template: &ThingTemplate,
 ) {
+    update_model_key_from_template_with(key, template, |name| {
+        asset_manager.and_then(|manager| manager.lock().ok()?.get_model_for_object(name))
+    });
+}
+
+pub(crate) fn update_model_key_from_catalog(
+    key: &mut String,
+    catalog: Option<&crate::assets::ww3d_asset_manager::ObjectCatalog>,
+    template: &ThingTemplate,
+) {
+    update_model_key_from_template_with(key, template, |name| {
+        catalog?.model_name_for_object(name)
+    });
+}
+
+fn update_model_key_from_template_with<M: AsRef<str>>(
+    key: &mut String,
+    template: &ThingTemplate,
+    map_model: impl FnOnce(&str) -> Option<M>,
+) {
     key.clear();
     if template.has_authored_no_model() {
         return;
@@ -821,7 +841,7 @@ pub(crate) fn update_model_key_from_template(
     {
         key.push_str(remapped_model_key(model));
     } else {
-        append_drawable_model_key(key, asset_manager, &template.name);
+        append_drawable_model_key(key, &template.name, map_model);
     }
 }
 
@@ -832,14 +852,16 @@ pub fn drawable_w3d_model_key(
     object_or_model_name: &str,
 ) -> String {
     let mut key = String::new();
-    append_drawable_model_key(&mut key, asset_manager, object_or_model_name);
+    append_drawable_model_key(&mut key, object_or_model_name, |name| {
+        asset_manager.and_then(|manager| manager.lock().ok()?.get_model_for_object(name))
+    });
     key
 }
 
-fn append_drawable_model_key(
+fn append_drawable_model_key<M: AsRef<str>>(
     key: &mut String,
-    asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
     object_or_model_name: &str,
+    map_model: impl FnOnce(&str) -> Option<M>,
 ) {
     let trimmed = object_or_model_name.trim();
     // Ambient sound objects (`Amb_DesertVillageDayBirds`) have no mesh.
@@ -848,10 +870,10 @@ fn append_drawable_model_key(
     {
         return;
     }
-    let mapped = asset_manager
-        .and_then(|manager| manager.lock().ok()?.get_model_for_object(trimmed));
+    let mapped = map_model(trimmed);
     let resolved = mapped
-        .as_deref()
+        .as_ref()
+        .map(AsRef::as_ref)
         .map(str::trim)
         .filter(|model| {
             !model.is_empty()

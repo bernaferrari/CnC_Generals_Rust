@@ -47,6 +47,13 @@ impl ObjectCatalog {
         })
     }
 
+    pub(crate) fn model_name_for_object(&self, name: &str) -> Option<&str> {
+        self.model_cache
+            .get(name)
+            .map(String::as_str)
+            .or_else(|| self.resolve(name)?.model_name.as_deref())
+    }
+
     pub(crate) fn select_draw_models_for_object_conditions(
         &self,
         name: &str,
@@ -809,12 +816,7 @@ impl WW3DAssetManager {
 
     /// Get the model filename for an object
     pub fn get_model_for_object(&self, object_name: &str) -> Option<String> {
-        if let Some(model) = self.catalog.model_cache.get(object_name) {
-            return Some(model.clone());
-        }
-
-        self.resolve_object_definition(object_name, None)
-            .and_then(|def| def.model_name.clone())
+        self.catalog.model_name_for_object(object_name).map(str::to_owned)
     }
 
     /// Select an exact source-authored model for the supplied C++

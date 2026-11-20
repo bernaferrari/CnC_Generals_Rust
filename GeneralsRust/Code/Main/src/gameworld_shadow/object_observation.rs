@@ -30,7 +30,7 @@ impl GameWorldShadow {
         oid: ObjectId,
         obj: &crate::game_logic::Object,
         eid: EntityId,
-        assets: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+        catalog: Option<&crate::assets::ww3d_asset_manager::ObjectCatalog>,
         visibility: crate::fow_rendering::ObjectVisibility,
     ) {
         let pos = obj.get_position();
@@ -1079,9 +1079,9 @@ impl GameWorldShadow {
             .map(|w| w.damage)
             .unwrap_or(0.0);
         e.display_name.clone_from(&obj.name);
-        crate::assets::mesh_asset_resolve::update_model_key_from_template(
+        crate::assets::mesh_asset_resolve::update_model_key_from_catalog(
             &mut e.model_key,
-            assets,
+            catalog,
             obj.get_template(),
         );
         e.model_condition_bits = obj.model_condition_bits;

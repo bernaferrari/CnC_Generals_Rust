@@ -328,6 +328,9 @@ impl GameWorldShadow {
         self.sync_players(logic);
         self.sync_object_identities(logic);
         let assets = logic.application_assets();
+        let catalog = assets.as_ref().and_then(|assets| {
+            assets.lock().ok().map(|manager| manager.object_catalog())
+        });
         let local_player = logic.local_player_id().unwrap_or(0);
         let shell = logic.isInShellGame();
         let shroud = if shell {
@@ -354,7 +357,7 @@ impl GameWorldShadow {
             } else {
                 shroud_frame.visibility(obj.id)
             };
-            self.refresh_mapped_from_host(logic, oid, obj, eid, assets.as_deref(), visibility);
+            self.refresh_mapped_from_host(logic, oid, obj, eid, catalog.as_deref(), visibility);
             self.sync_weapon_slots_from_host(eid, obj);
         }
         drop(shroud);
