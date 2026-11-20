@@ -1937,6 +1937,7 @@ impl PresentationFrame {
                 Some((template_name.clone(), sounds))
             })
             .collect();
+        let (beacons, new_beacons) = crate::command_executor::freeze_host_beacon_positions(logic);
         let mut frame = Self {
             asset_owner: PresentationAssetOwner(application_assets),
             render_memo: Default::default(),
@@ -2022,48 +2023,8 @@ impl PresentationFrame {
             defeated_player_ids: Vec::new(),
             alliance_events: Vec::new(),
             victory_summary: None,
-            beacons: {
-                // Visible host beacon objects win (C++ hideBeacon drops drawable + minimap).
-                let from_objects: Vec<glam::Vec3> = logic
-                    .host_objects()
-                    .registered()
-                    .filter_map(|(id, obj)| {
-                        if !obj.is_alive()
-                            || !crate::command_executor::host_object_is_beacon(logic, *id)
-                            || obj.drawable_hidden
-                            || crate::command_executor::host_beacon_is_hidden(logic, *id)
-                        {
-                            return None;
-                        }
-                        Some(obj.get_position())
-                    })
-                    .take(64)
-                    .collect();
-                let has_host_beacon_objs = logic.host_objects().registered_values().any(|obj| {
-                    obj.is_alive() && crate::command_executor::host_object_is_beacon(logic, obj.id)
-                });
-                if has_host_beacon_objs {
-                    from_objects
-                } else {
-                    // Wave 211: prefer host-owned beacon list (no Mutex dual-read).
-                    let visible = |p: &glam::Vec3| {
-                        !crate::command_executor::host_beacon_position_is_hidden(logic, *p)
-                    };
-                    let host = logic.host_beacons();
-                    if !host.is_empty() {
-                        host.iter().copied().filter(visible).take(64).collect()
-                    } else {
-                        Vec::new()
-                    }
-                }
-            },
-            new_beacons: logic
-                .recent_beacons()
-                .iter()
-                .copied()
-                .filter(|p| !crate::command_executor::host_beacon_position_is_hidden(logic, *p))
-                .take(32)
-                .collect(),
+            beacons,
+            new_beacons,
             script_messages: {
                 let mut v = logic.script_broadcast_texts();
                 v.extend(logic.peek_new_script_messages().iter().cloned());

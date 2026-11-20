@@ -183,6 +183,38 @@ fn beacon_commands_keep_same_id_caption_and_hidden_state_in_the_receiving_world(
 }
 
 #[test]
+fn presentation_freezes_live_and_recent_beacons_with_original_visibility_order() {
+    use crate::presentation_frame::PresentationFrame;
+
+    let mut owner = world();
+    let enemy = place(&mut owner, 1, "hidden");
+    assert!(host_beacon_is_hidden(&owner, enemy));
+    let edge = Vec3::new(14., 0., 12.);
+    let outside = Vec3::new(11., 0., 15.125);
+    let fallback = Vec3::new(35., 0., 22.);
+    for position in [edge, outside, fallback] {
+        owner.note_beacon_placed(position);
+    }
+
+    let hidden_living = PresentationFrame::build_from_logic(&mut owner, 0);
+    assert!(hidden_living.beacons.is_empty());
+    assert_eq!(hidden_living.new_beacons, vec![outside, fallback]);
+
+    owner.host_object_mut(enemy).unwrap().health.current = 0.0;
+    let hidden_dead = PresentationFrame::build_from_logic(&mut owner, 0);
+    assert_eq!(hidden_dead.beacons, vec![outside, fallback]);
+    assert_eq!(hidden_dead.new_beacons, vec![outside, fallback]);
+
+    assert_eq!(place_result(&mut owner, 0, 25., "first"), CommandResult::Success);
+    assert_eq!(place_result(&mut owner, 0, 41., "second"), CommandResult::Success);
+    let active = PresentationFrame::build_from_logic(&mut owner, 0);
+    let first = Vec3::new(25., 0., 12.);
+    let second = Vec3::new(41., 0., 12.);
+    assert_eq!(active.beacons, vec![second, first]);
+    assert_eq!(active.new_beacons, vec![outside, fallback, first, second]);
+}
+
+#[test]
 fn beacon_removal_discards_only_its_session_entry_and_reused_ids_start_clean() {
     let mut owner = world();
     let id = place(&mut owner, 0, "remove me");

@@ -958,7 +958,7 @@ impl<'a> CommandExecutor<'a> {
         let local_id = self.game_logic.local_player_id();
         let template_name = host_beacon_template_name(self.game_logic, player_id, team);
         let max_beacons = self.game_logic.max_beacons_per_player;
-        let existing = host_count_player_beacons(self.game_logic, player_id, &template_name);
+        let existing = host_count_player_beacons(self.game_logic, player_id, template_name);
         if template_name.is_empty() || existing >= max_beacons {
             if local_id == Some(player_id) {
                 self.game_logic
@@ -971,6 +971,7 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidCommand;
         }
 
+        let template_name = template_name.to_owned();
         let pos = clamp_beacon_to_world(self.game_logic, location);
         if self.game_logic.templates.get(&template_name).is_none() {
             let mut tpl = crate::game_logic::ThingTemplate::new(&template_name);
@@ -1171,20 +1172,20 @@ fn clamp_beacon_to_world(logic: &GameLogic, location: Vec3) -> Vec3 {
     )
 }
 
-fn host_beacon_template_name(logic: &GameLogic, player_id: u32, team: Team) -> String {
+fn host_beacon_template_name(logic: &GameLogic, player_id: u32, team: Team) -> &str {
     if let Some(identity) = logic.player_template_identity(player_id) {
         return logic
             .player_template_definitions
             .as_ref()
             .and_then(|definitions| identity.resolve_in(definitions))
-            .map(|template| template.get_beacon_template().to_string())
+            .map(|template| template.get_beacon_template())
             .unwrap_or_default();
     }
     match team {
-        Team::USA => "AmericaBeacon".to_string(),
-        Team::China => "ChinaBeacon".to_string(),
-        Team::GLA => "GLABeacon".to_string(),
-        _ => "PlyrCivilianBeacon".to_string(),
+        Team::USA => "AmericaBeacon",
+        Team::China => "ChinaBeacon",
+        Team::GLA => "GLABeacon",
+        _ => "PlyrCivilianBeacon",
     }
 }
 
@@ -1199,7 +1200,8 @@ pub fn host_object_is_beacon(logic: &GameLogic, id: ObjectId) -> bool {
     let Some(owner) = obj.owner_player_id else {
         return false;
     };
-    host_object_is_beacon_for_player(logic, id, owner)
+    host_beacon_template(logic, owner)
+        .is_some_and(|template| obj.get_template().is_equivalent_to(template))
 }
 
 /// Match an Object against one particular Player's admitted beacon template.
@@ -1213,17 +1215,17 @@ pub(crate) fn host_object_is_beacon_for_player(
     let Some(obj) = logic.host_object(id) else {
         return false;
     };
-    let Some(player) = logic.get_player(player_id) else {
-        return false;
-    };
+    host_beacon_template(logic, player_id)
+        .is_some_and(|template| obj.get_template().is_equivalent_to(template))
+}
+
+fn host_beacon_template(logic: &GameLogic, player_id: u32) -> Option<&crate::game_logic::ThingTemplate> {
+    let player = logic.get_player(player_id)?;
     let expected = host_beacon_template_name(logic, player_id, player.team);
     if expected.is_empty() {
-        return false;
+        return None;
     }
-    let Some(beacon_template) = logic.templates.get(&expected) else {
-        return false;
-    };
-    obj.get_template().is_equivalent_to(beacon_template)
+    logic.templates.get(expected)
 }
 
 fn host_count_player_beacons(logic: &GameLogic, player_id: u32, template_name: &str) -> i32 {
@@ -1371,12 +1373,63 @@ pub fn host_beacon_is_hidden(logic: &GameLogic, id: ObjectId) -> bool {
 /// C++ hidden drawable has no world or minimap presence.
 /// `host_beacons` is position-only, so presentation matches hide by pose.
 pub fn host_beacon_position_is_hidden(logic: &GameLogic, pos: Vec3) -> bool {
-    const MATCH: f32 = 3.0; // beacon_manager BEACON_MATCH_THRESHOLD
     logic.host_objects().registered_values().any(|obj| {
         host_object_is_beacon(logic, obj.id)
             && (host_beacon_is_hidden(logic, obj.id) || obj.drawable_hidden)
-            && (obj.get_position() - pos).length() <= MATCH
+            && beacon_positions_match(obj.get_position(), pos)
     })
+}
+
+fn beacon_positions_match(first: Vec3, second: Vec3) -> bool {
+    const MATCH: f32 = 3.0; // beacon_manager BEACON_MATCH_THRESHOLD
+    (first - second).length() <= MATCH
+}
+
+/// Project active and newly placed minimap beacons with one registered Object
+/// walk. A living hidden beacon still suppresses the position-only fallback.
+pub(crate) fn freeze_host_beacon_positions(logic: &GameLogic) -> (Vec<Vec3>, Vec<Vec3>) {
+    let retained = logic.host_beacons();
+    let recent = logic.recent_beacons();
+    let needs_hidden_positions = !recent.is_empty() || !retained.is_empty();
+    let mut templates = game_engine::common::fast_hash::FxHashMap::default();
+    let mut has_living_beacons = false;
+    let mut visible = Vec::new();
+    let mut hidden = Vec::new();
+    for object in logic.host_objects().registered_values() {
+        let alive = object.is_alive();
+        if !alive && !needs_hidden_positions {
+            continue;
+        }
+        // Preserve the ordinary ID lookup mask during linked object teardown.
+        let Some(canonical) = logic.host_object(object.id) else {
+            continue;
+        };
+        let Some(owner) = canonical.owner_player_id else {
+            continue;
+        };
+        let template = templates
+            .entry(owner)
+            .or_insert_with(|| host_beacon_template(logic, owner));
+        if !template.is_some_and(|expected| canonical.get_template().is_equivalent_to(expected)) {
+            continue;
+        }
+        has_living_beacons |= alive;
+        if host_beacon_is_hidden(logic, object.id) || object.drawable_hidden {
+            if needs_hidden_positions {
+                hidden.push(object.get_position());
+            }
+        } else if alive && visible.len() < 64 {
+            visible.push(object.get_position());
+        }
+    }
+    let is_visible = |pos: &Vec3| {
+        !hidden.iter().any(|&beacon| beacon_positions_match(beacon, *pos))
+    };
+    if !has_living_beacons {
+        visible.extend(retained.iter().copied().filter(is_visible).take(64));
+    }
+    let new = recent.iter().copied().filter(is_visible).take(32).collect();
+    (visible, new)
 }
 
 /// C++ Drawable::getCaptionText residual for live beacons.
@@ -1394,7 +1447,7 @@ pub fn host_local_player_can_place_beacon(logic: &GameLogic, player_id: u32) -> 
     }
     let template_name = host_beacon_template_name(logic, player_id, player.team);
     !template_name.is_empty()
-        && host_count_player_beacons(logic, player_id, &template_name)
+        && host_count_player_beacons(logic, player_id, template_name)
             < host_max_beacons_per_player(logic)
 }
 
