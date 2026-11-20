@@ -2550,6 +2550,7 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
         .add_kind_of(KindOf::FSStrategyCenter)
         .add_kind_of(KindOf::Selectable)
         .set_health(1500.0);
+    author_strategy_center_turret(&mut sc_template);
     game_logic
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);
@@ -3311,6 +3312,7 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
     // C++ PilotFindVehicleUpdate gates the scan on the authored
     // VeterancyCrateCollide pilot module, not the basename.
     author_pilot_recrew_module(&mut pilot_tpl);
+    pilot_tpl.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     game_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
@@ -3329,10 +3331,11 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         );
     }
 
+    // Keep the path to the eligible target open.
     // Closer Heroic unmanned tank — CollideModule canGainExp residual rejects.
     // Spawn USA then Neutral so PartitionFilterPlayer residual keeps owner.
     let heroic_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 12.0))
         .expect("heroic tank");
     {
         let (t, health_events, ownership_events, partition_manager) = {
@@ -3366,7 +3369,7 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         .create_object(
             "TestTank",
             Team::USA,
-            Vec3::new(12.0, significantly_above_terrain_threshold() + 10.0, 0.0),
+            Vec3::new(0.0, significantly_above_terrain_threshold() + 10.0, 16.0),
         )
         .expect("elevated tank");
     {
@@ -3443,22 +3446,10 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         "PilotFindVehicle residual must still Enter valid Rookie vehicle"
     );
 
-    // Complete Enter if not finished same-frame.
-    if game_logic
-        .host_object(pilot_id)
-        .map(|p| !p.status.destroyed)
-        .unwrap_or(false)
-    {
-        let p = game_logic.host_object(pilot_id).expect("pilot after scan");
-        assert_eq!(
-            p.target,
-            Some(ok_id),
-            "must skip Heroic/elevated and target valid Rookie vehicle"
-        );
-        game_logic
-            .update_ai(&[pilot_id, heroic_id, elevated_id, ok_id], 1.0 / 30.0)
-            .expect("receiving AI operation succeeds");
-    }
+    let pilot = game_logic.host_object(pilot_id).expect("pilot after scan");
+    assert_eq!(pilot.ai_state(), AIState::Entering);
+    assert_eq!(pilot.target, Some(ok_id), "must target valid Rookie vehicle (Heroic and elevated candidates are excluded)");
+    drive_pilot_to_vehicle(&mut game_logic, pilot_id, ok_id);
 
     let ok = game_logic.host_object(ok_id).expect("ok after recrew");
     assert!(!ok.is_unmanned(), "valid vehicle must be recrewed");

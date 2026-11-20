@@ -872,6 +872,38 @@ pub(super) fn ensure_test_black_lotus_template(game_logic: &mut GameLogic) {
         .insert("ChinaInfantryBlackLotus".to_string(), t);
 }
 
+/// Use the retail Turret declaration that drives the C++ ctor's initial pose.
+pub(super) fn author_strategy_center_turret(template: &mut ThingTemplate) {
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(
+            r#"
+Object AmericaStrategyCenter
+ Behavior = AIUpdateInterface FixtureStrategyCenterAI
+  Turret
+   TurretTurnRate = 60
+   TurretPitchRate = 60
+   AllowsPitch = Yes
+   InitiallyDisabled = Yes
+   NaturalTurretAngle = -90
+   NaturalTurretPitch = 45
+   MinIdleScanAngle = 0
+   MaxIdleScanAngle = 60
+   MinIdleScanInterval = 500
+   MaxIdleScanInterval = 1000
+   ControlledWeaponSlots = PRIMARY
+  End
+ End
+End
+"#,
+            "strategy-center-turret.ini",
+        )
+        .unwrap();
+    let definition = parser.get_definition("AmericaStrategyCenter").unwrap();
+    template.turret_spawn_definition =
+        Some(crate::game_logic::object::turret_spawn_for_receiving_definition(definition));
+}
+
 /// EmpPulse is not a superweapon residual strike (separate disable residual path).
 
 /// Advance Strategy Center door residual through AnimationTime frames to ACTIVE.
@@ -1025,6 +1057,27 @@ pub(super) fn author_pilot_recrew_module(template: &mut ThingTemplate) {
         adds_owner_veterancy: true,
         starting_level: Some(VeterancyLevel::Veteran),
     });
+}
+
+/// Advance the normal AI, pathfinding and locomotor phases after aiEnter.
+pub(super) fn drive_pilot_to_vehicle(logic: &mut GameLogic, pilot: ObjectId, vehicle: ObjectId) {
+    for _ in 0..120 {
+        assert_eq!(logic.host_object(pilot).unwrap().target, Some(vehicle));
+        logic.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
+        if logic.host_object(vehicle).is_some_and(|vehicle| !vehicle.is_unmanned()) {
+            return;
+        }
+    }
+    let actor = logic.host_object(pilot).unwrap();
+    let target = logic.host_object(vehicle).unwrap();
+    panic!(
+        "pilot failed to reach its vehicle at frame {}: pilot {:?}, vehicle {:?}, path nodes {}, waiting {}",
+        logic.frame,
+        actor.get_position(),
+        target.get_position(),
+        actor.movement.path.len(),
+        actor.waiting_for_path,
+    );
 }
 
 /// Author a retail-shaped `EjectPilotDie` module on a hand-built vehicle

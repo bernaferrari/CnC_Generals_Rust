@@ -34,6 +34,7 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
     // VeterancyCrateCollide pilot module (VeterancyCrateCollide.cpp), not the
     // basename — author the retail AmericaInfantryPilot module block.
     author_pilot_recrew_module(&mut pilot_tpl);
+    pilot_tpl.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     game_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
@@ -82,9 +83,10 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         t.health.current = t.max_health;
     }
 
+    // Keep the path to the eligible target open.
     // Low-HP unmanned tank closer — must be skipped by MinHealth residual.
     let low_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 12.0))
         .expect("low tank");
     {
         let (t, health_events, ownership_events, partition_manager) = {
@@ -122,28 +124,10 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
     );
     assert_eq!(game_logic.usa_pilot_residual().find_vehicle_orders, 1);
 
-    // Same-frame process_ai_behavior may complete recrew when already in enter
-    // range (selection radii residual). Otherwise a second tick finishes Enter.
-    if game_logic
-        .host_object(pilot_id)
-        .map(|p| !p.status.destroyed)
-        .unwrap_or(false)
-    {
-        let p = game_logic.host_object(pilot_id).expect("pilot after scan");
-        assert_eq!(
-            p.ai_state(),
-            AIState::Entering,
-            "AI pilot residual must Enter after scan"
-        );
-        assert_eq!(
-            p.target,
-            Some(tank_id),
-            "must target healthy vehicle (MinHealth skips low-HP closer tank)"
-        );
-        game_logic
-            .update_ai(&[pilot_id, tank_id, low_id], 1.0 / 30.0)
-            .expect("receiving AI operation succeeds");
-    }
+    let pilot = game_logic.host_object(pilot_id).expect("pilot after scan");
+    assert_eq!(pilot.ai_state(), AIState::Entering);
+    assert_eq!(pilot.target, Some(tank_id), "must target healthy vehicle (MinHealth skips low-HP closer tank)");
+    drive_pilot_to_vehicle(&mut game_logic, pilot_id, tank_id);
 
     let tank = game_logic.host_object(tank_id).expect("tank after recrew");
     assert!(!tank.is_unmanned(), "recrew must clear unmanned");
@@ -896,6 +880,7 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
     // C++ PilotFindVehicleUpdate gates the scan on the authored
     // VeterancyCrateCollide pilot module, not the basename.
     author_pilot_recrew_module(&mut pilot_tpl);
+    pilot_tpl.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     game_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
@@ -914,9 +899,10 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         );
     }
 
+    // Keep the path to the eligible target open.
     // Closer foreign-owner unmanned (China sniped) — PartitionFilter rejects.
     let foreign_id = game_logic
-        .create_object("TestTank", Team::China, Vec3::new(5.0, 0.0, 0.0))
+        .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 12.0))
         .expect("foreign tank");
     {
         let (t, health_events, ownership_events, partition_manager) = {
@@ -990,21 +976,10 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         "PilotFindVehicle residual must still Enter matching-owner vehicle"
     );
 
-    if game_logic
-        .host_object(pilot_id)
-        .map(|p| !p.status.destroyed)
-        .unwrap_or(false)
-    {
-        let p = game_logic.host_object(pilot_id).expect("pilot after scan");
-        assert_eq!(
-            p.target,
-            Some(own_id),
-            "must skip foreign-owner Neutral and target own-owner vehicle"
-        );
-        game_logic
-            .update_ai(&[pilot_id, foreign_id, own_id], 1.0 / 30.0)
-            .expect("receiving AI operation succeeds");
-    }
+    let pilot = game_logic.host_object(pilot_id).expect("pilot after scan");
+    assert_eq!(pilot.ai_state(), AIState::Entering);
+    assert_eq!(pilot.target, Some(own_id), "must target matching-owner vehicle");
+    drive_pilot_to_vehicle(&mut game_logic, pilot_id, own_id);
 
     let own = game_logic.host_object(own_id).expect("own after recrew");
     assert!(!own.is_unmanned(), "own-owner vehicle must be recrewed");
@@ -1188,6 +1163,7 @@ fn strategy_center_turret_idle_scan_residual() {
         .add_kind_of(KindOf::FSStrategyCenter)
         .add_kind_of(KindOf::Selectable)
         .set_health(1500.0);
+    author_strategy_center_turret(&mut sc_template);
     game_logic
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);

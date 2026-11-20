@@ -1,4 +1,5 @@
 use super::*;
+use crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
 
 impl GameLogic {
     #[allow(clippy::too_many_arguments)]
@@ -63,15 +64,37 @@ impl GameLogic {
                 if self.can_execute_pilot_recrew(object_id, container_id) {
                     let enter_range = pilot_radius + vehicle_radius + 4.0;
                     if pilot_can_move && pilot_pos.distance(vehicle_pos) > enter_range {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.ignored_obstacle_id = Some(container_id);
+                        // AIEnterState inherits AIInternalMoveToState's pending
+                        // request and only recomputes a usable path when blocked
+                        // or when the goal moved beyond the source tolerance.
+                        let should_repath = self.objects.lookup(&object_id).is_some_and(|pilot| {
+                            if pilot.ignored_obstacle_id != Some(container_id) {
+                                return true;
+                            }
+                            if pilot.waiting_for_path {
+                                return false;
+                            }
+                            const MIN_REPATH_FRAMES: u32 = 10;
+                            let goal_moved = self.frame.saturating_sub(pilot.path_timestamp)
+                                > MIN_REPATH_FRAMES
+                                && pilot.requested_destination.is_none_or(|previous| {
+                                    !crate::game_logic::is_same_position_residual(
+                                        pilot_pos, previous, vehicle_pos,
+                                    )
+                                });
+                            pilot.movement.path.is_empty()
+                                || pilot.is_blocked_and_stuck
+                                || pilot.num_frames_blocked > 2 * LOGIC_FRAMES_PER_SECOND_RESIDUAL
+                                || goal_moved
+                        });
+                        if should_repath {
+                            self.path_approach_with_state_ignoring(
+                                object_id,
+                                vehicle_pos,
+                                AIState::Entering,
+                                Some(container_id),
+                            );
                         }
-                        self.path_approach_with_state_ignoring(
-                            object_id,
-                            vehicle_pos,
-                            AIState::Entering,
-                            Some(container_id),
-                        );
                         return Ok(());
                     }
                     let health_bonus = self.veterancy_health_bonus;
