@@ -636,14 +636,24 @@ impl PresentationWorldEnv {
         let span_z = (wmax.z - wmin.z).max(1.0);
         let mut height_samples = vec![0.0f32; (HG_W * HG_H) as usize];
         let mut height_samples_from_terrain = false;
-        for y in 0..HG_H {
-            for x in 0..HG_W {
-                let u = (x as f32 + 0.5) / HG_W as f32;
+        {
+            let terrain = logic
+                .world_services
+                .terrain()
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            for (y, row) in height_samples.chunks_exact_mut(HG_W as usize).enumerate() {
                 let v = (y as f32 + 0.5) / HG_H as f32;
-                let world = glam::Vec3::new(wmin.x + u * span_x, 0.0, wmin.z + v * span_z);
-                if let Some(h) = logic.terrain_height_at(world) {
-                    height_samples[(y * HG_W + x) as usize] = h;
-                    height_samples_from_terrain = true;
+                let z = wmin.z + v * span_z;
+                for (x, height) in row.iter_mut().enumerate() {
+                    let u = (x as f32 + 0.5) / HG_W as f32;
+                    let world = glam::Vec3::new(wmin.x + u * span_x, 0.0, z);
+                    if let Some(h) =
+                        logic.terrain_height_at_with_terrain_logic(world, Some(&terrain))
+                    {
+                        *height = h;
+                        height_samples_from_terrain = true;
+                    }
                 }
             }
         }

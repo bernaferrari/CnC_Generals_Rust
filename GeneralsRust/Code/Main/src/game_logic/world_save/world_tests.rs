@@ -427,6 +427,7 @@ mod landmark_bridge_and_new_map_tests {
     #[test]
     fn landmark_bridge_object_registers_leftover_deck() {
         let mut logic = GameLogic::new();
+        logic.override_world_size(64.0, 64.0);
         let mut tmpl = ThingTemplate::new("TsingMaLandmarkBridge");
         tmpl.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::LandmarkBridge)
@@ -466,5 +467,16 @@ mod landmark_bridge_and_new_map_tests {
             deck.is_some_and(|z| (z - 5.0).abs() < 0.05),
             "deck height must come from leftover landmark span, got {deck:?}"
         );
+
+        let frozen = crate::presentation_frame::PresentationWorldEnv::from_logic(&logic);
+        assert!(frozen.height_samples_from_terrain);
+        assert_eq!((frozen.height_grid_w, frozen.height_grid_h), (64, 64));
+        assert!(frozen.height_samples.iter().any(|&height| height > 4.9));
+        for (index, &height) in frozen.height_samples.iter().enumerate() {
+            let x = (index % 64) as f32 - 31.5;
+            let z = (index / 64) as f32 - 31.5;
+            let scalar = logic.terrain_height_at(Vec3::new(x, 0.0, z)).unwrap_or(0.0);
+            assert_eq!(height.to_bits(), scalar.to_bits(), "minimap cell ({x}, {z})");
+        }
     }
 }

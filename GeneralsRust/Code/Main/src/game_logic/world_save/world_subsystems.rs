@@ -672,7 +672,7 @@ if let Ok(mut list) = __arc_bind.write() {
         self.terrain_height_at_with_terrain_logic(world_pos, Some(&terrain))
     }
 
-    pub(in super::super) fn terrain_height_at_with_terrain_logic(
+    pub(crate) fn terrain_height_at_with_terrain_logic(
         &self,
         world_pos: Vec3,
         terrain: Option<&gamelogic::terrain::TerrainLogic>,
