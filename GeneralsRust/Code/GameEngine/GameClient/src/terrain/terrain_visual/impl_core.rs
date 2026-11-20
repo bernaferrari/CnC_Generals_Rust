@@ -686,26 +686,60 @@ impl TerrainVisualImpl {
 
     /// C++ `WaterTracksRenderSystem::flush` from the live water record.
     pub fn flush_water_tracks(&mut self) {
+        self.flush_water_tracks_inner(None);
+    }
+
+    /// The receiving terrain logic selects the original polygon or visual grid.
+    pub fn flush_water_tracks_with_terrain(&mut self, terrain: &gamelogic::terrain::TerrainLogic) {
+        self.flush_water_tracks_inner(Some(terrain));
+    }
+
+    pub fn has_water_tracks_to_draw(&self) -> bool {
+        self.water_rules.show_soft_water_edge
+            && self.water_presentation.transparent_water_depth != 0.0
+            && !self.water_tracks.used_handles().is_empty()
+    }
+
+    fn flush_water_tracks_inner(&mut self, terrain: Option<&gamelogic::terrain::TerrainLogic>) {
         struct SampledWaterHeight<'a> {
+            terrain: Option<&'a gamelogic::terrain::TerrainLogic>,
             water_y: f32,
             grid: Option<&'a WaterGridCpuState>,
             world_to_grid: std::cell::OnceCell<Mat4>,
         }
         impl crate::terrain::WaterTrackHeightProvider for SampledWaterHeight<'_> {
             fn water_height(&self, x: f32, y: f32) -> f32 {
-                if let Some(grid) = self.grid {
-                    let cell_size = grid.resolution.2;
+                let sample_grid = || {
+                    let grid = self.grid?;
+                    let (cells_x, cells_y, cell_size) = grid.resolution;
                     let local = self
                         .world_to_grid
                         .get_or_init(|| grid.transform.inverse())
                         .transform_point3(Vec3::new(x, y, 0.0));
-                    let gx = (local.x / cell_size) as i32;
-                    let gy = (local.y / cell_size) as i32;
-                    if let Some(delta) = grid.height_deltas.get(&(gx, gy)) {
-                        return grid.transform.w_axis.z + *delta;
+                    let gx = local.x / cell_size;
+                    let gy = local.y / cell_size;
+                    let require_mesh_bounds = self.terrain.is_some();
+                    if require_mesh_bounds
+                        && (!(0.0..=cells_x - 1.0).contains(&gx)
+                            || !(0.0..=cells_y - 1.0).contains(&gy))
+                    {
+                        return None;
                     }
-                }
-                self.water_y
+                    let delta = grid.height_deltas.get(&(gx as i32, gy as i32)).copied();
+                    let delta = if require_mesh_bounds {
+                        delta.unwrap_or(0.0)
+                    } else {
+                        delta?
+                    };
+                    Some(grid.transform.w_axis.z + delta)
+                };
+                let height = match self.terrain {
+                    Some(terrain) => {
+                        terrain.water_surface_height_with_visual_grid(x, y, sample_grid)
+                    }
+                    None => sample_grid(),
+                };
+                height.unwrap_or(self.water_y)
             }
         }
         let show_soft = self.water_rules.show_soft_water_edge;
@@ -716,6 +750,7 @@ impl TerrainVisualImpl {
         let use_grid =
             self.water_grid_enabled && cells_x >= 1.0 && cells_y >= 1.0 && cell_size > 0.0;
         let flush = self.water_tracks.flush(&SampledWaterHeight {
+            terrain,
             water_y: self.water_rules.position[2],
             grid: use_grid.then_some(&self.water_grid),
             world_to_grid: std::cell::OnceCell::new(),

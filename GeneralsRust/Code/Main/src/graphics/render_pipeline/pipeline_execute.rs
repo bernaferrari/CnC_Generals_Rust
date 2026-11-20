@@ -489,6 +489,7 @@ impl RenderPipeline {
                 projection_matrix,
                 snow,
                 tree_receipt.as_ref(),
+                native_receiver,
             )?;
             terrain_elapsed = terrain_started.elapsed();
         }

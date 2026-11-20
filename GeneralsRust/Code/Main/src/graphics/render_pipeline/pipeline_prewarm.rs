@@ -404,14 +404,14 @@ impl RenderPipeline {
         projection: &Mat4,
         snow: &game_client::snow::SnowRenderState,
         tree_receipt: Option<&game_client::terrain::TreeCpuDrawReceipt>,
+        receiver: &dyn NativeFrameRenderReceiver,
     ) -> Result<()> {
         self.update_and_enqueue_terrain_pass_observed(
             view,
             projection,
             snow,
             None,
-            true,
-            tree_receipt,
+            Some((tree_receipt, receiver)),
         )
     }
     #[cfg(feature = "game_client")]
@@ -427,7 +427,6 @@ impl RenderPipeline {
             projection_matrix,
             snow,
             warm_motion,
-            false,
             None,
         )
     }
@@ -438,8 +437,10 @@ impl RenderPipeline {
         projection_matrix: &Mat4,
         snow: &game_client::snow::SnowRenderState,
         warm_motion: Option<crate::presentation_frame::PresentationTerrainMotion>,
-        tree_cpu_completed: bool,
-        tree_receipt: Option<&game_client::terrain::TreeCpuDrawReceipt>,
+        native_after_tree: Option<(
+            Option<&game_client::terrain::TreeCpuDrawReceipt>,
+            &dyn NativeFrameRenderReceiver,
+        )>,
     ) -> Result<()> {
         static LOGGED_ZERO_TERRAIN_CHUNKS: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         static LOGGED_NONZERO_TERRAIN_CHUNKS: std::sync::OnceLock<()> = std::sync::OnceLock::new();
@@ -464,7 +465,7 @@ impl RenderPipeline {
             let client_projection_matrix =
                 Mat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
             let terrain_render_started = Instant::now();
-            (if tree_cpu_completed {
+            (if let Some((tree_receipt, _)) = native_after_tree {
                 terrain_visual.render_native_y_up_after_tree_cpu(
                     &client_view_matrix,
                     &client_projection_matrix,
@@ -488,8 +489,12 @@ impl RenderPipeline {
             .map_err(|e| anyhow::anyhow!("terrain visual render state update failed: {}", e))?;
             let terrain_render_elapsed = terrain_render_started.elapsed();
             let terrain_update_started = Instant::now();
-            (if tree_cpu_completed {
-                terrain_visual.update_native_after_tree_cpu(motion, tree_receipt)
+            (if let Some((tree_receipt, receiver)) = native_after_tree {
+                terrain_visual.update_native_after_tree_cpu_with_water_tracks(
+                    motion,
+                    tree_receipt,
+                    Some(&mut |visual| receiver.flush_water_tracks(visual)),
+                )
             } else {
                 terrain_visual.update_native(motion, None)
             })

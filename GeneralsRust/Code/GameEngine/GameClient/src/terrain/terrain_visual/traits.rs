@@ -100,7 +100,7 @@ impl SubsystemInterface for TerrainVisualImpl {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_with_motion(None, false, None)
+        self.update_with_motion(None, false, None, None)
     }
 }
 
@@ -166,9 +166,18 @@ impl TerrainVisualImpl {
         motion: TerrainVisualMotion,
         receipt: Option<&crate::terrain::TreeCpuDrawReceipt>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_native_after_tree_cpu_with_water_tracks(motion, receipt, None)
+    }
+
+    pub fn update_native_after_tree_cpu_with_water_tracks(
+        &mut self,
+        motion: TerrainVisualMotion,
+        receipt: Option<&crate::terrain::TreeCpuDrawReceipt>,
+        flush_water_tracks: Option<&mut dyn FnMut(&mut Self) -> TerrainResult<()>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.validate_owned_tree_draw(receipt)
             .map_err(|error| Box::<dyn std::error::Error>::from(error))?;
-        self.update_with_motion(Some(motion), true, None)
+        self.update_with_motion(Some(motion), true, None, flush_water_tracks)
     }
     fn validate_owned_tree_draw(
         &self,
@@ -472,13 +481,14 @@ impl TerrainVisualImpl {
         motion: TerrainVisualMotion,
         client_random: Option<&mut game_engine::common::random_value::RandomState>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_with_motion(Some(motion), false, client_random)
+        self.update_with_motion(Some(motion), false, client_random, None)
     }
     fn update_with_motion(
         &mut self,
         motion: Option<TerrainVisualMotion>,
         tree_cpu_completed: bool,
         client_random: Option<&mut game_engine::common::random_value::RandomState>,
+        flush_water_tracks: Option<&mut dyn FnMut(&mut Self) -> TerrainResult<()>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.enabled {
             return Ok(());
@@ -529,7 +539,11 @@ impl TerrainVisualImpl {
         self.overlay.cloud_map.update(1000.0 / 30.0);
         // C++ GameClient.cpp:560 is the only SnowManager::UPDATE; TerrainVisual
         // does not tick snow (GameClient.cpp:719-722).
-        self.flush_water_tracks();
+        if let Some(flush) = flush_water_tracks {
+            flush(self)?;
+        } else {
+            self.flush_water_tracks();
+        }
         if self.overlay.overlays_dirty || self.overlay.water_grid_dirty {
             self.rebuild_all_overlays();
         }

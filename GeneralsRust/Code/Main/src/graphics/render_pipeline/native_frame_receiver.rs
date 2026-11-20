@@ -45,6 +45,10 @@ pub trait NativeFrameRenderReceiver {
         poses: &mut native_pose_loan::NativeInstalledPoseLoan<'_>,
         graphics: &mut GraphicsSystem,
     ) -> std::result::Result<FilterCameraMatrices, String>;
+    fn flush_water_tracks(
+        &self,
+        visual: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+    ) -> game_client::terrain::TerrainResult<()>;
     fn complete_tree_cpu_draw(
         &mut self,
         terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,

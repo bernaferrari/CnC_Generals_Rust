@@ -10,6 +10,11 @@ pub struct WaterHeightChange {
     pub damage_amount: f32,
 }
 
+enum WaterSurface {
+    Grid(f32),
+    Polygon { trigger_id: Int, height: f32 },
+}
+
 impl TerrainLogic {
     /// Check if point is underwater
     pub fn is_underwater(
@@ -57,6 +62,34 @@ impl TerrainLogic {
 
     /// Get water handle at location
     pub fn get_water_handle(&self, x: f32, y: f32) -> Option<&WaterHandle> {
+        match self.water_surface_at(x, y, || self.water_grid.height_at(x, y))? {
+            WaterSurface::Grid(_) => Some(&self.grid_water_handle),
+            WaterSurface::Polygon { trigger_id, .. } => {
+                self.water_handles_by_trigger_id.get(&trigger_id)
+            }
+        }
+    }
+
+    /// The W3D wake uses the receiving polygon table and the rendered water grid.
+    /// It needs the selected surface height, without a ground height lookup.
+    pub fn water_surface_height_with_visual_grid(
+        &self,
+        x: f32,
+        y: f32,
+        visual_grid_height: impl FnOnce() -> Option<f32>,
+    ) -> Option<f32> {
+        let height = match self.water_surface_at(x, y, visual_grid_height)? {
+            WaterSurface::Grid(height) | WaterSurface::Polygon { height, .. } => height,
+        };
+        Some(height)
+    }
+
+    fn water_surface_at(
+        &self,
+        x: f32,
+        y: f32,
+        grid_height: impl FnOnce() -> Option<f32>,
+    ) -> Option<WaterSurface> {
         let query = ICoord3D::new((x + 0.5).floor() as Int, (y + 0.5).floor() as Int, 0);
 
         let mut best_trigger_id: Option<Int> = None;
@@ -77,17 +110,17 @@ impl TerrainLogic {
             }
         }
 
-        // C++ `TheTerrainVisual->getWaterGridHeight`: on-mesh only, not AABB.
-        if let Some(mesh_z) = self.water_grid.height_at(x, y) {
-            if mesh_z >= best_water_z {
-                return Some(&self.grid_water_handle);
-            }
+        // C++ TerrainLogic::getWaterHandle lets the visual grid win a tie.
+        if let Some(mesh_z) = grid_height()
+            && mesh_z >= best_water_z
+        {
+            return Some(WaterSurface::Grid(mesh_z));
         }
 
-        if let Some(trigger_id) = best_trigger_id {
-            return self.water_handles_by_trigger_id.get(&trigger_id);
-        }
-        None
+        best_trigger_id.map(|trigger_id| WaterSurface::Polygon {
+            trigger_id,
+            height: best_water_z,
+        })
     }
 
     /// Get water handle by name

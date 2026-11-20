@@ -215,6 +215,12 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
             )
         })
     }
+    fn flush_water_tracks(
+        &self,
+        visual: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+    ) -> game_client::terrain::TerrainResult<()> {
+        flush_receiving_water_tracks(self.world, visual)
+    }
     fn complete_tree_cpu_draw(
         &mut self,
         terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
@@ -302,6 +308,21 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
     }
 }
 
+fn flush_receiving_water_tracks(
+    world: &crate::game_logic::GameLogic,
+    visual: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+) -> game_client::terrain::TerrainResult<()> {
+    if visual.has_water_tracks_to_draw() {
+        let terrain = world.world_services.terrain().read().map_err(|_| {
+            game_client::terrain::TerrainError::WaterError("receiving map terrain poisoned".into())
+        })?;
+        visual.flush_water_tracks_with_terrain(&terrain);
+    } else {
+        visual.flush_water_tracks();
+    }
+    Ok(())
+}
+
 /// Borrowed adapter to the same receiving client stream used by authored FX.
 struct ReceivingTreeRandom<'a>(&'a mut game_engine::common::random_value::RandomState);
 impl game_client::terrain::TreeRandom for ReceivingTreeRandom<'_> {
@@ -316,3 +337,7 @@ impl game_client::terrain::TreeRandom for ReceivingTreeRandom<'_> {
         self.0.next_real(min, max)
     }
 }
+
+#[cfg(test)]
+#[path = "native_water_height_tests.rs"]
+mod native_water_height_tests;
