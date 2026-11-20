@@ -1411,10 +1411,7 @@ fn installed_dozer_motive_force_wakes_physics_without_postponing_its_due_frame()
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn installed_dozer_arrives_and_contributes_at_its_ignored_scaffold() {
-    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
-    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
     use crate::test_process::{TestProcess, run_bounded};
-    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
 
     const NAME: &str = concat!(module_path!(), "::installed_dozer_arrives_and_contributes_at_its_ignored_scaffold");
     if let TestProcess::ParentVerified = run_bounded(
@@ -1423,14 +1420,37 @@ fn installed_dozer_arrives_and_contributes_at_its_ignored_scaffold() {
     ) {
         return;
     }
+    assert_physical_construction_action(false);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn installed_worker_moves_through_action_dock_before_contributing() {
+    use crate::test_process::{TestProcess, run_bounded};
+
+    const NAME: &str = concat!(module_path!(), "::installed_worker_moves_through_action_dock_before_contributing");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_INSTALLED_WORKER_ACTION_DOCK_CHILD",
+    ) {
+        return;
+    }
+    assert_physical_construction_action(true);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn assert_physical_construction_action(worker: bool) {
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
 
     let receiving = new_for_world();
     let peer = new_for_world();
-    let dozer = admit_physical_construction_builder(&receiving, false);
-    let worker = admit_physical_construction_builder(&peer, true);
-    let builder = dozer.read().unwrap().get_id();
-    assert_eq!(worker.read().unwrap().get_id(), builder);
-    let worker_pose = *worker.read().unwrap().get_position();
+    let actor = admit_physical_construction_builder(&receiving, worker);
+    let peer_actor = admit_physical_construction_builder(&peer, !worker);
+    let builder = actor.read().unwrap().get_id();
+    assert_eq!(peer_actor.read().unwrap().get_id(), builder);
+    let peer_pose = *peer_actor.read().unwrap().get_position();
     let place = |world: &Arc<EngineStores>, builder, x| with_active_stores(world, || {
         GameLogicBuildAssistantBackend.build_object_now(
             builder, "PhysicalConstructionSite", &BuildPosition { x, y: 105., z: 0. }, 0., 0,
@@ -1439,10 +1459,15 @@ fn installed_dozer_arrives_and_contributes_at_its_ignored_scaffold() {
     let site_id = place(&receiving, Some(builder), 290.);
     assert_eq!(place(&peer, None, 205.), site_id);
     let peer_site = peer.game_logic_mutex().lock().unwrap().find_object_by_id(site_id).unwrap();
-    let parent = dozer.read().unwrap().get_ai_update_interface().unwrap();
+    let parent = actor.read().unwrap().get_ai_update_interface().unwrap();
     let mut parent_state = parent.lock().unwrap();
-    let (dock, _) = parent_state.get_dozer_ai_update_interface_mut().unwrap()
-        .construction_move_for_test().unwrap();
+    let dock = if worker {
+        parent_state.get_worker_ai_update_interface_mut().unwrap()
+            .construction_order_for_test().unwrap().docks[DozerDockPoint::Action as usize].unwrap()
+    } else {
+        parent_state.get_dozer_ai_update_interface_mut().unwrap()
+            .construction_move_for_test().unwrap().0
+    };
     drop(parent_state);
     let pathfinder = receiving.ai().read().unwrap().pathfinder().unwrap();
 
@@ -1458,8 +1483,12 @@ fn installed_dozer_arrives_and_contributes_at_its_ignored_scaffold() {
             let (build_dock, idle) = {
                 let mut ai = parent.lock().unwrap();
                 ai.update().unwrap();
-                let build_dock = ai.get_dozer_ai_update_interface_mut().unwrap()
-                    .build_dock_sub_task_for_test();
+                let build_dock = if worker {
+                    ai.get_worker_ai_update_interface_mut().unwrap()
+                        .construction_order_for_test().unwrap().build_sub_task
+                } else {
+                    ai.get_dozer_ai_update_interface_mut().unwrap().build_dock_sub_task_for_test()
+                };
                 (build_dock, ai.is_idle())
             };
             let progress = site.read().unwrap().get_construction_percent();
@@ -1471,7 +1500,7 @@ fn installed_dozer_arrives_and_contributes_at_its_ignored_scaffold() {
                 }
             }
             logic.lock().unwrap().update(frame, || None).unwrap();
-            let position = *dozer.read().unwrap().get_position();
+            let position = *actor.read().unwrap().get_position();
             if frame == 60 {
                 assert!((145.0..155.0).contains(&position.x), "{position:?}");
             }
@@ -1483,7 +1512,7 @@ fn installed_dozer_arrives_and_contributes_at_its_ignored_scaffold() {
                 break;
             }
         }
-        let (frame, position, progress) = contribution.expect("real Dozer did not reach its build dock");
+        let (frame, position, progress) = contribution.expect("installed builder did not reach its Action dock");
         assert!((75..100).contains(&frame), "frame {frame}, position {position:?}");
         let action_path_frame = action_path_frame.expect("Action dock issues its own receiving path request");
         assert!(action_path_frame > 39 && action_path_frame < frame);
@@ -1492,7 +1521,7 @@ fn installed_dozer_arrives_and_contributes_at_its_ignored_scaffold() {
         assert_eq!(site.read().unwrap().get_builder_id(), builder);
     });
 
-    assert_eq!(*worker.read().unwrap().get_position(), worker_pose);
+    assert_eq!(*peer_actor.read().unwrap().get_position(), peer_pose);
     let peer_site = peer_site.read().unwrap();
     assert_eq!(peer_site.get_builder_id(), INVALID_ID);
     assert_eq!(peer_site.get_construction_percent(), 0.0);

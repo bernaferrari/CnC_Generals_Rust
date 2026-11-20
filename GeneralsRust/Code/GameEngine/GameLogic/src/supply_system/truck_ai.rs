@@ -644,6 +644,7 @@ impl WorkerAIUpdateInterface for WorkerAIUpdate {
             order_frame: request.order_frame,
             docks: self.dozer_dock_points[task].map(|dock| dock.valid.then_some(dock.location)),
             moving_to_dock: self.dozer_action_state == WorkerDozerActionState::MoveToActionPos,
+            build_sub_task: action.build_sub_task,
         })
     }
 

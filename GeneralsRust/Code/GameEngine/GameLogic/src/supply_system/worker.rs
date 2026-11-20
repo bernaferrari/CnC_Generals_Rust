@@ -1,3 +1,5 @@
+use crate::object::update::ai_update::dozer_ai_update::{DozerBuildSubTask, DozerDockPoint};
+
 /// Worker AI update module data (matches C++ WorkerAIUpdateModuleData fields).
 #[derive(Debug, Clone)]
 pub struct WorkerAIUpdateData {
@@ -121,6 +123,7 @@ struct WorkerDozerTask {
     build_max_health: f32,
     is_rebuild: bool,
     started_construction: bool,
+    build_sub_task: DozerBuildSubTask,
 }
 
 #[cfg(test)]
@@ -131,6 +134,7 @@ pub(crate) struct WorkerBuildOrderObservation {
     pub order_frame: u32,
     pub docks: [Option<Coord3D>; 3],
     pub moving_to_dock: bool,
+    pub build_sub_task: DozerBuildSubTask,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -663,6 +667,7 @@ impl WorkerAIUpdate {
                     build_max_health: 0.0,
                     is_rebuild: false,
                     started_construction: false,
+                    build_sub_task: DozerBuildSubTask::SelectBuildDockLocation,
                 });
             }
             WorkerDozerTaskSlot::Repair => {
@@ -675,6 +680,7 @@ impl WorkerAIUpdate {
                     build_max_health: 0.0,
                     is_rebuild: false,
                     started_construction: false,
+                    build_sub_task: DozerBuildSubTask::SelectBuildDockLocation,
                 });
             }
             WorkerDozerTaskSlot::Fortify => {
@@ -687,6 +693,7 @@ impl WorkerAIUpdate {
                     build_max_health: 0.0,
                     is_rebuild: false,
                     started_construction: false,
+                    build_sub_task: DozerBuildSubTask::SelectBuildDockLocation,
                 });
             }
         }
@@ -728,6 +735,7 @@ impl WorkerAIUpdate {
             build_max_health: 0.0,
             is_rebuild: false,
             started_construction: false,
+            build_sub_task: DozerBuildSubTask::SelectBuildDockLocation,
         });
         self.dozer_action_state = WorkerDozerActionState::PickActionPos;
     }
@@ -769,6 +777,7 @@ impl WorkerAIUpdate {
             build_max_health: max_health,
             is_rebuild: false,
             started_construction: false,
+            build_sub_task: DozerBuildSubTask::SelectBuildDockLocation,
         });
         self.dozer_action_state = WorkerDozerActionState::PickActionPos;
     }
@@ -797,6 +806,7 @@ impl WorkerAIUpdate {
             build_max_health: max_health,
             is_rebuild,
             started_construction: false,
+            build_sub_task: DozerBuildSubTask::SelectBuildDockLocation,
         });
         self.dozer_action_state = WorkerDozerActionState::PickActionPos;
     }
@@ -869,11 +879,34 @@ impl WorkerAIUpdate {
             return;
         }
 
+        let building = matches!(task.task_type, WorkerDozerTaskType::Build | WorkerDozerTaskType::ResumeConstruction);
+        let owner_guard = if self.dozer_action_state == WorkerDozerActionState::DoAction
+            && building && task.build_sub_task != DozerBuildSubTask::DoBuildAtDock
+        {
+            let dock = self.current_task.and_then(|current| {
+                let dock = self.dozer_dock_points[current.as_index()][DozerDockPoint::Action as usize];
+                dock.valid.then_some(dock.location)
+            });
+            // WorkerAIUpdate.cpp:247–280 runs the same nested Dozer action.
+            // The inherited movement command takes its own Object borrow.
+            drop(owner_guard);
+            match task.build_sub_task.advance_to_dock(ai, dock) {
+                Ok(true) => {}
+                result => {
+                    failure = result.err();
+                    return;
+                }
+            }
+            let Ok(owner_guard) = owner.read() else { return };
+            owner_guard
+        } else {
+            owner_guard
+        };
+
         let mut build_complete_rebuild: Option<bool> = None;
 
         match self.dozer_action_state {
             WorkerDozerActionState::MoveToActionPos => {
-                let building = matches!(task.task_type, WorkerDozerTaskType::Build | WorkerDozerTaskType::ResumeConstruction);
                 let other_builder = building && target_builder_id != self.object_id;
                 let other_repairer = task.task_type == WorkerDozerTaskType::Repair
                     && target_sole != INVALID_ID && target_sole != self.object_id;
@@ -897,6 +930,9 @@ impl WorkerAIUpdate {
                                 | ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED,
                         );
                     }
+                    if building {
+                        task.build_sub_task = DozerBuildSubTask::SelectBuildDockLocation;
+                    }
                     self.dozer_action_state = WorkerDozerActionState::DoAction;
                 } else if ai.is_idle() {
                     task.dock_point = None;
@@ -904,8 +940,6 @@ impl WorkerAIUpdate {
                 }
             }
             WorkerDozerActionState::DoAction => match task.task_type {
-                WorkerDozerTaskType::Build | WorkerDozerTaskType::ResumeConstruction
-                    if !ai.is_idle() => {}
                 WorkerDozerTaskType::Repair => {
                     if target_sole != INVALID_ID && target_sole != self.object_id {
                         self.dozer_task = None;

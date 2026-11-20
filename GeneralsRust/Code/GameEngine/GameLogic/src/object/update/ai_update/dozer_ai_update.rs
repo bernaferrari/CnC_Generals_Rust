@@ -98,6 +98,32 @@ pub enum DozerBuildSubTask {
     DoBuildAtDock = 2,
 }
 
+impl DozerBuildSubTask {
+    /// DozerAIUpdate.cpp:481–510 issues Action as a distinct inherited move.
+    /// Both Dozer and Worker run this nested construction state machine.
+    pub(crate) fn advance_to_dock(
+        &mut self,
+        parent: &mut dyn AIUpdateInterface,
+        dock: Option<Coord3D>,
+    ) -> Result<bool, String> {
+        if *self == Self::SelectBuildDockLocation {
+            if let Some(dock) = dock {
+                let mut command = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::MoveToPosition,
+                    CommandSourceType::FromAi,
+                );
+                command.pos = dock;
+                parent.execute_command(&command).map_err(|error| error.to_string())?;
+            }
+            *self = Self::MovingToBuildDockLocation;
+        }
+        if *self == Self::MovingToBuildDockLocation && parent.is_idle() {
+            *self = Self::DoBuildAtDock;
+        }
+        Ok(*self == Self::DoBuildAtDock)
+    }
+}
+
 /// Module data for DozerAIUpdate (INI-driven).
 #[derive(Debug, Clone)]
 pub struct DozerAIUpdateModuleData {
@@ -1193,32 +1219,18 @@ impl DozerAIUpdate {
         if self.task_owner.build_sub_task == DozerBuildSubTask::DoBuildAtDock {
             return Ok(true);
         }
-        let selecting = self.task_owner.build_sub_task == DozerBuildSubTask::SelectBuildDockLocation;
-        let dock = if selecting {
-            self.get_dock_point(DozerTask::Build, DozerDockPoint::Action)
-        } else {
-            None
-        };
-        let action = Self::with_action_parent(owner, parent, |ai| -> Result<bool, String> {
-            if selecting {
-                if let Some(dock) = dock {
-                    let mut command = crate::ai::AiCommandParams::new(
-                        crate::ai::AiCommandType::MoveToPosition,
-                        CommandSourceType::FromAi,
-                    );
-                    command.pos = dock;
-                    ai.execute_command(&command).map_err(|error| error.to_string())?;
-                }
-                self.task_owner.build_sub_task = DozerBuildSubTask::MovingToBuildDockLocation;
-            }
-            Ok(ai.is_idle())
+        let dock = self.get_dock_point(DozerTask::Build, DozerDockPoint::Action);
+        let action = Self::with_action_parent(owner, parent, |ai| {
+            self.task_owner.build_sub_task.advance_to_dock(ai, dock)
         });
-        // Keep the compatibility path for isolated action callers without a parent.
-        let at_dock = action.unwrap_or(Ok(true))?;
-        if at_dock {
-            self.task_owner.build_sub_task = DozerBuildSubTask::DoBuildAtDock;
+        match action {
+            Some(result) => result,
+            // Keep the compatibility path for isolated callers without a parent.
+            None => {
+                self.task_owner.build_sub_task = DozerBuildSubTask::DoBuildAtDock;
+                Ok(true)
+            }
         }
-        Ok(at_dock)
     }
 
     fn update_dozer_task(

@@ -474,6 +474,7 @@ fn worker_build_tick_allows_reentrant_construction_without_touching_peer_world()
         build_max_health: 100.0,
         is_rebuild: false,
         started_construction: false,
+        build_sub_task: DozerBuildSubTask::DoBuildAtDock,
     });
     worker.dozer_action_state = WorkerDozerActionState::DoAction;
     let mut parent = super::truck_state_tests::DrivingAi::new(true);
