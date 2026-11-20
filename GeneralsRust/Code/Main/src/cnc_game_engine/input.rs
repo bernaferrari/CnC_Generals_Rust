@@ -2004,7 +2004,7 @@ impl CnCGameEngine {
             self.host_apply_render_ui_presentation_overlays(&mut ui_state);
             self.process_ui_events().map_err(anyhow::Error::msg)?;
             // Wave 593: minimap/radar/victory UI residual via host helper.
-            self.host_finalize_render_ui_state(&mut ui_state);
+            self.host_finalize_render_ui_state(ui_state);
         }
 
         // Execute the main game render pipeline using the WW3D frame.

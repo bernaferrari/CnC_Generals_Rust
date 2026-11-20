@@ -24,12 +24,12 @@ impl CnCGameEngine {
     /// summary, and retains `last_ui_state`.
     pub(in crate::cnc_game_engine) fn host_finalize_render_ui_state(
         &mut self,
-        ui_state: &mut crate::ui::GameUIState,
+        mut ui_state: crate::ui::GameUIState,
     ) {
         // Wave 593: render UI finalize residual.
         ui_state.minimap_texture_id = self.render_pipeline.get_minimap_texture_id();
         ui_state.minimap_coordinates = self.render_pipeline.get_minimap_coordinates().cloned();
-        self.update_minimap_viewport(ui_state);
+        self.update_minimap_viewport(&mut ui_state);
         // Prefer presentation world_env for radar/minimap when a frame is installed.
         let world_bounds = self.presentation_world_bounds();
         self.game_hud_mut().update_radar_pings(
@@ -54,7 +54,7 @@ impl CnCGameEngine {
             ui_state.player_outcome = None;
         }
         // Retain presentation-overlaid identity for consumers (was dropped each frame).
-        self.last_ui_state = Some(ui_state.clone());
+        self.last_ui_state = Some(ui_state);
     }
 
     pub(in crate::cnc_game_engine) fn host_apply_render_ui_presentation_overlays(

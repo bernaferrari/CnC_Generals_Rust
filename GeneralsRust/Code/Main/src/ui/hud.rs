@@ -12,7 +12,7 @@ use crate::game_logic::ObjectId;
 use crate::localization;
 use crate::ui::RadarPingKind;
 use glam::Vec3;
-use std::time::Duration;
+use std::{borrow::Borrow, time::Duration};
 
 /// Resource types in the game
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,11 +75,15 @@ impl MiniMap {
         self.map_data = vec![0; (width * height) as usize];
     }
 
-    pub fn update_units(&mut self, units: &[(ObjectId, f32, f32, u8)]) {
+    pub fn update_units(
+        &mut self,
+        units: impl IntoIterator<Item = impl Borrow<(ObjectId, f32, f32, u8)>>,
+    ) {
         self.unit_positions.clear();
 
         // Convert world coordinates to minimap coordinates
-        for &(_, world_x, world_y, team) in units {
+        for unit in units {
+            let &(_, world_x, world_y, team) = unit.borrow();
             let minimap_x = (world_x * self.size.0 as f32) as i32;
             let minimap_y = (world_y * self.size.1 as f32) as i32;
 
@@ -1217,7 +1221,10 @@ impl GameHUD {
     }
 
     /// Update minimap
-    pub fn update_minimap(&mut self, units: &[(ObjectId, f32, f32, u8)]) {
+    pub fn update_minimap(
+        &mut self,
+        units: impl IntoIterator<Item = impl Borrow<(ObjectId, f32, f32, u8)>>,
+    ) {
         self.minimap.update_units(units);
     }
 

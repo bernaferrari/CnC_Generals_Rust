@@ -241,13 +241,8 @@ impl PresentationFrame {
         ui.camera_look_toward = self.camera_look_toward;
         ui.camera_slave_enable = self.camera_slave_enable.clone();
         ui.camera_slave_disable = self.camera_slave_disable;
-        ui.named_timers = self.named_timers.clone();
-        ui.cameo_flash = self.cameo_flash.clone();
         ui.screen_shakes = self.screen_shakes.clone();
         ui.script_skybox_enabled = self.script_skybox_enabled;
-        ui.superweapon_display_enabled = self.superweapon_display_enabled;
-        ui.named_timer_display_shown = self.named_timer_display_shown;
-        ui.superweapon_hidden_objects = self.superweapon_hidden_objects.clone();
         // Beacon residual from snapshot (no live GameLogic update_ui_state re-read).
         // Always assign so a hide-empty freeze clears leftover enemy dots.
         ui.new_beacons = self.new_beacons.clone();
@@ -465,6 +460,10 @@ impl PresentationFrame {
 
     /// Units list for GameHud minimap: (id, x, z, team_color_index).
     pub fn hud_minimap_units(&self) -> Vec<(ObjectId, f32, f32, u8)> {
+        self.hud_minimap_rows().collect()
+    }
+
+    fn hud_minimap_rows(&self) -> impl Iterator<Item = (ObjectId, f32, f32, u8)> + '_ {
         // Wave 1109: minimap unit-dot residual excludes sold (alive dots only).
         // hq-cqosc: also skip fogged/shrouded enemies (C++ W3DRadar.cpp:636-638).
         // C++ `W3DRadar::renderObjectList` normalizes world coords into the map
@@ -475,7 +474,7 @@ impl PresentationFrame {
         self.objects
             .iter()
             .filter(|o| !o.destroyed && !o.sold && Self::minimap_fow_allows(o))
-            .map(|o| {
+            .map(move |o| {
                 let team_idx = match o.team {
                     Team::USA => 1u8,
                     Team::China => 0u8,
@@ -486,7 +485,6 @@ impl PresentationFrame {
                 let nz = ((o.position.z - world_min.z) / span_z).clamp(0.0, 1.0);
                 (o.id, nx, nz, team_idx)
             })
-            .collect()
     }
 
     /// Apply presentation resources, minimap units, and selection health to GameHUD.
@@ -585,8 +583,7 @@ impl PresentationFrame {
         }
         let (credits, power, max_power) = self.hud_resource_triple();
         hud.update_resources(credits, power, max_power);
-        let units = self.hud_minimap_units();
-        hud.update_minimap(&units);
+        hud.update_minimap(self.hud_minimap_rows());
         let infos = self.selected_unit_display_infos();
         // Prefer explicit player selection list; if empty but infos came from
         // object.selected flags, mirror those IDs onto the HUD strip.
