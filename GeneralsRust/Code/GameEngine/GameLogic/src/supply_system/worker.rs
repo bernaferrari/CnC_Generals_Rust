@@ -130,6 +130,7 @@ pub(crate) struct WorkerBuildOrderObservation {
     pub action_target: ObjectID,
     pub order_frame: u32,
     pub docks: [Option<Coord3D>; 3],
+    pub moving_to_dock: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -392,7 +393,7 @@ impl WorkerAIUpdate {
         }
         // WorkerAIUpdate::update selects the dozer machine before harvest.
         if self.is_acting_as_dozer() {
-            if let Err(error) = self.update_dozer_task() {
+            if let Err(error) = self.update_dozer_task(ai) {
                 log::error!("Worker construction completion failed: {error}");
                 return StateReturnType::Error;
             }
@@ -800,7 +801,7 @@ impl WorkerAIUpdate {
         self.dozer_action_state = WorkerDozerActionState::PickActionPos;
     }
 
-    fn update_dozer_task(&mut self) -> Result<(), String> {
+    fn update_dozer_task(&mut self, ai: &mut dyn AIUpdateInterface) -> Result<(), String> {
         let mut failure = None;
         (|| {
         // Wave 298: empty dual-world → no-op.
@@ -815,36 +816,20 @@ impl WorkerAIUpdate {
                 this.clear_task(current);
             }
         };
-        if self.object_id == INVALID_ID {
-            self.dozer_task = None;
-            clear_current(self);
+        let Some(target_id) = self.dozer_task.as_ref().map(|task| task.target_id) else {
             return;
-        }
-        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
+        };
+        let Some((owner, target)) = self.construction_objects(target_id) else {
             self.dozer_task = None;
             clear_current(self);
             return;
         };
-        let Some(task) = self.dozer_task.as_mut() else {
-            return;
-        };
-        let Some(target) = TheGameLogic::find_object_by_id(task.target_id) else {
-            self.dozer_task = None;
-            clear_current(self);
-            return;
-        };
+        let task = self.dozer_task.as_mut().expect("active worker construction task");
         let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
             return;
         };
         let owner_pos = *owner_guard.get_position();
-        let owner_pos_local = Coord3D::new(owner_pos.x, owner_pos.y, owner_pos.z);
-        let owner_airborne = owner_guard.is_using_airborne_locomotor();
-        let owner_ai_update = owner_guard.get_ai_update_interface();
-
         let target_pos = *target_guard.get_position();
-        let target_pos_local = Coord3D::new(target_pos.x, target_pos.y, target_pos.z);
         let target_radius = target_guard
             .get_geometry_info()
             .get_bounding_sphere_radius();
@@ -853,73 +838,74 @@ impl WorkerAIUpdate {
         let target_is_bridge_tower = target_guard.is_kind_of(KindOf::BridgeTower);
         drop(target_guard);
 
-        // Determine action position if needed.
-        if task.dock_point.is_none()
-            && self.dozer_action_state == WorkerDozerActionState::PickActionPos
-        {
-            if let Some(current) = self.current_task {
-                let points = &self.dozer_dock_points[current.as_index()];
-                if points[0].valid {
-                    task.dock_point = Some(points[0].location);
+        if self.dozer_action_state == WorkerDozerActionState::PickActionPos {
+            // DozerAIUpdate.cpp:151–216 uses the Start dock when supplied.
+            // The fallback searches a fixed radius, towards the worker.
+            let start = self.current_task.and_then(|current| {
+                let start = self.dozer_dock_points[current.as_index()][0];
+                start.valid.then_some(start.location)
+            });
+            let dock = start.unwrap_or_else(|| {
+                let direction = owner_pos - target_pos;
+                let mut options = FindPositionOptions::default();
+                options.min_radius = target_radius;
+                options.max_radius = target_radius;
+                options.start_angle = Some(direction.y.atan2(direction.x));
+                let mut position = target_pos;
+                if let Some(partition) = ThePartitionManager::get() {
+                    partition.find_position_around_with_options(&target_pos, &options, &mut position);
                 }
-            }
-        }
-
-        if task.dock_point.is_none()
-            && self.dozer_action_state == WorkerDozerActionState::PickActionPos
-        {
-            let start_angle = (owner_pos_local.y - target_pos_local.y)
-                .atan2(owner_pos_local.x - target_pos_local.x);
-            let mut options = FindPositionOptions::default();
-            options.min_radius = target_radius;
-            options.max_radius = 100.0;
-            options.start_angle = Some(start_angle);
-            options.source_to_path_to_dest_id = Some(self.object_id);
-            if !owner_airborne {
-                options.max_z_delta = 10.0;
-            } else {
-                options.ignore_object_id = Some(task.target_id);
-            }
-
-            let mut dock_pos = target_pos;
-            if let Some(partition) = ThePartitionManager::get() {
-                if partition.find_position_around_with_options(&target_pos, &options, &mut dock_pos)
-                {
-                    task.dock_point = Some(Coord3D::new(dock_pos.x, dock_pos.y, dock_pos.z));
-                }
-            }
-            if task.dock_point.is_none() {
-                task.dock_point = Some(Coord3D::new(dock_pos.x, dock_pos.y, dock_pos.z));
+                position
+            });
+            drop(owner_guard);
+            task.dock_point = Some(dock);
+            let mut command = AiCommandParams::new(AiCommandType::MoveToPosition, CommandSourceType::FromAi);
+            command.pos = dock;
+            if let Err(error) = ai.ignore_obstacle_id(target_id).and_then(|()| ai.execute_command(&command)) {
+                failure = Some(error.to_string());
+                return;
             }
             self.dozer_action_state = WorkerDozerActionState::MoveToActionPos;
+            return;
         }
 
-        let dock_pos = task.dock_point.unwrap_or(target_pos_local);
-        let delta = Coord3D::new(
-            owner_pos_local.x - dock_pos.x,
-            owner_pos_local.y - dock_pos.y,
-            owner_pos_local.z - dock_pos.z,
-        );
-        let dist_sq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
         let mut build_complete_rebuild: Option<bool> = None;
 
         match self.dozer_action_state {
             WorkerDozerActionState::MoveToActionPos => {
-                if dist_sq <= MIN_ACTION_TOLERANCE * MIN_ACTION_TOLERANCE {
-                    self.dozer_action_state = WorkerDozerActionState::DoAction;
-                } else if let Some(ai) = owner_ai_update.as_ref() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let dock_pos_logic = LogicCoord3D::new(dock_pos.x, dock_pos.y, dock_pos.z);
-                        if let Err(err) = ai_guard.set_movement_target(&dock_pos_logic) {
-                            log::debug!(
-                                "WorkerAIUpdate::update_dozer_task set_movement_target failed: {}",
-                                err
-                            );
-                        }
+                let building = matches!(task.task_type, WorkerDozerTaskType::Build | WorkerDozerTaskType::ResumeConstruction);
+                let other_builder = building && target_builder_id != self.object_id;
+                let other_repairer = task.task_type == WorkerDozerTaskType::Repair
+                    && target_sole != INVALID_ID && target_sole != self.object_id;
+                if other_builder || other_repairer {
+                    self.dozer_task = None;
+                    clear_current(self);
+                    return;
+                }
+                let dock = task.dock_point.unwrap_or(target_pos);
+                let distance = ThePartitionManager::get_distance_squared_to_pos(
+                    &owner_guard, &dock, crate::common::FROM_BOUNDING_SPHERE_2D,
+                );
+                let tolerance = MIN_ACTION_TOLERANCE.max(
+                    owner_guard.get_geometry_info().get_bounding_sphere_radius() + 15.0,
+                );
+                if distance <= tolerance * tolerance {
+                    if building && let Ok(mut target) = target.write() {
+                        let _ = target.clear_and_set_model_condition_flags(
+                            ModelConditionFlags::AWAITING_CONSTRUCTION,
+                            ModelConditionFlags::PARTIALLY_CONSTRUCTED
+                                | ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED,
+                        );
                     }
+                    self.dozer_action_state = WorkerDozerActionState::DoAction;
+                } else if ai.is_idle() {
+                    task.dock_point = None;
+                    self.dozer_action_state = WorkerDozerActionState::PickActionPos;
                 }
             }
             WorkerDozerActionState::DoAction => match task.task_type {
+                WorkerDozerTaskType::Build | WorkerDozerTaskType::ResumeConstruction
+                    if !ai.is_idle() => {}
                 WorkerDozerTaskType::Repair => {
                     if target_sole != INVALID_ID && target_sole != self.object_id {
                         self.dozer_task = None;

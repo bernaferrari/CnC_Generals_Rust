@@ -476,7 +476,8 @@ fn worker_build_tick_allows_reentrant_construction_without_touching_peer_world()
         started_construction: false,
     });
     worker.dozer_action_state = WorkerDozerActionState::DoAction;
-    worker.update_dozer_task().unwrap();
+    let mut parent = super::truck_state_tests::DrivingAi::new(true);
+    worker.update_dozer_task(&mut parent).unwrap();
 
     assert_eq!(observations.load(Ordering::SeqCst), 31);
     assert!(!fixture.structure.read().unwrap().is_under_construction());

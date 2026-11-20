@@ -793,11 +793,6 @@ impl UnitAIUpdate {
             supply_ai.update_with_ai(self, true);
             self.runtime.components.supply_truck_ai = Some(supply_ai);
         }
-        if let Some(mut worker_ai) = self.runtime.components.worker_ai.take() {
-            worker_ai.update_with_ai(self);
-            self.runtime.components.worker_ai = Some(worker_ai);
-        }
-
         if let Some(mut wander_ai) = self.runtime.components.wander_ai.take() {
             let _ = wander_ai.update(self);
             self.runtime.components.wander_ai = Some(wander_ai);
@@ -1584,6 +1579,12 @@ impl UnitAIUpdate {
             let _ = self.execute_command(&params);
         }
         self.apply_pending_assaults();
+        // WorkerAIUpdate.cpp:247–280 runs the inherited AI before its Worker
+        // machine. A newly picked build dock reaches the parent on this frame.
+        if let Some(mut worker_ai) = self.runtime.components.worker_ai.take() {
+            worker_ai.update_with_ai(self);
+            self.runtime.components.worker_ai = Some(worker_ai);
+        }
         Ok(())
     }
     pub(super) fn apply_bump_speed_limit(

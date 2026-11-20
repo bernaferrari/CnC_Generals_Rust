@@ -5,7 +5,7 @@ use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
 use std::io::Cursor;
 
 #[derive(Debug)]
-struct DrivingAi {
+pub(super) struct DrivingAi {
     idle: bool,
     state: Option<u32>,
     command: Option<AiCommandType>,
@@ -13,7 +13,7 @@ struct DrivingAi {
     idle_reads: std::sync::atomic::AtomicUsize,
 }
 impl DrivingAi {
-    fn new(idle: bool) -> Self {
+    pub(super) fn new(idle: bool) -> Self {
         Self {
             idle,
             state: None,

@@ -188,6 +188,50 @@ fn worker_wire(ai: &mut dyn AIUpdateInterface) -> Vec<u8> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn admit_construction_worker(
+    world: &Arc<crate::system::engine_stores::EngineStores>,
+    frame: u64,
+) -> (ObjectID, Arc<Mutex<dyn AIUpdateInterface>>) {
+    use crate::system::engine_stores::with_active_stores;
+    with_active_stores(world, || {
+        worker_definitions();
+        world.game_logic_mutex().lock().unwrap().set_current_frame(frame);
+        let terrain = world.services().terrain();
+        terrain.write().unwrap()
+            .try_restore_logic_height_map_with_effects(40, 40, &[0; 1600], &mut || {}).unwrap();
+        let pathfinder = world.ai().read().unwrap().pathfinder().unwrap();
+        pathfinder.write().unwrap().rebuild_from_terrain(&terrain.read().unwrap());
+        let definition = "
+            Object WorkerConstructionSite
+                KindOf = STRUCTURE IMMOBILE
+                Geometry = CYLINDER
+                GeometryMajorRadius = 20
+                GeometryHeight = 12
+            End
+        ";
+        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(definition), 1);
+        let team = worker_team(9703, 0);
+        world.services().players().write().unwrap().get_player(0).unwrap().write().unwrap()
+            .set_default_team(Some(Arc::clone(&team)));
+        let template = TheThingFactory::find_template("WorkerOwnerWorker").unwrap();
+        let worker = TheThingFactory::get().unwrap().new_object_with_team_handle(template, team).unwrap();
+        let mut worker = worker.write().unwrap();
+        worker.set_position(&Coord3D::new(65., 105., 0.)).unwrap();
+        let id = worker.get_id();
+        let ai = worker.get_ai_update_interface().unwrap();
+        drop(worker);
+        let mut parent = ai.lock().unwrap();
+        parent.choose_locomotor_set(crate::common::LocomotorSetType::Normal).unwrap();
+        let mut surfaces = None;
+        parent.with_cur_locomotor(&mut |locomotor| surfaces = Some(locomotor.get_legal_surfaces()));
+        assert_eq!(surfaces, Some(SURFACE_GROUND));
+        assert!(parent.get_worker_ai_update_interface_mut().is_some());
+        drop(parent);
+        (id, ai)
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn installed_worker_build_orders_claim_before_starting_and_preserve_an_order_on_failure() {
     use crate::common::INVALID_ID;
@@ -200,47 +244,10 @@ fn installed_worker_build_orders_claim_before_starting_and_preserve_an_order_on_
         return;
     }
 
-    fn admit(world: &Arc<EngineStores>, frame: u64) -> (ObjectID, Arc<Mutex<dyn AIUpdateInterface>>) {
-        with_active_stores(world, || {
-            worker_definitions();
-            world.game_logic_mutex().lock().unwrap().set_current_frame(frame);
-            world.ai().read().unwrap().pathfinder().unwrap().write().unwrap().reset_with_size(40, 40);
-            world.services().terrain().write().unwrap()
-                .try_restore_logic_height_map_with_effects(40, 40, &[0; 1600], &mut || {}).unwrap();
-            let definition = "
-                Object WorkerConstructionSite
-                    KindOf = STRUCTURE IMMOBILE
-                    Geometry = CYLINDER
-                    GeometryMajorRadius = 20
-                    GeometryHeight = 12
-                End
-            ";
-            assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(definition), 1);
-            let team = worker_team(9703, 0);
-            world.services().players().write().unwrap().get_player(0).unwrap().write().unwrap()
-                .set_default_team(Some(Arc::clone(&team)));
-            let template = TheThingFactory::find_template("WorkerOwnerWorker").unwrap();
-            let worker = TheThingFactory::get().unwrap().new_object_with_team_handle(template, team).unwrap();
-            let mut worker = worker.write().unwrap();
-            worker.set_position(&Coord3D::new(65., 105., 0.)).unwrap();
-            let id = worker.get_id();
-            let ai = worker.get_ai_update_interface().unwrap();
-            drop(worker);
-            let mut parent = ai.lock().unwrap();
-            parent.choose_locomotor_set(crate::common::LocomotorSetType::Normal).unwrap();
-            let mut surfaces = None;
-            parent.with_cur_locomotor(&mut |locomotor| surfaces = Some(locomotor.get_legal_surfaces()));
-            assert_eq!(surfaces, Some(SURFACE_GROUND));
-            assert!(parent.get_worker_ai_update_interface_mut().is_some());
-            drop(parent);
-            (id, ai)
-        })
-    }
-
     let receiving = new_for_world();
     let peer = new_for_world();
-    let (worker_id, ai) = admit(&receiving, 37);
-    let (peer_worker_id, peer_ai) = admit(&peer, 71);
+    let (worker_id, ai) = admit_construction_worker(&receiving, 37);
+    let (peer_worker_id, peer_ai) = admit_construction_worker(&peer, 71);
     assert_eq!(worker_id, peer_worker_id);
     let place = |world: &Arc<EngineStores>, builder, x| with_active_stores(world, || {
         GameLogicBuildAssistantBackend.build_object_now(
@@ -291,6 +298,78 @@ fn installed_worker_build_orders_claim_before_starting_and_preserve_an_order_on_
     });
     assert_eq!(ai.lock().unwrap().get_worker_ai_update_interface_mut().unwrap()
         .construction_order_for_test(), Some(receiving_order));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn installed_worker_enters_parent_movement_from_its_authored_start_dock() {
+    use crate::common::INVALID_ID;
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+
+    if !child(concat!(module_path!(), "::installed_worker_enters_parent_movement_from_its_authored_start_dock")) {
+        return;
+    }
+
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    let (worker_id, ai) = admit_construction_worker(&receiving, 37);
+    let (peer_id, peer_ai) = admit_construction_worker(&peer, 71);
+    assert_eq!(peer_id, worker_id);
+    let peer_before = peer_ai.lock().unwrap().get_current_state_id();
+    let receiving_pathfinder = receiving.ai().read().unwrap().pathfinder().unwrap();
+    let peer_pathfinder = peer.ai().read().unwrap().pathfinder().unwrap();
+
+    with_active_stores(&receiving, || {
+        let site = GameLogicBuildAssistantBackend.build_object_now(
+            Some(worker_id),
+            "WorkerConstructionSite",
+            &BuildPosition { x: 290., y: 105., z: 0. },
+            0.,
+            0,
+        ).unwrap();
+        let mut parent = ai.lock().unwrap();
+        let order = parent.get_worker_ai_update_interface_mut().unwrap().construction_order_for_test().unwrap();
+        let dock = order.docks[0].unwrap();
+        assert!(dock.x > 160., "fixture must require movement from the Worker at x=65");
+        assert!(!order.moving_to_dock);
+        assert_eq!(parent.get_ignored_obstacle_id(), INVALID_ID);
+
+        receiving.game_logic_mutex().lock().unwrap().set_current_frame(38);
+        parent.update().unwrap();
+
+        assert_eq!(parent.get_current_state_id(), Some(AIStateType::MoveTo as u32));
+        assert_eq!(parent.get_goal_position(), Some(dock));
+        assert_eq!(parent.get_ignored_obstacle_id(), site);
+        assert_eq!(parent.get_last_command_source(), CommandSourceType::FromAi);
+        assert!(parent.is_waiting_for_path());
+        assert_eq!(receiving_pathfinder.write().unwrap().pathfinding_system_mut().pending_path_request_count(), 1);
+        let moving = parent.get_worker_ai_update_interface_mut().unwrap().construction_order_for_test().unwrap();
+        assert!(moving.moving_to_dock);
+        assert_eq!(moving.docks, order.docks);
+        assert_eq!(moving.order_frame, 37);
+        drop(parent);
+
+        // A dirty map first refreshes zones, then consumes the queued AI path.
+        for _ in 0..3 {
+            receiving_pathfinder.write().unwrap().process_pathfind_queue().unwrap();
+        }
+        assert_eq!(receiving_pathfinder.write().unwrap().pathfinding_system_mut().pending_path_request_count(), 0);
+        let parent = ai.lock().unwrap();
+        assert!(!parent.is_waiting_for_path());
+        assert!(parent.get_path().is_some());
+        assert_eq!(parent.get_path_destination(), Some(dock));
+        let building = receiving.game_logic_mutex().lock().unwrap().find_object_by_id(site).unwrap();
+        assert_eq!(building.read().unwrap().get_construction_percent(), 0.);
+    });
+
+    let mut peer_ai = peer_ai.lock().unwrap();
+    assert_eq!(peer_ai.get_current_state_id(), peer_before);
+    assert_eq!(peer_ai.get_ignored_obstacle_id(), INVALID_ID);
+    assert!(!peer_ai.is_waiting_for_path());
+    assert_eq!(peer_pathfinder.write().unwrap().pathfinding_system_mut().pending_path_request_count(), 0);
+    assert!(peer_ai.get_worker_ai_update_interface_mut().unwrap().construction_order_for_test().is_none());
 }
 
 #[test]
