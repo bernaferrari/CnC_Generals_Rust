@@ -18,12 +18,13 @@ use crate::common::{Coord3D, KindOf, ObjectID, ObjectShroudStatus};
 use crate::object_manager::get_object_manager;
 use crate::player::PLAYER_INDEX_INVALID;
 use crate::weapon::WeaponStore;
+use game_engine::common::fast_hash::{FxHashMap, FxHashSet};
 use game_engine::common::system::radar::{CellShroudStatus, get_radar_system};
 use log::{debug, trace};
 pub use scalar_queries::HostScalarGridSnapshot;
 use serde::{Deserialize, Serialize};
 pub use shroud_boundary::BoundaryShroudStore;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Maximum number of players in game
@@ -1223,9 +1224,9 @@ pub struct ShroudManager {
     /// Explored objects for each player (persistent - once seen, always remembered)
     player_explored_objects: Vec<HashSet<ObjectID>>,
     /// C++ `PartitionData::m_shroudedness` for host objects (COI mix).
-    host_object_shroud: Vec<HashMap<ObjectID, ObjectShroudStatus>>,
+    host_object_shroud: Vec<FxHashMap<ObjectID, ObjectShroudStatus>>,
     /// C++ `PartitionData::m_everSeenByPlayer` for host objects.
-    host_object_ever_seen: Vec<HashSet<ObjectID>>,
+    host_object_ever_seen: Vec<FxHashSet<ObjectID>>,
 
     /// Grid-based shroud for spatial queries
     shroud_grid: Option<ShroudGrid>,
@@ -1560,8 +1561,8 @@ impl ShroudManager {
         // Pre-allocate visible object sets for all players
         let player_visible_objects = vec![HashSet::new(); MAX_PLAYER_COUNT];
         let player_explored_objects = vec![HashSet::new(); MAX_PLAYER_COUNT];
-        let host_object_shroud = vec![HashMap::new(); MAX_PLAYER_COUNT];
-        let host_object_ever_seen = vec![HashSet::new(); MAX_PLAYER_COUNT];
+        let host_object_shroud = vec![FxHashMap::default(); MAX_PLAYER_COUNT];
+        let host_object_ever_seen = vec![FxHashSet::default(); MAX_PLAYER_COUNT];
 
         ShroudManager {
             player_visible_objects,

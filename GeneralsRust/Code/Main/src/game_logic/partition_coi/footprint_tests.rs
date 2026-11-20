@@ -13,19 +13,25 @@ fn shape(major: f32, minor: f32, angle: f32, small: bool, boxed: bool) -> HostPa
 
 #[test]
 fn clipped_circle_retains_cpp_scanline_first_visit_order() {
-    // CPP :1810-1840, cellRadius=2, centre cell (0,0). Off-map
-    // getCellAt calls admit nothing; each surviving COI retains its first visit.
-    assert_eq!(
-        cells_touched_for_footprint_clipped(
-            [0.0; 2],
-            [2, 2],
-            20.0,
-            20.0,
-            shape(80.0, 80.0, 0.0, false, false)
-        )
-        .unwrap(),
-        vec![(0, 1), (0, 0), (1, 0), (1, 1)]
-    );
+    // PartitionManager.cpp:1810–1840 visits each admitted COI in scanline order.
+    // BaseType.h's REAL_TO_INT_CEIL makes 79 use two cells and exact 80 use three.
+    for (radius, expected) in [
+        (79.0, [(0, 1), (0, 0), (1, 0), (1, 1)]),
+        (80.0, [(0, 0), (1, 0), (0, 1), (1, 1)]),
+    ] {
+        assert_eq!(
+            cells_touched_for_footprint_clipped(
+                [0.0; 2],
+                [2, 2],
+                20.0,
+                20.0,
+                shape(radius, radius, 0.0, false, false)
+            )
+            .unwrap(),
+            expected,
+            "world radius {radius}"
+        );
+    }
 }
 
 #[test]

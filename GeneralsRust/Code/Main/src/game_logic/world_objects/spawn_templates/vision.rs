@@ -187,7 +187,9 @@ impl GameLogic {
                     object.mine,
                     ever,
                 );
-                shroud_mgr.set_host_object_ever_seen(pid, id.0, ever_now);
+                if ever_now != ever {
+                    shroud_mgr.set_host_object_ever_seen(pid, id.0, ever_now);
+                }
                 shroud_mgr.set_host_object_shroud_status(pid, id.0, status);
                 match status {
                     ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear => {

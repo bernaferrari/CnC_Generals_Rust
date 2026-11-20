@@ -292,56 +292,57 @@ impl GameLogic {
             return Ok(());
         };
         let dimensions = [width, height];
+        let partition = self.partition_manager.matching_shroud_grid(origin, dimensions, cell_size);
         let mut transitions = Vec::new();
-        for ghost in self.w3d_ghosts.used() {
-            if update_orphans {
-                continue;
-            }
+        for ghost in self.w3d_ghosts.used().iter().filter(|_| !update_orphans) {
             let Some(id) = ghost.parent_object_id().map(ObjectId) else {
                 continue;
             };
-            if self
+            if !self
                 .host_ghosts
                 .links
                 .get(&id)
                 .is_some_and(|link| link.scene_id == ghost.scene_id())
             {
-                if let Some(status) = shroud.get_host_object_shroud_status(local as u32, id.0) {
-                    let Some(object) = self.objects.get(&id) else {
-                        continue;
-                    };
-                    let position = object.get_position();
-                    let cells =
-                        crate::game_logic::partition_coi::cells_touched_for_footprint_on_grid(
-                            origin,
-                            dimensions,
-                            cell_size,
-                            position.x,
-                            position.z,
-                            crate::game_logic::game_logic::host_object_footprint(object),
-                        )
-                        .map_err(|reason| {
-                            format!("host object {} fog footprint: {reason}", id.0)
-                        })?;
-                    let counts = shroud.count_footprint_cells(local as u32, &cells);
-                    // CPP no-COI branch sets Shrouded but neither frees a
-                    // snapshot nor advances previous (:1616, :1680).
-                    if counts.total == 0 {
-                        continue;
-                    }
-                    let previous = ghost.previous_shroudedness(local);
-                    // A linked row only snapshots, frees or stamps on a change.
-                    if previous != Some(status as u8) {
-                        transitions.push((
-                            ghost.scene_id(),
-                            Some(id),
-                            previous,
-                            status,
-                            counts.shrouded == counts.total,
-                        ));
-                    }
-                }
+                continue;
             }
+            let Some(status) = shroud.get_host_object_shroud_status(local as u32, id.0) else {
+                continue;
+            };
+            let Some(object) = self.objects.get(&id) else {
+                continue;
+            };
+            let position = object.get_position();
+            let footprint = crate::game_logic::game_logic::host_object_footprint(object);
+            let computed;
+            let cells = if let Some(cells) = partition.and_then(|partition| {
+                partition.stamped_footprint_cells(id.0, position.x, position.z, footprint)
+            }) {
+                cells
+            } else {
+                computed = crate::game_logic::partition_coi::cells_touched_for_footprint_on_grid(
+                    origin, dimensions, cell_size, position.x, position.z, footprint,
+                )
+                .map_err(|reason| format!("host object {} fog footprint: {reason}", id.0))?;
+                &computed
+            };
+            let previous = ghost.previous_shroudedness(local);
+            // No COIs neither release a snapshot nor advance the saved status.
+            // An unchanged status also needs no second count of the cells.
+            if cells.is_empty() || previous == Some(status as u8) {
+                continue;
+            }
+            // Only the Fogged -> Shrouded transition depends on how the COIs
+            // produced Shrouded. Other transitions read the published status.
+            let all_cells_shrouded = if previous == Some(ObjectShroudStatus::Fogged as u8)
+                && status == ObjectShroudStatus::Shrouded
+            {
+                let counts = shroud.count_footprint_cells(local as u32, cells);
+                counts.shrouded == counts.total
+            } else {
+                false
+            };
+            transitions.push((ghost.scene_id(), Some(id), previous, status, all_cells_shrouded));
         }
         // Parentless ghosts retain their captured geometry, not the location
         // or visibility of a newly admitted actor with the same ObjectID.
