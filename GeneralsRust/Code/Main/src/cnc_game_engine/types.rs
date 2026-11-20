@@ -1178,6 +1178,9 @@ pub struct CnCGameEngine {
     /// Sticky: open_skirmish_menu / Skirmish UI was entered this host session.
     pub(crate) runtime_host_saw_skirmish_menu: bool,
     pub(crate) runtime_host_last_gameplay_cmd: String,
+    /// Optional map input for the next campaign launch from the main menu.
+    #[cfg(feature = "game_client")]
+    pub(super) runtime_host_campaign_map_override: Option<String>,
     /// Main owns Rust snapshot persistence, while PopupSaveLoad owns the retail
     /// WND interaction.  This latches installation of the small typed bridge
     /// between the two so a normal mouse-driven popup never writes Common's

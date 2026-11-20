@@ -1368,6 +1368,10 @@ impl CnCGameEngine {
                 // never hideShell / MainMenuShutdown. Menu→Menu after shell-map
                 // apply must keep MainMenu.wnd (hq-3vo4).
                 if new_state != GameState::Menu {
+                    #[cfg(feature = "game_client")]
+                    {
+                        self.runtime_host_campaign_map_override = None;
+                    }
                     self.hide_shell_menu()?;
                 }
             }
@@ -3359,11 +3363,16 @@ impl CnCGameEngine {
                         self.host_dismiss_in_game_popup_message(generation);
                     }
                     MenuHostRequest::StartCampaign {
-                        descriptor,
+                        mut descriptor,
                         clear_previous,
                         source,
                         main_menu_layout,
                     } => {
+                        if matches!(source, MenuLaunchSource::MainMenu) {
+                            if let Some(map) = self.runtime_host_campaign_map_override.take() {
+                                descriptor.map_name = map;
+                            }
+                        }
                         let mut cleared_here = false;
                         if clear_previous && self.game_logic.game_mode() != GameMode::None {
                             self.require_native_world_boundary("Menu source campaign clear")

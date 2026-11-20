@@ -1047,95 +1047,43 @@ impl CnCGameEngine {
         args: &HashMap<String, String>,
     ) -> Result<(), String> {
         // Retail MainMenu campaign side + difficulty residual composite.
-        let campaign = args
-            .get("campaign")
-            .map(|value| value.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "usa".to_string());
-        let diff_s = args
-            .get("difficulty")
-            .map(|value| value.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "normal".to_string());
-        let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
-        {
+        let wnd_ok = {
             use game_client::gui::{GameDifficulty, ShowSide};
-            let side = match campaign.as_str() {
-                "gla" => ShowSide::GLA,
-                "china" => ShowSide::China,
+            let side = match args.get("campaign").map(|value| value.trim().to_ascii_lowercase()).as_deref() {
+                Some("gla") => ShowSide::GLA,
+                Some("china") => ShowSide::China,
                 _ => ShowSide::USA,
             };
-            let diff = match diff_s.as_str() {
-                "easy" => GameDifficulty::Easy,
-                "hard" => GameDifficulty::Hard,
+            let diff = match args.get("difficulty").map(|value| value.trim().to_ascii_lowercase()).as_deref() {
+                Some("easy") => GameDifficulty::Easy,
+                Some("hard") => GameDifficulty::Hard,
                 _ => GameDifficulty::Normal,
             };
-            wnd_ok = self.with_receiving_menu_effects(|effects| {
-                game_client::gui::drive_os_wnd_start_campaign_like_cpp(side, diff, effects)
-            })?;
-            if !wnd_ok {
-                wnd_ok = self.with_receiving_menu_effects(|effects| {
-                    game_client::gui::simulate_main_menu_campaign_start_residual(
-                        side, diff, effects,
-                    )
-                })?;
-            }
-        }
-        if wnd_ok {
-            // The WND campaign click just queued C++ `MSG_NEW_GAME` alongside
-            // the GameClient-owned CampaignLaunch descriptor.  Drain that
-            // exact payload before falling back to the runtime-host shortcut:
-            // constructing a generic `(USA/China/GLA, map)` request here used
-            // to discard the selected PlayerTemplate before GameLogic saw it.
-            //
-            // Split dispatch extraction from request construction so a queued
-            // but invalid Challenge/Campaign descriptor fails closed rather
-            // than looking indistinguishable from "nothing was queued" and
-            // silently launching a base-faction game.
-            let requested_map = args
+            self.runtime_host_campaign_map_override = args
                 .get("map")
-                .map(|v| v.trim().to_string())
-                .filter(|s| !s.is_empty());
-            if let Some(dispatch) = Self::take_new_game_dispatch_from_common_stream(
-                self.game_client.message_stream_mut(),
-            ) {
-                let Some(mut request) =
-                    self.build_start_request_from_pending_globals(Some(dispatch))
-                else {
-                    self.runtime_host_last_gameplay_cmd = "click_campaign_start_rejected".into();
-                    return Ok(());
-                };
-                // The runtime-host command's explicit map is an intentional
-                // test/control override.  It changes only the map, never the
-                // validated PlayerTemplate identity carried by `request`.
-                if let Some(map) = requested_map.clone() {
-                    request.map = map;
-                }
-                self.start_game_from_ui(request)?;
-                self.runtime_host_last_gameplay_cmd = "click_campaign_start_ok_wnd".into();
-                return Ok(());
+                .map(|value| value.trim())
+                .filter(|map| !map.is_empty())
+                .map(str::to_owned);
+            // MainMenuUpdate posts NewGame after both fade animations finish.
+            // Its receiving callback clears the outgoing shell before publishing it.
+            let clicked = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::drive_os_wnd_start_campaign_like_cpp(side, diff, effects)
+                    || game_client::gui::simulate_main_menu_campaign_start_residual(side, diff, effects)
+            });
+            if !matches!(clicked, Ok(true)) {
+                self.runtime_host_campaign_map_override = None;
             }
+            clicked?
+        };
+        #[cfg(not(feature = "game_client"))]
+        let wnd_ok = false;
 
-            // Development/headless fallback when the shell click itself did
-            // not enqueue `MSG_NEW_GAME`.  Deliberately construct a request
-            // with no PlayerTemplate so stale GameClient selection state can
-            // never leak into this non-C++ fallback path.
-            let map = requested_map
-                .unwrap_or_else(|| crate::golden_campaign::OFFLINE_USA_CAMPAIGN_MAP.to_string());
-            let faction = match campaign.as_str() {
-                "gla" => "GLA",
-                "china" => "China",
-                _ => "USA",
-            };
-            self.start_game_from_ui(HostStartRequest::without_player_template(
-                GameMode::SinglePlayer,
-                faction.into(),
-                map,
-                None,
-            ))?;
-            self.runtime_host_last_gameplay_cmd = "click_campaign_start_ok_wnd".into();
+        self.runtime_host_last_gameplay_cmd = if wnd_ok {
+            "click_campaign_start_ok_wnd".into()
         } else {
-            self.runtime_host_last_gameplay_cmd = "click_campaign_start_miss".into();
-        }
+            "click_campaign_start_miss".into()
+        };
 
         Ok(())
     }
