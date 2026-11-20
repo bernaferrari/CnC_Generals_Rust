@@ -1308,6 +1308,7 @@ mod tests {
             crate::system::engine_stores::EngineStores::new_for_world(),
         ));
         save_logic.frame = 42;
+        save_logic.set_rank_level_limit(2);
         use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
         if get_thing_factory().unwrap().is_none() {
             init_thing_factory().unwrap();
@@ -1366,6 +1367,7 @@ mod tests {
             crate::system::engine_stores::EngineStores::new_for_world(),
         ));
         load_logic.set_object_id_counter(77);
+        load_logic.set_rank_level_limit(4);
         {
             let mut xfer = XferLoad::new();
             xfer.open(path.to_string_lossy().into_owned())
@@ -1375,6 +1377,8 @@ mod tests {
         }
         let _ = std::fs::remove_file(&path);
         assert_eq!(load_logic.frame, 42);
+        assert_eq!(load_logic.get_rank_level_limit(), 2, "C++ v5 rank cap Xfer");
+        assert_eq!(save_logic.get_rank_level_limit(), 2);
         assert!(
             load_logic
                 .find_toc_entry_by_name("CppObjectTocFixture")
@@ -1402,6 +1406,12 @@ mod tests {
         );
         drop(guard);
         load_logic.clear_all_objects();
+        load_logic.reset();
+        assert_eq!(
+            load_logic.get_rank_level_limit(),
+            crate::player::DEFAULT_RANK_LEVEL_LIMIT,
+        );
+        assert_eq!(save_logic.get_rank_level_limit(), 2);
         save_logic.clear_all_objects();
     }
 
