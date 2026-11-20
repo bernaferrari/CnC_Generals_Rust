@@ -36,209 +36,226 @@ impl PresentationFrame {
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) -> usize {
-        let mut updated = 0usize;
+        let asset_manager = self.asset_owner.0.as_deref();
+        let mut updated = 0;
         for obj in &mut self.objects {
-            let Some(eid) = shadow.entity_for_host(obj.id) else {
-                continue;
-            };
-            let Some(ent) = shadow.world().entity(eid) else {
-                // Destroyed on shadow — mark destroyed for presentation.
-                if !obj.destroyed {
-                    obj.destroyed = true;
-                    obj.health_current = 0.0;
-                    updated += 1;
-                }
-                continue;
-            };
-            let pos = glam::Vec3::new(
-                ent.transform.position.x,
-                ent.transform.position.y,
-                ent.transform.position.z,
-            );
-            let h = ent.health.max(0.0);
-            let destroyed = h <= 0.0 || ent.destroyed;
-            // Always apply shadow last-writer residual for presentation identity.
-            let mut dirty = false;
-            if (obj.position - pos).length_squared() > 1e-6 {
-                obj.position = pos;
-                dirty = true;
-            }
-            if (obj.orientation - ent.transform.orientation).abs() > 1e-5 {
-                obj.orientation = ent.transform.orientation;
-                dirty = true;
-            }
-            let move_dest = ent.move_target.map(|d| glam::Vec3::new(d[0], d[1], d[2]));
-            if obj.move_destination != move_dest {
-                obj.move_destination = move_dest;
-                dirty = true;
-            }
-            let rally = ent.rally_point.map(|d| glam::Vec3::new(d[0], d[1], d[2]));
-            if obj.rally_point != rally {
-                obj.rally_point = rally;
-                dirty = true;
-            }
-            let atk = ent
-                .attack_target
-                .and_then(|tid| shadow.host_for_entity(tid));
-            if obj.attack_target != atk {
-                obj.attack_target = atk;
-                dirty = true;
-            }
-            if (obj.health_current - h).abs() > 1e-3 {
-                obj.health_current = h;
-                dirty = true;
-            }
-            if (obj.health_max - ent.max_health).abs() > 1e-3 && ent.max_health > 0.0 {
-                obj.health_max = ent.max_health;
-                dirty = true;
-            }
-            if obj.destroyed != destroyed {
-                obj.destroyed = destroyed;
-                dirty = true;
-            }
-            // Wave 189: expand last-writer overlay for motion/selection/body identity.
-            let vel = glam::Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
-            if (obj.velocity - vel).length_squared() > 1e-6 {
-                obj.velocity = vel;
-                dirty = true;
-            }
-            if (obj.move_max_speed - ent.move_max_speed).abs() > 1e-4 && ent.move_max_speed >= 0.0 {
-                obj.move_max_speed = ent.move_max_speed;
-                dirty = true;
-            }
-            if obj.selected != ent.selected {
-                obj.selected = ent.selected;
-                dirty = true;
-            }
-            if obj.team_color != ent.team_color {
-                obj.team_color = ent.team_color;
-                dirty = true;
-            }
-            if obj.body_damage_state != ent.body_damage_state {
-                obj.body_damage_state = ent.body_damage_state;
-                dirty = true;
-            }
-            // Identity residual (template/team/type) from shadow — no live dual-read.
-            if obj.template_name != ent.template.name {
-                obj.template_name = ent.template.name.clone();
-                dirty = true;
-            }
-            let team = match ent.team_ordinal {
-                0 => crate::game_logic::Team::USA,
-                1 => crate::game_logic::Team::China,
-                2 => crate::game_logic::Team::GLA,
-                _ => crate::game_logic::Team::Neutral,
-            };
-            if obj.team != team {
-                obj.team = team;
-                dirty = true;
-            }
-            let disguise_team = match ent.disguise_as_team_ordinal {
-                0 => Some(crate::game_logic::Team::USA),
-                1 => Some(crate::game_logic::Team::China),
-                2 => Some(crate::game_logic::Team::GLA),
-                3 => Some(crate::game_logic::Team::Neutral),
+            let entity = shadow.entity_for_host(obj.id);
+            updated += usize::from(Self::overlay_gameworld_object_by_id(
+                obj,
+                shadow,
+                asset_manager,
+                entity,
+            ));
+        }
+        self.overlay_gameworld_players(shadow, updated)
+    }
+
+    fn overlay_gameworld_object_by_id(
+        obj: &mut RenderableObject,
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+        entity: Option<gamelogic::world::entities::EntityId>,
+    ) -> bool {
+        let Some(entity) = entity else {
+            return false;
+        };
+        if let Some(ent) = shadow.world().entity(entity) {
+            return Self::overlay_gameworld_object(obj, ent, shadow, asset_manager, false);
+        }
+        // A mapped entity may have been retired since the host frame was built.
+        if obj.destroyed {
+            return false;
+        }
+        obj.destroyed = true;
+        obj.health_current = 0.0;
+        true
+    }
+
+    fn overlay_gameworld_object(
+        obj: &mut RenderableObject,
+        ent: &gamelogic::world::entities::Entity,
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+        draw_models_are_current: bool,
+    ) -> bool {
+        let pos = glam::Vec3::new(
+            ent.transform.position.x,
+            ent.transform.position.y,
+            ent.transform.position.z,
+        );
+        let h = ent.health.max(0.0);
+        let destroyed = h <= 0.0 || ent.destroyed;
+        // Always apply shadow last-writer residual for presentation identity.
+        let mut dirty = false;
+        if (obj.position - pos).length_squared() > 1e-6 {
+            obj.position = pos;
+            dirty = true;
+        }
+        if (obj.orientation - ent.transform.orientation).abs() > 1e-5 {
+            obj.orientation = ent.transform.orientation;
+            dirty = true;
+        }
+        let move_dest = ent.move_target.map(|d| glam::Vec3::new(d[0], d[1], d[2]));
+        if obj.move_destination != move_dest {
+            obj.move_destination = move_dest;
+            dirty = true;
+        }
+        let rally = ent.rally_point.map(|d| glam::Vec3::new(d[0], d[1], d[2]));
+        if obj.rally_point != rally {
+            obj.rally_point = rally;
+            dirty = true;
+        }
+        let atk = ent
+            .attack_target
+            .and_then(|tid| shadow.host_for_entity(tid));
+        if obj.attack_target != atk {
+            obj.attack_target = atk;
+            dirty = true;
+        }
+        if (obj.health_current - h).abs() > 1e-3 {
+            obj.health_current = h;
+            dirty = true;
+        }
+        if (obj.health_max - ent.max_health).abs() > 1e-3 && ent.max_health > 0.0 {
+            obj.health_max = ent.max_health;
+            dirty = true;
+        }
+        if obj.destroyed != destroyed {
+            obj.destroyed = destroyed;
+            dirty = true;
+        }
+        // Wave 189: expand last-writer overlay for motion/selection/body identity.
+        let vel = glam::Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
+        if (obj.velocity - vel).length_squared() > 1e-6 {
+            obj.velocity = vel;
+            dirty = true;
+        }
+        if (obj.move_max_speed - ent.move_max_speed).abs() > 1e-4 && ent.move_max_speed >= 0.0 {
+            obj.move_max_speed = ent.move_max_speed;
+            dirty = true;
+        }
+        if obj.selected != ent.selected {
+            obj.selected = ent.selected;
+            dirty = true;
+        }
+        if obj.team_color != ent.team_color {
+            obj.team_color = ent.team_color;
+            dirty = true;
+        }
+        if obj.body_damage_state != ent.body_damage_state {
+            obj.body_damage_state = ent.body_damage_state;
+            dirty = true;
+        }
+        // Identity residual (template/team/type) from shadow — no live dual-read.
+        if obj.template_name != ent.template.name {
+            obj.template_name = ent.template.name.clone();
+            dirty = true;
+        }
+        let team = match ent.team_ordinal {
+            0 => crate::game_logic::Team::USA,
+            1 => crate::game_logic::Team::China,
+            2 => crate::game_logic::Team::GLA,
+            _ => crate::game_logic::Team::Neutral,
+        };
+        if obj.team != team {
+            obj.team = team;
+            dirty = true;
+        }
+        let disguise_team = match ent.disguise_as_team_ordinal {
+            0 => Some(crate::game_logic::Team::USA),
+            1 => Some(crate::game_logic::Team::China),
+            2 => Some(crate::game_logic::Team::GLA),
+            3 => Some(crate::game_logic::Team::Neutral),
+            _ => None,
+        };
+        if obj.disguise_as_team != disguise_team {
+            obj.disguise_as_team = disguise_team;
+            dirty = true;
+        }
+        let object_type = match ent.object_type_ordinal {
+            0 => PresentationObjectType::Infantry,
+            1 => PresentationObjectType::Vehicle,
+            2 => PresentationObjectType::Aircraft,
+            3 => PresentationObjectType::Building,
+            4 => PresentationObjectType::Supply,
+            5 => PresentationObjectType::Projectile,
+            _ => PresentationObjectType::Neutral,
+        };
+        if obj.object_type != object_type {
+            obj.object_type = object_type;
+            dirty = true;
+        }
+        let is_structure =
+            matches!(object_type, PresentationObjectType::Building) || ent.is_building;
+        if obj.is_structure != is_structure {
+            obj.is_structure = is_structure;
+            dirty = true;
+        }
+        let is_unit = matches!(
+            object_type,
+            PresentationObjectType::Infantry
+                | PresentationObjectType::Vehicle
+                | PresentationObjectType::Aircraft
+        );
+        if obj.is_unit != is_unit {
+            obj.is_unit = is_unit;
+            dirty = true;
+        }
+        let is_mobile = is_unit;
+        if obj.is_mobile != is_mobile {
+            obj.is_mobile = is_mobile;
+            dirty = true;
+        }
+        // Prefer is_building + not under construction for can_produce residual.
+        let can_produce = ent.is_building && !ent.under_construction;
+        if obj.can_produce != can_produce {
+            obj.can_produce = can_produce;
+            dirty = true;
+        }
+        let building_type = if ent.is_building {
+            use PresentationBuildingType as P;
+            match ent.building_type_ordinal {
+                0 => Some(P::CommandCenter),
+                1 => Some(P::Barracks),
+                2 => Some(P::WarFactory),
+                3 => Some(P::Airfield),
+                4 => Some(P::RepairPad),
+                5 => Some(P::HealPad),
+                6 => Some(P::SupplyCenter),
+                7 => Some(P::PowerPlant),
+                8 => Some(P::DefenseTurret),
+                9 => Some(P::SupplyDropZone),
+                10 => Some(P::Palace),
+                11 => Some(P::Propaganda),
+                12 => Some(P::Bunker),
                 _ => None,
-            };
-            if obj.disguise_as_team != disguise_team {
-                obj.disguise_as_team = disguise_team;
-                dirty = true;
             }
-            let object_type = match ent.object_type_ordinal {
-                0 => PresentationObjectType::Infantry,
-                1 => PresentationObjectType::Vehicle,
-                2 => PresentationObjectType::Aircraft,
-                3 => PresentationObjectType::Building,
-                4 => PresentationObjectType::Supply,
-                5 => PresentationObjectType::Projectile,
-                _ => PresentationObjectType::Neutral,
-            };
-            if obj.object_type != object_type {
-                obj.object_type = object_type;
-                dirty = true;
-            }
-            let is_structure =
-                matches!(object_type, PresentationObjectType::Building) || ent.is_building;
-            if obj.is_structure != is_structure {
-                obj.is_structure = is_structure;
-                dirty = true;
-            }
-            let is_unit = matches!(
-                object_type,
-                PresentationObjectType::Infantry
-                    | PresentationObjectType::Vehicle
-                    | PresentationObjectType::Aircraft
-            );
-            if obj.is_unit != is_unit {
-                obj.is_unit = is_unit;
-                dirty = true;
-            }
-            let is_mobile = is_unit;
-            if obj.is_mobile != is_mobile {
-                obj.is_mobile = is_mobile;
-                dirty = true;
-            }
-            // Prefer is_building + not under construction for can_produce residual.
-            let can_produce = ent.is_building && !ent.under_construction;
-            if obj.can_produce != can_produce {
-                obj.can_produce = can_produce;
-                dirty = true;
-            }
-            let building_type = if ent.is_building {
-                use PresentationBuildingType as P;
-                match ent.building_type_ordinal {
-                    0 => Some(P::CommandCenter),
-                    1 => Some(P::Barracks),
-                    2 => Some(P::WarFactory),
-                    3 => Some(P::Airfield),
-                    4 => Some(P::RepairPad),
-                    5 => Some(P::HealPad),
-                    6 => Some(P::SupplyCenter),
-                    7 => Some(P::PowerPlant),
-                    8 => Some(P::DefenseTurret),
-                    9 => Some(P::SupplyDropZone),
-                    10 => Some(P::Palace),
-                    11 => Some(P::Propaganda),
-                    12 => Some(P::Bunker),
-                    _ => None,
-                }
-            } else {
-                None
-            };
-            if obj.building_type != building_type {
-                obj.building_type = building_type;
-                dirty = true;
-            }
-            if obj.model_condition_bits != ent.model_condition_bits {
-                obj.model_condition_bits = ent.model_condition_bits;
-                dirty = true;
-            }
-            // Resolve by exact Object INI identity plus the GameWorld-frozen
-            // condition bank.  Do not carry an older pristine `model_key`
-            // over a damaged/construction state, and do not synthesize a
-            // suffix after the source state resolver has chosen a model.
+        } else {
+            None
+        };
+        if obj.building_type != building_type {
+            obj.building_type = building_type;
+            dirty = true;
+        }
+        if obj.model_condition_bits != ent.model_condition_bits {
+            obj.model_condition_bits = ent.model_condition_bits;
+            dirty = true;
+        }
+        // Resolve by exact Object INI identity plus the GameWorld-frozen
+        // condition bank.  Do not carry an older pristine `model_key`
+        // over a damaged/construction state, and do not synthesize a
+        // suffix after the source state resolver has chosen a model.
+        if !draw_models_are_current {
             let draw_models = if let Some(models) = obj.receiving_draw_models.as_deref() {
                 models.select(ent.model_condition_bits)
             } else {
-                let fallback_model_key =
-                    crate::assets::mesh_asset_resolve::model_key_from_presentation(
-                        self.asset_owner.0.as_deref(),
-                        (!ent.model_key.is_empty()).then_some(ent.model_key.as_str()),
-                        &ent.template.name,
-                    );
-                let fallback_draw_models = (!fallback_model_key.trim().is_empty()).then(|| {
-                    crate::assets::AuthoredDrawModel {
-                        module_index: 0,
-                        model_key: fallback_model_key,
-                        ..Default::default()
-                    }
-                });
-                crate::assets::resolve_presentation_draw_models_for_conditions(
-                    self.asset_owner.0.as_deref(),
-                    &ent.template.name,
-                    fallback_draw_models.as_slice(),
-                    ent.model_condition_bits,
-                )
+                Self::select_gameworld_draw_models(asset_manager, ent).unwrap_or_else(|| {
+                    Self::gameworld_fallback_draw_models(
+                        asset_manager,
+                        ent,
+                        Some(ent.model_key.as_str()),
+                    )
+                })
             };
             let model_key = draw_models.first().map(|model| model.model_key.clone());
             if obj.model_key != model_key {
@@ -249,952 +266,957 @@ impl PresentationFrame {
                 obj.draw_models = draw_models;
                 dirty = true;
             }
-            if crate::assets::authored_draw_adjusts_height_by_construction(&obj.draw_models) {
-                let cpp_percent = if obj.under_construction || obj.construction_percent + 1e-4 < 1.0
-                {
-                    obj.construction_percent * 100.0
-                } else {
-                    -1.0
-                };
-                if let Some(dy) = crate::assets::construction_percent_height_delta(
-                    cpp_percent,
-                    obj.selection_radius.max(1.0),
-                ) {
-                    obj.position.y += dy;
-                    dirty = true;
-                }
-            }
-            if ent.mesh_scale.is_finite()
-                && ent.mesh_scale > 0.0
-                && (obj.mesh_scale - ent.mesh_scale).abs() > 1e-5
+        }
+        if crate::assets::authored_draw_adjusts_height_by_construction(&obj.draw_models) {
+            let cpp_percent = if obj.under_construction || obj.construction_percent + 1e-4 < 1.0
             {
-                obj.mesh_scale = ent.mesh_scale;
-                dirty = true;
-            }
-            // FOW + ground-height residual.
-            {
-                use crate::fow_rendering::ObjectVisibility;
-                let vis = ObjectVisibility {
-                    visibility_alpha: ent.fow_visibility_alpha,
-                    is_explored: ent.fow_is_explored,
-                    visibility_falloff: ent.fow_visibility_falloff,
-                };
-                if obj.fow_visibility != vis {
-                    obj.fow_visibility = vis;
-                    dirty = true;
-                }
-            }
-            if (obj.ground_height - ent.ground_height).abs() > 1e-3 {
-                obj.ground_height = ent.ground_height;
-                dirty = true;
-            }
-            if obj.ground_height_from_terrain != ent.ground_height_from_terrain {
-                obj.ground_height_from_terrain = ent.ground_height_from_terrain;
-                dirty = true;
-            }
-            if obj.engine_bridged != ent.engine_bridged {
-                obj.engine_bridged = ent.engine_bridged;
-                dirty = true;
-            }
-            if obj.selected != ent.selected {
-                obj.selected = ent.selected;
-                dirty = true;
-            }
-            if obj.under_construction != ent.under_construction {
-                obj.under_construction = ent.under_construction;
-                dirty = true;
-            }
-            if obj.sold != ent.sold {
-                obj.sold = ent.sold;
-                dirty = true;
-            }
-            if obj.reconstructing != ent.reconstructing {
-                obj.reconstructing = ent.reconstructing;
-                dirty = true;
-            }
-            if obj.unselectable != ent.unselectable {
-                obj.unselectable = ent.unselectable;
-                dirty = true;
-            }
-            if obj.is_deployed != ent.deployed {
-                obj.is_deployed = ent.deployed;
-                dirty = true;
-            }
-            if (obj.construction_percent - ent.construction_percent).abs() > 1e-4 {
-                obj.construction_percent = ent.construction_percent;
-                dirty = true;
-            }
-            if obj.moving != ent.moving {
-                obj.moving = ent.moving;
-                dirty = true;
-            }
-            if obj.attacking != ent.attacking {
-                obj.attacking = ent.attacking;
-                dirty = true;
-            }
-            if obj.is_firing_weapon != ent.is_firing_weapon {
-                obj.is_firing_weapon = ent.is_firing_weapon;
-                dirty = true;
-            }
-            if obj.is_aiming_weapon != ent.is_aiming_weapon {
-                obj.is_aiming_weapon = ent.is_aiming_weapon;
-                dirty = true;
-            }
-            if obj.disabled_emp != ent.disabled_emp {
-                obj.disabled_emp = ent.disabled_emp;
-                dirty = true;
-            }
-            if obj.disabled_paralyzed != ent.disabled_paralyzed {
-                obj.disabled_paralyzed = ent.disabled_paralyzed;
-                dirty = true;
-            }
-            if obj.disabled_underpowered != ent.disabled_underpowered {
-                obj.disabled_underpowered = ent.disabled_underpowered;
-                dirty = true;
-            }
-            if obj.disabled_hacked != ent.disabled_hacked {
-                obj.disabled_hacked = ent.disabled_hacked;
-                dirty = true;
-            }
-            if obj.disabled_unmanned != ent.disabled_unmanned {
-                obj.disabled_unmanned = ent.disabled_unmanned;
-                dirty = true;
-            }
-            if obj.disabled_script_disabled != ent.disabled_script_disabled {
-                obj.disabled_script_disabled = ent.disabled_script_disabled;
-                dirty = true;
-            }
-            if obj.weapons_jammed != ent.weapons_jammed {
-                obj.weapons_jammed = ent.weapons_jammed;
-                dirty = true;
-            }
-            if obj.masked != ent.masked {
-                obj.masked = ent.masked;
-                dirty = true;
-            }
-            if obj.disguised != ent.disguised {
-                obj.disguised = ent.disguised;
-                dirty = true;
-            }
-            if obj.disabled_subdued != ent.disabled_subdued {
-                obj.disabled_subdued = ent.disabled_subdued;
-                dirty = true;
-            }
-            if obj.is_carbomb != ent.is_carbomb {
-                obj.is_carbomb = ent.is_carbomb;
-                dirty = true;
-            }
-            if obj.hijacked != ent.hijacked {
-                obj.hijacked = ent.hijacked;
-                dirty = true;
-            }
-            if obj.team_color != ent.team_color {
-                obj.team_color = ent.team_color;
-                dirty = true;
-            }
-            if (obj.selection_radius - ent.selection_radius).abs() > 1e-3 {
-                obj.selection_radius = ent.selection_radius;
-                dirty = true;
-            }
-            if obj.ignoring_stealth != ent.ignoring_stealth {
-                obj.ignoring_stealth = ent.ignoring_stealth;
-                dirty = true;
-            }
-            if obj.repulsor != ent.repulsor {
-                obj.repulsor = ent.repulsor;
-                dirty = true;
-            }
-            if obj.stealthed != ent.stealthed {
-                obj.stealthed = ent.stealthed;
-                dirty = true;
-            }
-            if obj.detected != ent.detected {
-                obj.detected = ent.detected;
-                dirty = true;
-            }
-            if obj.force_attack != ent.force_attack {
-                obj.force_attack = ent.force_attack;
-                dirty = true;
-            }
-            if obj.has_weapon != ent.has_weapon {
-                obj.has_weapon = ent.has_weapon;
-                dirty = true;
-            }
-            if (obj.weapon_range - ent.weapon_range).abs() > 1e-3 {
-                obj.weapon_range = ent.weapon_range;
-                dirty = true;
-            }
-            if (obj.weapon_damage - ent.weapon_damage).abs() > 1e-3 {
-                obj.weapon_damage = ent.weapon_damage;
-                dirty = true;
-            }
-            if (obj.weapon_min_range - ent.weapon_min_range).abs() > 1e-3 {
-                obj.weapon_min_range = ent.weapon_min_range;
-                dirty = true;
-            }
-            if (obj.weapon_reload_time - ent.weapon_reload_time).abs() > 1e-3 {
-                obj.weapon_reload_time = ent.weapon_reload_time;
-                dirty = true;
-            }
-            if obj.weapon_ammo != ent.weapon_ammo {
-                obj.weapon_ammo = ent.weapon_ammo;
-                dirty = true;
-            }
-            let projectile_clip_statuses =
-                Self::projectile_clip_statuses_from_gameworld_entity(ent);
-            if obj.projectile_clip_statuses != projectile_clip_statuses {
-                obj.projectile_clip_statuses = projectile_clip_statuses;
-                dirty = true;
-            }
-            if obj.weapon_can_target_air != ent.weapon_can_target_air {
-                obj.weapon_can_target_air = ent.weapon_can_target_air;
-                dirty = true;
-            }
-            if obj.weapon_can_target_ground != ent.weapon_can_target_ground {
-                obj.weapon_can_target_ground = ent.weapon_can_target_ground;
-                dirty = true;
-            }
-            if (obj.weapon_projectile_speed - ent.weapon_projectile_speed).abs() > 1e-3 {
-                obj.weapon_projectile_speed = ent.weapon_projectile_speed;
-                dirty = true;
-            }
-            if obj.armed_riders_upgrade_weapon_set != ent.armed_riders_upgrade_weapon_set {
-                obj.armed_riders_upgrade_weapon_set = ent.armed_riders_upgrade_weapon_set;
-                dirty = true;
-            }
-            if obj.weapon_set_player_upgrade != ent.weapon_set_player_upgrade {
-                obj.weapon_set_player_upgrade = ent.weapon_set_player_upgrade;
-                dirty = true;
-            }
-            if obj.second_life != ent.second_life {
-                obj.second_life = ent.second_life;
-                dirty = true;
-            }
-            if obj.front_crushed != ent.front_crushed {
-                obj.front_crushed = ent.front_crushed;
-                dirty = true;
-            }
-            if obj.back_crushed != ent.back_crushed {
-                obj.back_crushed = ent.back_crushed;
-                dirty = true;
-            }
-            if obj.user_1 != ent.user_1 {
-                obj.user_1 = ent.user_1;
-                dirty = true;
-            }
-            if obj.user_2 != ent.user_2 {
-                obj.user_2 = ent.user_2;
-                dirty = true;
-            }
-            if obj.weapon_crate_upgrade != ent.weapon_crate_upgrade {
-                obj.weapon_crate_upgrade = ent.weapon_crate_upgrade;
-                dirty = true;
-            }
-            if obj.armor_crate_upgrade != ent.armor_crate_upgrade {
-                obj.armor_crate_upgrade = ent.armor_crate_upgrade;
-                dirty = true;
-            }
-            if obj.enemy_near != ent.enemy_near {
-                obj.enemy_near = ent.enemy_near;
-                dirty = true;
-            }
-            if obj.armed != ent.armed {
-                obj.armed = ent.armed;
-                dirty = true;
-            }
-            if obj.command_set_override != ent.command_set_override {
-                obj.command_set_override = ent.command_set_override.clone();
-                dirty = true;
-            }
-            if obj.is_detector != ent.is_detector {
-                obj.is_detector = ent.is_detector;
-                dirty = true;
-            }
-            if obj.show_health_bar != ent.show_health_bar {
-                obj.show_health_bar = ent.show_health_bar;
-                dirty = true;
-            }
-            // Expanded Entity residual last-writer (presentation consumers).
-            if obj.power_provided != ent.power_provided {
-                obj.power_provided = ent.power_provided;
-                dirty = true;
-            }
-            if obj.power_consumed != ent.power_consumed {
-                obj.power_consumed = ent.power_consumed;
-                dirty = true;
-            }
-            if (obj.experience_points - ent.experience_points).abs() > 1e-3 {
-                obj.experience_points = ent.experience_points;
-                dirty = true;
-            }
-            if obj.stored_supplies != ent.stored_supplies {
-                obj.stored_supplies = ent.stored_supplies;
-                dirty = true;
-            }
-            let gp = ent
-                .guard_position
-                .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
-            if obj.guard_position != gp {
-                obj.guard_position = gp;
-                dirty = true;
-            }
-            // Movement / target residual.
-            let tl = ent
-                .target_location
-                .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
-            if obj.target_location != tl {
-                obj.target_location = tl;
-                dirty = true;
-            }
-            let gt = if ent.guard_target_host == 0 {
-                None
+                obj.construction_percent * 100.0
             } else {
-                Some(crate::game_logic::ObjectId(ent.guard_target_host))
+                -1.0
             };
-            if obj.guard_target != gt {
-                obj.guard_target = gt;
+            if let Some(dy) = crate::assets::construction_percent_height_delta(
+                cpp_percent,
+                obj.selection_radius.max(1.0),
+            ) {
+                obj.position.y += dy;
                 dirty = true;
-            }
-            if obj.using_ability != ent.using_ability {
-                obj.using_ability = ent.using_ability;
-                dirty = true;
-            }
-            if obj.airborne_target != ent.airborne_target {
-                obj.airborne_target = ent.airborne_target;
-                dirty = true;
-            }
-            if (obj.move_max_speed - ent.move_max_speed).abs() > 1e-3 {
-                obj.move_max_speed = ent.move_max_speed;
-                dirty = true;
-            }
-            let vel = glam::Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
-            if (obj.velocity - vel).length_squared() > 1e-6 {
-                obj.velocity = vel;
-                dirty = true;
-            }
-            if obj.ai_state_ordinal != ent.ai_state_ordinal {
-                obj.ai_state_ordinal = ent.ai_state_ordinal;
-                dirty = true;
-            }
-            let rp = ent.rally_point.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
-            if obj.rally_point != rp {
-                obj.rally_point = rp;
-                dirty = true;
-            }
-            if obj.max_garrison != ent.max_garrison as usize {
-                obj.max_garrison = ent.max_garrison as usize;
-                dirty = true;
-            }
-            if obj.has_secondary_weapon != ent.has_secondary_weapon {
-                obj.has_secondary_weapon = ent.has_secondary_weapon;
-                dirty = true;
-            }
-            if (obj.cheer_timer - ent.cheer_timer).abs() > 1e-4 {
-                obj.cheer_timer = ent.cheer_timer;
-                dirty = true;
-            }
-            if obj.overcharge_enabled != ent.overcharge_enabled {
-                obj.overcharge_enabled = ent.overcharge_enabled;
-                dirty = true;
-            }
-            if obj.shock_was_airborne != ent.shock_was_airborne {
-                obj.shock_was_airborne = ent.shock_was_airborne;
-                dirty = true;
-            }
-            if obj.shock_allow_bounce != ent.shock_allow_bounce {
-                obj.shock_allow_bounce = ent.shock_allow_bounce;
-                dirty = true;
-            }
-            if obj.shock_grounded_once != ent.shock_grounded_once {
-                obj.shock_grounded_once = ent.shock_grounded_once;
-                dirty = true;
-            }
-            if obj.shock_stun_frames != ent.shock_stun_frames {
-                obj.shock_stun_frames = ent.shock_stun_frames;
-                dirty = true;
-            }
-            if obj.power_plant_rods_extended != ent.power_plant_rods_extended {
-                obj.power_plant_rods_extended = ent.power_plant_rods_extended;
-                dirty = true;
-            }
-            if obj.power_plant_rods_done_frame != ent.power_plant_rods_done_frame {
-                obj.power_plant_rods_done_frame = ent.power_plant_rods_done_frame;
-                dirty = true;
-            }
-            if obj.jet_slow_death_active != ent.jet_slow_death_active {
-                obj.jet_slow_death_active = ent.jet_slow_death_active;
-                dirty = true;
-            }
-            if obj.anim_steer_turn != ent.anim_steer_turn {
-                obj.anim_steer_turn = ent.anim_steer_turn;
-                dirty = true;
-            }
-            if obj.active_weapon_slot != ent.active_weapon_slot {
-                obj.active_weapon_slot = ent.active_weapon_slot;
-                dirty = true;
-            }
-            if obj.weapon_fire_status != ent.weapon_fire_status {
-                obj.weapon_fire_status = ent.weapon_fire_status;
-                dirty = true;
-            }
-            if obj.is_panicking != ent.is_panicking {
-                obj.is_panicking = ent.is_panicking;
-                dirty = true;
-            }
-            if obj.moving_backwards != ent.moving_backwards {
-                obj.moving_backwards = ent.moving_backwards;
-                dirty = true;
-            }
-            if (obj.guard_radius - ent.guard_radius).abs() > 1e-3 {
-                obj.guard_radius = ent.guard_radius;
-                dirty = true;
-            }
-            if obj.special_power_ready != ent.special_power_ready {
-                obj.special_power_ready = ent.special_power_ready;
-                dirty = true;
-            }
-            if (obj.special_power_cooldown - ent.special_power_cooldown).abs() > 1e-3 {
-                obj.special_power_cooldown = ent.special_power_cooldown;
-                dirty = true;
-            }
-            if (obj.special_power_cooldown_remaining - ent.special_power_cooldown_remaining).abs()
-                > 1e-3
-            {
-                obj.special_power_cooldown_remaining = ent.special_power_cooldown_remaining;
-                dirty = true;
-            }
-            if (obj.detection_range - ent.detection_range).abs() > 1e-3 {
-                obj.detection_range = ent.detection_range;
-                dirty = true;
-            }
-            if obj.detection_rate_frames != ent.detection_rate_frames {
-                obj.detection_rate_frames = ent.detection_rate_frames;
-                dirty = true;
-            }
-            if obj.innate_stealth != ent.innate_stealth {
-                obj.innate_stealth = ent.innate_stealth;
-                dirty = true;
-            }
-            if obj.weapon_bonus_enthusiastic != ent.weapon_bonus_enthusiastic {
-                obj.weapon_bonus_enthusiastic = ent.weapon_bonus_enthusiastic;
-                dirty = true;
-            }
-            if obj.weapon_bonus_subliminal != ent.weapon_bonus_subliminal {
-                obj.weapon_bonus_subliminal = ent.weapon_bonus_subliminal;
-                dirty = true;
-            }
-            if obj.weapon_bonus_horde != ent.weapon_bonus_horde {
-                obj.weapon_bonus_horde = ent.weapon_bonus_horde;
-                dirty = true;
-            }
-            if obj.weapon_bonus_nationalism != ent.weapon_bonus_nationalism {
-                obj.weapon_bonus_nationalism = ent.weapon_bonus_nationalism;
-                dirty = true;
-            }
-            if obj.weapon_bonus_frenzy != ent.weapon_bonus_frenzy {
-                obj.weapon_bonus_frenzy = ent.weapon_bonus_frenzy;
-                dirty = true;
-            }
-            if obj.weapon_bonus_frenzy_level != ent.weapon_bonus_frenzy_level {
-                obj.weapon_bonus_frenzy_level = ent.weapon_bonus_frenzy_level;
-                dirty = true;
-            }
-            if obj.weapon_bonus_frenzy_until_frame != ent.weapon_bonus_frenzy_until_frame {
-                obj.weapon_bonus_frenzy_until_frame = ent.weapon_bonus_frenzy_until_frame;
-                dirty = true;
-            }
-            if obj.weapon_bonus_battle_plan_bombardment != ent.weapon_bonus_battle_plan_bombardment
-            {
-                obj.weapon_bonus_battle_plan_bombardment = ent.weapon_bonus_battle_plan_bombardment;
-                dirty = true;
-            }
-            if obj.weapon_bonus_battle_plan_hold_the_line
-                != ent.weapon_bonus_battle_plan_hold_the_line
-            {
-                obj.weapon_bonus_battle_plan_hold_the_line =
-                    ent.weapon_bonus_battle_plan_hold_the_line;
-                dirty = true;
-            }
-            if obj.weapon_bonus_battle_plan_search_and_destroy
-                != ent.weapon_bonus_battle_plan_search_and_destroy
-            {
-                obj.weapon_bonus_battle_plan_search_and_destroy =
-                    ent.weapon_bonus_battle_plan_search_and_destroy;
-                dirty = true;
-            }
-            if (obj.battle_plan_sight_scalar_applied - ent.battle_plan_sight_scalar_applied).abs()
-                > 1e-4
-            {
-                obj.battle_plan_sight_scalar_applied = ent.battle_plan_sight_scalar_applied;
-                dirty = true;
-            }
-            if obj.continuous_fire_level != ent.continuous_fire_level {
-                obj.continuous_fire_level = ent.continuous_fire_level;
-                dirty = true;
-            }
-            if obj.continuous_fire_consecutive != ent.continuous_fire_consecutive {
-                obj.continuous_fire_consecutive = ent.continuous_fire_consecutive;
-                dirty = true;
-            }
-            if obj.continuous_fire_coast_until_frame != ent.continuous_fire_coast_until_frame {
-                obj.continuous_fire_coast_until_frame = ent.continuous_fire_coast_until_frame;
-                dirty = true;
-            }
-            if obj.faerie_fire_until_frame != ent.faerie_fire_until_frame {
-                obj.faerie_fire_until_frame = ent.faerie_fire_until_frame;
-                dirty = true;
-            }
-            if obj.is_humvee_transport != ent.is_humvee_transport {
-                obj.is_humvee_transport = ent.is_humvee_transport;
-                dirty = true;
-            }
-            if obj.is_listening_outpost_transport != ent.is_listening_outpost_transport {
-                obj.is_listening_outpost_transport = ent.is_listening_outpost_transport;
-                dirty = true;
-            }
-            if obj.is_troop_crawler_transport != ent.is_troop_crawler_transport {
-                obj.is_troop_crawler_transport = ent.is_troop_crawler_transport;
-                dirty = true;
-            }
-            if obj.is_helix_transport != ent.is_helix_transport {
-                obj.is_helix_transport = ent.is_helix_transport;
-                dirty = true;
-            }
-            // Expanded transport-kind / display residual.
-            if obj.is_battle_bus_transport != ent.is_battle_bus_transport {
-                obj.is_battle_bus_transport = ent.is_battle_bus_transport;
-                dirty = true;
-            }
-            if obj.is_technical_transport != ent.is_technical_transport {
-                obj.is_technical_transport = ent.is_technical_transport;
-                dirty = true;
-            }
-            if obj.is_combat_cycle_transport != ent.is_combat_cycle_transport {
-                obj.is_combat_cycle_transport = ent.is_combat_cycle_transport;
-                dirty = true;
-            }
-            if obj.combat_cycle_rider != ent.combat_cycle_rider {
-                obj.combat_cycle_rider = ent.combat_cycle_rider;
-                dirty = true;
-            }
-            if obj.is_tunnel_network != ent.is_tunnel_network {
-                obj.is_tunnel_network = ent.is_tunnel_network;
-                dirty = true;
-            }
-            if obj.is_combat_chinook_transport != ent.is_combat_chinook_transport {
-                obj.is_combat_chinook_transport = ent.is_combat_chinook_transport;
-                dirty = true;
-            }
-            if obj.max_transport != ent.max_transport {
-                obj.max_transport = ent.max_transport;
-                dirty = true;
-            }
-            let bunker_cap = if ent.overlord_bunker_capacity == u16::MAX {
-                usize::MAX
-            } else {
-                ent.overlord_bunker_capacity as usize
-            };
-            if obj.overlord_bunker_capacity != bunker_cap {
-                obj.overlord_bunker_capacity = bunker_cap;
-                dirty = true;
-            }
-            if obj.passengers_allowed_to_fire != ent.passengers_allowed_to_fire {
-                obj.passengers_allowed_to_fire = ent.passengers_allowed_to_fire;
-                dirty = true;
-            }
-            if obj.display_name != ent.display_name {
-                obj.display_name = ent.display_name.clone();
-                dirty = true;
-            }
-            if obj.demo_suicided_detonating != ent.demo_suicided_detonating {
-                obj.demo_suicided_detonating = ent.demo_suicided_detonating;
-                dirty = true;
-            }
-            if obj.hive_slave_count != ent.hive_slave_count {
-                obj.hive_slave_count = ent.hive_slave_count;
-                dirty = true;
-            }
-            if (obj.hive_slave_hp - ent.hive_slave_hp).abs() > 1e-3 {
-                obj.hive_slave_hp = ent.hive_slave_hp;
-                dirty = true;
-            }
-            if (obj.turret_angle_deg - ent.turret_angle_deg).abs() > 1e-3 {
-                obj.turret_angle_deg = ent.turret_angle_deg;
-                dirty = true;
-            }
-            if (obj.turret_pitch_deg - ent.turret_pitch_deg).abs() > 1e-3 {
-                obj.turret_pitch_deg = ent.turret_pitch_deg;
-                dirty = true;
-            }
-            if (obj.alt_turret_angle_deg - ent.alt_turret_angle_deg).abs() > 1e-3 {
-                obj.alt_turret_angle_deg = ent.alt_turret_angle_deg;
-                dirty = true;
-            }
-            if (obj.alt_turret_pitch_deg - ent.alt_turret_pitch_deg).abs() > 1e-3 {
-                obj.alt_turret_pitch_deg = ent.alt_turret_pitch_deg;
-                dirty = true;
-            }
-            if obj.turret_idle_scanning != ent.turret_idle_scanning {
-                obj.turret_idle_scanning = ent.turret_idle_scanning;
-                dirty = true;
-            }
-            if obj.turret_holding != ent.turret_holding {
-                obj.turret_holding = ent.turret_holding;
-                dirty = true;
-            }
-            if obj.ai_attitude != ent.ai_attitude {
-                obj.ai_attitude = ent.ai_attitude;
-                dirty = true;
-            }
-            if obj.last_damage_source_host != ent.last_damage_source_host {
-                obj.last_damage_source_host = ent.last_damage_source_host;
-                dirty = true;
-            }
-            let disguise = (!ent.disguise_as_template.is_empty())
-                .then_some(ent.disguise_as_template.as_str());
-            if obj.disguise_as_template.as_deref() != disguise {
-                obj.disguise_as_template = disguise.map(str::to_owned);
-                dirty = true;
-            }
-            if obj.vision_spied_mask != ent.vision_spied_mask {
-                obj.vision_spied_mask = ent.vision_spied_mask;
-                dirty = true;
-            }
-            // Wave 994: vision / shroud-clear / crush residual last-writer.
-            if (obj.vision_range - ent.vision_range).abs() > 1e-4 {
-                obj.vision_range = ent.vision_range;
-                dirty = true;
-            }
-            if (obj.shroud_clearing_range - ent.shroud_clearing_range).abs() > 1e-4 {
-                obj.shroud_clearing_range = ent.shroud_clearing_range;
-                dirty = true;
-            }
-            if obj.crusher_level != ent.crusher_level {
-                obj.crusher_level = ent.crusher_level;
-                dirty = true;
-            }
-            if obj.crushable_level != ent.crushable_level {
-                obj.crushable_level = ent.crushable_level;
-                dirty = true;
-            }
-            // Wave 995: captured / prone / poison / defector residual last-writer.
-            if obj.captured != ent.private_captured {
-                obj.captured = ent.private_captured;
-                dirty = true;
-            }
-            if obj.prone != ent.prone_active {
-                obj.prone = ent.prone_active;
-                dirty = true;
-            }
-            let poison_tinted = ent.poison_damage_frame != 0;
-            if obj.poison_tinted != poison_tinted {
-                obj.poison_tinted = poison_tinted;
-                dirty = true;
-            }
-            if obj.undetected_defector != ent.defection_undetected {
-                obj.undetected_defector = ent.defection_undetected;
-                dirty = true;
-            }
-            if obj.defector_flash != ent.defection_flash_this_frame {
-                obj.defector_flash = ent.defection_flash_this_frame;
-                dirty = true;
-            }
-            if obj.cell_is_cliff != ent.cell_is_cliff {
-                obj.cell_is_cliff = ent.cell_is_cliff;
-                dirty = true;
-            }
-            if obj.cell_is_underwater != ent.cell_is_underwater {
-                obj.cell_is_underwater = ent.cell_is_underwater;
-                dirty = true;
-            }
-            if obj.over_water != ent.cell_is_underwater {
-                obj.over_water = ent.cell_is_underwater;
-                dirty = true;
-            }
-            if obj.formation_id != ent.formation_id {
-                obj.formation_id = ent.formation_id;
-                dirty = true;
-            }
-            let form_off = glam::Vec2::new(ent.formation_offset[0], ent.formation_offset[1]);
-            if (obj.formation_offset - form_off).length_squared() > 1e-8 {
-                obj.formation_offset = form_off;
-                dirty = true;
-            }
-            // Wave 999: surrender + emoticon residual last-writer.
-            if obj.is_surrendered != ent.is_surrendered {
-                obj.is_surrendered = ent.is_surrendered;
-                dirty = true;
-            }
-            if obj.emoticon_name != ent.emoticon_name {
-                obj.emoticon_name = ent.emoticon_name.clone();
-                dirty = true;
-            }
-            if obj.emoticon_frames_left != ent.emoticon_frames_left {
-                obj.emoticon_frames_left = ent.emoticon_frames_left;
-                dirty = true;
-            }
-            // Wave 1001: FX name residual last-writer.
-            if obj.damage_fx_name != ent.damage_fx_name {
-                obj.damage_fx_name = ent.damage_fx_name.clone();
-                dirty = true;
-            }
-            if obj.bone_fx_name != ent.bone_fx_name {
-                obj.bone_fx_name = ent.bone_fx_name.clone();
-                dirty = true;
-            }
-            if obj.death_fx_name != ent.death_fx_name {
-                obj.death_fx_name = ent.death_fx_name.clone();
-                dirty = true;
-            }
-            // Wave 996: topple lean + healing icon residual last-writer.
-            if (obj.topple_lean_radians - ent.topple_lean_radians).abs() > 1e-5 {
-                obj.topple_lean_radians = ent.topple_lean_radians;
-                dirty = true;
-            }
-            if (obj.float_yaw - ent.float_yaw).abs() > 1e-5
-                || (obj.float_pitch - ent.float_pitch).abs() > 1e-5
-            {
-                obj.float_yaw = ent.float_yaw;
-                obj.float_pitch = ent.float_pitch;
-                dirty = true;
-            }
-            let show_healing = ent.sole_healing_benefactor_expiration_frame != 0;
-            if obj.show_healing != show_healing {
-                obj.show_healing = show_healing;
-                dirty = true;
-            }
-            {
-                const STRUCTURE_BIT: u32 = 1 << 0;
-                const VEHICLE_BIT: u32 = 1 << 2;
-                let icon = if ent.kind_of_bits & STRUCTURE_BIT != 0 {
-                    1u8
-                } else if ent.kind_of_bits & VEHICLE_BIT != 0 {
-                    2u8
-                } else {
-                    0u8
-                };
-                if obj.healing_icon_type != icon {
-                    obj.healing_icon_type = icon;
-                    dirty = true;
-                }
-            }
-            if (obj.camo_friendly_opacity - ent.camo_friendly_opacity).abs() > 1e-4 {
-                obj.camo_friendly_opacity = ent.camo_friendly_opacity;
-                dirty = true;
-            }
-            if obj.camo_stealth_look != ent.camo_stealth_look {
-                obj.camo_stealth_look = ent.camo_stealth_look;
-                dirty = true;
-            }
-            // Path waypoints residual (presentation move lines).
-            let path_wp = ent.path_waypoints.iter().copied().map(glam::Vec3::from_array);
-            if obj.path_waypoints.iter().copied().ne(path_wp.clone()) {
-                obj.path_waypoints.clear();
-                obj.path_waypoints.extend(path_wp);
-                dirty = true;
-            }
-            if obj.path_len != ent.path_len {
-                obj.path_len = ent.path_len;
-                dirty = true;
-            }
-            if obj.path_index != ent.path_index {
-                obj.path_index = ent.path_index;
-                dirty = true;
-            }
-            if obj.occupant_count != ent.occupant_count {
-                obj.occupant_count = ent.occupant_count;
-                dirty = true;
-            }
-            // Production queue head residual.
-            // Full production queue residual (not head-only).
-            if !ent.production_queue_items.is_empty() {
-                let items = &ent.production_queue_items;
-                if obj.production_queue.len() != items.len()
-                    || obj.production_queue.iter().zip(items).any(|(current, item)| {
-                        !current.matches_entity_item(item)
-                    })
-                {
-                    obj.production_queue.clear();
-                    obj.production_queue.extend(items.iter().map(PresentationProductionItem::from_entity_item));
-                    dirty = true;
-                }
-                if obj.production_paused != ent.production_paused {
-                    obj.production_paused = ent.production_paused;
-                    dirty = true;
-                }
-            } else if !obj.production_queue.is_empty() || obj.production_paused {
-                obj.production_queue.clear();
-                if obj.production_paused != ent.production_paused {
-                    obj.production_paused = ent.production_paused;
-                }
-                dirty = true;
-            }
-            let ent_producer = ent.producer_id.map(ObjectId);
-            if obj.producer_id != ent_producer {
-                obj.producer_id = ent_producer;
-                dirty = true;
-            }
-            if obj.is_rebuild_hole != ent.is_rebuild_hole {
-                obj.is_rebuild_hole = ent.is_rebuild_hole;
-                dirty = true;
-            }
-            if obj.rebuild_template_name != ent.rebuild_template_name {
-                obj.rebuild_template_name = ent.rebuild_template_name.clone();
-                dirty = true;
-            }
-            if obj.rebuild_ready_frame != ent.rebuild_ready_frame {
-                obj.rebuild_ready_frame = ent.rebuild_ready_frame;
-                dirty = true;
-            }
-            let spawner = ent.rebuild_spawner_id.map(ObjectId);
-            if obj.rebuild_spawner_id != spawner {
-                obj.rebuild_spawner_id = spawner;
-                dirty = true;
-            }
-            let worker = ent.rebuild_worker_id.map(ObjectId);
-            if obj.rebuild_worker_id != worker {
-                obj.rebuild_worker_id = worker;
-                dirty = true;
-            }
-            let recon = ent.rebuild_reconstructing_id.map(ObjectId);
-            if obj.rebuild_reconstructing_id != recon {
-                obj.rebuild_reconstructing_id = recon;
-                dirty = true;
-            }
-            if obj.reconstructing != ent.reconstructing {
-                obj.reconstructing = ent.reconstructing;
-                dirty = true;
-            }
-            if obj.has_secondary_weapon != ent.has_secondary_weapon {
-                obj.has_secondary_weapon = ent.has_secondary_weapon;
-                dirty = true;
-            }
-            if (obj.secondary_weapon_range - ent.secondary_weapon_range).abs() > 1e-3 {
-                obj.secondary_weapon_range = ent.secondary_weapon_range;
-                dirty = true;
-            }
-            if (obj.secondary_weapon_damage - ent.secondary_weapon_damage).abs() > 1e-3 {
-                obj.secondary_weapon_damage = ent.secondary_weapon_damage;
-                dirty = true;
-            }
-            if obj.has_mine != ent.has_mine_data {
-                obj.has_mine = ent.has_mine_data;
-                dirty = true;
-            }
-            // Contain / garrison residual.
-            let contained = if ent.contained_by_host == 0 {
-                None
-            } else {
-                Some(crate::game_logic::ObjectId(ent.contained_by_host))
-            };
-            if obj.contained_by != contained {
-                obj.contained_by = contained;
-                dirty = true;
-            }
-            let garrisoned = ent
-                .garrisoned_host_ids
-                .iter()
-                .copied()
-                .map(ObjectId);
-            if obj.garrisoned_units.iter().copied().ne(garrisoned.clone()) {
-                obj.garrisoned_units.clear();
-                obj.garrisoned_units.extend(garrisoned);
-                dirty = true;
-            }
-            // Disabled residual (any host disable flag).
-            let disabled =
-                ent.disabled_underpowered || ent.disabled_unmanned || ent.disabled_hacked;
-            if obj.disabled != disabled {
-                obj.disabled = disabled;
-                dirty = true;
-            }
-            // Veterancy ordinal residual.
-            let vet = match ent.veterancy_ordinal {
-                1 => PresentationVeterancy::Veteran,
-                2 => PresentationVeterancy::Elite,
-                3 => PresentationVeterancy::Heroic,
-                _ => PresentationVeterancy::Rookie,
-            };
-            if obj.veterancy != vet {
-                obj.veterancy = vet;
-                dirty = true;
-            }
-            // KindOf bitset residual → presentation ORDER vector.
-            {
-                let kinds = Self::kinds_from_presentation_bits(ent.kind_of_bits);
-                if obj.kind_of.iter().copied().ne(kinds) {
-                    obj.kind_of.clear();
-                    obj.kind_of
-                        .extend(Self::kinds_from_presentation_bits(ent.kind_of_bits));
-                    dirty = true;
-                }
-                if obj.unattackable != ent.unattackable {
-                    obj.unattackable = ent.unattackable;
-                    dirty = true;
-                }
-                let dock_kind = crate::game_logic::DockKind::from_ordinal(ent.dock_kind);
-                if obj.dock_kind != dock_kind {
-                    obj.dock_kind = dock_kind;
-                    dirty = true;
-                }
-                if obj.capturable != ent.capturable {
-                    obj.capturable = ent.capturable;
-                    dirty = true;
-                }
-                if obj.immune_to_capture != ent.immune_to_capture {
-                    obj.immune_to_capture = ent.immune_to_capture;
-                    dirty = true;
-                }
-                if obj.capture_garrisonable != ent.capture_garrisonable {
-                    obj.capture_garrisonable = ent.capture_garrisonable;
-                    dirty = true;
-                }
-                let capture_power =
-                    crate::game_logic::CapturePowerKind::from_ordinal(ent.capture_power);
-                if obj.capture_power != capture_power {
-                    obj.capture_power = capture_power;
-                    dirty = true;
-                }
-                if obj.capture_power_ready != ent.capture_power_ready {
-                    obj.capture_power_ready = ent.capture_power_ready;
-                    dirty = true;
-                }
-                if obj.hacker_disable_building_capable != ent.hacker_disable_building_capable {
-                    obj.hacker_disable_building_capable = ent.hacker_disable_building_capable;
-                    dirty = true;
-                }
-                if obj.hacker_disable_building_ready != ent.hacker_disable_building_ready {
-                    obj.hacker_disable_building_ready = ent.hacker_disable_building_ready;
-                    dirty = true;
-                }
-                let special_power_ready_template_name = (!ent.special_power_ready_template_name.is_empty())
-                    .then_some(ent.special_power_ready_template_name.as_str());
-                if obj.special_power_ready_template_name.as_deref() != special_power_ready_template_name {
-                    obj.special_power_ready_template_name = special_power_ready_template_name.map(str::to_owned);
-                    dirty = true;
-                }
-                let special_power_ready_template_id = special_power_ready_template_name
-                    .map(|_| ent.special_power_ready_template_id);
-                if obj.special_power_ready_template_id != special_power_ready_template_id {
-                    obj.special_power_ready_template_id = special_power_ready_template_id;
-                    dirty = true;
-                }
-            }
-            // Applied upgrade names residual.
-            if obj.applied_upgrades != ent.applied_upgrade_names {
-                obj.applied_upgrades = ent.applied_upgrade_names.clone();
-                dirty = true;
-            }
-            // Effectively stealthed residual from shadow flags.
-            let eff = ent.stealthed && !ent.detected && obj.disguise_as_template.is_none();
-            if obj.effectively_stealthed != eff {
-                obj.effectively_stealthed = eff;
-                dirty = true;
-            }
-            if dirty {
-                updated += 1;
             }
         }
+        if ent.mesh_scale.is_finite()
+            && ent.mesh_scale > 0.0
+            && (obj.mesh_scale - ent.mesh_scale).abs() > 1e-5
+        {
+            obj.mesh_scale = ent.mesh_scale;
+            dirty = true;
+        }
+        // FOW + ground-height residual.
+        {
+            use crate::fow_rendering::ObjectVisibility;
+            let vis = ObjectVisibility {
+                visibility_alpha: ent.fow_visibility_alpha,
+                is_explored: ent.fow_is_explored,
+                visibility_falloff: ent.fow_visibility_falloff,
+            };
+            if obj.fow_visibility != vis {
+                obj.fow_visibility = vis;
+                dirty = true;
+            }
+        }
+        if (obj.ground_height - ent.ground_height).abs() > 1e-3 {
+            obj.ground_height = ent.ground_height;
+            dirty = true;
+        }
+        if obj.ground_height_from_terrain != ent.ground_height_from_terrain {
+            obj.ground_height_from_terrain = ent.ground_height_from_terrain;
+            dirty = true;
+        }
+        if obj.engine_bridged != ent.engine_bridged {
+            obj.engine_bridged = ent.engine_bridged;
+            dirty = true;
+        }
+        if obj.selected != ent.selected {
+            obj.selected = ent.selected;
+            dirty = true;
+        }
+        if obj.under_construction != ent.under_construction {
+            obj.under_construction = ent.under_construction;
+            dirty = true;
+        }
+        if obj.sold != ent.sold {
+            obj.sold = ent.sold;
+            dirty = true;
+        }
+        if obj.reconstructing != ent.reconstructing {
+            obj.reconstructing = ent.reconstructing;
+            dirty = true;
+        }
+        if obj.unselectable != ent.unselectable {
+            obj.unselectable = ent.unselectable;
+            dirty = true;
+        }
+        if obj.is_deployed != ent.deployed {
+            obj.is_deployed = ent.deployed;
+            dirty = true;
+        }
+        if (obj.construction_percent - ent.construction_percent).abs() > 1e-4 {
+            obj.construction_percent = ent.construction_percent;
+            dirty = true;
+        }
+        if obj.moving != ent.moving {
+            obj.moving = ent.moving;
+            dirty = true;
+        }
+        if obj.attacking != ent.attacking {
+            obj.attacking = ent.attacking;
+            dirty = true;
+        }
+        if obj.is_firing_weapon != ent.is_firing_weapon {
+            obj.is_firing_weapon = ent.is_firing_weapon;
+            dirty = true;
+        }
+        if obj.is_aiming_weapon != ent.is_aiming_weapon {
+            obj.is_aiming_weapon = ent.is_aiming_weapon;
+            dirty = true;
+        }
+        if obj.disabled_emp != ent.disabled_emp {
+            obj.disabled_emp = ent.disabled_emp;
+            dirty = true;
+        }
+        if obj.disabled_paralyzed != ent.disabled_paralyzed {
+            obj.disabled_paralyzed = ent.disabled_paralyzed;
+            dirty = true;
+        }
+        if obj.disabled_underpowered != ent.disabled_underpowered {
+            obj.disabled_underpowered = ent.disabled_underpowered;
+            dirty = true;
+        }
+        if obj.disabled_hacked != ent.disabled_hacked {
+            obj.disabled_hacked = ent.disabled_hacked;
+            dirty = true;
+        }
+        if obj.disabled_unmanned != ent.disabled_unmanned {
+            obj.disabled_unmanned = ent.disabled_unmanned;
+            dirty = true;
+        }
+        if obj.disabled_script_disabled != ent.disabled_script_disabled {
+            obj.disabled_script_disabled = ent.disabled_script_disabled;
+            dirty = true;
+        }
+        if obj.weapons_jammed != ent.weapons_jammed {
+            obj.weapons_jammed = ent.weapons_jammed;
+            dirty = true;
+        }
+        if obj.masked != ent.masked {
+            obj.masked = ent.masked;
+            dirty = true;
+        }
+        if obj.disguised != ent.disguised {
+            obj.disguised = ent.disguised;
+            dirty = true;
+        }
+        if obj.disabled_subdued != ent.disabled_subdued {
+            obj.disabled_subdued = ent.disabled_subdued;
+            dirty = true;
+        }
+        if obj.is_carbomb != ent.is_carbomb {
+            obj.is_carbomb = ent.is_carbomb;
+            dirty = true;
+        }
+        if obj.hijacked != ent.hijacked {
+            obj.hijacked = ent.hijacked;
+            dirty = true;
+        }
+        if obj.team_color != ent.team_color {
+            obj.team_color = ent.team_color;
+            dirty = true;
+        }
+        if (obj.selection_radius - ent.selection_radius).abs() > 1e-3 {
+            obj.selection_radius = ent.selection_radius;
+            dirty = true;
+        }
+        if obj.ignoring_stealth != ent.ignoring_stealth {
+            obj.ignoring_stealth = ent.ignoring_stealth;
+            dirty = true;
+        }
+        if obj.repulsor != ent.repulsor {
+            obj.repulsor = ent.repulsor;
+            dirty = true;
+        }
+        if obj.stealthed != ent.stealthed {
+            obj.stealthed = ent.stealthed;
+            dirty = true;
+        }
+        if obj.detected != ent.detected {
+            obj.detected = ent.detected;
+            dirty = true;
+        }
+        if obj.force_attack != ent.force_attack {
+            obj.force_attack = ent.force_attack;
+            dirty = true;
+        }
+        if obj.has_weapon != ent.has_weapon {
+            obj.has_weapon = ent.has_weapon;
+            dirty = true;
+        }
+        if (obj.weapon_range - ent.weapon_range).abs() > 1e-3 {
+            obj.weapon_range = ent.weapon_range;
+            dirty = true;
+        }
+        if (obj.weapon_damage - ent.weapon_damage).abs() > 1e-3 {
+            obj.weapon_damage = ent.weapon_damage;
+            dirty = true;
+        }
+        if (obj.weapon_min_range - ent.weapon_min_range).abs() > 1e-3 {
+            obj.weapon_min_range = ent.weapon_min_range;
+            dirty = true;
+        }
+        if (obj.weapon_reload_time - ent.weapon_reload_time).abs() > 1e-3 {
+            obj.weapon_reload_time = ent.weapon_reload_time;
+            dirty = true;
+        }
+        if obj.weapon_ammo != ent.weapon_ammo {
+            obj.weapon_ammo = ent.weapon_ammo;
+            dirty = true;
+        }
+        let projectile_clip_statuses =
+            Self::projectile_clip_statuses_from_gameworld_entity(ent);
+        if obj.projectile_clip_statuses != projectile_clip_statuses {
+            obj.projectile_clip_statuses = projectile_clip_statuses;
+            dirty = true;
+        }
+        if obj.weapon_can_target_air != ent.weapon_can_target_air {
+            obj.weapon_can_target_air = ent.weapon_can_target_air;
+            dirty = true;
+        }
+        if obj.weapon_can_target_ground != ent.weapon_can_target_ground {
+            obj.weapon_can_target_ground = ent.weapon_can_target_ground;
+            dirty = true;
+        }
+        if (obj.weapon_projectile_speed - ent.weapon_projectile_speed).abs() > 1e-3 {
+            obj.weapon_projectile_speed = ent.weapon_projectile_speed;
+            dirty = true;
+        }
+        if obj.armed_riders_upgrade_weapon_set != ent.armed_riders_upgrade_weapon_set {
+            obj.armed_riders_upgrade_weapon_set = ent.armed_riders_upgrade_weapon_set;
+            dirty = true;
+        }
+        if obj.weapon_set_player_upgrade != ent.weapon_set_player_upgrade {
+            obj.weapon_set_player_upgrade = ent.weapon_set_player_upgrade;
+            dirty = true;
+        }
+        if obj.second_life != ent.second_life {
+            obj.second_life = ent.second_life;
+            dirty = true;
+        }
+        if obj.front_crushed != ent.front_crushed {
+            obj.front_crushed = ent.front_crushed;
+            dirty = true;
+        }
+        if obj.back_crushed != ent.back_crushed {
+            obj.back_crushed = ent.back_crushed;
+            dirty = true;
+        }
+        if obj.user_1 != ent.user_1 {
+            obj.user_1 = ent.user_1;
+            dirty = true;
+        }
+        if obj.user_2 != ent.user_2 {
+            obj.user_2 = ent.user_2;
+            dirty = true;
+        }
+        if obj.weapon_crate_upgrade != ent.weapon_crate_upgrade {
+            obj.weapon_crate_upgrade = ent.weapon_crate_upgrade;
+            dirty = true;
+        }
+        if obj.armor_crate_upgrade != ent.armor_crate_upgrade {
+            obj.armor_crate_upgrade = ent.armor_crate_upgrade;
+            dirty = true;
+        }
+        if obj.enemy_near != ent.enemy_near {
+            obj.enemy_near = ent.enemy_near;
+            dirty = true;
+        }
+        if obj.armed != ent.armed {
+            obj.armed = ent.armed;
+            dirty = true;
+        }
+        if obj.command_set_override != ent.command_set_override {
+            obj.command_set_override = ent.command_set_override.clone();
+            dirty = true;
+        }
+        if obj.is_detector != ent.is_detector {
+            obj.is_detector = ent.is_detector;
+            dirty = true;
+        }
+        if obj.show_health_bar != ent.show_health_bar {
+            obj.show_health_bar = ent.show_health_bar;
+            dirty = true;
+        }
+        // Expanded Entity residual last-writer (presentation consumers).
+        if obj.power_provided != ent.power_provided {
+            obj.power_provided = ent.power_provided;
+            dirty = true;
+        }
+        if obj.power_consumed != ent.power_consumed {
+            obj.power_consumed = ent.power_consumed;
+            dirty = true;
+        }
+        if (obj.experience_points - ent.experience_points).abs() > 1e-3 {
+            obj.experience_points = ent.experience_points;
+            dirty = true;
+        }
+        if obj.stored_supplies != ent.stored_supplies {
+            obj.stored_supplies = ent.stored_supplies;
+            dirty = true;
+        }
+        let gp = ent
+            .guard_position
+            .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+        if obj.guard_position != gp {
+            obj.guard_position = gp;
+            dirty = true;
+        }
+        // Movement / target residual.
+        let tl = ent
+            .target_location
+            .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+        if obj.target_location != tl {
+            obj.target_location = tl;
+            dirty = true;
+        }
+        let gt = if ent.guard_target_host == 0 {
+            None
+        } else {
+            Some(crate::game_logic::ObjectId(ent.guard_target_host))
+        };
+        if obj.guard_target != gt {
+            obj.guard_target = gt;
+            dirty = true;
+        }
+        if obj.using_ability != ent.using_ability {
+            obj.using_ability = ent.using_ability;
+            dirty = true;
+        }
+        if obj.airborne_target != ent.airborne_target {
+            obj.airborne_target = ent.airborne_target;
+            dirty = true;
+        }
+        if (obj.move_max_speed - ent.move_max_speed).abs() > 1e-3 {
+            obj.move_max_speed = ent.move_max_speed;
+            dirty = true;
+        }
+        let vel = glam::Vec3::new(ent.velocity[0], ent.velocity[1], ent.velocity[2]);
+        if (obj.velocity - vel).length_squared() > 1e-6 {
+            obj.velocity = vel;
+            dirty = true;
+        }
+        if obj.ai_state_ordinal != ent.ai_state_ordinal {
+            obj.ai_state_ordinal = ent.ai_state_ordinal;
+            dirty = true;
+        }
+        let rp = ent.rally_point.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+        if obj.rally_point != rp {
+            obj.rally_point = rp;
+            dirty = true;
+        }
+        if obj.max_garrison != ent.max_garrison as usize {
+            obj.max_garrison = ent.max_garrison as usize;
+            dirty = true;
+        }
+        if obj.has_secondary_weapon != ent.has_secondary_weapon {
+            obj.has_secondary_weapon = ent.has_secondary_weapon;
+            dirty = true;
+        }
+        if (obj.cheer_timer - ent.cheer_timer).abs() > 1e-4 {
+            obj.cheer_timer = ent.cheer_timer;
+            dirty = true;
+        }
+        if obj.overcharge_enabled != ent.overcharge_enabled {
+            obj.overcharge_enabled = ent.overcharge_enabled;
+            dirty = true;
+        }
+        if obj.shock_was_airborne != ent.shock_was_airborne {
+            obj.shock_was_airborne = ent.shock_was_airborne;
+            dirty = true;
+        }
+        if obj.shock_allow_bounce != ent.shock_allow_bounce {
+            obj.shock_allow_bounce = ent.shock_allow_bounce;
+            dirty = true;
+        }
+        if obj.shock_grounded_once != ent.shock_grounded_once {
+            obj.shock_grounded_once = ent.shock_grounded_once;
+            dirty = true;
+        }
+        if obj.shock_stun_frames != ent.shock_stun_frames {
+            obj.shock_stun_frames = ent.shock_stun_frames;
+            dirty = true;
+        }
+        if obj.power_plant_rods_extended != ent.power_plant_rods_extended {
+            obj.power_plant_rods_extended = ent.power_plant_rods_extended;
+            dirty = true;
+        }
+        if obj.power_plant_rods_done_frame != ent.power_plant_rods_done_frame {
+            obj.power_plant_rods_done_frame = ent.power_plant_rods_done_frame;
+            dirty = true;
+        }
+        if obj.jet_slow_death_active != ent.jet_slow_death_active {
+            obj.jet_slow_death_active = ent.jet_slow_death_active;
+            dirty = true;
+        }
+        if obj.anim_steer_turn != ent.anim_steer_turn {
+            obj.anim_steer_turn = ent.anim_steer_turn;
+            dirty = true;
+        }
+        if obj.active_weapon_slot != ent.active_weapon_slot {
+            obj.active_weapon_slot = ent.active_weapon_slot;
+            dirty = true;
+        }
+        if obj.weapon_fire_status != ent.weapon_fire_status {
+            obj.weapon_fire_status = ent.weapon_fire_status;
+            dirty = true;
+        }
+        if obj.is_panicking != ent.is_panicking {
+            obj.is_panicking = ent.is_panicking;
+            dirty = true;
+        }
+        if obj.moving_backwards != ent.moving_backwards {
+            obj.moving_backwards = ent.moving_backwards;
+            dirty = true;
+        }
+        if (obj.guard_radius - ent.guard_radius).abs() > 1e-3 {
+            obj.guard_radius = ent.guard_radius;
+            dirty = true;
+        }
+        if obj.special_power_ready != ent.special_power_ready {
+            obj.special_power_ready = ent.special_power_ready;
+            dirty = true;
+        }
+        if (obj.special_power_cooldown - ent.special_power_cooldown).abs() > 1e-3 {
+            obj.special_power_cooldown = ent.special_power_cooldown;
+            dirty = true;
+        }
+        if (obj.special_power_cooldown_remaining - ent.special_power_cooldown_remaining).abs()
+            > 1e-3
+        {
+            obj.special_power_cooldown_remaining = ent.special_power_cooldown_remaining;
+            dirty = true;
+        }
+        if (obj.detection_range - ent.detection_range).abs() > 1e-3 {
+            obj.detection_range = ent.detection_range;
+            dirty = true;
+        }
+        if obj.detection_rate_frames != ent.detection_rate_frames {
+            obj.detection_rate_frames = ent.detection_rate_frames;
+            dirty = true;
+        }
+        if obj.innate_stealth != ent.innate_stealth {
+            obj.innate_stealth = ent.innate_stealth;
+            dirty = true;
+        }
+        if obj.weapon_bonus_enthusiastic != ent.weapon_bonus_enthusiastic {
+            obj.weapon_bonus_enthusiastic = ent.weapon_bonus_enthusiastic;
+            dirty = true;
+        }
+        if obj.weapon_bonus_subliminal != ent.weapon_bonus_subliminal {
+            obj.weapon_bonus_subliminal = ent.weapon_bonus_subliminal;
+            dirty = true;
+        }
+        if obj.weapon_bonus_horde != ent.weapon_bonus_horde {
+            obj.weapon_bonus_horde = ent.weapon_bonus_horde;
+            dirty = true;
+        }
+        if obj.weapon_bonus_nationalism != ent.weapon_bonus_nationalism {
+            obj.weapon_bonus_nationalism = ent.weapon_bonus_nationalism;
+            dirty = true;
+        }
+        if obj.weapon_bonus_frenzy != ent.weapon_bonus_frenzy {
+            obj.weapon_bonus_frenzy = ent.weapon_bonus_frenzy;
+            dirty = true;
+        }
+        if obj.weapon_bonus_frenzy_level != ent.weapon_bonus_frenzy_level {
+            obj.weapon_bonus_frenzy_level = ent.weapon_bonus_frenzy_level;
+            dirty = true;
+        }
+        if obj.weapon_bonus_frenzy_until_frame != ent.weapon_bonus_frenzy_until_frame {
+            obj.weapon_bonus_frenzy_until_frame = ent.weapon_bonus_frenzy_until_frame;
+            dirty = true;
+        }
+        if obj.weapon_bonus_battle_plan_bombardment != ent.weapon_bonus_battle_plan_bombardment
+        {
+            obj.weapon_bonus_battle_plan_bombardment = ent.weapon_bonus_battle_plan_bombardment;
+            dirty = true;
+        }
+        if obj.weapon_bonus_battle_plan_hold_the_line
+            != ent.weapon_bonus_battle_plan_hold_the_line
+        {
+            obj.weapon_bonus_battle_plan_hold_the_line =
+                ent.weapon_bonus_battle_plan_hold_the_line;
+            dirty = true;
+        }
+        if obj.weapon_bonus_battle_plan_search_and_destroy
+            != ent.weapon_bonus_battle_plan_search_and_destroy
+        {
+            obj.weapon_bonus_battle_plan_search_and_destroy =
+                ent.weapon_bonus_battle_plan_search_and_destroy;
+            dirty = true;
+        }
+        if (obj.battle_plan_sight_scalar_applied - ent.battle_plan_sight_scalar_applied).abs()
+            > 1e-4
+        {
+            obj.battle_plan_sight_scalar_applied = ent.battle_plan_sight_scalar_applied;
+            dirty = true;
+        }
+        if obj.continuous_fire_level != ent.continuous_fire_level {
+            obj.continuous_fire_level = ent.continuous_fire_level;
+            dirty = true;
+        }
+        if obj.continuous_fire_consecutive != ent.continuous_fire_consecutive {
+            obj.continuous_fire_consecutive = ent.continuous_fire_consecutive;
+            dirty = true;
+        }
+        if obj.continuous_fire_coast_until_frame != ent.continuous_fire_coast_until_frame {
+            obj.continuous_fire_coast_until_frame = ent.continuous_fire_coast_until_frame;
+            dirty = true;
+        }
+        if obj.faerie_fire_until_frame != ent.faerie_fire_until_frame {
+            obj.faerie_fire_until_frame = ent.faerie_fire_until_frame;
+            dirty = true;
+        }
+        if obj.is_humvee_transport != ent.is_humvee_transport {
+            obj.is_humvee_transport = ent.is_humvee_transport;
+            dirty = true;
+        }
+        if obj.is_listening_outpost_transport != ent.is_listening_outpost_transport {
+            obj.is_listening_outpost_transport = ent.is_listening_outpost_transport;
+            dirty = true;
+        }
+        if obj.is_troop_crawler_transport != ent.is_troop_crawler_transport {
+            obj.is_troop_crawler_transport = ent.is_troop_crawler_transport;
+            dirty = true;
+        }
+        if obj.is_helix_transport != ent.is_helix_transport {
+            obj.is_helix_transport = ent.is_helix_transport;
+            dirty = true;
+        }
+        // Expanded transport-kind / display residual.
+        if obj.is_battle_bus_transport != ent.is_battle_bus_transport {
+            obj.is_battle_bus_transport = ent.is_battle_bus_transport;
+            dirty = true;
+        }
+        if obj.is_technical_transport != ent.is_technical_transport {
+            obj.is_technical_transport = ent.is_technical_transport;
+            dirty = true;
+        }
+        if obj.is_combat_cycle_transport != ent.is_combat_cycle_transport {
+            obj.is_combat_cycle_transport = ent.is_combat_cycle_transport;
+            dirty = true;
+        }
+        if obj.combat_cycle_rider != ent.combat_cycle_rider {
+            obj.combat_cycle_rider = ent.combat_cycle_rider;
+            dirty = true;
+        }
+        if obj.is_tunnel_network != ent.is_tunnel_network {
+            obj.is_tunnel_network = ent.is_tunnel_network;
+            dirty = true;
+        }
+        if obj.is_combat_chinook_transport != ent.is_combat_chinook_transport {
+            obj.is_combat_chinook_transport = ent.is_combat_chinook_transport;
+            dirty = true;
+        }
+        if obj.max_transport != ent.max_transport {
+            obj.max_transport = ent.max_transport;
+            dirty = true;
+        }
+        let bunker_cap = if ent.overlord_bunker_capacity == u16::MAX {
+            usize::MAX
+        } else {
+            ent.overlord_bunker_capacity as usize
+        };
+        if obj.overlord_bunker_capacity != bunker_cap {
+            obj.overlord_bunker_capacity = bunker_cap;
+            dirty = true;
+        }
+        if obj.passengers_allowed_to_fire != ent.passengers_allowed_to_fire {
+            obj.passengers_allowed_to_fire = ent.passengers_allowed_to_fire;
+            dirty = true;
+        }
+        if obj.display_name != ent.display_name {
+            obj.display_name = ent.display_name.clone();
+            dirty = true;
+        }
+        if obj.demo_suicided_detonating != ent.demo_suicided_detonating {
+            obj.demo_suicided_detonating = ent.demo_suicided_detonating;
+            dirty = true;
+        }
+        if obj.hive_slave_count != ent.hive_slave_count {
+            obj.hive_slave_count = ent.hive_slave_count;
+            dirty = true;
+        }
+        if (obj.hive_slave_hp - ent.hive_slave_hp).abs() > 1e-3 {
+            obj.hive_slave_hp = ent.hive_slave_hp;
+            dirty = true;
+        }
+        if (obj.turret_angle_deg - ent.turret_angle_deg).abs() > 1e-3 {
+            obj.turret_angle_deg = ent.turret_angle_deg;
+            dirty = true;
+        }
+        if (obj.turret_pitch_deg - ent.turret_pitch_deg).abs() > 1e-3 {
+            obj.turret_pitch_deg = ent.turret_pitch_deg;
+            dirty = true;
+        }
+        if (obj.alt_turret_angle_deg - ent.alt_turret_angle_deg).abs() > 1e-3 {
+            obj.alt_turret_angle_deg = ent.alt_turret_angle_deg;
+            dirty = true;
+        }
+        if (obj.alt_turret_pitch_deg - ent.alt_turret_pitch_deg).abs() > 1e-3 {
+            obj.alt_turret_pitch_deg = ent.alt_turret_pitch_deg;
+            dirty = true;
+        }
+        if obj.turret_idle_scanning != ent.turret_idle_scanning {
+            obj.turret_idle_scanning = ent.turret_idle_scanning;
+            dirty = true;
+        }
+        if obj.turret_holding != ent.turret_holding {
+            obj.turret_holding = ent.turret_holding;
+            dirty = true;
+        }
+        if obj.ai_attitude != ent.ai_attitude {
+            obj.ai_attitude = ent.ai_attitude;
+            dirty = true;
+        }
+        if obj.last_damage_source_host != ent.last_damage_source_host {
+            obj.last_damage_source_host = ent.last_damage_source_host;
+            dirty = true;
+        }
+        let disguise = (!ent.disguise_as_template.is_empty())
+            .then_some(ent.disguise_as_template.as_str());
+        if obj.disguise_as_template.as_deref() != disguise {
+            obj.disguise_as_template = disguise.map(str::to_owned);
+            dirty = true;
+        }
+        if obj.vision_spied_mask != ent.vision_spied_mask {
+            obj.vision_spied_mask = ent.vision_spied_mask;
+            dirty = true;
+        }
+        // Wave 994: vision / shroud-clear / crush residual last-writer.
+        if (obj.vision_range - ent.vision_range).abs() > 1e-4 {
+            obj.vision_range = ent.vision_range;
+            dirty = true;
+        }
+        if (obj.shroud_clearing_range - ent.shroud_clearing_range).abs() > 1e-4 {
+            obj.shroud_clearing_range = ent.shroud_clearing_range;
+            dirty = true;
+        }
+        if obj.crusher_level != ent.crusher_level {
+            obj.crusher_level = ent.crusher_level;
+            dirty = true;
+        }
+        if obj.crushable_level != ent.crushable_level {
+            obj.crushable_level = ent.crushable_level;
+            dirty = true;
+        }
+        // Wave 995: captured / prone / poison / defector residual last-writer.
+        if obj.captured != ent.private_captured {
+            obj.captured = ent.private_captured;
+            dirty = true;
+        }
+        if obj.prone != ent.prone_active {
+            obj.prone = ent.prone_active;
+            dirty = true;
+        }
+        let poison_tinted = ent.poison_damage_frame != 0;
+        if obj.poison_tinted != poison_tinted {
+            obj.poison_tinted = poison_tinted;
+            dirty = true;
+        }
+        if obj.undetected_defector != ent.defection_undetected {
+            obj.undetected_defector = ent.defection_undetected;
+            dirty = true;
+        }
+        if obj.defector_flash != ent.defection_flash_this_frame {
+            obj.defector_flash = ent.defection_flash_this_frame;
+            dirty = true;
+        }
+        if obj.cell_is_cliff != ent.cell_is_cliff {
+            obj.cell_is_cliff = ent.cell_is_cliff;
+            dirty = true;
+        }
+        if obj.cell_is_underwater != ent.cell_is_underwater {
+            obj.cell_is_underwater = ent.cell_is_underwater;
+            dirty = true;
+        }
+        if obj.over_water != ent.cell_is_underwater {
+            obj.over_water = ent.cell_is_underwater;
+            dirty = true;
+        }
+        if obj.formation_id != ent.formation_id {
+            obj.formation_id = ent.formation_id;
+            dirty = true;
+        }
+        let form_off = glam::Vec2::new(ent.formation_offset[0], ent.formation_offset[1]);
+        if (obj.formation_offset - form_off).length_squared() > 1e-8 {
+            obj.formation_offset = form_off;
+            dirty = true;
+        }
+        // Wave 999: surrender + emoticon residual last-writer.
+        if obj.is_surrendered != ent.is_surrendered {
+            obj.is_surrendered = ent.is_surrendered;
+            dirty = true;
+        }
+        if obj.emoticon_name != ent.emoticon_name {
+            obj.emoticon_name = ent.emoticon_name.clone();
+            dirty = true;
+        }
+        if obj.emoticon_frames_left != ent.emoticon_frames_left {
+            obj.emoticon_frames_left = ent.emoticon_frames_left;
+            dirty = true;
+        }
+        // Wave 1001: FX name residual last-writer.
+        if obj.damage_fx_name != ent.damage_fx_name {
+            obj.damage_fx_name = ent.damage_fx_name.clone();
+            dirty = true;
+        }
+        if obj.bone_fx_name != ent.bone_fx_name {
+            obj.bone_fx_name = ent.bone_fx_name.clone();
+            dirty = true;
+        }
+        if obj.death_fx_name != ent.death_fx_name {
+            obj.death_fx_name = ent.death_fx_name.clone();
+            dirty = true;
+        }
+        // Wave 996: topple lean + healing icon residual last-writer.
+        if (obj.topple_lean_radians - ent.topple_lean_radians).abs() > 1e-5 {
+            obj.topple_lean_radians = ent.topple_lean_radians;
+            dirty = true;
+        }
+        if (obj.float_yaw - ent.float_yaw).abs() > 1e-5
+            || (obj.float_pitch - ent.float_pitch).abs() > 1e-5
+        {
+            obj.float_yaw = ent.float_yaw;
+            obj.float_pitch = ent.float_pitch;
+            dirty = true;
+        }
+        let show_healing = ent.sole_healing_benefactor_expiration_frame != 0;
+        if obj.show_healing != show_healing {
+            obj.show_healing = show_healing;
+            dirty = true;
+        }
+        {
+            const STRUCTURE_BIT: u32 = 1 << 0;
+            const VEHICLE_BIT: u32 = 1 << 2;
+            let icon = if ent.kind_of_bits & STRUCTURE_BIT != 0 {
+                1u8
+            } else if ent.kind_of_bits & VEHICLE_BIT != 0 {
+                2u8
+            } else {
+                0u8
+            };
+            if obj.healing_icon_type != icon {
+                obj.healing_icon_type = icon;
+                dirty = true;
+            }
+        }
+        if (obj.camo_friendly_opacity - ent.camo_friendly_opacity).abs() > 1e-4 {
+            obj.camo_friendly_opacity = ent.camo_friendly_opacity;
+            dirty = true;
+        }
+        if obj.camo_stealth_look != ent.camo_stealth_look {
+            obj.camo_stealth_look = ent.camo_stealth_look;
+            dirty = true;
+        }
+        // Path waypoints residual (presentation move lines).
+        let path_wp = ent.path_waypoints.iter().copied().map(glam::Vec3::from_array);
+        if obj.path_waypoints.iter().copied().ne(path_wp.clone()) {
+            obj.path_waypoints.clear();
+            obj.path_waypoints.extend(path_wp);
+            dirty = true;
+        }
+        if obj.path_len != ent.path_len {
+            obj.path_len = ent.path_len;
+            dirty = true;
+        }
+        if obj.path_index != ent.path_index {
+            obj.path_index = ent.path_index;
+            dirty = true;
+        }
+        if obj.occupant_count != ent.occupant_count {
+            obj.occupant_count = ent.occupant_count;
+            dirty = true;
+        }
+        // Production queue head residual.
+        // Full production queue residual (not head-only).
+        if !ent.production_queue_items.is_empty() {
+            let items = &ent.production_queue_items;
+            if obj.production_queue.len() != items.len()
+                || obj.production_queue.iter().zip(items).any(|(current, item)| {
+                    !current.matches_entity_item(item)
+                })
+            {
+                obj.production_queue.clear();
+                obj.production_queue.extend(items.iter().map(PresentationProductionItem::from_entity_item));
+                dirty = true;
+            }
+            if obj.production_paused != ent.production_paused {
+                obj.production_paused = ent.production_paused;
+                dirty = true;
+            }
+        } else if !obj.production_queue.is_empty() || obj.production_paused {
+            obj.production_queue.clear();
+            if obj.production_paused != ent.production_paused {
+                obj.production_paused = ent.production_paused;
+            }
+            dirty = true;
+        }
+        let ent_producer = ent.producer_id.map(ObjectId);
+        if obj.producer_id != ent_producer {
+            obj.producer_id = ent_producer;
+            dirty = true;
+        }
+        if obj.is_rebuild_hole != ent.is_rebuild_hole {
+            obj.is_rebuild_hole = ent.is_rebuild_hole;
+            dirty = true;
+        }
+        if obj.rebuild_template_name != ent.rebuild_template_name {
+            obj.rebuild_template_name = ent.rebuild_template_name.clone();
+            dirty = true;
+        }
+        if obj.rebuild_ready_frame != ent.rebuild_ready_frame {
+            obj.rebuild_ready_frame = ent.rebuild_ready_frame;
+            dirty = true;
+        }
+        let spawner = ent.rebuild_spawner_id.map(ObjectId);
+        if obj.rebuild_spawner_id != spawner {
+            obj.rebuild_spawner_id = spawner;
+            dirty = true;
+        }
+        let worker = ent.rebuild_worker_id.map(ObjectId);
+        if obj.rebuild_worker_id != worker {
+            obj.rebuild_worker_id = worker;
+            dirty = true;
+        }
+        let recon = ent.rebuild_reconstructing_id.map(ObjectId);
+        if obj.rebuild_reconstructing_id != recon {
+            obj.rebuild_reconstructing_id = recon;
+            dirty = true;
+        }
+        if obj.reconstructing != ent.reconstructing {
+            obj.reconstructing = ent.reconstructing;
+            dirty = true;
+        }
+        if obj.has_secondary_weapon != ent.has_secondary_weapon {
+            obj.has_secondary_weapon = ent.has_secondary_weapon;
+            dirty = true;
+        }
+        if (obj.secondary_weapon_range - ent.secondary_weapon_range).abs() > 1e-3 {
+            obj.secondary_weapon_range = ent.secondary_weapon_range;
+            dirty = true;
+        }
+        if (obj.secondary_weapon_damage - ent.secondary_weapon_damage).abs() > 1e-3 {
+            obj.secondary_weapon_damage = ent.secondary_weapon_damage;
+            dirty = true;
+        }
+        if obj.has_mine != ent.has_mine_data {
+            obj.has_mine = ent.has_mine_data;
+            dirty = true;
+        }
+        // Contain / garrison residual.
+        let contained = if ent.contained_by_host == 0 {
+            None
+        } else {
+            Some(crate::game_logic::ObjectId(ent.contained_by_host))
+        };
+        if obj.contained_by != contained {
+            obj.contained_by = contained;
+            dirty = true;
+        }
+        let garrisoned = ent
+            .garrisoned_host_ids
+            .iter()
+            .copied()
+            .map(ObjectId);
+        if obj.garrisoned_units.iter().copied().ne(garrisoned.clone()) {
+            obj.garrisoned_units.clear();
+            obj.garrisoned_units.extend(garrisoned);
+            dirty = true;
+        }
+        // Disabled residual (any host disable flag).
+        let disabled =
+            ent.disabled_underpowered || ent.disabled_unmanned || ent.disabled_hacked;
+        if obj.disabled != disabled {
+            obj.disabled = disabled;
+            dirty = true;
+        }
+        // Veterancy ordinal residual.
+        let vet = match ent.veterancy_ordinal {
+            1 => PresentationVeterancy::Veteran,
+            2 => PresentationVeterancy::Elite,
+            3 => PresentationVeterancy::Heroic,
+            _ => PresentationVeterancy::Rookie,
+        };
+        if obj.veterancy != vet {
+            obj.veterancy = vet;
+            dirty = true;
+        }
+        // KindOf bitset residual → presentation ORDER vector.
+        {
+            let kinds = Self::kinds_from_presentation_bits(ent.kind_of_bits);
+            if obj.kind_of.iter().copied().ne(kinds) {
+                obj.kind_of.clear();
+                obj.kind_of
+                    .extend(Self::kinds_from_presentation_bits(ent.kind_of_bits));
+                dirty = true;
+            }
+            if obj.unattackable != ent.unattackable {
+                obj.unattackable = ent.unattackable;
+                dirty = true;
+            }
+            let dock_kind = crate::game_logic::DockKind::from_ordinal(ent.dock_kind);
+            if obj.dock_kind != dock_kind {
+                obj.dock_kind = dock_kind;
+                dirty = true;
+            }
+            if obj.capturable != ent.capturable {
+                obj.capturable = ent.capturable;
+                dirty = true;
+            }
+            if obj.immune_to_capture != ent.immune_to_capture {
+                obj.immune_to_capture = ent.immune_to_capture;
+                dirty = true;
+            }
+            if obj.capture_garrisonable != ent.capture_garrisonable {
+                obj.capture_garrisonable = ent.capture_garrisonable;
+                dirty = true;
+            }
+            let capture_power =
+                crate::game_logic::CapturePowerKind::from_ordinal(ent.capture_power);
+            if obj.capture_power != capture_power {
+                obj.capture_power = capture_power;
+                dirty = true;
+            }
+            if obj.capture_power_ready != ent.capture_power_ready {
+                obj.capture_power_ready = ent.capture_power_ready;
+                dirty = true;
+            }
+            if obj.hacker_disable_building_capable != ent.hacker_disable_building_capable {
+                obj.hacker_disable_building_capable = ent.hacker_disable_building_capable;
+                dirty = true;
+            }
+            if obj.hacker_disable_building_ready != ent.hacker_disable_building_ready {
+                obj.hacker_disable_building_ready = ent.hacker_disable_building_ready;
+                dirty = true;
+            }
+            let special_power_ready_template_name = (!ent.special_power_ready_template_name.is_empty())
+                .then_some(ent.special_power_ready_template_name.as_str());
+            if obj.special_power_ready_template_name.as_deref() != special_power_ready_template_name {
+                obj.special_power_ready_template_name = special_power_ready_template_name.map(str::to_owned);
+                dirty = true;
+            }
+            let special_power_ready_template_id = special_power_ready_template_name
+                .map(|_| ent.special_power_ready_template_id);
+            if obj.special_power_ready_template_id != special_power_ready_template_id {
+                obj.special_power_ready_template_id = special_power_ready_template_id;
+                dirty = true;
+            }
+        }
+        // Applied upgrade names residual.
+        if obj.applied_upgrades != ent.applied_upgrade_names {
+            obj.applied_upgrades = ent.applied_upgrade_names.clone();
+            dirty = true;
+        }
+        // Effectively stealthed residual from shadow flags.
+        let eff = ent.stealthed && !ent.detected && obj.disguise_as_template.is_none();
+        if obj.effectively_stealthed != eff {
+            obj.effectively_stealthed = eff;
+            dirty = true;
+        }
+        dirty
+    }
+
+    fn overlay_gameworld_players(
+        &mut self,
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+        mut updated: usize,
+    ) -> usize {
         // Local player residual from shadow (presentation last-writer).
         // Prefer local_player_id slot (same dense index as host player id residual).
         let local_pid = gamelogic::world::PlayerId::from_index(self.local_player_id as u8);
@@ -1288,11 +1310,13 @@ impl PresentationFrame {
             Some(ent.command_set_override.as_str()),
         )
         .unwrap_or_default();
+        let draw_models = Self::select_gameworld_draw_models(asset_manager, ent)
+            .unwrap_or_else(|| Self::gameworld_fallback_draw_models(asset_manager, ent, None));
         Self::renderable_from_gameworld_entity_with_command_set(
-            asset_manager,
             host_id,
             ent,
             command_set_name,
+            draw_models,
         )
     }
 
@@ -1315,11 +1339,44 @@ impl PresentationFrame {
             .clone()
     }
 
-    fn renderable_from_gameworld_entity_with_command_set(
+    /// An empty authored selection (or an unavailable catalogue lock) suppresses
+    /// every Draw module. Only a missing authored selection permits fallback.
+    fn select_gameworld_draw_models(
         asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+        ent: &gamelogic::world::entities::Entity,
+    ) -> Option<Vec<crate::assets::AuthoredDrawModel>> {
+        crate::assets::manager::select_presentation_draw_models_for_conditions(
+            asset_manager,
+            &ent.template.name,
+            ent.model_condition_bits,
+        )
+    }
+
+    fn gameworld_fallback_draw_models(
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+        ent: &gamelogic::world::entities::Entity,
+        model_key: Option<&str>,
+    ) -> Vec<crate::assets::AuthoredDrawModel> {
+        let model_key = crate::assets::mesh_asset_resolve::model_key_from_presentation(
+            asset_manager,
+            model_key,
+            &ent.template.name,
+        );
+        if model_key.trim().is_empty() {
+            return Vec::new();
+        }
+        vec![crate::assets::AuthoredDrawModel {
+            module_index: 0,
+            model_key,
+            ..Default::default()
+        }]
+    }
+
+    fn renderable_from_gameworld_entity_with_command_set(
         host_id: crate::game_logic::ObjectId,
         ent: &gamelogic::world::entities::Entity,
         command_set_name: String,
+        draw_models: Vec<crate::assets::AuthoredDrawModel>,
     ) -> RenderableObject {
         let team = match ent.team_ordinal {
             0 => crate::game_logic::Team::USA,
@@ -1342,23 +1399,6 @@ impl PresentationFrame {
             1.0
         };
         let moving = vel.length_squared() > 1e-6 || move_destination.is_some();
-        let fallback_model_key = crate::assets::mesh_asset_resolve::model_key_from_presentation(
-            asset_manager,
-            Some(ent.template.name.as_str()),
-            &ent.template.name,
-        );
-        let fallback_draw_models =
-            (!fallback_model_key.trim().is_empty()).then(|| crate::assets::AuthoredDrawModel {
-                module_index: 0,
-                model_key: fallback_model_key,
-                ..Default::default()
-            });
-        let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
-            asset_manager,
-            &ent.template.name,
-            fallback_draw_models.as_slice(),
-            ent.model_condition_bits,
-        );
         let model_key = draw_models.first().map(|model| model.model_key.clone());
         let kind_of: Vec<_> = Self::kinds_from_presentation_bits(ent.kind_of_bits).collect();
         RenderableObject {
@@ -1870,6 +1910,7 @@ impl PresentationFrame {
         shadow: &crate::gameworld_shadow::GameWorldShadow,
     ) -> usize {
         let existing: FxHashSet<u32> = self.objects.iter().map(|o| o.id.0).collect();
+        let asset_manager = self.asset_owner.0.as_deref();
         let mut appended = 0usize;
         let mut command_sets = FxHashMap::default();
         for ent in shadow.world().world().entities() {
@@ -1884,11 +1925,13 @@ impl PresentationFrame {
             }
             let command_set_name =
                 Self::template_command_set_name(&mut command_sets, &ent.template.name, ent);
+            let draw_models = Self::select_gameworld_draw_models(asset_manager, ent)
+                .unwrap_or_else(|| Self::gameworld_fallback_draw_models(asset_manager, ent, None));
             self.objects.push(Self::renderable_from_gameworld_entity_with_command_set(
-                self.asset_owner.0.as_deref(),
                 host_id,
                 ent,
                 command_set_name,
+                draw_models,
             ));
             appended += 1;
         }
@@ -2345,22 +2388,26 @@ impl PresentationFrame {
         stamped
     }
 
-    /// Rebuild the entire `objects` list from the GameWorld entity store (Wave 193).
-    ///
-    /// Host ObjectIds are preferred when the shadow map has them; otherwise
-    /// synthesizes `ObjectId(0x8000_0000 | entity_id)`. Counts land in
-    /// `gameworld_rebuilt`. Default engine path when shadow is live (Wave 194).
-    /// Fail-closed: sparse host-only FX/UI fields stay default unless host merge
-    /// fills them; not full playable_claim cutover.
-    /// Whether [`Self::rebuild_objects_from_gameworld`] would emit any entity.
-    fn gameworld_roster_nonempty(shadow: &crate::gameworld_shadow::GameWorldShadow) -> bool {
-        shadow
-            .world()
-            .world()
-            .entities()
-            .any(|ent| !(ent.destroyed && ent.health <= 0.0))
+    /// Keep host objects only if the following GameWorld rebuild needs the
+    /// empty-world fallback. Direct host drawables are frozen either way.
+    fn host_roster_for_gameworld(
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+    ) -> super::build::HostRoster {
+        if shadow.is_some_and(|shadow| {
+            shadow
+                .world()
+                .world()
+                .entities()
+                .any(|ent| !(ent.destroyed && ent.health <= 0.0))
+        }) {
+            super::build::HostRoster::DrawablesOnly
+        } else {
+            super::build::HostRoster::Keep
+        }
     }
 
+    /// Rebuild the `objects` list from the GameWorld entity store. Entities
+    /// without a host ID use `ObjectId(0x8000_0000 | entity_id)`.
     pub fn rebuild_objects_from_gameworld(
         &mut self,
         shadow: &crate::gameworld_shadow::GameWorldShadow,
@@ -2368,7 +2415,8 @@ impl PresentationFrame {
         let world = shadow.world().world();
         self.objects.clear();
         self.objects.reserve(world.entity_count());
-        let mut n = 0usize;
+        let asset_manager = self.asset_owner.0.as_deref();
+        let mut updated = 0;
         let mut command_sets = FxHashMap::default();
         for ent in world.entities() {
             if ent.destroyed && ent.health <= 0.0 {
@@ -2379,19 +2427,37 @@ impl PresentationFrame {
                 .unwrap_or_else(|| crate::game_logic::ObjectId(0x8000_0000 | ent.id.get()));
             let command_set_name =
                 Self::template_command_set_name(&mut command_sets, &ent.template.name, ent);
-            self.objects.push(Self::renderable_from_gameworld_entity_with_command_set(
-                self.asset_owner.0.as_deref(),
+            let authored = Self::select_gameworld_draw_models(asset_manager, ent);
+            let draw_models_are_current = authored.is_some()
+                || ent.model_key.trim().is_empty()
+                || ent.model_key.trim() == ent.template.name.trim();
+            let draw_models = authored
+                .unwrap_or_else(|| Self::gameworld_fallback_draw_models(asset_manager, ent, None));
+            let mut object = Self::renderable_from_gameworld_entity_with_command_set(
                 host_id,
                 ent,
                 command_set_name,
-            ));
-            n += 1;
+                draw_models,
+            );
+            let mapped = shadow.entity_for_host(host_id);
+            let changed = if mapped == Some(ent.id) {
+                Self::overlay_gameworld_object(
+                    &mut object,
+                    ent,
+                    shadow,
+                    asset_manager,
+                    draw_models_are_current,
+                )
+            } else {
+                Self::overlay_gameworld_object_by_id(&mut object, shadow, asset_manager, mapped)
+            };
+            updated += usize::from(changed);
+            self.objects.push(object);
         }
+        let n = self.objects.len();
         self.gameworld_rebuilt = n;
         self.gameworld_primary_objects = n > 0 || self.gameworld_primary_objects;
-        // Overlay last-writer stamps player residual + any fields the sparse builder
-        // still defaults (keeps one code path for shadow → presentation identity).
-        let _ = self.overlay_gameworld_shadow(shadow);
+        self.overlay_gameworld_players(shadow, updated);
         n
     }
 
@@ -2446,13 +2512,14 @@ impl PresentationFrame {
         camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
         let mut frame = if let Some(logic) = host.as_deref_mut() {
-            Self::build_from_logic_with_tint_update(
+            Self::build_from_logic_with_host_roster(
                 logic,
                 local_player_id,
                 runtime_heightmap,
                 false,
                 discharges,
                 camera_fade,
+                Self::host_roster_for_gameworld(Some(shadow)),
             )
         } else {
             // A no-host shell frame cannot reuse a host terrain payload.
@@ -2639,21 +2706,13 @@ impl PresentationFrame {
         camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
         let gameworld_roster = shadow.filter(|_| presentation_from_gameworld_enabled());
-        // The rebuild below replaces the host roster whenever it yields any
-        // entity, so the host `objects` list is only needed as the empty-
-        // shadow fallback (Wave 838).
-        let host_roster = if gameworld_roster.is_some_and(Self::gameworld_roster_nonempty) {
-            super::build::HostRoster::DrawablesOnly
-        } else {
-            super::build::HostRoster::Keep
-        };
         let mut frame = Self::build_with_victory_with_tint_update(
             logic,
             local_player_id,
             runtime_heightmap,
             false,
             camera_fade,
-            host_roster,
+            Self::host_roster_for_gameworld(gameworld_roster),
         );
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {

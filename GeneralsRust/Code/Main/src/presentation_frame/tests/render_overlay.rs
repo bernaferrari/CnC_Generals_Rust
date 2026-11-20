@@ -1083,6 +1083,59 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
 }
 
 #[test]
+fn gameworld_rebuild_matches_sparse_roster_then_overlay() {
+    use crate::game_logic::Object;
+    use gamelogic::world::entities::{TemplateRef, Transform};
+
+    let mut logic = GameLogic::new();
+    let mut template = ThingTemplate::new("PublicationSource");
+    template.set_health(100.0);
+    let id = ObjectId(42);
+    logic.add_object(Object::new(template, id, Team::USA));
+    let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let mapped = shadow.entity_for_host(id).expect("mapped host object");
+    let world = shadow.world_mut().world_mut();
+    let entity = world.entity_mut(mapped).expect("mapped entity");
+    entity.model_key = "publication_override".into();
+    entity.command_set_override = "Command_Publication".into();
+    let unmapped = world.spawn_entity(
+        TemplateRef::new("PublicationUnmapped"),
+        None,
+        Transform::new([10.0, 2.0, 3.0], 0.25),
+        20.0,
+    );
+    world.entity_mut(unmapped).unwrap().model_key = "unmapped_override".into();
+
+    let mut expected = PresentationFrame::build_from_logic(&mut logic, 0);
+    expected.objects = shadow
+        .world()
+        .world()
+        .entities()
+        .map(|entity| {
+            let host_id = shadow
+                .host_for_entity(entity.id)
+                .unwrap_or_else(|| ObjectId(0x8000_0000 | entity.id.get()));
+            PresentationFrame::renderable_from_gameworld_entity(None, host_id, entity)
+        })
+        .collect();
+    let expected_stamps = expected.overlay_gameworld_shadow(&shadow);
+    let mut actual = PresentationFrame::build_from_logic(&mut logic, 0);
+    assert_eq!(actual.rebuild_objects_from_gameworld(&shadow), 2);
+    assert_eq!(actual.objects, expected.objects);
+    assert_eq!(actual.gameworld_overlay_stamped, expected_stamps);
+    let object = actual.objects.iter().find(|object| object.id == id).unwrap();
+    assert_eq!(object.model_key.as_deref(), Some("publication_override"));
+    assert_eq!(object.command_set_override, "Command_Publication");
+    let object = actual
+        .objects
+        .iter()
+        .find(|object| object.id == ObjectId(0x8000_0000 | unmapped.get()))
+        .unwrap();
+    assert_eq!(object.model_key.as_deref(), Some("PublicationUnmapped"));
+}
+
+#[test]
 fn gameworld_primary_presentation_retains_unattackable_weaponset_override() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::gameworld_shadow::GameWorldShadow;

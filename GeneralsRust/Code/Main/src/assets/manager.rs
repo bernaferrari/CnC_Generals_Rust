@@ -2620,18 +2620,23 @@ pub fn resolve_presentation_draw_models_for_conditions(
             .collect()
     };
 
-    let Some(asset_manager) = asset_manager else {
-        return fallback();
-    };
-    let Ok(asset_manager) = asset_manager.lock() else {
-        // The catalogue exists but cannot be queried reliably. Rendering a
-        // fallback could turn a damaged/construction state into pristine art.
-        return Vec::new();
-    };
-
-    asset_manager
-        .select_draw_models_for_object_conditions(object_name, condition_bits)
+    select_presentation_draw_models_for_conditions(asset_manager, object_name, condition_bits)
         .unwrap_or_else(fallback)
+}
+
+/// A missing selection permits fallback. A poisoned catalogue suppresses Draw
+/// modules because a fallback could substitute pristine art for a damaged state.
+pub(crate) fn select_presentation_draw_models_for_conditions(
+    asset_manager: Option<&Mutex<AssetManager>>,
+    object_name: &str,
+    condition_bits: u128,
+) -> Option<Vec<AuthoredDrawModel>> {
+    match asset_manager?.lock() {
+        Ok(asset_manager) => {
+            asset_manager.select_draw_models_for_object_conditions(object_name, condition_bits)
+        }
+        Err(_) => Some(Vec::new()),
+    }
 }
 
 /// Apply C++ `setModelState` TransitionState playback to already-selected dest
