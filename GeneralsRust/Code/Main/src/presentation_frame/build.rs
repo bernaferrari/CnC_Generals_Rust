@@ -348,7 +348,7 @@ impl PresentationFrame {
         // One borrow freezes all shroud facts, then releases the manager before
         // gameplay queries. The vectors use the same unchanged object traversal;
         // rendering consumes values without locks or ambient world selection.
-        let (fow_grid, frozen_object_shrouds) = {
+        let (fow_grid, mut frozen_object_shrouds) = {
             let manager = logic.world_services.shroud().lock().ok();
             let shroud = manager.as_deref();
             let grid = FOWRenderingBridge::snapshot_terrain_grid(
@@ -396,6 +396,9 @@ impl PresentationFrame {
                 .collect();
             (grid, objects)
         };
+        // Sort the borrowed inputs once before constructing either output roster.
+        // The stable order remains ObjectId, including ties in diagnostic fixtures.
+        frozen_object_shrouds.sort_by_key(|(object, _, _)| object.id.0);
         // C++ W3DShroud copies logical cells into a padded destination texture
         // before per-object material passes sample it.  Freeze that complete
         // renderer input here, including GlobalData tint/levels, so WGPU never
@@ -1217,10 +1220,6 @@ impl PresentationFrame {
             let capture = super::physics_visual_host::HostPhysicsVisualState::capture(logic);
             logic.host_physics_visuals.freeze(capture)
         };
-        // Stable presentation order for determinism (by ObjectId).
-        objects.sort_by_key(|o| o.id.0);
-        direct_host_drawables.sort_by_key(|drawable| drawable.object.id.0);
-
         let local = logic.get_player(local_player_id);
         let receiving_science_player = local.and_then(|player| {
             logic.receiving_module_content.as_ref().map(|content| {
