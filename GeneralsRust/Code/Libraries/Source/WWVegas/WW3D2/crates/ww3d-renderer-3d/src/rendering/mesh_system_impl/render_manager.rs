@@ -277,6 +277,11 @@ impl RenderPassResources {
     }
 }
 
+struct ProjectedShroudTextureGroup {
+    pipeline: Arc<wgpu::RenderPipeline>,
+    bind_group: Arc<wgpu::BindGroup>,
+}
+
 pub struct MeshRenderManager {
     gpu_device: Arc<GpuDevice>,
     pub renderer_3d: Option<Arc<crate::process_state::Renderer3dRuntime>>,
@@ -316,6 +321,9 @@ pub struct MeshRenderManager {
     /// retaining it here closes the resource-ownership ingress without a live
     /// simulation query or scalar substitute.
     projected_shroud: Option<crate::rendering::projected_shroud::FrozenProjectedShroudTexture>,
+    /// Group 3 binds only the installed sampler/view. Rigid and skinned
+    /// pipelines each have a private layout even when sharing those inputs.
+    projected_shroud_texture_groups: [Option<ProjectedShroudTextureGroup>; 2],
 
     /// Warn-once dedup for missing-texture binds, keyed by
     /// (lowercased texture name, reason). Mirrors C++ WW3D's single
@@ -390,6 +398,7 @@ impl MeshRenderManager {
             last_shadow_volume_quads: 0,
 
             projected_shroud: None,
+            projected_shroud_texture_groups: [None, None],
         }
     }
 
@@ -397,6 +406,17 @@ impl MeshRenderManager {
         &mut self,
         projected_shroud: Option<crate::rendering::projected_shroud::FrozenProjectedShroudTexture>,
     ) {
+        let same_resources = self
+            .projected_shroud
+            .as_ref()
+            .zip(projected_shroud.as_ref())
+            .is_some_and(|(current, next)| {
+                Arc::ptr_eq(current.texture_view(), next.texture_view())
+                    && Arc::ptr_eq(current.sampler(), next.sampler())
+            });
+        if !same_resources {
+            self.projected_shroud_texture_groups = [None, None];
+        }
         self.projected_shroud = projected_shroud;
     }
 
@@ -924,7 +944,24 @@ impl MeshRenderManager {
             resources.set_bind_group(render_pass, 2, Arc::clone(&binds.bind_group));
         }
 
-        let projected_group = self.create_projected_shroud_bind_group(pipeline.as_ref(), projected);
+        let projected_kind = usize::from(prepared.is_skinned);
+        let texture_group = &self.projected_shroud_texture_groups[projected_kind];
+        let projected_group = match texture_group {
+            Some(cached) if Arc::ptr_eq(&cached.pipeline, &pipeline) => Arc::clone(&cached.bind_group),
+            _ => {
+                let bind_group = self.create_projected_shroud_bind_group(pipeline.as_ref(), projected);
+                #[cfg(test)]
+                {
+                    self.stats.projected_shroud_texture_binds_created += 1;
+                }
+                self.projected_shroud_texture_groups[projected_kind] =
+                    Some(ProjectedShroudTextureGroup {
+                        pipeline: Arc::clone(&pipeline),
+                        bind_group: Arc::clone(&bind_group),
+                    });
+                bind_group
+            }
+        };
         resources.set_bind_group(render_pass, 3, projected_group);
 
         resources.set_vertex_buffer(render_pass, 0, Arc::clone(&prepared.vertex_buffer));

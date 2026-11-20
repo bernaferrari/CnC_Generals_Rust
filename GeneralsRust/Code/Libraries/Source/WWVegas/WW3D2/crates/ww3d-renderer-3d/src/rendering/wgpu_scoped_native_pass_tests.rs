@@ -127,6 +127,130 @@ fn authored_material_and_instance_opacity_multiply_once_on_gpu() {
 
 #[test]
 #[ignore = "requires a native GPU; run explicitly with --include-ignored"]
+fn projected_texture_groups_are_reused_by_live_rigid_and_skinned_draws() {
+    use crate::rendering::projected_shroud::{
+        FrozenProjectedShroudTexture, ProjectedShroudProjection,
+    };
+    use crate::rendering::shader_system::shader::ShaderClass;
+
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 16,
+        height: 16,
+        color_format: Some(wgpu::TextureFormat::Rgba8Unorm),
+        ..Default::default()
+    })
+    .expect("native projected texture groups require a headless GPU");
+    let mut first = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let mut peer = WgpuMainRenderer::from_engine(engine, Default::default()).unwrap();
+    for renderer in [&mut first, &mut peer] {
+        let mut camera = CameraClass::new();
+        camera.set_clip_planes(0.1, 100.0);
+        camera.set_view_matrix(glam::Mat4::IDENTITY);
+        camera.set_projection_matrix(glam::Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0));
+        renderer.renderer.lock().unwrap().set_camera(camera);
+    }
+    let mesh = |name, skinned| {
+        let mut mesh = authored_static_mesh(name, mesh_system::SORT_LEVEL_NONE, glam::Vec3::ONE);
+        let mesh_mut = Arc::get_mut(&mut mesh).unwrap();
+        mesh_mut.set_projected_shroud_eligible(true);
+        let model = Arc::get_mut(mesh_mut.model.as_mut().unwrap()).unwrap();
+        model.material_passes[0].shader = ShaderClass::get_opaque_shader();
+        Arc::get_mut(model.material_passes[0].vertex_material.as_mut().unwrap())
+            .unwrap()
+            .opacity = 1.0;
+        if skinned {
+            model.set_vertex_bone_links(vec![0; model.vertices.len()]);
+            mesh_mut.set_bone_palette_slice(&[glam::Mat4::IDENTITY]);
+        }
+        mesh
+    };
+    let rigid = mesh("projected-rigid", false);
+    let skinned = mesh("projected-skinned", true);
+
+    let make_mask = |device: &wgpu::Device| {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("projected-material-owner-mask"),
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        })
+    };
+    let write_mask = |renderer: &WgpuMainRenderer, mask: &wgpu::Texture, level| {
+        renderer.queue().write_texture(
+            mask.as_image_copy(),
+            &[level],
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(1), rows_per_image: Some(1) },
+            mask.size(),
+        );
+    };
+    let first_mask = make_mask(&first.device());
+    let peer_mask = make_mask(&peer.device());
+    write_mask(&first, &first_mask, 128);
+    write_mask(&peer, &peer_mask, 192);
+    let first_view = Arc::new(first_mask.create_view(&Default::default()));
+    let peer_view = Arc::new(peer_mask.create_view(&Default::default()));
+    let sampler = Arc::new(first.device().create_sampler(&Default::default()));
+    let second_sampler = Arc::new(first.device().create_sampler(&Default::default()));
+    let binding = |view: &Arc<wgpu::TextureView>, sampler: &Arc<wgpu::Sampler>, revision| {
+        FrozenProjectedShroudTexture::new(
+            Arc::clone(view),
+            Arc::clone(sampler),
+            ProjectedShroudProjection::from_cpp_grid([0.0; 2], [10.0; 2], (1, 1), [255; 3], revision)
+                .unwrap(),
+        )
+    };
+    let draw = |renderer: &mut WgpuMainRenderer, shroud: Option<FrozenProjectedShroudTexture>| {
+        let draws = if shroud.is_some() { 32 } else { 16 };
+        renderer.begin_frame().unwrap();
+        {
+            let mut inner = renderer.renderer.lock().unwrap();
+            inner.set_projected_shroud(shroud);
+            for _ in 0..8 {
+                inner.queue_mesh(Arc::clone(&rigid)).unwrap();
+                inner.queue_mesh(Arc::clone(&skinned)).unwrap();
+            }
+        }
+        let readback = static_sort_pixel_readback(renderer);
+        renderer.end_frame().unwrap();
+        assert_eq!(renderer.stats().draw_calls, draws, "native mesh and shroud draw count");
+        let binds = renderer.renderer.lock().unwrap().mesh_stats().projected_shroud_texture_binds_created;
+        (binds, mapped_static_sort_pixel(renderer, &readback))
+    };
+
+    let before = draw(&mut first, Some(binding(&first_view, &sampler, 1)));
+    let repeat = draw(&mut first, Some(binding(&first_view, &sampler, 1)));
+    let peer_before = draw(&mut peer, Some(binding(&peer_view, &sampler, 1)));
+    write_mask(&first, &first_mask, 96);
+    let update = draw(&mut first, Some(binding(&first_view, &sampler, 2)));
+    let sampler_change = draw(&mut first, Some(binding(&first_view, &second_sampler, 2)));
+    let view_change = draw(&mut first, Some(binding(&peer_view, &second_sampler, 2)));
+    let restore = draw(&mut first, Some(binding(&first_view, &second_sampler, 2)));
+    let clear = draw(&mut first, None);
+    let after_clear = draw(&mut first, Some(binding(&first_view, &second_sampler, 2)));
+    let peer_repeat = draw(&mut peer, Some(binding(&peer_view, &sampler, 1)));
+    eprintln!("projected texture-group allocations and actual draw pixels: {:?}",
+        [before, repeat, peer_before, update, sampler_change, view_change, restore, clear, after_clear, peer_repeat]);
+    assert_eq!(before.1, repeat.1);
+    assert_eq!(update.1, sampler_change.1);
+    assert_eq!(update.1, restore.1);
+    assert_eq!(view_change.1, peer_before.1);
+    assert_eq!(peer_repeat.1, peer_before.1);
+    assert_eq!(after_clear.1, update.1);
+    assert!(update.1[0] < before.1[0] && before.1[0] < peer_before.1[0]);
+    assert!(peer_before.1[0] < clear.1[0]);
+    assert_eq!(
+        [before.0, repeat.0, peer_before.0, update.0, sampler_change.0, view_change.0, restore.0, clear.0, after_clear.0, peer_repeat.0],
+        [2, 0, 2, 0, 2, 2, 2, 0, 2, 0],
+        "one group per actual pipeline, bound only when the frozen resources change",
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; run explicitly with --include-ignored"]
 fn public_mesh_queue_static_sort_is_owner_local_ordered_and_flushes_once() {
     use crate::rendering::frame_graph::FrameGraphPass;
     use crate::rendering::mesh_system::StaticSortManager;
