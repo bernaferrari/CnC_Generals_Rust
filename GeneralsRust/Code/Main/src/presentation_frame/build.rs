@@ -298,6 +298,45 @@ impl PresentationFrame {
         })
     }
 
+    #[cfg(feature = "game_client")]
+    pub(super) fn inventory_occupants_for(
+        logic: &GameLogic,
+        objects: &[RenderableObject],
+    ) -> std::collections::HashMap<
+        u32,
+        game_client::gui::control_bar::StructureInventoryOccupant,
+    > {
+        use game_client::gui::control_bar::StructureInventoryOccupant;
+        use std::collections::hash_map::Entry;
+
+        // ControlBarCommand.cpp iterates the transport's actual occupants.
+        // Drawable-hidden passengers retain their registered Object and portrait.
+        let mut portraits = std::collections::HashMap::new();
+        let registered = logic.host_objects();
+        for id in objects.iter().flat_map(|object| &object.garrisoned_units) {
+            let Entry::Vacant(entry) = portraits.entry(id.0) else {
+                continue;
+            };
+            let Some(object) = registered.lookup_registered(id) else {
+                continue;
+            };
+            let button_image = logic
+                .receiving_module_content
+                .as_ref()
+                .and_then(|content| content.admitted_template(&object.template_name))
+                .map(|template| template.button_image_name().to_owned())
+                .unwrap_or_default();
+            entry.insert(StructureInventoryOccupant {
+                object_id: object.id.0,
+                button_image,
+                overlay_image: PresentationVeterancy::from_host(object.experience.level)
+                    .chevron_overlay()
+                    .map(str::to_owned),
+            });
+        }
+        portraits
+    }
+
     pub(super) fn build_from_logic_with_tint_update(
         logic: &mut GameLogic,
         local_player_id: u32,
@@ -1886,28 +1925,7 @@ impl PresentationFrame {
         #[cfg(feature = "game_client")]
         let receiving_shortcuts = super::shortcuts::freeze(logic, local_player_id);
         #[cfg(feature = "game_client")]
-        let inventory_occupants = logic
-            .host_objects()
-            .registered_values()
-            .map(|object| {
-                let button_image = logic
-                    .receiving_module_content
-                    .as_ref()
-                    .and_then(|content| content.admitted_template(&object.template_name))
-                    .map(|template| template.button_image_name().to_owned())
-                    .unwrap_or_default();
-                (
-                    object.id.0,
-                    game_client::gui::control_bar::StructureInventoryOccupant {
-                        object_id: object.id.0,
-                        button_image,
-                        overlay_image: PresentationVeterancy::from_host(object.experience.level)
-                            .chevron_overlay()
-                            .map(str::to_owned),
-                    },
-                )
-            })
-            .collect();
+        let inventory_occupants = Self::inventory_occupants_for(logic, &objects);
         #[cfg(feature = "game_client")]
         let disabled_only_underpowered = logic
             .host_objects()

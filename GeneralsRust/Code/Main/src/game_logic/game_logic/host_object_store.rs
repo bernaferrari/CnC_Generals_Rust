@@ -402,6 +402,13 @@ impl<'a> HostObjectRead<'a> {
     pub fn lookup(self, id: &ObjectId) -> Option<&'a Object> {
         self.store.lookup(id)
     }
+
+    /// Resolve an Object still on the receiving registration list, including
+    /// the interval where C++ reset hides ordinary ObjectID lookup.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn lookup_registered(self, id: &ObjectId) -> Option<&'a Object> {
+        self.store.get_registered(id)
+    }
     pub fn registered(
         self,
     ) -> impl DoubleEndedIterator<Item = (&'a ObjectId, &'a Object)> + ExactSizeIterator + 'a {

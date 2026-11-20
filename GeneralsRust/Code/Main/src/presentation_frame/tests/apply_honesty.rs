@@ -959,6 +959,7 @@ fn presentation_feeds_control_bar_garrison_inventory() {
         bd.garrisoned_units.push(ranger);
         o.building_data = Some(bd);
     }
+    logic.host_object_mut(ranger).unwrap().drawable_hidden = true;
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![bunker];
     }
@@ -970,6 +971,13 @@ fn presentation_feeds_control_bar_garrison_inventory() {
 
     #[cfg(feature = "game_client")]
     {
+        assert_eq!(frame.inventory_occupants.len(), 1);
+        assert!(frame.inventory_occupants.contains_key(&ranger.0));
+        let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let shadow_frame = PresentationFrame::build_for_engine(&mut logic, 0, Some(&shadow));
+        assert_eq!(shadow_frame.inventory_occupants, frame.inventory_occupants);
+
         let owner = game_client::gui::window_manager::WindowManagerOwner::new();
         game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             owner.with_manager(|manager| {

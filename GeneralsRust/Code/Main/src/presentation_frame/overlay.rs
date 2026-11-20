@@ -2342,6 +2342,10 @@ impl PresentationFrame {
                 stamped += 1;
             }
         }
+        #[cfg(feature = "game_client")]
+        {
+            self.inventory_occupants = Self::inventory_occupants_for(logic, &self.objects);
+        }
         stamped
     }
 
