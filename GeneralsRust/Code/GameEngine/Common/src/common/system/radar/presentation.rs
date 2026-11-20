@@ -10,7 +10,7 @@ pub struct RadarPresentation {
     x_sample: f32,
     y_sample: f32,
     terrain_average_z: f32,
-    terrain_samples: Vec<RadarTerrainSample>,
+    terrain_samples: Arc<Vec<RadarTerrainSample>>,
     local_object_list: Vec<RadarObject>,
     current_frame: u32,
     terrain_generation: u64,
@@ -20,7 +20,7 @@ pub struct RadarPresentation {
     local_has_radar: bool,
     last_event: Option<Coord3D>,
     events: Vec<RadarEvent>,
-    terrain: Vec<u8>,
+    terrain: Arc<Vec<u8>>,
     overlay: Vec<u8>,
     shroud: Vec<u8>,
 }
@@ -62,7 +62,7 @@ impl RadarSystem {
             local_object_list: self.local_object_list.clone(),
             last_event: self.get_last_event_loc(),
             events: self.drawable_events().into_iter().cloned().collect(),
-            terrain: self.get_terrain_texture().to_vec(),
+            terrain: Arc::clone(&self.terrain_texture),
             overlay: self.build_object_overlay_texture_rgba(),
             shroud: self.build_shroud_texture_rgba(),
         }
@@ -350,5 +350,31 @@ mod tests {
             radar.build_shroud_texture_rgba(),
             frozen.build_shroud_texture_rgba()
         );
+    }
+
+    #[test]
+    fn radar_presentations_share_terrain_until_the_owner_replaces_it() {
+        let mut radar = RadarSystem::new();
+        let lo = Coord3D::new(0.0, 0.0, 0.0);
+        let hi = Coord3D::new(128.0, 128.0, 128.0);
+        let sample_count = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
+        let position = ICoord2D::new(20, 40);
+
+        radar.new_map_owned(lo, hi, &vec![(0.0, 36.0, false); sample_count]);
+        let before = radar.presentation();
+        let repeated = radar.presentation();
+        assert!(Arc::ptr_eq(&before.terrain, &repeated.terrain));
+        assert!(Arc::ptr_eq(&before.terrain_samples, &repeated.terrain_samples));
+        assert_eq!(before.radar_to_world(&position).unwrap().z, 36.0);
+        let first_pixel: [u8; 4] = before.get_terrain_texture()[..4].try_into().unwrap();
+        assert_eq!(first_pixel[3], 255);
+
+        radar.clear_terrain_texture_rgba();
+        assert_eq!(&radar.presentation().get_terrain_texture()[..4], &[0; 4]);
+        radar.new_map_owned(lo, hi, &vec![(0.0, 82.0, false); sample_count]);
+        let after = radar.presentation();
+        assert_eq!(after.radar_to_world(&position).unwrap().z, 82.0);
+        assert_eq!(before.radar_to_world(&position).unwrap().z, 36.0);
+        assert_eq!(before.get_terrain_texture()[..4], first_pixel);
     }
 }

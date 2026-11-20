@@ -1011,10 +1011,10 @@ pub struct RadarSystem {
     current_frame: u32,
 
     /// Terrain texture data (RGBA8)
-    terrain_texture: Vec<u8>,
+    terrain_texture: Arc<Vec<u8>>,
 
     /// Optional per-cell terrain samples for terrain-texture generation.
-    terrain_samples: Vec<RadarTerrainSample>,
+    terrain_samples: Arc<Vec<RadarTerrainSample>>,
 
     /// Is terrain texture dirty
     terrain_dirty: bool,
@@ -1106,8 +1106,8 @@ impl RadarSystem {
             radar_force_on: false,
             queue_terrain_refresh_frame: None,
             current_frame: 0,
-            terrain_texture: vec![0; (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT * 4) as usize],
-            terrain_samples: Vec::new(),
+            terrain_texture: Arc::new(vec![0; (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT * 4) as usize]),
+            terrain_samples: Arc::new(Vec::new()),
             terrain_dirty: true,
             terrain_generation: 0,
             shroud_revision: 0,
@@ -1508,7 +1508,7 @@ impl RadarSystem {
     /// resource. Keep this separate from `reset` because the base `Radar` reset does not
     /// own device surfaces.
     pub fn clear_terrain_texture_rgba(&mut self) {
-        self.terrain_texture.fill(0);
+        Arc::make_mut(&mut self.terrain_texture).fill(0);
         self.terrain_generation = self.terrain_generation.wrapping_add(1);
     }
 

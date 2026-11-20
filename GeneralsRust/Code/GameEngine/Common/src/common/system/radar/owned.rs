@@ -152,16 +152,14 @@ impl RadarSystem {
             0.0
         };
 
-        self.terrain_samples.clear();
-        if full_grid {
-            self.terrain_samples.reserve(expected_samples);
-            for &(_x, z, is_water) in terrain_heights {
-                self.terrain_samples.push(RadarTerrainSample {
-                    height: z,
-                    is_water,
-                });
-            }
-        }
+        self.terrain_samples = Arc::new(if full_grid {
+            terrain_heights
+                .iter()
+                .map(|&(_, height, is_water)| RadarTerrainSample { height, is_water })
+                .collect()
+        } else {
+            Vec::new()
+        });
 
         self.terrain_dirty = true;
         if owned {

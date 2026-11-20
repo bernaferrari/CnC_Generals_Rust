@@ -82,7 +82,7 @@ impl RadarSystem {
         source: Option<&dyn RadarTerrainPaintSource>,
         water: [f32; 3],
     ) {
-        let expected = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
+        let mut texture = self.terrain_texture.as_ref().clone();
         let hi_z = self.map_extent.hi.z;
         let lo_z = self.map_extent.lo.z;
         let mid_z = self.terrain_average_z;
@@ -176,16 +176,16 @@ impl RadarSystem {
                 };
 
                 let base = ((y as u32 * RADAR_CELL_WIDTH + x as u32) * 4) as usize;
-                if base + 3 < self.terrain_texture.len() {
-                    self.terrain_texture[base] = (color[0] * 255.0).clamp(0.0, 255.0) as u8;
-                    self.terrain_texture[base + 1] = (color[1] * 255.0).clamp(0.0, 255.0) as u8;
-                    self.terrain_texture[base + 2] = (color[2] * 255.0).clamp(0.0, 255.0) as u8;
-                    self.terrain_texture[base + 3] = 255;
+                if let Some(pixel) = texture.get_mut(base..base + 4) {
+                    pixel[0] = (color[0] * 255.0).clamp(0.0, 255.0) as u8;
+                    pixel[1] = (color[1] * 255.0).clamp(0.0, 255.0) as u8;
+                    pixel[2] = (color[2] * 255.0).clamp(0.0, 255.0) as u8;
+                    pixel[3] = 255;
                 }
             }
         }
 
-        let _ = expected;
+        self.terrain_texture = Arc::new(texture);
         self.terrain_dirty = false;
         self.terrain_generation = self.terrain_generation.wrapping_add(1);
     }

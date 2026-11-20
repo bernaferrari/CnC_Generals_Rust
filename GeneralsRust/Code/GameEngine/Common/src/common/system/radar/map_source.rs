@@ -106,11 +106,13 @@ impl RadarSystem {
             return false;
         }
         // C++ refreshTerrain repaints using the averages established by newMap.
-        self.terrain_samples = source
-            .sample_grid(self.map_extent.lo, self.x_sample, self.y_sample)
-            .into_iter()
-            .map(|(_, height, is_water)| super::RadarTerrainSample { height, is_water })
-            .collect();
+        self.terrain_samples = std::sync::Arc::new(
+            source
+                .sample_grid(self.map_extent.lo, self.x_sample, self.y_sample)
+                .into_iter()
+                .map(|(_, height, is_water)| super::RadarTerrainSample { height, is_water })
+                .collect(),
+        );
         self.terrain_dirty = true;
         true
     }
