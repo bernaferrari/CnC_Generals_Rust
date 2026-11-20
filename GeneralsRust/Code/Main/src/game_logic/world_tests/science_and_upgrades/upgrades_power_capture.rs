@@ -2181,7 +2181,7 @@ fn actively_constructing_bit_on_dozer_and_factory() {
 }
 
 #[test]
-fn under_construction_sets_partial_and_active_model_bits() {
+fn scaffold_model_conditions_follow_cpp_placement_start_and_completion() {
     use crate::game_logic::host_enum_table_residual::{
         actively_being_constructed_model_bit, awaiting_construction_model_bit,
         host_model_condition_has, partially_constructed_model_bit,
@@ -2211,14 +2211,14 @@ fn under_construction_sets_partial_and_active_model_bits() {
         .expect("pp");
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_status_under_construction(true);
-        o.construction_percent = 0.1;
+        o.construction_percent = 0.0;
     }
-    // No dozer → awaiting
+    // C++ DozerAIUpdate::construct and WorkerAIUpdate::construct.
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_under_construction_model_conditions(false);
     }
     let o = logic.host_object(sid).expect("o");
-    assert!(host_model_condition_has(
+    assert!(!host_model_condition_has(
         o.model_condition_bits,
         partially_constructed_model_bit()
     ));
@@ -2230,11 +2230,15 @@ fn under_construction_sets_partial_and_active_model_bits() {
         o.model_condition_bits,
         actively_being_constructed_model_bit()
     ));
-    // With dozer active residual
+    // The constructor can arrive before progress advances.
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_under_construction_model_conditions(true);
     }
     let o = logic.host_object(sid).expect("o2");
+    assert!(host_model_condition_has(
+        o.model_condition_bits,
+        partially_constructed_model_bit()
+    ));
     assert!(host_model_condition_has(
         o.model_condition_bits,
         actively_being_constructed_model_bit()

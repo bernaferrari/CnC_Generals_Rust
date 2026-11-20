@@ -1050,12 +1050,6 @@ impl Object {
         true
     }
 
-    /// C++ BuildAssistant/Dozer construction model-condition residual.
-    ///
-    /// - With active dozer nearby: PARTIALLY_CONSTRUCTED + ACTIVELY_BEING_CONSTRUCTED
-    /// - Without dozer (waiting): AWAITING_CONSTRUCTION + PARTIALLY_CONSTRUCTED
-    /// - Clears ACTIVELY_BEING when dozer leaves.
-
     /// C++ MODELCONDITION_ACTIVELY_CONSTRUCTING residual (dozer or factory).
 
     /// C++ BuildAssistant sell scaffold model residual (start of sell).
@@ -1166,6 +1160,9 @@ impl Object {
         self.refresh_model_condition_bits();
     }
 
+    /// DozerAIUpdate and WorkerAIUpdate start a newly placed scaffold in
+    /// AWAITING_CONSTRUCTION. Arrival replaces it with PARTIALLY_CONSTRUCTED
+    /// and ACTIVELY_BEING_CONSTRUCTED.
     pub fn set_under_construction_model_conditions(&mut self, actively_built: bool) {
         use crate::game_logic::host_enum_table_residual::{
             actively_being_constructed_model_bit, awaiting_construction_model_bit,
@@ -1180,9 +1177,8 @@ impl Object {
         self.model_condition_bits &= !(1u128 << part_b);
         self.model_condition_bits &= !(1u128 << active_b);
         self.model_condition_bits &= !(1u128 << complete_b);
-        self.model_condition_bits |= 1u128 << part_b;
         if actively_built {
-            self.model_condition_bits |= 1u128 << active_b;
+            self.model_condition_bits |= (1u128 << part_b) | (1u128 << active_b);
         } else {
             self.model_condition_bits |= 1u128 << await_b;
         }
