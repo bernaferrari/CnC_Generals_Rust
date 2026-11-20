@@ -186,6 +186,8 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                 .unwrap()
         },
     );
+    let mut audio = game_engine::common::audio::AudioManager::new();
+    audio.init();
     with_physical_retirement_view(
         &mut client,
         &mut pipeline,
@@ -213,8 +215,9 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                 rack,
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
+                    audio: Some(&mut audio),
                     ..Default::default()
-},
+                },
             ).unwrap());
             let object = &world.objects[&jet];
             assert_eq!(
@@ -325,12 +328,15 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
             );
             assert_eq!(peer.objects[&peer_jet].health.current, 35.);
             assert!(!peer.has_pending_object_removals());
+            let mut peer_audio = game_engine::common::audio::AudioManager::new();
+            peer_audio.init();
             assert!(peer.start_sell_object_with_effects(
                 peer_rack,
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
+                    audio: Some(&mut peer_audio),
                     ..Default::default()
-},
+                },
             ).unwrap());
             assert_eq!(peer.objects[&peer_jet].health.current, 0.);
             assert_eq!(

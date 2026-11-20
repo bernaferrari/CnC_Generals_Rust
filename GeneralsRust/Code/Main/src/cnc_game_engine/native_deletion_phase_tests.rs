@@ -260,7 +260,15 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
             ("AIPhaseUnrelated", "VEHICLE"),
         ];
         let text = definitions.into_iter().map(|(name, kind)| {
-            format!("Object {name}\nKindOf = {kind}\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nDraw = W3DModelDraw DrawTag\nDefaultConditionState\nModel = CameraModel\nEnd\nEnd\nEnd\n")
+            let supply_behaviors = if name == "AmericaSupplyCenter" {
+                "Behavior = SpawnBehavior SpawnTag\n\
+                 OneShot = Yes\nSpawnNumber = 1\nSpawnTemplateName = AmericaVehicleChinook\nEnd\n\
+                 Behavior = SupplyCenterProductionExitUpdate ExitTag\n\
+                 UnitCreatePoint = X:0 Y:0 Z:0\nNaturalRallyPoint = X:30 Y:0 Z:0\nEnd\n"
+            } else {
+                ""
+            };
+            format!("Object {name}\nKindOf = {kind}\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\n{supply_behaviors}Draw = W3DModelDraw DrawTag\nDefaultConditionState\nModel = CameraModel\nEnd\nEnd\nEnd\n")
         }).collect::<String>();
         let mut world = GameLogic::new();
         world
@@ -423,8 +431,20 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut probe),
                     ..Default::default()
-},
+                },
             );
+            assert!(!probe.births.iter().any(|name| name == "AmericaVehicleChinook"));
+            assert_eq!(world.ai_manager.ai_players[&1].next_team_queue_time, 999.);
+            // SpawnBehavior.cpp:186-247 admits the collector on its first update.
+            world.frame += 1;
+            world
+                .update_spawn_behavior_with_effects(
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(&mut probe),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
             for name in [
                 "AmericaCommandCenter",
                 "AmericaSupplyCenter",

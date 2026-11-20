@@ -1051,6 +1051,8 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
     assert_eq!(reborn, id);
     let current = world.current_native_slave_source(reborn, 0).unwrap();
     assert_ne!(old.identity, current.identity);
+    let mut audio = game_engine::common::audio::AudioManager::new();
+    audio.init();
     with_physical_retirement_view(
         &mut client,
         &mut pipeline,
@@ -1083,6 +1085,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     &crate::game_logic::object::DamageHitContext::default(),
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
+                        audio: Some(&mut audio),
                         ..Default::default()
 },
                 )
