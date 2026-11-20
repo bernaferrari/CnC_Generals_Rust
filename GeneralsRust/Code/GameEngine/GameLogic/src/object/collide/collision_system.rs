@@ -41,14 +41,14 @@ use super::collision_geometry::{
 };
 use super::collision_response::{CollisionResponseConfig, CollisionResponseHandler};
 use super::partition_manager::PartitionManager;
-use super::{world_collision_manager, CollisionError, Coord3D, GameObject, ObjectId, ObjectStatusMask};
+use super::{CollisionError, CollisionManager, Coord3D, GameObject, ObjectId, ObjectStatusMask};
 use crate::ai::CommandSourceType;
 use crate::ai::states::AIStateType;
 use crate::common::{Coord3D as GameCoord3D, FormationID, KindOf, ObjectStatusTypes, Real, Vec3D};
 use crate::helpers::TheGameLogic;
 use crate::locomotor::LocomotorPriority;
 use crate::modules::AIUpdateInterfaceExt;
-use crate::object::CrushSquishTestType;
+use crate::object::{CrushSquishTestType, Object};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::path::PATHFIND_CELL_SIZE_F;
 use std::collections::HashMap;
@@ -189,16 +189,35 @@ impl CollisionSystem {
     /// 2. Test each contact pair for collision
     /// 3. Apply collision responses
     pub fn process_collisions(&mut self) -> Result<usize, CollisionError> {
+        let world = crate::system::engine_stores::try_active_services();
+        self.process_collisions_with(
+            world
+                .as_deref()
+                .map(|world| world.logic_managers().collision_manager.as_ref()),
+            None,
+            |id| world.as_deref()?.object_registry().get_object(id),
+        )
+    }
+
+    pub(crate) fn process_collisions_with(
+        &mut self,
+        callbacks: Option<&CollisionManager>,
+        frame: Option<u32>,
+        find_object: impl Fn(ObjectId) -> Option<Arc<RwLock<Object>>>,
+    ) -> Result<usize, CollisionError> {
         self.frame_number += 1;
         self.collision_count = 0;
 
         // Build list of potentially colliding object pairs
         self.pm_mut().build_contact_list();
+        let Some(callbacks) = callbacks else {
+            return Ok(0);
+        };
         let contacts = self.pm().get_contact_list().to_vec();
 
         // Test each pair and apply responses
         for (id_a, id_b) in contacts {
-            if self.test_and_respond_collision(id_a, id_b)? {
+            if self.test_and_respond_collision_with(id_a, id_b, callbacks, frame, &find_object)? {
                 self.collision_count += 1;
             }
         }
@@ -207,38 +226,52 @@ impl CollisionSystem {
     }
 
     /// Test collision between two objects and apply response if colliding
+    #[cfg(test)]
     fn test_and_respond_collision(
         &mut self,
         id_a: ObjectId,
         id_b: ObjectId,
     ) -> Result<bool, CollisionError> {
-        // Wave 313: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
+        let Some(world) = crate::system::engine_stores::try_active_services() else {
             return Ok(false);
-        }
+        };
+        self.test_and_respond_collision_with(
+            id_a,
+            id_b,
+            &world.logic_managers().collision_manager,
+            None,
+            &|id| world.object_registry().get_object(id),
+        )
+    }
 
+    fn test_and_respond_collision_with(
+        &mut self,
+        id_a: ObjectId,
+        id_b: ObjectId,
+        callbacks: &CollisionManager,
+        frame: Option<u32>,
+        find_object: &impl Fn(ObjectId) -> Option<Arc<RwLock<Object>>>,
+    ) -> Result<bool, CollisionError> {
         let Some((pos_a, geom_a, angle_a)) = self.pm().get_object_pose(id_a) else {
             return Ok(false);
         };
         let Some((pos_b, geom_b, angle_b)) = self.pm().get_object_pose(id_b) else {
             return Ok(false);
         };
-        // PartitionManager.cpp:2727 only seeds contacts from mobile objects.
-        // The Rust broad phase also finds immobile pairs in shared cells.
-        let Some(immobile_a) = OBJECT_REGISTRY
-            .with_object(id_a, |obj| {
-                (!obj.is_kind_of(KindOf::NoCollide)).then(|| obj.is_kind_of(KindOf::Immobile))
-            })
-            .flatten()
-        else {
+        let Some(obj_a) = find_object(id_a) else {
             return Ok(false);
         };
-        let Some(immobile_b) = OBJECT_REGISTRY
-            .with_object(id_b, |obj| {
-                (!obj.is_kind_of(KindOf::NoCollide)).then(|| obj.is_kind_of(KindOf::Immobile))
+        let Some(obj_b) = find_object(id_b) else {
+            return Ok(false);
+        };
+        // PartitionManager.cpp:2727 only seeds contacts from mobile objects.
+        // The Rust broad phase also finds immobile pairs in shared cells.
+        let immobile = |object: &Arc<RwLock<Object>>| {
+            object.read().ok().and_then(|object| {
+                (!object.is_kind_of(KindOf::NoCollide)).then(|| object.is_kind_of(KindOf::Immobile))
             })
-            .flatten()
-        else {
+        };
+        let (Some(immobile_a), Some(immobile_b)) = (immobile(&obj_a), immobile(&obj_b)) else {
             return Ok(false);
         };
         if immobile_a && immobile_b {
@@ -267,33 +300,27 @@ impl CollisionSystem {
             return Ok(false);
         }
 
-        // Borrow-first early outs before retaining Arc handles for response.
-        let no_collide = OBJECT_REGISTRY
-            .with_object(id_a, |obj| obj.test_status(ObjectStatusTypes::NoCollisions))
-            .unwrap_or(true)
-            || OBJECT_REGISTRY
-                .with_object(id_b, |obj| obj.test_status(ObjectStatusTypes::NoCollisions))
-                .unwrap_or(true);
-        if no_collide {
+        let no_collide = |object: &Arc<RwLock<Object>>| {
+            object
+                .read()
+                .map(|object| object.test_status(ObjectStatusTypes::NoCollisions))
+                .unwrap_or(true)
+        };
+        if no_collide(&obj_a) || no_collide(&obj_b) {
             return Ok(false);
         }
 
-        if Self::should_ignore_ai_collision_id(id_a) || Self::should_ignore_ai_collision_id(id_b) {
-            return Ok(false);
-        }
-
-        if Self::should_ignore_physics_collision_id(id_a, id_b)
-            || Self::should_ignore_physics_collision_id(id_b, id_a)
+        if Self::should_ignore_ai_collision(&obj_a, frame)
+            || Self::should_ignore_ai_collision(&obj_b, frame)
         {
             return Ok(false);
         }
 
-        let Some(obj_a) = OBJECT_REGISTRY.get_object(id_a) else {
+        if Self::should_ignore_physics_collision(&obj_a, id_b)
+            || Self::should_ignore_physics_collision(&obj_b, id_a)
+        {
             return Ok(false);
-        };
-        let Some(obj_b) = OBJECT_REGISTRY.get_object(id_b) else {
-            return Ok(false);
-        };
+        }
 
         self.handle_ai_collision(&obj_a, &obj_b);
 
@@ -301,8 +328,7 @@ impl CollisionSystem {
         // objects remain alive. wouldLikeToCollideWith is not a callback gate.
         let loc = Coord3D::new(cinfo.loc.x, cinfo.loc.y, cinfo.loc.z);
         let normal = Coord3D::new(cinfo.normal.x, cinfo.normal.y, cinfo.normal.z);
-        let _ =
-            world_collision_manager().handle_collision_for_owner(id_a, &obj_a, Some(&obj_b), &loc, &normal);
+        let _ = callbacks.handle_collision_for_owner(id_a, &obj_a, Some(&obj_b), &loc, &normal);
         let inv_normal = Coord3D::new(-normal.x, -normal.y, -normal.z);
         // C++ PartitionContactList::processContactList suppresses the paired
         // callback if either object was destroyed by the first side.
@@ -315,13 +341,8 @@ impl CollisionSystem {
             .map(|object| !object.is_destroyed())
             .unwrap_or(false);
         if object_a_alive && object_b_alive {
-            let _ = world_collision_manager().handle_collision_for_owner(
-                id_b,
-                &obj_b,
-                Some(&obj_a),
-                &loc,
-                &inv_normal,
-            );
+            let _ =
+                callbacks.handle_collision_for_owner(id_b, &obj_b, Some(&obj_a), &loc, &inv_normal);
         }
 
         // PhysicsUpdate.cpp:1181–1214 skips separation when either AI ignores
@@ -355,7 +376,8 @@ impl CollisionSystem {
         let Some(ai) = owner.read().ok().and_then(|owner| owner.get_ai()) else {
             return false;
         };
-        ai.lock().is_ok_and(|ai| ai.get_ignored_obstacle_id() == other)
+        ai.lock()
+            .is_ok_and(|ai| ai.get_ignored_obstacle_id() == other)
     }
 
     fn should_ignore_physics_collision(
@@ -374,45 +396,7 @@ impl CollisionSystem {
         physics_guard.get_ignore_collisions_with() == other_id
     }
 
-    fn should_ignore_ai_collision_id(id: ObjectId) -> bool {
-        // Wave 313: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        OBJECT_REGISTRY
-            .with_object(id, |guard| {
-                let Some(ai) = guard.get_ai_update_interface() else {
-                    return false;
-                };
-                let Ok(ai_guard) = ai.lock() else {
-                    return false;
-                };
-                ai_guard.get_ignore_collisions_until() > TheGameLogic::get_frame()
-            })
-            .unwrap_or(false)
-    }
-
-    fn should_ignore_physics_collision_id(id: ObjectId, other_id: ObjectId) -> bool {
-        // Wave 313: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        OBJECT_REGISTRY
-            .with_object(id, |guard| {
-                let Some(physics) = guard.get_physics() else {
-                    return false;
-                };
-                let Ok(physics_guard) = physics.access() else {
-                    return false;
-                };
-                physics_guard.get_ignore_collisions_with() == other_id
-            })
-            .unwrap_or(false)
-    }
-
-    fn should_ignore_ai_collision(obj: &Arc<RwLock<crate::object::Object>>) -> bool {
+    fn should_ignore_ai_collision(obj: &Arc<RwLock<Object>>, frame: Option<u32>) -> bool {
         let Ok(guard) = obj.read() else {
             return false;
         };
@@ -422,7 +406,7 @@ impl CollisionSystem {
         let Ok(ai_guard) = ai.lock() else {
             return false;
         };
-        ai_guard.get_ignore_collisions_until() > TheGameLogic::get_frame()
+        ai_guard.get_ignore_collisions_until() > frame.unwrap_or_else(TheGameLogic::get_frame)
     }
 
     /// Apply move-away hints for unit collisions (matches C++ AIUpdateInterface::processCollision).
@@ -1449,6 +1433,118 @@ mod tests {
         assert_ne!(poses()[0], initial[0]);
         assert_ne!(poses()[1], initial[1]);
         assert_eq!(*events.lock().unwrap(), expected_callbacks);
+    }
+
+    #[test]
+    fn ordinary_logic_contacts_use_the_receiving_world_with_a_peer_published() {
+        use crate::helpers::TheThingFactory;
+        use crate::object::collide::{CollideModule, world_collision_manager};
+        use crate::system::engine_stores::{new_for_world, with_active_stores};
+        use game_engine::common::thing::thing_factory::{
+            ensure_thing_factory_exists, get_thing_factory,
+        };
+
+        struct RecordContact {
+            id: ObjectId,
+            events: Arc<Mutex<Vec<(ObjectId, ObjectId)>>>,
+        }
+
+        impl CollideModule for RecordContact {
+            fn on_collide(
+                &mut self,
+                other: Option<&dyn GameObject>,
+                _: &Coord3D,
+                _: &Coord3D,
+            ) -> Result<(), CollisionError> {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push((self.id, other.unwrap().get_id()));
+                Ok(())
+            }
+
+            fn would_like_to_collide_with(&self, _: &dyn GameObject) -> bool {
+                true
+            }
+        }
+
+        let _lock = crate::test_sync::lock();
+        let install = |target_x| {
+            let world = new_for_world();
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let ids = with_active_stores(&world, || {
+                assert!(ensure_thing_factory_exists());
+                let authored = "Object ContactShell
+                    KindOf = PROJECTILE
+                    Geometry = CYLINDER
+                    GeometryMajorRadius = 4
+                    GeometryHeight = 4
+                End
+                Object ContactBlock
+                    KindOf = STRUCTURE IMMOBILE
+                    Geometry = CYLINDER
+                    GeometryMajorRadius = 4
+                    GeometryHeight = 4
+                End";
+                assert_eq!(
+                    get_thing_factory()
+                        .unwrap()
+                        .as_mut()
+                        .unwrap()
+                        .load_ini_text(authored),
+                    2
+                );
+                let team = Arc::new(RwLock::new(crate::team::Team::new("Contact".into(), 52)));
+                let factory = TheThingFactory::get().unwrap();
+                let admit = |name, x| {
+                    let template = TheThingFactory::find_template(name).unwrap();
+                    let object = factory
+                        .new_object_with_team_handle(template, Arc::clone(&team))
+                        .unwrap();
+                    let mut object = object.write().unwrap();
+                    object.set_position(&GameCoord3D::new(x, 105., 0.)).unwrap();
+                    let id = object.get_id();
+                    world_collision_manager()
+                        .register_collide_module(
+                            id,
+                            Box::new(RecordContact {
+                                id,
+                                events: Arc::clone(&events),
+                            }),
+                        )
+                        .unwrap();
+                    id
+                };
+                [admit("ContactShell", 105.), admit("ContactBlock", target_x)]
+            });
+            (world, ids, events)
+        };
+
+        let (receiving, ids, events) = install(110.);
+        let (peer, peer_ids, peer_events) = install(205.);
+        assert_eq!(ids, peer_ids);
+        let [shell, block] = ids;
+
+        with_active_stores(&peer, || {
+            receiving
+                .game_logic_mutex()
+                .lock()
+                .unwrap()
+                .update(100, || None)
+                .unwrap();
+        });
+
+        let stats = |world| {
+            with_active_stores(world, || {
+                with_collision_system(|system| system.get_statistics()).unwrap()
+            })
+        };
+        let local = stats(&receiving);
+        let foreign = stats(&peer);
+        assert_eq!((local.frame_number, local.collisions_detected), (1, 1));
+        assert_eq!(*events.lock().unwrap(), [(shell, block), (block, shell)]);
+        assert_eq!((foreign.frame_number, foreign.collisions_detected), (0, 0));
+        assert!(peer_events.lock().unwrap().is_empty());
     }
 
     fn assert_a_destruction_suppresses_second_collision(destroy_a: bool) {

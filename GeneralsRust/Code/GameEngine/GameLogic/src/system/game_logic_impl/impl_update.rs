@@ -1143,17 +1143,21 @@ impl GameLogic {
         physics_world.resolve_all(self)?;
         self.physics_world = physics_world;
 
+        let world = self
+            .owning_world_services()
+            .unwrap_or_else(crate::system::engine_stores::active_services);
+        let registry = world.object_registry();
+        let managers = world.logic_managers();
         // C++ iterates GameLogic.objects (m_objList), not a second factory registry.
         let collision_ids: Vec<ObjectID> = if !self.all_objects.is_empty() {
             self.all_objects.clone()
-        } else if !dual_world_registry_unavailable() {
-            OBJECT_REGISTRY.get_all_object_ids()
+        } else if !registry.is_empty() {
+            registry.get_all_object_ids()
         } else {
             Vec::new()
         };
-        let mut cell_changed: Vec<ObjectID> = Vec::new();
-        if !collision_ids.is_empty() {
-            let _ = with_collision_system_mut(|system| {
+        let cell_changed = if let Ok(mut system) = managers.collision.write() {
+            if !collision_ids.is_empty() {
                 for obj_id in collision_ids {
                     // GameLogic-owned lookup first: a registry store miss
                     // while the GameLogic lock is held would warn and drop
@@ -1166,9 +1170,7 @@ impl GameLogic {
                         .get(&obj_id)
                         .and_then(|entry| entry.read().ok())
                         .map(|obj| collision_position_snapshot(&obj))
-                        .or_else(|| {
-                            OBJECT_REGISTRY.with_object(obj_id, collision_position_snapshot)
-                        });
+                        .or_else(|| registry.with_object(obj_id, collision_position_snapshot));
                     let Some((id, pos, geom)) = snapshot else {
                         continue;
                     };
@@ -1187,13 +1189,21 @@ impl GameLogic {
                         );
                     }
                 }
-                let _ = system.process_collisions();
-                Ok::<(), crate::object::collide::CollisionError>(())
-            });
-        }
-        let _ = with_collision_system_mut(|system| {
-            cell_changed = system.partition_manager_mut().take_cell_changed_events();
-        });
+                let _ = system.process_collisions_with(
+                    Some(&managers.collision_manager),
+                    Some(self.frame),
+                    |id| {
+                        self.objects
+                            .get(&id)
+                            .cloned()
+                            .or_else(|| registry.get_object(id))
+                    },
+                );
+            }
+            system.partition_manager_mut().take_cell_changed_events()
+        } else {
+            Vec::new()
+        };
         // C++ `PartitionData::friend_updateCellsTouched` fires
         // `obj->onPartitionCellChange()` inline when the center cell changed
         // (PartitionManager.cpp:2052-2062) — the movement-driven shroud
@@ -1202,21 +1212,18 @@ impl GameLogic {
         // Explicit borrowed owners: this world's partition manager, shroud,
         // object index and player list, locked (blocking, never try-locked)
         // per object. One route, so timing never depends on lock contention.
-        let partition = Arc::clone(&self.partition);
-        let shroud = get_shroud_manager();
-        let spatial_objects = crate::object_manager::get_object_manager();
-        let frame = self.frame;
-        let unlook_persist_frames = game_engine::common::global_data::read_safe()
-            .map(|data| data.unlook_persist_duration)
-            .unwrap_or(0);
-        let players = crate::player::player_list();
         let ctx = crate::system::world_ctx::ModuleCtx {
-            partition: &*partition,
-            shroud: &*shroud,
-            objects: &*spatial_objects,
-            players: &*players,
-            frame,
-            unlook_persist_frames,
+            partition: &self.partition,
+            shroud: world.shroud(),
+            objects: world.objects(),
+            players: world.players(),
+            frame: self.frame,
+            unlook_persist_frames: world
+                .common()
+                .system
+                .runtime_global_data
+                .read()
+                .unlook_persist_duration,
         };
         let maintain = |object: &mut Object| ctx.maintain_partition_cell(object);
         for obj_id in cell_changed {
@@ -1231,12 +1238,14 @@ impl GameLogic {
                 .get(&obj_id)
                 .and_then(|entry| entry.write().ok())
                 .map(|mut object_guard| maintain(&mut object_guard))
-                .or_else(|| OBJECT_REGISTRY.with_object_mut(obj_id, |object_guard| maintain(object_guard)));
+                .or_else(|| {
+                    registry.with_object_mut(obj_id, |object_guard| maintain(object_guard))
+                });
             let _ = cell_maintained;
         }
 
         // Update physics engine (terrain-aware simulation)
-        if let Ok(mut physics) = crate::physics::get_physics_engine().write() {
+        if let Ok(mut physics) = world.physics().write() {
             if let Err(err) = physics.update() {
                 return Err(GameLogicError::PhysicsError(format!("{err}")));
             }
