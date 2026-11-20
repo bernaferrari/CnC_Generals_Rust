@@ -332,48 +332,45 @@ impl GameLogic {
     pub(crate) fn build_host_script_query_snapshot(
         &self,
     ) -> gamelogic::scripting::HostScriptQuerySnapshot {
-        use gamelogic::scripting::{HostScriptQueryObject, HostScriptQuerySnapshot};
-        let mut snap = HostScriptQuerySnapshot::default();
-        snap.named = self.host_named_unit_id_map();
-        for team in [
-            crate::game_logic::Team::USA,
-            crate::game_logic::Team::China,
-            crate::game_logic::Team::GLA,
-            crate::game_logic::Team::Neutral,
-        ] {
-            let ids = self.host_team_unit_ids(team);
-            if !ids.is_empty() {
-                snap.team_ids
-                    .insert(team as u32, ids.iter().map(|id| id.0).collect());
-            }
-        }
-        let shroud_manager = self.world_services.shroud();
-        let shroud = shroud_manager.lock().ok();
-        for (id, obj) in self.host_objects().registered() {
-            snap.objects
-                .push(self.receiving_script_query_object_with_shroud(*id, obj, shroud.as_deref()));
-            if !obj.team_instance_name.is_empty() {
-                snap.team_instance_ids
-                    .entry(obj.team_instance_name.clone())
-                    .or_default()
-                    .push(id.0);
-            }
-        }
-        // `host_script_team_census_member_ids` for every prototype/player
-        // team, from one Object pass (ASCII-case-insensitive like that census)
-        // instead of one full Object scan per Team name.
+        use gamelogic::scripting::HostScriptQuerySnapshot;
+        let objects = self.host_objects();
+        let mut snap = HostScriptQuerySnapshot {
+            named: self.host_named_unit_id_map(),
+            objects: Vec::with_capacity(objects.registered_len()),
+            ..Default::default()
+        };
+        // C++ script conditions query the live Object and Team. Preserve the
+        // registration order in each list, and retain dead actors in the Team
+        // instance census even though the faction queries only see living actors.
         let mut census: std::collections::HashMap<String, Vec<u32>> =
             std::collections::HashMap::new();
-        for obj in self.host_objects().registered_values() {
-            let team_name = if obj.team_instance_name.is_empty() {
-                self.default_host_team_instance_name(obj.owner_player_id, obj.team)
-            } else {
-                obj.team_instance_name.clone()
-            };
-            census
-                .entry(team_name.to_ascii_lowercase())
-                .or_default()
-                .push(obj.id.0);
+        {
+            let shroud = self.world_services.shroud().lock().ok();
+            for (id, object) in objects.registered() {
+                let observation = self.receiving_script_query_object_with_shroud(
+                    *id, object, shroud.as_deref(),
+                );
+                if observation.alive {
+                    snap.team_ids.entry(observation.team).or_default().push(id.0);
+                }
+                snap.objects.push(observation);
+
+                let instance_name = &object.team_instance_name;
+                let census_name = if instance_name.is_empty() {
+                    self.default_host_team_instance_name(object.owner_player_id, object.team)
+                        .to_ascii_lowercase()
+                } else {
+                    if let Some(members) = snap.team_instance_ids.get_mut(instance_name) {
+                        members.push(id.0);
+                    } else {
+                        snap.team_instance_ids.insert(instance_name.clone(), vec![id.0]);
+                    }
+                    instance_name.to_ascii_lowercase()
+                };
+                if !census_name.is_empty() {
+                    census.entry(census_name).or_default().push(object.id.0);
+                }
+            }
         }
         let census_ids = |name: &str| -> Vec<u32> {
             let needle = name.trim();
@@ -443,15 +440,20 @@ impl GameLogic {
         shroud: Option<&gamelogic::system::shroud_manager::ShroudManager>,
     ) -> gamelogic::scripting::HostScriptQueryObject {
         use gamelogic::scripting::HostScriptQueryObject;
+        let position = obj.get_position();
+        let alive = obj.is_alive() && !obj.status.destroyed;
+        let occupants = obj.garrison_count();
+        let transport_capacity = obj.transport_capacity();
+        let damage_source = obj.last_damage_source.and_then(|id| self.objects.get(&id));
         HostScriptQueryObject {
             id: id.0,
             name: obj.name.clone(),
             team: obj.team as u32,
-            x: obj.get_position().x,
-            y: obj.get_position().y,
-            z: obj.get_position().z,
+            x: position.x,
+            y: position.y,
+            z: position.z,
 
-            alive: obj.is_alive() && !obj.status.destroyed,
+            alive,
             effectively_dead: obj.status.effectively_dead || obj.status.destroyed,
             health: obj.health.current,
             initial_health: obj.body_initial_health(),
@@ -461,34 +463,30 @@ impl GameLogic {
                 .unwrap_or_default(),
             template_name: obj.template_name.clone(),
             has_contain: obj.can_contain()
-                || obj.garrison_count() > 0
-                || obj.transport_capacity() > 0
+                || occupants > 0
+                || transport_capacity > 0
                 || obj
                     .building_data
                     .as_ref()
                     .is_some_and(|b| b.max_garrison > 0),
-            contain_count: obj.garrison_count() as u32,
+            contain_count: occupants as u32,
             contain_max: obj
                 .building_data
                 .as_ref()
                 .map(|b| b.max_garrison)
                 .unwrap_or(0)
-                .max(obj.transport_capacity()) as u32,
+                .max(transport_capacity) as u32,
             last_damage_source_id: obj.last_damage_source.map(|sid| sid.0).unwrap_or(0),
             last_damage_template: if !obj.last_damage_source_template.is_empty() {
                 obj.last_damage_source_template.clone()
             } else {
-                obj.last_damage_source
-                    .and_then(|sid| self.objects.get(&sid).map(|src| src.template_name.clone()))
+                damage_source
+                    .map(|source| source.template_name.clone())
                     .unwrap_or_default()
             },
-            last_damage_player: obj
-                .last_damage_source
-                .and_then(|sid| {
-                    self.objects
-                        .get(&sid)
-                        .and_then(|src| src.owner_player_id.and_then(|pid| self.player_name(pid)))
-                })
+            last_damage_player: damage_source
+                .and_then(|source| source.owner_player_id)
+                .and_then(|player| self.player_name(player))
                 .unwrap_or_default(),
             kind_structure: obj.is_kind_of(crate::game_logic::KindOf::Structure),
             kind_projectile: obj.is_kind_of(crate::game_logic::KindOf::Projectile),
@@ -504,10 +502,7 @@ impl GameLogic {
                 && !obj.status.attacking,
             vision_range: obj.vision_range,
             kind_names: self.script_kind_names(&obj.thing().template.kind_of),
-            special_power_ready: obj.special_power_ready
-                && obj.is_alive()
-                && !obj.is_disabled()
-                && !obj.status.destroyed,
+            special_power_ready: obj.special_power_ready && alive && !obj.is_disabled(),
             special_power_templates: obj
                 .thing()
                 .template
@@ -541,10 +536,10 @@ impl GameLogic {
             } else {
                 0
             },
-            off_map: obj.get_position().x < self.world_min.x
-                || obj.get_position().x > self.world_max.x
-                || obj.get_position().z < self.world_min.z
-                || obj.get_position().z > self.world_max.z,
+            off_map: position.x < self.world_min.x
+                || position.x > self.world_max.x
+                || position.z < self.world_min.z
+                || position.z > self.world_max.z,
             contained_by: obj.contained_by.map(|cid| cid.0).unwrap_or(0),
             // Live has no AI_EXIT state; leftover Exit is pretend-contained.
             ai_exiting: false,

@@ -66,6 +66,31 @@ fn world(inside: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
     (world, ids[0], ids[1], ids[2])
 }
 
+#[test]
+fn script_snapshot_keeps_registered_order_and_dead_team_instance_members() {
+    let (mut world, living, dead, other_faction) = world(false);
+    world.host_object_mut(living).unwrap().team_instance_name = "Scouts".into();
+    let dead_object = world.host_object_mut(dead).unwrap();
+    dead_object.team_instance_name = "Scouts".into();
+    dead_object.status.destroyed = true;
+    world.host_object_mut(other_faction).unwrap().team = Team::China;
+
+    let snapshot = world.build_host_script_query_snapshot();
+    let object_ids: Vec<_> = snapshot.objects.iter().map(|row| row.id).collect();
+    let registered_ids: Vec<_> = world.host_objects().registered_keys().map(|id| id.0).collect();
+    assert_eq!(object_ids, registered_ids);
+    let usa = world.host_team_unit_ids(Team::USA);
+    let living_usa: Vec<_> = usa.iter().map(|id| id.0).collect();
+    assert_eq!(snapshot.team_ids[&(Team::USA as u32)], living_usa);
+    assert_eq!(snapshot.team_ids[&(Team::China as u32)], [other_faction.0]);
+    assert!(!living_usa.contains(&dead.0));
+    assert_eq!(
+        snapshot.team_instance_ids["Scouts"],
+        world.host_script_team_census_member_ids("sCoUtS")
+    );
+    assert!(snapshot.team_instance_ids["Scouts"].contains(&dead.0));
+}
+
 fn install_condition(world: &mut GameLogic, unit: &str, kind: ConditionType) {
     let mut condition = Condition::new(kind);
     condition
