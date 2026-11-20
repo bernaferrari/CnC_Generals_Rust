@@ -21,6 +21,32 @@ fn admit_energy_rates(logic: &mut GameLogic, rates: LowEnergyRates) {
 }
 
 #[test]
+fn empty_production_queues_preserve_object_observations() {
+    let mut world = GameLogic::new();
+    ensure_test_player_for_team(&mut world, Team::USA);
+    ensure_test_barracks_template(&mut world);
+    ensure_test_infantry_template(&mut world);
+    let producer = world
+        .create_object_for_player("TestBarracks", 0, glam::Vec3::ZERO)
+        .expect("empty barracks");
+    world
+        .create_object_for_player("TestInfantry", 0, glam::Vec3::X * 50.0)
+        .expect("non-producer");
+    let building = world
+        .host_object(producer)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap();
+    assert!(building.production_queue.is_empty());
+
+    let (_, before) = world.objects.read().observation_revision().unwrap();
+    world.update_production(1.0 / 30.0);
+    let (_, after) = world.objects.read().observation_revision().unwrap();
+    assert_eq!(after, before);
+}
+
+#[test]
 fn unmapped_dozer_hp_gain_uses_energy_adjusted_build_time_frames() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

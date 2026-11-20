@@ -292,16 +292,18 @@ impl GameLogic {
         let mut unit_completions: Vec<(Team, String, Vec3, Option<Vec3>, ObjectId)> = Vec::new();
         let producers: Vec<_> = self.objects.registered_keys().copied().collect();
         for id in producers {
-            let power_factor = self
-                .objects
-                .get(&id)
-                .and_then(|object| self.player_owner_for_host_object(object))
-                .map(|owner| self.production_power_factor_for_player(owner))
-                .unwrap_or(1.0);
-            let Some(obj) = self.objects.get_mut(&id) else {
+            let Some(obj) = self.objects.get(&id) else {
                 continue;
             };
-            let mut ready_research = None;
+            // Door and construction-complete timers tick separately. Queue
+            // admission is read here because an earlier completion can change it.
+            if obj
+                .building_data
+                .as_ref()
+                .is_none_or(|building| building.production_queue.is_empty())
+            {
+                continue;
+            }
             if !obj.is_constructed() || !obj.is_alive() {
                 continue;
             }
@@ -314,6 +316,14 @@ impl GameLogic {
             if obj.status.sold {
                 continue;
             }
+            let power_factor = obj
+                .owner_player_id
+                .map(|owner| self.production_power_factor_for_player(owner))
+                .unwrap_or(1.0);
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let mut ready_research = None;
             let mut start_door_cycle = false;
             let mut pop_closing_door = false;
             let door_spawn_phase = obj.production_door_spawn_phase();
