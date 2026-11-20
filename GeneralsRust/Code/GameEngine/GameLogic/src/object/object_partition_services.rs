@@ -3,6 +3,7 @@ use super::object_impl_imports::*;
 use super::*;
 use crate::object::collide::PartitionManager;
 use crate::object_manager::ObjectManager;
+use crate::system::engine_stores::WorldServices;
 use crate::system::shroud_manager::ShroudManager;
 
 #[derive(Clone, Copy)]
@@ -69,15 +70,10 @@ enum VisionOwners<'a> {
         frame: u32,
         unlook_persist_frames: u32,
     },
-    /// The active world's stores, each locked at the FIRST effect that needs
-    /// it (never for an object whose phases early-out) and held until the
-    /// maintenance finishes. Laziness matters: callers such as object creation
-    /// run while the GameLogic mutex is held, and a phase that does nothing
-    /// must not touch any store lock or the frame (`TheGameLogic::get_frame`).
-    Ambient {
-        partition: &'a RwLock<PartitionManager>,
-        shroud: &'a std::sync::Mutex<ShroudManager>,
-        objects: &'a RwLock<ObjectManager>,
+    /// Keep the driving world's stores lazy until their first effect.
+    Deferred {
+        world: &'a WorldServices,
+        retained: bool,
         partition_guard: Option<std::sync::RwLockWriteGuard<'a, PartitionManager>>,
         shroud_guard: Option<std::sync::MutexGuard<'a, ShroudManager>>,
         objects_guard: Option<std::sync::RwLockWriteGuard<'a, ObjectManager>>,
@@ -122,13 +118,13 @@ impl<'a> ObjectPartitionServices<'a> {
     fn partition(&mut self) -> Option<&mut PartitionManager> {
         match &mut self.owners {
             VisionOwners::Borrowed { partition, .. } => Some(&mut **partition),
-            VisionOwners::Ambient {
-                partition,
+            VisionOwners::Deferred {
+                world,
                 partition_guard,
                 ..
             } => {
                 if partition_guard.is_none() {
-                    *partition_guard = partition.write().ok();
+                    *partition_guard = world.logic_managers().partition.write().ok();
                 }
                 partition_guard.as_deref_mut()
             }
@@ -137,33 +133,34 @@ impl<'a> ObjectPartitionServices<'a> {
     fn shroud(&mut self) -> Option<&mut ShroudManager> {
         match &mut self.owners {
             VisionOwners::Borrowed { shroud, .. } => Some(&mut **shroud),
-            VisionOwners::Ambient {
-                shroud,
+            VisionOwners::Deferred {
+                world,
                 shroud_guard,
                 ..
             } => {
                 if shroud_guard.is_none() {
-                    *shroud_guard = shroud.lock().ok();
+                    *shroud_guard = world.shroud().lock().ok();
                 }
                 shroud_guard.as_deref_mut()
             }
         }
     }
-    /// The spatial object index; the ambient route skips it (as the legacy
-    /// bridge did) while the manager is busy or a reset is in flight.
+    /// Skip the spatial index while its manager is busy or resetting.
     fn objects(&mut self) -> Option<&mut ObjectManager> {
         match &mut self.owners {
             VisionOwners::Borrowed { objects, .. } => Some(&mut **objects),
-            VisionOwners::Ambient {
-                objects,
+            VisionOwners::Deferred {
+                world,
                 objects_guard,
                 objects_tried,
                 ..
             } => {
                 if !*objects_tried {
                     *objects_tried = true;
-                    if !crate::object_manager::is_resetting() {
-                        *objects_guard = objects.try_write().ok();
+                    if world.session_flags().object_manager_reset_count
+                        .load(std::sync::atomic::Ordering::Acquire) == 0
+                    {
+                        *objects_guard = world.objects().try_write().ok();
                     }
                 }
                 objects_guard.as_deref_mut()
@@ -173,7 +170,8 @@ impl<'a> ObjectPartitionServices<'a> {
     fn frame(&self) -> u32 {
         match &self.owners {
             VisionOwners::Borrowed { frame, .. } => *frame,
-            VisionOwners::Ambient { .. } => crate::helpers::TheGameLogic::get_frame(),
+            VisionOwners::Deferred { world, retained: true, .. } => world.logic_frame(),
+            VisionOwners::Deferred { .. } => crate::helpers::TheGameLogic::get_frame(),
         }
     }
     fn unlook_persist_frames(&self) -> u32 {
@@ -182,7 +180,9 @@ impl<'a> ObjectPartitionServices<'a> {
                 unlook_persist_frames,
                 ..
             } => *unlook_persist_frames,
-            VisionOwners::Ambient { .. } => game_engine::common::global_data::read_safe()
+            VisionOwners::Deferred { world, retained: true, .. } =>
+                world.common().system.runtime_global_data.read().unlook_persist_duration,
+            VisionOwners::Deferred { .. } => game_engine::common::global_data::read_safe()
                 .map(|data| data.unlook_persist_duration)
                 .unwrap_or(0),
         }
@@ -284,24 +284,44 @@ impl Object {
         &mut self,
         f: impl FnOnce(&mut Self, &mut ObjectPartitionServices<'_>),
     ) {
-        let masks = self
-            .get_controlling_player()
+        let world = crate::system::engine_stores::active_services();
+        self.with_deferred_world_vision(&world, false, f);
+    }
+
+    pub(super) fn maintain_partition_for_owning_world(&mut self) {
+        if let Some(world) = self.owning_world_services() {
+            self.with_deferred_world_vision(&world, true, Self::partition_maintenance);
+        } else {
+            self.handle_partition_cell_maintenance();
+        }
+    }
+
+    fn with_deferred_world_vision(
+        &mut self,
+        world: &WorldServices,
+        retained: bool,
+        f: impl FnOnce(&mut Self, &mut ObjectPartitionServices<'_>),
+    ) {
+        let controller = if retained {
+            self.controlling_player_id_from_pin().ok().flatten().and_then(|index| {
+                world.players().read().ok()?.get_player(index as Int).cloned()
+            })
+        } else {
+            self.get_controlling_player()
+        };
+        let masks = controller
             .and_then(|controller| {
                 let controller_guard = controller.read().ok()?;
-                let __player_list_arc = player_list();
-                let players = __player_list_arc.read().ok()?;
+                let players = world.players().read().ok()?;
                 VisionMasks::capture(Some((&controller, &controller_guard)), &players).ok()
             })
             .unwrap_or_default();
-        let container_garrisonable = self.partition_container_garrisonable();
-        let partition_owner = crate::object::collide::partition_manager::world_partition_manager();
-        let shroud_owner = crate::system::shroud_manager::get_shroud_manager();
-        let objects_owner = crate::object_manager::get_object_manager();
+        let container_garrisonable = self
+            .partition_container_garrisonable(|id| world.object_registry().get_object(id));
         let mut services = ObjectPartitionServices {
-            owners: VisionOwners::Ambient {
-                partition: &partition_owner,
-                shroud: &shroud_owner,
-                objects: &objects_owner,
+            owners: VisionOwners::Deferred {
+                world,
+                retained,
                 partition_guard: None,
                 shroud_guard: None,
                 objects_guard: None,
@@ -309,26 +329,22 @@ impl Object {
             },
             masks,
             container_garrisonable,
-            look_enabled: !dual_world_registry_unavailable(),
+            look_enabled: !world.object_registry().is_empty(),
         };
         f(self, &mut services);
     }
     /// C++ `Container::isGarrisonable` for the container this object is in
     /// (true when not contained or the contain module is busy/absent).
-    fn partition_container_garrisonable(&self) -> bool {
+    fn partition_container_garrisonable(
+        &self,
+        find_container: impl FnOnce(ObjectID) -> Option<Arc<RwLock<Object>>>,
+    ) -> bool {
         self.get_container_id()
-            .and_then(|id| {
-                crate::object::registry::OBJECT_REGISTRY.with_object(id, |container| {
-                    container
-                        .get_contain()
-                        .and_then(|contain| {
-                            contain
-                                .try_lock()
-                                .ok()
-                                .map(|contain| contain.is_garrisonable())
-                        })
-                        .unwrap_or(true)
-                })
+            .and_then(find_container)
+            .and_then(|container| {
+                let container = container.read().ok()?;
+                let contain = container.get_contain()?;
+                contain.try_lock().ok().map(|contain| contain.is_garrisonable())
             })
             .unwrap_or(true)
     }
@@ -357,7 +373,9 @@ impl Object {
             (Some(identity), Some(guard)) => Some((identity, &**guard)),
             _ => None,
         };
-        let garrisonable = self.partition_container_garrisonable();
+        let garrisonable = self.partition_container_garrisonable(
+            |id| crate::object::registry::OBJECT_REGISTRY.get_object(id),
+        );
         let mut services = ObjectPartitionServices::new(
             partition,
             shroud,

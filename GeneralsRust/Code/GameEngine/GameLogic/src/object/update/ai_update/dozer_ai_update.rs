@@ -958,13 +958,7 @@ impl DozerAIUpdate {
         let mut controlling_player: Option<Arc<RwLock<crate::player::Player>>> = None;
 
         if let Ok(mut target_guard) = target.write() {
-            target_guard.clear_status(
-                crate::common::ObjectStatusMaskType::from_status(
-                    crate::common::ObjectStatusTypes::UnderConstruction,
-                ) | crate::common::ObjectStatusMaskType::from_status(
-                    crate::common::ObjectStatusTypes::Reconstructing,
-                ),
-            );
+            target_guard.clear_construction_completion_status();
 
             let _ = target_guard.clear_model_condition_flags(
                 ModelConditionFlags::AWAITING_CONSTRUCTION
@@ -1005,7 +999,8 @@ impl DozerAIUpdate {
         }
 
         if let Ok(mut target_guard) = target.write() {
-            target_guard.handle_partition_cell_maintenance();
+            // DozerAIUpdate.cpp:588 refreshes after Create and before upgrades.
+            target_guard.maintain_partition_for_owning_world();
             target_guard.update_upgrade_modules_from_player();
         }
 

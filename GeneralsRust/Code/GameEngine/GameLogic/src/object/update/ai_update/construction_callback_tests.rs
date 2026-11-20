@@ -831,6 +831,121 @@ fn dozer_completion_callback_keeps_same_id_peer_structure_and_footprint_untouche
     );
 }
 
+#[test]
+fn completed_structure_refreshes_vision_and_pending_unlook_in_its_own_world() {
+    use crate::common::Coord3D;
+    use crate::helpers::TheThingFactory;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::system::shroud_manager::ShroudState;
+    use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
+
+    fn admit(
+        world: &Arc<EngineStores>,
+        position: Coord3D,
+        frame: u64,
+        unlook_duration: u32,
+    ) -> Arc<RwLock<Object>> {
+        with_active_stores(world, || {
+            world.services().common().system.runtime_global_data.write()
+                .unlook_persist_duration = unlook_duration;
+            world.services().shroud().lock().unwrap().init_shroud_grid(400., 400.);
+            world.ai().read().unwrap().pathfinder().unwrap().write().unwrap()
+                .reset_with_size(40, 40);
+            let team = Arc::new(RwLock::new(Team::new("StructureOwner".into(), 0xBA_0440)));
+            team.write().unwrap().set_controlling_player_id(Some(0));
+            let mut controller = Player::new(0);
+            controller.set_default_team(Some(Arc::clone(&team)));
+            {
+                let mut players = world.services().players().write().unwrap();
+                players.add_player(Arc::new(RwLock::new(controller)));
+                players.add_player(Arc::new(RwLock::new(Player::new(1))));
+            }
+
+            assert!(ensure_thing_factory_exists());
+            let source = "
+                Object CompletionVisionStructure
+                    KindOf = STRUCTURE IMMOBILE
+                    Geometry = CYLINDER
+                    GeometryMajorRadius = 10
+                    GeometryHeight = 10
+                    ShroudClearingRange = 60
+                    ShroudRevealToAllRange = 45
+                End
+            ";
+            assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(source), 1);
+            let template = TheThingFactory::find_template("CompletionVisionStructure").unwrap();
+            let structure = Arc::new(RwLock::new(Object::new_test_from_template(
+                0xBA_0441, 100., template,
+            )));
+            {
+                let mut object = structure.write().unwrap();
+                object.set_construction_percent(0.);
+                object.set_position(&position).unwrap();
+                assert_eq!(object.get_shroud_clearing_range(), 10.);
+            }
+            {
+                let mut logic = world.game_logic_mutex().lock().unwrap();
+                logic.set_current_frame(frame);
+                logic.register_object(Arc::clone(&structure)).unwrap();
+            }
+            {
+                let mut object = structure.write().unwrap();
+                object.set_team(Some(team)).unwrap();
+                object.handle_partition_cell_maintenance();
+            }
+            world.services().shroud().lock().unwrap().process_entire_pending_undo_shroud_reveal_queue();
+            structure
+        })
+    }
+
+    let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
+    let driving = new_for_world();
+    let peer = new_for_world();
+    let receiving_position = Coord3D::new(105., 105., 0.);
+    let peer_position = Coord3D::new(255., 255., 0.);
+    let structure = admit(&driving, receiving_position, 37, 23);
+    let peer_structure = admit(&peer, peer_position, 251, 41);
+    let id = structure.read().unwrap().get_id();
+    assert_eq!(peer_structure.read().unwrap().get_id(), id);
+    let witness = Coord3D::new(135., 105., 0.);
+    let driving_shroud = driving.services().shroud();
+    let peer_shroud = peer.services().shroud();
+    assert_eq!(driving_shroud.lock().unwrap().get_shroud_state(1, &witness), ShroudState::Hidden);
+    let before_peer = peer_shroud.lock().unwrap().snapshot_state();
+
+    let builder = Arc::new(RwLock::new(Object::new_test(0xBA_0442, 100.)));
+    with_active_stores(&peer, || complete_dozer_for_test(&builder, &structure, false));
+
+    let receiving_shroud = driving_shroud.lock().unwrap();
+    let visibility = receiving_shroud.get_shroud_state(1, &witness);
+    let receiving_state = receiving_shroud.snapshot_state();
+    drop(receiving_shroud);
+    let after_peer = peer_shroud.lock().unwrap().snapshot_state();
+    let peer_spatial = peer.services().objects().read().unwrap()
+        .find_objects_in_radius(receiving_position, 2.);
+    let receiving_pending: Vec<_> = receiving_state.pending_undo_shroud_reveals.iter()
+        .map(|entry| (entry.where_pos, entry.for_whom, entry.expiration_frame)).collect();
+    let wrong_world_look = peer_shroud.lock().unwrap().get_shroud_state(1, &witness);
+    for world in [&driving, &peer] {
+        with_active_stores(world, || {
+            let mut logic = world.game_logic_mutex().lock().unwrap();
+            let _frame = crate::system::game_logic::enter_update_frame(logic.get_frame());
+            logic.destroy_object(id);
+            logic.cleanup_dead_objects().unwrap();
+        });
+    }
+    assert_eq!((visibility, wrong_world_look), (ShroudState::Visible, ShroudState::Hidden));
+    // Rust currently refreshes synchronously on the construction status edge
+    // and again after Create callbacks. Both unlook phases must use frame 37 + 23.
+    assert_eq!(receiving_pending, [
+        (receiving_position.to_array(), 1, 60),
+        (receiving_position.to_array(), 1, 60),
+        (receiving_position.to_array(), 2, 60),
+    ]);
+    assert!(after_peer == before_peer, "the peer shroud counters and pending heap stay unchanged");
+    assert!(!peer_spatial.contains(&id), "completion must not move the peer's same-ID spatial entry");
+}
+
 /// A real create-module callback probes both manager loans without waiting if
 /// the update still holds its write guard. The resulting assertion is bounded.
 pub(crate) struct ConstructionManagerReentryProbe {

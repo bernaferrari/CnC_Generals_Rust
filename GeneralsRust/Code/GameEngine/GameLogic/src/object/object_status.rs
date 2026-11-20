@@ -133,6 +133,29 @@ impl Object {
     /// - Applies special effects based on which status bits changed
     /// - Updates partition cells if visibility-related status changed
     pub fn set_status(&mut self, object_status: ObjectStatusMaskType, set: bool) {
+        self.set_status_with_construction_refresh(
+            object_status,
+            set,
+            Self::handle_partition_cell_maintenance,
+        );
+    }
+
+    pub(super) fn clear_construction_completion_status(&mut self) {
+        let mask = ObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction)
+            | ObjectStatusMaskType::from_status(ObjectStatusTypes::Reconstructing);
+        self.set_status_with_construction_refresh(
+            mask,
+            false,
+            Self::maintain_partition_for_owning_world,
+        );
+    }
+
+    fn set_status_with_construction_refresh(
+        &mut self,
+        object_status: ObjectStatusMaskType,
+        set: bool,
+        refresh_construction_partition: fn(&mut Self),
+    ) {
         use crate::common::types::ObjectStatusTypes;
 
         let old_status = self.status;
@@ -229,8 +252,9 @@ impl Object {
                 }
             }
 
-            // Update partition for shroud changes (C++ line 1010-1011)
-            self.handle_partition_cell_maintenance();
+            // C++ Object.cpp:1011 queues PartitionData::makeDirty(true).
+            // Keep the current synchronous refresh until that queue is ported.
+            refresh_construction_partition(self);
         }
     }
 
