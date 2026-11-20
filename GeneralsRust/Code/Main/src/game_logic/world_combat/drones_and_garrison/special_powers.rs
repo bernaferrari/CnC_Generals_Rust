@@ -208,7 +208,9 @@ impl GameLogic {
                 self.spawn_emp_pulse_spheroid_with_effects(location, pid, presentation_effects)
             })
         };
-        if let Some(sid) = spheroid_id {
+        if let Some(sid) = spheroid_id
+            && !self.objects.get(&sid).is_some_and(Object::has_native_emp_update)
+        {
             self.emp_pulses
                 .begin_spheroid(sid, player_id, location, caster_id, frame);
         }

@@ -1081,6 +1081,17 @@ impl GameLogic {
                     None,
                     presentation_effects,
                 );
+                for (id, (epoch, birth)) in outcome.created {
+                    if self.spawn_identity_matches(id, epoch, birth) {
+                        if let Some(object) = self.objects.get_mut(&id)
+                            && object.has_native_emp_update()
+                        {
+                            // Weapon.cpp passes the detonating projectile to
+                            // the OCL. The pulse resolves its producer at fade.
+                            object.producer_id = impact.detonation_projectile;
+                        }
+                    }
+                }
                 if let Some(error) = outcome.error {
                     return Err(error);
                 }

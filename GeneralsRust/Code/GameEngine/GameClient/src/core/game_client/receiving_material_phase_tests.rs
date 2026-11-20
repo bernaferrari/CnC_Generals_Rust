@@ -48,6 +48,116 @@ fn opacity(client: &GameClient) -> f32 {
 }
 
 #[test]
+fn native_emp_write_preserves_signed_color_on_exact_receiving_drawable() {
+    crate::test_support::ensure_ambient_host();
+    let (mut receiver, fact) = client(71);
+    let (mut peer, peer_fact) = client(72);
+    let key = fact.binding_key;
+    let peer_key = peer_fact.binding_key;
+    assert_eq!(key.object_id, peer_key.object_id);
+    assert_eq!(key.drawable_id, peer_key.drawable_id);
+
+    let observe = |client: &mut GameClient, key| {
+        client
+            .borrow_native_drawable_owner()
+            .observe_emp_visual(key)
+            .unwrap()
+    };
+    let update_without_display = |client: &mut GameClient, frame| {
+        client.set_frame(frame);
+        client
+            .update_drawables_local(
+                0.,
+                NativeParticleFrames {
+                    logic_frame: frame,
+                    client_frame: frame,
+                },
+            )
+            .unwrap();
+    };
+
+    let preflash = [-1., 1., 1.];
+    let end = [
+        -2.5,
+        5.0 * (128.0 / 255.0) - 2.5,
+        5.0 * (128.0 / 255.0) - 2.5,
+    ];
+    let flash = NativeDrawableColorWrite::Flash {
+        color: end,
+        decay_frames: 9999,
+        attack_frames: 12,
+        sustain_frames: 1,
+    };
+    assert!(
+        receiver
+            .borrow_native_drawable_owner()
+            .write_emp_visual(peer_key, 9.0, Some(flash))
+            .is_err()
+    );
+    assert!(
+        peer.borrow_native_drawable_owner()
+            .observe_emp_visual(key)
+            .is_err()
+    );
+    assert_eq!(observe(&mut receiver, key), (1., [0.; 3]));
+
+    receiver
+        .borrow_native_drawable_owner()
+        .write_emp_visual(key, 0.11, Some(NativeDrawableColorWrite::Tint(preflash)))
+        .unwrap();
+    assert_eq!(observe(&mut receiver, key), (0.11, [0.; 3]));
+    update_without_display(&mut receiver, 102);
+    assert_eq!(observe(&mut receiver, key), (0.11, preflash));
+
+    receiver
+        .borrow_native_drawable_owner()
+        .write_emp_visual(key, 0.21, Some(flash))
+        .unwrap();
+    assert_eq!(observe(&mut receiver, key), (0.21, preflash));
+    update_without_display(&mut receiver, 103);
+    let first = std::array::from_fn(|i| preflash[i] + (end[i] - preflash[i]) * (1.0 / 12.0));
+    assert_eq!(observe(&mut receiver, key), (0.21, first));
+    assert_eq!(observe(&mut receiver, key), (0.21, first));
+
+    receiver
+        .borrow_native_drawable_owner()
+        .write_emp_visual(key, 0.31, None)
+        .unwrap();
+    update_without_display(&mut receiver, 104);
+    let second = std::array::from_fn(|i| first[i] + (end[i] - preflash[i]) * (1.0 / 12.0));
+    assert_eq!(observe(&mut receiver, key), (0.31, second));
+    assert_eq!(
+        basic(&mut receiver, fact).get_instance_transform(),
+        Matrix4::identity()
+    );
+    assert_eq!(observe(&mut peer, peer_key), (1., [0.; 3]));
+
+    receiver
+        .sync_presentation_drawables([super::tests::presentation_drawable_sync_for_test(
+            42,
+            71,
+            "RecreatedEmpVisual",
+            true,
+            false,
+            [0.; 3],
+            0.,
+        )])
+        .unwrap();
+    let replacement = receiver
+        .presentation_direct_drawable_state(71, 42)
+        .unwrap()
+        .binding_key;
+    assert_ne!(key, replacement);
+    let mut owner = receiver.borrow_native_drawable_owner();
+    assert!(owner.write_emp_visual(key, 9.0, Some(flash)).is_err());
+    assert!(owner.observe_emp_visual(key).is_err());
+    assert_eq!(
+        owner.observe_emp_visual(replacement).unwrap(),
+        (1., [0.; 3])
+    );
+}
+
+#[test]
 fn receiving_material_draw_is_explicit_previsibility_and_instance_isolated() {
     crate::test_support::ensure_ambient_host();
     let (mut receiver, mut fact) = client(11);

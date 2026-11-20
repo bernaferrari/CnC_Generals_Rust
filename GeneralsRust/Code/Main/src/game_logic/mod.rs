@@ -32,6 +32,7 @@ pub mod game_logic;
 pub mod host_transport_return;
 pub(crate) mod lighting_rules;
 pub(crate) mod native_die_definition;
+mod native_emp_update;
 pub(crate) mod native_lifecycle;
 pub(crate) mod native_lifecycle_definition;
 pub(crate) mod physics_rules;

@@ -103,6 +103,18 @@ impl GameClient {
         owner
     }
 }
+/// Signed Drawable color operations authored by a logic update.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NativeDrawableColorWrite {
+    Tint([f32; 3]),
+    Flash {
+        color: [f32; 3],
+        decay_frames: u32,
+        attack_frames: u32,
+        sustain_frames: u32,
+    },
+}
+
 impl NativeDrawableOwner<'_> {
     /// Whether this exact receiving owner has finished retiring its CPU
     /// Drawable world. Native renderer reset uses this as a preflight before
@@ -422,6 +434,71 @@ impl NativeDrawableOwner<'_> {
             .ok_or_else(|| {
                 GameClientError::InvalidOperation("native instance receiver missing".into())
             })
+    }
+
+    /// Admit the simulation update on the installed Drawable before Client Update.
+    pub fn write_emp_visual(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+        instance_scale: f32,
+        color: Option<NativeDrawableColorWrite>,
+    ) -> GameClientResult<()> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err(GameClientError::InvalidOperation(
+                "native EMP visual write has a stale binding".into(),
+            ));
+        }
+        let drawable = self
+            .drawables
+            .drawable_map
+            .get_mut(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<BasicDrawable>())
+            .ok_or_else(|| {
+                GameClientError::InvalidOperation("native EMP visual receiver missing".into())
+            })?;
+        drawable.set_instance_scale(instance_scale);
+        match color {
+            Some(NativeDrawableColorWrite::Tint([r, g, b])) => {
+                drawable.color_tint(Some(Vector3::new(r, g, b)));
+            }
+            Some(NativeDrawableColorWrite::Flash {
+                color: [r, g, b],
+                decay_frames,
+                attack_frames,
+                sustain_frames,
+            }) => drawable.color_flash_envelope(
+                Some(Vector3::new(r, g, b)),
+                decay_frames,
+                attack_frames,
+                sustain_frames,
+            ),
+            None => {}
+        }
+        Ok(())
+    }
+
+    /// The current C++ Drawable instance scale and color envelope, read without ticking it.
+    pub fn observe_emp_visual(
+        &self,
+        key: PresentationDirectDrawableBindingKey,
+    ) -> GameClientResult<(f32, [f32; 3])> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err(GameClientError::InvalidOperation(
+                "native EMP visual read has a stale binding".into(),
+            ));
+        }
+        let drawable = self
+            .drawables
+            .drawable_map
+            .get(&key.drawable_id)
+            .and_then(|drawable| drawable.as_any().downcast_ref::<BasicDrawable>())
+            .ok_or_else(|| {
+                GameClientError::InvalidOperation("native EMP visual receiver missing".into())
+            })?;
+        let tint = drawable
+            .tint_color_effect()
+            .map_or([0.0; 3], |color| [color.x, color.y, color.z]);
+        Ok((drawable.get_instance_scale(), tint))
     }
 
     /// Immediate original Body observation on the exact receiving native lifetime.

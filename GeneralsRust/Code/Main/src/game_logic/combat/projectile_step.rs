@@ -252,6 +252,7 @@ impl CombatSystem {
                         self.impact_fx.push(ProjectileImpactFx {
                             position: impact,
                             shooter_id: projectile.shooter_id,
+                            detonation_projectile: Some(projectile.id),
                             target_id: None,
                             detonation_fx_name: projectile.detonation_fx_name.clone(),
                             detonation_ocl_name: projectile.detonation_ocl_name.clone(),
@@ -434,6 +435,7 @@ impl CombatSystem {
                     self.impact_fx.push(ProjectileImpactFx {
                         position: impact,
                         shooter_id: projectile.shooter_id,
+                        detonation_projectile: Some(projectile.id),
                         target_id: Some(sid),
                         detonation_fx_name: projectile.detonation_fx_name.clone(),
                         detonation_ocl_name: projectile.detonation_ocl_name.clone(),
@@ -519,6 +521,7 @@ impl CombatSystem {
                             self.impact_fx.push(ProjectileImpactFx {
                                 position: impact,
                                 shooter_id: projectile.shooter_id,
+                                detonation_projectile: Some(projectile.id),
                                 target_id: Some(target_id),
                                 detonation_fx_name: projectile.detonation_fx_name.clone(),
                                 detonation_ocl_name: projectile.detonation_ocl_name.clone(),
@@ -574,6 +577,7 @@ impl CombatSystem {
                         self.impact_fx.push(ProjectileImpactFx {
                             position: impact,
                             shooter_id: projectile.shooter_id,
+                            detonation_projectile: Some(projectile.id),
                             target_id: None,
                             detonation_fx_name: projectile.detonation_fx_name.clone(),
                             detonation_ocl_name: projectile.detonation_ocl_name.clone(),

@@ -1,7 +1,8 @@
 //! Object-owned authored update modules. Each slot retains its own continuation;
 //! immediate engine effects run after ending the bounded Object borrow.
 use super::native_lifecycle_definition::{
-    HeightDieDefinition, LifetimeFrameRange, NativeLifecycleDefinition, NativeLifecycleKind,
+    EmpUpdateDefinition, HeightDieDefinition, LifetimeFrameRange, NativeLifecycleDefinition,
+    NativeLifecycleKind,
 };
 use super::{GameLogic, KindOf, Object, ObjectId};
 use glam::Vec3;
@@ -27,6 +28,28 @@ pub(crate) enum NativeLifecycleState {
         initial_delay_frame: u32,
         weapon: Option<crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeState>,
     },
+    Emp(EmpUpdateState),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct EmpUpdateState {
+    pub(crate) active: bool,
+    pub(crate) fade_frame: u32,
+    pub(crate) die_frame: u32,
+    pub(crate) current_scale: f32,
+    pub(crate) target_scale: f32,
+}
+
+impl EmpUpdateState {
+    pub(crate) fn import_inactive(definition: &EmpUpdateDefinition) -> Self {
+        Self {
+            active: false,
+            fade_frame: 0,
+            die_frame: 0,
+            current_scale: definition.start_scale,
+            target_scale: definition.start_scale,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -51,7 +74,9 @@ impl NativeLifecycleRuntime {
             NativeLifecycleState::Deletion { die_frame, active } => {
                 (die_frame, active, NativeTimerAction::Delete)
             }
-            NativeLifecycleState::HeightDie { .. } | NativeLifecycleState::FireWeapon { .. } => return None,
+            NativeLifecycleState::HeightDie { .. }
+            | NativeLifecycleState::FireWeapon { .. }
+            | NativeLifecycleState::Emp(_) => return None,
         };
         if !*active || frame < *die_frame {
             return None;
@@ -97,10 +122,23 @@ impl NativeLifecycleRuntime {
                                         && weapon.weapon_template_name.eq_ignore_ascii_case(&definition.weapon_name)
                                 })
                             }
+                            (NativeLifecycleKind::Emp(definition), NativeLifecycleState::Emp(state)) => {
+                                state.current_scale.is_finite()
+                                    && state.target_scale.is_finite()
+                                    && (!state.active
+                                        || state.die_frame.wrapping_sub(state.fade_frame)
+                                            == definition.lifetime_frames - definition.start_fade_frames)
+                            }
                             _ => false,
                         }
                 })
     }
+    pub(crate) fn has_emp_update(&self) -> bool {
+        self.states
+            .iter()
+            .any(|state| matches!(state, NativeLifecycleState::Emp(_)))
+    }
+
     pub(crate) fn first_lifetime_deadline(&self) -> Option<u32> {
         self.states.iter().find_map(|state| match state {
             NativeLifecycleState::Lifetime { die_frame, .. } => Some(*die_frame),
@@ -118,6 +156,12 @@ fn deadline(
     frame.wrapping_add((drawn as u32).max(1))
 }
 impl Object {
+    pub(crate) fn has_native_emp_update(&self) -> bool {
+        self.native_lifecycle
+            .as_ref()
+            .is_some_and(NativeLifecycleRuntime::has_emp_update)
+    }
+
     pub(crate) fn bind_native_lifecycle(
         &mut self,
         frame: u32,
@@ -129,6 +173,7 @@ impl Object {
             return;
         };
         let is_hulk = self.is_kind_of(KindOf::Hulk);
+        let mut emp_initial_pose = None;
         let states = definitions
             .iter()
             .enumerate()
@@ -184,12 +229,32 @@ impl Object {
                         weapon,
                     }
                 }
+                NativeLifecycleKind::Emp(definition) => {
+                    // EMPUpdate.cpp:74–86 draws the target scale before orientation.
+                    let target_scale = random.next_real(
+                        definition.target_scale_min,
+                        definition.target_scale_max,
+                    );
+                    let yaw = random.next_real(-std::f32::consts::PI, std::f32::consts::PI);
+                    emp_initial_pose = Some((definition.start_scale, yaw));
+                    NativeLifecycleState::Emp(EmpUpdateState {
+                        active: true,
+                        fade_frame: frame.wrapping_add(definition.start_fade_frames),
+                        die_frame: frame.wrapping_add(definition.lifetime_frames),
+                        current_scale: definition.start_scale,
+                        target_scale,
+                    })
+                }
             })
             .collect();
         self.native_lifecycle = Some(NativeLifecycleRuntime {
             definitions: definitions.clone(),
             states,
         });
+        if let Some((scale, yaw)) = emp_initial_pose {
+            self.drawable_instance_scale = scale;
+            self.set_orientation(yaw);
+        }
     }
     /// OCL finds the first existing LifetimeUpdate; it never creates a module.
     pub(crate) fn set_native_lifetime_range(
@@ -265,7 +330,7 @@ impl GameLogic {
             if !std::sync::Arc::ptr_eq(&identity, &object.visual_draw_identity_token) {
                 break;
             }
-            // All three original modules inherit DISABLEDMASK_NONE. The
+            // The original lifecycle modules inherit DISABLEDMASK_NONE. The
             // scheduler retries next frame without consuming their continuation.
             if object.has_disabled_type() {
                 return Ok(());
@@ -309,6 +374,11 @@ impl GameLogic {
                         self.tick_native_height_die_with_effects(
                             id, index, &identity, definition, effects,
                         )?;
+                    }
+                }
+                NativeLifecycleKind::Emp(definition) => {
+                    if !timers_only {
+                        self.tick_native_emp_with_effects(id, index, &identity, &definition, effects)?;
                     }
                 }
             }

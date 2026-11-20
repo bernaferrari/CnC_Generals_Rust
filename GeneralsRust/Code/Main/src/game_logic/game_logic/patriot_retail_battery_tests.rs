@@ -41,6 +41,14 @@ pub(in crate::game_logic) fn world_with_air_target() -> (GameLogic, ObjectId, Ob
 pub(in crate::game_logic) fn world_with_infantry_target() -> (GameLogic, ObjectId, ObjectId) {
     world_for_target(RetailTarget::Infantry, false)
 }
+pub(in crate::game_logic) fn superweapon_world(airborne: bool) -> (GameLogic, ObjectId, ObjectId) {
+    let target = if airborne {
+        RetailTarget::Aircraft
+    } else {
+        RetailTarget::Vehicle
+    };
+    world_for_target(target, true)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RetailTarget {
@@ -77,6 +85,11 @@ fn world_for_target(target_kind: RetailTarget, superweapon: bool) -> (GameLogic,
     let locomotor = definition(&base_ini("Locomotor.ini"), "Locomotor PatriotMissileLocomotor");
     let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
     locomotors.apply_source(&locomotor).unwrap();
+    if superweapon {
+        locomotors
+            .apply_source("Locomotor EmpFixtureFlight\n Surfaces = AIR\n Speed = 20\n Acceleration = 20\n Braking = 20\n PreferredHeight = 80\n AirborneTargetingHeight = 5\nEnd\n")
+            .unwrap();
+    }
 
     let mut assets = crate::assets::AssetManager::new().unwrap();
     assets.archive_file_system_mut().set_local_search_roots(Vec::new());
@@ -92,10 +105,11 @@ fn world_for_target(target_kind: RetailTarget, superweapon: bool) -> (GameLogic,
     world.bind_application_assets(std::sync::Arc::new(std::sync::Mutex::new(assets)));
     world.admit_locomotor_definitions(locomotors).unwrap();
     let mut map = gamelogic::system::map_loader::MapData::new();
-    map.width = 32;
-    map.height = 32;
-    map.heightmap = vec![0; 1024];
-    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    let size = if superweapon { 64 } else { 32 };
+    map.width = size;
+    map.height = size;
+    map.heightmap = vec![0; (size * size) as usize];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(size as i32, size as i32)];
     world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
     world.initialize_receiving_partition_grid().unwrap();
     for (id, team) in [(0, Team::USA), (1, Team::China)] {
@@ -112,17 +126,47 @@ fn world_for_target(target_kind: RetailTarget, superweapon: bool) -> (GameLogic,
     let battery = definition(&buildings, &format!("Object {battery_name}"));
     let power_plant = definition(&buildings, &format!("Object {plant_name}"));
     let (kind, hp) = match target_kind {
-        RetailTarget::Aircraft => ("AIRCRAFT", 200),
+        RetailTarget::Aircraft => ("AIRCRAFT VEHICLE", 200),
         RetailTarget::Vehicle => ("VEHICLE", 1000),
         RetailTarget::Infantry => ("INFANTRY", 100),
     };
-    let target = format!("Object RetailPatriotTarget\nKindOf = {kind} SELECTABLE\nBody = ActiveBody Body\nMaxHealth = {hp}\nInitialHealth = {hp}\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n");
-    world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
+    let motion_and_geometry = if superweapon && air_target {
+        // Preserve the mounted warhead's tight 3D pulse while the air target
+        // continues moving between impact and the fade. Use the stock bounds.
+        let raptor = definition(&base_ini("Object/AmericaAir.ini"), "Object AmericaJetRaptor");
+        let mut fields = String::from("Locomotor = SET_NORMAL EmpFixtureFlight\n");
+        for line in raptor.lines().filter(|line| line.trim_start().starts_with("Geometry")) {
+            fields.push_str(line);
+            fields.push('\n');
+        }
+        fields
+    } else {
+        "Geometry = Sphere\nGeometryMajorRadius = 0\n".into()
+    };
+    let target = format!("Object RetailPatriotTarget\nKindOf = {kind} SELECTABLE\nBody = ActiveBody Body\nMaxHealth = {hp}\nInitialHealth = {hp}\nEnd\nBehavior = AIUpdateInterface AI\nEnd\n{motion_and_geometry}End\n");
+    let mut object_sources = vec![
         ("AmericaPowerPlant.ini".into(), power_plant),
         ("FactionBuilding.ini".into(), battery),
         ("WeaponObjects.ini".into(), missile),
         ("retail-patriot-target.ini".into(), target),
-    ]).unwrap()).unwrap();
+    ];
+    if superweapon {
+        world
+            .admit_object_creation_list_sources([definition(
+                &base_ini("ObjectCreationList.ini"),
+                "ObjectCreationList SupW_OCL_PatriotEMPEffectSpheroid",
+            )])
+            .unwrap();
+        object_sources.push((
+            "System.ini".into(),
+            definition(&base_ini("Object/System.ini"), "Object EMPPatriotEffectSpheroid"),
+        ));
+        object_sources.push((
+            "emp-test-hardened.ini".into(),
+            "Object EmpTestHardened\nKindOf = VEHICLE AIRCRAFT EMP_HARDENED\nBody = ActiveBody Body\n  MaxHealth = 200\n  InitialHealth = 200\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nLocomotor = SET_NORMAL EmpFixtureFlight\nGeometry = Sphere\nGeometryMajorRadius = 2\nEnd\n".into(),
+        ));
+    }
+    world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources(object_sources).unwrap()).unwrap();
     world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &objects).unwrap();
     let profile = world.projectile_definitions.get(projectile_name).expect("retail missile profile");
     assert!(profile.locomotor.is_some(), "retail PatriotMissileLocomotor must bind in this world");

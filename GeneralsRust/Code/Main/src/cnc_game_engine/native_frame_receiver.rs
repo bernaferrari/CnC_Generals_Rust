@@ -83,6 +83,13 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
             .native_draw_mesh_pose(key)
             .map_err(|error| error.to_string())?;
         input.physics_visual_local = physics;
+        if object.has_native_emp_update() {
+            let (scale, _) = self
+                .drawables
+                .observe_emp_visual(key)
+                .map_err(|error| error.to_string())?;
+            input.mesh_scale = scale;
+        }
         Ok(Some(instance))
     }
 

@@ -60,6 +60,7 @@ pub enum DamageEvent {
 pub struct ProjectileImpactFx {
     pub position: Vec3,
     pub shooter_id: ObjectId,
+    pub detonation_projectile: Option<ObjectId>,
     pub target_id: Option<ObjectId>,
     pub detonation_fx_name: String,
     pub detonation_ocl_name: String,

@@ -121,6 +121,22 @@ fn broadphase_candidate_dimension(
     use_2d: bool,
 ) -> bool {
     let max_dist = query_geometry.bounding_sphere_radius() * 1.1;
+    origin_in_bounding_geometry_range(
+        query_position,
+        candidate_position,
+        candidate_geometry,
+        max_dist,
+        use_2d,
+    )
+}
+
+pub(super) fn origin_in_bounding_geometry_range(
+    query_position: Vec3,
+    candidate_position: Vec3,
+    candidate_geometry: &HostGeometryInfo,
+    max_dist: f32,
+    use_2d: bool,
+) -> bool {
     let candidate_center_height = z_delta_to_center(candidate_geometry);
     let dx = candidate_position.x - query_position.x;
     let dy = candidate_position.z - query_position.z;

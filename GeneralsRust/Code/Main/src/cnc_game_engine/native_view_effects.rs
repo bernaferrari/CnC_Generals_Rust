@@ -486,6 +486,41 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         Ok(true)
     }
 
+    fn write_emp_drawable_visual(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        instance_scale: f32,
+        color: Option<game_client::core::game_client::NativeDrawableColorWrite>,
+    ) -> Result<bool, String> {
+        let key = self
+            .drawables
+            .binding_key(self.host_epoch, identity.object_id())
+            .ok_or_else(|| "native EMP visual write has no receiving Drawable".to_owned())?;
+        self.poses
+            .validate_object_retirement(identity, key)
+            .map_err(str::to_owned)?;
+        self.drawables
+            .write_emp_visual(key, instance_scale, color)
+            .map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
+    fn accepts_emp_sparks(
+        &mut self,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
+        template: &str,
+    ) -> bool {
+        let Some(key) = self.drawables.binding_key(self.host_epoch, identity.object_id()) else {
+            return false;
+        };
+        if self.poses.validate_object_retirement(identity, key).is_err() {
+            return false;
+        }
+        let particles = self.drawables.particle_systems_mut();
+        particles.admit_effective_definitions().is_ok()
+            && particles.find_template(template).is_some()
+    }
+
     fn pristine_client_bone_transforms(
         &mut self,
         source: &NativeSlaveSource,

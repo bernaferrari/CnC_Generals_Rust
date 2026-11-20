@@ -383,6 +383,25 @@ pub(crate) trait NativeViewEffects {
         Err("receiving Drawable instance mutation unavailable".into())
     }
 
+    #[cfg(feature = "game_client")]
+    fn write_emp_drawable_visual(
+        &mut self,
+        _identity: &LiveDrawPlaybackIdentity,
+        _instance_scale: f32,
+        _color: Option<game_client::core::game_client::NativeDrawableColorWrite>,
+    ) -> Result<bool, String> {
+        Err("receiving EMP Drawable visual write unavailable".into())
+    }
+
+    #[cfg(feature = "game_client")]
+    fn accepts_emp_sparks(
+        &mut self,
+        _identity: &LiveDrawPlaybackIdentity,
+        _template: &str,
+    ) -> bool {
+        false
+    }
+
     /// Logical-condition pristine bones, independent of the current HAnim.
     #[cfg(feature = "game_client")]
     fn pristine_client_bone_transforms(

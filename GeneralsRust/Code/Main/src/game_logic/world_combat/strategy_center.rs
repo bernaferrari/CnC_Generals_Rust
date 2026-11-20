@@ -1328,8 +1328,12 @@ impl GameLogic {
         }
 
         // C++ ProjectileDetonationOCL CreateObject EMPPatriotEffectSpheroid at impact.
-        let _ =
-            self.spawn_emp_patriot_spheroid_with_effects(impact, source_id, presentation_effects);
+        if let Some(spheroid) =
+            self.spawn_emp_patriot_spheroid_with_effects(impact, source_id, presentation_effects)
+            && self.objects.get(&spheroid).is_some_and(Object::has_native_emp_update)
+        {
+            return;
+        }
 
         let source_owner = self.objects.get(&source_id).and_then(|o| o.owner_player_id);
         let until = supw_patriot_emp_until_frame(self.frame);

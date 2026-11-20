@@ -495,6 +495,7 @@ impl CombatSystem {
         impact_fx.push(ProjectileImpactFx {
             position: projectile.position,
             shooter_id: projectile.shooter_id,
+            detonation_projectile: Some(projectile.id),
             target_id: projectile.target_id,
             detonation_fx_name: String::new(),
             detonation_ocl_name: String::new(),
@@ -1022,6 +1023,7 @@ impl CombatSystem {
             self.impact_fx.push(ProjectileImpactFx {
                 position: shot.damage_pos,
                 shooter_id: proj.shooter_id,
+                detonation_projectile: None,
                 target_id: shot.damage_id,
                 detonation_fx_name: proj.detonation_fx_name.clone(),
                 detonation_ocl_name: proj.detonation_ocl_name.clone(),

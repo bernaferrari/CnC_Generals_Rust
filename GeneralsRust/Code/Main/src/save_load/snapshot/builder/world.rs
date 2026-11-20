@@ -660,6 +660,7 @@ impl SnapshotBuilder {
             &snapshot.objects,
             game_logic,
             native_lifecycle.legacy_tail.as_ref(),
+            native_lifecycle.predates_emp,
         )?;
         let original_disabled =
             super::super::original_disabled_persist::decode(native_lifecycle.legacy_tail.as_ref())?;

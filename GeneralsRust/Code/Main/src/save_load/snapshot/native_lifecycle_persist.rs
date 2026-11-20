@@ -1,7 +1,8 @@
 //! Native authored module identity and continuation, at a structural tail boundary.
 //! None is legacy/unbound; Some(empty) is an explicitly empty native roster.
 use super::ObjectSnapshot;
-use crate::game_logic::native_lifecycle::NativeLifecycleRuntime;
+use crate::game_logic::native_lifecycle::{EmpUpdateState, NativeLifecycleRuntime, NativeLifecycleState};
+use crate::game_logic::native_lifecycle_definition::{NativeLifecycleDefinition, NativeLifecycleKind};
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -9,7 +10,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 const TAG: &[u8; 4] = b"NLFC";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct Record {
@@ -37,6 +38,7 @@ struct Payload {
 pub(super) struct Decoded<'a> {
     pub records: Option<Vec<Record>>,
     pub hulk_max_lifetime_override: Option<i32>,
+    pub predates_emp: bool,
     pub legacy_tail: Cow<'a, [u8]>,
 }
 
@@ -75,6 +77,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
         return Ok(Decoded {
             records: None,
             hulk_max_lifetime_override: None,
+            predates_emp: true,
             legacy_tail: Cow::Borrowed(bytes),
         });
     }
@@ -83,7 +86,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     }
     let version = u32::from_le_bytes(suffix[4..8].try_into().unwrap());
     let length = u32::from_le_bytes(suffix[8..12].try_into().unwrap()) as usize;
-    if version != 1 && version != VERSION {
+    if !matches!(version, 1 | 2 | VERSION) {
         return Err(corrupted("unknown version"));
     }
     let end = 12usize
@@ -123,6 +126,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     Ok(Decoded {
         records: Some(payload.records),
         hulk_max_lifetime_override: Some(payload.hulk_max_lifetime_override),
+        predates_emp: version < VERSION,
         legacy_tail: Cow::Owned(tail),
     })
 }
@@ -132,6 +136,7 @@ pub(super) fn validate(
     objects: &HashMap<ObjectId, ObjectSnapshot>,
     world: &GameLogic,
     legacy_tail: &[u8],
+    predates_emp: bool,
 ) -> SaveLoadResult<HashMap<ObjectId, NativeLifecycleRuntime>> {
     for object in objects.values() {
         let template = super::receiving_template::resolve(world, &object.template_name)?;
@@ -178,26 +183,17 @@ pub(super) fn validate(
         let mut imported = HashMap::new();
         for (id, object) in objects {
             let template = super::receiving_template::resolve(world, &object.template_name)?;
-            let bound_empty = template
+            let definitions = template
                 .as_deref()
-                .and_then(|template| template.native_lifecycle_definitions.as_deref())
-                .is_some_and(|definitions| definitions.is_empty());
-            let old_runtime = envelopes.get(id).is_some_and(|envelope| {
-                envelope.module_states.iter().any(|module| {
-                    matches!(module.tag.as_str(), "LifetimeUpdate" | "HeightDieUpdate")
-                })
-            });
-            if bound_empty && !old_runtime {
-                imported.insert(
-                    *id,
-                    NativeLifecycleRuntime {
-                        definitions: Box::new([]),
-                        states: Box::new([]),
-                    },
-                );
-            } else {
-                validate_legacy_admission(object, envelopes.get(id).copied(), world)?;
+                .and_then(|template| template.native_lifecycle_definitions.as_deref());
+            let old_runtime = has_legacy_timer(envelopes.get(id).copied());
+            if !old_runtime {
+                if let Some(runtime) = definitions.and_then(import_pre_emp_empty_runtime) {
+                    imported.insert(*id, runtime);
+                    continue;
+                }
             }
+            validate_legacy_admission(object, envelopes.get(id).copied(), world, true)?;
         }
         return Ok(imported);
     };
@@ -213,34 +209,109 @@ pub(super) fn validate(
             return Err(corrupted("duplicate owner"));
         }
         if record.runtime.is_none() {
-            validate_legacy_admission(object, envelopes.get(&id).copied(), world)?;
+            let envelope = envelopes.get(&id).copied();
+            if predates_emp && !has_legacy_timer(envelope) {
+                let template = super::receiving_template::resolve(world, &object.template_name)?;
+                let runtime = template
+                    .as_deref()
+                    .and_then(|template| template.native_lifecycle_definitions.as_deref())
+                    .filter(|definitions| !definitions.is_empty())
+                    .and_then(import_pre_emp_empty_runtime);
+                if let Some(runtime) = runtime {
+                    runtimes.insert(id, runtime);
+                    continue;
+                }
+            }
+            validate_legacy_admission(object, envelope, world, predates_emp)?;
         }
         if let Some(runtime) = &record.runtime {
             if !runtime.validate() {
                 return Err(corrupted("invalid module definition or runtime roster"));
             }
             let template = super::receiving_template::resolve(world, &object.template_name)?;
-            if template
+            let loaded = template
                 .as_deref()
-                .and_then(|template| template.native_lifecycle_definitions.as_deref())
-                .is_some_and(|loaded| loaded != runtime.definitions.as_ref())
-            {
-                return Err(corrupted(format!(
-                    "receiving definitions differ for {}",
-                    object.template_name
-                )));
-            }
-            if envelopes.get(&id).is_some_and(|envelope| {
-                envelope.module_states.iter().any(|module| {
-                    matches!(module.tag.as_str(), "LifetimeUpdate" | "HeightDieUpdate")
-                })
-            }) {
+                .and_then(|template| template.native_lifecycle_definitions.as_deref());
+            let runtime = match loaded {
+                Some(loaded) if loaded != runtime.definitions.as_ref() => {
+                    if predates_emp {
+                        expand_pre_emp_runtime(runtime, loaded)
+                    } else {
+                        None
+                    }
+                    .ok_or_else(|| corrupted(format!(
+                        "receiving definitions differ for {}",
+                        object.template_name
+                    )))?
+                }
+                _ => runtime.clone(),
+            };
+            if has_legacy_timer(envelopes.get(&id).copied()) {
                 return Err(corrupted("native and legacy runtime conflict"));
             }
-            runtimes.insert(id, runtime.clone());
+            runtimes.insert(id, runtime);
         }
     }
     Ok(runtimes)
+}
+
+fn has_legacy_timer(envelope: Option<&gamelogic::world::entities::EntityLifecycleEnvelope>) -> bool {
+    envelope.is_some_and(|envelope| {
+        envelope.module_states.iter().any(|module| {
+            matches!(module.tag.as_str(), "LifetimeUpdate" | "HeightDieUpdate")
+        })
+    })
+}
+
+fn import_pre_emp_empty_runtime(
+    definitions: &[NativeLifecycleDefinition],
+) -> Option<NativeLifecycleRuntime> {
+    expand_pre_emp_runtime(
+        &NativeLifecycleRuntime {
+            definitions: Box::new([]),
+            states: Box::new([]),
+        },
+        definitions,
+    )
+}
+
+/// Pre-EMP snapshots have no birth clock or random history for these newly
+/// installed modules. Their existing effects were inert. Retain that behavior
+/// without accepting any other missing or changed authored module.
+fn expand_pre_emp_runtime(
+    old: &NativeLifecycleRuntime,
+    definitions: &[NativeLifecycleDefinition],
+) -> Option<NativeLifecycleRuntime> {
+    let is_emp = |definition: &NativeLifecycleDefinition| {
+        matches!(&definition.kind, NativeLifecycleKind::Emp(_))
+    };
+    if !definitions
+        .iter()
+        .filter(|definition| !is_emp(definition))
+        .eq(old.definitions.iter())
+    {
+        return None;
+    }
+    let mut old_states = old.states.iter().cloned();
+    let states = definitions
+        .iter()
+        .enumerate()
+        .map(|(index, definition)| {
+            if let NativeLifecycleKind::Emp(emp) = &definition.kind {
+                Some(NativeLifecycleState::Emp(EmpUpdateState::import_inactive(emp)))
+            } else {
+                let mut state = old_states.next()?;
+                if let NativeLifecycleState::FireWeapon { weapon: Some(weapon), .. } = &mut state {
+                    weapon.key.module_source_index = index as u32;
+                }
+                Some(state)
+            }
+        })
+        .collect::<Option<Box<_>>>()?;
+    Some(NativeLifecycleRuntime {
+        definitions: definitions.into(),
+        states,
+    })
 }
 
 /// Called only after validate accepted the complete owner roster and objects
@@ -265,8 +336,8 @@ fn validate_legacy_admission(
     object: &ObjectSnapshot,
     envelope: Option<&gamelogic::world::entities::EntityLifecycleEnvelope>,
     world: &GameLogic,
+    predates_emp: bool,
 ) -> SaveLoadResult<()> {
-    use crate::game_logic::native_lifecycle_definition::NativeLifecycleKind;
     let template = super::receiving_template::resolve(world, &object.template_name)?;
     let Some(definitions) = template
         .as_deref()
@@ -282,13 +353,14 @@ fn validate_legacy_admission(
             _ => None,
         })
         .collect();
-    let matching = definitions.len() == 1
-        && tags.len() == 1
-        && matches!(
-            (&definitions[0].kind, tags[0]),
-            (NativeLifecycleKind::Lifetime(_), "LifetimeUpdate")
-                | (NativeLifecycleKind::HeightDie(_), "HeightDieUpdate")
-        );
+    let mut definitions = definitions.iter().filter(|definition| {
+        !predates_emp || !matches!(&definition.kind, NativeLifecycleKind::Emp(_))
+    });
+    let matching = matches!(
+        (definitions.next().map(|definition| &definition.kind), tags.as_slice()),
+        (Some(NativeLifecycleKind::Lifetime(_)), ["LifetimeUpdate"])
+            | (Some(NativeLifecycleKind::HeightDie(_)), ["HeightDieUpdate"])
+    ) && definitions.next().is_none();
     if !matching {
         return Err(corrupted(
             "legacy singleton does not match receiving module roster",
@@ -323,7 +395,7 @@ mod tests {
             assert!(decode(&bytes[..length]).is_err());
         }
         let mut unknown = bytes.clone();
-        unknown[boundary + 4..boundary + 8].copy_from_slice(&3u32.to_le_bytes());
+        unknown[boundary + 4..boundary + 8].copy_from_slice(&(VERSION + 1).to_le_bytes());
         assert!(decode(&unknown).is_err());
         bytes.extend_from_within(boundary..);
         assert!(decode(&bytes).is_err());
@@ -352,7 +424,7 @@ mod tests {
             initial_transport_payload_created: false,
         }];
         let tail = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
-        let accepted = validate(Some(&records), &snapshot.objects, &world, &tail).unwrap();
+        let accepted = validate(Some(&records), &snapshot.objects, &world, &tail, false).unwrap();
         assert!(accepted[&id].definitions.is_empty());
         assert!(accepted[&id].states.is_empty());
         world
@@ -365,15 +437,15 @@ mod tests {
             runtime: None,
             initial_transport_payload_created: true,
         }];
-        assert!(validate(Some(&legacy), &snapshot.objects, &world, &tail).is_err());
-        assert!(validate(Some(&records), &snapshot.objects, &world, &tail).is_ok());
+        assert!(validate(Some(&legacy), &snapshot.objects, &world, &tail, false).is_err());
+        assert!(validate(Some(&records), &snapshot.objects, &world, &tail, false).is_ok());
         assert!(
-            validate(None, &snapshot.objects, &world, &tail).unwrap()[&id]
+            validate(None, &snapshot.objects, &world, &tail, false).unwrap()[&id]
                 .definitions
                 .is_empty()
         );
 
-        assert!(validate(Some(&[]), &snapshot.objects, &world, &tail).is_err());
+        assert!(validate(Some(&[]), &snapshot.objects, &world, &tail, false).is_err());
         let mut conflict = super::super::lifecycle_tail::LifecycleTail::default();
         conflict
             .envelopes
@@ -394,16 +466,62 @@ mod tests {
                 }],
             });
         let tail = super::super::lifecycle_tail::encode_lifecycle_tail(&conflict);
-        assert!(validate(Some(&records), &snapshot.objects, &world, &tail).is_err());
+        assert!(validate(Some(&records), &snapshot.objects, &world, &tail, false).is_err());
         let duplicate = conflict.envelopes[0].module_states[0].clone();
         conflict.envelopes[0].module_states.push(duplicate);
         let tail = super::super::lifecycle_tail::encode_lifecycle_tail(&conflict);
-        assert!(validate(None, &snapshot.objects, &world, &tail).is_err());
+        assert!(validate(None, &snapshot.objects, &world, &tail, false).is_err());
         assert_eq!(
             world.objects[&id].health.current,
             snapshot.objects[&id].health.current
         );
     }
+
+    #[test]
+    fn older_snapshots_import_new_emp_slots_without_replaying_a_pulse() {
+        use crate::game_logic::Team;
+
+        let mut world = GameLogic::new();
+        let sources = crate::assets::ReceivingObjectContent::from_sources([(
+            "old-pulse.ini".into(),
+            "Object OldPulse\n Behavior = EMPUpdate Stamp\n  StartScale = 0.25\n  Lifetime = 500\n  StartFadeTime = 100\n End\nEnd\n".into(),
+        )])
+        .unwrap();
+        world.admit_receiving_module_content(sources).unwrap();
+        let id = world.create_object("OldPulse", Team::USA, glam::Vec3::ZERO).unwrap();
+        let original = super::super::SnapshotBuilder::new().create_world_snapshot(&world).unwrap();
+        let old_runtime = NativeLifecycleRuntime {
+            definitions: Box::new([]),
+            states: Box::new([]),
+        };
+        let fixture = Payload {
+            hulk_max_lifetime_override: -1,
+            records: vec![Record {
+                object_id: id.0,
+                runtime: Some(old_runtime),
+                initial_transport_payload_created: true,
+            }],
+        };
+        let tail = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
+        let payload = bincode_legacy::serialize(&fixture).unwrap();
+        let mut version_two = tail.clone();
+        version_two.extend_from_slice(TAG);
+        version_two.extend_from_slice(&2u32.to_le_bytes());
+        version_two.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        version_two.extend_from_slice(&payload);
+        let old = decode(&version_two).unwrap();
+        assert!(old.predates_emp);
+        for roster in [old.records.as_deref(), None] {
+            let imported = validate(roster, &original.objects, &world, &tail, true).unwrap();
+            let [NativeLifecycleState::Emp(state)] = &*imported[&id].states else {
+                panic!("expected one receiving EMP update");
+            };
+            assert_eq!((state.active, state.fade_frame, state.die_frame), (false, 0, 0));
+            assert_eq!((state.current_scale, state.target_scale), (0.25, 0.25));
+        }
+        assert!(validate(Some(&fixture.records), &original.objects, &world, &tail, false).is_err());
+    }
+
 }
 
 #[cfg(test)]

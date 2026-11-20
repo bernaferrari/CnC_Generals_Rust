@@ -1,7 +1,8 @@
 //! Immutable authored definitions for C++ LifetimeUpdate, DeletionUpdate,
-//! HeightDieUpdate and FireWeaponUpdate. Parsing does not publish a simulation owner.
+//! HeightDieUpdate, FireWeaponUpdate and EMPUpdate. Parsing does not publish a simulation owner.
 use crate::assets::ini_parser::BehaviorModuleDefinition;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct NativeLifecycleDefinition {
@@ -15,6 +16,7 @@ pub(crate) enum NativeLifecycleKind {
     Deletion(LifetimeFrameRange),
     HeightDie(HeightDieDefinition),
     FireWeapon(FireWeaponUpdateDefinition),
+    Emp(EmpUpdateDefinition),
 }
 
 impl NativeLifecycleDefinition {
@@ -30,6 +32,7 @@ impl NativeLifecycleDefinition {
                     && height.destroy_attached_particles_at_height.is_finite()
             }
             NativeLifecycleKind::FireWeapon(_) => true,
+            NativeLifecycleKind::Emp(emp) => emp.is_valid(),
         };
         if valid {
             Ok(())
@@ -63,6 +66,95 @@ pub(crate) struct FireWeaponUpdateDefinition {
     pub(crate) weapon_name: String,
     pub(crate) initial_delay: u32,
     pub(crate) exclusive_delay: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct EmpUpdateDefinition {
+    pub(super) lifetime_frames: u32,
+    pub(super) start_fade_frames: u32,
+    pub(super) disabled_duration_frames: u32,
+    pub(super) start_scale: f32,
+    pub(super) target_scale_min: f32,
+    pub(super) target_scale_max: f32,
+    pub(super) radius: f32,
+    pub(super) start_color: [f32; 3],
+    pub(super) end_color: [f32; 3],
+    pub(super) sparks: Option<Arc<str>>,
+    pub(super) sparks_per_cubic_foot: f32,
+    pub(super) exempts_own_buildings: bool,
+    pub(super) exempts_non_structure_allies: bool,
+}
+
+impl EmpUpdateDefinition {
+    fn is_valid(&self) -> bool {
+        self.start_fade_frames < self.lifetime_frames
+            && [
+                self.start_scale,
+                self.target_scale_min,
+                self.target_scale_max,
+                self.radius,
+                self.sparks_per_cubic_foot,
+            ]
+            .into_iter()
+            .all(f32::is_finite)
+            && self
+                .start_color
+                .into_iter()
+                .chain(self.end_color)
+                .all(|value| (0.0..=1.0).contains(&value))
+    }
+
+    fn parse(module: &BehaviorModuleDefinition) -> Result<Self, String> {
+        let color = |field, default| {
+            let Some(source) = module.attribute(field) else {
+                return Ok(default);
+            };
+            let tokens: Vec<_> = source.split_whitespace().collect();
+            game_engine::common::ini::INI::parse_rgb_color(&tokens)
+                .map(|(r, g, b)| [r, g, b])
+                .map_err(|_| invalid(module, field))
+        };
+        let lifetime_frames = if module.attribute("Lifetime").is_none() {
+            1
+        } else {
+            duration(module, "Lifetime")?
+        };
+        let mut exempts_non_structure_allies = false;
+        for flag in module
+            .attribute("DoesNotAffect")
+            .unwrap_or("")
+            .split_whitespace()
+        {
+            if flag.eq_ignore_ascii_case("NONE") || flag.eq_ignore_ascii_case("-ALLIES") {
+                exempts_non_structure_allies = false;
+            } else if flag.trim_start_matches('+').eq_ignore_ascii_case("ALLIES") {
+                exempts_non_structure_allies = true;
+            }
+        }
+        let definition = Self {
+            lifetime_frames,
+            start_fade_frames: duration(module, "StartFadeTime")?,
+            disabled_duration_frames: duration(module, "DisabledDuration")?,
+            start_scale: real(module, "StartScale", 1.0)?,
+            target_scale_min: real(module, "TargetScaleMin", 1.0)?,
+            target_scale_max: real(module, "TargetScaleMax", 1.0)?,
+            radius: real(module, "EffectRadius", 200.0)?,
+            start_color: color("StartColor", [1.0; 3])?,
+            end_color: color("EndColor", [0.0; 3])?,
+            sparks: module
+                .attribute("DisableFXParticleSystem")
+                .and_then(|value| value.split_whitespace().next())
+                .filter(|name| !name.eq_ignore_ascii_case("NONE"))
+                .map(Arc::from),
+            sparks_per_cubic_foot: real(module, "SparksPerCubicFoot", 0.001)?,
+            exempts_own_buildings: boolean(module, "DoesNotAffectMyOwnBuildings")?,
+            exempts_non_structure_allies,
+        };
+        if !definition.is_valid() {
+            return Err(invalid(module, "EMPUpdate fade/lifetime"));
+        }
+        Ok(definition)
+    }
 }
 
 impl Default for HeightDieDefinition {
@@ -114,6 +206,9 @@ pub(crate) fn parse_native_lifecycle_definitions(
                     initial_delay: duration(module, "InitialDelay")?,
                     exclusive_delay: duration(module, "ExclusiveWeaponDelay")?,
                 })
+            }
+            name if name.eq_ignore_ascii_case("EMPUpdate") => {
+                NativeLifecycleKind::Emp(EmpUpdateDefinition::parse(module)?)
             }
             _ => continue,
         };

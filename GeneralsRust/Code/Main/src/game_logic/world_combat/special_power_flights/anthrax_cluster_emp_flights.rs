@@ -548,8 +548,10 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&sid) {
             o.emp_pulse_spheroid = true;
             o.producer_id = Some(producer);
-            o.emp_pulse_spheroid_expires_frame =
-                Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
+            if !o.has_native_emp_update() {
+                o.emp_pulse_spheroid_expires_frame =
+                    Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
+            }
             o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
         }
         self.emp_pulses.record_spheroid_spawn();
@@ -604,8 +606,10 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&sid) {
             o.emp_pulse_spheroid = true;
             o.producer_id = Some(producer);
-            o.emp_pulse_spheroid_expires_frame =
-                Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
+            if !o.has_native_emp_update() {
+                o.emp_pulse_spheroid_expires_frame =
+                    Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
+            }
             o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
         }
         self.supw_patriot_emp_spheroids_spawned =
@@ -620,10 +624,26 @@ impl GameLogic {
         disabled_duration_frames: u32,
         particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
     ) {
+        self.spawn_emp_sparks_with_template(
+            victim_id,
+            disabled_duration_frames,
+            crate::game_logic::host_emp_pulse::EMP_SPHEROID_DISABLE_FX,
+            0.001,
+            particle_owner,
+        );
+    }
+
+    pub(in crate::game_logic) fn spawn_emp_sparks_with_template(
+        &mut self,
+        victim_id: ObjectId,
+        disabled_duration_frames: u32,
+        template: &str,
+        sparks_per_cubic_foot: f32,
+        particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
+    ) {
         use crate::game_logic::combat_particles::CombatParticleKind;
         use crate::game_logic::host_emp_pulse::{
-            EMP_SPHEROID_DISABLE_FX, leftover_emp_spark_dome_clamp,
-            leftover_emp_spark_emitter_count, leftover_emp_spark_initial_delay,
+            leftover_emp_spark_dome_clamp, leftover_emp_spark_initial_delay,
             leftover_emp_spark_lifetime, leftover_emp_spark_z,
         };
         use crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_area;
@@ -633,7 +653,7 @@ impl GameLogic {
         };
         let pos = victim.get_position();
         let yaw = victim.get_orientation();
-        let geom = (*victim.geometry_info());
+        let geom = *victim.geometry_info();
         let height = if geom.height > 0.0 {
             geom.height
         } else {
@@ -646,9 +666,11 @@ impl GameLogic {
             geom.minor_radius,
             victim.selection_radius,
         );
-        let count = leftover_emp_spark_emitter_count(footprint, height);
+        let volume = footprint.max(0.0) * height.clamp(0.0, 10.0);
+        let count = ((sparks_per_cubic_foot * volume).ceil() as i32).max(15);
         let lifetime = leftover_emp_spark_lifetime(disabled_duration_frames);
         let frame = self.frame;
+        let is_shrouded = self.host_fx_object_is_shrouded(victim_id.0);
         for _ in 0..count {
             let mut offset =
                 crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_offset(
@@ -657,7 +679,6 @@ impl GameLogic {
                 );
             offset.y = leftover_emp_spark_z(height, &self.logic_random);
             offset = leftover_emp_spark_dome_clamp(offset, height);
-            let is_shrouded = self.host_fx_object_is_shrouded(victim_id.0);
             let Some(pid) = self
                 .combat_particles
                 .attach_named_to_object_local_with_visibility(
@@ -666,7 +687,7 @@ impl GameLogic {
                     yaw,
                     offset,
                     frame,
-                    EMP_SPHEROID_DISABLE_FX,
+                    template,
                     CombatParticleKind::DisableFx,
                     Some(lifetime),
                     is_shrouded,

@@ -65,181 +65,161 @@ fn hero_spawn_waits_stealth_delay() {
 
 #[test]
 fn supw_patriot_emp_residual_dual_slot_and_disable() {
+    use crate::game_logic::game_logic::accepted_projectile_owner_tests::
+        patriot_retail_battery_tests::superweapon_world;
     use crate::game_logic::host_base_defense::{
         SUPW_PATRIOT_AIR_DAMAGE, SUPW_PATRIOT_GROUND_DAMAGE, SUPW_PATRIOT_GROUND_RANGE,
         is_supw_patriot_template,
     };
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
-    ensure_host_weapon_store();
-    let mut game_logic = GameLogic::new();
+    for airborne in [false, true] {
+        let (mut world, battery, target) = superweapon_world(airborne);
+        let patriot = world.host_object(battery).unwrap();
+        assert!(is_supw_patriot_template(&patriot.template_name));
+        let ground = patriot.weapon.as_ref().expect("authored ground weapon");
+        assert_eq!(ground.damage, SUPW_PATRIOT_GROUND_DAMAGE);
+        assert_eq!(ground.range, SUPW_PATRIOT_GROUND_RANGE);
+        // The second slot is the assisting weapon. Aircraft use the third.
+        let aa = patriot.tertiary_weapon.as_ref().expect("authored AA weapon");
+        assert_eq!(aa.damage, SUPW_PATRIOT_AIR_DAMAGE);
+        assert!(aa.can_target_air && !aa.can_target_ground);
 
-    let mut pat_tpl = crate::game_logic::ThingTemplate::new("SupW_AmericaPatriotBattery");
-    pat_tpl
-        .add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(1000.0)
-        .set_primary_weapon_name(crate::game_logic::host_base_defense::SUPW_PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(crate::game_logic::host_base_defense::SUPW_PATRIOT_ASSIST_WEAPON)
-        .set_tertiary_weapon_name(crate::game_logic::host_base_defense::SUPW_PATRIOT_SECONDARY_WEAPON);
-    game_logic
-        .templates
-        .insert("SupW_AmericaPatriotBattery".to_string(), pat_tpl);
-
-    let mut enemy_tpl = crate::game_logic::ThingTemplate::new("TestTank");
-    enemy_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(500.0);
-    game_logic
-        .templates
-        .insert("TestTank".to_string(), enemy_tpl);
-
-    let mut air_tpl = crate::game_logic::ThingTemplate::new("TestJet");
-    air_tpl
-        .add_kind_of(KindOf::Aircraft)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(400.0);
-    game_logic.templates.insert("TestJet".to_string(), air_tpl);
-
-    let pat_id = game_logic
-        .create_object(
-            "SupW_AmericaPatriotBattery",
-            Team::USA,
-            Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("supw patriot");
-    if let Some(p) = game_logic.host_object_mut(pat_id) {
-        p.set_status_under_construction(false);
-        p.construction_percent = 100.0;
-    }
-
-    {
-        let p = game_logic.host_object(pat_id).expect("patriot");
-        assert!(is_supw_patriot_template(&p.template_name));
-        let g = p.weapon.as_ref().expect("SupW ground residual");
-        assert!(
-            (g.damage - SUPW_PATRIOT_GROUND_DAMAGE).abs() < 0.5,
-            "SupW Patriot ground 15, got {}",
-            g.damage
-        );
-        assert!(
-            (g.range - SUPW_PATRIOT_GROUND_RANGE).abs() < 1.0,
-            "SupW ground range 275, got {}",
-            g.range
-        );
-        // hq-2qedt.32.2: retail AA lives in TERTIARY (SECONDARY = assist weapon).
-        let a = p.tertiary_weapon.as_ref().expect("SupW AA residual");
-        assert!(
-            (a.damage - SUPW_PATRIOT_AIR_DAMAGE).abs() < 0.5,
-            "SupW Patriot AA 30, got {}",
-            a.damage
-        );
-        assert!(a.can_target_air);
-    }
-
-    let enemy_id = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
-        .expect("enemy");
-    let air_id = game_logic
-        .create_object("TestJet", Team::GLA, Vec3::new(0.0, 250.0, 0.0))
-        .expect("air");
-    if let Some(a) = game_logic.host_object_mut(air_id) {
-        a.status.airborne_target = true;
-    }
-
-    let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
-    {
-        let p = game_logic.host_object_mut(pat_id).unwrap();
-        if let Some(w) = p.weapon.as_mut() {
-            w.last_fire_time = -10.0;
+        let assets = world.application_assets().expect("retail W3D owner");
+        world.objects.get_mut(&battery).unwrap().set_max_shots_to_fire(1);
+        let initial_health = world.host_object(target).unwrap().health.current;
+        let expected_damage = if airborne {
+            SUPW_PATRIOT_AIR_DAMAGE
+        } else {
+            SUPW_PATRIOT_GROUND_DAMAGE
+        };
+        let tick = |world: &mut GameLogic| {
+            world.tick_logic_frame_with_script_effects(
+                LOGIC_FRAME_TIMESTEP,
+                None,
+                None,
+                crate::game_logic::ScriptPresentationEffects {
+                    pristine_bones: Some(assets.as_ref()),
+                    ..Default::default()
+                },
+                |_| {},
+                |_| {},
+            );
+        };
+        let mut observed_owned_flight = false;
+        for _ in 0..90 {
+            tick(&mut world);
+            observed_owned_flight |= world.combat_system.projectiles_snapshot().iter().any(|shot| {
+                shot.target_id == Some(target)
+                    && shot.projectile_object_name == "PatriotMissileEMP"
+                    && shot.missile_motion.is_some()
+                    && shot.damage == expected_damage
+                    && shot.detonation_ocl_name == "SupW_OCL_PatriotEMPEffectSpheroid"
+            });
+            if world.host_object(target).is_none_or(|object| object.health.current < initial_health) {
+                break;
+            }
         }
-        if let Some(w) = p.secondary_weapon.as_mut() {
-            w.last_fire_time = -10.0;
-        }
-    }
-    game_logic.health_events.clear_damage();
-    game_logic.frame = 30;
-    for _ in 0..30 {
-        game_logic.try_base_defense_residual_fire(pat_id);
-        let hp_now = game_logic.host_object(enemy_id).unwrap().health.current;
-        if hp_now < hp_before || game_logic.base_defense_residual_fires() > 0 {
-            break;
-        }
-        game_logic.frame = game_logic.frame.saturating_add(1);
-    }
+        assert!(observed_owned_flight, "retail EMP round must fly before impact");
+        assert_eq!(world.base_defense_residual_fires(), 1);
+        let victim_at_impact = world.host_object(target).expect("direct damage alone is nonlethal");
+        assert_eq!(victim_at_impact.health.current, initial_health - expected_damage);
+        let effect = {
+            let mut spheroids = world
+                .objects
+                .registered_values()
+                .filter(|object| object.template_name == "EMPPatriotEffectSpheroid");
+            let effect = spheroids.next().expect("authored detonation effect").id;
+            assert!(spheroids.next().is_none(), "one detonation creates one effect");
+            effect
+        };
+        // A completed tick exposes the next frame to execute.
+        let spawn_frame = world.frame - 1;
+        let position = world.objects[&effect].get_position();
+        assert!(!world.objects[&effect].status.off_map);
+        assert!(!world.objects[&target].status.off_map);
+        let hardened = if airborne {
+            let id = world.create_object_for_player("EmpTestHardened", 1, position).unwrap();
+            let airframe = world.objects.get_mut(&id).unwrap();
+            airframe.stamp_airborne_target_from_locomotor();
+            assert!(airframe.status.airborne_target && airframe.is_kind_of(KindOf::EmpHardened));
+            Some(id)
+        } else {
+            None
+        };
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let mut restored = None;
 
-    let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
-    let dealt = test_observed_damage_to(&game_logic.health_events, enemy_id, hp_before, hp_after);
-    assert!(
-        dealt > 0.0 || hp_after < hp_before,
-        "SupW Patriot ground residual must damage (dealt={dealt}, before={hp_before} after={hp_after})"
-    );
-    let enemy = game_logic.host_object(enemy_id).expect("enemy");
-    assert!(
-        enemy.is_emp_disabled() || enemy.status.disabled_emp,
-        "SupW EMP residual must DISABLED_EMP the hit vehicle"
-    );
-    assert!(
-        game_logic.honesty_supw_patriot_emp_ok(),
-        "EMP grant honesty"
-    );
-    assert!(
-        game_logic.patriot_residual_ground_fires > 0
-            || game_logic.base_defense_residual_fires() > 0,
-        "patriot residual fire honesty"
-    );
-
-    // AA residual path: move ground enemy away.
-    if let Some((e, fixture_partition_e)) = game_logic.host_object_and_partition_mut(enemy_id) {
-        e.set_position_with_partition_owner(
-            Vec3::new(5000.0, 0.0, 0.0),
-            0,
-            &mut Default::default(),
-            fixture_partition_e,
-        );
-    }
-    game_logic.health_events.clear_damage();
-    let air_hp_before = game_logic.host_object(air_id).unwrap().health.current;
-    {
-        let p = game_logic.host_object_mut(pat_id).unwrap();
-        if let Some(w) = p.weapon.as_mut() {
-            w.last_fire_time = -10.0;
+        // EMPUpdate.cpp applies the disable when the authored 100 ms fade starts.
+        for elapsed in 0..3 {
+            let victim = world.host_object(target).expect("the EMP fade has not started");
+            assert!(victim.is_alive() && !victim.is_emp_disabled() && !victim.status.disabled_emp);
+            assert_eq!(victim.status.airborne_target, airborne);
+            if elapsed == 1 {
+                let saved = builder.create_world_snapshot(&world).unwrap();
+                let bytes = bincode_legacy::serialize(&saved).unwrap();
+                let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes)
+                    .unwrap();
+                let (mut receiving, _, _) = superweapon_world(airborne);
+                builder.restore_from_snapshot(&decoded, &mut receiving).unwrap();
+                restored = Some(receiving);
+            }
+            if let Some(receiving) = &mut restored {
+                assert_eq!(
+                    receiving.objects[&effect].native_lifecycle,
+                    world.objects[&effect].native_lifecycle,
+                );
+                assert_eq!(
+                    receiving.objects[&effect].drawable_instance_scale.to_bits(),
+                    world.objects[&effect].drawable_instance_scale.to_bits(),
+                );
+                tick(receiving);
+            }
+            tick(&mut world);
         }
-        if let Some(w) = p.secondary_weapon.as_mut() {
-            w.last_fire_time = -10.0;
+        let mut restored = restored.expect("mid-pulse receiving world");
+        let pulse_outcome = |world: &GameLogic| {
+            world.host_object(target).map(|object| {
+                (object.is_alive(), object.status.disabled_emp_until_frame)
+            })
+        };
+        assert_eq!(pulse_outcome(&world), pulse_outcome(&restored));
+        if airborne {
+            assert!(
+                world.host_object(target).is_none_or(|aircraft| !aircraft.is_alive()),
+                "the pulse at {position:?} destroys the airborne target at fade start, got {:?}",
+                world.host_object(target).map(|aircraft| (
+                    aircraft.get_position(),
+                    aircraft.health.current,
+                    aircraft.status.disabled_emp_until_frame,
+                )),
+            );
+        } else {
+            let vehicle = world.host_object(target).expect("EMP leaves the ground vehicle alive");
+            assert!(vehicle.is_emp_disabled() || vehicle.status.disabled_emp,
+                "the authored pulse disables the ground vehicle at fade start");
+            assert_eq!(vehicle.status.disabled_emp_until_frame, spawn_frame + 3 + 300);
+        }
+        for _ in 3..15 {
+            let pulse = world.host_object(effect).expect("the authored pulse is still alive");
+            assert!(pulse.is_alive());
+            assert_eq!(
+                pulse.native_lifecycle,
+                restored.objects[&effect].native_lifecycle,
+            );
+            tick(&mut world);
+            tick(&mut restored);
+        }
+        for receiving in [&world, &restored] {
+            if let Some(hardened) = hardened {
+                let immune = receiving.host_object(hardened).expect("hardened airframe survives");
+                assert!(immune.is_alive() && !immune.is_emp_disabled() && immune.status.airborne_target);
+            }
+            assert!(
+                receiving.host_object(effect).is_none_or(|pulse| !pulse.is_alive()),
+                "the authored pulse dies at its 15-frame deadline",
+            );
         }
     }
-    game_logic.frame = 90;
-    for _ in 0..30 {
-        game_logic.try_base_defense_residual_fire(pat_id);
-        let hp_now = game_logic.host_object(air_id).unwrap().health.current;
-        if hp_now < air_hp_before {
-            break;
-        }
-        game_logic.frame = game_logic.frame.saturating_add(1);
-    }
-
-    let air_hp_after = game_logic.host_object(air_id).unwrap().health.current;
-    let dealt_aa = test_observed_damage_to(
-        &game_logic.health_events,
-        air_id,
-        air_hp_before,
-        air_hp_after,
-    );
-    assert!(
-        dealt_aa > 0.0 || air_hp_after < air_hp_before,
-        "SupW Patriot AA residual must damage aircraft (dealt={dealt_aa}, before={air_hp_before} after={air_hp_after})"
-    );
-    let jet = game_logic.host_object(air_id).expect("jet");
-    assert!(
-        !jet.is_alive() || jet.status.destroyed || jet.status.effectively_dead,
-        "SupW EMP residual must kill airborne aircraft"
-    );
 }
 
 #[test]

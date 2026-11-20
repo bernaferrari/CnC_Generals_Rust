@@ -64,7 +64,7 @@ const PRESENTATION_KIND_BITS: ([u32; KindOf::ALL_KIND_OF.len()], u128) = {
 const _: () = {
     let kinds = KindOf::ALL_KIND_OF;
     assert!(kinds.len() <= u128::BITS as usize);
-    assert!(kinds.len() == KindOf::ProducedAtHelipad as usize + 1);
+    assert!(kinds.len() == KindOf::EmpHardened as usize + 1);
     let mut index = 0;
     while index < kinds.len() {
         assert!(kinds[index] as usize == index);
