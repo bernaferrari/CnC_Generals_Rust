@@ -403,6 +403,7 @@ struct ChunkTextureBinding {
 
 struct GpuWaterPlane {
     vertex_buffer: Buffer,
+    vertex_byte_range: Option<std::ops::Range<wgpu::BufferAddress>>,
     index_buffer: Buffer,
     index_count: u32,
     texture_name: String,
@@ -410,6 +411,15 @@ struct GpuWaterPlane {
     /// C++ drawRiverWater (setupJbaWaterShader + river pixel shader) when true;
     /// drawTrapezoidWater (setupFlatWaterShader + trapezoid pixel shader) when false.
     river: bool,
+}
+
+impl GpuWaterPlane {
+    fn vertex_slice(&self) -> wgpu::BufferSlice<'_> {
+        match &self.vertex_byte_range {
+            Some(range) => self.vertex_buffer.slice(range.clone()),
+            None => self.vertex_buffer.slice(..),
+        }
+    }
 }
 
 /// Immutable topology whose exact prefix can serve shorter wake runs.

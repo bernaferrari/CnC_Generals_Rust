@@ -1351,7 +1351,7 @@ impl TerrainVisualImpl {
         pass.set_bind_group(1, water_bg, &[]);
 
         if let Some(water_plane) = self.water_plane.as_ref() {
-            pass.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
+            pass.set_vertex_buffer(0, water_plane.vertex_slice());
             pass.set_index_buffer(
                 water_plane.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint32,
@@ -1368,7 +1368,7 @@ impl TerrainVisualImpl {
                 }
                 last_tex = mesh.texture_name.clone();
             }
-            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_vertex_buffer(0, mesh.vertex_slice());
             pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
@@ -2486,6 +2486,7 @@ impl TerrainVisualImpl {
 
         self.water_plane = Some(GpuWaterPlane {
             vertex_buffer,
+            vertex_byte_range: None,
             index_buffer,
             index_count: list_indices.len() as u32,
             texture_name: standing_tex,

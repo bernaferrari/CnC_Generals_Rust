@@ -378,6 +378,7 @@ impl TerrainVisualImpl {
                 contents: bytemuck::cast_slice(&vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             }),
+            vertex_byte_range: None,
             index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Shoreline Feather Indices"),
                 contents: bytemuck::cast_slice(&indices),
@@ -509,6 +510,7 @@ impl TerrainVisualImpl {
                 contents: cast_slice(&vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             }),
+            vertex_byte_range: None,
             index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Water Grid Indices"),
                 contents: cast_slice(&indices),
@@ -563,7 +565,32 @@ impl TerrainVisualImpl {
         if self.overlay.polygon_water_mesh_stamp == Some(stamp) {
             return Ok(());
         }
-        self.polygon_water_meshes.clear();
+        let meshes = &mut self.polygon_water_meshes;
+        meshes.clear();
+        let cached_indices = &mut self.overlay.polygon_water_indices;
+        let mut packed_vertices = Vec::new();
+        let mut vertex_ranges = Vec::new();
+        let stride = std::mem::size_of::<WaterGpuVertex>() as u64;
+        let max_vertices = usize::try_from(device.limits().max_buffer_size / stride)
+            .unwrap_or(usize::MAX);
+        let mut append_shape = |vertices: &[crate::terrain::SeaPatchVertex], topology| {
+            if !packed_vertices.is_empty()
+                && vertices.len() > max_vertices.saturating_sub(packed_vertices.len())
+            {
+                Self::upload_polygon_water_phase(
+                    device,
+                    cached_indices,
+                    meshes,
+                    &packed_vertices,
+                    &mut vertex_ranges,
+                );
+                packed_vertices.clear();
+            }
+            let start = packed_vertices.len() as u64 * stride;
+            packed_vertices.extend(vertices.iter().map(WaterGpuVertex::from_sea_patch));
+            let end = packed_vertices.len() as u64 * stride;
+            vertex_ranges.push((start..end, topology));
+        };
         let layers = if feather > 0 { feather.min(5) } else { 1 };
         for area in &self.overlay.water_areas {
             if area.points.len() < 3 {
@@ -575,12 +602,7 @@ impl TerrainVisualImpl {
                 else {
                     continue;
                 };
-                self.polygon_water_meshes.push(Self::upload_polygon_water(
-                    device,
-                    &mut self.overlay.polygon_water_indices,
-                    &vertices,
-                    topology,
-                ));
+                append_shape(&vertices, topology);
                 continue;
             }
             let n = area.points.len();
@@ -603,49 +625,58 @@ impl TerrainVisualImpl {
                     };
                     let (vertices, topology) =
                         bake_trapezoid_water(&quad, z_off, river_v, diffuse, feather);
-                    self.polygon_water_meshes.push(Self::upload_polygon_water(
-                        device,
-                        &mut self.overlay.polygon_water_indices,
-                        &vertices,
-                        topology,
-                    ));
+                    append_shape(&vertices, topology);
                 }
                 k += 2;
             }
         }
+        Self::upload_polygon_water_phase(
+            device,
+            cached_indices,
+            meshes,
+            &packed_vertices,
+            &mut vertex_ranges,
+        );
         self.overlay.polygon_water_mesh_stamp = Some(stamp);
         Ok(())
     }
 
-    fn upload_polygon_water(
+    fn upload_polygon_water_phase(
         device: &wgpu::Device,
         cached_indices: &mut HashMap<PolygonWaterTopology, wgpu::Buffer>,
-        vertices: &[crate::terrain::SeaPatchVertex],
-        topology: PolygonWaterTopology,
-    ) -> GpuWaterPlane {
-        let gpu_vertices = fill_water_gpu_upload_vertices(vertices);
-        // Animation moves the vertices. The exact grid and bank triangles
-        // depend on topology and remain immutable across submitted frames.
-        let index_buffer = cached_indices.entry(topology).or_insert_with(|| {
-            let indices = topology.indices();
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Polygon water indices"),
-                contents: cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            })
-        });
-        GpuWaterPlane {
-            vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Polygon water vertices"),
-                contents: cast_slice(&gpu_vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            }),
-            index_buffer: index_buffer.clone(),
-            index_count: topology.index_count(),
-            texture_name: String::new(),
-            jba: true,
-            river: matches!(topology, PolygonWaterTopology::River { .. }),
+        meshes: &mut Vec<GpuWaterPlane>,
+        vertices: &[WaterGpuVertex],
+        ranges: &mut Vec<(std::ops::Range<wgpu::BufferAddress>, PolygonWaterTopology)>,
+    ) {
+        if ranges.is_empty() {
+            return;
         }
+        // Each phase owns its upload. Shapes address the shared buffer with
+        // local indices and exact byte ranges, including in the shroud pass.
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Polygon water phase vertices"),
+            contents: cast_slice(vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        meshes.extend(ranges.drain(..).map(|(range, topology)| {
+            let index_buffer = cached_indices.entry(topology).or_insert_with(|| {
+                let indices = topology.indices();
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Polygon water indices"),
+                    contents: cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                })
+            });
+            GpuWaterPlane {
+                vertex_buffer: vertex_buffer.clone(),
+                vertex_byte_range: Some(range),
+                index_buffer: index_buffer.clone(),
+                index_count: topology.index_count(),
+                texture_name: String::new(),
+                jba: true,
+                river: matches!(topology, PolygonWaterTopology::River { .. }),
+            }
+        }));
     }
 
     fn upload_bib_meshes(&mut self) {
@@ -1143,7 +1174,7 @@ impl TerrainVisualImpl {
         pass.set_bind_group(0, camera_bg, &[]);
         pass.set_bind_group(1, water_bg, &[]);
         for mesh in &self.shoreline_meshes {
-            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_vertex_buffer(0, mesh.vertex_slice());
             pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
@@ -1185,7 +1216,7 @@ impl TerrainVisualImpl {
                     pass.set_bind_group(1, river_bg, &[]);
                     started = true;
                 }
-                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_vertex_buffer(0, mesh.vertex_slice());
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
@@ -1210,7 +1241,7 @@ impl TerrainVisualImpl {
                     pass.set_bind_group(1, trapezoid_bg, &[]);
                     started = true;
                 }
-                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_vertex_buffer(0, mesh.vertex_slice());
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }

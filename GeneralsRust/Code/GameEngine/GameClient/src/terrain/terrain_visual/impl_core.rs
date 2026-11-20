@@ -891,6 +891,7 @@ impl TerrainVisualImpl {
                 contents: bytemuck::cast_slice(vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             }),
+            vertex_byte_range: None,
             index_buffer,
             index_count: indices.len() as u32,
             texture_name: texture_name.to_owned(),

@@ -319,7 +319,7 @@ impl TerrainVisualImpl {
         pass.set_bind_group(0, camera, &[]);
         pass.set_bind_group(1, shroud, &[]);
         for mesh in meshes {
-            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_vertex_buffer(0, mesh.vertex_slice());
             pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }

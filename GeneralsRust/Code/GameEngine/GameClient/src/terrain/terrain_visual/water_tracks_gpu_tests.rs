@@ -140,9 +140,27 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
             phase_0.chunks_exact(4).any(|pixel| pixel[..3] != [0; 3]),
             "the native polygon pass must paint the installed map geometry",
         );
+        let read_shaded = |visual: &mut TerrainVisualImpl| {
+            let cell_size = (max - min).max_element() / 4.0;
+            visual.set_shroud_overlay_r8(5, 5, cell_size, min.to_array(), &[160; 25]);
+            visual.sync_shroud_dest_texture();
+            let pixels = read_water_pixels(visual, &device, &queue, true);
+            visual.clear_shroud_overlay();
+            pixels
+        };
+        let shaded_phase_0 = read_shaded(&mut visual);
+        assert_ne!(shaded_phase_0, phase_0);
+        let vertex_buffer_count = |meshes: &[GpuWaterPlane]| {
+            meshes
+                .iter()
+                .map(|mesh| &mesh.vertex_buffer)
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+        };
         let retained = std::mem::take(&mut visual.polygon_water_meshes);
         assert!(!retained.is_empty());
         let mut fingerprints = vec![crc32fast::hash(&phase_0)];
+        let mut vertex_buffers_per_phase = vec![vertex_buffer_count(&retained)];
         let mut index_reuse_per_phase = Vec::new();
         let mut repeated_uploads = (0..4).filter(|_| visual.sync_river_params()).count();
         for phase in [0.002, 0.004, 0.2, 0.474] {
@@ -151,6 +169,7 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
             repeated_uploads += (0..4).filter(|_| visual.sync_river_params()).count();
             visual.sync_polygon_water_meshes(&device).unwrap();
             assert_eq!(visual.polygon_water_meshes.len(), retained.len());
+            vertex_buffers_per_phase.push(vertex_buffer_count(&visual.polygon_water_meshes));
             let mut same_indices = 0;
             for (mesh, initial) in visual.polygon_water_meshes.iter().zip(&retained) {
                 assert_ne!(mesh.vertex_buffer, initial.vertex_buffer);
@@ -174,6 +193,7 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
         visual.overlay.river_v_origin = 0.0;
         assert!(visual.sync_river_params());
         assert_eq!(read_water_pixels(&visual, &device, &queue, true), phase_0);
+        assert_eq!(read_shaded(&mut visual), shaded_phase_0);
         let retained = std::mem::replace(&mut visual.polygon_water_meshes, latest);
 
         visual.set_map_water_areas(Vec::new());
@@ -232,7 +252,12 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
         assert_eq!((repeated_uploads, rebound_groups), (0, [true; 2]));
         assert_eq!(reinitialized_pixels, phase_0);
 
-        let (replacement_device, replacement_queue) = native_water_test_device();
+        let (replacement_device, replacement_queue) = native_water_test_device_with_limits(
+            wgpu::Limits {
+                max_buffer_size: 10 * 1024,
+                ..Default::default()
+            },
+        );
         visual
             .init_gpu_resources(replacement_device.clone(), replacement_queue.clone())
             .unwrap();
@@ -241,11 +266,17 @@ fn lone_eagle_polygon_water_reuses_indices_across_visible_animation_phases() {
         assert!(visual.water_named_bind_groups.contains_key("Wave256.tga"));
         set_water_test_camera(&mut visual, &replacement_device, min, max);
         visual.rebuild_all_overlays();
+        assert_eq!(vertex_buffer_count(&visual.polygon_water_meshes), 2);
         assert!(!visual.sync_river_params());
         assert_eq!(
             read_water_pixels(&visual, &replacement_device, &replacement_queue, true),
             phase_0
         );
+        eprintln!(
+            "Lone Eagle polygon vertex buffers per phase {vertex_buffers_per_phase:?}, retained shroud CRC32 {:08x}",
+            crc32fast::hash(&shaded_phase_0),
+        );
+        assert_eq!(vertex_buffers_per_phase, vec![1; 5]);
     });
 }
 
@@ -997,9 +1028,19 @@ fn set_water_test_camera(
 }
 
 fn native_water_test_device() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
+    native_water_test_device_with_limits(wgpu::Limits::default())
+}
+
+fn native_water_test_device_with_limits(
+    required_limits: wgpu::Limits,
+) -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
-    let (device, queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits,
+        ..Default::default()
+    }))
+    .unwrap();
     (Arc::new(device), Arc::new(queue))
 }
 
