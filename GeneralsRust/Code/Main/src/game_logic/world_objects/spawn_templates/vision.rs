@@ -1,5 +1,6 @@
 //! Shroud, visibility, and victory-summary host projections.
 use super::*;
+use crate::game_logic::partition_coi::HostPartitionFootprint;
 use gamelogic::common::Relationship;
 
 #[derive(Clone, Copy)]
@@ -15,6 +16,15 @@ struct ObjectVisionObservation {
     blocked: bool,
     stealthed_hidden: bool,
     vision_spied_mask: u32,
+}
+
+struct ObjectShroudObservation {
+    controller: Option<u32>,
+    contained: bool,
+    immobile: bool,
+    mine: bool,
+    always_visible: bool,
+    footprint: HostPartitionFootprint,
 }
 
 #[derive(Default)]
@@ -46,14 +56,27 @@ impl GameLogic {
             shroud_mgr.clear_host_object_visibility(pid);
         }
 
-        let snaps: Vec<_> = self
+        let observations: Vec<_> = self
             .objects
             .registered_values()
             .filter(|object| object.is_alive())
-            .map(|object| self.observe_object_vision(object))
+            .map(|object| {
+                (
+                    self.observe_object_vision(object),
+                    ObjectShroudObservation {
+                        controller: object.owner_player_id,
+                        contained: object.contained_by.is_some(),
+                        immobile: object.is_kind_of(KindOf::Immobile)
+                            || object.is_kind_of(KindOf::Structure),
+                        mine: object.is_kind_of(KindOf::Mine),
+                        always_visible: object.get_template().always_visible,
+                        footprint: crate::game_logic::game_logic::host_object_footprint(object),
+                    },
+                )
+            })
             .collect();
         let mut live = ObjectVisionReceipts::default();
-        for observation in snaps {
+        for &(observation, _) in &observations {
             self.stamp_object_vision(observation, &player_ids, &mut live, &mut shroud_mgr);
         }
 
@@ -84,35 +107,21 @@ impl GameLogic {
         };
         use gamelogic::common::{Relationship, types::ObjectShroudStatus};
 
-        let object_snaps: Vec<_> = self
-            .objects
-            .registered_values()
-            .filter(|o| o.is_alive())
-            .map(|o| {
-                let pos = o.get_position();
-                let fp = crate::game_logic::game_logic::host_object_footprint(o);
-                (
-                    o.id,
-                    o.owner_player_id,
-                    o.contained_by.is_some(),
-                    o.is_kind_of(KindOf::Immobile) || o.is_kind_of(KindOf::Structure),
-                    o.is_kind_of(KindOf::Mine),
-                    o.get_template().always_visible,
-                    pos.x,
-                    pos.z,
-                    fp,
-                )
-            })
-            .collect();
-
         let origin = shroud_mgr.grid_world_origin().unwrap_or([0.0, 0.0]);
         let Some((width, height, cell_size)) = shroud_mgr.grid_dimensions() else {
             return;
         };
         let dimensions = [width, height];
-        for (id, owner, contained, immobile, mine, always_visible, x, z, fp) in object_snaps {
+        for (look, object) in observations {
+            let id = look.id;
+            let owner = object.controller;
             let cells = match cells_touched_for_footprint_on_grid(
-                origin, dimensions, cell_size, x, z, fp,
+                origin,
+                dimensions,
+                cell_size,
+                look.position.x,
+                look.position.z,
+                object.footprint,
             ) {
                 Ok(cells) => cells,
                 Err(reason) => {
@@ -124,7 +133,7 @@ impl GameLogic {
                 }
             };
             for &pid in &player_ids {
-                if always_visible || contained {
+                if object.always_visible || object.contained {
                     shroud_mgr.set_host_object_shroud_status(pid, id.0, ObjectShroudStatus::Clear);
                     shroud_mgr.mark_host_object_seen(pid, id.0);
                     shroud_mgr.set_host_object_ever_seen(pid, id.0, true);
@@ -157,8 +166,8 @@ impl GameLogic {
                     counts.shrouded,
                     counts.fogged,
                     relationship_neutral,
-                    immobile,
-                    mine,
+                    object.immobile,
+                    object.mine,
                     ever,
                 );
                 shroud_mgr.set_host_object_ever_seen(pid, id.0, ever_now);
