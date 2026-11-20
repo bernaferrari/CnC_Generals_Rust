@@ -709,13 +709,28 @@ impl Object {
     }
 
     pub(super) fn apply_upgrade_modules(&mut self, mask: UpgradeMaskType) {
-        self.apply_upgrade_modules_at(mask, crate::helpers::TheGameLogic::get_frame());
+        self.apply_upgrade_modules_with_optional_radar_frame(mask, None);
     }
 
     /// Explicit clock admission for owner-held upgrade grants.
     pub fn apply_upgrade_modules_at(&mut self, mask: UpgradeMaskType, frame: UnsignedInt) {
+        self.apply_upgrade_modules_with_optional_radar_frame(mask, Some(frame));
+    }
+
+    fn apply_upgrade_modules_with_optional_radar_frame(
+        &mut self,
+        mask: UpgradeMaskType,
+        frame: Option<UnsignedInt>,
+    ) {
         self.apply_upgrade_modules_with_radar(mask, &mut |owner, disable_proof| {
             owner.with_controlling_player_mut(|player| player.add_radar(disable_proof));
+            // RadarUpdate.cpp:60 stamps the extension only after the grant.
+            let frame = frame.unwrap_or_else(|| {
+                owner.owning_world_services().map_or_else(
+                    crate::helpers::TheGameLogic::get_frame,
+                    |world| world.logic_frame(),
+                )
+            });
             owner.extend_radar_at(frame);
         });
     }

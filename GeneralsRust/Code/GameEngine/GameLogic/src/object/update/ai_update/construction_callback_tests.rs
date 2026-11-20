@@ -3,6 +3,18 @@ use crate::common::{DefaultThingTemplate, KindOf};
 use crate::player::{Player, PlayerList, player_list};
 use crate::team::Team;
 
+pub(crate) fn complete_dozer_for_test(
+    builder: &Arc<RwLock<Object>>,
+    structure: &Arc<RwLock<Object>>,
+    rebuild: bool,
+) {
+    let mut dozer = DozerAIUpdate::new(
+        game_engine::common::thing::module::ModuleDataHandle::new(DozerAIUpdateModuleData::default()),
+        builder.read().unwrap().get_id(),
+    );
+    dozer.handle_build_completion(builder, structure, rebuild).unwrap();
+}
+
 pub(crate) struct CompletionFixture {
     owner: crate::system::game_logic::GameLogic,
     object_ids: [crate::common::ObjectID; 2],
@@ -208,11 +220,7 @@ impl CompletionFixture {
     }
 
     pub(crate) fn complete(&self, rebuild: bool) {
-        let mut dozer = DozerAIUpdate::new(
-            game_engine::common::thing::module::ModuleDataHandle::new(DozerAIUpdateModuleData::default()),
-            self.builder.read().unwrap().get_id(),
-        );
-        dozer.handle_build_completion(&self.builder, &self.structure, rebuild).unwrap();
+        complete_dozer_for_test(&self.builder, &self.structure, rebuild);
     }
 
     pub(crate) fn frame(&self) -> u32 {

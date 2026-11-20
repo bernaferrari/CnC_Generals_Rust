@@ -20,6 +20,13 @@ fn authored_definitions() -> (
     Arc<dyn crate::common::ThingTemplate>,
     Arc<crate::upgrade::UpgradeTemplate>,
 ) {
+    authored_definitions_for("OwnedRadarScheduledFixture", "INERT")
+}
+
+fn authored_definitions_for(
+    name: &str,
+    kind_of: &str,
+) -> (Arc<dyn crate::common::ThingTemplate>, Arc<crate::upgrade::UpgradeTemplate>) {
     assert!(ensure_thing_factory_exists());
     crate::upgrade::center::with_upgrade_center_mut(|center| {
         if center.find_upgrade("Upgrade_OwnedRadarTrigger").is_none() {
@@ -33,18 +40,24 @@ fn authored_definitions() -> (
         game_engine::common::thing::module_factory::init_module_factory().unwrap();
     }
     crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
-    if TheThingFactory::find_template("OwnedRadarScheduledFixture").is_none() {
-        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
-            "Object OwnedRadarScheduledFixture\n KindOf = INERT\n Behavior = RadarUpdate OwnedRadar\n RadarExtendTime = 1s\n End\n Behavior = ProductionUpdate OwnedProduction\n End\n Behavior = RadarUpgrade OwnedRadarGrant\n TriggeredBy = Upgrade_OwnedRadarTrigger\n DisableProof = Yes\n End\nEnd\n"
-        ), 1);
+    if TheThingFactory::find_template(name).is_none() {
+        let source = format!(
+            "Object {name}\n KindOf = {kind_of}\n Behavior = RadarUpdate OwnedRadar\n RadarExtendTime = 1s\n End\n Behavior = ProductionUpdate OwnedProduction\n End\n Behavior = RadarUpgrade OwnedRadarGrant\n TriggeredBy = Upgrade_OwnedRadarTrigger\n DisableProof = Yes\n End\nEnd\n"
+        );
+        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(&source), 1);
     }
-    let template = TheThingFactory::find_template("OwnedRadarScheduledFixture").unwrap();
+    let template = TheThingFactory::find_template(name).unwrap();
     let upgrade = crate::upgrade::center::with_upgrade_center(|center| center.find_upgrade("Upgrade_OwnedRadarTrigger").unwrap());
     (template, upgrade)
 }
 
 fn authored_owner() -> (Arc<RwLock<Object>>, Arc<crate::object::ModuleEntry>) {
-    let template = authored_definitions().0.clone();
+    authored_owner_from(authored_definitions().0)
+}
+
+fn authored_owner_from(
+    template: Arc<dyn crate::common::ThingTemplate>,
+) -> (Arc<RwLock<Object>>, Arc<crate::object::ModuleEntry>) {
     let mut team = crate::team::Team::new(AsciiString::from("OwnedRadarTeam"), 0x7A3F_2001);
     team.set_controlling_player_id(Some(7));
     let owned_team = Arc::new(RwLock::new(team));
@@ -636,4 +649,64 @@ fn installed_radar_disabled_lifecycle_keeps_cpp_executed_and_counts() {
         "CPP disabled onCapture/onDelete does not change executed"
     );
     assert!(edges.events.is_empty());
+}
+
+#[test]
+fn dozer_completion_extends_the_authored_radar_at_the_structures_own_frame() {
+    use crate::object::update::ai_update::dozer_ai_update::construction_callback_tests::complete_dozer_for_test;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+
+    fn admit(
+        world: &Arc<EngineStores>,
+        frame: u64,
+    ) -> (Arc<RwLock<Object>>, Arc<ModuleEntry>, Arc<RwLock<Player>>) {
+        with_active_stores(world, || {
+            let (template, upgrade) =
+                authored_definitions_for("OwnedConstructionRadarFixture", "STRUCTURE IMMOBILE");
+            let (structure, radar) = authored_owner_from(template);
+            let player = Arc::new(RwLock::new(Player::new(7)));
+            world.services().players().write().unwrap().add_player(Arc::clone(&player));
+            world.ai().read().unwrap().pathfinder().unwrap().write().unwrap()
+                .reset_with_size(40, 40);
+            {
+                let mut object = structure.write().unwrap();
+                object.set_position(&crate::common::Coord3D::new(105., 105., 0.)).unwrap();
+                object.set_construction_percent(0.);
+            }
+            {
+                let mut logic = world.game_logic_mutex().lock().unwrap();
+                logic.set_current_frame(frame);
+                logic.register_object(Arc::clone(&structure)).unwrap();
+            }
+            structure.write().unwrap().give_upgrade(&upgrade);
+            assert_eq!(player.read().unwrap().get_radar_count(), 0);
+            (structure, radar, player)
+        })
+    }
+
+    let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
+    let driving = new_for_world();
+    let peer = new_for_world();
+    let (structure, radar, player) = admit(&driving, 37);
+    let (peer_structure, peer_radar, peer_player) = admit(&peer, 251);
+    let id = structure.read().unwrap().get_id();
+    assert_eq!(peer_structure.read().unwrap().get_id(), id);
+    let unchanged_peer = bytes(&peer_radar);
+
+    let builder = Arc::new(RwLock::new(Object::new_test(0x7A3F_0020, 100.)));
+    with_active_stores(&peer, || complete_dozer_for_test(&builder, &structure, false));
+
+    let deadline = u32::from_le_bytes(bytes(&radar)[9..13].try_into().unwrap());
+    assert!(!structure.read().unwrap().is_under_construction());
+    assert_eq!(player.read().unwrap().get_radar_count(), 1);
+    assert_eq!(peer_player.read().unwrap().get_radar_count(), 0);
+    assert_eq!(bytes(&peer_radar), unchanged_peer);
+    for world in [&driving, &peer] {
+        with_active_stores(world, || {
+            let mut logic = world.game_logic_mutex().lock().unwrap();
+            logic.destroy_object(id);
+            logic.cleanup_dead_objects().unwrap();
+        });
+    }
+    assert_eq!(deadline, 67, "RadarUpdate.cpp:60 uses its own frame plus RadarExtendTime");
 }
