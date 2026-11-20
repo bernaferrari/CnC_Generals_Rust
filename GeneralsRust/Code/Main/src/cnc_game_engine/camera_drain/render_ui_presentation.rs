@@ -159,12 +159,18 @@ impl CnCGameEngine {
             "Cannot freeze native camera fade: receiving interpreter is unavailable or lent",
         )?;
         self.game_logic.advance_world_animations_for_presentation();
+        let timed = self.runtime_host_update_timings.is_some();
         // Wave 926: single host→shadow sync + presentation build boundary.
         if let Some(ref mut shadow) = self.gameworld_shadow {
+            let started = timed.then(Instant::now);
             shadow.sync_from_host(&self.game_logic);
+            if let Some((timings, started)) = self.runtime_host_update_timings.as_mut().zip(started) {
+                timings.shadow_sync = started.elapsed();
+            }
         }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let local_id = self.current_player_id;
+        let started = timed.then(Instant::now);
         let mut frame = crate::presentation_frame::PresentationFrame::try_publish_for_engine_with_runtime_heightmap(
             &mut self.game_logic,
             local_id,
@@ -172,6 +178,9 @@ impl CnCGameEngine {
             runtime_heightmap,
             with_victory,
         )?;
+        if let Some((timings, started)) = self.runtime_host_update_timings.as_mut().zip(started) {
+            timings.snapshot_build = started.elapsed();
+        }
         #[cfg(feature = "game_client")]
         {
             frame.dynamic_lights = self.game_client.dynamic_lights().to_vec();

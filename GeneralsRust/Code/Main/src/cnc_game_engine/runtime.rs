@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 pub(super) struct RuntimeUpdateTimings {
     pub(super) fixed_logic: Duration,
     pub(super) publish_frame: Duration,
+    pub(super) shadow_sync: Duration,
+    pub(super) snapshot_build: Duration,
     pub(super) client_shell: Duration,
     pub(super) hud_and_post_update: Duration,
 }
@@ -640,6 +642,8 @@ impl RuntimeHostBridge {
             for (key, duration) in [
                 ("host_fixed_logic_ms", timings.fixed_logic),
                 ("host_publish_frame_ms", timings.publish_frame),
+                ("host_shadow_sync_ms", timings.shadow_sync),
+                ("host_snapshot_build_ms", timings.snapshot_build),
                 ("host_client_shell_ms", timings.client_shell),
                 ("host_hud_and_post_update_ms", timings.hud_and_post_update),
             ] {
