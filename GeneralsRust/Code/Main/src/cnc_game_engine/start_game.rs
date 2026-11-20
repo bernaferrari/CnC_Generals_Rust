@@ -1904,8 +1904,8 @@ impl CnCGameEngine {
     /// Radius-cursor / guard rings only. Structure placement is the C++ 3D model ghost.
     pub(super) fn collect_ground_marker_circles(
         &mut self,
-    ) -> Vec<crate::graphics::selection_renderer::SelectedUnit> {
-        use crate::graphics::selection_renderer::SelectedUnit;
+    ) -> Vec<crate::graphics::selection_renderer::GroundCircle> {
+        use crate::graphics::selection_renderer::GroundCircle;
         let mut out = Vec::new();
 
         // C++ InGameUI::placeBuildAvailable / handleBuildPlacements: translucent
@@ -1920,11 +1920,10 @@ impl CnCGameEngine {
                 } else {
                     [1.0, 0.1, 0.1, 0.5]
                 };
-                out.push(SelectedUnit {
+                out.push(GroundCircle {
                     position: glam::Vec3::new(ov.centre.0, 0.0, ov.centre.1),
                     radius: ov.radius.max(1.0),
-                    team_color: color,
-                    style: crate::graphics::selection_renderer::SelectionCircleStyle::Filled,
+                    color,
                 });
             }
         }
@@ -1939,11 +1938,10 @@ impl CnCGameEngine {
                 let Some(gp) = o.guard_position else {
                     continue;
                 };
-                out.push(SelectedUnit {
+                out.push(GroundCircle {
                     position: glam::Vec3::new(gp.x, 0.0, gp.z),
                     radius: GUARD_AREA_RADIUS,
-                    team_color: [0.35, 0.75, 1.0, 0.35],
-                    style: crate::graphics::selection_renderer::SelectionCircleStyle::Filled,
+                    color: [0.35, 0.75, 1.0, 0.35],
                 });
             }
         }

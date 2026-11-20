@@ -1,11 +1,8 @@
-//! 3D Selection Rendering System
+//! Tactical overlays for health bars, drag selection, and ground effects.
 //!
-//! PARITY_NOTE: C++ SAGE draws the drag-select region as a 2D open rectangle via
-//! `W3DInGameUI::drawSelectionRegion()` using `TheDisplay->drawOpenRect()` with
-//! color `0x9933FF33` (alpha 0x99, green tint).  The C++ W3DScene code tints
-//! selected drawables via `Drawable::getSelectionColor()`.  The drag marquee
-//! remains a 2D screen-space open rectangle, while the Rust-only unit circles
-//! and order markers remain world-space overlays.
+//! Selection appears on the drawable through its flash envelope and above it
+//! through `Drawable::drawHealthBar`. The drag marquee is the separate
+//! screen-space primitive in `W3DInGameUI::drawSelectionRegion`.
 
 use glam::{Mat4, Vec2, Vec3};
 use std::sync::Arc;
@@ -38,7 +35,6 @@ const RMB_SCROLL_ANCHOR_RATIO: f32 = 4.0;
 
 const TERRAIN_Y_OFFSET: f32 = 0.5;
 const CIRCLE_SEGMENTS: u32 = 24;
-const CIRCLE_ALPHA: f32 = 0.55;
 
 // ---------------------------------------------------------------------------
 // Selection render data
@@ -235,29 +231,12 @@ fn rmb_scroll_anchor_screen_vertices(anchor: &RmbScrollAnchorOverlay) -> Vec<f32
     vertices
 }
 
-/// Per-selected-unit data for circle rendering.
-///
-/// `style` mirrors the two C++ ground-marker families this overlay stands in
-/// for: `Filled` = terrain decal blobs (shadow/crate/horde decal discs,
-/// `W3DModelDraw::setTerrainDecal`), `Ring` = the selected-unit marker
-/// (`Drawable::friend_setSelected` flash + health bar are the C++ overlays;
-/// the ring is the port's world-space selected indicator, Main ticket lane).
+/// A filled ground effect, such as a fallback shadow or targeting radius.
 #[derive(Debug, Clone)]
-pub struct SelectedUnit {
+pub struct GroundCircle {
     pub position: Vec3,
     pub radius: f32,
-    pub team_color: [f32; 4],
-    pub style: SelectionCircleStyle,
-}
-
-/// Ground-marker draw style for `SelectedUnit` (see struct doc).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SelectionCircleStyle {
-    /// Solid disc (blob-shadow / placement-marker family).
-    #[default]
-    Filled,
-    /// Annulus outline in player color (selected-unit family).
-    Ring,
+    pub color: [f32; 4],
 }
 
 // ---------------------------------------------------------------------------
@@ -552,16 +531,15 @@ impl SelectionRenderer {
         &self,
         render_pass: &mut wgpu::RenderPass<'_>,
         view_proj: &Mat4,
-        selected_units: &[SelectedUnit],
+        ground_circles: &[GroundCircle],
         order_line_vertices: &[f32],
     ) {
-        // Preserve the submitted triangle order across shadows, selections,
-        // markers and orders. They all share the same pipeline, view and depth.
+        // Shadows, ground markers and orders share the same depth and blend state.
         let mut vertices =
-            Vec::with_capacity(selected_units.len() * (CIRCLE_SEGMENTS as usize + 2) * 7);
-        let mut indices = Vec::with_capacity(selected_units.len() * CIRCLE_SEGMENTS as usize * 3);
-        for unit in selected_units {
-            Self::append_selection_circle(&mut vertices, &mut indices, unit);
+            Vec::with_capacity(ground_circles.len() * (CIRCLE_SEGMENTS as usize + 2) * 7);
+        let mut indices = Vec::with_capacity(ground_circles.len() * CIRCLE_SEGMENTS as usize * 3);
+        for circle in ground_circles {
+            Self::append_ground_circle(&mut vertices, &mut indices, circle);
         }
         Self::append_order_line_segments(&mut vertices, &mut indices, order_line_vertices);
         if indices.is_empty() {
@@ -632,64 +610,31 @@ impl SelectionRenderer {
     }
 
     // -----------------------------------------------------------------------
-    // Selection circle beneath a unit
+    // Filled ground effects
     // -----------------------------------------------------------------------
 
-    fn append_selection_circle(vertices: &mut Vec<f32>, indices: &mut Vec<u32>, unit: &SelectedUnit) {
-        let radius = unit.radius.max(1.0);
-        let center = unit.position;
-        let color = unit.team_color;
-        // Selected rings sit a little higher than blob discs: the RTS3DScene
-        // selection-marker pass shrinks the camera Z range by ZBias 0.0001
-        // (W3DScene.cpp:925,997) to keep markers off the terrain surface; the
-        // extra lift stands in for that bias on sloped ground.
-        let y = center.y
-            + match unit.style {
-                SelectionCircleStyle::Filled => TERRAIN_Y_OFFSET,
-                SelectionCircleStyle::Ring => TERRAIN_Y_OFFSET * 3.0,
-            };
-        // Vertex format: [x, y, z, r, g, b, a] = 7 floats.
+    fn append_ground_circle(vertices: &mut Vec<f32>, indices: &mut Vec<u32>, circle: &GroundCircle) {
+        let radius = circle.radius.max(1.0);
+        let center = circle.position;
+        let [r, g, b, a] = circle.color;
+        let y = center.y + TERRAIN_Y_OFFSET;
         let base = (vertices.len() / 7) as u32;
-        let mut push_vertex = |x: f32, z: f32| {
-            vertices.extend_from_slice(&[x, y, z, color[0], color[1], color[2], color[3]]);
-        };
 
-        // Build vertices + index list for the unit's marker style.
-        match unit.style {
-            SelectionCircleStyle::Filled => {
-                // Triangle fan: center vertex + N outer ring vertices.
-                push_vertex(center.x, center.z);
-                for i in 0..=CIRCLE_SEGMENTS {
-                    let angle = (i as f32 / CIRCLE_SEGMENTS as f32) * std::f32::consts::TAU;
-                    push_vertex(
-                        center.x + radius * angle.cos(),
-                        center.z + radius * angle.sin(),
-                    );
-                }
-                for i in 1..=CIRCLE_SEGMENTS {
-                    indices.extend_from_slice(&[base, base + i, base + i + 1]);
-                }
-            }
-            SelectionCircleStyle::Ring => {
-                // Annulus strip: outer + inner rings wound as quads. C++ has no
-                // persistent selected-unit ring (see struct doc); thickness of
-                // 18% of the radius keeps the marker legible at skirmish zoom.
-                const RING_THICKNESS: f32 = 0.82;
-                let inner = radius * RING_THICKNESS;
-                for i in 0..=CIRCLE_SEGMENTS {
-                    let angle = (i as f32 / CIRCLE_SEGMENTS as f32) * std::f32::consts::TAU;
-                    let (sin, cos) = angle.sin_cos();
-                    push_vertex(center.x + radius * cos, center.z + radius * sin);
-                    push_vertex(center.x + inner * cos, center.z + inner * sin);
-                }
-                for i in 0..CIRCLE_SEGMENTS {
-                    let out0 = base + i * 2;
-                    let in0 = out0 + 1;
-                    let out1 = out0 + 2;
-                    let in1 = out0 + 3;
-                    indices.extend_from_slice(&[out0, in0, out1, out1, in0, in1]);
-                }
-            }
+        vertices.extend_from_slice(&[center.x, y, center.z, r, g, b, a]);
+        for i in 0..=CIRCLE_SEGMENTS {
+            let angle = (i as f32 / CIRCLE_SEGMENTS as f32) * std::f32::consts::TAU;
+            vertices.extend_from_slice(&[
+                center.x + radius * angle.cos(),
+                y,
+                center.z + radius * angle.sin(),
+                r,
+                g,
+                b,
+                a,
+            ]);
+        }
+        for i in 1..=CIRCLE_SEGMENTS {
+            indices.extend_from_slice(&[base, base + i, base + i + 1]);
         }
     }
 
@@ -797,14 +742,14 @@ pub(crate) fn volume_shadow_caster_ids(
 /// visible Drawables with an authored non-volume shadow type.
 pub fn collect_blob_shadows_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
-) -> Vec<SelectedUnit> {
+) -> Vec<GroundCircle> {
     collect_remaining_blob_shadows(frame, &std::collections::HashSet::new())
 }
 
 fn collect_remaining_blob_shadows(
     frame: &crate::presentation_frame::PresentationFrame,
     projected_shadow_ids: &std::collections::HashSet<u32>,
-) -> Vec<SelectedUnit> {
+) -> Vec<GroundCircle> {
     // C++ addShadow NULL + renderShadows skip when !m_useShadowDecals.
     if !game_engine::common::game_lod::use_shadow_decals() {
         return Vec::new();
@@ -832,7 +777,7 @@ fn collect_remaining_blob_shadows(
                 0.0,
             );
             let radius = sx.max(sy) * 0.5;
-            SelectedUnit {
+            GroundCircle {
                 // C++ ShadowOffsetX/Y are world X/Y; live Y is height so offset Y maps to Z.
                 // Disc Y is frozen terrain height, never unit altitude (jets/Comanches).
                 position: glam::Vec3::new(
@@ -841,77 +786,11 @@ fn collect_remaining_blob_shadows(
                     u.position.z + oy,
                 ),
                 radius,
-                team_color: [0.0, 0.0, 0.0, 0.4],
-                style: SelectionCircleStyle::Filled,
+                color: [0.0, 0.0, 0.0, 0.4],
             }
         })
         .collect()
 }
-
-pub fn collect_selected_units_from_presentation(
-    frame: &crate::presentation_frame::PresentationFrame,
-) -> Vec<SelectedUnit> {
-    let mut units = Vec::new();
-    // Prefer unit_render_inputs path for position/team/selection_radius (snapshot-owned).
-    // Fall back to selected flags on objects that may be engine-bridged (still drawn
-    // via selection overlay even when mesh pass skips them).
-    for object in frame.objects.iter().filter(|o| o.selected && !o.destroyed) {
-        let player_index = match object.team {
-            crate::game_logic::Team::China => 0,
-            crate::game_logic::Team::USA => 1,
-            crate::game_logic::Team::GLA => 4,
-            crate::game_logic::Team::Neutral => 7,
-        };
-        // Prefer snapshot team_color when set; else player palette. Ring body
-        // reads near-opaque: C++ has no persistent selected ring to copy, but a
-        // washed-out marker defeated the point (VisualGap2 G5, UiGap Order-1).
-        let ring_alpha = CIRCLE_ALPHA.max(0.85);
-        let team_color = if object.team_color[3] > 0.0 {
-            [
-                object.team_color[0],
-                object.team_color[1],
-                object.team_color[2],
-                ring_alpha,
-            ]
-        } else {
-            let c = crate::ui::color_for_player(player_index);
-            [
-                c.r as f32 / 255.0,
-                c.g as f32 / 255.0,
-                c.b as f32 / 255.0,
-                ring_alpha,
-            ]
-        };
-        let radius = object
-            .selection_radius
-            .max(if object.is_structure { 12.0 } else { 5.0 });
-        units.push(SelectedUnit {
-            position: object.position,
-            radius,
-            team_color,
-            style: SelectionCircleStyle::Ring,
-        });
-    }
-    units
-}
-
-/// Collect selection circles. When `presentation` is present, identity fields are
-/// snapshot-owned (position/team/selected/aliveness). Live `GameLogic` is only used
-/// as a fallback when no frame is available (boot/loading residuals).
-pub fn collect_selected_units(
-    presentation: Option<&crate::presentation_frame::PresentationFrame>,
-) -> Vec<SelectedUnit> {
-    // Presentation-only boundary: engine always seeds a frame before draw.
-    presentation
-        .map(collect_selected_units_from_presentation)
-        .unwrap_or_default()
-}
-
-/// PARITY_NOTE: C++ draws the selection region in `W3DInGameUI::draw()` as a
-/// 2D overlay (after the 3D scene).  Unit selection circles are drawn by the
-/// W3DScene per-drawable tint pipeline.  This Rust implementation merges both
-/// into a single 3D overlay pass that executes after the terrain pass but
-/// before the UI pass.
 
 /// Rally flag is the leftover RallyPointMarker mesh (unit_render_inputs), not a line.
 fn pack_rally_point_lines(_frame: &crate::presentation_frame::PresentationFrame) -> Vec<f32> {
@@ -992,7 +871,7 @@ fn log_show_object_health_gate_once(open: bool) {
     }
 }
 
-pub fn pack_health_bar_quads(
+fn pack_health_bar_quads(
     frame: &crate::presentation_frame::PresentationFrame,
     view_matrix: &Mat4,
     projection_matrix: &Mat4,
@@ -1000,7 +879,7 @@ pub fn pack_health_bar_quads(
     display_size: (f32, f32),
     camera_zoom: f32,
     hovered_id: Option<u32>,
-) -> Vec<f32> {
+) -> (Vec<f32>, usize) {
     use crate::game_logic::host_enum_table_residual::{
         MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, host_model_condition_has,
     };
@@ -1020,13 +899,14 @@ pub fn pack_health_bar_quads(
         || !camera_zoom.is_finite()
         || camera_zoom <= 0.0
     {
-        return Vec::new();
+        return (Vec::new(), 0);
     }
 
     let viewport = Vec2::new(display_size.0.max(1.0), display_size.1.max(1.0));
     let view_proj = *projection_matrix * *view_matrix;
     let (vp_w, vp_h) = (tactical_viewport.0.max(1.0), tactical_viewport.1.max(1.0));
-    let mut vertices: Vec<f32> = Vec::new();
+    let mut vertices = Vec::new();
+    let mut selected_bars = 0;
 
     // C++ gate (`Drawable.cpp:3834-3835`): selected OR moused-over
     // drawables. The host feeds the mouseover id at the HintSpy boundary
@@ -1122,8 +1002,9 @@ pub fn pack_health_bar_quads(
             viewport,
             fill_color,
         );
+        selected_bars += usize::from(object.selected);
     }
-    vertices
+    (vertices, selected_bars)
 }
 
 /// Four thin quads forming a C++ `drawOpenRect` 1-px outline.
@@ -1171,7 +1052,7 @@ pub fn enqueue_selection_render(
     presentation: Option<&crate::presentation_frame::PresentationFrame>,
     projected_shadow_ids: &std::collections::HashSet<u32>,
     // Placement ghost / special-power radius / guard area residual circles.
-    ground_markers: Vec<SelectedUnit>,
+    ground_markers: Vec<GroundCircle>,
     show_move_lines: bool,
     show_attack_lines: bool,
     // Full window pixel size, for screen-space health-bar clip conversion.
@@ -1181,21 +1062,14 @@ pub fn enqueue_selection_render(
 ) {
     let view_proj = *projection_matrix * *view_matrix;
 
-    let mut selected_units = collect_selected_units(presentation);
-    // Count true selection circles before blob-shadow / marker padding so the
-    // present-frame gate can require a selected unit indicator.
-    let selection_indicator_count = selected_units.len();
-    // Blob discs are the fallback when the forward-pass projected/CSM sample
-    // is empty. Planted at unit Y (not world origin) so units do not hover.
-    if let Some(frame) = presentation {
-        selected_units.splice(0..0, collect_remaining_blob_shadows(frame, projected_shadow_ids));
-    }
-    selected_units.extend(ground_markers);
-    pipeline.debug_last_selection_indicators = selection_indicator_count;
+    let mut ground_circles = presentation
+        .map(|frame| collect_remaining_blob_shadows(frame, projected_shadow_ids))
+        .unwrap_or_default();
+    ground_circles.extend(ground_markers);
 
     // C++ Drawable::drawIconUI health bars for the selected set (Drawable.cpp
     // 2738-2754 / 3825-3937), packed for the 2D overlay pass.
-    let health_bar_vertices = presentation
+    let (health_bar_vertices, selected_bars) = presentation
         .map(|frame| {
             let tactical_viewport = pipeline.tactical_viewport_pixel_size();
             pack_health_bar_quads(
@@ -1209,6 +1083,7 @@ pub fn enqueue_selection_render(
             )
         })
         .unwrap_or_default();
+    pipeline.debug_last_selection_indicators = selected_bars;
 
     // Move/attack order line residual from presentation snapshot.
     let mut order_line_vertices: Vec<f32> = Vec::new();
@@ -1238,7 +1113,7 @@ pub fn enqueue_selection_render(
     });
     if drag_rect.is_none()
         && rmb_scroll_anchor.is_none()
-        && selected_units.is_empty()
+        && ground_circles.is_empty()
         && order_line_vertices.is_empty()
         && health_bar_vertices.is_empty()
     {
@@ -1247,7 +1122,7 @@ pub fn enqueue_selection_render(
 
     let renderer = pipeline.selection_renderer();
 
-    if !selected_units.is_empty() || !order_line_vertices.is_empty() {
+    if !ground_circles.is_empty() || !order_line_vertices.is_empty() {
         let world_renderer = Arc::clone(&renderer);
         // C++ dx8wrapper Set_Viewport parity: this world-space overlay renders
         // through the SAME tactical viewport as the terrain and mesh lanes, so
@@ -1264,7 +1139,7 @@ pub fn enqueue_selection_render(
             world_renderer.draw(
                 render_pass,
                 &view_proj,
-                &selected_units,
+                &ground_circles,
                 &order_line_vertices,
             );
             Ok(())
@@ -1367,7 +1242,7 @@ mod presentation_selection_tests {
     use glam::Vec3;
 
     #[test]
-    fn shipped_selection_collect_uses_presentation_snapshot_not_live_reread() {
+    fn shipped_blob_shadows_use_the_frozen_presentation_pose() {
         // Criterion 2: production consumer identity from PresentationFrame.
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("SelPresMap");
@@ -1400,31 +1275,6 @@ mod presentation_selection_tests {
             o.health.current = 1.0;
         }
 
-        // Shipped path is presentation-only.
-        let units = collect_selected_units(Some(&snap));
-        assert_eq!(units.len(), 1, "snapshot still has selected unit");
-        assert!(
-            (units[0].position.x - 12.0).abs() < 0.01,
-            "position must come from snapshot, not live 999: {:?}",
-            units[0].position
-        );
-        assert!(
-            (units[0].position.z + 7.0).abs() < 0.01,
-            "z from snapshot: {:?}",
-            units[0].position
-        );
-
-        // Direct presentation helper is the same source of truth.
-        let direct = collect_selected_units_from_presentation(&snap);
-        assert_eq!(direct.len(), 1);
-        assert!((direct[0].position.x - 12.0).abs() < 0.01);
-
-        // No presentation → empty (no live GameLogic dual-read residual).
-        assert!(
-            collect_selected_units(None).is_empty(),
-            "missing presentation yields no selection overlay units"
-        );
-
         let blobs = collect_blob_shadows_from_presentation(&snap);
         let inputs = snap.unit_render_inputs();
         let visible_inputs: Vec<_> = inputs
@@ -1445,7 +1295,7 @@ mod presentation_selection_tests {
         assert!(
             blobs
                 .iter()
-                .all(|b| b.team_color[0] == 0.0 && b.team_color[3] > 0.0),
+                .all(|b| b.color[0] == 0.0 && b.color[3] > 0.0),
             "blob shadows are dark discs"
         );
         for (blob, unit) in blobs.iter().zip(visible_inputs.iter()) {
@@ -1739,7 +1589,7 @@ mod presentation_selection_tests {
             let older: crate::presentation_frame::RenderableObject =
                 serde_json::from_value(encoded).expect("older JSON frame object");
             assert!(!older.disabled_held, "missing held fact defaults inactive");
-            let packed = pack_health_bar_quads(
+            let (packed, selected_bars) = pack_health_bar_quads(
                 &frame,
                 &view,
                 &proj,
@@ -1748,6 +1598,7 @@ mod presentation_selection_tests {
                 1.0,
                 None,
             );
+            assert_eq!(selected_bars, 1);
             assert_eq!(packed.len(), 180, "one outlined health bar");
             let fill = &packed[packed.len() - 36..];
             for channel in 0..3 {
@@ -1823,14 +1674,15 @@ mod presentation_selection_tests {
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().show_object_health = false;
         }
-        assert!(pack(&snap, None).is_empty());
+        assert!(pack(&snap, None).0.is_empty());
 
         // Gate open: outline (4 quads) + fill (1 quad) = 5 quads of 6 verts
         // x 6 floats = 180 floats for the selected unit alone.
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().show_object_health = true;
         }
-        let verts = pack(&snap, None);
+        let (verts, selected_bars) = pack(&snap, None);
+        assert_eq!(selected_bars, 1);
         assert_eq!(
             verts.len(),
             180,
@@ -1856,7 +1708,7 @@ mod presentation_selection_tests {
 
         // Width follows C++ 1/zoom without changing the authored height.
         for zoom in [0.5, 1.0, 1.3] {
-            let packed = pack_health_bar_quads(
+            let (packed, selected_bars) = pack_health_bar_quads(
                 &snap,
                 &view,
                 &proj,
@@ -1865,6 +1717,7 @@ mod presentation_selection_tests {
                 zoom,
                 None,
             );
+            assert_eq!(selected_bars, 1);
             let width = (packed[6] - packed[0]) * 0.5 * 640.0;
             assert!((width - object.health_box_width / zoom).abs() < 0.01);
             let top = (1.0 - packed[13]) * 0.5 * 480.0;
@@ -1879,7 +1732,7 @@ mod presentation_selection_tests {
             .find(|o| o.id == id)
             .unwrap()
             .health_box_width = 0.0;
-        assert!(pack(&no_bar, None).is_empty());
+        assert!(pack(&no_bar, None).0.is_empty());
         let mut offscreen = snap.clone();
         offscreen
             .objects
@@ -1888,10 +1741,11 @@ mod presentation_selection_tests {
             .unwrap()
             .position
             .x += 10_000.0;
-        assert!(pack(&offscreen, None).is_empty());
+        assert!(pack(&offscreen, None).0.is_empty());
         // Contract (d): a hovered NON-selected unit gets its own bar quad set
         // (Drawable.cpp:3834-3835 moused-over branch).
-        let verts = pack(&snap, Some(hover_id.0));
+        let (verts, selected_bars) = pack(&snap, Some(hover_id.0));
+        assert_eq!(selected_bars, 1);
         assert_eq!(
             verts.len(),
             360,
@@ -1908,14 +1762,16 @@ mod presentation_selection_tests {
                 .expect("selected row");
             sel.selected = false;
         }
+        let (hover_vertices, selected_bars) = pack(&hover_only, Some(hover_id.0));
+        assert_eq!(selected_bars, 0);
         assert_eq!(
-            pack(&hover_only, Some(hover_id.0)).len(),
+            hover_vertices.len(),
             180,
             "hover-only unit keeps its bar"
         );
 
         // Clearing the mouseover (INVALID_DRAWABLE_ID) removes the hover bar.
-        assert!(pack(&hover_only, None).is_empty());
+        assert!(pack(&hover_only, None).0.is_empty());
 
         // Retail default: an install whose boot lacks the GameData block
         // falls open to the shipped `ShowObjectHealth = Yes`
@@ -1925,7 +1781,7 @@ mod presentation_selection_tests {
         }
         super::force_retail_game_data_probe_for_tests(2);
         assert_eq!(
-            pack(&snap, None).len(),
+            pack(&snap, None).0.len(),
             180,
             "absent GameData block must fail open to the retail default"
         );

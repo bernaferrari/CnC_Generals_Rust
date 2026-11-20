@@ -2128,8 +2128,8 @@ impl CnCGameEngine {
             }
         }
 
-        // Production selection overlay: prefer PresentationFrame identity when available
-        // (C++ W3DInGameUI selection circles / drag region after 3D scene setup).
+        // Screen-space health bars and drag marquee use the frozen presentation.
+        // W3D scene effects such as shadows and targeting radii share the ground pass.
         if !skip_world_scene && matches!(self.current_state, GameState::InGame | GameState::Paused)
         {
             let (display_w, display_h) = super::types::render_surface_extent(&self.window);
