@@ -474,8 +474,9 @@ fn avenger_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_161() 
 
 #[test]
 fn humvee_tow_object_hit_and_unit_map_key_on_authored_weapon_not_chassis_name_hq_2qedt_246() {
+    use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
     use crate::game_logic::host_humvee::{
-        HUMVEE_MISSILE_WEAPON, is_humvee_template,
+        HUMVEE_GROUND_TOW_DAMAGE, HUMVEE_GUN_WEAPON, HUMVEE_MISSILE_WEAPON, is_humvee_template,
     };
     use crate::game_logic::weapon_bootstrap::{
         ensure_host_weapon_store, primary_weapon_name_for_unit, secondary_weapon_name_for_unit,
@@ -492,57 +493,74 @@ fn humvee_tow_object_hit_and_unit_map_key_on_authored_weapon_not_chassis_name_hq
         assert_eq!(secondary_weapon_name_for_unit(name), None, "{name}");
     }
 
+    const CARRIER: &str = "AuthoredTowCarrier";
+    assert!(!is_humvee_template(CARRIER));
     let mut game_logic = GameLogic::new();
-    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredTowCarrier");
-    carrier
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(400.0)
-        .set_primary_weapon_name(crate::game_logic::host_humvee::HUMVEE_GUN_WEAPON)
-        .set_secondary_weapon_name(HUMVEE_MISSILE_WEAPON);
-    assert!(!is_humvee_template(&carrier.name));
-    game_logic.templates.insert(carrier.name.clone(), carrier);
-    let mut victim = crate::game_logic::ThingTemplate::new("TowVictimTank");
-    victim
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(800.0);
-    game_logic.templates.insert(victim.name.clone(), victim);
+    admit_fixture_content(
+        &mut game_logic,
+        &[
+            FixtureObject::new(CARRIER)
+                .kind_of("VEHICLE CAN_ATTACK")
+                .health(400.0)
+                .module("Behavior = AIUpdateInterface TowAI\nEnd")
+                .weapon("PRIMARY", HUMVEE_GUN_WEAPON)
+                .weapon("SECONDARY", HUMVEE_MISSILE_WEAPON),
+            FixtureObject::new("TowVictimTank").kind_of("VEHICLE").health(800.0),
+        ],
+        &[
+            FixtureWeapon::new(HUMVEE_GUN_WEAPON)
+                .damage(10.0)
+                .range(150.0)
+                .damage_type("SMALL_ARMS"),
+            FixtureWeapon::new(HUMVEE_MISSILE_WEAPON)
+                .damage(HUMVEE_GROUND_TOW_DAMAGE)
+                .radius(5.0)
+                .range(150.0)
+                .delay_ms(1000)
+                .damage_type("EXPLOSION")
+                .clip(1, 2000)
+                .field("WeaponSpeed = 600"),
+        ],
+    );
 
     let shooter = game_logic
-        .create_object("AuthoredTowCarrier", Team::USA, Vec3::ZERO)
+        .create_object(CARRIER, Team::USA, Vec3::ZERO)
         .unwrap();
     let victim_id = game_logic
         .create_object("TowVictimTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
         .unwrap();
-    game_logic.frame = 100;
+    game_logic.set_current_frame(100);
+    let victim_pos = game_logic.host_object(victim_id).unwrap().get_position();
     {
-        let frame = game_logic.frame;
-        let a = game_logic.host_object_mut(shooter).unwrap();
-        a.target = Some(victim_id);
-        a.set_ai_state(
-            AIState::Attacking,
-            frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        a.active_weapon_slot = 1;
-        if let Some(w) = a.weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.pre_attack_delay = 0.0;
-        }
-        if let Some(w) = a.secondary_weapon.as_mut() {
-            w.last_fire_time = -10.0;
-            w.pre_attack_delay = 0.0;
-        }
+        let carrier = game_logic.host_object_mut(shooter).unwrap();
+        assert_eq!(carrier.authored_weapon_name_for_slot(1), Some(HUMVEE_MISSILE_WEAPON));
+        assert!(carrier.set_weapon_lock(1, WeaponLockType::LockedPermanently));
+        carrier.set_prev_victim_pos(Some(victim_pos));
     }
-    let before = game_logic.humvee_tow_residual_fires;
-    for _ in 0..6 {
-        game_logic.frame = game_logic.frame.saturating_add(1);
-        game_logic.update_combat(&[shooter, victim_id], LOGIC_FRAME_TIMESTEP);
+    let damage_type = crate::game_logic::combat::DamageType::Explosive;
+    let victim = game_logic.host_object(victim_id).unwrap();
+    let before = victim.health.current;
+    let expected_damage = crate::game_logic::host_armor_residual::apply_residual_armor(
+        victim,
+        damage_type,
+        HUMVEE_GROUND_TOW_DAMAGE,
+    );
+    assert!(expected_damage > 0.0);
+    assert_eq!(
+        game_logic.attack_fire_weapon_update(shooter, victim_id, 100.0 / 30.0),
+        crate::game_logic::AttackFireResult::Success
+    );
+    assert_eq!(game_logic.host_object(shooter).unwrap().last_fire_slot, 1);
+    for frame in 101..=106 {
+        game_logic.set_current_frame(frame);
+        game_logic.apply_owned_projectileless_delayed_damage().unwrap();
     }
-    assert!(
-        game_logic.humvee_tow_residual_fires > before,
-        "authored HumveeMissileWeapon hit takes the Humvee TOW residual route regardless of chassis name"
+    let victim = game_logic.host_object(victim_id).unwrap();
+    assert_eq!(victim.last_damage_info_type, Some(damage_type));
+    assert_eq!(
+        before - victim.health.current,
+        expected_damage,
+        "Weapon::fireWeapon applies the authored TOW damage to this renamed carrier's target"
     );
 }
 
