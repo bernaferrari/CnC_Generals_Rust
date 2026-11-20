@@ -229,14 +229,10 @@ impl BasicDrawable {
         // Ordinary CU updates must not substitute for this Draw-entry phase.
         self.flush_dirty_model_condition();
         let mut outcomes = Vec::new();
-        let mut bits = 0u128;
-        for index in 0..128 {
-            if self.model_condition_flags.test(index) {
-                bits |= 1u128 << index;
-            }
-        }
         let context = NativeStateParticleContext {
-            conditions: gamelogic::common::ModelConditionFlags::from_bits_retain(bits),
+            conditions: gamelogic::common::ModelConditionFlags::from_bits_retain(
+                self.model_condition_flags.low_bits(),
+            ),
             instance_scale: self.instance_scale,
             state_particles: !self.status.has(DrawableStatus::NO_STATE_PARTICLES),
             drawable_id: self.id.0,

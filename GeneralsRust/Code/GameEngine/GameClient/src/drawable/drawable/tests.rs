@@ -2156,6 +2156,20 @@ fn condition_flags_dirty_apply_to_draw_modules() {
     drawable.clear_model_condition_state(ModelConditionFlags::NIGHT);
     let _ = drawable.get_draw_modules_mut();
     assert_eq!(observed.lock().conditions, Some(1));
+
+    observed.lock().conditions = None;
+    drawable.clear_model_condition_state(ModelConditionFlags::NIGHT);
+    drawable.set_model_condition_state(ModelConditionFlags::SNOW);
+    drawable.set_model_condition_state(usize::MAX);
+    let _ = drawable.get_draw_modules_mut();
+    assert!(observed.lock().conditions.is_none());
+
+    drawable.set_model_condition_state(ModelConditionFlags::GARRISONED);
+    let _ = drawable.get_draw_modules_mut();
+    assert_eq!(observed.lock().conditions, Some(2));
+    drawable.clear_model_condition_garrisoned();
+    let _ = drawable.get_draw_modules_mut();
+    assert_eq!(observed.lock().conditions, Some(1));
 }
 
 #[test]

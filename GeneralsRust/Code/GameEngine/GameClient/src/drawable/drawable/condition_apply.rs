@@ -43,9 +43,7 @@ impl BasicDrawable {
 
     /// Cave / garrison leave path: drop `GARRISONED` and dirty-apply.
     pub fn clear_model_condition_garrisoned(&mut self) {
-        let mut clr = create_model_condition_flags();
-        clr.set(ModelConditionFlags::GARRISONED, true);
-        self.clear_model_condition_flags(&clr);
+        self.clear_model_condition_state(ModelConditionFlags::GARRISONED);
     }
 
     /// C++ `Drawable::replaceModelConditionFlags`.
@@ -68,18 +66,20 @@ impl BasicDrawable {
 
     /// C++ `Drawable::setModelConditionState`.
     pub fn set_model_condition_state(&mut self, index: usize) {
-        let empty = create_model_condition_flags();
-        let mut set = create_model_condition_flags();
-        set.set(index, true);
-        self.clear_and_set_model_condition_flags(&empty, &set);
+        self.assign_model_condition_bit(index, true);
     }
 
     /// C++ `Drawable::clearModelConditionState`.
     pub fn clear_model_condition_state(&mut self, index: usize) {
-        let mut clr = create_model_condition_flags();
-        clr.set(index, true);
-        let empty = create_model_condition_flags();
-        self.clear_and_set_model_condition_flags(&clr, &empty);
+        self.assign_model_condition_bit(index, false);
+    }
+
+    fn assign_model_condition_bit(&mut self, index: usize, value: bool) {
+        let flags = &mut self.model_condition_flags;
+        if index < flags.size() && flags.test(index) != value {
+            flags.set(index, value);
+            self.is_model_dirty = true;
+        }
     }
 
     /// C++ `Drawable::getDrawModules` dirty flush.
@@ -92,9 +92,9 @@ impl BasicDrawable {
     }
 
     fn apply_model_condition_to_draw_modules(&mut self) {
-        let flags = self.model_condition_flags.clone();
+        let flags = &self.model_condition_flags;
         for module in &mut self.draw_modules {
-            module.replace_model_condition_state(&flags);
+            module.replace_model_condition_state(flags);
         }
     }
 }
