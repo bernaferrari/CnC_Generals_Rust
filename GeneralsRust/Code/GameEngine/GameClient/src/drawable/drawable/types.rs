@@ -340,41 +340,56 @@ pub struct DrawableOverlayData {
     pub second_material_pass_opacity: f32,
 }
 
-/// C++ `TheGameText->fetch("CONTROLBAR:UnderConstructionDesc")` + `format(%d)`.
-/// `Drawable.cpp:3707`.
+/// Format the localized construction label with a whole-number percentage.
 pub fn format_under_construction_desc(construction_percent_0_1: f32) -> String {
     let pct = (construction_percent_0_1 * 100.0).round() as i32;
     let tmpl = crate::game_text::GameText::fetch("CONTROLBAR:UnderConstructionDesc");
     if tmpl.starts_with("MISSING:") {
         return format!("Under Construction: {pct}%");
     }
-    format_cpp_int_percent(&tmpl, pct)
+    format_construction_percent(&tmpl, pct)
 }
 
-fn format_cpp_int_percent(tmpl: &str, value: i32) -> String {
-    let bytes = tmpl.as_bytes();
-    let mut out = String::with_capacity(tmpl.len() + 4);
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 1 < bytes.len() {
-            match bytes[i + 1] {
-                b'%' => {
-                    out.push('%');
-                    i += 2;
-                    continue;
-                }
-                b'd' | b'i' => {
-                    out.push_str(&value.to_string());
-                    i += 2;
-                    continue;
-                }
-                _ => {}
-            }
+fn format_construction_percent(mut template: &str, value: i32) -> String {
+    let value = value.to_string();
+    let mut label = String::with_capacity(template.len());
+    while let Some((before, after)) = template.split_once('%') {
+        label.push_str(before);
+        if let Some(rest) = after.strip_prefix('%') {
+            label.push('%');
+            template = rest;
+        } else if let Some(rest) = after
+            .strip_prefix(".0f")
+            .or_else(|| after.strip_prefix(['d', 'i']))
+        {
+            label.push_str(&value);
+            template = rest;
+        } else {
+            label.push('%');
+            template = after;
         }
-        out.push(bytes[i] as char);
-        i += 1;
     }
-    out
+    label.push_str(template);
+    label
+}
+
+#[cfg(test)]
+mod construction_text_tests {
+    use super::format_construction_percent;
+
+    #[test]
+    fn formats_stock_and_localized_percent_labels() {
+        assert_eq!(
+            format_construction_percent("Building: %.0f%%", 42),
+            "Building: 42%",
+        );
+        assert_eq!(
+            format_construction_percent("Construção: %d%%", 9),
+            "Construção: 9%",
+        );
+        assert_eq!(format_construction_percent("建築中 %i%%", 100), "建築中 100%");
+        assert_eq!(format_construction_percent("%%f %.0f%", 0), "%f 0%");
+    }
 }
 
 /// C++ `Drawable::drawHealthBar` color (`Drawable.cpp:3871-3916`).

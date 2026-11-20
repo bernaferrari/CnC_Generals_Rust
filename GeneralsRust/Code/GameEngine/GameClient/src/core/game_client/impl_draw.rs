@@ -527,11 +527,14 @@ client_random: &mut self.client_random,
                 }
 
                 if overlay.is_under_construction {
-                    let text = overlay.construct_text.clone().unwrap_or_else(|| {
-                        format_under_construction_desc(overlay.construction_percent)
-                    });
+                    let text = match overlay.construct_text.as_deref() {
+                        Some(text) => std::borrow::Cow::Borrowed(text),
+                        None => std::borrow::Cow::Owned(format_under_construction_desc(
+                            overlay.construction_percent,
+                        )),
+                    };
                     let char_w = 6.0;
-                    let text_x = bar_x + bar_w * 0.5 - text.len() as f32 * char_w * 0.5;
+                    let text_x = bar_x + bar_w * 0.5 - text.chars().count() as f32 * char_w * 0.5;
                     let _ = renderer.draw_text_simple(
                         &text,
                         Vec2::new(text_x + 1.0, bar_y - 11.0),
@@ -700,8 +703,7 @@ client_random: &mut self.client_random,
                 }
 
                 // Anim2D overlays are submitted after this lock (Anim2D::draw
-                // acquires the UI renderer itself). Colored rects stay as a
-                // fallback when the Anim2D template is missing.
+                // acquires the UI renderer itself).
 
                 if let Some(numeral) = overlay.group_numeral.as_deref() {
                     let _ = renderer.draw_text_simple(
@@ -830,21 +832,23 @@ fn draw_overlay_anim2d_icons(
     let lo = region.lo;
     let hi = ICoord2D::new(region.lo.x + region.width(), region.lo.y + region.height());
 
-    let mut try_icon = |template: &str, x: f32, y: f32, w: f32, h: f32, fallback: [f32; 4]| {
+    let mut try_icon = |template: &str, x: f32, y: f32, size: f32, fallback: Option<[f32; 4]>| {
         if let Ok(icon) = Anim2DIcon::from_template_name(template, client_random) {
             icon.render(
                 Vector3::new(x, y, 0.0),
-                Vector3::new(w.max(1.0), h.max(1.0), 0.0),
+                Vector3::new(size.max(1.0), size.max(1.0), 0.0),
                 renderer,
             );
             return;
         }
 
-        let _ = renderer.draw_rect_with_scissor(
-            UIRect::new(x, y, w.max(4.0), h.max(4.0)),
-            fallback,
-            None,
-        );
+        if let Some(color) = fallback {
+            let _ = renderer.draw_rect_with_scissor(
+                UIRect::new(x, y, size.max(4.0), size.max(4.0)),
+                color,
+                None,
+            );
+        }
     };
 
     if overlay.show_healing {
@@ -856,7 +860,7 @@ fn draw_overlay_anim2d_icons(
         let size = bar_w * scale;
         let x = lo.x as f32 + bar_w * 0.75 - size * 0.5;
         let y = lo.y as f32 - size;
-        try_icon(name, x, y, size, size, [0.35, 1.0, 0.45, 0.95]);
+        try_icon(name, x, y, size, Some([0.35, 1.0, 0.45, 0.95]));
     }
     if overlay.show_bombed {
         let (name, scale) = match overlay.bomb_type {
@@ -867,16 +871,16 @@ fn draw_overlay_anim2d_icons(
         let size = bar_w * scale;
         let x = lo.x as f32 + bar_w * 0.5 - size * 0.5;
         let y = lo.y as f32 + bar_h * 0.5 + 5.0;
-        try_icon(name, x, y, size, size, [1.0, 0.75, 0.1, 0.95]);
+        try_icon(name, x, y, size, Some([1.0, 0.75, 0.1, 0.95]));
         if overlay.bomb_type == 1 {
-            try_icon("BombRemote", x, y, size, size, [1.0, 0.45, 0.1, 0.95]);
+            try_icon("BombRemote", x, y, size, Some([1.0, 0.45, 0.1, 0.95]));
         }
     }
     if overlay.show_disabled {
         let size = bar_w * 0.3;
         let x = lo.x as f32;
         let y = hi.y as f32 - (size + bar_h);
-        try_icon("Disabled", x, y, size, size, [0.55, 0.85, 1.0, 0.95]);
+        try_icon("Disabled", x, y, size, None);
     }
     if overlay.show_enthusiastic {
         let name = if overlay.show_subliminal {
@@ -887,13 +891,13 @@ fn draw_overlay_anim2d_icons(
         let size = bar_w * 0.5;
         let x = lo.x as f32 + bar_w * 0.25 - size * 0.5;
         let y = hi.y as f32 + size * 0.25;
-        try_icon(name, x, y, size, size, [1.0, 0.9, 0.2, 0.95]);
+        try_icon(name, x, y, size, Some([1.0, 0.9, 0.2, 0.95]));
     }
     if overlay.show_emoticon {
         let size = bar_w * 0.3;
         let x = lo.x as f32 + bar_w * 0.5 - size * 0.5;
         let y = hi.y as f32 - size;
-        try_icon("Emoticon", x, y, size, size, [1.0, 0.75, 0.85, 0.95]);
+        try_icon("Emoticon", x, y, size, Some([1.0, 0.75, 0.85, 0.95]));
     }
 }
 
