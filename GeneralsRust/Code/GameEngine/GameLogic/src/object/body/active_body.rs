@@ -766,7 +766,6 @@ impl ActiveBody {
 
     /// Create a new active body with a known owner ID.
     pub fn new_with_owner(module_data: ActiveBodyModuleData, owner_id: ObjectId) -> Self {
-        ensure_default_templates_loaded();
         let mut body = Self::new_inert_with_owner(module_data, owner_id);
         body.set_correct_damage_state().unwrap_or_default();
         if let Some(default_name) = body.module_data.default_armor_template.clone() {
@@ -1092,7 +1091,12 @@ impl ActiveBody {
     fn find_armor_template(&self, name: &AsciiString) -> Option<Arc<ArmorTemplate>> {
         match &self.definitions {
             Some(definitions) => definitions.armor(name.as_str()),
-            None => TheArmorStore::find_template(name),
+            None => {
+                // The compatibility loader is only needed when a body names
+                // armor. Native bodies receive the already loaded catalogue.
+                ensure_default_templates_loaded();
+                TheArmorStore::find_template(name)
+            }
         }
     }
 
@@ -2944,6 +2948,36 @@ mod owned_state_xfer_tests {
             Some(0x1234)
         );
     }
+}
+
+#[cfg(test)]
+#[test]
+fn compatibility_body_needs_armor_definitions_only_for_named_armor() {
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+
+    let _serial = crate::test_sync::lock();
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    with_active_stores(&receiving, || {
+        let mut body = ActiveBody::new(ActiveBodyModuleData {
+            initial_health: 75.0,
+            max_health: 100.0,
+            ..Default::default()
+        });
+        assert_eq!(body.get_health(), 75.0);
+        assert!(body.current_armor_template_name().is_none());
+        assert!(receiving.services().armor_defaults_initialized().get().is_none());
+
+        let name = AsciiString::from("ReceivingArmor");
+        let mut armor = ArmorTemplate::new();
+        armor.set_coefficient(DamageType::SmallArms, 0.25);
+        TheArmorStore::register_template(&name, armor);
+        body.set_armor_by_name(name.clone()).unwrap();
+        assert_eq!(body.current_armor_template_name(), Some(name));
+        assert_eq!(body.adjust_damage_by_armor(DamageType::SmallArms, 20.0), 5.0);
+        assert!(receiving.services().armor_defaults_initialized().get().is_some());
+    });
+    assert!(peer.services().armor_defaults_initialized().get().is_none());
 }
 
 #[cfg(all(test, feature = "engine_tests"))]
