@@ -14,6 +14,7 @@
 mod scalar_queries;
 #[path = "shroud_boundary.rs"]
 mod shroud_boundary;
+use game_engine::common::discrete_circle::DiscreteCircle;
 use crate::common::{Coord3D, KindOf, ObjectID, ObjectShroudStatus};
 use crate::object_manager::get_object_manager;
 use crate::player::PLAYER_INDEX_INVALID;
@@ -563,15 +564,9 @@ impl ShroudGrid {
         let cell_radius = self.world_to_cell_dist(radius);
 
         // Use DiscreteCircle algorithm to add lookers to all cells in the circle
-        let circle = DiscreteCircle::new(center_x, center_y, cell_radius);
-        for line in circle.edges() {
-            self.add_looker_horizontal_line(line.x_start, line.x_end, line.y_pos, player_id);
-            // Draw bottom half if not at center
-            if line.y_pos != circle.y_center() {
-                let y_bottom = circle.y_center_doubled() - line.y_pos;
-                self.add_looker_horizontal_line(line.x_start, line.x_end, y_bottom, player_id);
-            }
-        }
+        DiscreteCircle::draw_circle_at(center_x, center_y, cell_radius, |start, end, y| {
+            self.add_looker_horizontal_line(start, end, y, player_id);
+        });
     }
 
     /// Add shroud cover (active shroud) to a circular area for a player.
@@ -587,14 +582,9 @@ impl ShroudGrid {
 
         let cell_radius = self.world_to_cell_dist(radius);
 
-        let circle = DiscreteCircle::new(center_x, center_y, cell_radius);
-        for line in circle.edges() {
-            self.add_shrouder_horizontal_line(line.x_start, line.x_end, line.y_pos, player_id);
-            if line.y_pos != circle.y_center() {
-                let y_bottom = circle.y_center_doubled() - line.y_pos;
-                self.add_shrouder_horizontal_line(line.x_start, line.x_end, y_bottom, player_id);
-            }
-        }
+        DiscreteCircle::draw_circle_at(center_x, center_y, cell_radius, |start, end, y| {
+            self.add_shrouder_horizontal_line(start, end, y, player_id);
+        });
     }
 
     /// Reveal the entire map for a player (clears shroud, keeps fog).
@@ -665,15 +655,9 @@ impl ShroudGrid {
         let cell_radius = self.world_to_cell_dist(radius);
 
         // Use DiscreteCircle algorithm to remove lookers from all cells in the circle
-        let circle = DiscreteCircle::new(center_x, center_y, cell_radius);
-        for line in circle.edges() {
-            self.remove_looker_horizontal_line(line.x_start, line.x_end, line.y_pos, player_id);
-            // Draw bottom half if not at center
-            if line.y_pos != circle.y_center() {
-                let y_bottom = circle.y_center_doubled() - line.y_pos;
-                self.remove_looker_horizontal_line(line.x_start, line.x_end, y_bottom, player_id);
-            }
-        }
+        DiscreteCircle::draw_circle_at(center_x, center_y, cell_radius, |start, end, y| {
+            self.remove_looker_horizontal_line(start, end, y, player_id);
+        });
     }
 
     /// Remove shroud cover (active shroud) from a circular area for a player.
@@ -689,14 +673,9 @@ impl ShroudGrid {
 
         let cell_radius = self.world_to_cell_dist(radius);
 
-        let circle = DiscreteCircle::new(center_x, center_y, cell_radius);
-        for line in circle.edges() {
-            self.remove_shrouder_horizontal_line(line.x_start, line.x_end, line.y_pos, player_id);
-            if line.y_pos != circle.y_center() {
-                let y_bottom = circle.y_center_doubled() - line.y_pos;
-                self.remove_shrouder_horizontal_line(line.x_start, line.x_end, y_bottom, player_id);
-            }
-        }
+        DiscreteCircle::draw_circle_at(center_x, center_y, cell_radius, |start, end, y| {
+            self.remove_shrouder_horizontal_line(start, end, y, player_id);
+        });
     }
 
     /// Apply threat influence with radial falloff for a player.
@@ -719,32 +698,18 @@ impl ShroudGrid {
         let center_x_f = center_x as f32;
         let center_y_f = center_y as f32;
 
-        let circle = DiscreteCircle::new(center_x as i32, center_y as i32, cell_radius);
-        for line in circle.edges() {
+        DiscreteCircle::draw_circle_at(center_x, center_y, cell_radius, |start, end, y| {
             self.add_threat_horizontal_line(
-                line.x_start,
-                line.x_end,
-                line.y_pos,
+                start,
+                end,
+                y,
                 player_id,
                 threat_value,
                 center_x_f,
                 center_y_f,
                 influence_radius,
             );
-            if line.y_pos != circle.y_center() {
-                let y_bottom = circle.y_center_doubled() - line.y_pos;
-                self.add_threat_horizontal_line(
-                    line.x_start,
-                    line.x_end,
-                    y_bottom,
-                    player_id,
-                    threat_value,
-                    center_x_f,
-                    center_y_f,
-                    influence_radius,
-                );
-            }
-        }
+        });
     }
 
     /// Remove threat influence with radial falloff for a player.
@@ -767,32 +732,18 @@ impl ShroudGrid {
         let center_x_f = center_x as f32;
         let center_y_f = center_y as f32;
 
-        let circle = DiscreteCircle::new(center_x as i32, center_y as i32, cell_radius);
-        for line in circle.edges() {
+        DiscreteCircle::draw_circle_at(center_x, center_y, cell_radius, |start, end, y| {
             self.remove_threat_horizontal_line(
-                line.x_start,
-                line.x_end,
-                line.y_pos,
+                start,
+                end,
+                y,
                 player_id,
                 threat_value,
                 center_x_f,
                 center_y_f,
                 influence_radius,
             );
-            if line.y_pos != circle.y_center() {
-                let y_bottom = circle.y_center_doubled() - line.y_pos;
-                self.remove_threat_horizontal_line(
-                    line.x_start,
-                    line.x_end,
-                    y_bottom,
-                    player_id,
-                    threat_value,
-                    center_x_f,
-                    center_y_f,
-                    influence_radius,
-                );
-            }
-        }
+        });
     }
 
     /// Apply cash/value influence with radial falloff for a player.
@@ -809,32 +760,18 @@ impl ShroudGrid {
         let center_x_f = center_x as f32;
         let center_y_f = center_y as f32;
 
-        let circle = DiscreteCircle::new(center_x as i32, center_y as i32, cell_radius);
-        for line in circle.edges() {
+        DiscreteCircle::draw_circle_at(center_x, center_y, cell_radius, |start, end, y| {
             self.add_value_horizontal_line(
-                line.x_start,
-                line.x_end,
-                line.y_pos,
+                start,
+                end,
+                y,
                 player_id,
                 value,
                 center_x_f,
                 center_y_f,
                 influence_radius,
             );
-            if line.y_pos != circle.y_center() {
-                let y_bottom = circle.y_center_doubled() - line.y_pos;
-                self.add_value_horizontal_line(
-                    line.x_start,
-                    line.x_end,
-                    y_bottom,
-                    player_id,
-                    value,
-                    center_x_f,
-                    center_y_f,
-                    influence_radius,
-                );
-            }
-        }
+        });
     }
 
     /// Remove cash/value influence with radial falloff for a player.
@@ -851,32 +788,18 @@ impl ShroudGrid {
         let center_x_f = center_x as f32;
         let center_y_f = center_y as f32;
 
-        let circle = DiscreteCircle::new(center_x as i32, center_y as i32, cell_radius);
-        for line in circle.edges() {
+        DiscreteCircle::draw_circle_at(center_x, center_y, cell_radius, |start, end, y| {
             self.remove_value_horizontal_line(
-                line.x_start,
-                line.x_end,
-                line.y_pos,
+                start,
+                end,
+                y,
                 player_id,
                 value,
                 center_x_f,
                 center_y_f,
                 influence_radius,
             );
-            if line.y_pos != circle.y_center() {
-                let y_bottom = circle.y_center_doubled() - line.y_pos;
-                self.remove_value_horizontal_line(
-                    line.x_start,
-                    line.x_end,
-                    y_bottom,
-                    player_id,
-                    value,
-                    center_x_f,
-                    center_y_f,
-                    influence_radius,
-                );
-            }
-        }
+        });
     }
 
     fn scaled_affect_amount(
@@ -1119,73 +1042,6 @@ impl ShroudGrid {
                 }
             }
         }
-    }
-}
-
-/// Horizontal line for discrete circle algorithm
-/// Matches C++ HorzLine struct from DiscreteCircle.h
-#[derive(Debug, Clone, Copy)]
-struct HorzLine {
-    y_pos: i32,
-    x_start: i32,
-    x_end: i32,
-}
-
-/// DiscreteCircle - Generates pixel-perfect circles using Bresenham's algorithm
-/// Matches C++ DiscreteCircle from DiscreteCircle.cpp (lines 49-114)
-struct DiscreteCircle {
-    x_center: i32,
-    y_center: i32,
-    radius: i32,
-}
-
-impl DiscreteCircle {
-    fn new(x_center: i32, y_center: i32, radius: i32) -> Self {
-        Self {
-            x_center,
-            y_center,
-            radius,
-        }
-    }
-
-    /// Emit the final Bresenham span at each height, in source order.
-    /// DiscreteCircle.cpp retains that span when it removes duplicate rows.
-    fn edges(&self) -> impl Iterator<Item = HorzLine> {
-        let mut x = 0;
-        let mut y = self.radius;
-        let mut d = (1 - y) << 1;
-        std::iter::from_fn(move || {
-            if y < 0 {
-                return None;
-            }
-            let row = y;
-            loop {
-                let half_width = x;
-                if d + y > 0 {
-                    y -= 1;
-                    d -= (y << 1) - 1;
-                }
-                if x > d {
-                    x += 1;
-                    d += (x << 1) + 1;
-                }
-                if y != row {
-                    return Some(HorzLine {
-                        x_start: self.x_center - half_width,
-                        x_end: self.x_center + half_width,
-                        y_pos: self.y_center + row,
-                    });
-                }
-            }
-        })
-    }
-
-    fn y_center(&self) -> i32 {
-        self.y_center
-    }
-
-    fn y_center_doubled(&self) -> i32 {
-        self.y_center << 1
     }
 }
 

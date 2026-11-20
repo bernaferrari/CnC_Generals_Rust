@@ -1646,8 +1646,7 @@ impl PartitionManager {
         let influence = (cell_radius + 1) as f32;
         let cx_i = center_cell.x as f32;
         let cy_i = center_cell.y as f32;
-        let circle = DiscreteCircle::new(center_cell.x, center_cell.y, cell_radius);
-        circle.draw_circle(|x1, x2, y| {
+        DiscreteCircle::draw_circle_at(center_cell.x, center_cell.y, cell_radius, |x1, x2, y| {
             let (lo, hi) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
             for x in lo..=hi {
                 let dx = x as f32 - cx_i;
