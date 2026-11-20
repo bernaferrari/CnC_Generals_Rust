@@ -122,14 +122,17 @@ impl GameLogic {
                 None;
             let mut fire_weapon_power_shot = false;
             let (height_die_terrain, frenzy_expired) = self.objects.get(&object_id).map_or(
-                (0.0, false),
+                (None, false),
                 |object| {
-                    // C++ HeightDieUpdate.cpp:132–195 reads ground plus applicable structures.
-                    let height_die_terrain = self.height_die_terrain_at(
-                        object.get_position(),
-                        &object.template_name,
-                        object.ground_height,
-                    );
+                    // The authored lifecycle samples its own pose below. Keep
+                    // the pre-callback terrain observation for the legacy tick.
+                    let height_die_terrain = object.native_lifecycle.is_none().then(|| {
+                        self.height_die_terrain_at(
+                            object.get_position(),
+                            &object.template_name,
+                            object.ground_height,
+                        )
+                    });
                     let frenzy_expired = object.weapon_bonus_frenzy
                         && object.weapon_bonus_frenzy_until_frame > 0
                         && self.frame >= object.weapon_bonus_frenzy_until_frame;
@@ -436,10 +439,11 @@ impl GameLogic {
                 // C++ StructureToppleUpdate::update residual (buildings).
                 // C++ HeightDieUpdate residual (bombs/missiles).
                 // Apply the receiving object's height-death result.
+                if !topple_kill
+                    && let Some(terrain) = height_die_terrain
+                    && obj.tick_height_die(self.frame, terrain)
                 {
-                    if !topple_kill && obj.tick_height_die(self.frame, height_die_terrain) {
-                        topple_kill = true;
-                    }
+                    topple_kill = true;
                 }
                 // Wave 772: under coupled shadow, JetSlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + its owned Jet completion drain.

@@ -171,6 +171,125 @@ fn bound_empty_native_definition_does_not_install_name_peel_timers() {
 }
 
 #[test]
+fn admitted_empty_lifecycle_ai_needs_no_legacy_terrain_sample() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "admitted_empty_lifecycle_ai_needs_no_legacy_terrain_sample",
+        || {
+            let (mut world, id) = authored("NapalmBomb", "", 30, Vec3::ZERO);
+            let terrain = std::sync::Arc::clone(world.world_services.terrain());
+            let terrain_write = terrain.write().unwrap();
+            world.update_ai(&[id], 1.0 / 30.0).unwrap();
+            drop(terrain_write);
+
+            let object = world.host_object(id).unwrap();
+            assert!(object.native_lifecycle.as_ref().unwrap().states.is_empty());
+            assert!(object.height_die.is_none());
+            assert_eq!(object.health.current, 100.0);
+            assert!(!object.status.on_die_started);
+        },
+    );
+}
+
+#[test]
+fn authored_height_die_uses_its_own_clock_and_sample_through_ai() {
+    let (mut world, id) = authored(
+        "NativeAltitudeOwner",
+        "Behavior = HeightDieUpdate HeightTag\nTargetHeight = 10\nInitialDelay = 34\n\
+         OnlyWhenMovingDown = Yes\nSnapToGroundOnDeath = Yes\nEnd",
+        30,
+        Vec3::new(0.0, 13.0, 0.0),
+    );
+    let (peer, peer_id) = authored("NativeAltitudeOwner", "", 30, Vec3::ZERO);
+    assert_eq!(id, peer_id);
+    world.host_object_mut(id).unwrap().ground_height = 4.0;
+
+    for frame in [40, 41, 42] {
+        world.frame = frame;
+        world.update_ai(&[id], 1.0 / 30.0).unwrap();
+        let object = world.host_object(id).unwrap();
+        assert_eq!(object.health.current, 100.0);
+        assert!(object.height_die.is_none());
+        let expected_position = if frame < 42 {
+            Vec3::splat(-1.0)
+        } else {
+            Vec3::new(0.0, 13.0, 0.0)
+        };
+        assert!(matches!(
+            object.native_lifecycle.as_ref().unwrap().states[0],
+            NativeLifecycleState::HeightDie {
+                earliest_frame: 42,
+                last_position,
+                has_died: false,
+                ..
+            } if last_position == expected_position
+        ));
+    }
+
+    world.set_fixture_object_position(id, Vec3::new(0.0, 5.0, 0.0));
+    world.frame = 43;
+    world.update_ai(&[id], 1.0 / 30.0).unwrap();
+    let object = world.host_object(id).unwrap();
+    assert_eq!(object.health.current, 0.0);
+    assert_eq!(object.get_position(), Vec3::new(0.0, 4.0, 0.0));
+    assert!(object.status.on_die_started);
+    assert_eq!(peer.host_object(peer_id).unwrap().health.current, 100.0);
+}
+
+#[test]
+fn restored_legacy_height_die_still_samples_terrain_through_ai() {
+    use crate::game_logic::host_height_die::HostHeightDieData;
+    use crate::save_load::snapshot::{SnapshotBuilder, decode_bincode_world_snapshot};
+
+    let mut source = GameLogic::new();
+    let name = "LegacyAltitudeOwner";
+    let mut template = ThingTemplate::new(name);
+    template.set_health(100.0);
+    source.templates.insert(name.into(), template.clone());
+    let id = source
+        .create_object(name, Team::USA, Vec3::new(0.0, 22.0, 0.0))
+        .unwrap();
+    let object = source.host_object_mut(id).unwrap();
+    assert!(object.native_lifecycle.is_none());
+    object.ground_height = 5.0;
+    object.height_die = Some(HostHeightDieData::with_target(2.0, true, 0));
+    source.frame = 40;
+    source.update_ai(&[id], 1.0 / 30.0).unwrap();
+    assert_eq!(
+        source
+            .host_object(id)
+            .unwrap()
+            .height_die
+            .as_ref()
+            .unwrap()
+            .last_height,
+        17.0
+    );
+
+    let builder = SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&source).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let snapshot = decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut receiving = GameLogic::new();
+    receiving.templates.insert(name.into(), template);
+    builder
+        .restore_from_snapshot(&snapshot, &mut receiving)
+        .unwrap();
+    let restored = receiving.host_object_mut(id).unwrap();
+    assert!(restored.native_lifecycle.is_none());
+    assert_eq!(restored.height_die.as_ref().unwrap().last_height, 17.0);
+    restored.ground_height = 5.0;
+
+    receiving.set_fixture_object_position(id, Vec3::new(0.0, 6.0, 0.0));
+    receiving.frame = 41;
+    receiving.update_ai(&[id], 1.0 / 30.0).unwrap();
+    let restored = receiving.host_object(id).unwrap();
+    assert_eq!(restored.health.current, 0.0);
+    assert!(restored.height_die.as_ref().unwrap().has_died);
+    assert_eq!(source.host_object(id).unwrap().health.current, 100.0);
+}
+
+#[test]
 fn height_threshold_is_strict_and_descent_observes_absolute_position() {
     let (mut world, id) = authored(
         "NeutralHeightOwner",
