@@ -555,6 +555,28 @@ impl SelectionRenderer {
         selected_units: &[SelectedUnit],
         order_line_vertices: &[f32],
     ) {
+        // Preserve the submitted triangle order across shadows, selections,
+        // markers and orders. They all share the same pipeline, view and depth.
+        let mut vertices =
+            Vec::with_capacity(selected_units.len() * (CIRCLE_SEGMENTS as usize + 2) * 7);
+        let mut indices = Vec::with_capacity(selected_units.len() * CIRCLE_SEGMENTS as usize * 3);
+        for unit in selected_units {
+            Self::append_selection_circle(&mut vertices, &mut indices, unit);
+        }
+        Self::append_order_line_segments(&mut vertices, &mut indices, order_line_vertices);
+        if indices.is_empty() {
+            return;
+        }
+        let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("selection_world_vertices"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("selection_world_indices"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
@@ -563,14 +585,9 @@ impl SelectionRenderer {
 
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-
-        for unit in selected_units {
-            self.draw_selection_circle(render_pass, unit);
-        }
-
-        if !order_line_vertices.is_empty() {
-            self.draw_order_line_segments(render_pass, order_line_vertices);
-        }
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
     }
 
     // -----------------------------------------------------------------------
@@ -618,7 +635,7 @@ impl SelectionRenderer {
     // Selection circle beneath a unit
     // -----------------------------------------------------------------------
 
-    fn draw_selection_circle(&self, render_pass: &mut wgpu::RenderPass<'_>, unit: &SelectedUnit) {
+    fn append_selection_circle(vertices: &mut Vec<f32>, indices: &mut Vec<u32>, unit: &SelectedUnit) {
         let radius = unit.radius.max(1.0);
         let center = unit.position;
         let color = unit.team_color;
@@ -632,31 +649,26 @@ impl SelectionRenderer {
                 SelectionCircleStyle::Ring => TERRAIN_Y_OFFSET * 3.0,
             };
         // Vertex format: [x, y, z, r, g, b, a] = 7 floats.
-        let mut push_vertex = |vertices: &mut Vec<f32>, x: f32, z: f32| {
+        let base = (vertices.len() / 7) as u32;
+        let mut push_vertex = |x: f32, z: f32| {
             vertices.extend_from_slice(&[x, y, z, color[0], color[1], color[2], color[3]]);
         };
 
         // Build vertices + index list for the unit's marker style.
-        let (vertices, triangle_count, indices) = match unit.style {
+        match unit.style {
             SelectionCircleStyle::Filled => {
                 // Triangle fan: center vertex + N outer ring vertices.
-                let mut vertices = Vec::with_capacity((CIRCLE_SEGMENTS as usize + 2) * 7);
-                push_vertex(&mut vertices, center.x, center.z);
+                push_vertex(center.x, center.z);
                 for i in 0..=CIRCLE_SEGMENTS {
                     let angle = (i as f32 / CIRCLE_SEGMENTS as f32) * std::f32::consts::TAU;
                     push_vertex(
-                        &mut vertices,
                         center.x + radius * angle.cos(),
                         center.z + radius * angle.sin(),
                     );
                 }
-                let mut indices: Vec<u32> = Vec::with_capacity(CIRCLE_SEGMENTS as usize * 3);
-                for i in 1..=(CIRCLE_SEGMENTS as u32) {
-                    indices.push(0);
-                    indices.push(i);
-                    indices.push(i + 1);
+                for i in 1..=CIRCLE_SEGMENTS {
+                    indices.extend_from_slice(&[base, base + i, base + i + 1]);
                 }
-                (vertices, CIRCLE_SEGMENTS as usize, indices)
             }
             SelectionCircleStyle::Ring => {
                 // Annulus strip: outer + inner rings wound as quads. C++ has no
@@ -664,65 +676,28 @@ impl SelectionRenderer {
                 // 18% of the radius keeps the marker legible at skirmish zoom.
                 const RING_THICKNESS: f32 = 0.82;
                 let inner = radius * RING_THICKNESS;
-                let mut vertices = Vec::with_capacity((CIRCLE_SEGMENTS as usize + 1) * 2 * 7);
                 for i in 0..=CIRCLE_SEGMENTS {
                     let angle = (i as f32 / CIRCLE_SEGMENTS as f32) * std::f32::consts::TAU;
                     let (sin, cos) = angle.sin_cos();
-                    push_vertex(
-                        &mut vertices,
-                        center.x + radius * cos,
-                        center.z + radius * sin,
-                    );
-                    push_vertex(
-                        &mut vertices,
-                        center.x + inner * cos,
-                        center.z + inner * sin,
-                    );
+                    push_vertex(center.x + radius * cos, center.z + radius * sin);
+                    push_vertex(center.x + inner * cos, center.z + inner * sin);
                 }
-                let triangle_count = CIRCLE_SEGMENTS as usize * 2;
-                let mut indices: Vec<u32> = Vec::with_capacity(triangle_count * 3);
-                for i in 0..(CIRCLE_SEGMENTS as u32) {
-                    let out0 = i * 2;
+                for i in 0..CIRCLE_SEGMENTS {
+                    let out0 = base + i * 2;
                     let in0 = out0 + 1;
                     let out1 = out0 + 2;
                     let in1 = out0 + 3;
                     indices.extend_from_slice(&[out0, in0, out1, out1, in0, in1]);
                 }
-                (vertices, triangle_count, indices)
             }
-        };
-
-        let vertex_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("selection_circle_verts"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-
-        let index_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("selection_circle_indices"),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-
-        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        render_pass.draw_indexed(0..(triangle_count as u32 * 3), 0, 0..1);
+        }
     }
 
     /// Thin ground-plane quads for move/attack order line residual.
-    fn draw_order_line_segments(&self, render_pass: &mut wgpu::RenderPass<'_>, packed: &[f32]) {
+    fn append_order_line_segments(vertices: &mut Vec<f32>, indices: &mut Vec<u32>, packed: &[f32]) {
         const FPV: usize = 7; // x y z r g b a
-        if packed.len() < FPV * 2 {
-            return;
-        }
         let half_width = 0.55f32;
         let y_lift = TERRAIN_Y_OFFSET + 0.2;
-        let mut vertices: Vec<f32> = Vec::new();
-        let mut indices: Vec<u32> = Vec::new();
         let segments = packed.len() / (FPV * 2);
         for s in 0..segments {
             let base = s * FPV * 2;
@@ -746,7 +721,7 @@ impl SelectionRenderer {
             }
             let px = -dz / len * half_width;
             let pz = dx / len * half_width;
-            let i0 = (vertices.len() / 7) as u32;
+            let i0 = (vertices.len() / FPV) as u32;
             for (x, z, r, g, b, a) in [
                 (ax + px, az + pz, ar, ag, ab, aa),
                 (ax - px, az - pz, ar, ag, ab, aa),
@@ -757,26 +732,6 @@ impl SelectionRenderer {
             }
             indices.extend_from_slice(&[i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3]);
         }
-        if indices.is_empty() {
-            return;
-        }
-        let vertex_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("order_line_verts"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        let index_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("order_line_indices"),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
     }
 }
 
