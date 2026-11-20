@@ -2,7 +2,9 @@ use game_client_rust::gui::control_bar::ControlBar;
 use game_engine::common::ini::INILoadType;
 use game_engine::common::rts::science::{ScienceDefinition, ScienceNameFacts, ScienceStore};
 use game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions;
+use gamelogic::system::engine_stores::{new_world_services, with_world_services};
 use std::sync::Arc;
+use std::time::Duration;
 
 fn catalog(label: &str, extra: bool) -> (Arc<ReceivingActionDefinitions>, i32) {
     let mut store = ScienceStore::new_owned();
@@ -32,6 +34,11 @@ fn catalog(label: &str, extra: bool) -> (Arc<ReceivingActionDefinitions>, i32) {
 
 #[test]
 fn two_control_bars_populate_commands_and_required_science_from_their_own_sessions() {
+    let world = new_world_services();
+    with_world_services(&world, check_receiving_science_catalogs);
+}
+
+fn check_receiving_science_catalogs() {
     let (first_actions, first_science) = catalog("FirstButton", false);
     let (peer_actions, peer_science) = catalog("PeerButton", true);
     assert_ne!(first_science, peer_science);
@@ -109,8 +116,9 @@ fn two_control_bars_populate_commands_and_required_science_from_their_own_sessio
         .set_in_game_ui_subsystem(game_client_rust::core::subsystems::InGameUISubsystem::default());
     client.with_window_event_effects(None, |effects| {
         effects.with_manager(|manager, effects| {
+            first.admit_presentation_selection(vec![730]);
             first
-                .update_for_selection_owned(vec![730], manager, effects)
+                .update_owned(Duration::from_millis(33), manager, effects)
                 .unwrap();
         });
     });
@@ -122,6 +130,11 @@ fn two_control_bars_populate_commands_and_required_science_from_their_own_sessio
 
 #[test]
 fn process_command_uses_each_receiving_control_bar_upgrade_catalog() {
+    let world = new_world_services();
+    with_world_services(&world, check_receiving_upgrade_commands);
+}
+
+fn check_receiving_upgrade_commands() {
     use game_client_rust::gui::control_bar::{
         CommandSourceType, HostControlBarInputProvenance, SelectedContextFacts,
     };
@@ -175,13 +188,17 @@ fn process_command_uses_each_receiving_control_bar_upgrade_catalog() {
     peer_client.set_in_game_ui_subsystem(Default::default());
     owner_client.with_window_event_effects(None, |effects| {
         effects.with_manager(|manager, effects| {
-            owner.update_for_selection_owned(vec![41], manager, effects)
+            owner.admit_presentation_selection(vec![41]);
+            owner
+                .update_owned(Duration::from_millis(33), manager, effects)
                 .expect("update owner control bar");
         });
     });
     peer_client.with_window_event_effects(None, |effects| {
         effects.with_manager(|manager, effects| {
-            peer.update_for_selection_owned(vec![41], manager, effects)
+            peer.admit_presentation_selection(vec![41]);
+            peer
+                .update_owned(Duration::from_millis(33), manager, effects)
                 .expect("update peer control bar");
         });
     });
