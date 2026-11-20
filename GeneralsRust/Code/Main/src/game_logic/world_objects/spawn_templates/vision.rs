@@ -112,25 +112,31 @@ impl GameLogic {
             return;
         };
         let dimensions = [width, height];
+        let partition = self.partition_manager.matching_shroud_grid(origin, dimensions, cell_size);
         for (look, object) in observations {
             let id = look.id;
             let owner = object.controller;
-            let cells = match cells_touched_for_footprint_on_grid(
-                origin,
-                dimensions,
-                cell_size,
-                look.position.x,
-                look.position.z,
-                object.footprint,
-            ) {
-                Ok(cells) => cells,
-                Err(reason) => {
-                    log::error!(
-                        "Rejecting host object {} partition footprint: {reason}",
-                        id.0
-                    );
-                    continue;
-                }
+            let x = look.position.x;
+            let z = look.position.z;
+            let computed;
+            let cells = if let Some(stamped) = partition
+                .and_then(|partition| partition.stamped_footprint_cells(id.0, x, z, object.footprint))
+            {
+                stamped
+            } else {
+                computed = match cells_touched_for_footprint_on_grid(
+                    origin, dimensions, cell_size, x, z, object.footprint,
+                ) {
+                    Ok(cells) => cells,
+                    Err(reason) => {
+                        log::error!(
+                            "Rejecting host object {} partition footprint: {reason}",
+                            id.0
+                        );
+                        continue;
+                    }
+                };
+                computed.as_slice()
             };
             for &pid in &player_ids {
                 if object.always_visible || object.contained {
@@ -155,7 +161,7 @@ impl GameLogic {
                 // C++ PartitionData mixes live 40wu COIs within the map. Read
                 // the same owned counters updated above, including queued
                 // unlooks and immediate shroud-cover changes.
-                let counts = shroud_mgr.count_footprint_cells(pid, &cells);
+                let counts = shroud_mgr.count_footprint_cells(pid, cells);
                 let ever = shroud_mgr.host_object_ever_seen(pid, id.0);
                 let relationship_neutral = match owner {
                     Some(oid) => self.player_relationship(pid, oid) == Relationship::Neutral,

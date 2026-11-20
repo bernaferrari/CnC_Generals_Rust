@@ -231,6 +231,8 @@ impl GameLogic {
                 id,
                 PartitionObject {
                     cells,
+                    // Saved COIs have their own order and can precede a dirty pose.
+                    footprint_stamp: None,
                     birth: Some(Arc::downgrade(&actor.visual_draw_identity_token)),
                     identity: Arc::new(()),
                     last_cell: None,

@@ -4,6 +4,7 @@ use std::sync::{Arc, Weak};
 #[derive(Debug, Default)]
 pub(super) struct PartitionObject {
     pub(super) cells: Vec<(i32, i32)>,
+    pub(super) footprint_stamp: Option<super::PartitionFootprintStamp>,
     pub(super) birth: Option<Weak<()>>,
     pub(super) identity: Arc<()>,
     /// C++ m_lastCell; advanced only after original cell-maintenance callback.
@@ -53,6 +54,7 @@ impl super::PartitionManager {
             id,
             PartitionObject {
                 cells: Vec::new(),
+                footprint_stamp: None,
                 birth: Some(Arc::downgrade(birth)),
                 identity: Arc::new(()),
                 last_cell: None,

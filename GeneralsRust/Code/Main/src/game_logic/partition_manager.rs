@@ -67,6 +67,24 @@ struct PartitionGrid {
     cell_size: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PartitionFootprintStamp {
+    coordinates: [u32; 5],
+    is_small: bool,
+    is_box: bool,
+}
+
+impl PartitionFootprintStamp {
+    fn new(x: f32, z: f32, footprint: HostPartitionFootprint) -> Self {
+        Self {
+            coordinates: [x, z, footprint.major_radius, footprint.minor_radius, footprint.angle]
+                .map(f32::to_bits),
+            is_small: footprint.is_small,
+            is_box: footprint.is_box,
+        }
+    }
+}
+
 impl PartitionManager {
     pub fn new() -> Self {
         Self {
@@ -210,6 +228,36 @@ impl PartitionManager {
         }
     }
 
+    /// Use live PartitionData COIs only for the same geometry as the shroud grid.
+    pub(in crate::game_logic) fn matching_shroud_grid(
+        &self,
+        origin: [f32; 2],
+        dimensions: [usize; 2],
+        cell_size: f32,
+    ) -> Option<&Self> {
+        self.grid
+            .filter(|grid| {
+                grid.dimensions == dimensions
+                    && grid.origin.map(f32::to_bits) == origin.map(f32::to_bits)
+                    && grid.cell_size.to_bits() == cell_size.to_bits()
+            })
+            .map(|_| self)
+    }
+
+    /// The attached COI list can be on an older transform until the dirty
+    /// phase runs. Exact inputs guarantee the same footprint for this query.
+    pub(in crate::game_logic) fn stamped_footprint_cells(
+        &self,
+        id: u32,
+        x: f32,
+        z: f32,
+        footprint: HostPartitionFootprint,
+    ) -> Option<&[(i32, i32)]> {
+        let module = self.object_cells.get(&id)?;
+        (module.footprint_stamp == Some(PartitionFootprintStamp::new(x, z, footprint)))
+            .then_some(module.cells.as_slice())
+    }
+
     /// C++ PartitionManager::revealMapForPlayer (non-permanent).
     /// Shroud crate / RevealMapForPlayer script: addLooker+removeLooker → FOGGED.
     pub fn reveal_map_for_player(
@@ -283,7 +331,9 @@ impl PartitionManager {
         for key in &keys {
             self.cells.entry(*key).or_default().push(id);
         }
-        self.object_cells.entry(id).or_default().cells = keys;
+        let module = self.object_cells.entry(id).or_default();
+        module.cells = keys;
+        module.footprint_stamp = Some(PartitionFootprintStamp::new(x, z, fp));
     }
 
     /// C++ unRegisterObject residual.
@@ -335,6 +385,7 @@ impl PartitionManager {
     /// Drop coverage while retaining the original attached module/dirty identity.
     fn clear_object_coverage(&mut self, id: u32) {
         if let Some(module) = self.object_cells.get_mut(&id) {
+            module.footprint_stamp = None;
             for key in std::mem::take(&mut module.cells) {
                 if let Some(list) = self.cells.get_mut(&key) {
                     list.retain(|&i| i != id);
@@ -518,6 +569,47 @@ impl PartitionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shroud_reuses_only_live_cells_stamped_for_the_exact_grid_and_pose() {
+        let origin = [20.0, -30.0];
+        let mut shroud = gamelogic::system::shroud_manager::ShroudManager::new();
+        shroud
+            .init_shroud_grid_at_origin_with_cell_size(origin, 150.0, 180.0, 30.0)
+            .unwrap();
+        let (width, height, cell_size) = shroud.grid_dimensions().unwrap();
+        let dimensions = [width, height];
+        let mut partition = PartitionManager::new();
+        partition.configure_grid_from_shroud(&shroud);
+
+        let footprint = HostPartitionFootprint {
+            major_radius: 40.0,
+            minor_radius: 12.0,
+            angle: 0.7,
+            is_small: false,
+            is_box: true,
+        };
+        let [x, z] = [48.0, 22.0];
+        partition.register_object_geometry(7, x, z, footprint);
+        let owner = partition.matching_shroud_grid(origin, dimensions, cell_size).unwrap();
+        let cells = owner.stamped_footprint_cells(7, x, z, footprint).unwrap();
+        let expected = super::super::partition_coi::cells_touched_for_footprint_on_grid(
+            origin, dimensions, cell_size, x, z, footprint,
+        )
+        .unwrap();
+        assert!(expected.len() > 1);
+        assert_eq!(cells, expected);
+        assert!(std::ptr::eq(cells, partition.object_cells[&7].cells.as_slice()));
+        assert!(owner.stamped_footprint_cells(7, x + 0.001, z, footprint).is_none());
+        assert!(owner.stamped_footprint_cells(7, x, z, HostPartitionFootprint {
+            angle: 0.75,
+            ..footprint
+        }).is_none());
+        assert!(partition.matching_shroud_grid([origin[0] + 1.0, origin[1]], dimensions, cell_size).is_none());
+
+        partition.clear_object_coverage(7);
+        assert!(partition.stamped_footprint_cells(7, x, z, footprint).is_none());
+    }
 
     #[test]
     fn partition_cell_register_and_neighbors() {
