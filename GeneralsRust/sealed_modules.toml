@@ -158,7 +158,7 @@ note = "Startup once-log is OnceLock set-once (not mutable process state); 0 cou
 [[module]]
 path = "Code/Main/src/graphics/render_pipeline/pipeline_prewarm.rs"
 cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient"
-note = "Terrain chunk once-logs are OnceLock; 0 counted globals."
+note = "Frozen authored startup model requests retain their order. Mounted native Shell loaded all 91 W3Ds with identical ordered archive reads. Terrain chunk diagnostics are set once. 0 counted globals."
 
 [[module]]
 path = "Code/GameEngine/GameLogic/src/system/world_logic_managers.rs"
