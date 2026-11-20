@@ -1446,6 +1446,10 @@ End
         assert!(target.rider_change_allowed_templates.iter()
             .any(|template| template == "FactionRebelVariant"),
             "the frozen RMB snapshot includes equivalent live rider templates");
+        assert_eq!(
+            target.rider_change_allowed_templates.last().map(String::as_str),
+            Some("FactionRebelVariant"),
+        );
         assert!(
             target
                 .rider_change_allowed_templates
@@ -1453,6 +1457,20 @@ End
                 .any(|template| template.eq_ignore_ascii_case("GLAInfantryTerrorist")),
             "presentation exposes the modeled SET_SLUGGISH Terrorist row"
         );
+
+        let mut disabled_first = game_logic.host_object(bike_id).unwrap().get_template().clone();
+        let rows = &mut disabled_first.contain_module.rider_change_riders;
+        let mut rejected = rows.iter().find(|row| row.slot == 2).unwrap().clone();
+        let mut alternate = rider_template("AlternateRebel");
+        alternate.reskinned_from = Some("GLAInfantryRebel".into());
+        rejected.template_name.clone_from(&alternate.name);
+        rejected.physical_enter_supported = false;
+        game_logic.templates.insert(alternate.name.clone(), alternate);
+        rows.insert(0, rejected);
+        let blocked = Object::new(disabled_first, ObjectId(809), Team::GLA);
+        let names = game_logic.rider_change_presentation_templates(&blocked);
+        assert!(names.iter().any(|name| name == "GLAInfantryRebel"));
+        assert!(!names.iter().any(|name| name == "FactionRebelVariant"));
 
         let slow_selected = processor.presentation_selected_unit_hints(&frame, &[slow_rider_id]);
         let context = MouseCommandContext {

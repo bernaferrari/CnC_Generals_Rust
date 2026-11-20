@@ -1,5 +1,20 @@
 use super::*;
 
+fn matching_rider_change_row<'a, 'b>(
+    rows: &'a [crate::game_logic::RiderChangeRiderMetadata],
+    rider: &Object,
+    mut resolve_template: impl FnMut(usize, &crate::game_logic::RiderChangeRiderMetadata) -> Option<&'b ThingTemplate>,
+) -> Option<&'a crate::game_logic::RiderChangeRiderMetadata> {
+    rows.iter().enumerate()
+        .find(|(index, row)| {
+            row.template_matches(&rider.template_name)
+                || resolve_template(*index, row)
+                    .is_some_and(|wanted| wanted.is_equivalent_to(rider.get_template()))
+        })
+        .map(|(_, row)| row)
+        .filter(|row| row.physical_enter_supported && row.active_locomotor_name.is_some())
+}
+
 impl GameLogic {
     /// RiderChangeContain compares the authored roster template with the
     /// rider's actual template, including reskins and build variations.
@@ -8,14 +23,17 @@ impl GameLogic {
         container: &'a Object,
         rider: &Object,
     ) -> Option<&'a crate::game_logic::RiderChangeRiderMetadata> {
-        container.thing().template.contain_module.rider_change_riders.iter()
-            .find(|row| {
-                row.template_matches(&rider.template_name)
-                    || self.templates.iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case(&row.template_name))
-                        .is_some_and(|(_, wanted)| wanted.is_equivalent_to(rider.get_template()))
-            })
-            .filter(|row| row.physical_enter_supported && row.active_locomotor_name.is_some())
+        let rows = &container.thing().template.contain_module.rider_change_riders;
+        matching_rider_change_row(rows, rider, |_, row| self.rider_change_template(row))
+    }
+
+    fn rider_change_template(
+        &self,
+        row: &crate::game_logic::RiderChangeRiderMetadata,
+    ) -> Option<&ThingTemplate> {
+        self.templates.iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(&row.template_name))
+            .map(|(_, template)| template)
     }
 
     /// Freeze the live rider identities the same authority would admit.
@@ -23,13 +41,17 @@ impl GameLogic {
         if !container.supports_authored_rider_change_normal_enter() {
             return Vec::new();
         }
-        let mut names: Vec<String> = container.thing().template.contain_module
-            .rider_change_riders.iter()
+        let rows = &container.thing().template.contain_module.rider_change_riders;
+        // Resolve the authored templates once while both catalogs are borrowed.
+        // Every live rider then sees the same first matching row, including an
+        // unsupported row that precedes another equivalent row.
+        let templates: Vec<_> = rows.iter().map(|row| self.rider_change_template(row)).collect();
+        let mut names: Vec<String> = rows.iter()
             .filter(|row| row.physical_enter_supported && row.active_locomotor_name.is_some())
             .map(|row| row.template_name.clone()).collect();
         for rider in self.host_objects().registered_values() {
-            if self.equivalent_rider_change_row(container, rider).is_some()
-                && !names.iter().any(|name| name.eq_ignore_ascii_case(&rider.template_name))
+            if !names.iter().any(|name| name.eq_ignore_ascii_case(&rider.template_name))
+                && matching_rider_change_row(rows, rider, |index, _| templates[index]).is_some()
             {
                 names.push(rider.template_name.clone());
             }
