@@ -76,7 +76,7 @@ fn immobile_contact_factor(
     -magnitude * handle.mass_with_cargo(Some(owner)) * stiffness
 }
 
-/// PhysicsUpdate.cpp:1244–1400 for a living, grounded, non-crushing actor
+/// PhysicsUpdate.cpp:1244–1400 for a grounded, non-crushing actor
 /// contacting an immobile actor that has neither Physics nor AI. The caller
 /// applies the returned wake after releasing this mounted module.
 pub(super) fn ground_obstacle_contact(
@@ -86,9 +86,10 @@ pub(super) fn ground_obstacle_contact(
     frame: u32,
     stiffness: Real,
 ) -> bool {
-    // AIUpdate.cpp:1416–1431. A living AI actor declines the force
-    // when the other actor supplies no AI, before updating lastCollidee.
-    if owner.get_ai().is_some() {
+    // PhysicsUpdate.cpp:1249–1260 lets dead actors bounce off immobile
+    // objects. A living AI declines this contact before updating lastCollidee
+    // when the obstacle supplies no AI (AIUpdate.cpp:1416–1431).
+    if !owner.is_effectively_dead() && owner.get_ai().is_some() {
         return false;
     }
     let Some(ContactOverlap {

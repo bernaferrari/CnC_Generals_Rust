@@ -178,8 +178,7 @@ impl BehaviorInterfaceHandle {
         let (Ok(owner), Ok(other)) = (owner.read(), other.read()) else {
             return false;
         };
-        if owner.is_effectively_dead()
-            || owner.is_destroyed()
+        if owner.is_destroyed()
             || other.is_destroyed()
             || owner.is_kind_of(KindOf::Immobile)
             || owner.is_kind_of(KindOf::Projectile)

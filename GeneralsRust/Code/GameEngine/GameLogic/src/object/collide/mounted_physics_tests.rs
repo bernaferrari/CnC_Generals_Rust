@@ -175,7 +175,13 @@ fn ordinary_mounted_contact_wakes_only_the_actor_that_receives_original_force() 
         return;
     }
 
-    for (allow_force, dozer) in [(true, false), (false, false), (true, true)] {
+    for (allow_force, dozer, dead) in [
+        (true, false, false),
+        (false, false, false),
+        (true, true, false),
+        (true, true, true),
+        (false, true, true),
+    ] {
         let local = contact_world(allow_force, dozer, 112.);
         let peer = contact_world(allow_force, dozer, 212.);
         let mover = local.mover.read().unwrap().get_id();
@@ -183,6 +189,23 @@ fn ordinary_mounted_contact_wakes_only_the_actor_that_receives_original_force() 
         let invalid = crate::common::INVALID_ID;
         assert_eq!(mover, peer.mover.read().unwrap().get_id());
         assert_eq!(mine, peer.mine.read().unwrap().get_id());
+
+        if dead {
+            with_active_stores(&local.world, || {
+                let mut actor = local.mover.write().unwrap();
+                let transition = actor
+                    .get_body_module()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .change_health_for_borrowed_owner(-100.0, false)
+                    .unwrap();
+                actor.set_effectively_dead(transition.effectively_dead);
+                assert_eq!(actor.get_health(), 0.0);
+                assert!(actor.is_effectively_dead());
+                assert!(!actor.is_destroyed());
+            });
+        }
 
         with_active_stores(&peer.world, || {
             local
@@ -202,14 +225,15 @@ fn ordinary_mounted_contact_wakes_only_the_actor_that_receives_original_force() 
             *local.mine.read().unwrap().get_position(),
             GameCoord3D::new(112., 105., 0.)
         );
-        let last = if dozer { invalid } else { mine };
+        let uses_force_rules = !dozer || dead;
+        let last = if uses_force_rules { mine } else { invalid };
         assert_eq!(local.physics.get_last_collidee(), last);
         assert_eq!(
             *local.events.lock().unwrap(),
             [(mover, mine, last), (mine, mover, invalid)]
         );
 
-        let expect_force = allow_force && !dozer;
+        let expect_force = allow_force && uses_force_rules;
         let velocity = if expect_force {
             GameCoord3D::ZERO
         } else {
@@ -249,6 +273,7 @@ fn ordinary_mounted_contact_wakes_only_the_actor_that_receives_original_force() 
             GameCoord3D::new(212., 105., 0.)
         );
         assert_eq!(peer.physics.get_last_collidee(), invalid);
+        assert!(!peer.mover.read().unwrap().is_effectively_dead());
         assert!(peer.events.lock().unwrap().is_empty());
         assert_eq!(
             peer.world.game_logic_mutex().lock().unwrap().get_frame(),
