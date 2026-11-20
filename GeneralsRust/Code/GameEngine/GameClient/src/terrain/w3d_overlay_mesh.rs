@@ -174,23 +174,25 @@ pub fn generate_water_index_buffer(size_x: usize, size_y: usize) -> Vec<u16> {
 #[must_use]
 pub fn triangle_list_from_strip(strip: &[u16]) -> Vec<u32> {
     let mut list = Vec::new();
-    if strip.len() < 3 {
-        return list;
-    }
-    for i in 0..strip.len() - 2 {
-        let a = strip[i] as u32;
-        let b = strip[i + 1] as u32;
-        let c = strip[i + 2] as u32;
+    append_triangle_list_from_strip(&mut list, strip, 0);
+    list
+}
+
+/// Append a local strip to a triangle list whose vertices begin at `base`.
+/// Returns whether the strip contained any non-degenerate triangles.
+pub(super) fn append_triangle_list_from_strip(list: &mut Vec<u32>, strip: &[u16], base: u32) -> bool {
+    let first = list.len();
+    for (i, triangle) in strip.windows(3).enumerate() {
+        let a = triangle[0] as u32;
+        let b = triangle[1] as u32;
+        let c = triangle[2] as u32;
         if a == b || b == c || a == c {
             continue;
         }
-        if i % 2 == 0 {
-            list.extend_from_slice(&[a, b, c]);
-        } else {
-            list.extend_from_slice(&[a, c, b]);
-        }
+        let triangle = if i % 2 == 0 { [a, b, c] } else { [a, c, b] };
+        list.extend_from_slice(&triangle.map(|index| index + base));
     }
-    list
+    list.len() != first
 }
 
 /// World-space Y-up water patch covering `[min_x,max_x] x [min_z,max_z]` at `water_y`.

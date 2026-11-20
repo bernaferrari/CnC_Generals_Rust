@@ -826,17 +826,19 @@ impl TerrainVisualImpl {
                             .iter()
                             .map(|i| i.saturating_sub(range.first_vertex as u16)),
                     );
-                    let triangles = crate::terrain::triangle_list_from_strip(&strip);
-                    if triangles.is_empty() {
+                    let base = gpu_vertices.len() as u32;
+                    if !crate::terrain::w3d_overlay_mesh::append_triangle_list_from_strip(
+                        &mut gpu_indices,
+                        &strip,
+                        base,
+                    ) {
                         continue;
                     }
-                    let base = gpu_vertices.len() as u32;
                     gpu_vertices.extend(
                         flush.vertices[range.first_vertex..end_v]
                             .iter()
                             .map(gpu_vertex),
                     );
-                    gpu_indices.extend(triangles.into_iter().map(|index| index + base));
                 }
                 if !gpu_indices.is_empty() {
                     meshes.push(self.upload_water_track_run(
