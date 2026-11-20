@@ -28,6 +28,9 @@ pub(crate) struct CombatParticleAttachment {
     pub local_offset: Vec3,
     pub lifetime: Option<u32>,
     pub local_z_rotation: f32,
+    /// Authored ParticleSysBone row identity for the live Draw binding.
+    #[serde(skip)]
+    pub bone_name: Option<String>,
 }
 
 /// One active combat particle system entry in the host registry.
@@ -1116,22 +1119,19 @@ impl CombatParticleRegistry {
         );
     }
 
-    /// Active ParticleSysBone systems per source Object, (id, template) in id
-    /// order. One registry pass serves a whole live-state sync.
-    pub(crate) fn active_bone_systems_by_owner(&self) -> HashMap<ObjectId, Vec<(u32, String)>> {
-        let mut by_owner: HashMap<ObjectId, Vec<(u32, String)>> = HashMap::new();
+    /// Active ParticleSysBone IDs per source Object, in creation order.
+    /// One registry pass serves a whole live-state sync.
+    pub(crate) fn active_bone_systems_by_owner(&self) -> HashMap<ObjectId, Vec<u32>> {
+        let mut by_owner: HashMap<ObjectId, Vec<u32>> = HashMap::new();
         for entry in self.systems.values() {
             if entry.active && entry.kind == CombatParticleKind::ParticleSysBone {
                 if let Some(owner) = entry.source_object {
-                    by_owner
-                        .entry(owner)
-                        .or_default()
-                        .push((entry.id, entry.template_name.clone()));
+                    by_owner.entry(owner).or_default().push(entry.id);
                 }
             }
         }
         for owned in by_owner.values_mut() {
-            owned.sort_unstable_by_key(|(id, _)| *id);
+            owned.sort_unstable();
         }
         by_owner
     }
@@ -1148,25 +1148,41 @@ impl CombatParticleRegistry {
         pose: BodyAutoParticlePose<'_>,
         source: Option<&crate::game_logic::NativeSlaveSource>,
         particle_owner: &mut dyn crate::game_logic::combat_particles::ReceivingParticlePoseAccess,
-        mut owned: Vec<(u32, String)>,
+        mut owned: Vec<u32>,
     ) {
-        let wanted: Vec<(String, String)> = bones
+        let mut wanted: Vec<_> = bones
             .iter()
             .filter_map(|(bone, system)| {
-                usable_particle_template_name(system)
-                    .map(|system| (bone.clone(), system.to_string()))
+                usable_particle_template_name(system).map(|system| (bone.as_str(), system, None))
             })
             .collect();
-        let stale: Vec<u32> = owned
-            .iter()
-            .filter(|(_, template)| !wanted.iter().any(|(_, system)| system == template))
-            .map(|(id, _)| *id)
-            .collect();
-        owned.retain(|(id, _)| !stale.contains(id));
-        for id in stale {
+        // C++ creates one system per authored row. A template can appear on
+        // multiple bones, and even identical rows have distinct trackers.
+        for (bone, system, existing) in &mut wanted {
+            let mut legacy_slot = None;
+            let slot = owned.iter().enumerate().find_map(|(slot, id)| {
+                let entry = self.systems.get(id).filter(|entry| entry.active)?;
+                if entry.template_name != *system {
+                    return None;
+                }
+                let bound_bone = entry
+                    .attachment
+                    .as_ref()
+                    .and_then(|attachment| attachment.bone_name.as_deref());
+                match bound_bone {
+                    Some(name) => (name == *bone).then_some(slot),
+                    None => {
+                        legacy_slot.get_or_insert(slot);
+                        None
+                    }
+                }
+            });
+            *existing = slot.or(legacy_slot).map(|slot| owned.remove(slot));
+        }
+        for id in owned {
             self.deactivate(id, particle_owner);
         }
-        for (bone, system) in wanted {
+        for (bone, system, existing) in wanted {
             // C++ treats a missing bone name (`NONE`) as the object's origin.
             // An authored named bone is different: missing receiving pose data
             // must not invent an origin spawn or overwrite an existing binding.
@@ -1181,7 +1197,7 @@ impl CombatParticleRegistry {
                     );
                     continue;
                 };
-                match particle_sys_bone_pose_from_receiver(&bone, source, particle_owner) {
+                match particle_sys_bone_pose_from_receiver(bone, source, particle_owner) {
                     Ok(Some(pose)) => pose,
                     Ok(None) => {
                         log::error!(
@@ -1201,26 +1217,13 @@ impl CombatParticleRegistry {
                 }
             };
             let world = rotate_yaw_host(position, pose.yaw, local);
-            let existing = owned
-                .iter()
-                .find(|(id, template)| {
-                    *template == system
-                        && self.systems.get(id).is_some_and(|entry| entry.active)
-                })
-                .map(|(id, _)| *id);
-            if let Some(id) = existing {
-                if let Some(entry) = self.systems.get_mut(&id) {
-                    entry.attach_offset = local;
-                    entry.position = world;
-                }
-                // C++ rotateLocalTransformZ is incremental (Rotate_Z). Apply once
-                // at spawn only — re-applying every sync_live_state_particles tick
-                // would spin exhaust/stacks.
-            } else {
-                let spawned = spawn_attached_system(
+            let id = existing.unwrap_or_else(|| {
+                // C++ rotateLocalTransformZ is incremental. Apply it only
+                // when this particular authored system is created.
+                spawn_attached_system(
                     self,
                     CombatParticleKind::ParticleSysBone,
-                    &system,
+                    system,
                     owner,
                     position,
                     pose.yaw,
@@ -1230,8 +1233,14 @@ impl CombatParticleRegistry {
                     z_rot,
                     pose.is_shrouded.unwrap_or(true),
                     particle_owner,
-                );
-                owned.push((spawned, system));
+                )
+            });
+            if let Some(entry) = self.systems.get_mut(&id) {
+                entry.attach_offset = local;
+                entry.position = world;
+                if let Some(attachment) = entry.attachment.as_mut() {
+                    attachment.bone_name.get_or_insert_with(|| bone.to_owned());
+                }
             }
         }
     }
@@ -1726,6 +1735,7 @@ fn spawn_attached_system<P: crate::game_logic::combat_particles::ParticleBinding
             local_offset: local,
             lifetime,
             local_z_rotation: local_z_rot,
+            bone_name: None,
         }),
     };
     if let Some(binding) = spawn_client_binding(&entry, &registry.client_bindings, particle_owner) {
@@ -2370,6 +2380,78 @@ mod tests {
         assert!(reg.muzzle_flash_is_visible(ObjectId(3), 7));
         assert!(reg.muzzle_flash_is_visible(ObjectId(3), 8));
         assert!(!reg.muzzle_flash_is_visible(ObjectId(3), 9));
+    }
+
+    #[test]
+    fn particle_sys_bones_keep_distinct_systems_for_shared_particle_templates() {
+        struct MistBones;
+
+        impl ParticleBindingAccess for MistBones {
+            #[cfg(feature = "game_client")]
+            fn particle_systems_mut(
+                &mut self,
+            ) -> Option<&mut game_client::effects::ParticleSystemManager> {
+                None
+            }
+        }
+
+        impl ReceivingParticlePoseAccess for MistBones {
+            fn current_bone_transforms(
+                &mut self,
+                _: &crate::game_logic::NativeSlaveSource,
+                bone: &str,
+                _: i32,
+                _: usize,
+            ) -> Result<Option<Vec<glam::Mat4>>, String> {
+                let x = match bone {
+                    "Mist01" => -2.0,
+                    "Mist02" => 2.0,
+                    _ => panic!("unexpected bone {bone}"),
+                };
+                Ok(Some(vec![glam::Mat4::from_translation(Vec3::X * x)]))
+            }
+        }
+
+        let mut world = crate::game_logic::GameLogic::new();
+        world
+            .admit_object_ini_sources([(
+                "mist-bones.ini".into(),
+                "Object MistTransport\n Draw = W3DModelDraw ModuleTag_Draw\n  DefaultConditionState\n   Model = MistModel\n  End\n End\nEnd\n".into(),
+            )])
+            .unwrap();
+        let origin = Vec3::new(20.0, 0.0, 10.0);
+        let owner = world
+            .create_object("MistTransport", Team::USA, origin)
+            .unwrap();
+        let source = world.current_native_slave_source(owner, 0).unwrap();
+        // Retail AmphibiousTransport authors both Mist01 and Mist02 with
+        // AmphibMist. W3DModelDraw creates one system per row in source order.
+        let bones = [
+            ("Mist01".into(), "AmphibMist".into()),
+            ("Mist02".into(), "AmphibMist".into()),
+        ];
+        let mut registry = CombatParticleRegistry::new();
+        for frame in 1..=3 {
+            registry.sync_particle_sys_bones(
+                frame,
+                owner,
+                origin,
+                if frame < 3 { &bones } else { &[] },
+                BodyAutoParticlePose::new("MistModel", 1.0, 0.0),
+                Some(&source),
+                &mut MistBones,
+            );
+            if frame < 3 {
+                assert_eq!(registry.get(1).unwrap().position, origin - 2.0 * Vec3::X);
+                assert_eq!(registry.get(2).unwrap().position, origin + 2.0 * Vec3::X);
+                assert_eq!(
+                    registry.systems_of_kind(CombatParticleKind::ParticleSysBone).len(),
+                    2,
+                );
+            }
+        }
+        assert!(!registry.get(1).unwrap().active);
+        assert!(!registry.get(2).unwrap().active);
     }
 
     #[test]

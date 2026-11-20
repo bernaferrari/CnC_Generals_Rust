@@ -23,6 +23,7 @@ fn fixture() -> (GameLogic, u32, CombatParticleAttachment) {
         local_offset: Vec3::new(2.5, -3.25, 8.0),
         lifetime: Some(45),
         local_z_rotation: 0.75,
+        bone_name: None,
     };
     world.combat_particles_mut().get_mut(id).unwrap().attachment = Some(attachment.clone());
     (world, id, attachment)

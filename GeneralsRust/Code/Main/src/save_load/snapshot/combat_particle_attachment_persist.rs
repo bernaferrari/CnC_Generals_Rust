@@ -151,6 +151,7 @@ pub(super) fn decode_and_validate(
             local_offset,
             lifetime: (has_lifetime == 1).then_some(lifetime),
             local_z_rotation,
+            bone_name: None,
         };
         if records.insert(id, value).is_some() {
             return Err(invalid());
