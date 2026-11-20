@@ -35,6 +35,14 @@ fn snap_closest_goal_position_with_interface(
 }
 
 pub(crate) trait AiStateRuntime {
+    fn command_target(&self) -> Option<&crate::object::Object> {
+        None
+    }
+
+    fn command_target_matching(&self, id: ObjectID) -> Option<&crate::object::Object> {
+        self.command_target().filter(|target| target.get_id() == id)
+    }
+
     /// The executing interface already owns the actor's current attitude.
     fn attitude(&self) -> Option<AIAttitudeType> {
         None

@@ -218,6 +218,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             parent_exists: true,
             parent_state_id: None,
             world: Some(world),
+            command_target: None,
         };
         machine
             .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
@@ -246,6 +247,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             parent_exists: true,
             parent_state_id: None,
             world: Some(world),
+            command_target: None,
         };
         let previous = machine.get_current_state_id();
         machine
@@ -432,6 +434,14 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::execute_command(self, command)
     }
 
+    fn execute_command_with_target(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+        target: &Object,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        UnitAIUpdate::execute_command_with_target(self, command, Some(target))
+    }
+
     fn is_allowed_to_adjust_destination(&self) -> bool {
         UnitAIUpdate::is_allowed_to_adjust_destination(self)
     }
@@ -500,6 +510,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             parent_exists: true,
             parent_state_id: None,
             world: Some(world),
+            command_target: None,
         };
         machine
             .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
@@ -874,6 +885,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             parent_exists: self.ai_state_machine.is_some(),
             parent_state_id: None,
             world: Some(world),
+            command_target: None,
         };
         crate::modules::ai_state_runtime::AiStateRuntime::set_queue_for_path_time_owned(
             &mut runtime,

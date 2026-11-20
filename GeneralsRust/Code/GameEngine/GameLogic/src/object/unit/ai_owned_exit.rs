@@ -209,6 +209,7 @@ impl UnitAIUpdate {
                 parent_exists: true,
                 parent_state_id: None,
                 world: Some(world),
+                command_target: None,
             };
             let result = machine.driver().enter_temporary_with_ai(
                 AIStateType::FollowExitProductionPath as u32,
@@ -231,6 +232,7 @@ impl UnitAIUpdate {
                 parent_exists: true,
                 parent_state_id: None,
                 world: Some(world),
+                command_target: None,
             };
             crate::modules::ai_state_runtime::AiStateRuntime::update_goal_position(
                 &mut runtime,

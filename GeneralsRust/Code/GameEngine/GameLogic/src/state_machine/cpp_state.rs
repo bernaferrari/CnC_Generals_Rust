@@ -465,13 +465,45 @@ pub(crate) fn cpp_transition_with_ai<S: CppState + 'static>(
     user_data: StateTransitionUserData,
     description: &str,
 ) -> StateConditionInfo {
+    cpp_transition_inputs::<S, false>(
+        legacy_predicate, predicate, to_state_id, user_data, description,
+    )
+}
+
+pub(crate) fn cpp_transition_with_ai_target<S: CppState + 'static>(
+    legacy_predicate: fn(&S, &StateTransitionUserData) -> Result<bool, String>,
+    predicate: fn(
+        &S,
+        &StateTransitionUserData,
+        &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<bool, String>,
+    to_state_id: StateId,
+    user_data: StateTransitionUserData,
+    description: &str,
+) -> StateConditionInfo {
+    cpp_transition_inputs::<S, true>(
+        legacy_predicate, predicate, to_state_id, user_data, description,
+    )
+}
+
+fn cpp_transition_inputs<S: CppState + 'static, const ACCEPTS_TARGET: bool>(
+    legacy_predicate: fn(&S, &StateTransitionUserData) -> Result<bool, String>,
+    predicate: fn(
+        &S,
+        &StateTransitionUserData,
+        &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<bool, String>,
+    to_state_id: StateId,
+    user_data: StateTransitionUserData,
+    description: &str,
+) -> StateConditionInfo {
     fn unavailable(
         _state: &dyn core::StateImplementation,
         _data: &StateTransitionUserData,
     ) -> bool {
         false
     }
-    fn invoke(
+    fn invoke<const ACCEPTS_TARGET: bool>(
         state: &dyn core::StateImplementation,
         data: &StateTransitionUserData,
         ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
@@ -480,7 +512,7 @@ pub(crate) fn cpp_transition_with_ai<S: CppState + 'static>(
             return Err("borrowed transition payload missing".into());
         };
         match ai {
-            Some(ai) if ai.world().is_some() => {
+            Some(ai) if ai.world().is_some() || (ACCEPTS_TARGET && ai.command_target().is_some()) => {
                 state.evaluate_transition_payload_with_ai(payload.as_ref(), ai)
             }
             _ => state.evaluate_transition_payload(payload.as_ref()).map(Ok),
@@ -500,7 +532,7 @@ pub(crate) fn cpp_transition_with_ai<S: CppState + 'static>(
         },
         description,
     )
-    .with_ai_test(invoke)
+    .with_ai_test(invoke::<ACCEPTS_TARGET>)
 }
 
 #[cfg(test)]

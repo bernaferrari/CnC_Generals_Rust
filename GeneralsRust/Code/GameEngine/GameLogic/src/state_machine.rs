@@ -1943,6 +1943,17 @@ impl StateMachine {
         self.control.set_goal_object_by_id(object_id)
     }
 
+    pub(crate) fn set_goal_from_object(&mut self, object: &Object) {
+        if self.control.is_locked() {
+            return;
+        }
+        let id = object.get_id();
+        self.control.goal_object_id = id;
+        if id != crate::common::INVALID_ID {
+            self.control.internal_set_goal_position(*object.get_position());
+        }
+    }
+
     /// Get goal object
     pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
         self.control.get_goal_object()

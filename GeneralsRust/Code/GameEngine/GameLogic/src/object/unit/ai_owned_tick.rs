@@ -126,6 +126,7 @@ impl UnitAIUpdate {
                 parent_exists: true,
                 parent_state_id: None,
                 world: Some(world),
+                command_target: None,
             };
             machine
                 .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
@@ -156,6 +157,7 @@ impl UnitAIUpdate {
                 parent_exists: true,
                 parent_state_id: None,
                 world: Some(world),
+                command_target: None,
             };
             machine
                 .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
@@ -206,6 +208,7 @@ impl UnitAIUpdate {
                 parent_exists: true,
                 parent_state_id: None,
                 world: Some(world),
+                command_target: None,
             };
             machine.driver().clear_with_ai(&mut runtime);
             let entered = machine

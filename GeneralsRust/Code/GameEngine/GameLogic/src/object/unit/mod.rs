@@ -43,6 +43,7 @@ pub(crate) struct UnitAiStateRuntime<'runtime, 'world> {
     parent_exists: bool,
     parent_state_id: Option<u32>,
     world: Option<&'world mut dyn crate::modules::ai_world::AiWorld>,
+    command_target: Option<&'world crate::object::Object>,
 }
 pub use ai_path::{
     leftover_compute_quick_path_coords, leftover_is_in_region_no_z,

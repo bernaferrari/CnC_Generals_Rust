@@ -1978,33 +1978,43 @@ impl AIMoveToState {
         if let Some(goal) = authored_goal {
             self.goal_position = goal;
             self.base.goal_position_copied = Some(goal);
-        } else if let Some(goal_obj) = self.base.get_machine_goal_object_id().and_then(|id| {
-            match borrowed.as_deref().and_then(|ai| ai.world()) {
-                Some(world) => world.object(id),
-                None => crate::helpers::TheGameLogic::find_object_by_id(id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id)),
-            }
-        }) {
+        } else {
+            let goal_id = self.base.get_machine_goal_object_id();
+            let known = borrowed.as_deref().and_then(|ai| {
+                goal_id.and_then(|id| ai.command_target_matching(id))
+            });
+            let goal_obj = if known.is_none() {
+                goal_id.and_then(|id| match borrowed.as_deref().and_then(|ai| ai.world()) {
+                    Some(world) => world.object(id),
+                    None => crate::helpers::TheGameLogic::find_object_by_id(id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id)),
+                })
+            } else {
+                None
+            };
             let goal_guard = goal_obj
-                .read()
-                .map_err(|_| "goal object lock poisoned".to_string())?;
-            self.goal_position = *goal_guard.get_position();
-            if let Some(owner) = self.base.get_machine_owner() {
-                if let Ok(owner_guard) = owner.read() {
-                    if owner_guard.is_kind_of(KindOf::Projectile) {
-                        let half_height = goal_guard
-                            .get_geometry_info()
-                            .get_max_height_above_position()
-                            * 0.5;
-                        self.goal_position.z += half_height;
-                        if goal_guard.get_position().z < self.goal_position.z {
+                .as_ref()
+                .map(|goal| goal.read().map_err(|_| "goal object lock poisoned".to_string()))
+                .transpose()?;
+            if let Some(goal_guard) = known.or(goal_guard.as_deref()) {
+                self.goal_position = *goal_guard.get_position();
+                if let Some(owner) = self.base.get_machine_owner() {
+                    if let Ok(owner_guard) = owner.read() {
+                        if owner_guard.is_kind_of(KindOf::Projectile) {
+                            let half_height = goal_guard
+                                .get_geometry_info()
+                                .get_max_height_above_position()
+                                * 0.5;
                             self.goal_position.z += half_height;
+                            if goal_guard.get_position().z < self.goal_position.z {
+                                self.goal_position.z += half_height;
+                            }
                         }
                     }
                 }
+            } else if let Some(goal_pos) = self.base.get_machine_goal_position() {
+                self.goal_position = goal_pos;
             }
-        } else if let Some(goal_pos) = self.base.get_machine_goal_position() {
-            self.goal_position = goal_pos;
         }
 
         let owner = if let Some(owner) = self.preset_owner.clone() {

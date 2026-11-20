@@ -62,8 +62,29 @@ impl UnitAIUpdate {
         &mut self,
         command: &crate::ai::AiCommandParams,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.execute_command_with_target(command, None)
+    }
+
+    pub(super) fn execute_command_with_target(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+        target: Option<&crate::object::Object>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(machine) = self.ai_state_machine.as_mut() {
+            let target = target.filter(|target| {
+                if command.cmd != crate::ai::AiCommandType::GuardRetaliate
+                    || command.obj != Some(target.get_id())
+                {
+                    return false;
+                }
+                self.runtime
+                    .native_owner()
+                    .and_then(|owner| owner.read().ok()?.owning_world_services())
+                    .zip(target.owning_world_services())
+                    .is_some_and(|(owner, target)| Arc::ptr_eq(&owner, &target))
+            });
             let mut runtime = super::UnitAiStateRuntime::new(&mut self.runtime, true);
+            runtime.command_target = target;
             return runtime.execute_command_native(command, &mut machine.driver());
         }
         self.execute_standalone_command(command)
@@ -233,6 +254,7 @@ impl UnitAIUpdate {
             parent_exists: true,
             parent_state_id: None,
             world: Some(world),
+            command_target: None,
         };
         runtime.execute_command_native(command, &mut machine.driver())
     }

@@ -418,6 +418,23 @@ impl CppState for AIGuardRetaliateState {
         self.enter_retaliate(None)
     }
 
+    fn cpp_on_enter_with_control(
+        &mut self,
+        control: &mut StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<StateReturnType, String> {
+        match ai {
+            Some(ai) if ai.command_target().is_some() => {
+                let previous = ai.exchange_parent_state_id(control.get_current_state_id());
+                let result = self.enter_retaliate(Some(&mut *ai));
+                ai.exchange_parent_state_id(previous);
+                result
+            }
+            Some(ai) => self.cpp_on_enter_with_ai(ai),
+            None => self.cpp_on_enter(),
+        }
+    }
+
     fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
@@ -496,12 +513,15 @@ impl AIGuardRetaliateState {
             guard_machine.set_target_position_to_guard(owner_guard.get_position());
         }
 
-        if let Some(goal) = self.base.get_machine_goal_object_id().and_then(|id| {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
+        if let Some(id) = self.base.get_machine_goal_object_id() {
+            if let Some(target) = ai.as_deref().and_then(|ai| ai.command_target_matching(id)) {
+                guard_machine.set_nemesis_id(target.get_id());
+            } else if let Some(goal) = crate::helpers::TheGameLogic::find_object_by_id(id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        }) {
-            if let Ok(goal_guard) = goal.try_read() {
-                guard_machine.set_nemesis_id(goal_guard.get_id());
+            {
+                if let Ok(goal_guard) = goal.try_read() {
+                    guard_machine.set_nemesis_id(goal_guard.get_id());
+                }
             }
         }
 

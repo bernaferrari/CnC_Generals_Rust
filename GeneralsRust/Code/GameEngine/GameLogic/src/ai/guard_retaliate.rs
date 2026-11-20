@@ -1913,13 +1913,14 @@ impl AIGuardRetaliateAttackAggressorState {
                 }
             }
         }
-        let nemesis = if nemesis_id != crate::common::INVALID_ID {
+        let target = ai.as_deref().and_then(|ai| ai.command_target_matching(nemesis_id));
+        let nemesis = if target.is_none() && nemesis_id != crate::common::INVALID_ID {
             get_legacy_object(nemesis_id)
         } else {
             None
         };
 
-        let Some(nemesis) = nemesis else {
+        if target.is_none() && nemesis.is_none() {
             self.is_attacking = false;
             self.attack_machine = None;
             return StateReturnType::Success;
@@ -1976,7 +1977,11 @@ impl AIGuardRetaliateAttackAggressorState {
             true,
             false,
         );
-        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
+        if let Some(target) = target {
+            attack_machine.base.set_goal_from_object(target);
+        } else if let Some(nemesis) = nemesis {
+            attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
+        }
         let result = match ai {
             Some(ai) => attack_machine.init_default_state_with_ai(ai),
             None => attack_machine.init_default_state(),

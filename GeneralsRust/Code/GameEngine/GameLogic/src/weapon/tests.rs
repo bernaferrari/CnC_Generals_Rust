@@ -1023,20 +1023,7 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn temp_weapon_dispatches_installed_armed_friend_retaliation() {
-    use crate::common::Relationship;
-    use crate::helpers::TheThingFactory;
-    use crate::modules::AIUpdateInterfaceExt;
-    use crate::object::Object;
-    use crate::player::Player;
-    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
-    use crate::system::game_logic::get_game_logic;
-    use crate::team::Team;
     use crate::test_process::{TestProcess, run_bounded};
-    use game_engine::common::ini::ini_locomotor::{LocomotorSurfaceTypeMask, LocomotorTemplate};
-    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
-    use game_engine::common::thing::thing_factory::{
-        ensure_thing_factory_exists, get_thing_factory,
-    };
 
     const NAME: &str = concat!(
         module_path!(),
@@ -1049,10 +1036,69 @@ fn temp_weapon_dispatches_installed_armed_friend_retaliation() {
         return;
     }
 
+
+    mounted_retaliation_response(RetaliationShot::Temporary);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn held_weapon_dispatches_installed_armed_friend_retaliation() {
+    use crate::test_process::{TestProcess, run_bounded};
+
+    const NAME: &str = concat!(
+        module_path!(),
+        "::held_weapon_dispatches_installed_armed_friend_retaliation"
+    );
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_NATIVE_HELD_FRIEND_RETALIATION_CHILD",
+    ) {
+        return;
+    }
+
+
+    mounted_retaliation_response(RetaliationShot::HeldAtPosition);
+    mounted_retaliation_response(RetaliationShot::HeldAtObject);
+    mounted_retaliation_response(RetaliationShot::HeldAfterMoving);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy)]
+enum RetaliationShot {
+    Temporary,
+    HeldAtPosition,
+    HeldAtObject,
+    HeldAfterMoving,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn mounted_retaliation_response(shot: RetaliationShot) {
+    use crate::common::Relationship;
+    use crate::helpers::TheThingFactory;
+    use crate::modules::AIUpdateInterfaceExt;
+    use crate::object::Object;
+    use crate::player::Player;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::system::game_logic::get_game_logic;
+    use crate::team::Team;
+    use game_engine::common::ini::ini_locomotor::{LocomotorSurfaceTypeMask, LocomotorTemplate};
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::{
+        ensure_thing_factory_exists, get_thing_factory,
+    };
+
     let impact = Coord3D::new(105.0, 105.0, 0.0);
     let guard_position = Coord3D::new(140.0, 105.0, 0.0);
+    let must_move = matches!(shot, RetaliationShot::HeldAfterMoving);
     let mount = |world: &Arc<EngineStores>| {
         with_active_stores(world, || {
+            if must_move {
+                world.services().terrain().write().unwrap()
+                    .try_restore_logic_height_map_with_effects(40, 40, &[0; 1600], &mut || {})
+                    .unwrap();
+                world.ai().read().unwrap().pathfinder().unwrap().write().unwrap()
+                    .rebuild_from_terrain(&world.services().terrain().read().unwrap());
+            }
             assert!(ensure_thing_factory_exists());
             if get_module_factory().unwrap().is_none() {
                 init_module_factory().unwrap();
@@ -1062,8 +1108,12 @@ fn temp_weapon_dispatches_installed_armed_friend_retaliation() {
 
             let mut blast = WeaponTemplate::new("RetaliationBlast".into());
             blast.primary_damage = 100.0;
-            blast.primary_damage_radius = 12.0;
-            blast.attack_range = 100.0;
+            blast.primary_damage_radius = if matches!(shot, RetaliationShot::HeldAtObject) {
+                0.0
+            } else {
+                12.0
+            };
+            blast.attack_range = if must_move { 70.0 } else { 100.0 };
             blast.weapon_speed = 99999.0;
             blast.min_weapon_speed = 99999.0;
             blast.clip_size = 2;
@@ -1092,6 +1142,9 @@ Object RetaliationAggressor
         MaxHealth = 100
         InitialHealth = 100
     End
+    Behavior = AIUpdateInterface AggressorAI
+    End
+    Locomotor = SET_NORMAL RetaliationGround
     WeaponSet
         Conditions = None
         Weapon = PRIMARY RetaliationBlast
@@ -1173,6 +1226,7 @@ End
     let (source, victim, friend, weapon) = mount(&driving);
     let (peer_source, peer_victim, peer_friend, _) = mount(&peer);
     let source_id = source.read().unwrap().get_id();
+    assert!(source.read().unwrap().get_ai().is_some());
     assert_eq!(peer_source.read().unwrap().get_id(), source_id);
     assert_eq!(peer_victim.read().unwrap().get_id(), victim.read().unwrap().get_id());
     assert_eq!(peer_friend.read().unwrap().get_id(), friend.read().unwrap().get_id());
@@ -1182,19 +1236,37 @@ End
         {
             let friend = friend.read().unwrap();
             let source = source.read().unwrap();
-            assert!(matches!(
+            assert_eq!(
                 friend.get_able_to_attack_specific_object(
                     crate::attack::AbleToAttackType::NewTarget,
                     &source,
                     crate::ai::CommandSourceType::FromAi,
                 ),
-                crate::attack::CanAttackResult::Possible
-                    | crate::attack::CanAttackResult::PossibleAfterMoving
-            ));
+                if must_move {
+                    crate::attack::CanAttackResult::PossibleAfterMoving
+                } else {
+                    crate::attack::CanAttackResult::Possible
+                }
+            );
         }
-        // ActiveBody.cpp:657–698 calls a real idle ally after the victim
-        // dies. The temporary fire operation leaves the aggressor unborrowed.
-        WeaponStore::create_and_fire_temp_weapon_at_pos(&weapon, source_id, &impact).unwrap();
+        // ActiveBody.cpp:657–698 calls a real idle ally after the victim dies.
+        match shot {
+            RetaliationShot::Temporary => {
+                WeaponStore::create_and_fire_temp_weapon_at_pos(&weapon, source_id, &impact)
+                    .unwrap();
+            }
+            RetaliationShot::HeldAtPosition | RetaliationShot::HeldAfterMoving => {
+                let mut source = source.write().unwrap();
+                source.reload_all_ammo(true).unwrap();
+                source.fire_current_weapon_at_position(&impact).unwrap();
+            }
+            RetaliationShot::HeldAtObject => {
+                let target_id = victim.read().unwrap().get_id();
+                let mut source = source.write().unwrap();
+                source.reload_all_ammo(true).unwrap();
+                source.fire_current_weapon_at_target_id(target_id).unwrap();
+            }
+        }
 
         assert_eq!(victim.read().unwrap().get_health(), 0.0);
         assert!(victim.read().unwrap().is_effectively_dead());
@@ -1203,6 +1275,14 @@ End
         let ai = ai.lock().unwrap();
         assert_eq!(ai.get_goal_object_id(), source_id);
         assert_eq!(ai.get_goal_position(), Some(guard_position));
+        assert_eq!(
+            ai.get_current_state_id(),
+            Some(crate::ai::states::AIStateType::GuardRetaliate as u32),
+        );
+        if must_move {
+            assert!(ai.is_waiting_for_path());
+            assert!(ai.is_moving());
+        }
     });
     with_active_stores(&peer, || {
         assert_eq!(peer_victim.read().unwrap().get_health(), 100.0);

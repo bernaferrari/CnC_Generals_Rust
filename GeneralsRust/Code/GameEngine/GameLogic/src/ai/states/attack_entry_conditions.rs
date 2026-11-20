@@ -121,6 +121,9 @@ macro_rules! conditions {
             _: &StateTransitionUserData,
             ai: &mut dyn AiStateRuntime,
         ) -> Result<bool, String> {
+            if ai.world().is_none() {
+                return out_of_weapon_range_object_with_target(state.base_state(), ai.command_target());
+            }
             out_of_range(state.base_state(), true, ai)
         }
         pub(in super::super) fn $position(
@@ -135,6 +138,9 @@ macro_rules! conditions {
             _: &StateTransitionUserData,
             ai: &mut dyn AiStateRuntime,
         ) -> Result<bool, String> {
+            if ai.world().is_none() {
+                return want_to_squish_target_with_target(state.base_state(), ai.command_target());
+            }
             squish(state.base_state(), ai)
         }
         pub(in super::super) fn $impossible(
@@ -142,6 +148,9 @@ macro_rules! conditions {
             data: &StateTransitionUserData,
             ai: &mut dyn AiStateRuntime,
         ) -> Result<bool, String> {
+            if ai.world().is_none() {
+                return cannot_possibly_attack_object_with_target(state.base_state(), data, ai.command_target());
+            }
             impossible(state.base_state(), data, ai)
         }
     };

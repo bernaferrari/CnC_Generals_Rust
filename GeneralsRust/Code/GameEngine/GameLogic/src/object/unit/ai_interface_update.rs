@@ -406,6 +406,7 @@ impl UnitAIUpdate {
             parent_exists: true,
             parent_state_id: None,
             world: Some(world),
+            command_target: None,
         };
         machine
             .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
@@ -453,6 +454,7 @@ impl UnitAIUpdate {
             parent_exists: true,
             parent_state_id: None,
             world: Some(world),
+            command_target: None,
         };
         machine
             .update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
@@ -518,6 +520,7 @@ impl UnitAIUpdate {
             parent_exists: true,
             parent_state_id: None,
             world: Some(world),
+            command_target: None,
         };
         let state = machine
             .base
@@ -813,6 +816,7 @@ impl UnitAIUpdate {
                     parent_exists: true,
                     parent_state_id: None,
                     world: world.take(),
+                    command_target: None,
                 };
                 jet_ai.update_with_ai(&mut runtime, &mut machine.driver());
                 world = runtime.world.take();
@@ -967,6 +971,7 @@ impl UnitAIUpdate {
                 parent_exists: true,
                 parent_state_id: None,
                 world: world.take(),
+                command_target: None,
             };
             if runtime.runtime.data.ai_dead
                 && machine.get_current_state_id() != Some(AIStateType::Dead as u32)
@@ -992,6 +997,7 @@ impl UnitAIUpdate {
                         parent_exists: true,
                         parent_state_id: None,
                         world: world.take(),
+                        command_target: None,
                     };
                     let _ = machine.driver().set_state_with_ai(state_id, &mut runtime);
                     world = runtime.world.take();

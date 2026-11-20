@@ -56,7 +56,7 @@ use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
 use crate::state_machine::cpp_state::{
-    CppState, cpp_transition, cpp_transition_with_ai, register_cpp_state,
+    CppState, cpp_transition, cpp_transition_with_ai, cpp_transition_with_ai_target, register_cpp_state,
 };
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
@@ -70,7 +70,7 @@ use game_engine::common::system::{GeometryType, Snapshotable, Xfer};
 use crate::common::INVALID_ID;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, Weak};
 
 #[path = "attack_entry.rs"]
 mod attack_entry;
@@ -124,6 +124,13 @@ pub(crate) struct AttackContinuationData {
 }
 
 pub(crate) fn out_of_weapon_range_object_state(base: &State) -> Result<bool, String> {
+    out_of_weapon_range_object_with_target(base, None)
+}
+
+pub(super) fn out_of_weapon_range_object_with_target(
+    base: &State,
+    target: Option<&Object>,
+) -> Result<bool, String> {
     let owner = base
         .get_machine_owner()
         .ok_or_else(|| "attack condition missing owner".to_string())?;
@@ -141,11 +148,12 @@ pub(crate) fn out_of_weapon_range_object_state(base: &State) -> Result<bool, Str
     }
     // The condition already holds the source Object. C++ passes that pointer
     // directly; resolving it through the registry would reacquire this guard.
-    Ok(!attack_range_for_borrowed_owner(
-        weapon,
-        &owner_guard,
-        target_id,
-    ))
+    let in_range = if let Some(target) = target.filter(|target| target.get_id() == target_id) {
+        weapon.is_within_attack_range_for_objects(&owner_guard, Some(target), None)
+    } else {
+        attack_range_for_borrowed_owner(weapon, &owner_guard, target_id)
+    };
+    Ok(!in_range)
 }
 
 pub(crate) fn out_of_weapon_range_position_state(base: &State) -> Result<bool, String> {
@@ -178,6 +186,13 @@ fn attack_range_for_borrowed_owner(weapon: &Weapon, owner: &Object, target_id: O
 }
 
 pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> {
+    want_to_squish_target_with_target(base, None)
+}
+
+pub(super) fn want_to_squish_target_with_target(
+    base: &State,
+    target: Option<&Object>,
+) -> Result<bool, String> {
     // Wave 257: empty dual-world → Ok(false).
     if dual_world_registry_unavailable() {
         return Ok(false);
@@ -189,17 +204,13 @@ pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> 
     let target_id = base
         .get_machine_goal_object_id()
         .ok_or_else(|| "attack condition missing target".to_string())?;
-    let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
-        .ok_or_else(|| "attack condition missing target".to_string())?;
     let owner_guard = owner
         .read()
         .map_err(|_| "attack condition owner lock poisoned".to_string())?;
-    let target_guard = target
-        .read()
-        .map_err(|_| "attack condition target lock poisoned".to_string())?;
-
-    if target_guard.get_contained_by().is_some() {
+    let target = AttackGoal::resolve(Some(target_id), target)
+        .ok_or("attack condition missing target")?;
+    let target = target.read("attack condition target lock poisoned")?;
+    if target.get_contained_by().is_some() {
         return Ok(false);
     }
 
@@ -221,7 +232,7 @@ pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> 
         return Ok(false);
     }
 
-    if !target_guard.is_kind_of(KindOf::Infantry) {
+    if !target.is_kind_of(KindOf::Infantry) {
         return Ok(false);
     }
 
@@ -231,6 +242,14 @@ pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> 
 pub(crate) fn cannot_possibly_attack_object_state(
     base: &State,
     user_data: &StateTransitionUserData,
+) -> Result<bool, String> {
+    cannot_possibly_attack_object_with_target(base, user_data, None)
+}
+
+pub(super) fn cannot_possibly_attack_object_with_target(
+    base: &State,
+    user_data: &StateTransitionUserData,
+    target: Option<&Object>,
 ) -> Result<bool, String> {
     // Wave 257: empty dual-world → Ok(false).
     if dual_world_registry_unavailable() {
@@ -243,16 +262,12 @@ pub(crate) fn cannot_possibly_attack_object_state(
     let target_id = base
         .get_machine_goal_object_id()
         .ok_or_else(|| "attack condition missing target".to_string())?;
-    let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
-        .ok_or_else(|| "attack condition missing target".to_string())?;
     let owner_guard = owner
         .read()
         .map_err(|_| "attack condition owner lock poisoned".to_string())?;
-    let target_guard = target
-        .read()
-        .map_err(|_| "attack condition target lock poisoned".to_string())?;
-
+    let target = AttackGoal::resolve(Some(target_id), target)
+        .ok_or("attack condition missing target")?;
+    let target = target.read("attack condition target lock poisoned")?;
     if !owner_guard.is_able_to_attack() {
         return Ok(true);
     }
@@ -268,13 +283,56 @@ pub(crate) fn cannot_possibly_attack_object_state(
 
     let result = owner_guard.get_able_to_attack_specific_object_for_objects(
         attack_type,
-        &target_guard,
+        &target,
         cmd_source,
     );
     Ok(!matches!(
         result,
         CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
     ))
+}
+
+enum AttackGoal<'a> {
+    Borrowed(&'a Object),
+    Registered(Arc<RwLock<Object>>),
+}
+
+enum AttackGoalRead<'a> {
+    Borrowed(&'a Object),
+    Registered(RwLockReadGuard<'a, Object>),
+}
+
+impl std::ops::Deref for AttackGoalRead<'_> {
+    type Target = Object;
+
+    fn deref(&self) -> &Object {
+        match self {
+            Self::Borrowed(actor) => actor,
+            Self::Registered(actor) => actor,
+        }
+    }
+}
+
+impl<'a> AttackGoal<'a> {
+    fn resolve(id: Option<ObjectID>, borrowed: Option<&'a Object>) -> Option<Self> {
+        let id = id?;
+        if let Some(actor) = borrowed.filter(|actor| actor.get_id() == id) {
+            return Some(Self::Borrowed(actor));
+        }
+        TheGameLogic::find_object_by_id(id)
+            .or_else(|| OBJECT_REGISTRY.get_object(id))
+            .map(Self::Registered)
+    }
+
+    fn read(&self, error: &'static str) -> Result<AttackGoalRead<'_>, String> {
+        match self {
+            Self::Borrowed(actor) => Ok(AttackGoalRead::Borrowed(actor)),
+            Self::Registered(actor) => actor
+                .read()
+                .map(AttackGoalRead::Registered)
+                .map_err(|_| error.to_string()),
+        }
+    }
 }
 
 pub(crate) fn out_of_weapon_range_object_aim(
@@ -375,14 +433,14 @@ impl AttackStateMachine {
 
         let object_conditions_aim = if force_attacking {
             vec![
-                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai_target::<AIAttackAimAtTargetState>(
                     out_of_weapon_range_object_aim,
                     attack_entry::out_of_weapon_range_object_aim,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "out_of_weapon_range_object",
                 ),
-                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai_target::<AIAttackAimAtTargetState>(
                     cannot_possibly_attack_object_aim,
                     attack_entry::cannot_possibly_attack_object_aim,
                     EXIT_MACHINE_WITH_FAILURE,
@@ -392,7 +450,7 @@ impl AttackStateMachine {
                     }),
                     "cannot_possibly_attack_object",
                 ),
-                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai_target::<AIAttackAimAtTargetState>(
                     want_to_squish_target_aim,
                     attack_entry::want_to_squish_target_aim,
                     AttackSubStateId::PursueTarget as u32,
@@ -402,21 +460,21 @@ impl AttackStateMachine {
             ]
         } else {
             vec![
-                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai_target::<AIAttackAimAtTargetState>(
                     out_of_weapon_range_object_aim,
                     attack_entry::out_of_weapon_range_object_aim,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "out_of_weapon_range_object",
                 ),
-                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai_target::<AIAttackAimAtTargetState>(
                     want_to_squish_target_aim,
                     attack_entry::want_to_squish_target_aim,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "want_to_squish_target",
                 ),
-                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai_target::<AIAttackAimAtTargetState>(
                     cannot_possibly_attack_object_aim,
                     attack_entry::cannot_possibly_attack_object_aim,
                     EXIT_MACHINE_WITH_FAILURE,
@@ -431,14 +489,14 @@ impl AttackStateMachine {
 
         let object_conditions_fire = if force_attacking {
             vec![
-                cpp_transition_with_ai::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai_target::<AIAttackFireWeaponState>(
                     out_of_weapon_range_object_fire,
                     attack_entry::out_of_weapon_range_object_fire,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "out_of_weapon_range_object",
                 ),
-                cpp_transition_with_ai::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai_target::<AIAttackFireWeaponState>(
                     cannot_possibly_attack_object_fire,
                     attack_entry::cannot_possibly_attack_object_fire,
                     EXIT_MACHINE_WITH_FAILURE,
@@ -448,7 +506,7 @@ impl AttackStateMachine {
                     }),
                     "cannot_possibly_attack_object",
                 ),
-                cpp_transition_with_ai::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai_target::<AIAttackFireWeaponState>(
                     want_to_squish_target_fire,
                     attack_entry::want_to_squish_target_fire,
                     AttackSubStateId::PursueTarget as u32,
@@ -458,21 +516,21 @@ impl AttackStateMachine {
             ]
         } else {
             vec![
-                cpp_transition_with_ai::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai_target::<AIAttackFireWeaponState>(
                     out_of_weapon_range_object_fire,
                     attack_entry::out_of_weapon_range_object_fire,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "out_of_weapon_range_object",
                 ),
-                cpp_transition_with_ai::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai_target::<AIAttackFireWeaponState>(
                     want_to_squish_target_fire,
                     attack_entry::want_to_squish_target_fire,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "want_to_squish_target",
                 ),
-                cpp_transition_with_ai::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai_target::<AIAttackFireWeaponState>(
                     cannot_possibly_attack_object_fire,
                     attack_entry::cannot_possibly_attack_object_fire,
                     EXIT_MACHINE_WITH_FAILURE,
@@ -631,6 +689,7 @@ impl AttackStateMachine {
         self.base.set_goal_object_by_id(obj_id);
     }
 
+
     pub fn get_goal_object_id(&self) -> ObjectID {
         self.base.get_goal_object_id()
     }
@@ -758,31 +817,11 @@ impl StateImplementation for AIAttackAimAtTargetState {
     }
 }
 
-impl CppState for AIAttackAimAtTargetState {
-    fn base_state(&self) -> &State {
-        &self.base
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        &mut self.base
-    }
-
-    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Snapshotable::xfer(self, xfer)
-    }
-
-    fn cpp_on_enter_with_ai(
+impl AIAttackAimAtTargetState {
+    fn enter_with_target(
         &mut self,
-        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+        attacker: Option<&Object>,
     ) -> Result<StateReturnType, String> {
-        if ai.world().is_some() {
-            attack_entry::aim_enter(self, ai)
-        } else {
-            self.cpp_on_enter()
-        }
-    }
-
-    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -846,20 +885,17 @@ impl CppState for AIAttackAimAtTargetState {
                 .base
                 .get_machine_goal_object_id()
                 .ok_or_else(|| "attack aim missing target".to_string())?;
-            let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
-                .ok_or_else(|| "attack aim missing target".to_string())?;
-            let target_guard = target
-                .read()
-                .map_err(|_| "attack aim target lock poisoned".to_string())?;
+            let target = AttackGoal::resolve(Some(target_id), attacker)
+                .ok_or("attack aim missing target")?;
+            let target = target.read("attack aim target lock poisoned")?;
             if !used_contain {
                 in_range = weapon.is_within_attack_range_for_objects(
                     &owner_guard,
-                    Some(&target_guard),
+                    Some(&target),
                     None,
                 );
             }
-            if let Some(ai) = target_guard.get_ai_update_interface() {
+            if let Some(ai) = target.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.lock() {
                     ai_guard.add_targeter(owner_guard.get_id(), true);
                     preventing = ai_guard.is_temporarily_preventing_aim_success();
@@ -935,6 +971,35 @@ impl CppState for AIAttackAimAtTargetState {
 
         owner_guard.set_status(ObjectStatusMaskType::IS_AIMING_WEAPON, true);
         Ok(StateReturnType::Continue)
+    }
+}
+
+impl CppState for AIAttackAimAtTargetState {
+    fn base_state(&self) -> &State {
+        &self.base
+    }
+
+    fn base_state_mut(&mut self) -> &mut State {
+        &mut self.base
+    }
+
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            attack_entry::aim_enter(self, ai)
+        } else {
+            self.enter_with_target(ai.command_target())
+        }
+    }
+
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
+        self.enter_with_target(None)
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -1558,6 +1623,10 @@ impl AIAttackPursueTargetState {
     }
 
     pub(crate) fn compute_path(&mut self) -> Result<bool, String> {
+        self.compute_path_to_target(None)
+    }
+
+    fn compute_path_to_target(&mut self, target: Option<&Object>) -> Result<bool, String> {
         let live_no_path = self.live_no_path.take();
         let live_stuck = self.live_stuck.take();
         // Wave 257: empty dual-world → Ok(false).
@@ -1602,19 +1671,15 @@ impl AIAttackPursueTargetState {
         let Some(victim_id) = self.base.base.get_machine_goal_object_id() else {
             return Ok(false);
         };
-        let Some(victim) = crate::helpers::TheGameLogic::find_object_by_id(victim_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(victim_id))
-        else {
+        let Some(victim) = AttackGoal::resolve(Some(victim_id), target) else {
             return Ok(false);
         };
-        let victim_guard = victim
-            .read()
-            .map_err(|_| "attack pursue victim lock poisoned".to_string())?;
+        let victim = victim.read("attack pursue victim lock poisoned")?;
         if !force_repath
             && self.base.is_same_position(
                 owner_guard.get_position(),
                 &self.prev_victim_pos,
-                victim_guard.get_position(),
+                victim.get_position(),
             )
         {
             return Ok(true);
@@ -1623,11 +1688,11 @@ impl AIAttackPursueTargetState {
         let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
             return Ok(false);
         };
-        if !attack_can_pursue(&owner_guard, weapon, &victim_guard) {
+        if !attack_can_pursue(&owner_guard, weapon, &victim) {
             return Ok(false);
         }
 
-        self.prev_victim_pos = *victim_guard.get_position();
+        self.prev_victim_pos = *victim.get_position();
         self.base.set_adjusts_destination(true);
         self.base.goal_position = self.prev_victim_pos;
         self.base.waiting_for_path = true;
@@ -1813,31 +1878,13 @@ impl StateImplementation for AIAttackPursueTargetState {
     }
 }
 
-impl CppState for AIAttackPursueTargetState {
-    fn base_state(&self) -> &State {
-        &self.base.base
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        &mut self.base.base
-    }
-
-    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Snapshotable::xfer(self, xfer)
-    }
-
-    fn cpp_on_enter_with_ai(
+impl AIAttackPursueTargetState {
+    fn enter_with_target(
         &mut self,
-        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
-        if ai.world().is_some() {
-            attack_entry::pursue_enter(self, ai)
-        } else {
-            self.cpp_on_enter()
-        }
-    }
-
-    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
+        let target = ai.as_deref().and_then(|ai| ai.command_target());
+        let parent_state = ai.as_deref().and_then(|ai| ai.get_parent_state_id());
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -1860,8 +1907,11 @@ impl CppState for AIAttackPursueTargetState {
             .base
             .get_machine_goal_object_id()
             .and_then(|id| {
-                crate::object::registry::OBJECT_REGISTRY
-                    .with_object(id, |guard| guard.is_effectively_dead())
+                target.filter(|target| target.get_id() == id).map_or_else(
+                    || crate::object::registry::OBJECT_REGISTRY
+                        .with_object(id, |actor| actor.is_effectively_dead()),
+                    |target| Some(target.is_effectively_dead()),
+                )
             })
             .unwrap_or(true)
         {
@@ -1873,7 +1923,7 @@ impl CppState for AIAttackPursueTargetState {
 
         self.base.set_adjusts_destination(false);
 
-        if owner_guard.ai_fire_state_id != Some(AIStateType::GuardRetaliate as u32) {
+        if parent_state.or(owner_guard.ai_fire_state_id) != Some(AIStateType::GuardRetaliate as u32) {
             let is_human = owner_guard
                 .with_controlling_player(|player_guard| {
                     player_guard.get_player_type() == PlayerType::Human
@@ -1890,18 +1940,14 @@ impl CppState for AIAttackPursueTargetState {
         let Some(victim_id) = self.base.base.get_machine_goal_object_id() else {
             return Ok(StateReturnType::Success);
         };
-        let Some(victim) = crate::helpers::TheGameLogic::find_object_by_id(victim_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(victim_id))
-        else {
+        let Some(victim) = AttackGoal::resolve(Some(victim_id), target) else {
             return Ok(StateReturnType::Success);
         };
-        let victim_guard = victim
-            .read()
-            .map_err(|_| "attack pursue victim lock poisoned".to_string())?;
+        let victim = victim.read("attack pursue victim lock poisoned")?;
         let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
             return Ok(StateReturnType::Failure);
         };
-        if !attack_can_pursue(&owner_guard, weapon, &victim_guard) {
+        if !attack_can_pursue(&owner_guard, weapon, &victim) {
             return Ok(StateReturnType::Success);
         }
         let turret = owner_guard.ai_fire_which_turret;
@@ -1911,14 +1957,48 @@ impl CppState for AIAttackPursueTargetState {
         owner_guard
             .ai_pending_turret_objects
             .push((turret, Some(victim_id), self.force_attacking));
-        drop(victim_guard);
+        drop(victim);
         drop(owner_guard);
 
-        if !self.compute_path()? {
+        if !self.compute_path_to_target(target)? {
             return Ok(StateReturnType::Success);
         }
 
-        self.base.cpp_on_enter()
+        match ai {
+            Some(ai) => self.base.cpp_on_enter_with_ai(ai),
+            None => self.base.cpp_on_enter(),
+        }
+    }
+}
+
+impl CppState for AIAttackPursueTargetState {
+    fn base_state(&self) -> &State {
+        &self.base.base
+    }
+
+    fn base_state_mut(&mut self) -> &mut State {
+        &mut self.base.base
+    }
+
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            attack_entry::pursue_enter(self, ai)
+        } else if ai.command_target().is_some() {
+            self.enter_with_target(Some(ai))
+        } else {
+            self.cpp_on_enter()
+        }
+    }
+
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
+        self.enter_with_target(None)
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -2009,6 +2089,10 @@ impl AIAttackApproachTargetState {
     }
 
     pub(crate) fn compute_path(&mut self) -> Result<bool, String> {
+        self.compute_path_to_target(None)
+    }
+
+    fn compute_path_to_target(&mut self, target: Option<&Object>) -> Result<bool, String> {
         let live_no_path = self.live_no_path.take();
         let live_stuck = self.live_stuck.take();
         // Wave 257: empty dual-world → Ok(false).
@@ -2047,18 +2131,15 @@ impl AIAttackApproachTargetState {
 
         self.approach_timestamp = TheGameLogic::get_frame();
 
-        if let Some(victim) = self.base.base.get_machine_goal_object_id().and_then(|id| {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        }) {
-            let victim_guard = victim
-                .read()
-                .map_err(|_| "attack approach victim lock poisoned".to_string())?;
+        if let Some(victim) =
+            AttackGoal::resolve(self.base.base.get_machine_goal_object_id(), target)
+        {
+            let victim = victim.read("attack approach victim lock poisoned")?;
             if !force_repath
                 && self.base.is_same_position(
                     owner_guard.get_position(),
                     &self.prev_victim_pos,
-                    victim_guard.get_position(),
+                    victim.get_position(),
                 )
             {
                 return Ok(true);
@@ -2068,24 +2149,24 @@ impl AIAttackApproachTargetState {
                 return Ok(false);
             };
 
-            self.prev_victim_pos = *victim_guard.get_position();
-            if attack_can_pursue(&owner_guard, weapon, &victim_guard) {
+            self.prev_victim_pos = *victim.get_position();
+            if attack_can_pursue(&owner_guard, weapon, &victim) {
                 return Ok(false);
             }
 
             self.base.set_adjusts_destination(true);
             if weapon.is_contact_weapon() {
-                owner_guard.ai_pending_ignore_id = Some(victim_guard.get_id());
+                owner_guard.ai_pending_ignore_id = Some(victim.get_id());
                 self.base.set_adjusts_destination(false);
                 owner_guard.ai_pending_path_extra = Some(10.0 * PATHFIND_CELL_SIZE_F);
             }
 
             self.base.goal_position = self.prev_victim_pos;
             self.base.waiting_for_path = true;
-            let victim_center = victim_guard
+            let victim_center = victim
                 .get_geometry_info()
-                .get_center_position(victim_guard.get_position());
-            owner_guard.ai_pending_attack_path = Some((victim_guard.get_id(), victim_center));
+                .get_center_position(victim.get_position());
+            owner_guard.ai_pending_attack_path = Some((victim.get_id(), victim_center));
             self.stop_if_in_range = false;
             return Ok(true);
         }
@@ -2321,31 +2402,13 @@ impl StateImplementation for AIAttackApproachTargetState {
     }
 }
 
-impl CppState for AIAttackApproachTargetState {
-    fn base_state(&self) -> &State {
-        &self.base.base
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        &mut self.base.base
-    }
-
-    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Snapshotable::xfer(self, xfer)
-    }
-
-    fn cpp_on_enter_with_ai(
+impl AIAttackApproachTargetState {
+    fn enter_with_target(
         &mut self,
-        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
-        if ai.world().is_some() {
-            attack_entry::approach_enter(self, ai)
-        } else {
-            self.cpp_on_enter()
-        }
-    }
-
-    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
+        let target = ai.as_deref().and_then(|ai| ai.command_target());
+        let parent_state = ai.as_deref().and_then(|ai| ai.get_parent_state_id());
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -2365,8 +2428,11 @@ impl CppState for AIAttackApproachTargetState {
             .base
             .get_machine_goal_object_id()
             .and_then(|id| {
-                crate::object::registry::OBJECT_REGISTRY
-                    .with_object(id, |guard| guard.is_effectively_dead())
+                target.filter(|target| target.get_id() == id).map_or_else(
+                    || crate::object::registry::OBJECT_REGISTRY
+                        .with_object(id, |actor| actor.is_effectively_dead()),
+                    |target| Some(target.is_effectively_dead()),
+                )
             })
             .unwrap_or(false)
         {
@@ -2376,27 +2442,24 @@ impl CppState for AIAttackApproachTargetState {
         self.prev_victim_pos = Coord3D::new(0.0, 0.0, 0.0);
         self.approach_timestamp = 0u32.wrapping_sub(ATTACK_MIN_RECOMPUTE_TIME);
 
-        if let Some(victim) = self.base.base.get_machine_goal_object_id().and_then(|id| {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        }) {
-            let victim_guard = victim
-                .read()
-                .map_err(|_| "attack approach victim lock poisoned".to_string())?;
+        if let Some(victim) =
+            AttackGoal::resolve(self.base.base.get_machine_goal_object_id(), target)
+        {
+            let victim = victim.read("attack approach victim lock poisoned")?;
             let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
                 return Ok(StateReturnType::Failure);
             };
-            if weapon.is_within_attack_range_for_objects(&owner_guard, Some(&victim_guard), None)
+            if weapon.is_within_attack_range_for_objects(&owner_guard, Some(&victim), None)
                 && !attack_view_blocked(
                     &owner_guard,
-                    Some(&victim_guard),
-                    victim_guard.get_position(),
+                    Some(&victim),
+                    victim.get_position(),
                 )
             {
                 return Ok(StateReturnType::Success);
             }
 
-            if owner_guard.ai_fire_state_id != Some(AIStateType::GuardRetaliate as u32) {
+            if parent_state.or(owner_guard.ai_fire_state_id) != Some(AIStateType::GuardRetaliate as u32) {
                 let is_human = owner_guard
                     .with_controlling_player(|player_guard| {
                         player_guard.get_player_type() == PlayerType::Human
@@ -2415,15 +2478,15 @@ impl CppState for AIAttackApproachTargetState {
                     })
                     .unwrap_or(false);
                 if is_computer
-                    && owner_guard.ai_fire_state_id != Some(AIStateType::Hunt as u32)
-                    && victim_guard.is_kind_of(KindOf::Aircraft)
-                    && victim_guard.is_airborne_target()
+                    && parent_state.or(owner_guard.ai_fire_state_id) != Some(AIStateType::Hunt as u32)
+                    && victim.is_kind_of(KindOf::Aircraft)
+                    && victim.is_airborne_target()
                 {
                     return Ok(StateReturnType::Failure);
                 }
             }
 
-            if attack_can_pursue(&owner_guard, weapon, &victim_guard) {
+            if attack_can_pursue(&owner_guard, weapon, &victim) {
                 return Ok(StateReturnType::Success);
             }
         } else {
@@ -2448,14 +2511,48 @@ impl CppState for AIAttackApproachTargetState {
         }
         drop(owner_guard);
 
-        if !self.compute_path()? {
+        if !self.compute_path_to_target(target)? {
             return Ok(StateReturnType::Failure);
         }
 
         self.base.set_adjusts_destination(false);
-        let ret = self.base.cpp_on_enter();
+        let ret = match ai {
+            Some(ai) => self.base.cpp_on_enter_with_ai(ai),
+            None => self.base.cpp_on_enter(),
+        };
         self.base.set_adjusts_destination(true);
         ret
+    }
+}
+
+impl CppState for AIAttackApproachTargetState {
+    fn base_state(&self) -> &State {
+        &self.base.base
+    }
+
+    fn base_state_mut(&mut self) -> &mut State {
+        &mut self.base.base
+    }
+
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            attack_entry::approach_enter(self, ai)
+        } else if ai.command_target().is_some() {
+            self.enter_with_target(Some(ai))
+        } else {
+            self.cpp_on_enter()
+        }
+    }
+
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
+        self.enter_with_target(None)
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {

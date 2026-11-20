@@ -1017,6 +1017,16 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
+    /// Run a synchronous command whose caller already holds its target.
+    #[doc(hidden)]
+    fn execute_command_with_target(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+        _target: &crate::object::Object,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.execute_command(command)
+    }
+
     /// Set locomotor upgrade flag (matching C++ AIUpdateInterface::setLocomotorUpgrade).
     fn set_locomotor_upgrade(
         &mut self,

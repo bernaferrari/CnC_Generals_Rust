@@ -2161,10 +2161,15 @@ impl<'runtime, 'world> UnitAiStateRuntime<'runtime, 'world> {
             parent_exists,
             parent_state_id: None,
             world: None,
+            command_target: None,
         }
     }
 }
 impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
+    fn command_target(&self) -> Option<&Object> {
+        self.command_target
+    }
+
     fn attitude(&self) -> Option<AIAttitudeType> {
         Some(self.runtime.data.attitude)
     }

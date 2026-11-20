@@ -201,13 +201,17 @@ pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
             })
             .flatten();
         if let Some((ai, position)) = response {
-            // The command can write its receiving Object (AIUpdate.cpp:3453).
-            ai.ai_guard_retaliate(
-                damager_id,
-                &position,
-                crate::weapon::NO_MAX_SHOTS_LIMIT,
-                CommandSourceType::FromAi,
-            );
+            // AI.h:555–561 passes the actual aggressor through this command.
+            if let Ok(mut ai) = ai.try_lock() {
+                let mut command = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::GuardRetaliate,
+                    CommandSourceType::FromAi,
+                );
+                command.obj = Some(damager_id);
+                command.pos = position;
+                command.int_value = crate::weapon::NO_MAX_SHOTS_LIMIT;
+                let _ = ai.execute_command_with_target(&command, damager);
+            }
         }
     }
 }

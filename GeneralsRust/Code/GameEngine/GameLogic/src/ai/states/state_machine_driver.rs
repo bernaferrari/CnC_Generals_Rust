@@ -281,7 +281,11 @@ impl AIStateMachineDriver<'_> {
         );
         if !is_follow_path_cmd {
             if let Some(obj_id) = params.obj {
-                self.base.set_goal_object_by_id(Some(obj_id));
+                if let Some(target) = ai.as_deref().and_then(|ai| ai.command_target_matching(obj_id)) {
+                    self.base.set_goal_from_object(target);
+                } else {
+                    self.base.set_goal_object_by_id(Some(obj_id));
+                }
             } else {
                 self.base.set_goal_object_by_id(None);
             }
