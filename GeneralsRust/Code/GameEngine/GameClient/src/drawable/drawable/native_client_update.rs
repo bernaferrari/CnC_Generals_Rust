@@ -54,12 +54,21 @@ impl ClientParticleBoneRuntime for ReceivingParticleBones<'_, '_> {
         else {
             return;
         };
-        // W3DModelDraw.cpp:2687-2693, including the original setter order.
-        system.set_position(glam::Vec3::new(position.x, position.y, position.z));
-        system.rotate_local_transform_z(z_rotation);
-        system.set_local_transform(glam::Mat3::from_mat4(*transform));
-        system.set_skip_parent_xfrm(true);
+        apply_cpp_particle_bone_transform(system, position, z_rotation, transform);
     }
+}
+
+pub(super) fn apply_cpp_particle_bone_transform(
+    system: &mut crate::effects::particle_system::ParticleSystem,
+    position: &Coord3D,
+    z_rotation: f32,
+    transform: &Matrix3D,
+) {
+    // W3DModelDraw.cpp:2687–2693, including the original setter order.
+    system.set_position(glam::Vec3::new(position.x, position.y, position.z));
+    system.rotate_local_transform_z(z_rotation);
+    system.set_local_transform(glam::Mat3::from_mat4(*transform));
+    system.set_skip_parent_xfrm(true);
 }
 
 impl BasicDrawable {

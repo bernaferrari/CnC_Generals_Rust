@@ -53,6 +53,7 @@ struct ParticleSysTracker {
     id: u32,
     bone_index: i32,
     bone_name: AsciiString,
+    installed_row: Option<usize>,
 }
 
 /// Pristine bone information (default pose)

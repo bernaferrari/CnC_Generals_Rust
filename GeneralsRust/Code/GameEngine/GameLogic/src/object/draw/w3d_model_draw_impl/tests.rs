@@ -66,6 +66,7 @@ mod tests {
             id: 41,
             bone_index: 3,
             bone_name: AsciiString::from("FXBONE"),
+            installed_row: None,
         });
 
         draw.set_model_state(1);

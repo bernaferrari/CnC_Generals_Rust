@@ -2014,6 +2014,16 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
 #[test]
 #[ignore = "requires native WGPU; run explicit installed particle pose acceptance"]
 fn visible_scaffold_particles_take_the_held_clip_bone_from_the_real_draw_receiver() {
+    exercise_scaffold_draw_particles(false);
+}
+
+#[test]
+#[ignore = "requires native WGPU; run explicit animated particle bone acceptance"]
+fn animated_scaffold_emitter_keeps_its_id_and_follows_the_installed_draw_pose() {
+    exercise_scaffold_draw_particles(true);
+}
+
+fn exercise_scaffold_draw_particles(follows_animated_bone: bool) {
     use crate::assets::models::test_animation::{motion, raw_animation};
     use game_client::core::game_client::PresentationModuleAdmission;
     use game_client::effects::particle_manager::ParticleSystemTemplate;
@@ -2083,9 +2093,17 @@ End
     let mut rules = world.lighting_rules_baseline().clone();
     rules.use_draw_module_lod = true;
     world.admit_lighting_rules_base(rules);
+    let authored_source = if follows_animated_bone {
+        SOURCE.replace(
+            "Draw = W3DModelDraw ScaffoldDraw",
+            "Draw = W3DModelDraw ScaffoldDraw\n  ParticlesAttachedToAnimatedBones = Yes",
+        )
+    } else {
+        SOURCE.to_owned()
+    };
     world.admit_receiving_module_content(
         crate::assets::ReceivingObjectContent::from_sources([(
-            "scaffold-gpu.ini".into(), SOURCE.into(),
+            "scaffold-gpu.ini".into(), authored_source,
         )]).unwrap(),
     ).unwrap();
     let template = world.templates["StrictCameraOwner"].clone();
@@ -2108,6 +2126,10 @@ End
         (3011, active), (3012, active), (4000, active), (5000, active),
         (5001, active), (5010, 0),
     ] {
+        let offset = if follows_animated_bone && clock >= 5000 { 27. } else { 0. };
+        if follows_animated_bone {
+            world.set_fixture_object_position(ID, Vec3::new(offset, 0., 0.));
+        }
         let object = world.host_object_mut(ID).unwrap();
         object.set_status_under_construction(bits == active);
         object.construction_percent = if bits == active { 0.25 } else { 1.0 };
@@ -2151,7 +2173,9 @@ End
         }
         let mut drawables = client.borrow_native_drawable_owner();
         let key = drawables.binding_key(EPOCH, ID.0).unwrap();
-        assert!(drawables.accepts_installed_state_particles(key, "ScaffoldDraw"));
+        if !follows_animated_bone {
+            assert!(drawables.accepts_installed_state_particles(key, "ScaffoldDraw"));
+        }
         pipeline.admit_native_drawable_binding(source.draw_playback_identity.as_ref().unwrap(), key)
             .unwrap();
         pipeline.set_presentation_frame(Some(frame));
@@ -2194,7 +2218,7 @@ End
         if let Some(system) = active_systems.first() {
             assert_eq!(system.attached_drawable_id(), key.drawable_id);
             assert!(!system.is_saveable());
-            assert_eq!(system.position(), Vec3::new(6., 0., 0.));
+            assert_eq!(system.position(), Vec3::new(6. + offset, 0., 0.));
             let initial = installed_emitter.get_or_insert(system.system_id());
             assert_eq!(*initial, system.system_id());
         }

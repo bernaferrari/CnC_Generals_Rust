@@ -743,14 +743,16 @@ impl RenderPipeline {
                                     .get_mut(&(NativeDrawOwnerId::Actor(object_id.0), draw_module_index))
                                     .expect("the accepted Draw owns its installed particle pose");
                                 let instance_scale = Mat4::from_scale(Vec3::splat(u.mesh_scale));
+                                let axis = super::gameplay_to_render_axis_matrix();
+                                let cpp_world = axis * world_matrix * axis;
                                 let prepared: Result<Vec<_>, _> = rows.iter()
                                     .map(|(bone_name, template)| {
-                                        let bone = state.installed_client_bone(self.animation_sync_ms, bone_name)?
-                                            .map(|(index, local)| (index as i32, instance_scale * local));
+                                        let bone = state.installed_client_bone(self.animation_sync_ms, bone_name)?;
                                         Ok(InstalledStateParticleRow {
                                             template: template.clone(),
                                             bone_name: bone_name.clone(),
-                                            bone,
+                                            bone: bone.map(|(index, local)| (index as i32, instance_scale * local)),
+                                            world_bone: bone.map(|(_, local)| cpp_world * local),
                                         })
                                     })
                                     .collect::<Result<_, super::installed_draw_pose::NativeCameraPoseUnavailable>>();

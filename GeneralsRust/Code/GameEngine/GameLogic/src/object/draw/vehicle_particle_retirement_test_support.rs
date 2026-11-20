@@ -62,6 +62,12 @@ impl ClientParticleStateRuntime for Receiver {
     ) {
         assert_eq!((id, drawable_id, hidden), (91, 17, false));
     }
+    fn particle_system_exists(&self, id: u32) -> bool {
+        id == 91 && !self.destroyed.contains(&id)
+    }
+    fn follow_particle_bone(&mut self, _: u32, _: &Coord3D, _: f32, _: &Matrix3D) {
+        unreachable!("vehicle retirement fixture uses static bones")
+    }
 }
 pub(crate) fn model_data() -> W3DModelDrawModuleData {
     let mut data = W3DModelDrawModuleData::new();

@@ -49,6 +49,8 @@ pub struct InstalledStateParticleRow {
     pub bone_name: String,
     /// An absent name has the source Get_Bone_Index zero result.
     pub bone: Option<(i32, Matrix3D)>,
+    /// The same installed bone in the receiving RenderObj's world space.
+    pub world_bone: Option<Matrix3D>,
 }
 
 /// Selected static-model state/emitter operations on explicit receiving owners.
@@ -82,5 +84,13 @@ pub trait ClientParticleStateRuntime {
         bone_index: i32,
         local: &Matrix3D,
         hidden: bool,
+    );
+    fn particle_system_exists(&self, id: u32) -> bool;
+    fn follow_particle_bone(
+        &mut self,
+        id: u32,
+        position: &Coord3D,
+        z_rotation: f32,
+        world: &Matrix3D,
     );
 }

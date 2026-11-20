@@ -237,6 +237,7 @@ impl W3DModelDraw {
                 id: system_id,
                 bone_index,
                 bone_name: info.bone_name.clone(),
+                installed_row: None,
             });
         }
         Ok(())
@@ -273,13 +274,11 @@ impl W3DModelDraw {
         }
     }
 
-    /// Animated transition-bearing emitters with a fixed attachment obey the
-    /// receiving installed pose. Bone-follow and TrackMarks retain their own
-    /// source requirements.
+    /// Transition-bearing emitters use the receiving installed pose. TrackMarks
+    /// and animation controls outside this path retain their source requirements.
     pub fn accepts_installed_state_particles(&self) -> bool {
         let data = self.model_data();
-        !data.particles_attached_to_animated_bones
-            && data.track_file.is_empty()
+        data.track_file.is_empty()
             && !data.transition_states.is_empty()
             && data.transition_states.iter().any(|state| !state.animations.is_empty())
             && data.condition_states.iter().chain(&data.transition_states).any(|state| {
@@ -311,9 +310,21 @@ impl W3DModelDraw {
         if !self.accepts_installed_state_particles() {
             return Err("installed particle pose belongs to an unsupported Draw module".into());
         }
+        let follows_animation = self.model_data().particles_attached_to_animated_bones;
         if self.installed_state_particle_row == Some(state) {
             self.set_native_particle_visibility(context.hidden, context.fully_obscured, receiver);
-            return self.native_state_particle_failure.clone().map_or(Ok(false), Err);
+            if let Some(error) = &self.native_state_particle_failure {
+                return Err(error.clone());
+            }
+            if follows_animation && !context.hidden && !context.fully_obscured
+                && self.particle_systems.iter().any(|tracker| {
+                    tracker.bone_index != 0 && receiver.particle_system_exists(tracker.id)
+                })
+            {
+                let Some(rows) = rows else { return Ok(true) };
+                self.follow_installed_particle_bones(rows, receiver);
+            }
+            return Ok(false);
         }
         self.retire_native_state_particles(receiver);
         self.set_native_particle_visibility(context.hidden, context.fully_obscured, receiver);
@@ -328,7 +339,7 @@ impl W3DModelDraw {
             return Ok(true);
         };
         self.installed_state_particle_row = Some(state);
-        for row in rows {
+        for (row_index, row) in rows.iter().enumerate() {
             let id = match receiver.create_particle_system(&row.template, context.creation_frame) {
                 Ok(Some(id)) => id,
                 Ok(None) => continue,
@@ -343,9 +354,38 @@ impl W3DModelDraw {
                 id,
                 bone_index,
                 bone_name: AsciiString::from(row.bone_name.as_str()),
+                installed_row: Some(row_index),
             });
         }
+        if follows_animation {
+            self.follow_installed_particle_bones(rows, receiver);
+        }
         Ok(false)
+    }
+
+    fn follow_installed_particle_bones(
+        &self,
+        rows: &[InstalledStateParticleRow],
+        receiver: &mut dyn ClientParticleStateRuntime,
+    ) {
+        // W3DModelDraw.cpp:2080–2086 creates all trackers before following
+        // them, then applies recoil. Missing bones keep the birth offset.
+        for tracker in &self.particle_systems {
+            if tracker.bone_index == 0 || !receiver.particle_system_exists(tracker.id) {
+                continue;
+            }
+            let Some(row) = tracker.installed_row.and_then(|index| rows.get(index)) else {
+                continue;
+            };
+            if let Some(world) = row.world_bone {
+                receiver.follow_particle_bone(
+                    tracker.id,
+                    &Self::matrix_translation(&world),
+                    Self::matrix_z_rotation(&world),
+                    &world,
+                );
+            }
+        }
     }
 
     /// Selected static-model continuation at the real receiving Draw phase.

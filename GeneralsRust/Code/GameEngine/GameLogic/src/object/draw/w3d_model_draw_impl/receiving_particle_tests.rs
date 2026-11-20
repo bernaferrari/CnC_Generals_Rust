@@ -44,6 +44,7 @@ fn model() -> W3DModelDraw {
             id,
             bone_index: index,
             bone_name: AsciiString::from(name),
+            installed_row: None,
         });
     }
     draw

@@ -79,6 +79,18 @@ impl ClientParticleStateRuntime for Receiver {
         self.events.push(format!("configure:{id}"));
         self.configured.push((id, drawable, index, *local, hidden));
     }
+    fn particle_system_exists(&self, id: u32) -> bool {
+        self.configured.iter().any(|(configured, ..)| *configured == id)
+    }
+    fn follow_particle_bone(
+        &mut self,
+        id: u32,
+        _position: &Coord3D,
+        _z_rotation: f32,
+        _world: &Matrix3D,
+    ) {
+        self.events.push(format!("follow:{id}"));
+    }
 }
 fn model() -> W3DModelDraw {
     let mut data = W3DModelDrawModuleData::new();
@@ -130,6 +142,7 @@ fn installed_transition_rows_create_exact_bones_and_retire_on_change_and_reset()
         template: "Smoke".into(),
         bone_name: "FXBONE".into(),
         bone: Some((7, local)),
+        world_bone: None,
     }];
     let opaque = NativeStateParticleContext { fully_obscured: true, ..context(3) };
     assert!(!draw.receive_installed_state_particles(1, Some(&rows), &opaque, &mut receiver).unwrap());
@@ -501,6 +514,10 @@ fn receiver_validation_exposes_incremental_cache_without_holding_definition_lock
         fn create_particle_system(&mut self, _: &str, _: u32) -> Result<Option<u32>, String> { Ok(None) }
         fn model_space_bone(&mut self, _: &str, _: &str) -> Option<(i32, Matrix3D)> { None }
         fn configure_particle_system(&mut self, _: u32, _: u32, _: i32, _: &Matrix3D, _: bool) {}
+        fn particle_system_exists(&self, _: u32) -> bool { false }
+        fn follow_particle_bone(&mut self, _: u32, _: &Coord3D, _: f32, _: &Matrix3D) {
+            unreachable!("static validation does not follow animation")
+        }
     }
 
     let mut data = W3DModelDrawModuleData::new();

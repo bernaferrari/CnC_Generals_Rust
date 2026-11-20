@@ -1,7 +1,7 @@
 //! State-emitter portion of the installed native Draw phase; never submits a mesh.
 use super::*;
 use crate::effects::particle_manager::ParticleSystemManager;
-use gamelogic::common::Matrix3D;
+use gamelogic::common::{Coord3D, Matrix3D};
 use gamelogic::object::draw::draw_module::{
     ClientParticleStateRuntime, InstalledStateParticleRow, NativeStateParticleContext,
     NativeStateParticlePreparation,
@@ -96,6 +96,22 @@ impl ClientParticleStateRuntime for ReceivingStateParticles<'_> {
         system.set_saveable(false);
         if hidden {
             system.stop();
+        }
+    }
+    fn particle_system_exists(&self, id: u32) -> bool {
+        self.particles.find_particle_system(id).is_some()
+    }
+    fn follow_particle_bone(
+        &mut self,
+        id: u32,
+        position: &Coord3D,
+        z_rotation: f32,
+        world: &Matrix3D,
+    ) {
+        if let Some(system) = self.particles.find_particle_system_mut(id) {
+            super::native_client_update::apply_cpp_particle_bone_transform(
+                system, position, z_rotation, world,
+            );
         }
     }
 }
