@@ -497,3 +497,131 @@ End
         );
     });
 }
+
+#[test]
+fn installed_autoheal_self_pulse_releases_parent_and_module_before_body_callbacks() {
+    if !child(concat!(
+        module_path!(),
+        "::installed_autoheal_self_pulse_releases_parent_and_module_before_body_callbacks"
+    )) {
+        return;
+    }
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::system::game_logic::get_game_logic;
+    const BIRTH: u32 = 37;
+    let first = new_for_world();
+    let peer = new_for_world();
+    let mount = |world: &Arc<_>| {
+        with_active_stores(world, || {
+            assert!(ensure_thing_factory_exists());
+            game_engine::common::thing::module_factory::init_module_factory().unwrap();
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            let logic = get_game_logic();
+            logic.lock().unwrap().set_current_frame(u64::from(BIRTH));
+            assert_eq!(
+                get_thing_factory()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .load_ini_text(
+                        r#"
+Object AuthoredDamagedAutoHeal
+    KindOf = INERT IMMOBILE
+    Body = ActiveBody Health
+        InitialHealth = 50
+        MaxHealth = 100
+    End
+    Behavior = AutoHealBehavior Heal
+        StartsActive = Yes
+        HealingAmount = 2
+        HealingDelay = 5000
+    End
+End
+"#
+                    ),
+                1
+            );
+            let actor = TheThingFactory::get()
+                .unwrap()
+                .new_object_optional_team(
+                    TheThingFactory::find_template("AuthoredDamagedAutoHeal").unwrap(),
+                    None,
+                )
+                .unwrap();
+            let (id, registration) = {
+                let actor = actor.read().unwrap();
+                assert_eq!(actor.get_health(), 50.0);
+                let registrations = actor.named_update_registrations("AutoHealBehavior");
+                assert_eq!(registrations.len(), 1);
+                (actor.get_id(), registrations[0].clone())
+            };
+            let (_, wake) = logic
+                .lock()
+                .unwrap()
+                .sleepy_entry_for(&registration)
+                .unwrap();
+            assert!((BIRTH + 1..=BIRTH + 150).contains(&wake));
+            (actor, id, registration, wake)
+        })
+    };
+    let (actor, id, registration, wake) = mount(&first);
+    let (peer_actor, peer_id, peer_registration, peer_wake) = mount(&peer);
+    assert_eq!(id, peer_id);
+    with_active_stores(&first, || {
+        let mut logic = get_game_logic().lock().unwrap();
+        logic.update(wake - 1, || None).unwrap();
+        assert_eq!(actor.read().unwrap().get_health(), 50.0);
+        logic.update(wake, || None).unwrap();
+        let (body, entry) = {
+            let actor = actor.read().unwrap();
+            (
+                actor.get_body_module().unwrap(),
+                actor.find_module_by_name("AutoHealBehavior").unwrap(),
+            )
+        };
+        {
+            let body = body.lock().unwrap();
+            assert_eq!(body.get_health(), 52.0);
+            assert_eq!(body.get_previous_health(), 50.0);
+            assert_eq!(body.get_last_healing_timestamp(), wake);
+            let info = body.get_last_damage_info().unwrap();
+            assert_eq!(info.input.damage_type, DamageType::Healing);
+            assert_eq!(info.input.source_id, id);
+            assert_eq!(info.output.actual_damage_dealt, 2.0);
+            assert_eq!(info.output.actual_damage_clipped, -2.0);
+        }
+        assert_eq!(
+            entry.with_module(|module| {
+                module
+                    .as_any_mut()
+                    .downcast_mut::<AutoHealBehaviorModule>()
+                    .unwrap()
+                    .behavior()
+                    .soonest_heal_frame
+            }),
+            wake + 150
+        );
+        assert_eq!(
+            logic.sleepy_entry_for(&registration),
+            Some((id, wake + 150))
+        );
+        logic.update(wake + 149, || None).unwrap();
+        assert_eq!(actor.read().unwrap().get_health(), 52.0);
+        logic.update(wake + 150, || None).unwrap();
+        assert_eq!(actor.read().unwrap().get_health(), 54.0);
+        assert_eq!(
+            logic.sleepy_entry_for(&registration),
+            Some((id, wake + 300))
+        );
+    });
+    with_active_stores(&peer, || {
+        assert_eq!(peer_actor.read().unwrap().get_health(), 50.0);
+        assert_eq!(
+            get_game_logic()
+                .lock()
+                .unwrap()
+                .sleepy_entry_for(&peer_registration),
+            Some((peer_id, peer_wake))
+        );
+    });
+}

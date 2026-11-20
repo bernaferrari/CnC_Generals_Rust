@@ -56,6 +56,7 @@ struct UpdateExecutionContext<'a> {
     lookup: &'a mut HashMap<ObjectID, Vec<ModuleIdentity>>,
     current: &'a UpdateModulePtr,
     now: UnsignedInt,
+    loading_map: bool,
     upgrade_observation:
         Option<game_engine::common::thing::update_module::UpgradeProductionObservation>,
     objects: &'a HashMap<ObjectID, Arc<RwLock<Object>>>,
@@ -91,6 +92,10 @@ fn awaken_registered_update(
 }
 
 impl UpdateScheduleContext for UpdateExecutionContext<'_> {
+    fn loading_map(&self) -> Option<bool> {
+        Some(self.loading_map)
+    }
+
     fn owned_minefield_services(
         &mut self,
     ) -> Option<&mut dyn game_engine::common::thing::update_module::OwnedMinefieldServices> {
@@ -346,6 +351,7 @@ impl GameLogic {
         mut services: Option<&mut dyn UpgradeCompletionServices>,
         mut minefield: Option<&mut dyn MinefieldPlacementServices>,
     ) {
+        let loading_map = self.is_loading_map();
         let mut minefield_effects = Vec::new();
         // C++ GameLogic.cpp:3698–3736 keeps a module registered during update,
         // then rebalances it immediately before executing the next callback.
@@ -391,6 +397,7 @@ impl GameLogic {
                             lookup: &mut self.module_lookup,
                             current: &module,
                             now: current_frame,
+                            loading_map,
                             upgrade_observation,
                             objects: &self.objects,
                             owner_id: object_id,
@@ -538,6 +545,7 @@ impl GameLogic {
         mut services: Option<&mut dyn UpgradeCompletionServices>,
         mut minefield: Option<&mut dyn MinefieldPlacementServices>,
     ) {
+        let loading_map = self.is_loading_map();
         let mut minefield_effects = Vec::new();
         let phases = [
             SleepyUpdatePhase::Initial,
@@ -605,6 +613,7 @@ impl GameLogic {
                         lookup: &mut self.module_lookup,
                         current: &handle,
                         now: self.frame,
+                        loading_map,
                         upgrade_observation,
                         objects: &self.objects,
                         owner_id: object_id,
@@ -672,12 +681,14 @@ impl GameLogic {
             return;
         }
         let mut update = handle.write().expect("production continuation poisoned");
+        let loading_map = self.is_loading_map();
         let mut context = UpdateExecutionContext {
             queue: &mut self.sleepy_updates,
             normal: &mut self.normal_updates,
             lookup: &mut self.module_lookup,
             current: handle,
             now: self.frame,
+            loading_map,
             upgrade_observation: None,
             objects: &self.objects,
             owner_id: object_id,

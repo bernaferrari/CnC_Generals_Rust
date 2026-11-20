@@ -77,6 +77,10 @@ pub trait OwnedMinefieldServices {
 
 pub trait UpdateScheduleContext {
     fn frame(&self) -> u32;
+    /// The driving game's load state for synchronous presentation callbacks.
+    fn loading_map(&self) -> Option<bool> {
+        None
+    }
     /// Owned minefield services for the driving match.
     /// Scheduling-only contexts own no world and return None.
     fn owned_minefield_services(&mut self) -> Option<&mut dyn OwnedMinefieldServices> {

@@ -182,6 +182,15 @@ pub trait BodyModuleInterface: Send + Sync {
     /// Try to heal this object  
     fn attempt_healing(&mut self, healing_info: &mut DamageInfo) -> BodyResult<()>;
 
+    /// Heal while the driving scheduler lends its loading flag to the visual reaction.
+    fn attempt_healing_with_loading_state(
+        &mut self,
+        healing_info: &mut DamageInfo,
+        _loading_map: Option<bool>,
+    ) -> BodyResult<()> {
+        self.attempt_healing(healing_info)
+    }
+
     /// Estimate damage without applying it
     fn estimate_damage(&self, damage_info: &DamageInfoInput) -> BodyResult<f32>;
 

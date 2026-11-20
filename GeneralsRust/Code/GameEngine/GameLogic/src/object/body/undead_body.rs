@@ -383,6 +383,15 @@ impl BodyModuleInterface for UndeadBody {
         self.active_body.attempt_healing(healing_info)
     }
 
+    fn attempt_healing_with_loading_state(
+        &mut self,
+        healing_info: &mut DamageInfo,
+        loading_map: Option<bool>,
+    ) -> BodyResult<()> {
+        self.active_body
+            .attempt_healing_with_loading_state(healing_info, loading_map)
+    }
+
     fn estimate_damage(&self, damage_info: &DamageInfoInput) -> BodyResult<f32> {
         let estimated = self.active_body.estimate_damage(damage_info)?;
 

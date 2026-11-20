@@ -352,7 +352,8 @@ fn auto_heal_behavior_module_factory_inert(
         .map(|object| object.get_object_id())
         .unwrap_or(crate::common::INVALID_ID);
     Box::new(AutoHealBehaviorModule::new(
-        AutoHealBehavior::construct_inert_with_object_id(id, module_data.clone()),
+        AutoHealBehavior::construct_inert_with_object_id(id, module_data.clone())
+            .with_mounted_owner(thing.as_ref()),
         &AsciiString::from("AutoHealBehavior"),
         module_data,
     ))

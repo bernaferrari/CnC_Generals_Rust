@@ -536,9 +536,10 @@ impl Drawable {
         &mut self,
         new_state: BodyDamageType,
         owner: &crate::object::Object,
+        loading_map: Option<Bool>,
     ) {
         self.set_body_damage_model_conditions(new_state);
-        if !TheGameLogic::is_loading_map() {
+        if !loading_map.unwrap_or_else(TheGameLogic::is_loading_map) {
             self.restart_ambient_sound_for_damage(owner, new_state);
         }
     }

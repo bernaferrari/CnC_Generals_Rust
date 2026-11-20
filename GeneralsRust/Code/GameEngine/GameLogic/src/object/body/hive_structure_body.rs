@@ -385,6 +385,15 @@ impl BodyModuleInterface for HiveStructureBody {
         self.structure_body.attempt_healing(healing_info)
     }
 
+    fn attempt_healing_with_loading_state(
+        &mut self,
+        healing_info: &mut DamageInfo,
+        loading_map: Option<bool>,
+    ) -> BodyResult<()> {
+        self.structure_body
+            .attempt_healing_with_loading_state(healing_info, loading_map)
+    }
+
     fn estimate_damage(&self, damage_info: &DamageInfoInput) -> BodyResult<f32> {
         self.structure_body.estimate_damage(damage_info)
     }

@@ -2012,6 +2012,14 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn attempt_healing(&mut self, healing_info: &mut DamageInfo) -> BodyResult<()> {
+        self.attempt_healing_with_loading_state(healing_info, None)
+    }
+
+    fn attempt_healing_with_loading_state(
+        &mut self,
+        healing_info: &mut DamageInfo,
+        loading_map: Option<bool>,
+    ) -> BodyResult<()> {
         self.validate_armor_and_damage_fx()?;
 
         if healing_info.input.damage_type != DamageType::Healing {
@@ -2044,7 +2052,7 @@ impl BodyModuleInterface for ActiveBody {
             let old_state = self.get_damage_state();
 
             // Do the healing
-            self.internal_change_health(amount)?;
+            self.change_health_with_loading_state(amount, loading_map)?;
 
             let (previous_health, current_health) = {
                 let state = &self.state;
@@ -2527,41 +2535,7 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn internal_change_health(&mut self, delta: f32) -> BodyResult<()> {
-        let is_structure = self.is_structure_for_damage_state();
-        let transition = self.change_health_for_borrowed_owner(delta, is_structure)?;
-        if transition.changed_state {
-            // C++ ActiveBody.cpp:1219 — skip damaged-art while building.
-            let under_construction = match self.get_owner() {
-                // try_read, matching attempt_damage/evaluate_visual_condition:
-                // the owner's write guard may be held by this very thread while
-                // the body mutates (self-sourced ticks like fall splat or
-                // FlammableUpdate aflame damage applied through the owner's
-                // lock); a blocking read() there self-deadlocks.
-                Some(owner) => owner
-                    .try_read()
-                    .map(|guard| guard.test_status(ObjectStatusTypes::UnderConstruction))
-                    .unwrap_or(false),
-                None => false,
-            };
-            if !under_construction {
-                let _ = self.evaluate_visual_condition();
-            }
-        }
-
-        // Only clear the bit here. Setting it before handle_death makes that
-        // function return and skip on_die. try_write fails when the caller
-        // already holds the object; those paths sync after death handling.
-        if !transition.effectively_dead {
-            if let Some(owner) = self.get_owner() {
-                if let Ok(mut owner_guard) = owner.try_write() {
-                    if owner_guard.is_effectively_dead() {
-                        owner_guard.set_effectively_dead(false);
-                    }
-                }
-            }
-        }
-
-        Ok(())
+        self.change_health_with_loading_state(delta, None)
     }
 
     fn set_indestructible(&mut self, indestructible: bool) -> BodyResult<()> {
@@ -2579,25 +2553,7 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn evaluate_visual_condition(&mut self) -> BodyResult<()> {
-        // C++ ActiveBody::evaluateVisualCondition:
-        //   Drawable* draw = getObject()->getDrawable();
-        //   if (draw) draw->reactToBodyDamageStateChange(m_curDamageState);
-        //   updateBodyParticleSystems();
-        let damage_state = self.get_damage_state();
-        if let Some(owner) = self.get_owner() {
-            if let Ok(owner_guard) = owner.try_read() {
-                if let Some(drawable) = owner_guard.get_drawable() {
-                    if let Ok(mut draw_guard) = drawable.write() {
-                        draw_guard.react_to_body_damage_state_change_with_owner(
-                            damage_state,
-                            &owner_guard,
-                        );
-                    }
-                }
-            }
-        }
-
-        self.update_body_particle_systems()
+        self.evaluate_visual_condition_with_loading_state(None)
     }
 
     fn update_body_particle_systems(&mut self) -> BodyResult<()> {
@@ -2628,6 +2584,67 @@ impl BodyModuleInterface for ActiveBody {
 }
 
 impl ActiveBody {
+    fn change_health_with_loading_state(&mut self, delta: f32, loading_map: Option<bool>) -> BodyResult<()> {
+        let is_structure = self.is_structure_for_damage_state();
+        let transition = self.change_health_for_borrowed_owner(delta, is_structure)?;
+        if transition.changed_state {
+            // C++ ActiveBody.cpp:1219 — skip damaged-art while building.
+            let under_construction = match self.get_owner() {
+                // try_read, matching attempt_damage/evaluate_visual_condition:
+                // the owner's write guard may be held by this very thread while
+                // the body mutates (self-sourced ticks like fall splat or
+                // FlammableUpdate aflame damage applied through the owner's
+                // lock); a blocking read() there self-deadlocks.
+                Some(owner) => owner
+                    .try_read()
+                    .map(|guard| guard.test_status(ObjectStatusTypes::UnderConstruction))
+                    .unwrap_or(false),
+                None => false,
+            };
+            if !under_construction {
+                let _ = self.evaluate_visual_condition_with_loading_state(loading_map);
+            }
+        }
+
+        // Only clear the bit here. Setting it before handle_death makes that
+        // function return and skip on_die. try_write fails when the caller
+        // already holds the object; those paths sync after death handling.
+        if !transition.effectively_dead {
+            if let Some(owner) = self.get_owner() {
+                if let Ok(mut owner_guard) = owner.try_write() {
+                    if owner_guard.is_effectively_dead() {
+                        owner_guard.set_effectively_dead(false);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn evaluate_visual_condition_with_loading_state(&mut self, loading_map: Option<bool>) -> BodyResult<()> {
+        // C++ ActiveBody::evaluateVisualCondition:
+        //   Drawable* draw = getObject()->getDrawable();
+        //   if (draw) draw->reactToBodyDamageStateChange(m_curDamageState);
+        //   updateBodyParticleSystems();
+        let damage_state = self.get_damage_state();
+        if let Some(owner) = self.get_owner() {
+            if let Ok(owner_guard) = owner.try_read() {
+                if let Some(drawable) = owner_guard.get_drawable() {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        draw_guard.react_to_body_damage_state_change_with_owner(
+                            damage_state,
+                            &owner_guard,
+                            loading_map,
+                        );
+                    }
+                }
+            }
+        }
+
+        self.update_body_particle_systems()
+    }
+
     pub(crate) fn xfer_with_template_lookup(
         &mut self,
         xfer: &mut dyn Xfer,

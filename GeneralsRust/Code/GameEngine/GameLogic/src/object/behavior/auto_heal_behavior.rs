@@ -13,7 +13,7 @@ use crate::common::{
     ParticleSystemTemplate, Real, UnsignedInt, UpgradeMaskType, XferVersion,
 };
 
-use crate::damage::{BodyDamageType, DamageInfo};
+use crate::damage::{BodyDamageType, DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheInGameUI, TheParticleSystemManager};
 use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, UpdateModuleInterface, UpdateSleepTime,
@@ -21,7 +21,7 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::{
-    INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, registry::OBJECT_REGISTRY,
+    INVALID_ID as OBJECT_INVALID_ID, ModuleEntry, Object as GameObject, registry::OBJECT_REGISTRY,
 };
 use crate::upgrade::upgrade_mask_for_ascii;
 use game_engine::common::ini::ini_game_data::ensure_global_data;
@@ -35,7 +35,7 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::any::Any;
 use std::fmt;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Weak};
 
 /// Wave 306: host-only path has no dual-world factory objects.
 #[inline]
@@ -751,6 +751,7 @@ pub struct AutoHealBehavior {
     pub next_call_frame_and_phase: UnsignedInt,
     pub upgrade_executed: Bool,
     object_id: ObjectID,
+    mounted_owner: Option<Weak<RwLock<GameObject>>>,
     /// Last `setWakeFrame` request (C++ AutoHealBehavior.cpp:148/154). Test/debug.
     last_wake_sleep: Option<UpdateSleepTime>,
     upgrade_masks: AutoHealUpgradeMaskCache,
@@ -780,6 +781,7 @@ impl AutoHealBehavior {
             next_call_frame_and_phase: 0,
             upgrade_executed: false,
             object_id,
+            mounted_owner: None,
             last_wake_sleep: None,
             upgrade_masks: AutoHealUpgradeMaskCache::Unresolved,
             owned_birth_admitted: false,
@@ -923,6 +925,14 @@ impl AutoHealBehavior {
             .unwrap_or(OBJECT_INVALID_ID);
         let birth_frame = crate::object::supplied_module_birth_frame(thing.as_ref());
         Self::construct_with_object_id(object_id, module_data, birth_frame)
+            .with_mounted_owner(thing.as_ref())
+    }
+
+    pub(crate) fn with_mounted_owner(mut self, thing: &dyn ModuleThing) -> Self {
+        self.mounted_owner = crate::object::supplied_module_owner(thing)
+            .ok()
+            .map(|owner| Arc::downgrade(&owner));
+        self
     }
 
     pub fn new_from_object_handle(
@@ -934,7 +944,9 @@ impl AutoHealBehavior {
             .ok()
             .map(|obj| obj.get_id())
             .unwrap_or(OBJECT_INVALID_ID);
-        Self::construct_with_object_id(object_id, module_data, None)
+        let mut behavior = Self::construct_with_object_id(object_id, module_data, None);
+        behavior.mounted_owner = Some(Arc::downgrade(&object));
+        behavior
     }
 
     /// Stop healing behavior
@@ -1020,18 +1032,7 @@ impl AutoHealBehavior {
                 });
         }
 
-        // Create heal pulse particle effect
-        if let Some(pulse_particle_tmpl) = &data.unit_heal_pulse_particle_system_tmpl {
-            if let Some(manager) = TheParticleSystemManager::get() {
-                if let Some(ps_id) =
-                    manager.create_particle_system(Some(pulse_particle_tmpl.name.as_str()))
-                {
-                    if let Ok(obj_read) = obj.read() {
-                        manager.set_particle_system_position(ps_id, obj_read.get_position());
-                    }
-                }
-            }
-        }
+        play_heal_pulse_particle(&obj, data.unit_heal_pulse_particle_system_tmpl.as_deref());
 
         // C++ always stamps m_soonestHealFrame from TheGameLogic frame.
         self.soonest_heal_frame =
@@ -1199,6 +1200,29 @@ impl DamageModuleInterface for AutoHealBehavior {
 }
 
 /// Glue that exposes AutoHealBehavior through the common Module trait.
+fn play_heal_pulse_particle(
+    object: &RwLock<GameObject>,
+    template: Option<&ParticleSystemTemplate>,
+) {
+    if let Some(template) = template
+        && let Some(manager) = TheParticleSystemManager::get()
+        && let Some(id) = manager.create_particle_system(Some(template.name.as_str()))
+        && let Ok(owner) = object.read()
+    {
+        manager.set_particle_system_position(id, owner.get_position());
+    }
+}
+
+enum ScheduledSelfHeal {
+    Sleep,
+    Pulse {
+        owner: Arc<RwLock<GameObject>>,
+        amount: Real,
+        delay: u32,
+        particle: Option<Arc<ParticleSystemTemplate>>,
+    },
+}
+
 pub struct AutoHealBehaviorModule {
     behavior: AutoHealBehavior,
     module_name_key: NameKeyType,
@@ -1222,6 +1246,90 @@ impl AutoHealBehaviorModule {
 
     pub fn behavior(&self) -> &AutoHealBehavior {
         &self.behavior
+    }
+
+    fn prepare_scheduled_self_heal(&self) -> Option<ScheduledSelfHeal> {
+        let mounted_owner = self.behavior.mounted_owner.as_ref()?;
+        let data = self.behavior.module_data.read();
+        let data = data
+            .downcast_ref::<AutoHealBehaviorModuleData>()
+            .expect("AutoHeal data");
+        if data.affects_whole_player || data.radius != 0.0 {
+            return None;
+        }
+        if self.behavior.stopped || !self.behavior.is_upgrade_active() {
+            return Some(ScheduledSelfHeal::Sleep);
+        }
+        let Some(owner) = mounted_owner.upgrade() else {
+            return Some(ScheduledSelfHeal::Sleep);
+        };
+        Some(ScheduledSelfHeal::Pulse {
+            owner,
+            amount: data.healing_amount as Real,
+            delay: data.healing_delay,
+            particle: data.unit_heal_pulse_particle_system_tmpl.clone(),
+        })
+    }
+
+    /// AutoHealBehavior.cpp:208–216, 275–298. ActiveBody's synchronous
+    /// healing callbacks can query both the owner and its installed modules.
+    pub(crate) fn run_scheduled_self_heal(
+        entry: &ModuleEntry,
+        frame: u32,
+        loading_map: Option<bool>,
+    ) -> Option<UpdateSleepTime> {
+        let heal = entry.with_module(|module| {
+            module
+                .as_any_mut()
+                .downcast_mut::<Self>()?
+                .prepare_scheduled_self_heal()
+        })?;
+        let ScheduledSelfHeal::Pulse {
+            owner,
+            amount,
+            delay,
+            particle,
+        } = heal
+        else {
+            return Some(UPDATE_SLEEP_FOREVER);
+        };
+        let (id, body) = {
+            let Ok(owner) = owner.read() else {
+                return Some(UPDATE_SLEEP_FOREVER);
+            };
+            let Some(body) = owner.get_body_module() else {
+                return Some(UPDATE_SLEEP_FOREVER);
+            };
+            if owner.is_effectively_dead() {
+                return Some(UPDATE_SLEEP_FOREVER);
+            }
+            (owner.get_id(), body)
+        };
+        let healed = {
+            let Ok(mut body) = body.lock() else {
+                return Some(UPDATE_SLEEP_FOREVER);
+            };
+            if body.get_health() < body.get_max_health() {
+                let mut info = DamageInfo::with_simple(amount, id, DamageType::Healing, DeathType::None);
+                body.attempt_healing_with_loading_state(&mut info, loading_map)
+                    .is_ok()
+            } else {
+                return Some(UPDATE_SLEEP_FOREVER);
+            }
+        };
+        if healed && let Ok(mut owner) = owner.write() {
+            owner.sync_effectively_dead_from_body();
+            owner.apply_structure_rubble_pose();
+        }
+        play_heal_pulse_particle(&owner, particle.as_deref());
+        entry.with_module(|module| {
+            let heal = module
+                .as_any_mut()
+                .downcast_mut::<Self>()
+                .expect("installed AutoHeal identity");
+            heal.behavior.soonest_heal_frame = frame.saturating_add(delay);
+        });
+        Some(update_sleep_time(delay))
     }
 
     pub fn behavior_mut(&mut self) -> &mut AutoHealBehavior {

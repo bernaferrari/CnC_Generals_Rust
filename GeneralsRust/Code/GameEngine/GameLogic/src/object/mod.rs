@@ -1709,6 +1709,15 @@ impl UpdateModuleInterface for ModuleUpdateProxy {
                 return result.map_err(|error| format!("{error:?}").into());
             }
         }
+        if self.module_name.as_str().eq_ignore_ascii_case("AutoHealBehavior")
+            && let Some(sleep) = crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule::run_scheduled_self_heal(
+                &self.entry,
+                context.frame(),
+                context.loading_map(),
+            )
+        {
+            return Ok(sleep);
+        }
         // Radar completion commits under the installed entry borrow, then
         // publishes the model transition through the driving scheduler owner.
         let radar_complete = self.entry.with_module(|module| {
