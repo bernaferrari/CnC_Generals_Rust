@@ -258,11 +258,15 @@ impl RenderPipeline {
             presentation_unit_pass
         );
 
+        // Wide inputs stay in the snapshot buffer while we order and join
+        // their indices. Stable sorting retains the existing tie behavior.
+        let mut input_order: Vec<_> = (0..unit_inputs.len()).collect();
         if allow_sync_model_loads {
-            unit_inputs.sort_by_key(|u| u.id.0);
+            input_order.sort_by_key(|&index| unit_inputs[index].id.0);
         } else {
             // Distance sort from snapshot positions only — no live transform re-read.
-            unit_inputs.sort_by(|a, b| {
+            input_order.sort_by(|&a, &b| {
+                let (a, b) = (&unit_inputs[a], &unit_inputs[b]);
                 let da = a.position.distance_squared(camera_position);
                 let db = b.position.distance_squared(camera_position);
                 da.partial_cmp(&db)
@@ -292,28 +296,27 @@ impl RenderPipeline {
         let mut direct_scene_candidate_bindings = HashSet::new();
 
         enum Candidate {
-            Actor(crate::presentation_frame::UnitRenderInput),
+            Actor(usize),
             #[cfg(feature = "game_client")]
-            NativeActor(
-                crate::presentation_frame::UnitRenderInput,
-                game_client::core::PresentationDirectDrawableBindingKey,
-            ),
+            NativeActor(usize, game_client::core::PresentationDirectDrawableBindingKey),
             #[cfg(feature = "game_client")]
             Aux(game_client::core::game_client::NativeAuxiliaryReceipt),
         }
         #[cfg(feature = "game_client")]
         let candidates = if let Some(roster) = native_roster {
-            let mut actors: HashMap<_, _> = unit_inputs
+            let mut actors: game_engine::common::fast_hash::FxHashMap<_, _> = input_order
                 .into_iter()
-                .filter(|input| !input.engine_bridged)
-                .map(|input| (input.id.0, input))
+                .filter_map(|index| {
+                    let input = &unit_inputs[index];
+                    (!input.engine_bridged).then_some((input.id.0, index))
+                })
                 .collect();
-            let mut ordered = Vec::new();
+            let mut ordered = Vec::with_capacity(roster.len());
             for candidate in roster {
                 match candidate {
                     game_client::core::game_client::NativeDrawCandidate::Actor(key) => {
-                        if let Some(input) = actors.remove(&key.object_id) {
-                            ordered.push(Candidate::NativeActor(input, key));
+                        if let Some(index) = actors.remove(&key.object_id) {
+                            ordered.push(Candidate::NativeActor(index, key));
                         }
                     }
                     game_client::core::game_client::NativeDrawCandidate::Aux(receipt) => {
@@ -330,13 +333,13 @@ impl RenderPipeline {
             }
             ordered
         } else {
-            unit_inputs
+            input_order
                 .into_iter()
                 .map(Candidate::Actor)
                 .collect::<Vec<_>>()
         };
         #[cfg(not(feature = "game_client"))]
-        let candidates = unit_inputs
+        let candidates = input_order
             .into_iter()
             .map(Candidate::Actor)
             .collect::<Vec<_>>();
@@ -344,19 +347,19 @@ impl RenderPipeline {
         // C++ constructor-prepended Drawable visitation; render depth sorting
         // remains a later stage and never chooses callback execution priority.
         for candidate in candidates {
-            let mut u = match candidate {
-                Candidate::Actor(input) => input,
+            let index = match candidate {
+                Candidate::Actor(index) => index,
                 #[cfg(feature = "game_client")]
-                Candidate::NativeActor(input, key) => {
+                Candidate::NativeActor(index, key) => {
                     if !native_receiver
                         .as_deref()
                         .expect("native candidate requires native source")
-                        .actor_draw_candidate_is_current(key, &input)
+                        .actor_draw_candidate_is_current(key, &unit_inputs[index])
                         .map_err(anyhow::Error::msg)?
                     {
                         continue;
                     }
-                    input
+                    index
                 }
                 #[cfg(feature = "game_client")]
                 Candidate::Aux(receipt) => {
@@ -379,6 +382,7 @@ impl RenderPipeline {
                     continue;
                 }
             };
+            let u = &mut unit_inputs[index];
             // engine_bridged already filtered in unit_render_inputs; keep guard.
             if u.engine_bridged {
                 continue;
@@ -396,7 +400,7 @@ impl RenderPipeline {
                 (native_receiver.as_deref_mut(), presentation.as_deref())
             {
                 receiver
-                    .complete_physics_visual(&mut u, frame)
+                    .complete_physics_visual(u, frame)
                     .map_err(anyhow::Error::msg)?
             } else {
                 None
@@ -406,7 +410,7 @@ impl RenderPipeline {
                 complete_physics_visual.as_deref_mut(),
                 presentation.as_deref(),
             ) {
-                complete(&mut u, frame).map_err(anyhow::Error::msg)?
+                complete(u, frame).map_err(anyhow::Error::msg)?
             } else {
                 None
             };
@@ -434,7 +438,7 @@ impl RenderPipeline {
                         // This stage also retires previous particles from a
                         // Model=None or transition row that submits no mesh.
                         match receiver.receive_installed_state_particles(
-                            &u, module_tag, phase.current_index, rows.is_empty().then_some(&[]),
+                            u, module_tag, phase.current_index, rows.is_empty().then_some(&[]),
                         ) {
                             Ok(true) => pending.push((*module, module_tag, phase.current_index, rows)),
                             Ok(false) => {}
@@ -734,7 +738,7 @@ impl RenderPipeline {
                                     .collect::<Result<_, super::installed_draw_pose::NativeCameraPoseUnavailable>>();
                                 if let Err(error) = prepared.map_err(|error| format!("{error:?}"))
                                     .and_then(|rows| receiver.receive_installed_state_particles(
-                                        &u, module_tag, *state_index, Some(&rows),
+                                        u, module_tag, *state_index, Some(&rows),
                                     ))
                                 {
                                     warn!("Receiving installed particle pose for {object_id:?} module {draw_module_index}: {error}");
