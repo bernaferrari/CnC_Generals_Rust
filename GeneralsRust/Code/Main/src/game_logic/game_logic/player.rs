@@ -1776,31 +1776,44 @@ impl Player {
 
     /// C++ `Player::setScienceAvailability`.
     pub fn set_science_availability(&mut self, science_name: &str, availability: &str) -> bool {
+        let Some(availability) =
+            gamelogic::player::Player::get_science_availability_type_from_string(availability.trim())
+        else {
+            return false;
+        };
+        self.apply_science_availability(science_name, availability)
+    }
+
+    pub(crate) fn apply_science_availability(
+        &mut self,
+        science_name: &str,
+        availability: gamelogic::player::ScienceAvailabilityType,
+    ) -> bool {
         use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
+        use gamelogic::player::ScienceAvailabilityType;
+
         let key = normalize_science_name_residual(science_name);
         if key.is_empty() {
             return false;
         }
-        let avail = availability.trim();
-        if avail.eq_ignore_ascii_case("Available") {
+        if availability != ScienceAvailabilityType::Disabled {
             self.sciences_disabled
                 .retain(|s| normalize_science_name_residual(s) != key);
-            self.sciences_hidden
-                .retain(|s| normalize_science_name_residual(s) != key);
-            true
-        } else if avail.eq_ignore_ascii_case("Disabled") {
-            self.sciences_hidden
-                .retain(|s| normalize_science_name_residual(s) != key);
-            self.sciences_disabled.insert(key);
-            true
-        } else if avail.eq_ignore_ascii_case("Hidden") {
-            self.sciences_disabled
-                .retain(|s| normalize_science_name_residual(s) != key);
-            self.sciences_hidden.insert(key);
-            true
-        } else {
-            false
         }
+        if availability != ScienceAvailabilityType::Hidden {
+            self.sciences_hidden
+                .retain(|s| normalize_science_name_residual(s) != key);
+        }
+        match availability {
+            ScienceAvailabilityType::Available => {}
+            ScienceAvailabilityType::Disabled => {
+                self.sciences_disabled.insert(key);
+            }
+            ScienceAvailabilityType::Hidden => {
+                self.sciences_hidden.insert(key);
+            }
+        }
+        true
     }
 
     /// C++ `Handicap::getHandicap(BUILDCOST, …)`.

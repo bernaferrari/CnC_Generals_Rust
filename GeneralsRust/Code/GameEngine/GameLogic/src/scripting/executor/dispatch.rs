@@ -2171,7 +2171,7 @@ impl ScriptActionDispatcher<'_> {
                 self.do_player_exclude_from_score_screen(action)
             }
             ScriptActionType::PlayerScienceAvailability => {
-                self.do_player_science_availability(action)
+                self.do_player_science_availability(action, driver)
             }
             ScriptActionType::PlayerSelectSkillset => {
                 self.do_player_select_skillset(action, driver)

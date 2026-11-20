@@ -229,6 +229,76 @@ fn script_purchase_uses_receiving_cost_and_delivers_one_edge() {
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
+fn script_science_availability_gates_the_next_purchase_in_the_receiving_world() {
+    super::sequential_actor_tests::isolated(
+        module_path!(),
+        "script_science_availability_gates_the_next_purchase_in_the_receiving_world",
+        || {
+            let (mut world, _) = world_with_science(2);
+            let (peer, _) = world_with_science(2);
+            let availability = |name: &str, side: &str, token: &str| {
+                let mut action =
+                    science_action(ScriptActionType::PlayerScienceAvailability, side, SCIENCE);
+                action
+                    .add_parameter(Parameter::with_string(
+                        ParameterType::ScienceAvailability,
+                        token.into(),
+                    ))
+                    .unwrap();
+                script(name, truth_condition(), action)
+            };
+            let mut hidden = ScriptList::new();
+            hidden.append_script(availability("hide", SIDE, "Hidden"));
+            hidden.append_script(availability("missing_player", "ForeignSide", "Available"));
+            hidden.append_script(script(
+                "purchase_hidden",
+                truth_condition(),
+                science_action(ScriptActionType::PlayerPurchaseScience, SIDE, SCIENCE),
+            ));
+            install_scripts(&mut world, hidden);
+            world.evaluate_and_execute_scripts(0.0);
+            assert!(world.players[&0].is_science_hidden(SCIENCE));
+            assert!(!world.players[&0].is_science_disabled(SCIENCE));
+            assert!(!world.players[&0].has_unlocked_science(SCIENCE));
+            assert_eq!(world.players[&0].science_purchase_points, 3);
+            assert!(!peer.players[&0].is_science_hidden(SCIENCE));
+
+            let mut disabled = ScriptList::new();
+            disabled.append_script(availability("disable", SIDE, "Disabled"));
+            disabled.append_script(script(
+                "purchase_disabled",
+                truth_condition(),
+                science_action(ScriptActionType::PlayerPurchaseScience, SIDE, SCIENCE),
+            ));
+            install_scripts(&mut world, disabled);
+            world.frame += 1;
+            world.evaluate_and_execute_scripts(0.0);
+            assert!(world.players[&0].is_science_disabled(SCIENCE));
+            assert!(!world.players[&0].is_science_hidden(SCIENCE));
+            assert_eq!(world.players[&0].science_purchase_points, 3);
+            assert!(!peer.players[&0].is_science_disabled(SCIENCE));
+
+            let mut available = ScriptList::new();
+            available.append_script(availability("show", SIDE, "Available"));
+            available.append_script(script(
+                "purchase_available",
+                truth_condition(),
+                science_action(ScriptActionType::PlayerPurchaseScience, SIDE, SCIENCE),
+            ));
+            install_scripts(&mut world, available);
+            world.frame += 1;
+            world.evaluate_and_execute_scripts(0.0);
+            assert!(!world.players[&0].is_science_disabled(SCIENCE));
+            assert!(!world.players[&0].is_science_hidden(SCIENCE));
+            assert!(world.players[&0].has_unlocked_science(SCIENCE));
+            assert_eq!(world.players[&0].science_purchase_points, 1);
+            assert_eq!(peer.players[&0].science_purchase_points, 3);
+        },
+    );
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
 fn player_command_receipt_survives_unknown_sources_until_valid_mask_consumes_it() {
     super::sequential_actor_tests::isolated(
         module_path!(),

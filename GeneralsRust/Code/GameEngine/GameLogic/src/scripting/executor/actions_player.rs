@@ -707,17 +707,13 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_science_availability(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        use crate::scripting::engine::ScriptOwnerQuery;
+
+        let player_token = self.get_string_param(action, 0)?;
         let science_name = self.get_string_param(action, 1)?;
         let availability_name = self.get_string_param(action, 2)?;
-        log::debug!(
-            "Setting science '{}' availability '{}' for '{}'",
-            science_name,
-            availability_name,
-            player_name
-        );
-
         let Some(availability_type) =
             crate::player::Player::get_science_availability_type_from_string(&availability_name)
         else {
@@ -729,6 +725,20 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         };
 
+        let current = self.context.borrowed_engine().get_current_player_name();
+        if !matches!(
+            driver.player_science_availability(
+                &player_token,
+                &science_name,
+                availability_type,
+                current.as_deref(),
+            ),
+            ScriptOwnerQuery::Unavailable
+        ) {
+            return Ok(ScriptActionResult::Success);
+        }
+
+        let player_name = self.resolve_player_name_token(&player_token);
         let science_type = if let Some(store) = get_science_store() {
             store.get_science_from_internal_name(&science_name)
         } else {

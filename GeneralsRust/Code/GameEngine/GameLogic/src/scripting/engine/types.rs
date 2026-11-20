@@ -1539,6 +1539,17 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// Apply ScriptActions.cpp::doPlayerSetScienceAvailability to the driving world.
+    fn player_science_availability(
+        &mut self,
+        _player: &str,
+        _science: &str,
+        _availability: crate::player::ScienceAvailabilityType,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<()> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     /// Present/Missing are authoritative; Unavailable preserves standalone Core behavior.
     /// CPP ENABLE/DISABLE_SCORING mutates the driving GameLogic instance.
     fn scoring_enabled(&mut self, _enabled: bool) -> ScriptOwnerQuery<()> {

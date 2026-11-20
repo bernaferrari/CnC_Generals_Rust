@@ -2040,6 +2040,25 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         })
     }
 
+    fn player_science_availability(
+        &mut self,
+        player: &str,
+        science: &str,
+        availability: gamelogic::player::ScienceAvailabilityType,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<()> {
+        let Some((player, _, _)) = self.script_science_source(player, 0, science, current_player)
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let player_id = player.id;
+        let Some(player) = self.world.get_player_mut(player_id) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        player.apply_science_availability(science, availability);
+        ScriptOwnerQuery::Present(())
+    }
+
     fn player_rank(
         &mut self,
         request: ScriptPlayerRankRequest,
