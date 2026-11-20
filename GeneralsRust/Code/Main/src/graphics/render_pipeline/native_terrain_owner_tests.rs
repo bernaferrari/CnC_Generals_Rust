@@ -330,7 +330,7 @@ fn terrain_shroud_draw_uses_frozen_border_levels_and_tint() {
             PresentationFowGrid::CELL_EXPLORED,
             PresentationFowGrid::CELL_HIDDEN,
             PresentationFowGrid::CELL_VISIBLE,
-        ],
+        ].into(),
         active: true,
     };
     let mut metadata = ProjectedShroudMetadata {
@@ -391,7 +391,7 @@ fn terrain_shroud_draw_uses_frozen_border_levels_and_tint() {
         "the exact receiving terrain texture must also serve the object pass"
     );
     let mut stale = snapshot.clone();
-    stale.texels[0] ^= 1;
+    std::sync::Arc::make_mut(&mut stale.texels)[0] ^= 1;
     let fallback = draw_forward_shroud(&mut render, &mut graphics, Some(&stale)).unwrap();
     assert_eq!(fallback.content_fingerprint, stale.content_fingerprint());
     assert_eq!(

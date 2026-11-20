@@ -935,7 +935,7 @@ mod tests {
         assert_eq!(renderer.last_update_frame, 4);
 
         let mut revealed = grid.clone();
-        revealed.cells[0] = PresentationFowGrid::CELL_VISIBLE;
+        std::sync::Arc::make_mut(&mut revealed.cells)[0] = PresentationFowGrid::CELL_VISIBLE;
         renderer.update_texture_from_fow_with_grid(0, 5, Some(&revealed)).unwrap();
         assert_eq!(renderer.fow.get_pixel_state(0, 0, 0), MinimapFowState::Hidden);
         renderer.update_texture_from_fow_with_grid(0, 7, Some(&revealed)).unwrap();

@@ -1426,7 +1426,7 @@ impl CnCGameEngine {
                 |frame| {
                     let grid = &frame.fow_grid;
                     let mut counts = [0usize; 3];
-                    for &cell in &grid.cells {
+                    for &cell in grid.cells.iter() {
                         if let Some(count) = counts.get_mut(cell as usize) {
                             *count += 1;
                         }

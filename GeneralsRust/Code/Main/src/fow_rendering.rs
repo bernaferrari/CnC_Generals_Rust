@@ -35,6 +35,7 @@ use crate::game_logic::ObjectId as ObjectID;
 use gamelogic::common::ObjectShroudStatus;
 use gamelogic::system::shroud_manager::{ShroudManager, ShroudState};
 use log::{trace, warn};
+use std::sync::Arc;
 
 /// One player's object shroud reads under the receiving manager's frame borrow.
 pub(crate) struct ObjectShroudFrame<'a> {
@@ -168,7 +169,7 @@ pub struct PresentationFowGrid {
     /// World units per cell (matches shroud partition cell size, typically 50).
     pub cell_size: f32,
     /// Row-major `y * width + x`: 0=Hidden, 1=Explored/Fogged, 2=Visible.
-    pub cells: Vec<u8>,
+    pub cells: Arc<[u8]>,
     /// True when `cells` came from an initialized shroud grid.
     /// When false, consumers should fail-open (fully visible / no overlay).
     pub active: bool,
@@ -199,7 +200,7 @@ impl PresentationFowGrid {
             height: 0,
             world_origin_xy: [0.0, 0.0],
             cell_size: PRESENTATION_FOW_DEFAULT_CELL_SIZE,
-            cells: Vec::new(),
+            cells: Arc::from([]),
             active: false,
         }
     }
@@ -222,7 +223,7 @@ impl PresentationFowGrid {
             height,
             world_origin_xy: Self::sanitize_world_origin(world_origin_xy),
             cell_size: cell_size.max(1.0),
-            cells: vec![Self::CELL_VISIBLE; len],
+            cells: vec![Self::CELL_VISIBLE; len].into(),
             active: true,
         }
     }
@@ -248,13 +249,23 @@ impl PresentationFowGrid {
             // Fail-closed sizing: pad/truncate rather than panic at snapshot time.
             cells.resize(expected, Self::CELL_HIDDEN);
         }
+        Self::from_shared_cells(width, height, world_origin_xy, cell_size, cells.into())
+    }
+
+    fn from_shared_cells(
+        width: u32,
+        height: u32,
+        world_origin_xy: [f32; 2],
+        cell_size: f32,
+        cells: Arc<[u8]>,
+    ) -> Self {
         Self {
             width,
             height,
             world_origin_xy: Self::sanitize_world_origin(world_origin_xy),
             cell_size: cell_size.max(1.0),
+            active: !cells.is_empty(),
             cells,
-            active: expected > 0,
         }
     }
 
@@ -394,7 +405,7 @@ impl PresentationFowGrid {
         self.cell_size.to_bits().hash(&mut h);
         self.cells.len().hash(&mut h);
         // Hash all cells for strict grid consistency (compact maps stay cheap).
-        for c in &self.cells {
+        for c in self.cells.iter() {
             c.hash(&mut h);
         }
         h.finish()
@@ -533,7 +544,7 @@ pub struct ProjectedShroudSnapshot {
     /// Frozen tint and logical levels used by the later multiplicative pass.
     pub metadata: ProjectedShroudMetadata,
     /// Row-major `texture_height * texture_width` R8 levels, including border.
-    pub texels: Vec<u8>,
+    pub texels: Arc<[u8]>,
     /// False means no initialized shroud source; consumers must fail open and
     /// release any prior GPU resource rather than reusing stale fog.
     pub active: bool,
@@ -569,7 +580,7 @@ impl ProjectedShroudSnapshot {
             draw_origin_xy: [0.0, 0.0],
             cell_size_xy: [50.0, 50.0],
             metadata: ProjectedShroudMetadata::default(),
-            texels: Vec::new(),
+            texels: Arc::from([]),
             active: false,
         }
     }
@@ -666,7 +677,7 @@ impl ProjectedShroudSnapshot {
             ],
             cell_size_xy: [grid.cell_size, grid.cell_size],
             metadata,
-            texels,
+            texels: texels.into(),
             active: true,
         }
     }
@@ -770,6 +781,37 @@ impl ProjectedShroudSnapshot {
         self.cell_size_xy[1].to_bits().hash(&mut h);
         self.metadata.hash(&mut h);
         h.finish()
+    }
+}
+
+/// Latest projected texture of a receiving game. Rendering borrows its
+/// immutable bytes, and the terrain/minimap and Drawable views stay independent.
+#[derive(Default)]
+pub(crate) struct ProjectedShroudCache {
+    previous: Option<(PresentationFowGrid, ProjectedShroudSnapshot)>,
+}
+
+impl ProjectedShroudCache {
+    pub(crate) fn snapshot(
+        &mut self,
+        grid: &PresentationFowGrid,
+        metadata: ProjectedShroudMetadata,
+    ) -> ProjectedShroudSnapshot {
+        if let Some((source, projection)) = &self.previous {
+            if Arc::ptr_eq(&source.cells, &grid.cells)
+                && source.active == grid.active
+                && source.width == grid.width
+                && source.height == grid.height
+                && source.cell_size.to_bits() == grid.cell_size.to_bits()
+                && source.world_origin_xy.map(f32::to_bits) == grid.world_origin_xy.map(f32::to_bits)
+                && projection.metadata == metadata
+            {
+                return projection.clone();
+            }
+        }
+        let projection = ProjectedShroudSnapshot::from_grid(grid, metadata);
+        self.previous = Some((grid.clone(), projection.clone()));
+        projection
     }
 }
 
@@ -1061,6 +1103,33 @@ impl FOWRenderingBridge {
         }
     }
 
+    /// Freeze terrain shroud under the existing receiving shroud-manager loan.
+    /// Holds compact cells while the visible state (or all-clear bypass) is stable.
+    pub(crate) fn snapshot_cached_terrain_grid(
+        shroud: Option<&mut ShroudManager>,
+        player_id: u32,
+        shell_bypass: bool,
+    ) -> PresentationFowGrid {
+        let Some(shroud) = shroud else {
+            return PresentationFowGrid::inactive();
+        };
+        let Some((width, height, cell_size)) = shroud.grid_dimensions() else {
+            return PresentationFowGrid::inactive();
+        };
+        let origin = shroud.grid_world_origin().unwrap_or([0.0, 0.0]);
+        let fully_visible = shell_bypass || !shroud_runtime_active(shroud, player_id);
+        shroud.presentation_grid_cells(player_id, fully_visible).map_or_else(
+            PresentationFowGrid::inactive,
+            |cells| PresentationFowGrid::from_shared_cells(
+                width as u32,
+                height as u32,
+                origin,
+                cell_size,
+                cells,
+            ),
+        )
+    }
+
     /// Encode a live [`ShroudState`] into the compact presentation cell value.
     #[inline]
     pub fn shroud_state_to_cell(state: ShroudState) -> u8 {
@@ -1282,8 +1351,8 @@ mod tests {
         assert_eq!(snapshot.draw_origin_xy, [100.0, -40.0]);
         assert_eq!(snapshot.cell_size_xy, [10.0, 10.0]);
         assert_eq!(
-            snapshot.texels,
-            vec![
+            snapshot.texels.as_ref(),
+            &[
                 0, 0, 0, 0, // top border
                 0, 255, 127, 0, // logical source row 0 at destination (1, 1)
                 0, 0, 255, 0, // logical source row 1 at destination (1, 2)

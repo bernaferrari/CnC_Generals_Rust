@@ -388,6 +388,10 @@ struct ShroudGrid {
     cell_size: f32,
     /// Grid of partition cells
     cells: Vec<PartitionCell>,
+    // Only the current viewer needs a frozen grid. Older frames can retain
+    // their immutable bytes while the next snapshot reflects new counters.
+    presentation_cells: Option<(usize, Arc<[u8]>)>,
+    presentation_clear_cells: Option<Arc<[u8]>>,
 }
 
 /// An allocated grid that can be installed after a boundary switch commits.
@@ -459,7 +463,17 @@ impl ShroudGrid {
             height,
             cell_size,
             cells,
+            presentation_cells: None,
+            presentation_clear_cells: None,
         })
+    }
+
+    fn invalidate_presentation_cells(&mut self, player_id: usize, changed: bool) {
+        if changed
+            && self.presentation_cells.as_ref().is_some_and(|(viewer, _)| *viewer == player_id)
+        {
+            self.presentation_cells = None;
+        }
     }
 
     /// Convert world position to grid coordinates
@@ -594,6 +608,7 @@ impl ShroudGrid {
             cell.add_looker(player_id);
             cell.remove_looker(player_id);
         }
+        self.invalidate_presentation_cells(player_id, true);
     }
 
     /// Reveal the entire map for a player permanently (disables shroud generation).
@@ -606,6 +621,7 @@ impl ShroudGrid {
         for cell in &mut self.cells {
             cell.add_looker(player_id);
         }
+        self.invalidate_presentation_cells(player_id, true);
     }
 
     /// Undo a permanent map reveal for a player.
@@ -618,6 +634,7 @@ impl ShroudGrid {
         for cell in &mut self.cells {
             cell.remove_looker(player_id);
         }
+        self.invalidate_presentation_cells(player_id, true);
     }
 
     /// Shroud the entire map for a player (set all cells to fully hidden).
@@ -631,6 +648,7 @@ impl ShroudGrid {
             cell.add_shrouder(player_id);
             cell.remove_shrouder(player_id);
         }
+        self.invalidate_presentation_cells(player_id, true);
     }
 
     /// Undo reveal of a circular area for a player
@@ -896,11 +914,13 @@ impl ShroudGrid {
         let x_start = x_start.max(0) as usize;
         let x_end = (x_end.min(self.width as i32 - 1)) as usize;
 
+        let mut changed = false;
         for x in x_start..=x_end {
             if let Some(cell) = self.get_cell_mut(x, y_pos as usize) {
-                cell.add_looker(player_id);
+                changed |= cell.add_looker(player_id);
             }
         }
+        self.invalidate_presentation_cells(player_id, changed);
     }
 
     /// Add shrouder to a horizontal line of cells
@@ -918,11 +938,13 @@ impl ShroudGrid {
         let x_start = x_start.max(0) as usize;
         let x_end = (x_end.min(self.width as i32 - 1)) as usize;
 
+        let mut changed = false;
         for x in x_start..=x_end {
             if let Some(cell) = self.get_cell_mut(x, y_pos as usize) {
-                cell.add_shrouder(player_id);
+                changed |= cell.add_shrouder(player_id);
             }
         }
+        self.invalidate_presentation_cells(player_id, changed);
     }
 
     /// Remove looker from a horizontal line of cells
@@ -940,11 +962,13 @@ impl ShroudGrid {
         let x_start = x_start.max(0) as usize;
         let x_end = (x_end.min(self.width as i32 - 1)) as usize;
 
+        let mut changed = false;
         for x in x_start..=x_end {
             if let Some(cell) = self.get_cell_mut(x, y_pos as usize) {
-                cell.remove_looker(player_id);
+                changed |= cell.remove_looker(player_id);
             }
         }
+        self.invalidate_presentation_cells(player_id, changed);
     }
 
     /// Remove shrouder from a horizontal line of cells
@@ -1359,6 +1383,35 @@ impl ShroudManager {
         )
     }
 
+    /// Freeze compact row-major cell statuses for the driving presentation.
+    /// Shares unchanged bytes across presents and keeps older frames immutable.
+    pub fn presentation_grid_cells(
+        &mut self,
+        player_id: u32,
+        fully_visible: bool,
+    ) -> Option<Arc<[u8]>> {
+        let grid = self.shroud_grid.as_mut()?;
+        if fully_visible {
+            return Some(grid.presentation_clear_cells.get_or_insert_with(|| {
+                vec![ShroudState::Visible as u8; grid.cells.len()].into()
+            }).clone());
+        }
+        let player_id = player_id as usize;
+        if player_id >= MAX_PLAYER_COUNT {
+            return None;
+        }
+        if let Some((viewer, cells)) = &grid.presentation_cells {
+            if *viewer == player_id {
+                return Some(cells.clone());
+            }
+        }
+        let cells: Arc<[_]> = grid.cells.iter()
+            .map(|cell| cell.get_shroud_status(player_id) as u8)
+            .collect();
+        grid.presentation_cells = Some((player_id, cells.clone()));
+        Some(cells)
+    }
+
     /// Capture the exact persistent shroud payload used by save/load.
     ///
     /// This is intentionally separate from `snapshot_grid_for_player`, which
@@ -1492,6 +1545,8 @@ impl ShroudManager {
                 height,
                 cell_size: grid.cell_size,
                 cells,
+                presentation_cells: None,
+                presentation_clear_cells: None,
             })
         } else {
             None

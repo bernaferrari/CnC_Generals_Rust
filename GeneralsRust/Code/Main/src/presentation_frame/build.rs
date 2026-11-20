@@ -1,5 +1,5 @@
 use super::*;
-use crate::fow_rendering::{ObjectShroudFrame, ProjectedShroudMetadata, ProjectedShroudSnapshot};
+use crate::fow_rendering::{ObjectShroudFrame, ProjectedShroudMetadata};
 use crate::game_logic::{Object, RiderChangeRiderMetadata};
 use gamelogic::common::ObjectShroudStatus;
 
@@ -349,14 +349,13 @@ impl PresentationFrame {
         // gameplay queries. The vectors use the same unchanged object traversal;
         // rendering consumes values without locks or ambient world selection.
         let (fow_grid, mut frozen_object_shrouds) = {
-            let manager = logic.world_services.shroud().lock().ok();
-            let shroud = manager.as_deref();
-            let grid = FOWRenderingBridge::snapshot_terrain_grid(
-                shroud,
+            let mut manager = logic.world_services.shroud().lock().ok();
+            let grid = FOWRenderingBridge::snapshot_cached_terrain_grid(
+                manager.as_deref_mut(),
                 local_player_id,
                 fow_shell_bypass,
             );
-            let facts = ObjectShroudFrame::new(shroud, local_player_id);
+            let facts = ObjectShroudFrame::new(manager.as_deref(), local_player_id);
             let objects: Vec<_> = logic
                 .host_objects()
                 .registered_values()
@@ -399,22 +398,6 @@ impl PresentationFrame {
         // Sort the borrowed inputs once before constructing either output roster.
         // The stable order remains ObjectId, including ties in diagnostic fixtures.
         frozen_object_shrouds.sort_by_key(|(object, _, _)| object.id.0);
-        // C++ W3DShroud copies logical cells into a padded destination texture
-        // before per-object material passes sample it.  Freeze that complete
-        // renderer input here, including GlobalData tint/levels, so WGPU never
-        // reads live FOW or GlobalData while drawing.
-        let projected_shroud = {
-            // Freeze this session's script override beside its own FOW grid.
-            // No published display or peer session supplies presentation state.
-            let border_alpha_override = logic.session_view.border_shroud_level;
-            ProjectedShroudSnapshot::from_grid(
-                &fow_grid,
-                ProjectedShroudMetadata::from_lighting_rules(
-                    logic.lighting_rules_baseline(),
-                    border_alpha_override,
-                ),
-            )
-        };
         let weapon_ready_time_seconds = logic.frame as f32 / 30.0;
         let mut objects = Vec::with_capacity(if keep_host_roster {
             logic.host_objects().registered_len()
@@ -1215,6 +1198,20 @@ impl PresentationFrame {
             });
             objects.extend(roster_entry);
         }
+        // C++ W3DShroud copies logical cells into a padded destination texture
+        // before per-object material passes sample it.  Freeze that complete
+        // renderer input here, including GlobalData tint/levels, so WGPU never
+        // reads live FOW or GlobalData while drawing.
+        let projected_shroud = {
+            // Freeze this session's script override beside its own FOW grid.
+            // No published display or peer session supplies presentation state.
+            let border_alpha_override = logic.session_view.border_shroud_level;
+            let metadata = ProjectedShroudMetadata::from_lighting_rules(
+                logic.lighting_rules_baseline(),
+                border_alpha_override,
+            );
+            logic.projected_shroud_cache.snapshot(&fow_grid, metadata)
+        };
         #[cfg(feature = "game_client")]
         let host_physics_visuals = {
             let capture = super::physics_visual_host::HostPhysicsVisualState::capture(logic);

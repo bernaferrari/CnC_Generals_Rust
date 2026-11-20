@@ -247,3 +247,86 @@ fn shroud_restore_replaces_only_the_driving_world_counters() {
             == right_before
     );
 }
+
+#[test]
+fn same_tick_presentations_share_fog_until_receiving_cells_or_levels_change() {
+    use crate::fow_rendering::{FOWRenderingBridge, ProjectedShroudSnapshot};
+    use gamelogic::common::Coord3D;
+    use std::sync::Arc;
+
+    let (mut logic, id) = world_with_enemy();
+    let (mut peer, peer_id) = world_with_enemy();
+    assert_eq!(id, peer_id);
+    let origin = [40.0, 80.0];
+    let center = Coord3D::new(160.0, 220.0, 0.0);
+    for world in [&logic, &peer] {
+        let mut shroud = world.world_services.shroud().lock().unwrap();
+        shroud.init_shroud_grid_at_origin(origin, 480.0, 320.0);
+        shroud.mark_host_vision_ready();
+        shroud.mark_host_object_seen(0, id.0);
+    }
+
+    let publish = |world: &mut GameLogic| {
+        let frame = PresentationFrame::build_from_logic(world, 0);
+        let shroud = world.world_services.shroud().lock().unwrap();
+        let expected = FOWRenderingBridge::snapshot_terrain_grid(Some(&shroud), 0, false);
+        assert_eq!(frame.fow_grid, expected);
+        assert_eq!(
+            frame.projected_shroud,
+            ProjectedShroudSnapshot::from_grid(&expected, frame.projected_shroud.metadata),
+        );
+        frame
+    };
+    let initial = publish(&mut logic);
+    let before_reveal = {
+        let mut shroud = logic.world_services.shroud().lock().unwrap();
+        let before = shroud.snapshot_state();
+        shroud.do_shroud_reveal(&center, 45.0, 1);
+        before
+    };
+    let revealed = publish(&mut logic);
+    assert_eq!(initial.frame, revealed.frame);
+    assert_ne!(initial.fow_grid.cells, revealed.fow_grid.cells);
+    assert_ne!(initial.projected_shroud.texels, revealed.projected_shroud.texels);
+
+    // Adding another looker and revealing for another player preserve viewer 0's bytes.
+    {
+        let mut shroud = logic.world_services.shroud().lock().unwrap();
+        shroud.do_shroud_reveal(&center, 45.0, 1);
+        shroud.do_shroud_reveal(&center, 45.0, 2);
+    }
+    let repeated = publish(&mut logic);
+    assert!(Arc::ptr_eq(&revealed.fow_grid.cells, &repeated.fow_grid.cells));
+    assert!(Arc::ptr_eq(&revealed.projected_shroud.texels, &repeated.projected_shroud.texels));
+    let peer_frame = publish(&mut peer);
+    assert_eq!(peer_frame.fow_grid, initial.fow_grid);
+    assert!(!Arc::ptr_eq(&peer_frame.fow_grid.cells, &initial.fow_grid.cells));
+
+    logic.session_view.border_shroud_level = Some(191);
+    let bordered = publish(&mut logic);
+    assert!(Arc::ptr_eq(&revealed.fow_grid.cells, &bordered.fow_grid.cells));
+    assert_eq!(bordered.projected_shroud.texel_at(0, 0), Some(191));
+    assert_ne!(bordered.projected_shroud.texels, revealed.projected_shroud.texels);
+
+    // Two overlapping lookers leave a cell clear until the last is removed.
+    logic.world_services.shroud().lock().unwrap().undo_shroud_reveal(&center, 45.0, 1);
+    let still_revealed = publish(&mut logic);
+    assert!(Arc::ptr_eq(&revealed.fow_grid.cells, &still_revealed.fow_grid.cells));
+    logic.world_services.shroud().lock().unwrap().undo_shroud_reveal(&center, 45.0, 1);
+    let explored = publish(&mut logic);
+    assert_ne!(explored.fow_grid.cells, revealed.fow_grid.cells);
+    assert!(explored.fow_grid.cells.contains(&crate::fow_rendering::PresentationFowGrid::CELL_EXPLORED));
+    logic.world_services.shroud().lock().unwrap().do_shroud_cover(&center, 45.0, 1);
+    assert_eq!(publish(&mut logic).fow_grid, initial.fow_grid);
+
+    {
+        let mut shroud = logic.world_services.shroud().lock().unwrap();
+        shroud.replace_state_owned(&before_reveal, revealed.frame.0).unwrap();
+        shroud.mark_host_vision_ready();
+        shroud.mark_host_object_seen(0, id.0);
+    }
+    let restored = publish(&mut logic);
+    assert_eq!(restored.fow_grid, initial.fow_grid);
+    assert_eq!(restored.fow_grid.world_origin_xy, origin);
+    assert_ne!(restored.fow_grid.cells, revealed.fow_grid.cells);
+}

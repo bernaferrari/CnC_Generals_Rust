@@ -8,29 +8,29 @@ fn props_sample_four_neighboring_cells_on_the_original_ground_plane() {
         height: 2,
         world_origin_xy: [100.0, 200.0],
         cell_size: 10.0,
-        cells: vec![2; 4],
+        cells: vec![2; 4].into(),
         active: true,
     };
     assert_eq!(
         grid.prop_shroud_status(110.0, 210.0),
         ObjectShroudStatus::Clear
     );
-    grid.cells[3] = 1;
+    std::sync::Arc::make_mut(&mut grid.cells)[3] = 1;
     assert_eq!(
         grid.prop_shroud_status(110.0, 210.0),
         ObjectShroudStatus::PartialClear
     );
-    grid.cells.fill(1);
+    std::sync::Arc::make_mut(&mut grid.cells).fill(1);
     assert_eq!(
         grid.prop_shroud_status(110.0, 210.0),
         ObjectShroudStatus::Fogged
     );
-    grid.cells.fill(0);
+    std::sync::Arc::make_mut(&mut grid.cells).fill(0);
     assert_eq!(
         grid.prop_shroud_status(110.0, 210.0),
         ObjectShroudStatus::Shrouded
     );
-    grid.cells.fill(2);
+    std::sync::Arc::make_mut(&mut grid.cells).fill(2);
     assert_eq!(
         grid.prop_shroud_status(100.0, 200.0),
         ObjectShroudStatus::PartialClear

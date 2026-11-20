@@ -23,6 +23,7 @@ pub struct GameLogic {
     pub(crate) promotion_definitions:
         crate::game_logic::promotion_definitions::PromotionDefinitions,
     pub(crate) session_view: crate::presentation_frame::SessionView,
+    pub(crate) projected_shroud_cache: crate::fow_rendering::ProjectedShroudCache,
     /// C++ W3D fog memory belongs to this session, including live host links.
     pub(crate) w3d_ghosts: gamelogic::object::w3d_ghost_object::W3DGhostObjectManager,
     pub(crate) host_ghosts: super::world_objects::fog_ghosts::HostGhostState,

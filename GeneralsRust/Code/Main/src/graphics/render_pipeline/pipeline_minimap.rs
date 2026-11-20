@@ -454,7 +454,7 @@ impl RenderPipeline {
                     cell_size,
                     origin,
                     projection.metadata.shroud_color_rgb,
-                    projection.texels.as_slice(),
+                    projection.texels.as_ref(),
                 );
             } else {
                 visual.clear_shroud_overlay();
