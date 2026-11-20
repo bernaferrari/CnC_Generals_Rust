@@ -43,6 +43,7 @@ pub struct GameWorldShadow {
     // receiving registration list changes, including between tick and present.
     registered_host_ids: Vec<ObjectId>,
     sorted_host_ids: Vec<ObjectId>,
+    checked_entity_roster: Option<(u32, u64)>,
     max_entities: usize,
     /// Host player id → dense GameWorld PlayerId
     host_player_to_gw: HashMap<u32, PlayerId>,

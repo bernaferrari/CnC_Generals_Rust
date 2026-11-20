@@ -98,12 +98,22 @@ fn unchanged_host_roster_rebinds_only_the_removed_observation_entity() {
     let second_projection = shadow.entity_for_host(second).unwrap();
     assert!(first_projection.get() < second_projection.get());
 
-    assert!(shadow.world_mut().world_mut().remove_entity(first_projection));
+    let entity_count = shadow.world().world().entity_count();
+    let world = shadow.world_mut().world_mut();
+    assert!(world.remove_entity(first_projection));
+    let unrelated = world.spawn_entity(
+        gamelogic::world::entities::TemplateRef::new("Unrelated"),
+        None,
+        gamelogic::world::entities::Transform::default(),
+        1.0,
+    );
+    assert_eq!(world.entity_count(), entity_count);
     shadow.sync_host_step_identities(&logic);
     let replacement = shadow.entity_for_host(first).unwrap();
     assert_ne!(replacement, first_projection);
     assert_eq!(shadow.host_for_entity(first_projection), None);
     assert_eq!(shadow.entity_for_host(second), Some(second_projection));
+    assert!(shadow.world().entity(unrelated).is_some());
 
     shadow.sync_from_host(&logic);
     assert_eq!(shadow.entity_for_host(first), Some(replacement));

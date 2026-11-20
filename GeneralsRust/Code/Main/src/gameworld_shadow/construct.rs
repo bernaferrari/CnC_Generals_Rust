@@ -48,6 +48,7 @@ impl GameWorldShadow {
             entity_to_host: Default::default(),
             registered_host_ids: Vec::new(),
             sorted_host_ids: Vec::new(),
+            checked_entity_roster: None,
             max_entities: max_entities.max(1),
             host_player_to_gw: HashMap::new(),
             horde_player_rel: HashMap::new(),
@@ -271,7 +272,13 @@ impl GameWorldShadow {
 
     fn sync_object_identities(&mut self, logic: &GameLogic) {
         let registered = logic.host_objects().registered_ids();
-        if self.registered_host_ids.as_slice() != registered {
+        let ids_changed = self.registered_host_ids.as_slice() != registered;
+        if !ids_changed
+            && self.checked_entity_roster == Some(self.world.world().entity_roster_revision())
+        {
+            return;
+        }
+        if ids_changed {
             self.registered_host_ids.clear();
             self.registered_host_ids.extend_from_slice(registered);
             self.sorted_host_ids.clone_from(&self.registered_host_ids);
@@ -312,6 +319,7 @@ impl GameWorldShadow {
             let owner = self.owner_for_host_object(logic, obj);
             self.spawn_mapped(oid, obj, owner, transform, obj.health.current.max(0.0));
         }
+        self.checked_entity_roster = Some(self.world.world().entity_roster_revision());
     }
 
     pub fn sync_from_host(&mut self, logic: &GameLogic) {

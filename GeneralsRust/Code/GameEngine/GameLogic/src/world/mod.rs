@@ -547,6 +547,12 @@ impl World {
         self.entities.len()
     }
 
+    /// Identity of the receiving entity roster and its membership revision.
+    /// Pose, health and other in-place edits leave this unchanged.
+    pub fn entity_roster_revision(&self) -> (u32, u64) {
+        (self.entities.world_epoch(), self.entities.roster_revision)
+    }
+
     /// Produce an immutable view of the world.
     pub fn snapshot(&self) -> WorldSnapshot {
         let players = self.slots.iter().filter_map(PlayerSlot::summary).collect();

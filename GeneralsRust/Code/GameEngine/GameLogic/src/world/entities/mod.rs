@@ -1526,6 +1526,7 @@ pub struct EntityStore {
     pub(in crate::world) next_id: u32,
     pub(in crate::world) alive: HashMap<EntityId, Entity>,
     pub(in crate::world) generations: HashMap<u32, u32>,
+    pub(in crate::world) roster_revision: u64,
     /// World epoch this store was constructed under. Handles minted by
     /// `handle_of` carry it; foreign-epoch handles fail to resolve.
     /// Runtime safety metadata only — never serialized.
@@ -1550,6 +1551,7 @@ impl EntityStore {
             next_id: EntityId::FIRST.get(),
             alive: HashMap::new(),
             generations: HashMap::new(),
+            roster_revision: 0,
             world_epoch: next_world_epoch(),
         }
     }
@@ -2414,12 +2416,14 @@ impl EntityStore {
         };
 
         self.alive.insert(id, entity);
+        self.roster_revision = self.roster_revision.wrapping_add(1);
     }
 
     /// Remove an entity. Returns the removed entity if it was alive.
     pub fn remove(&mut self, id: EntityId) -> Option<Entity> {
         let removed = self.alive.remove(&id)?;
         self.bump_generation(id);
+        self.roster_revision = self.roster_revision.wrapping_add(1);
         Some(removed)
     }
 }
