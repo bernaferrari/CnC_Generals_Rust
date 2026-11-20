@@ -17,7 +17,7 @@ use crate::modules::{
     BehaviorModuleInterface, CollideModuleInterface, DamageModuleInterface, DieModuleInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::Object as GameObject;
+use crate::object::{BehaviorModuleHandle, Object as GameObject};
 use crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule;
 use crate::object::behavior::behavior_module::{
     BehaviorModuleData, LandMineInterface, xfer_update_module_base_state,
@@ -392,6 +392,10 @@ impl MinefieldBehavior {
         let Ok(mut object) = owner.write() else {
             return;
         };
+        Self::apply_depleted_visuals(&mut object, depleted);
+    }
+
+    fn apply_depleted_visuals(object: &mut GameObject, depleted: Bool) {
         if depleted {
             object.set_model_condition_state(MODELCONDITION_RUBBLE);
             object.set_status(OBJECT_STATUS_MASKED, true);
@@ -527,34 +531,31 @@ impl MinefieldBehavior {
         Ok(())
     }
 
+    /// MinefieldBehavior.cpp:515–534 uses the normal body damage path so
+    /// AutoHeal sees the loss. The mine's own callback ignores this damage.
+    fn apply_disarm_damage(object: &mut GameObject) {
+        let mut damage = DamageInfo::with_simple(
+            object.get_health() - MIN_HEALTH,
+            object.get_id(),
+            DamageType::Unresistable,
+            DeathType::None,
+        );
+        let _ = object.attempt_damage(&mut damage);
+    }
+
     pub fn disarm(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if !self.regenerates {
             let _ = TheGameLogic::destroy_object_by_id(self.object_id);
             return Ok(());
         }
 
+        self.ignore_damage = true;
         if let Some(owner) = self.owner() {
-            let amount = owner
-                .read()
-                .ok()
-                .and_then(|object| object.get_body_module())
-                .and_then(|body| body.lock().ok().map(|body| body.get_health() - MIN_HEALTH))
-                .unwrap_or(0.0);
-            if amount > 0.0 {
-                self.ignore_damage = true;
-                if let Ok(mut object) = owner.write() {
-                    let mut damage = DamageInfo::with_simple(
-                        amount,
-                        self.object_id,
-                        DamageType::Unresistable,
-                        DeathType::None,
-                    );
-                    let _ = object.attempt_damage(&mut damage);
-                }
-                self.ignore_damage = false;
+            if let Ok(mut object) = owner.write() {
+                Self::apply_disarm_damage(&mut object);
             }
         }
-
+        self.ignore_damage = false;
         self.virtual_mines_remaining = 0;
         self.set_depleted_visuals(true);
         Ok(())
@@ -1097,6 +1098,45 @@ impl MinefieldBehaviorModule {
 
     pub fn behavior_mut(&mut self) -> &mut MinefieldBehavior {
         &mut self.behavior
+    }
+
+    /// Run an installed LandMineInterface disarm with no module guard crossing
+    /// normal body damage or GameLogic's synchronous deletion callbacks.
+    pub(crate) fn disarm_installed(entry: &BehaviorModuleHandle, owner: &Arc<RwLock<GameObject>>) {
+        let Some(regenerates) = entry.with_module_downcast::<Self, _, _>(|module| {
+            let regenerates = module.behavior.regenerates;
+            if regenerates {
+                module.behavior.ignore_damage = true;
+            }
+            regenerates
+        }) else {
+            return;
+        };
+
+        if !regenerates {
+            let Ok(mine) = owner.read() else {
+                return;
+            };
+            let id = mine.get_id();
+            let world = mine.owning_world_services();
+            drop(mine);
+            let _ = match world {
+                Some(world) => world.destroy_logic_object(id),
+                None => TheGameLogic::destroy_object_by_id(id),
+            };
+            return;
+        }
+
+        if let Ok(mut mine) = owner.write() {
+            MinefieldBehavior::apply_disarm_damage(&mut mine);
+        }
+        entry.with_module_downcast::<Self, _, _>(|module| {
+            module.behavior.ignore_damage = false;
+            module.behavior.virtual_mines_remaining = 0;
+        });
+        if let Ok(mut mine) = owner.write() {
+            MinefieldBehavior::apply_depleted_visuals(&mut mine, true);
+        }
     }
 }
 

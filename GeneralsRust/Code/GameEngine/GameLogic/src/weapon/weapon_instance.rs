@@ -1932,34 +1932,67 @@ impl Weapon {
         self.pending_assault = Some(target_obj_id);
     }
 
-    fn disarm_target(&mut self, _source_obj_id: ObjectId, victim_id: ObjectId) {
-        let veterancy = self
-            .caller_veterancy
-            .unwrap_or(crate::common::VeterancyLevel::Regular);
-        let play_disarm_fx = |pos: &Coord3D| {
-            let _veterancy = veterancy;
-            if let Some(fx) = self.template.get_fire_fx(veterancy) {
-                let matrix =
-                    crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |obj| {
-                        crate::common::Matrix3D::from_translation(*obj.get_position())
-                            * crate::common::Matrix3D::from_rotation_z(obj.get_orientation())
-                    });
-                let _ = fx.do_fx_pos(pos, matrix.as_ref(), 0.0, Some(pos), 0.0);
+    fn disarm_target(
+        &mut self,
+        source_id: ObjectId,
+        victim_id: ObjectId,
+        borrowed_source: Option<&crate::object::Object>,
+    ) {
+        use crate::object::behavior::minefield_behavior::MinefieldBehaviorModule;
+        use crate::object::registry::OBJECT_REGISTRY;
+
+        let Some(victim) = OBJECT_REGISTRY.get_object(victim_id) else {
+            return;
+        };
+        let (installed, kinds) = {
+            let Ok(object) = victim.read() else {
+                return;
+            };
+            (
+                object.module_by_name(&"MinefieldBehavior".into()),
+                (
+                    object.is_kind_of(KindOf::Mine),
+                    object.is_kind_of(KindOf::BoobyTrap),
+                    object.is_kind_of(KindOf::Demotrap),
+                ),
+            )
+        };
+        let veterancy = self.caller_veterancy.or_else(|| {
+            if let Some(source) = borrowed_source.filter(|source| source.get_id() == source_id) {
+                Some(source.get_veterancy_level())
+            } else {
+                OBJECT_REGISTRY
+                    .get_object(source_id)
+                    .and_then(|source| source.try_read().ok().map(|source| source.get_veterancy_level()))
             }
+        }).unwrap_or(crate::common::VeterancyLevel::Regular);
+        let play_disarm_fx = || {
+            let Some(fx) = self.template.get_fire_fx(veterancy) else {
+                return;
+            };
+            let Ok(object) = victim.read() else {
+                return;
+            };
+            let position = *object.get_position();
+            let transform = object.get_transform_matrix();
+            drop(object);
+            let _ = fx.do_fx_pos(&position, Some(&transform), 0.0, Some(&position), 0.0);
         };
 
         let mut found = false;
-        if let Some(behaviors) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(victim_id, |obj| obj.get_behavior_modules())
-        {
+        if let Some(entry) = installed.filter(|entry| {
+            entry.with_module_downcast::<MinefieldBehaviorModule, _, _>(|_| ()).is_some()
+        }) {
+            play_disarm_fx();
+            MinefieldBehaviorModule::disarm_installed(&entry, &victim);
+            found = true;
+        } else {
+            // Keep the standalone LandMineInterface adapter on its existing path.
+            let behaviors = victim.read().map(|object| object.get_behavior_modules()).unwrap_or_default();
             for mut behavior in behaviors {
                 if let Ok(mut guard) = behavior.access() {
                     if let Some(land_mine) = guard.get_land_mine_interface() {
-                        if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
-                            .with_object(victim_id, |obj| *obj.get_position())
-                        {
-                            play_disarm_fx(&pos);
-                        }
+                        play_disarm_fx();
                         land_mine.disarm();
                         found = true;
                         break;
@@ -1968,23 +2001,14 @@ impl Weapon {
             }
         }
 
-        let kinds = crate::object::registry::OBJECT_REGISTRY
-            .with_object(victim_id, |obj| {
-                (
-                    obj.is_kind_of(KindOf::Mine),
-                    obj.is_kind_of(KindOf::BoobyTrap),
-                    obj.is_kind_of(KindOf::Demotrap),
-                )
-            })
-            .unwrap_or((false, false, false));
-        // C++ Weapon.cpp:2528 — `!found && MINE || BOOBY_TRAP || DEMOTRAP`
+        // C++ Weapon.cpp:2528 — BOOBY_TRAP and DEMOTRAP always reach this branch.
         if (!found && kinds.0) || kinds.1 || kinds.2 {
-            if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
-                .with_object(victim_id, |obj| *obj.get_position())
-            {
-                play_disarm_fx(&pos);
-            }
-            let _ = TheGameLogic::destroy_object_by_id(victim_id);
+            play_disarm_fx();
+            let world = victim.read().ok().and_then(|object| object.owning_world_services());
+            let _ = match world {
+                Some(world) => world.destroy_logic_object(victim_id),
+                None => TheGameLogic::destroy_object_by_id(victim_id),
+            };
             found = true;
         }
 
@@ -2048,7 +2072,7 @@ impl Weapon {
                 // BETWEEN_FIRING_SHOTS). The wrapper turns a still-ReadyToFire
                 // weapon into a public false, and a reload into true.
                 if let Some(victim) = target_obj_id {
-                    self.disarm_target(source_obj_id, victim);
+                    self.disarm_target(source_obj_id, victim, borrowed_source.as_deref());
                 }
                 self.max_shot_count -= 1;
                 if self.ammo_in_clip > 0 {

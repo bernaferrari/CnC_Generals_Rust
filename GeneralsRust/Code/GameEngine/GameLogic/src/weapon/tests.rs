@@ -2486,3 +2486,210 @@ fn cpp_parity_min_range_uses_contact_distance_without_fudge() {
     assert!(within(7.5), "exact derived contact boundary is admitted");
     assert!(within(7.6), "outside minimum remains within maximum");
 }
+
+#[test]
+fn installed_dozer_disarm_keeps_regenerating_linked_mines_and_retires_cluster_mines() {
+    use crate::common::{FXListId, FXListManagerInterface, Matrix3D, ObjectStatusTypes};
+    use crate::helpers::{HostFxObjectPose, TheThingFactory};
+    use crate::object::Object;
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::system::game_logic::get_game_logic;
+    use game_engine::common::thing::module_factory::init_module_factory;
+    use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
+    use std::sync::Mutex;
+
+    #[derive(Debug, Default)]
+    struct DisarmFx(Mutex<Vec<(ObjectID, f32, bool)>>);
+
+    impl FXListManagerInterface for DisarmFx {
+        fn do_fx_pos(&self, _: FXListId, pos: &Coord3D, matrix: Option<&Matrix3D>) {
+            let entry = OBJECT_REGISTRY
+                .get_all_objects()
+                .into_iter()
+                .find_map(|actor| {
+                    let actor = actor.try_read().expect("disarm FX has no victim guard");
+                    if actor.get_position() != pos {
+                        return None;
+                    }
+                    assert_eq!(matrix, Some(&actor.get_transform_matrix()));
+                    Some((actor.get_id(), actor.get_health(), actor.is_destroyed()))
+                })
+                .expect("disarm FX receives the existing target");
+            self.0.lock().unwrap().push(entry);
+        }
+
+        fn do_fx_obj(&self, _: FXListId, _: ObjectID) {
+            panic!("the original disarm FX uses the victim's position and transform");
+        }
+
+        fn do_fx_for_object(&self, _: FXListId, _: &Object) {
+            panic!("the disarm FX is positional");
+        }
+
+        fn do_fx_for_host_objects(
+            &self,
+            _: FXListId,
+            _: &HostFxObjectPose,
+            _: Option<&HostFxObjectPose>,
+        ) {
+            panic!("the disarm FX is positional");
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        "weapon::tests::installed_dozer_disarm_keeps_regenerating_linked_mines_and_retires_cluster_mines",
+        "GENERALS_LINKED_DOZER_DISARM_CHILD",
+    ) {
+        return;
+    }
+
+    let world = new_for_world();
+    let peer = new_for_world();
+    let fixture = || {
+        assert!(ensure_thing_factory_exists());
+        init_module_factory().unwrap();
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        initialize_weapon_store().unwrap();
+        get_game_logic().lock().unwrap().set_current_frame(37);
+        let mut ini = r#"
+Object DisarmingDozer
+    KindOf = VEHICLE DOZER
+    Geometry = SPHERE
+    GeometryMajorRadius = 4
+    Body = ActiveBody Health
+        InitialHealth = 100
+        MaxHealth = 100
+    End
+    Behavior = DozerAIUpdate Dozer
+    End
+End
+Object MineProducer
+    KindOf = STRUCTURE IMMOBILE
+    Geometry = BOX
+    GeometryMajorRadius = 3
+    GeometryMinorRadius = 3
+    Body = ActiveBody Health
+        InitialHealth = 100
+        MaxHealth = 100
+    End
+End
+"#.to_owned();
+        for (name, kind, minefield) in [
+            ("LinkedStandard", "MINE IMMOBILE", Some("Yes")),
+            ("LinkedCluster", "MINE IMMOBILE", Some("No")),
+            ("PlainMine", "MINE IMMOBILE", None),
+            ("NonMine", "IMMOBILE", None),
+        ] {
+            let module = minefield.map_or_else(String::new, |regenerates| format!(
+                "    Behavior = MinefieldBehavior Mines\n        NumVirtualMines = 8\n        Regenerates = {regenerates}\n    End\n",
+            ));
+            ini.push_str(&format!(r#"Object {name}
+    KindOf = {kind}
+    Geometry = CYLINDER
+    GeometryMajorRadius = 2
+    Body = ActiveBody Health
+        InitialHealth = 100
+        MaxHealth = 100
+    End
+{module}End
+"#));
+        }
+        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(&ini), 6);
+        let spawn = |name, x| {
+            let template = TheThingFactory::find_template(name).unwrap();
+            let object = TheThingFactory::get().unwrap().new_object_optional_team(template, None).unwrap();
+            let mut actor = object.write().unwrap();
+            actor.set_position(&Coord3D::new(x, 105.0, 0.0)).unwrap();
+            actor.set_orientation(0.75).unwrap();
+            drop(actor);
+            object
+        };
+        let dozer = spawn("DisarmingDozer", 105.0);
+        let producer = spawn("MineProducer", 180.0);
+        let standard = spawn("LinkedStandard", 108.0);
+        let cluster = spawn("LinkedCluster", 109.0);
+        let plain = spawn("PlainMine", 110.0);
+        let other = spawn("NonMine", 111.0);
+        assert!(dozer.read().unwrap().find_module_by_name("DozerAIUpdate").is_some());
+        {
+            let producer = producer.read().unwrap();
+            for mine in [&standard, &cluster] {
+                let mut mine = mine.write().unwrap();
+                assert!(mine.find_module_by_name("MinefieldBehavior").is_some());
+                mine.set_producer(Some(&producer));
+            }
+        }
+        (dozer, producer, [standard, cluster, plain, other])
+    };
+    let (dozer, producer, mines) = with_active_stores(&world, fixture);
+    let (peer_dozer, _, peer_mines) = with_active_stores(&peer, fixture);
+    let id = |actor: &Arc<RwLock<Object>>| actor.read().unwrap().get_id();
+    assert_eq!(id(&dozer), id(&peer_dozer));
+    for (driving, peer) in mines.iter().zip(&peer_mines) {
+        assert_eq!(id(driving), id(peer));
+    }
+
+    with_active_stores(&world, || {
+        let fx = Arc::new(DisarmFx::default());
+        assert!(crate::helpers::register_fx_list_manager(fx.clone()));
+        let mut template = WeaponTemplate::new("DozerMineDisarmingWeapon".into());
+        template.primary_damage = 1.0;
+        template.attack_range = 5.0;
+        template.damage_type = crate::damage::DamageType::Disarm;
+        template.death_type = crate::damage::DeathType::Normal;
+        template.clip_size = 1;
+        template.clip_reload_time = 120;
+        template.fire_fx[0] = Some(crate::effects::FXList::new("LinkedDozerDisarm"));
+        let template = Arc::new(template);
+        for (idx, mine) in mines.iter().enumerate() {
+            let mut weapon = Weapon::new(Arc::clone(&template), WeaponSlotType::Primary);
+            weapon.load_ammo_now(id(&dozer)).unwrap();
+            weapon.fire_weapon_at_object(id(&dozer), id(mine)).unwrap();
+            assert_eq!(weapon.take_pending_mine_cleared(), idx < 3);
+            assert!(!weapon.take_pending_mine_cleared());
+            assert_eq!(weapon.get_remaining_ammo(), 0);
+            assert_eq!(weapon.peek_status_at(156), WeaponStatus::ReloadingClip);
+            assert_eq!(weapon.peek_status_at(157), WeaponStatus::ReadyToFire);
+        }
+
+        let [standard, cluster, plain, other] = &mines;
+        let standard_id = id(standard);
+        let cluster_id = id(cluster);
+        let plain_id = id(plain);
+        let other_id = id(other);
+        assert_eq!(
+            *fx.0.lock().unwrap(),
+            [(standard_id, 100.0, false), (cluster_id, 100.0, false), (plain_id, 100.0, false)],
+        );
+        {
+            let standard = standard.read().unwrap();
+            assert_eq!(standard.get_producer_id(), id(&producer));
+            assert!(!standard.is_destroyed());
+            assert!(standard.test_status(ObjectStatusTypes::Masked));
+            let health = 100.0_f32 - (100.0_f32 - 0.1_f32);
+            assert_eq!(standard.get_health(), health);
+            let body = standard.get_body_module().unwrap();
+            let history = body.lock().unwrap().get_last_damage_info().unwrap();
+            assert_eq!(history.input.amount, 100.0 - 0.1);
+            assert_eq!(history.input.source_id, standard_id);
+            assert_eq!(history.input.damage_type, crate::damage::DamageType::Unresistable);
+            assert_eq!(history.input.death_type, crate::damage::DeathType::None);
+        }
+        assert!(cluster.read().unwrap().is_destroyed());
+        assert!(plain.read().unwrap().is_destroyed());
+        assert!(!other.read().unwrap().is_destroyed());
+        get_game_logic().lock().unwrap().cleanup_dead_objects().unwrap();
+        assert!(OBJECT_REGISTRY.get_object(cluster_id).is_none());
+        assert!(OBJECT_REGISTRY.get_object(plain_id).is_none());
+        assert!(OBJECT_REGISTRY.get_object(standard_id).is_some());
+        assert!(OBJECT_REGISTRY.get_object(other_id).is_some());
+    });
+    for mine in &peer_mines {
+        let mine = mine.read().unwrap();
+        assert_eq!(mine.get_health(), 100.0);
+        assert!(!mine.is_destroyed());
+        assert!(!mine.test_status(ObjectStatusTypes::Masked));
+    }
+}
