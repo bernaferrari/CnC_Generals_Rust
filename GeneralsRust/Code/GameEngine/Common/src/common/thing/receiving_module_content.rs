@@ -391,6 +391,36 @@ impl ReceivingModuleContent {
         load_type: INILoadType,
     ) -> Result<usize, ReceivingModuleError> {
         let (mut candidate, data_remap, templates, admissions) = self.clone_for_transaction();
+        let loaded = candidate.load_ini_text_in_place(content, load_type)?;
+        self.commit_transaction(candidate, data_remap, templates, admissions);
+        Ok(loaded)
+    }
+
+    /// Apply the original ThingFactory reset and Map/Solo override sequence
+    /// within one draft. Validate dependent host definitions before restoring
+    /// the live template and ModuleData identities in the accepted draft.
+    pub fn apply_map_overrides<R>(
+        &mut self,
+        sources: &[String],
+        validate: impl FnOnce(&Self) -> Result<R, ReceivingModuleError>,
+    ) -> Result<R, ReceivingModuleError> {
+        let (mut candidate, data_remap, templates, admissions) = self.clone_for_transaction();
+        candidate.reset_map_overrides();
+        candidate.admit_science_overrides(sources)?;
+        candidate.admit_action_overrides(sources)?;
+        for source in sources {
+            candidate.load_ini_text_in_place(source, INILoadType::CreateOverrides)?;
+        }
+        let validated = validate(&candidate)?;
+        self.commit_transaction(candidate, data_remap, templates, admissions);
+        Ok(validated)
+    }
+
+    fn load_ini_text_in_place(
+        &mut self,
+        content: &str,
+        load_type: INILoadType,
+    ) -> Result<usize, ReceivingModuleError> {
         let lines = content.lines().collect::<Vec<_>>();
         let mut index = 0;
         let mut loaded = 0;
@@ -421,11 +451,10 @@ impl ReceivingModuleContent {
                 .ok_or_else(|| format!("Missing receiving Object name at line {}", index + 1))?;
             let parent = tokens.get(2).copied();
             let (properties, next) = try_parse_object_block_properties(&lines, index + 1)?;
-            candidate.admit_source_in_place(name, parent, kind, &properties, load_type)?;
+            self.admit_source_in_place(name, parent, kind, &properties, load_type)?;
             loaded += 1;
             index = next;
         }
-        self.commit_transaction(candidate, data_remap, templates, admissions);
         Ok(loaded)
     }
     /// Map/Solo callers with already-captured properties admit just that actual

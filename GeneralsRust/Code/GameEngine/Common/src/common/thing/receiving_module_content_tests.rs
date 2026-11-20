@@ -126,6 +126,47 @@ fn first_data(plan: &AdmittedReceivingTemplate) -> &ModuleDataHandle {
 }
 
 #[test]
+fn map_batch_validates_the_effective_solo_catalog_before_preserving_live_handles() {
+    let mut owner = content();
+    owner
+        .load_ini_text(
+            "Object Depot\nBuildCost = 100\nDraw = ReceivingDraw BaseTag\nEnd\nEnd",
+            INILoadType::Overwrite,
+        )
+        .unwrap();
+    let master = owner.admitted_template("Depot").unwrap();
+    let sources = [
+        "Object Depot\nBuildCost = 200\nAddModule\nDraw = ReceivingDraw MapTag\nEnd\nEnd\nEnd".into(),
+        "Object Depot\nBuildCost = 300\nEnd".into(),
+    ];
+    let validate = |catalog: &ReceivingModuleContent| {
+        let effective = catalog.admitted_template("Depot").unwrap();
+        assert_eq!(effective.template().get_build_cost(), 300);
+        assert_eq!(effective.template().get_draw_module_info().get_count(), 2);
+    };
+
+    let rejected: Result<(), _> = owner.apply_map_overrides(&sources, |draft| {
+        validate(draft);
+        Err("host rejected the prepared template".into())
+    });
+    assert!(rejected.is_err());
+    assert!(Arc::ptr_eq(&master, &owner.admitted_template("Depot").unwrap()));
+    assert_eq!(owner.modules.retained_module_data_count(), 1);
+
+    owner
+        .apply_map_overrides(&sources, |draft| {
+            validate(draft);
+            Ok(())
+        })
+        .unwrap();
+    let effective = owner.admitted_template("Depot").unwrap();
+    assert!(ModuleDataHandle::ptr_eq(first_data(&master), first_data(&effective)));
+    assert_eq!(owner.modules.retained_module_data_count(), 2);
+    owner.reset_map_overrides();
+    assert!(Arc::ptr_eq(&master, &owner.admitted_template("Depot").unwrap()));
+}
+
+#[test]
 fn ordered_receiving_producer_shares_default_parent_data_and_resets_only_map_versions() {
     let mut owner = content();
     assert_eq!(owner.load_ini_text("Object DefaultThingTemplate\nScale = 2.0\nDraw = ReceivingDraw DefaultTag\nEnd\nEnd\nObject Parent\nKindOf = VEHICLE\nEnd\nChildObject Child Parent\nEnd", INILoadType::Overwrite).unwrap(), 3);

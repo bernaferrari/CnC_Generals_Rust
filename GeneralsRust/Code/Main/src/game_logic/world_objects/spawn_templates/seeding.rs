@@ -1,5 +1,6 @@
 //! Retail Object INI seeding and template/model lookup helpers.
 use super::*;
+use crate::game_logic::projectile_definitions::ProjectileDefinitions;
 
 #[cfg(test)]
 #[path = "structure_topple_admission_tests.rs"]
@@ -69,46 +70,45 @@ impl GameLogic {
         &mut self,
         sources: &[String],
     ) -> Result<(), game_engine::common::thing::module_factory::ReceivingModuleError> {
-        let Some(current) = self.receiving_module_content.as_ref() else {
+        let Some(live) = self.receiving_module_content.as_mut() else {
             return Ok(());
         };
         let projections = self
             .receiving_object_definitions
             .as_ref()
             .ok_or("Receiving typed content has no matching host Object definitions")?;
-        // Validate the whole map tail on a detached session first: a rejected
-        // tail leaves the live catalog, its definitions and templates untouched.
-        let mut candidate = current.clone();
-        Self::admit_receiving_map_overrides(&mut candidate, sources)?;
-        let projection_candidate = projections.map_override_draft(sources)?;
         let baseline = self
             .receiving_template_baseline
             .as_ref()
             .ok_or("Receiving typed content has no accepted host template baseline")?;
-        let mut templates = baseline.clone();
-        Self::refresh_receiving_host_definition_templates(
-            &mut templates,
-            &projection_candidate,
-            &candidate,
-            self.locomotor_definitions.receiving(),
-        )?;
-        Self::bind_receiving_production_templates(&mut templates, &candidate)?;
-        let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(projection_candidate.rows().map(|row|(row.name.as_str(),row.as_ref())),self.physics_definitions.effective.gravity)?.with_locomotors(self.locomotor_definitions.receiving());
-        drop(candidate);
-        // Commit the same accepted bytes into the live catalog. ThingFactory::reset
-        // deletes only override versions and map-only roots, so untouched masters
-        // keep their original identity; a session fork would replace every one.
-        let live = self
-            .receiving_module_content
-            .as_mut()
-            .expect("receiving content checked above");
-        Self::admit_receiving_map_overrides(live, sources)?;
+        let locomotors = self.locomotor_definitions.receiving();
+        let gravity = self.physics_definitions.effective.gravity;
+        let (projection_candidate, projectile_candidate) =
+            live.apply_map_overrides(sources, |candidate| {
+                let projection_candidate = projections.map_override_draft(sources)?;
+                let mut templates = baseline.clone();
+                Self::refresh_receiving_host_definition_templates(
+                    &mut templates,
+                    &projection_candidate,
+                    candidate,
+                    locomotors,
+                )?;
+                Self::bind_receiving_production_templates(&mut templates, candidate)?;
+                let projectile_candidate = ProjectileDefinitions::from_effective_definitions(
+                    projection_candidate.rows().map(|row| (row.name.as_str(), row.as_ref())),
+                    gravity,
+                )?
+                .with_locomotors(locomotors);
+                Ok((projection_candidate, projectile_candidate))
+            })?;
+        // The accepted typed handles now belong to the original receiving
+        // catalog. Host templates retain those identities during live rebinding.
         let mut templates = baseline.clone();
         Self::refresh_receiving_host_definition_templates(
             &mut templates,
             &projection_candidate,
             live,
-            self.locomotor_definitions.receiving(),
+            locomotors,
         )?;
         Self::bind_receiving_production_templates(&mut templates, live)?;
         self.receiving_object_definitions = Some(projection_candidate);
@@ -116,24 +116,6 @@ impl GameLogic {
         self.templates = templates;
         self.invalidate_build_facility_template_names_cache();
         self.refresh_receiving_client_templates();
-        Ok(())
-    }
-
-    /// C++ ThingFactory::reset followed by the Map/Solo INI_LOAD_CREATE_OVERRIDES
-    /// pass, in supplied source order, on one receiving catalog.
-    fn admit_receiving_map_overrides(
-        content: &mut game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
-        sources: &[String],
-    ) -> Result<(), game_engine::common::thing::module_factory::ReceivingModuleError> {
-        content.reset_map_overrides();
-        content.admit_science_overrides(sources)?;
-        content.admit_action_overrides(sources)?;
-        for source in sources {
-            content.load_ini_text(
-                source,
-                game_engine::common::ini::INILoadType::CreateOverrides,
-            )?;
-        }
         Ok(())
     }
 
