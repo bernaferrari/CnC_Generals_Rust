@@ -411,6 +411,13 @@ impl UnitRenderInput {
                 });
             }
         }
+        Self::with_draw_models(ro, draw_models)
+    }
+
+    fn with_draw_models(
+        ro: &RenderableObject,
+        draw_models: Vec<crate::assets::AuthoredDrawModel>,
+    ) -> Self {
         let model_key = draw_models
             .first()
             .map(|model| model.model_key.clone())
@@ -562,7 +569,13 @@ impl UnitRenderInput {
         world_is_night: bool,
         logic_frame: u32,
     ) -> Self {
-        let mut input = Self::from_renderable(ro);
+        let mut input = if ro.receiving_draw_models.is_some() {
+            // The authored selector fills the final models after stamping
+            // the environment. No prior Draw selection needs to be copied.
+            Self::with_draw_models(ro, Vec::new())
+        } else {
+            Self::from_renderable(ro)
+        };
         input.world_is_snow = world_is_snow;
         input.world_is_night = world_is_night;
         input.logic_frame = logic_frame;

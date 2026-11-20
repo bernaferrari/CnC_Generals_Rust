@@ -1,4 +1,5 @@
 use super::*;
+use game_engine::common::fast_hash::{FxHashMap, FxHashSet};
 
 fn template_uses_overlord_draw(template: &str) -> bool {
     let t = template.to_ascii_lowercase();
@@ -364,9 +365,15 @@ impl PresentationFrame {
                 && (visual_template_name != input.template_name || receiving.is_some())
             {
                 if let Some(models) = receiving {
-                    input.template_name = visual_template_name.to_owned();
-                    input.receiving_draw_models = Some(models.clone());
-                    input.resolve_draw_models_for_frozen_conditions(self.asset_owner.0.as_deref());
+                    if visual_template_name != input.template_name {
+                        input.template_name = visual_template_name.to_owned();
+                    }
+                    if !input.receiving_draw_models.as_ref().is_some_and(|current| {
+                        std::sync::Arc::ptr_eq(current, models)
+                    }) {
+                        input.receiving_draw_models = Some(models.clone());
+                        input.resolve_draw_models_for_frozen_conditions(self.asset_owner.0.as_deref());
+                    }
                 } else {
                     let fallback_model_key =
                         crate::assets::mesh_asset_resolve::model_key_from_presentation(
@@ -399,29 +406,11 @@ impl PresentationFrame {
         // carry the original gameplay template, so make the frozen direct
         // visual identity authoritative for every matching resident row—not
         // merely for an absent/deferred-death fallback row.
-        let direct_visual_templates: std::collections::HashMap<
-            ObjectId,
-            (
-                &str,
-                f32,
-                &Option<std::sync::Arc<crate::game_logic::thing::ReceivingDrawModels>>,
-                Option<&str>,
-            ),
-        > = self
+        let direct_visual_templates: FxHashMap<_, _> = self
             .direct_host_drawables
             .iter()
             .filter(|direct| direct.resident && !direct.visual_template_name.trim().is_empty())
-            .map(|direct| {
-                (
-                    direct.object.id,
-                    (
-                        direct.visual_template_name.as_str(),
-                        direct.visual_mesh_scale,
-                        &direct.receiving_visual_draw_models,
-                        direct.debris_model_override.as_deref(),
-                    ),
-                )
-            })
+            .map(|direct| (direct.object.id, direct))
             .collect();
 
         let mut inputs: Vec<UnitRenderInput> = self
@@ -430,25 +419,19 @@ impl PresentationFrame {
             .filter(|object| mesh_allowed(object, false))
             .map(|object| {
                 let mut input = make_input(object);
-                if let Some((visual_template_name, visual_mesh_scale, receiving, _)) =
-                    direct_visual_templates.get(&object.id)
-                {
+                if let Some(direct) = direct_visual_templates.get(&object.id) {
                     apply_visual_template(
                         &mut input,
-                        visual_template_name,
-                        *visual_mesh_scale,
-                        receiving,
+                        &direct.visual_template_name,
+                        direct.visual_mesh_scale,
+                        &direct.receiving_visual_draw_models,
                     );
-                }
-                if let Some((_, _, _, debris_model_override)) =
-                    direct_visual_templates.get(&object.id)
-                {
-                    input.apply_debris_model_override(*debris_model_override);
+                    input.apply_debris_model_override(direct.debris_model_override.as_deref());
                 }
                 input
             })
             .collect();
-        let mut ordinary_input_ids: std::collections::HashSet<ObjectId> =
+        let mut ordinary_input_ids: FxHashSet<ObjectId> =
             inputs.iter().map(|input| input.id).collect();
 
         for direct in &self.direct_host_drawables {
