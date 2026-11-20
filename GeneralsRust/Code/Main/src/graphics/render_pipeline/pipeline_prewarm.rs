@@ -263,31 +263,6 @@ impl RenderPipeline {
             }
         }
 
-        if candidates.is_empty() {
-            if let Some(asset_manager_arc) = self.forward_pass.application_assets.as_ref() {
-                if let Ok(asset_manager) = asset_manager_arc.lock() {
-                    candidates.extend(
-                        asset_manager
-                            .get_common_cnc_units()
-                            .into_iter()
-                            .map(str::to_string),
-                    );
-                }
-            }
-        } else if let Some(asset_manager_arc) = self.forward_pass.application_assets.as_ref() {
-            if let Ok(asset_manager) = asset_manager_arc.lock() {
-                for unit in asset_manager.get_common_cnc_units() {
-                    if candidates.len() >= if allow_sync_model_loads { 48 } else { 12 } {
-                        break;
-                    }
-                    let key = unit.to_ascii_lowercase();
-                    if seen.insert(key) {
-                        candidates.push(unit.to_string());
-                    }
-                }
-            }
-        }
-
         let prewarm_limit = if allow_sync_model_loads { 48 } else { 12 };
         candidates.truncate(prewarm_limit);
         if candidates.is_empty() {
