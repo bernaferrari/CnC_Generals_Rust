@@ -334,6 +334,8 @@ impl Object {
             .as_ref()
             .and_then(|definition| definition.dozer_ai_is_worker())
             .unwrap_or(false);
+        let bone_fx_damage =
+            crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_object_template(&template);
         Self {
             thing: Thing::new(template),
             id,
@@ -433,10 +435,7 @@ impl Object {
             keep_object_die: None,
             wave_guide_data: None,
             fire_weapon_when_dead_fired: false,
-            bone_fx_damage:
-                crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
-                    &template_name,
-                ),
+            bone_fx_damage,
             poisoned_behavior: None,
             defection_helper: None,
             fire_weapon_power: None,
@@ -1171,6 +1170,8 @@ impl Object {
             .as_ref()
             .and_then(|definition| definition.dozer_ai_is_worker())
             .unwrap_or(false);
+        let bone_fx_damage =
+            crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_object_template(&template);
         Self {
             thing: Thing::new(template),
             id,
@@ -1270,10 +1271,7 @@ impl Object {
             keep_object_die: None,
             wave_guide_data: None,
             fire_weapon_when_dead_fired: false,
-            bone_fx_damage:
-                crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
-                    &template_name,
-                ),
+            bone_fx_damage,
             poisoned_behavior: None,
             defection_helper: None,
             fire_weapon_power: None,

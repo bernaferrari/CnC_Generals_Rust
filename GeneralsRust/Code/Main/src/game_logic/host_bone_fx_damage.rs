@@ -273,6 +273,33 @@ impl HostBoneFxDamageData {
         Some(Self::from_authored(authored))
     }
 
+    /// C++ Object construction binds the effective ThingTemplate's modules.
+    pub(crate) fn from_object_template(template: &crate::game_logic::ThingTemplate) -> Option<Self> {
+        use gamelogic::object::update::bone_fx_update::BoneFXUpdateModuleData;
+        if let Some(data) = template.authored_module_data::<BoneFXUpdateModuleData>("BoneFXUpdate")
+        {
+            return authored_from_leftover_module_data(&data).map(Self::from_authored);
+        }
+        if let Some(definition) = template.receiving_object_definition.as_deref() {
+            return authored_from_object_definition(definition).map(Self::from_authored);
+        }
+        Self::from_compatibility_template(template, &template.name)
+    }
+
+    /// Programmatic compatibility objects can receive content after birth.
+    /// Admitted absence is resolved when the factory creates the Object.
+    pub(crate) fn from_compatibility_template(
+        template: &crate::game_logic::ThingTemplate,
+        name: &str,
+    ) -> Option<Self> {
+        if template.receiving_client_template.is_some()
+            || template.receiving_object_definition.is_some()
+        {
+            return None;
+        }
+        Self::from_template(name)
+    }
+
     /// C++ `BoneFXUpdate::changeBodyDamageState` then one `update` pass.
     pub fn on_body_damage_state_change(
         &mut self,
@@ -804,6 +831,12 @@ fn peel_asset_manager_bone_fx(template_name: &str) -> Option<HostBoneFxAuthored>
     let manager = crate::assets::get_asset_manager()?;
     let manager = manager.lock().ok()?;
     let definition = manager.get_object_definition(template_name)?;
+    authored_from_object_definition(&definition)
+}
+
+fn authored_from_object_definition(
+    definition: &crate::assets::ObjectDefinition,
+) -> Option<HostBoneFxAuthored> {
     let module = definition
         .behavior_modules
         .iter()
@@ -984,7 +1017,10 @@ impl crate::game_logic::GameLogic {
                 return Ok(());
             };
             if object.bone_fx_damage.is_none() {
-                object.bone_fx_damage = HostBoneFxDamageData::from_template(&object.template_name);
+                object.bone_fx_damage = HostBoneFxDamageData::from_compatibility_template(
+                    object.get_template(),
+                    &object.template_name,
+                );
             }
             let Some(bfx) = object.bone_fx_damage.as_mut() else {
                 return Ok(());
@@ -1355,6 +1391,54 @@ mod tests {
         assert!(
             (info.base.game_logic_delay.min - 15.0).abs() < f32::EPSILON
                 || info.base.game_logic_delay.min > 0.0
+        );
+    }
+
+    #[test]
+    fn factory_bone_fx_uses_each_receiving_templates_authored_slot() {
+        let make_world = |bone, fx| {
+            let source = format!(
+                "Object ReceivingBoneFx\nKindOf = STRUCTURE IMMOBILE\n\
+                 Body = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                 Behavior = BoneFXUpdate BoneTag\n\
+                 RubbleFXList1 = Bone:{bone} OnlyOnce:Yes 3000 3000 FXList:{fx}\n\
+                 End\nEnd\n"
+            );
+            let mut world = crate::game_logic::GameLogic::new();
+            world
+                .admit_receiving_module_content(
+                    crate::assets::ReceivingObjectContent::from_sources([(
+                        "receiving_bone_fx.ini".into(),
+                        source,
+                    )])
+                    .unwrap(),
+                )
+                .unwrap();
+            let id = world
+                .create_object("ReceivingBoneFx", crate::game_logic::Team::China, Vec3::ZERO)
+                .unwrap();
+            (world, id)
+        };
+        let (first, id) = make_world("Smoke02", "FX_DefaultStructureSecondary");
+        let (peer, peer_id) = make_world("PeerBone", "FX_PeerRubble");
+        assert_eq!(id, peer_id);
+        let rubble = HostBodyDamageType::Rubble.ordinal() as usize;
+        let observation = |world: &crate::game_logic::GameLogic| {
+            let object = world.host_object(id).unwrap();
+            let slot = object.bone_fx_damage.as_ref().unwrap().authored.fx[rubble][0]
+                .as_ref()
+                .unwrap();
+            assert!(slot.only_once);
+            assert_eq!([slot.delay_min, slot.delay_max], [90.0, 90.0]);
+            (slot.bone.clone(), slot.name.clone())
+        };
+        assert_eq!(
+            observation(&first),
+            ("Smoke02".to_owned(), "FX_DefaultStructureSecondary".to_owned())
+        );
+        assert_eq!(
+            observation(&peer),
+            ("PeerBone".to_owned(), "FX_PeerRubble".to_owned())
         );
     }
 
