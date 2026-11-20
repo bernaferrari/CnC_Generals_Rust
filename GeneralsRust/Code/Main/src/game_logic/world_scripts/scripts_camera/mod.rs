@@ -87,84 +87,111 @@ fn host_discovered_by_player_names(
 
 /// C++ Object::getStatusBits: packed OBJECT_STATUS_* from live host flags.
 fn host_query_object_status_bits(obj: &crate::game_logic::object::Object) -> u64 {
-    use crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
+    use game_engine::common::system::object_status_types::ObjectStatusMaskType as Mask;
     let s = &obj.status;
-    let mut names: Vec<&str> = Vec::new();
+    let mut bits = obj.object_status_mask_for_queries();
     if s.destroyed {
-        names.push("DESTROYED");
+        bits |= Mask::DESTROYED.bits();
     }
     if s.under_construction {
-        names.push("UNDER_CONSTRUCTION");
+        bits |= Mask::UNDER_CONSTRUCTION.bits();
     }
     if s.unselectable {
-        names.push("UNSELECTABLE");
+        bits |= Mask::UNSELECTABLE.bits();
     }
     if s.no_collisions {
-        names.push("NO_COLLISIONS");
+        bits |= Mask::NO_COLLISIONS.bits();
     }
     if s.airborne_target {
-        names.push("AIRBORNE_TARGET");
+        bits |= Mask::AIRBORNE_TARGET.bits();
     }
     if s.parachuting {
-        names.push("PARACHUTING");
+        bits |= Mask::PARACHUTING.bits();
     }
     if s.repulsor {
-        names.push("REPULSOR");
+        bits |= Mask::REPULSOR.bits();
     }
     if s.hijacked {
-        names.push("HIJACKED");
+        bits |= Mask::HIJACKED.bits();
     }
     if s.wet {
-        names.push("WET");
+        bits |= Mask::WET.bits();
     }
     if s.is_firing_weapon {
-        names.push("IS_FIRING_WEAPON");
+        bits |= Mask::IS_FIRING_WEAPON.bits();
     }
     if s.sold {
-        names.push("SOLD");
+        bits |= Mask::SOLD.bits();
     }
     if s.reconstructing {
-        names.push("RECONSTRUCTING");
+        bits |= Mask::RECONSTRUCTING.bits();
     }
     if s.masked {
-        names.push("MASKED");
+        bits |= Mask::MASKED.bits();
     }
     if s.attacking {
-        names.push("IS_ATTACKING");
+        bits |= Mask::IS_ATTACKING.bits();
     }
     if s.using_ability {
-        names.push("USING_ABILITY");
+        bits |= Mask::USING_ABILITY.bits();
     }
     if s.is_aiming_weapon {
-        names.push("IS_AIMING_WEAPON");
+        bits |= Mask::IS_AIMING_WEAPON.bits();
     }
     if s.ignoring_stealth {
-        names.push("IGNORING_STEALTH");
+        bits |= Mask::IGNORING_STEALTH.bits();
     }
     if s.is_carbomb {
-        names.push("IS_CARBOMB");
+        bits |= Mask::IS_CARBOMB.bits();
     }
     if s.deck_height_offset {
-        names.push("DECK_HEIGHT_OFFSET");
+        bits |= Mask::DECK_HEIGHT_OFFSET.bits();
     }
     if s.faerie_fire {
-        names.push("FAERIE_FIRE");
-    }
-    if s.booby_trapped {
-        names.push("BOOBY_TRAPPED");
+        bits |= Mask::FAERIE_FIRE.bits();
     }
     if s.disguised {
-        names.push("DISGUISED");
+        bits |= Mask::DISGUISED.bits();
     }
     if s.deployed {
-        names.push("DEPLOYED");
+        bits |= Mask::DEPLOYED.bits();
     }
-    obj.object_status_mask_for_queries() | object_status_mask_from_names(&names)
+    bits
 }
 
 #[cfg(test)]
 mod booby_status_observation_tests {
     use super::*;
+
+    #[test]
+    fn script_status_query_projects_canonical_flags_and_retains_raw_bits() {
+        use crate::game_logic::host_status_bits_upgrade::object_status_mask_from_names;
+
+        let mut object = crate::game_logic::object::Object::new(
+            crate::game_logic::ThingTemplate::new("ScriptObservedStatusTarget"),
+            crate::game_logic::ObjectId(1),
+            crate::game_logic::Team::GLA,
+        );
+        let raw = object_status_mask_from_names(&["STATUS_RIDER4", "NO_ATTACK"]);
+        object.object_status_bits = raw | object_status_mask_from_names(&["STEALTHED"]);
+        object.status.stealthed = false;
+        object.status.detected = true;
+        object.status.under_construction = true;
+        object.status.using_ability = true;
+        object.status.ignoring_stealth = true;
+        object.status.deployed = true;
+
+        assert_eq!(
+            host_query_object_status_bits(&object),
+            raw | object_status_mask_from_names(&[
+                "DETECTED",
+                "UNDER_CONSTRUCTION",
+                "USING_ABILITY",
+                "IGNORING_STEALTH",
+                "DEPLOYED",
+            ])
+        );
+    }
 
     #[test]
     fn script_status_query_observes_mask_mutation_through_canonical_status() {
