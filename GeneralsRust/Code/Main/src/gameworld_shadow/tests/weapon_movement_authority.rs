@@ -114,10 +114,15 @@ fn weapon_slots_tertiary_never_aliases_primary_and_ammo_writeback() {
     let probe = shadow.probe(&mut logic);
     assert!(probe.weapon_match, "{}", probe.format_report());
 
-    // A previously observed slot must clear when Main removes the weapon.
-    let host = logic.host_object_mut(oid).expect("host");
-    host.weapon = None;
-    host.tertiary_weapon = None;
+    // A single removed slot clears while the related bank remains present.
+    logic.host_object_mut(oid).expect("host").tertiary_weapon = None;
+    shadow.sync_from_host(&logic);
+    let slots = shadow.world().weapon_slots().slots(eid).expect("prior row");
+    assert!(slots[usize::from(WEAPON_SLOT_PRIMARY)].present);
+    assert_eq!(slots[usize::from(WEAPON_SLOT_PRIMARY)].ammo, 6);
+    assert!(!slots[usize::from(WEAPON_SLOT_TERTIARY)].present);
+
+    logic.host_object_mut(oid).expect("host").weapon = None;
     shadow.sync_from_host(&logic);
     let slots = shadow.world().weapon_slots().slots(eid).expect("prior row");
     assert!(slots.iter().all(|facts| !facts.present));

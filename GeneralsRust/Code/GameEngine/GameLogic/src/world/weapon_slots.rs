@@ -67,6 +67,28 @@ impl GameWorldWeaponSlots {
         self.by_entity.get(&id.get())
     }
 
+    /// Copy a complete weapon observation through one entity lookup. An empty
+    /// observation clears formerly present slots without creating a new row.
+    pub fn apply_observed_slots(
+        &mut self,
+        id: EntityId,
+        observed: [WeaponSlotFacts; WEAPON_SLOT_COUNT],
+    ) {
+        let id = id.get();
+        let slots = if observed.iter().any(|facts| facts.present) {
+            self.by_entity.entry(id).or_default()
+        } else if let Some(slots) = self.by_entity.get_mut(&id) {
+            slots
+        } else {
+            return;
+        };
+        for (previous, current) in slots.iter_mut().zip(observed) {
+            if previous.present || current.present {
+                *previous = current;
+            }
+        }
+    }
+
     /// Fail-closed: a missing host source (`present == false` and no prior row)
     /// leaves the table untouched.
     pub fn apply_slot(&mut self, id: EntityId, slot: u8, facts: WeaponSlotFacts) -> bool {

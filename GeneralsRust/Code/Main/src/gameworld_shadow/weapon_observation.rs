@@ -11,20 +11,6 @@ impl GameWorldShadow {
             WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY, WEAPON_SLOT_SECONDARY,
             WEAPON_SLOT_TERTIARY, WeaponSlotFacts,
         };
-        // Most objects have never carried a weapon. An absent observation
-        // only needs a write when it clears a previously present slot.
-        let previous = self
-            .world
-            .weapon_slots()
-            .slots(eid)
-            .map(|slots| slots.each_ref().map(|facts| facts.present));
-        if previous.is_none()
-            && obj.weapon.is_none()
-            && obj.secondary_weapon.is_none()
-            && obj.tertiary_weapon.is_none()
-        {
-            return;
-        }
         let lock_slot = obj.weapon_lock_slot;
         let lock_ty = obj.weapon_lock_type as u8;
         let facts = |slot: u8, weapon: Option<&crate::game_logic::Weapon>| -> WeaponSlotFacts {
@@ -47,19 +33,13 @@ impl GameWorldShadow {
                 lock_type: if lock_slot == slot { lock_ty } else { 0 },
             }
         };
-        let pairs = [
+        let slots = [
             (WEAPON_SLOT_PRIMARY, obj.weapon.as_ref()),
             (WEAPON_SLOT_SECONDARY, obj.secondary_weapon.as_ref()),
             (WEAPON_SLOT_TERTIARY, obj.tertiary_weapon.as_ref()),
             (WEAPON_SLOT_MINE_CLEAR, None),
-        ];
-        for (slot, weapon) in pairs {
-            if weapon.is_some() || previous.is_some_and(|row| row[slot as usize]) {
-                let _ = self
-                    .world
-                    .weapon_slots_mut()
-                    .apply_slot(eid, slot, facts(slot, weapon));
-            }
-        }
+        ]
+        .map(|(slot, weapon)| facts(slot, weapon));
+        self.world.weapon_slots_mut().apply_observed_slots(eid, slots);
     }
 }
