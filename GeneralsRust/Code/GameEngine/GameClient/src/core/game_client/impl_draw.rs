@@ -472,17 +472,17 @@ client_random: &mut self.client_random,
         use crate::gui::ui_renderer::UIRect;
         use glam::Vec2;
 
-        let overlays: Vec<crate::drawable::drawable::DrawableOverlayData> = self
+        let overlays: Vec<_> = self
             .drawables
             .drawable_map
-            .values()
-            .filter(|drawable| drawable.is_visible())
-            .filter_map(|drawable| {
+            .iter()
+            .filter(|(_, drawable)| drawable.is_visible())
+            .filter_map(|(&id, drawable)| {
                 drawable
                     .downcast_ref::<crate::drawable::drawable::BasicDrawable>()
-                    .map(|basic| basic.overlay_data.clone())
+                    .map(|basic| (id, basic.overlay_data.clone()))
             })
-            .filter(|overlay| {
+            .filter(|(_, overlay)| {
                 overlay.visible
                     && (overlay.health_region.is_some()
                         || overlay.caption.as_ref().is_some_and(|c| !c.is_empty()))
@@ -492,7 +492,7 @@ client_random: &mut self.client_random,
 
         let display_facts = self.script_display.fx().draw_facts();
         if let Some(renderer) = self.ui_renderer.as_mut() {
-            for overlay in &overlays {
+            for (_, overlay) in &overlays {
                 let Some(region) = overlay.health_region else {
                     draw_cpp_drawable_caption(renderer, overlay);
                     continue;
@@ -732,9 +732,21 @@ client_random: &mut self.client_random,
             }
         };
 
-        for overlay in &overlays {
-            if let Some(renderer) = self.ui_renderer.as_mut() {
-                draw_overlay_anim2d_icons(renderer, overlay, &mut self.client_random);
+        if let Some(renderer) = self.ui_renderer.as_mut() {
+            let drawables = &mut self.drawables.state;
+            for (id, overlay) in &overlays {
+                let disabled = if overlay.show_disabled && overlay.health_region.is_some() {
+                    drawables
+                        .drawable_map
+                        .get_mut(id)
+                        .and_then(|drawable| drawable.downcast_mut::<BasicDrawable>())
+                        .and_then(|drawable| {
+                            drawable.disabled_icon_for_draw(&drawables.anim2d, &mut self.client_random)
+                        })
+                } else {
+                    None
+                };
+                draw_overlay_anim2d_icons(renderer, overlay, disabled, &mut self.client_random);
             }
         }
     }
@@ -819,6 +831,7 @@ client_random: &mut self.client_random,
 fn draw_overlay_anim2d_icons(
     renderer: &mut crate::gui::ui_renderer::UIRenderer,
     overlay: &crate::drawable::drawable::DrawableOverlayData,
+    disabled: Option<&dyn crate::drawable::drawable::Icon>,
     client_random: &mut game_engine::common::random_value::RandomState,
 ) {
     use crate::drawable::drawable::{Anim2DIcon, ICoord2D, Vector3};
@@ -832,7 +845,12 @@ fn draw_overlay_anim2d_icons(
     let lo = region.lo;
     let hi = ICoord2D::new(region.lo.x + region.width(), region.lo.y + region.height());
 
-    let mut try_icon = |template: &str, x: f32, y: f32, size: f32, fallback: Option<[f32; 4]>| {
+    let mut try_icon = |renderer: &mut crate::gui::UIRenderer,
+                        template: &str,
+                        x: f32,
+                        y: f32,
+                        size: f32,
+                        fallback: [f32; 4]| {
         if let Ok(icon) = Anim2DIcon::from_template_name(template, client_random) {
             icon.render(
                 Vector3::new(x, y, 0.0),
@@ -842,13 +860,11 @@ fn draw_overlay_anim2d_icons(
             return;
         }
 
-        if let Some(color) = fallback {
-            let _ = renderer.draw_rect_with_scissor(
-                UIRect::new(x, y, size.max(4.0), size.max(4.0)),
-                color,
-                None,
-            );
-        }
+        let _ = renderer.draw_rect_with_scissor(
+            UIRect::new(x, y, size.max(4.0), size.max(4.0)),
+            fallback,
+            None,
+        );
     };
 
     if overlay.show_healing {
@@ -860,7 +876,7 @@ fn draw_overlay_anim2d_icons(
         let size = bar_w * scale;
         let x = lo.x as f32 + bar_w * 0.75 - size * 0.5;
         let y = lo.y as f32 - size;
-        try_icon(name, x, y, size, Some([0.35, 1.0, 0.45, 0.95]));
+        try_icon(renderer, name, x, y, size, [0.35, 1.0, 0.45, 0.95]);
     }
     if overlay.show_bombed {
         let (name, scale) = match overlay.bomb_type {
@@ -871,16 +887,20 @@ fn draw_overlay_anim2d_icons(
         let size = bar_w * scale;
         let x = lo.x as f32 + bar_w * 0.5 - size * 0.5;
         let y = lo.y as f32 + bar_h * 0.5 + 5.0;
-        try_icon(name, x, y, size, Some([1.0, 0.75, 0.1, 0.95]));
+        try_icon(renderer, name, x, y, size, [1.0, 0.75, 0.1, 0.95]);
         if overlay.bomb_type == 1 {
-            try_icon("BombRemote", x, y, size, Some([1.0, 0.45, 0.1, 0.95]));
+            try_icon(renderer, "BombRemote", x, y, size, [1.0, 0.45, 0.1, 0.95]);
         }
     }
-    if overlay.show_disabled {
+    if let Some(icon) = disabled {
         let size = bar_w * 0.3;
         let x = lo.x as f32;
         let y = hi.y as f32 - (size + bar_h);
-        try_icon("Disabled", x, y, size, None);
+        icon.render(
+            Vector3::new(x, y, 0.0),
+            Vector3::new(size.max(1.0), size.max(1.0), 0.0),
+            renderer,
+        );
     }
     if overlay.show_enthusiastic {
         let name = if overlay.show_subliminal {
@@ -891,13 +911,13 @@ fn draw_overlay_anim2d_icons(
         let size = bar_w * 0.5;
         let x = lo.x as f32 + bar_w * 0.25 - size * 0.5;
         let y = hi.y as f32 + size * 0.25;
-        try_icon(name, x, y, size, Some([1.0, 0.9, 0.2, 0.95]));
+        try_icon(renderer, name, x, y, size, [1.0, 0.9, 0.2, 0.95]);
     }
     if overlay.show_emoticon {
         let size = bar_w * 0.3;
         let x = lo.x as f32 + bar_w * 0.5 - size * 0.5;
         let y = hi.y as f32 - size;
-        try_icon("Emoticon", x, y, size, Some([1.0, 0.75, 0.85, 0.95]));
+        try_icon(renderer, "Emoticon", x, y, size, [1.0, 0.75, 0.85, 0.95]);
     }
 }
 

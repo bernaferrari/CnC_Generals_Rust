@@ -52,20 +52,40 @@ impl Anim2D {
             max_frame: template.read().get_num_frames().saturating_sub(1),
             frames_between_updates: template.read().get_num_frames_between_updates() as u32,
             alpha: 1.0,
-            collection_system: collection_system.as_ref().map(Arc::downgrade),
+            collection_system: None,
         };
 
-        if template.read().is_randomized_start_frame() {
-            anim.randomize_current_frame(client_random);
+        // The C++ constructor leaves registered animations stamped at zero.
+        let initial_stamp = if collection_system.is_some() {
+            0
         } else {
-            anim.reset();
+            TheGameLogic::get_frame()
+        };
+        if template.read().is_randomized_start_frame() {
+            anim.randomize_current_frame_at(client_random, initial_stamp);
+        } else {
+            anim.reset_at(initial_stamp);
         }
 
         let anim = Arc::new(Mutex::new(anim));
         if let Some(collection) = collection_system {
-            collection.lock().register_animation(&anim);
+            Self::attach_to_collection(&anim, &collection);
         }
         anim
+    }
+
+    pub(crate) fn attach_to_collection(
+        animation: &Arc<Mutex<Self>>,
+        collection: &Arc<Mutex<Anim2DCollection>>,
+    ) {
+        let mut instance = animation.lock();
+        if let Some(owner) = instance.collection_system.as_ref().and_then(Weak::upgrade) {
+            debug_assert!(Arc::ptr_eq(&owner, collection), "Anim2D owner changed");
+            return;
+        }
+        instance.collection_system = Some(Arc::downgrade(collection));
+        drop(instance);
+        collection.lock().register_animation(animation);
     }
 
     pub fn get_current_frame(&self) -> u16 {
@@ -73,34 +93,50 @@ impl Anim2D {
     }
 
     pub fn set_current_frame(&mut self, frame: u16) {
+        self.set_current_frame_at(frame, TheGameLogic::get_frame());
+    }
+
+    fn set_current_frame_at(&mut self, frame: u16, logic_frame: u32) {
         let template = self.template.read();
         if frame >= template.get_num_frames() {
             return;
         }
 
         self.current_frame = frame;
-        self.last_update_frame = TheGameLogic::get_frame();
+        self.last_update_frame = logic_frame;
     }
 
     pub fn randomize_current_frame(&mut self, client_random: &mut game_engine::common::random_value::RandomState) {
+        self.randomize_current_frame_at(client_random, TheGameLogic::get_frame());
+    }
+
+    fn randomize_current_frame_at(
+        &mut self,
+        client_random: &mut game_engine::common::random_value::RandomState,
+        logic_frame: u32,
+    ) {
         let max = self.template.read().get_num_frames();
         if max == 0 {
             return;
         }
         let frame = client_random.next_int(0, (max - 1) as i32) as u16;
-        self.set_current_frame(frame);
+        self.set_current_frame_at(frame, logic_frame);
     }
 
     pub fn reset(&mut self) {
+        self.reset_at(TheGameLogic::get_frame());
+    }
+
+    fn reset_at(&mut self, logic_frame: u32) {
         let anim_mode = self.template.read().get_anim_mode();
         match anim_mode {
             Anim2DMode::Once | Anim2DMode::Loop | Anim2DMode::PingPong => {
-                self.set_current_frame(self.min_frame);
+                self.set_current_frame_at(self.min_frame, logic_frame);
             }
             Anim2DMode::OnceBackwards
             | Anim2DMode::LoopBackwards
             | Anim2DMode::PingPongBackwards => {
-                self.set_current_frame(self.max_frame);
+                self.set_current_frame_at(self.max_frame, logic_frame);
             }
             Anim2DMode::Invalid => {}
         }
@@ -235,12 +271,15 @@ impl Anim2D {
     }
 
     fn try_next_frame(&mut self) {
+        self.try_next_frame_at(TheGameLogic::get_frame());
+    }
+
+    fn try_next_frame_at(&mut self, logic_frame: u32) {
         if self.frames_between_updates == 0 {
             return;
         }
 
-        let now = TheGameLogic::get_frame();
-        if now - self.last_update_frame < self.frames_between_updates {
+        if logic_frame.wrapping_sub(self.last_update_frame) < self.frames_between_updates {
             return;
         }
 
@@ -248,45 +287,45 @@ impl Anim2D {
         match anim_mode {
             Anim2DMode::Once => {
                 if self.current_frame < self.max_frame {
-                    self.set_current_frame(self.current_frame + 1);
+                    self.set_current_frame_at(self.current_frame + 1, logic_frame);
                 } else {
                     self.set_status(Anim2DStatus::COMPLETE);
                 }
             }
             Anim2DMode::OnceBackwards => {
                 if self.current_frame > self.min_frame {
-                    self.set_current_frame(self.current_frame - 1);
+                    self.set_current_frame_at(self.current_frame - 1, logic_frame);
                 } else {
                     self.set_status(Anim2DStatus::COMPLETE);
                 }
             }
             Anim2DMode::Loop => {
                 if self.current_frame == self.max_frame {
-                    self.set_current_frame(self.min_frame);
+                    self.set_current_frame_at(self.min_frame, logic_frame);
                 } else {
-                    self.set_current_frame(self.current_frame + 1);
+                    self.set_current_frame_at(self.current_frame + 1, logic_frame);
                 }
             }
             Anim2DMode::LoopBackwards => {
                 if self.current_frame > self.min_frame {
-                    self.set_current_frame(self.current_frame - 1);
+                    self.set_current_frame_at(self.current_frame - 1, logic_frame);
                 } else {
-                    self.set_current_frame(self.max_frame);
+                    self.set_current_frame_at(self.max_frame, logic_frame);
                 }
             }
             Anim2DMode::PingPong | Anim2DMode::PingPongBackwards => {
                 if self.status.contains(Anim2DStatus::REVERSED) {
                     if self.current_frame == self.min_frame {
-                        self.set_current_frame(self.current_frame + 1);
+                        self.set_current_frame_at(self.current_frame + 1, logic_frame);
                         self.clear_status(Anim2DStatus::REVERSED);
                     } else {
-                        self.set_current_frame(self.current_frame - 1);
+                        self.set_current_frame_at(self.current_frame - 1, logic_frame);
                     }
                 } else if self.current_frame == self.max_frame {
-                    self.set_current_frame(self.current_frame - 1);
+                    self.set_current_frame_at(self.current_frame - 1, logic_frame);
                     self.set_status(Anim2DStatus::REVERSED);
                 } else {
-                    self.set_current_frame(self.current_frame + 1);
+                    self.set_current_frame_at(self.current_frame + 1, logic_frame);
                 }
             }
             Anim2DMode::Invalid => {}
@@ -383,6 +422,7 @@ impl Drop for Anim2D {
 /// Anim2D collection system (tracks instances, templates are in common INI store).
 pub struct Anim2DCollection {
     instances: Vec<Weak<Mutex<Anim2D>>>,
+    last_logic_frame: Option<u32>,
 }
 
 impl Default for Anim2DCollection {
@@ -432,6 +472,7 @@ impl Anim2DCollection {
     pub fn new() -> Self {
         Self {
             instances: Vec::new(),
+            last_logic_frame: None,
         }
     }
 
@@ -441,11 +482,19 @@ impl Anim2DCollection {
     }
 
     pub fn update(&mut self) {
+        self.update_at(TheGameLogic::get_frame());
+    }
+
+    pub fn update_at(&mut self, logic_frame: u32) {
+        if self.last_logic_frame == Some(logic_frame) {
+            return;
+        }
+        self.last_logic_frame = Some(logic_frame);
         self.instances.retain(|weak| {
             if let Some(anim) = weak.upgrade() {
                 let mut anim = anim.lock();
                 if !anim.status.contains(Anim2DStatus::FROZEN) {
-                    anim.try_next_frame();
+                    anim.try_next_frame_at(logic_frame);
                 }
                 true
             } else {

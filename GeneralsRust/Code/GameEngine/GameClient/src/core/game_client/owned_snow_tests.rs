@@ -32,11 +32,11 @@ fn receiving_snow_lifecycle_and_snapshots_do_not_mutate_peer() {
     };
     owner.snow.init_with_definition(&definition, &mut |_, _| 7);
     owner.snow_definition = definition.clone();
-    owner.update_cpp_snow_and_anim2d(0.75);
+    owner.update_cpp_snow_and_anim2d(0.75, 1);
     owner.snow.set_visible(false);
     let snapshot = owner.snow_render_state();
     peer.snow.init_with_definition(&definition, &mut |_, _| 19);
-    peer.update_cpp_snow_and_anim2d(0.25);
+    peer.update_cpp_snow_and_anim2d(0.25, 1);
     peer.snow.reset();
     assert_eq!(owner.snow.time(), 0.75);
     assert!(!owner.snow.is_visible());

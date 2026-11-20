@@ -74,7 +74,7 @@ impl GameClient {
             visual_delta * visual_speed as f32
         };
         // C++ GameClient.cpp:560-565 — snow + Anim2D before input.
-        self.update_cpp_snow_and_anim2d(visual_delta);
+        self.update_cpp_snow_and_anim2d(visual_delta, frames.logic_frame);
         // C++ GameClient.cpp:587-597 — camera follows first selected drawable.
         self.update_camera_tracking_drawable(view);
 
@@ -229,9 +229,9 @@ impl GameClient {
     }
 
     /// C++ `TheSnowManager->UPDATE()` + `TheAnim2DCollection->UPDATE()`.
-    pub fn update_cpp_snow_and_anim2d(&mut self, delta_seconds: f32) {
+    pub fn update_cpp_snow_and_anim2d(&mut self, delta_seconds: f32, logic_frame: u32) {
         self.snow.update(delta_seconds);
-        self.client_anim2d_instances.lock().update();
+        self.drawables.anim2d.lock().update_at(logic_frame);
     }
 
     /// C++ `TheTerrainVisual->UPDATE()` (GameClient.cpp:719-722). Fail-soft.

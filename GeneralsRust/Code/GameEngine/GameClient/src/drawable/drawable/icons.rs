@@ -130,7 +130,9 @@ impl IconInfo {
         let expired_icons: Vec<IconType> = self
             .keep_till_frame
             .iter()
-            .filter(|(_, frame)| **frame <= current_frame)
+            .filter(|(kind, frame)| {
+                **frame <= current_frame && !(**kind == IconType::Disabled && **frame == 0)
+            })
             .map(|(icon_type, _)| *icon_type)
             .collect();
 
@@ -262,12 +264,52 @@ impl Snapshotable for IconInfo {
     }
 }
 
+impl BasicDrawable {
+    pub(crate) fn observe_disabled_icon(&mut self, disabled: bool) {
+        self.overlay_data.show_disabled = disabled;
+        if !disabled {
+            if let Some(icons) = self.icon_info.as_mut() {
+                icons.clear_icon(IconType::Disabled);
+            }
+        }
+    }
+
+    pub(crate) fn disabled_icon_for_draw(
+        &mut self,
+        collection: &Arc<Mutex<Anim2DCollection>>,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) -> Option<&dyn Icon> {
+        use std::collections::hash_map::Entry;
+        let icons = self.get_icon_info_mut();
+        let stored = match icons.icons.entry(IconType::Disabled) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let icon = Anim2DIcon::from_template_name_in_collection(
+                    "Disabled",
+                    Some(Arc::clone(collection)),
+                    client_random,
+                )
+                .ok()?;
+                entry.insert(Arc::new(icon))
+            }
+        };
+        Some(&**stored)
+    }
+
+    pub(crate) fn register_restored_disabled_icon(&self, collection: &Arc<Mutex<Anim2DCollection>>) {
+        if let Some(icon) = self.icon_info.as_ref().and_then(|icons| icons.icons.get(&IconType::Disabled)) {
+            icon.attach_to_anim2d_collection(collection);
+        }
+    }
+}
+
 /// Trait for drawable icons
 pub trait Icon: std::fmt::Debug + Send + Sync {
     fn render(&self, position: Vector3, size: Vector3, renderer: &mut crate::gui::UIRenderer);
     fn anim2d_template_name(&self) -> Option<&str> {
         None
     }
+    fn attach_to_anim2d_collection(&self, _collection: &Arc<Mutex<Anim2DCollection>>) {}
     fn xfer(&self, xfer: &mut dyn Xfer) -> Result<(), String>;
 }
 
@@ -303,12 +345,20 @@ impl Anim2DIcon {
         name: &str,
         client_random: &mut game_engine::common::random_value::RandomState,
     ) -> Result<Self, String> {
+        Self::from_template_name_in_collection(name, None, client_random)
+    }
+
+    fn from_template_name_in_collection(
+        name: &str,
+        collection: Option<Arc<Mutex<Anim2DCollection>>>,
+        client_random: &mut game_engine::common::random_value::RandomState,
+    ) -> Result<Self, String> {
         let template_name = name.to_string();
         let name_key = AsciiString::from(name);
         let template = get_anim2d_collection()
             .and_then(|collection| collection.read().find_template(&name_key))
             .ok_or_else(|| format!("Unknown Anim2D template '{}'", template_name))?;
-        Ok(Self::new(template, None, client_random))
+        Ok(Self::new(template, collection, client_random))
     }
 
     pub fn template_name(&self) -> &str {
@@ -330,6 +380,10 @@ impl Icon for Anim2DIcon {
 
     fn anim2d_template_name(&self) -> Option<&str> {
         Some(self.template_name())
+    }
+
+    fn attach_to_anim2d_collection(&self, collection: &Arc<Mutex<Anim2DCollection>>) {
+        Anim2D::attach_to_collection(&self.anim, collection);
     }
 
     fn xfer(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

@@ -62,7 +62,8 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             let dt = self.snow_anim2d_dt_for_present();
-            self.game_client.update_cpp_snow_and_anim2d(dt);
+            self.game_client
+                .update_cpp_snow_and_anim2d(dt, self.game_logic.frame);
         }
     }
 
@@ -360,7 +361,7 @@ impl CnCGameEngine {
             let _ = gc.update_input();
             requested_time_of_day = gc.take_requested_session_time_of_day();
             // C++ GameClient.cpp:560-565 — snow + Anim2D at execute cadence.
-            gc.update_cpp_snow_and_anim2d(snow_dt);
+            gc.update_cpp_snow_and_anim2d(snow_dt, self.game_logic.frame);
             let t2 = std::time::Instant::now();
             if early_menu_frame {
                 debug!("Menu update_internal: calling gc.update_pre_draw_ui");

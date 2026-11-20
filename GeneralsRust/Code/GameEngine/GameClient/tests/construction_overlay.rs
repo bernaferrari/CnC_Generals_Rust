@@ -1,7 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use game_client_rust::{
-    core::game_client::GameClient,
+    core::game_client::{GameClient, ReceivingDrawablePolicy},
     display::image::{Image, Region2D, get_mapped_image_collection},
     drawable::{
         DrawableExt,
@@ -13,8 +13,18 @@ use game_client_rust::{
     gui::UIRenderer,
 };
 use game_engine::common::{
-    ascii_string::AsciiString, ini::ini_animation::ensure_anim2d_collection,
+    ascii_string::AsciiString,
+    ini::{
+        INI, INILoadType,
+        ini_animation::ensure_anim2d_collection,
+        ini_mapped_image::{Image as MappedImage, ensure_mapped_image_collection},
+    },
+    name_key_generator::NameKeyNamespace,
     system::big_file_system::BigFileSystem,
+    thing::{
+        module::StaticGameLodLevel, module_factory::ModuleFactory,
+        receiving_module_content::ReceivingModuleContent,
+    },
 };
 use gamelogic::system::engine_stores::{new_world_services, with_world_services};
 use glam::Vec2;
@@ -90,23 +100,33 @@ fn render_pixels(render: &mut UIRenderer, device: &wgpu::Device, queue: &wgpu::Q
     slice.get_mapped_range().unwrap().to_vec()
 }
 
-/// Pin the archived Disabled animation's first visible frame for the icon eligibility check.
-fn mount_stock_disabled_icon() {
-    let base = PathBuf::from(std::env::var_os("GENERALS_BASE_DIR").unwrap());
-    let mut archive = BigFileSystem::new();
-    archive
-        .open_archive_file(base.join("Data/Textures.big"))
-        .unwrap();
+fn archive_entry(archive: PathBuf, member: &str) -> Vec<u8> {
+    let mut big = BigFileSystem::new();
+    big.open_archive_file(archive).unwrap();
     let mut raw = Vec::new();
-    archive
-        .open_file("Art/Textures/scgameuserinterface512_002.tga", 1)
+    big.open_file(member, 1)
         .unwrap()
         .read_to_end(&mut raw)
         .unwrap();
+    raw
+}
+
+fn stock_disabled_atlas() -> image::RgbaImage {
+    let base = PathBuf::from(std::env::var_os("GENERALS_BASE_DIR").unwrap());
+    let raw = archive_entry(
+        base.join("Data/Textures.big"),
+        "Art/Textures/scgameuserinterface512_002.tga",
+    );
     let atlas = image::load_from_memory_with_format(&raw, image::ImageFormat::Tga)
         .unwrap()
         .into_rgba8();
     assert_eq!(atlas.dimensions(), (512, 512));
+    atlas
+}
+
+/// Pin the archived Disabled animation's first visible frame for the icon eligibility check.
+fn mount_stock_disabled_icon() {
+    let atlas = stock_disabled_atlas();
     let mut frame = Image::from_rgba_data(atlas.as_raw(), 512, 512, "SCPLightning001").unwrap();
     frame.set_uv(Region2D::from_coords(
         205.0 / 512.0,
@@ -255,6 +275,232 @@ fn installed_construction_label_renders_without_missing_disabled_icon() {
 
         println!(
             "Stock construction: {lit} glyph pixels and two label quads. Missing Disabled: zero quads. Archived Disabled: one quad with {authored_pixels} lit pixels."
+        );
+    });
+}
+
+/// Install the real template and its first three authored atlas rows.
+fn mount_stock_disabled_animation() {
+    let game = PathBuf::from(std::env::var_os("GENERALS_ASSETS_DIR").unwrap());
+    let animation = archive_entry(game.join("Data/INIZH.big"), "Data/INI/Animation2D.ini");
+    let animation = String::from_utf8_lossy(&animation);
+    let index = animation.find("Animation Disabled").unwrap();
+    let block = animation[index..]
+        .lines()
+        .take_while(|line| line.trim() != "End")
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\nEnd\n";
+    let atlas = stock_disabled_atlas();
+    for (name, [left, top, right, bottom]) in [
+        ("SCPLightning000", [171., 159., 203., 191.]),
+        ("SCPLightning001", [205., 169., 237., 201.]),
+        ("SCPLightning002", [239., 169., 271., 201.]),
+    ] {
+        let mut metadata = MappedImage::new();
+        metadata.set_name(name.to_owned());
+        ensure_mapped_image_collection().write().add_image(metadata);
+
+        let mut frame = Image::from_rgba_data(atlas.as_raw(), 512, 512, name).unwrap();
+        frame.set_uv(Region2D::from_coords(
+            left / 512.,
+            top / 512.,
+            right / 512.,
+            bottom / 512.,
+        ));
+        get_mapped_image_collection().write().add_image(frame);
+    }
+    INI::new()
+        .with_inline_source(&block, INI::parse_current_file)
+        .unwrap();
+    let template = ensure_anim2d_collection()
+        .read()
+        .find_template(&AsciiString::from("Disabled"))
+        .unwrap();
+    let template = template.read();
+    assert_eq!(template.get_num_frames(), 16);
+    assert_eq!(template.get_num_frames_between_updates(), 2);
+    assert_eq!(template.get_frame_name(0), Some("SCPLightning000"));
+    assert_eq!(template.get_frame_name(1), Some("SCPLightning001"));
+    assert_eq!(template.get_frame_name(2), Some("SCPLightning002"));
+}
+
+fn admit_disabled_state(client: &mut GameClient, id: DrawableId, disabled: bool) {
+    let drawable = client.find_drawable_by_id_mut(id).unwrap();
+    let basic = drawable.downcast_mut::<BasicDrawable>().unwrap();
+    basic.set_presentation_host_residual(
+        Arc::default(),
+        None,
+        false,
+        false,
+        1.0,
+        false,
+        0,
+        false,
+        0.0,
+        0,
+        0,
+        0,
+        0,
+        disabled,
+        false,
+        0,
+        0,
+        false,
+        0.0,
+        false,
+        0,
+        Vec::new(),
+        String::new(),
+        0,
+        0,
+        String::new(),
+    );
+    let region = IRegion2D::new(ICoord2D::new(32, 48), ICoord2D::new(152, 54));
+    basic.overlay_data.visible = true;
+    basic.overlay_data.health_region = Some(region);
+    basic.draw_disabled(&region);
+    assert_eq!(basic.overlay_data.show_disabled, disabled);
+}
+
+#[test]
+#[ignore = "requires mounted retail INIZH.big and base Textures.big and native GPU"]
+fn installed_disabled_animation_ticks_once_and_resumes_from_the_owned_snapshot() {
+    let world = new_world_services();
+    with_world_services(&world, || {
+        mount_stock_disabled_animation();
+
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let (device, queue) = (Arc::new(device), Arc::new(queue));
+        let new_client = || {
+            let mut renderer = UIRenderer::new(
+                Arc::clone(&device),
+                Arc::clone(&queue),
+                wgpu::TextureFormat::Rgba8Unorm,
+            )
+            .unwrap();
+            renderer.set_screen_size(WIDTH, HEIGHT);
+            let mut client = GameClient::new().unwrap();
+            client.set_ui_renderer(renderer);
+            client
+        };
+        let draw = |client: &mut GameClient, logic_frame| {
+            client.update_cpp_snow_and_anim2d(0.0, logic_frame);
+            client.ui_renderer_mut().unwrap().begin_overlay_frame();
+            assert_eq!(client.draw_live_ingame_hud(logic_frame).icon_overlays, 1);
+            let renderer = client.ui_renderer_mut().unwrap();
+            render_pixels(renderer, &device, &queue)
+        };
+        let lit = |frame: &[u8]| {
+            frame
+                .chunks_exact(4)
+                .filter(|px| px[..3] != [0, 0, 0])
+                .count()
+        };
+
+        let mut first = new_client();
+        let id = first
+            .register_drawable_with_template(
+                Box::new(BasicDrawable::new(DrawableId::INVALID)),
+                Some("DisabledPlaybackFixture".to_owned()),
+            )
+            .unwrap();
+        admit_disabled_state(&mut first, id, true);
+        let initial = draw(&mut first, 10);
+        assert_eq!(lit(&initial), 0, "archived frame 000 is fully transparent");
+        assert!(
+            draw(&mut first, 10) == initial,
+            "same logic frame repaints unchanged"
+        );
+
+        let frame_001 = draw(&mut first, 11);
+        assert!(
+            lit(&frame_001) > 0,
+            "stock frame 001 draws on the next owning tick"
+        );
+        assert!(draw(&mut first, 11) == frame_001);
+        assert!(
+            draw(&mut first, 12) == frame_001,
+            "stock 66 ms rounds up to two logic frames"
+        );
+
+        let save = first
+            .capture_xfer_bytes_with_owned_auxiliaries(&[])
+            .unwrap();
+        let mut content =
+            ReceivingModuleContent::new(ModuleFactory::new_receiving(NameKeyNamespace::new()));
+        content
+            .load_ini_text(
+                "Object DisabledPlaybackFixture\nBuildCost = 1\nEnd",
+                INILoadType::Overwrite,
+            )
+            .unwrap();
+        let mut restored = new_client();
+        restored
+            .restore_from_xfer_bytes_with_receiving_content(
+                &save,
+                &mut content,
+                ReceivingDrawablePolicy {
+                    time_of_day: Some(game_client_rust::system::TimeOfDay::Afternoon),
+                    use_draw_module_lod: true,
+                    static_game_lod: StaticGameLodLevel::High,
+                    use_tree_sway: true,
+                },
+            )
+            .unwrap();
+        admit_disabled_state(&mut restored, id, true);
+        restored
+            .find_drawable_by_id_mut(id)
+            .unwrap()
+            .downcast_mut::<BasicDrawable>()
+            .unwrap()
+            .get_icon_info_mut()
+            .update(13);
+        let restored_frame_002 = draw(&mut restored, 13);
+        assert!(lit(&restored_frame_002) > 0);
+        assert!(
+            restored_frame_002 != frame_001,
+            "loaded clock advances before the first paint"
+        );
+        assert!(
+            draw(&mut first, 12) == frame_001,
+            "same-ID peer keeps its 001 frame"
+        );
+        first
+            .find_drawable_by_id_mut(id)
+            .unwrap()
+            .downcast_mut::<BasicDrawable>()
+            .unwrap()
+            .overlay_data
+            .visible = false;
+        first.update_cpp_snow_and_anim2d(0.0, 13);
+        first.ui_renderer_mut().unwrap().begin_overlay_frame();
+        assert_eq!(first.draw_live_ingame_hud(13).icon_overlays, 0);
+        admit_disabled_state(&mut first, id, true);
+        assert!(
+            draw(&mut first, 13) == restored_frame_002,
+            "registration still advances while the HUD overlay is suppressed"
+        );
+        assert!(draw(&mut restored, 13) == restored_frame_002);
+
+        admit_disabled_state(&mut first, id, false);
+        assert_eq!(lit(&draw(&mut first, 14)), 0);
+        admit_disabled_state(&mut first, id, true);
+        assert_eq!(
+            lit(&draw(&mut first, 15)),
+            0,
+            "next disable starts freshly at frame 000"
+        );
+        assert!(draw(&mut first, 16) == frame_001);
+        assert!(draw(&mut restored, 13) == restored_frame_002);
+        println!(
+            "Stock Disabled 000→001→002: lit pixels {}, {}, {}. Save/load, paused owner and retired/reapplied playback verified.",
+            lit(&initial),
+            lit(&frame_001),
+            lit(&restored_frame_002)
         );
     });
 }

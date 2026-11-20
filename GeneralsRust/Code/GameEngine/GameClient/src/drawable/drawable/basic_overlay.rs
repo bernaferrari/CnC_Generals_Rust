@@ -821,7 +821,7 @@ impl BasicDrawable {
                 self.overlay_data.show_disabled = false;
                 return;
             }
-            self.overlay_data.show_disabled = self.presentation_disabled;
+            self.observe_disabled_icon(self.presentation_disabled);
             return;
         }
 
@@ -845,13 +845,8 @@ impl BasicDrawable {
             || obj_guard.is_disabled_by_type(DisabledType::DisabledSubdued)
             || obj_guard.is_disabled_by_type(DisabledType::DisabledUnderpowered);
 
-        self.overlay_data.show_disabled = is_disabled;
-
-        if !is_disabled {
-            if let Some(ref mut icon_info) = self.icon_info {
-                icon_info.clear_icon(IconType::Disabled);
-            }
-        }
+        drop(obj_guard);
+        self.observe_disabled_icon(is_disabled);
     }
 
     pub fn draw_icon_ui(&mut self) {

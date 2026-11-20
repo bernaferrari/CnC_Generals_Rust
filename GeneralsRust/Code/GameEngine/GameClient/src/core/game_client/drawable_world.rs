@@ -67,6 +67,8 @@ pub struct DrawableState {
     /// Survives world invalidation so reused IDs do not inherit old bindings.
     pub(super) next_presentation_direct_binding_generation: u64,
     pub(super) text_bearing_drawables: Vec<DrawableId>,
+    /// Weak registrations for the owned Drawable icons, including staged restores.
+    pub(super) anim2d: std::sync::Arc<parking_lot::Mutex<crate::system::Anim2DCollection>>,
     // Last field: Drawable destructors run before their resource manager clears.
     pub(super) projected_decals: super::native_projected_resources::NativeProjectedDecals,
 }
@@ -87,6 +89,7 @@ impl DrawableState {
             presentation_direct_drawable_bindings: Default::default(),
             next_presentation_direct_binding_generation: 1,
             text_bearing_drawables: Vec::new(),
+            anim2d: Default::default(),
             projected_decals: Default::default(),
         }
     }
@@ -121,6 +124,9 @@ impl DrawableState {
         drawable: Box<dyn Drawable>,
         position: usize,
     ) {
+        if let Some(basic) = drawable.downcast_ref::<BasicDrawable>() {
+            basic.register_restored_disabled_icon(&self.anim2d);
+        }
         self.native_drawable_order.insert(position, id);
         self.drawable_map.insert(id, drawable);
     }

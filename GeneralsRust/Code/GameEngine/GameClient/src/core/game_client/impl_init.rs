@@ -176,9 +176,6 @@ impl GameClient {
             host_contained_flash_queue: Vec::new(),
             client_random: game_engine::common::random_value::RandomState::default(),
             audio_random: game_engine::common::random_value::RandomState::default(),
-            client_anim2d_instances: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::system::anim2_d::Anim2DCollection::new(),
-            )),
             drawables: drawable_world::DrawableWorld::new(),
             pending_drawable_post_process_order: None,
             drawable_toc: Vec::new(),
@@ -427,6 +424,7 @@ impl GameClient {
             drawable.reset_volatile_shroud_state();
         }
         self.drawables.drawable_map.clear();
+        self.drawables.anim2d = Default::default();
         self.drawables.native_drawable_order.clear();
         self.drawables.ray_effects.reset();
         self.drawables.fx.scene = Default::default();
@@ -987,13 +985,6 @@ impl GameClient {
         self.audio_random.seed_random(seed);
         self.client_random.seed_random(seed);
     }
-
-    pub(crate) fn client_anim2d_instances_handle(
-        &self,
-    ) -> std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>> {
-        self.client_anim2d_instances.clone()
-    }
-
 
     /// Borrow this client's message pipeline for its synchronous producer/consumer operations.
     pub fn message_stream(&self) -> &crate::message_stream::message_stream::MessageStream {
