@@ -131,7 +131,7 @@ pub(crate) fn out_of_weapon_range_object_state(base: &State) -> Result<bool, Str
         .get_machine_goal_object_id()
         .ok_or_else(|| "attack condition missing target".to_string())?;
     let owner_guard = owner
-        .lock()
+        .read()
         .map_err(|_| "attack condition owner lock poisoned".to_string())?;
     let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
         return Ok(false);
@@ -153,7 +153,7 @@ pub(crate) fn out_of_weapon_range_position_state(base: &State) -> Result<bool, S
         .get_machine_owner()
         .ok_or_else(|| "attack condition missing owner".to_string())?;
     let owner_guard = owner
-        .lock()
+        .read()
         .map_err(|_| "attack condition owner lock poisoned".to_string())?;
     let Some(pos) = base.get_machine_goal_position() else {
         return Ok(false);
@@ -193,10 +193,10 @@ pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> 
         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
         .ok_or_else(|| "attack condition missing target".to_string())?;
     let owner_guard = owner
-        .lock()
+        .read()
         .map_err(|_| "attack condition owner lock poisoned".to_string())?;
     let target_guard = target
-        .lock()
+        .read()
         .map_err(|_| "attack condition target lock poisoned".to_string())?;
 
     if target_guard.get_contained_by().is_some() {
@@ -247,10 +247,10 @@ pub(crate) fn cannot_possibly_attack_object_state(
         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
         .ok_or_else(|| "attack condition missing target".to_string())?;
     let owner_guard = owner
-        .lock()
+        .read()
         .map_err(|_| "attack condition owner lock poisoned".to_string())?;
     let target_guard = target
-        .lock()
+        .read()
         .map_err(|_| "attack condition target lock poisoned".to_string())?;
 
     if !owner_guard.is_able_to_attack() {
@@ -850,7 +850,7 @@ impl CppState for AIAttackAimAtTargetState {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
                 .ok_or_else(|| "attack aim missing target".to_string())?;
             let target_guard = target
-                .lock()
+                .read()
                 .map_err(|_| "attack aim target lock poisoned".to_string())?;
             if !used_contain {
                 in_range = weapon.is_within_attack_range_for_objects(
@@ -908,7 +908,7 @@ impl CppState for AIAttackAimAtTargetState {
                 crate::helpers::TheGameLogic::find_object_by_id(id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
             }) {
-                if let Ok(target_guard) = target.lock() {
+                if let Ok(target_guard) = target.read() {
                     if let Some(ai) = target_guard.get_ai_update_interface() {
                         if let Ok(mut ai_guard) = ai.lock() {
                             ai_guard.add_targeter(owner_guard.get_id(), true);

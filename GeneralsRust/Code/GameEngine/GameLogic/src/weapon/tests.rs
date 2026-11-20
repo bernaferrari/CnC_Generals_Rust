@@ -1020,6 +1020,196 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
     assert_eq!(score(&driving), (1, 1));
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn temp_weapon_dispatches_installed_armed_friend_retaliation() {
+    use crate::common::Relationship;
+    use crate::helpers::TheThingFactory;
+    use crate::modules::AIUpdateInterfaceExt;
+    use crate::object::Object;
+    use crate::player::Player;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::system::game_logic::get_game_logic;
+    use crate::team::Team;
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::ini::ini_locomotor::{LocomotorSurfaceTypeMask, LocomotorTemplate};
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::{
+        ensure_thing_factory_exists, get_thing_factory,
+    };
+
+    const NAME: &str = concat!(
+        module_path!(),
+        "::temp_weapon_dispatches_installed_armed_friend_retaliation"
+    );
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_NATIVE_ARMED_FRIEND_RETALIATION_CHILD",
+    ) {
+        return;
+    }
+
+    let impact = Coord3D::new(105.0, 105.0, 0.0);
+    let guard_position = Coord3D::new(140.0, 105.0, 0.0);
+    let mount = |world: &Arc<EngineStores>| {
+        with_active_stores(world, || {
+            assert!(ensure_thing_factory_exists());
+            if get_module_factory().unwrap().is_none() {
+                init_module_factory().unwrap();
+            }
+            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+            crate::initialize_weapon_store().unwrap();
+
+            let mut blast = WeaponTemplate::new("RetaliationBlast".into());
+            blast.primary_damage = 100.0;
+            blast.primary_damage_radius = 12.0;
+            blast.attack_range = 100.0;
+            blast.weapon_speed = 99999.0;
+            blast.min_weapon_speed = 99999.0;
+            blast.clip_size = 2;
+            blast.damage_type = crate::damage::DamageType::Unresistable;
+            blast.affects_mask = WeaponAffectsMask::new(WeaponAffectsMask::ENEMIES);
+            let weapon = crate::weapon::with_weapon_store_mut(|store| {
+                store.add_weapon_template(blast)
+            })
+            .unwrap();
+
+            let mut locomotor = LocomotorTemplate::new("RetaliationGround".into());
+            locomotor.surfaces = LocomotorSurfaceTypeMask(crate::locomotor::SURFACE_GROUND);
+            locomotor.max_speed = 3.0;
+            locomotor.acceleration = 0.1;
+            world.services().common().ini.locomotor.write().add_template(locomotor).unwrap();
+
+            assert_eq!(
+                get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
+                    r#"
+Object RetaliationAggressor
+    KindOf = VEHICLE
+    Geometry = CYLINDER
+    GeometryMajorRadius = 2
+    GeometryHeight = 4
+    Body = ActiveBody Health
+        MaxHealth = 100
+        InitialHealth = 100
+    End
+    WeaponSet
+        Conditions = None
+        Weapon = PRIMARY RetaliationBlast
+    End
+End
+Object RetaliationVictim
+    KindOf = STRUCTURE IMMOBILE
+    Geometry = CYLINDER
+    GeometryMajorRadius = 2
+    GeometryHeight = 4
+    Body = StructureBody Health
+        MaxHealth = 100
+        InitialHealth = 100
+    End
+End
+Object RetaliationResponder
+    KindOf = INFANTRY CAN_ATTACK
+    Geometry = CYLINDER
+    GeometryMajorRadius = 2
+    GeometryHeight = 4
+    Body = ActiveBody Health
+        MaxHealth = 100
+        InitialHealth = 100
+    End
+    Behavior = AIUpdateInterface RetaliationAI
+    End
+    Locomotor = SET_NORMAL RetaliationGround
+    WeaponSet
+        Conditions = None
+        Weapon = PRIMARY RetaliationBlast
+    End
+End
+"#
+                ),
+                3,
+            );
+            let make_team = |index, opponent| {
+                let team = Arc::new(RwLock::new(Team::new(
+                    format!("RetaliationTeam{index}").into(),
+                    410 + index as u32,
+                )));
+                team.write().unwrap().set_controlling_player_id(Some(index));
+                let mut player = Player::new(index as i32);
+                player.set_default_team(Some(Arc::clone(&team)));
+                player.set_player_relationship_by_index(opponent, Relationship::Enemies);
+                world.services().players().write().unwrap()
+                    .add_player(Arc::new(RwLock::new(player)));
+                team
+            };
+            let attackers = make_team(0, 1);
+            let defenders = make_team(1, 0);
+
+            let logic = get_game_logic();
+            logic.lock().unwrap().set_current_frame(37);
+            let factory = TheThingFactory::get().unwrap();
+            let spawn = |name, team, position: Coord3D| -> Arc<RwLock<Object>> {
+                let actor = factory
+                    .new_object_with_team_handle(TheThingFactory::find_template(name).unwrap(), team)
+                    .unwrap();
+                actor.write().unwrap().set_position(&position).unwrap();
+                actor
+            };
+            let source = spawn("RetaliationAggressor", attackers, Coord3D::new(55.0, 105.0, 0.0));
+            let victim = spawn("RetaliationVictim", Arc::clone(&defenders), impact);
+            let friend = spawn("RetaliationResponder", defenders, guard_position);
+            logic.lock().unwrap().update(38, || None).unwrap();
+            friend.write().unwrap().reload_all_ammo(true).unwrap();
+            let defender = victim.read().unwrap().get_controlling_player().unwrap();
+            defender
+                .write()
+                .unwrap()
+                .set_logical_retaliation_mode_enabled(true);
+            (source, victim, friend, weapon)
+        })
+    };
+
+    let driving = new_for_world();
+    let peer = new_for_world();
+    let (source, victim, friend, weapon) = mount(&driving);
+    let (peer_source, peer_victim, peer_friend, _) = mount(&peer);
+    let source_id = source.read().unwrap().get_id();
+    assert_eq!(peer_source.read().unwrap().get_id(), source_id);
+    assert_eq!(peer_victim.read().unwrap().get_id(), victim.read().unwrap().get_id());
+    assert_eq!(peer_friend.read().unwrap().get_id(), friend.read().unwrap().get_id());
+    with_active_stores(&driving, || {
+        let ai = friend.read().unwrap().get_ai().unwrap();
+        assert!(ai.is_idle());
+        {
+            let friend = friend.read().unwrap();
+            let source = source.read().unwrap();
+            assert!(matches!(
+                friend.get_able_to_attack_specific_object(
+                    crate::attack::AbleToAttackType::NewTarget,
+                    &source,
+                    crate::ai::CommandSourceType::FromAi,
+                ),
+                crate::attack::CanAttackResult::Possible
+                    | crate::attack::CanAttackResult::PossibleAfterMoving
+            ));
+        }
+        // ActiveBody.cpp:657–698 calls a real idle ally after the victim
+        // dies. The temporary fire operation leaves the aggressor unborrowed.
+        WeaponStore::create_and_fire_temp_weapon_at_pos(&weapon, source_id, &impact).unwrap();
+
+        assert_eq!(victim.read().unwrap().get_health(), 0.0);
+        assert!(victim.read().unwrap().is_effectively_dead());
+        assert_eq!(friend.read().unwrap().get_health(), 100.0);
+        assert!(!ai.is_idle());
+        let ai = ai.lock().unwrap();
+        assert_eq!(ai.get_goal_object_id(), source_id);
+        assert_eq!(ai.get_goal_position(), Some(guard_position));
+    });
+    with_active_stores(&peer, || {
+        assert_eq!(peer_victim.read().unwrap().get_health(), 100.0);
+        assert!(peer_friend.read().unwrap().get_ai().unwrap().is_idle());
+    });
+}
+
 #[test]
 fn fired_splash_uses_cpp_partition_order_and_open_3d_outer_boundary() {
     use crate::helpers::TheThingFactory;

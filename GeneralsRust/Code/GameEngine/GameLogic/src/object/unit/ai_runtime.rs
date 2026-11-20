@@ -2165,6 +2165,10 @@ impl<'runtime, 'world> UnitAiStateRuntime<'runtime, 'world> {
     }
 }
 impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
+    fn attitude(&self) -> Option<AIAttitudeType> {
+        Some(self.runtime.data.attitude)
+    }
+
     fn get_parent_state_id(&self) -> Option<u32> {
         self.parent_state_id
     }

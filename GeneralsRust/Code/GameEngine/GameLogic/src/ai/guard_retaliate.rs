@@ -1926,29 +1926,35 @@ impl AIGuardRetaliateAttackAggressorState {
         };
 
         let pos = machine.friend_position_to_guard();
-        let std_guard_range = owner
-            .read()
-            .ok()
-            .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
-            .unwrap_or(100.0);
-        let range = {
-            let Ok(owner_guard) = owner.read() else {
+        let (range, std_guard_range) = {
+            let Ok(owner) = owner.read() else {
                 return StateReturnType::Failure;
             };
-            let owner_id = owner_guard.get_id();
-            drop(owner_guard);
-
             let ai_store = the_ai();
-            let Ok(ai) = ai_store.read() else {
+            let Ok(shared_ai) = ai_store.read() else {
                 return StateReturnType::Failure;
             };
-            ai.get_adjusted_vision_range_for_object(
-                owner_id,
-                vision_factors::OWNER_TYPE | vision_factors::MOOD,
-            )
-            .unwrap_or(std_guard_range)
+            let normal = vision_factors::OWNER_TYPE | vision_factors::MOOD;
+            let guard = normal | vision_factors::GUARD_INNER;
+            // AIGuardRetaliate.cpp:768–772 uses the same AI while entering
+            // its child state. Its command already holds this interface.
+            if let Some(attitude) = ai.as_deref().and_then(|ai| ai.attitude()) {
+                (
+                    shared_ai.get_adjusted_vision_range_for_source(&owner, normal, Some(attitude)),
+                    shared_ai.get_adjusted_vision_range_for_source(&owner, guard, Some(attitude)),
+                )
+            } else {
+                let owner_id = owner.get_id();
+                drop(owner);
+                let guard = shared_ai
+                    .get_adjusted_vision_range_for_object(owner_id, guard)
+                    .unwrap_or(100.0);
+                let range = shared_ai
+                    .get_adjusted_vision_range_for_object(owner_id, normal)
+                    .unwrap_or(guard);
+                (range, guard)
+            }
         };
-
         {
             let conditions = &mut self.exit_conditions;
             conditions.set_center(pos);

@@ -179,39 +179,36 @@ pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
         if friend_id == victim.get_id() || friend_id == damager_id {
             continue;
         }
-        let _ = OBJECT_REGISTRY.with_object(friend_id, |them| {
-            if them.is_off_map() {
-                return;
-            }
-            if them.relationship_to(victim) != Relationship::Allies {
-                return;
-            }
-            if !should_retaliate(them) {
-                return;
-            }
-            if them.is_kind_of(KindOf::Immobile) {
-                return;
-            }
-            let Some(ai) = them.get_ai() else {
-                return;
-            };
-            let can_attack = matches!(
-                them.get_able_to_attack_specific_object(
-                    AbleToAttackType::NewTarget,
-                    damager,
-                    CommandSourceType::FromAi,
-                ),
-                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-            );
-            if can_attack {
-                ai.ai_guard_retaliate(
-                    damager_id,
-                    them.get_position(),
-                    i32::MAX,
-                    CommandSourceType::FromAi,
+        let response = OBJECT_REGISTRY
+            .with_object(friend_id, |them| {
+                if them.is_off_map()
+                    || them.relationship_to(victim) != Relationship::Allies
+                    || !should_retaliate(them)
+                    || them.is_kind_of(KindOf::Immobile)
+                {
+                    return None;
+                }
+                let ai = them.get_ai()?;
+                let can_attack = matches!(
+                    them.get_able_to_attack_specific_object(
+                        AbleToAttackType::NewTarget,
+                        damager,
+                        CommandSourceType::FromAi,
+                    ),
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
                 );
-            }
-        });
+                can_attack.then(|| (ai, *them.get_position()))
+            })
+            .flatten();
+        if let Some((ai, position)) = response {
+            // The command can write its receiving Object (AIUpdate.cpp:3453).
+            ai.ai_guard_retaliate(
+                damager_id,
+                &position,
+                crate::weapon::NO_MAX_SHOTS_LIMIT,
+                CommandSourceType::FromAi,
+            );
+        }
     }
 }
 

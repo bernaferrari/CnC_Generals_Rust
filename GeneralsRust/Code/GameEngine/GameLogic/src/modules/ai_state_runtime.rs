@@ -35,6 +35,11 @@ fn snap_closest_goal_position_with_interface(
 }
 
 pub(crate) trait AiStateRuntime {
+    /// The executing interface already owns the actor's current attitude.
+    fn attitude(&self) -> Option<AIAttitudeType> {
+        None
+    }
+
     /// Published parent control observed during one nested attack entry. It is
     /// neither saved state nor a second writable owner of the machine.
     fn get_parent_state_id(&self) -> Option<u32> {
@@ -260,6 +265,10 @@ pub(crate) trait AiStateRuntime {
 pub(crate) struct AiUpdateRuntimeAdapter<'a>(pub(crate) &'a mut dyn AIUpdateInterface);
 
 impl AiStateRuntime for AiUpdateRuntimeAdapter<'_> {
+    fn attitude(&self) -> Option<AIAttitudeType> {
+        Some(self.0.get_attitude())
+    }
+
     fn dispatch_command_with_driver(
         &mut self,
         params: &crate::ai::AiCommandParams,
@@ -565,6 +574,10 @@ impl AiStateRuntime for AiUpdateRuntimeAdapter<'_> {
 // Concrete existing interface implementations retain their exact operations.
 // Native UnitAiRuntime implements the capability directly after its field split.
 impl<T: AIUpdateInterface> AiStateRuntime for T {
+    fn attitude(&self) -> Option<AIAttitudeType> {
+        Some(self.get_attitude())
+    }
+
     fn dispatch_command_with_driver(
         &mut self,
         params: &crate::ai::AiCommandParams,
