@@ -133,6 +133,13 @@ pub enum OwnerMaxHealthChange {
     Active { first_delta: Option<f32> },
 }
 
+/// ActiveBody callbacks remaining after a scheduled heal has released the body.
+#[doc(hidden)]
+pub struct PendingBodyHealing {
+    pub(super) healed: bool,
+    pub(super) old_state: Option<BodyDamageType>,
+}
+
 /// Interface for body module operations
 pub trait BodyModuleInterface: Send + Sync {
     /// HiveStructureBody (propagate, swallow) flags for `damage_type`;
@@ -177,18 +184,24 @@ pub trait BodyModuleInterface: Send + Sync {
         self.attempt_damage(damage_info)
     }
 
-    /// C++ doDamageFX after onDie. Default is a no-op for bodies that do not FX.
-    fn do_damage_fx_after_death(&mut self, _damage_info: &DamageInfo) {}
+    /// C++ BodyModuleInterface::doDamageFX. Default for bodies without damage FX.
+    fn emit_damage_fx(&mut self, _damage_info: &DamageInfo) {}
+
+    fn do_damage_fx_after_death(&mut self, damage_info: &DamageInfo) {
+        self.emit_damage_fx(damage_info);
+    }
     /// Try to heal this object  
     fn attempt_healing(&mut self, healing_info: &mut DamageInfo) -> BodyResult<()>;
 
-    /// Heal while the driving scheduler lends its loading flag to the visual reaction.
-    fn attempt_healing_with_loading_state(
+    /// Commit the heal with the driving load state and return any callbacks
+    /// that must run after the body borrow. Other bodies heal synchronously.
+    fn prepare_scheduled_healing(
         &mut self,
         healing_info: &mut DamageInfo,
         _loading_map: Option<bool>,
-    ) -> BodyResult<()> {
-        self.attempt_healing(healing_info)
+    ) -> BodyResult<Option<PendingBodyHealing>> {
+        self.attempt_healing(healing_info)?;
+        Ok(None)
     }
 
     /// Estimate damage without applying it

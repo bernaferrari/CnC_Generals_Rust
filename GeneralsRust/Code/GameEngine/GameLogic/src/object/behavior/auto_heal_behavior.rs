@@ -1305,21 +1305,25 @@ impl AutoHealBehaviorModule {
             }
             (owner.get_id(), body)
         };
-        let healed = {
+        let mut info = DamageInfo::with_simple(amount, id, DamageType::Healing, DeathType::None);
+        let healing = {
             let Ok(mut body) = body.lock() else {
                 return Some(UPDATE_SLEEP_FOREVER);
             };
             if body.get_health() < body.get_max_health() {
-                let mut info = DamageInfo::with_simple(amount, id, DamageType::Healing, DeathType::None);
-                body.attempt_healing_with_loading_state(&mut info, loading_map)
-                    .is_ok()
+                body.prepare_scheduled_healing(&mut info, loading_map)
             } else {
                 return Some(UPDATE_SLEEP_FOREVER);
             }
         };
-        if healed && let Ok(mut owner) = owner.write() {
-            owner.sync_effectively_dead_from_body();
-            owner.apply_structure_rubble_pose();
+        if let Ok(callbacks) = healing {
+            if let Some(callbacks) = callbacks {
+                callbacks.deliver(&owner, &*body, &mut info);
+            }
+            if let Ok(mut owner) = owner.write() {
+                owner.sync_effectively_dead_from_body();
+                owner.apply_structure_rubble_pose();
+            }
         }
         play_heal_pulse_particle(&owner, particle.as_deref());
         entry.with_module(|module| {

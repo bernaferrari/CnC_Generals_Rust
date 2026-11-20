@@ -65,21 +65,20 @@ impl BodyModuleInterface for HighlanderBody {
             .attempt_damage_with_context(damage_info, context)
     }
 
-    fn do_damage_fx_after_death(&mut self, damage_info: &crate::damage::DamageInfo) {
-        self.active_body.do_damage_fx_after_death(damage_info);
+    fn emit_damage_fx(&mut self, damage_info: &crate::damage::DamageInfo) {
+        self.active_body.emit_damage_fx(damage_info);
     }
 
     fn attempt_healing(&mut self, healing_info: &mut DamageInfo) -> BodyResult<()> {
         self.active_body.attempt_healing(healing_info)
     }
 
-    fn attempt_healing_with_loading_state(
+    fn prepare_scheduled_healing(
         &mut self,
         healing_info: &mut DamageInfo,
         loading_map: Option<bool>,
-    ) -> BodyResult<()> {
-        self.active_body
-            .attempt_healing_with_loading_state(healing_info, loading_map)
+    ) -> BodyResult<Option<super::body_module::PendingBodyHealing>> {
+        self.active_body.prepare_scheduled_healing(healing_info, loading_map)
     }
 
     fn estimate_damage(&self, damage_info: &DamageInfoInput) -> BodyResult<f32> {

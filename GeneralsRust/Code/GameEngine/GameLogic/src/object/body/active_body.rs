@@ -6,7 +6,7 @@
 use super::body_module::{
     ArmorSetType, BodyDamageType, BodyError, BodyModule, BodyModuleData, BodyModuleInterface,
     BodyResult, DamageInfo, DamageInfoInput, DamageType, MaxHealthChangeType, ObjectId,
-    VeterancyLevel,
+    PendingBodyHealing, VeterancyLevel,
 };
 use crate::ai::{CommandSourceType, the_ai};
 use crate::attack::{AbleToAttackType, CanAttackResult};
@@ -1261,11 +1261,17 @@ impl ActiveBody {
 
     fn for_each_damage_module_mut(
         &self,
+        f: impl FnMut(&mut dyn crate::modules::DamageModuleInterface),
+    ) {
+        if let Some(owner) = self.get_owner() {
+            Self::for_each_damage_module_mut_for_owner(&owner, f);
+        }
+    }
+
+    fn for_each_damage_module_mut_for_owner(
+        owner: &Arc<RwLock<Object>>,
         mut f: impl FnMut(&mut dyn crate::modules::DamageModuleInterface),
     ) {
-        let Some(owner) = self.get_owner() else {
-            return;
-        };
         let behaviors = match owner.try_read() {
             Ok(owner_guard) => owner_guard.get_behavior_modules(),
             Err(_) => return,
@@ -1280,13 +1286,10 @@ impl ActiveBody {
         }
     }
 
-    fn with_contain_module_mut(
-        &self,
+    fn with_contain_module_for_owner(
+        owner: &Arc<RwLock<Object>>,
         mut f: impl FnMut(&mut dyn crate::modules::ContainModuleInterface),
     ) {
-        let Some(owner) = self.get_owner() else {
-            return;
-        };
         let contain = match owner.try_read() {
             Ok(owner_guard) => owner_guard.get_contain(),
             Err(_) => return,
@@ -1320,14 +1323,25 @@ impl ActiveBody {
         old_state: BodyDamageType,
         new_state: BodyDamageType,
     ) {
-        self.for_each_damage_module_mut(|damage_module| {
+        if let Some(owner) = self.get_owner() {
+            Self::notify_damage_state_for_owner(&owner, damage_info, old_state, new_state);
+        }
+    }
+
+    fn notify_damage_state_for_owner(
+        owner: &Arc<RwLock<Object>>,
+        damage_info: &DamageInfo,
+        old_state: BodyDamageType,
+        new_state: BodyDamageType,
+    ) {
+        Self::for_each_damage_module_mut_for_owner(owner, |damage_module| {
             if let Err(err) =
                 damage_module.on_body_damage_state_change(damage_info, old_state, new_state)
             {
                 log::trace!("ActiveBody body state callback failed: {err}");
             }
         });
-        self.with_contain_module_mut(|contain_module| {
+        Self::with_contain_module_for_owner(owner, |contain_module| {
             if let Err(err) =
                 contain_module.on_body_damage_state_change(damage_info, old_state, new_state)
             {
@@ -1995,7 +2009,7 @@ impl BodyModuleInterface for ActiveBody {
         }
     }
 
-    fn do_damage_fx_after_death(&mut self, damage_info: &DamageInfo) {
+    fn emit_damage_fx(&mut self, damage_info: &DamageInfo) {
         let _ = self.do_damage_fx(damage_info);
     }
 
@@ -2012,81 +2026,15 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn attempt_healing(&mut self, healing_info: &mut DamageInfo) -> BodyResult<()> {
-        self.attempt_healing_with_loading_state(healing_info, None)
+        self.heal_body(healing_info, None, false).map(|_| ())
     }
 
-    fn attempt_healing_with_loading_state(
+    fn prepare_scheduled_healing(
         &mut self,
         healing_info: &mut DamageInfo,
         loading_map: Option<bool>,
-    ) -> BodyResult<()> {
-        self.validate_armor_and_damage_fx()?;
-
-        if healing_info.input.damage_type != DamageType::Healing {
-            return self.attempt_damage(healing_info);
-        }
-
-        // C++ ActiveBody.cpp:792-795 returns before clearing output.
-        if let Some(owner) = self.get_owner() {
-            if let Ok(owner_guard) = owner.read() {
-                let is_bridge = owner_guard.is_kind_of(KindOf::Bridge)
-                    || owner_guard.is_kind_of(KindOf::BridgeTower);
-                if owner_guard.is_effectively_dead() && !is_bridge {
-                    return Ok(());
-                }
-            }
-        } else {
-            let state = &self.state;
-            if state.current_health <= 0.0 {
-                return Ok(());
-            }
-        }
-
-        healing_info.output.actual_damage_dealt = 0.0;
-        healing_info.output.actual_damage_clipped = 0.0;
-
-        let amount =
-            self.adjust_damage_by_armor(healing_info.input.damage_type, healing_info.input.amount);
-
-        if amount > 0.0 {
-            let old_state = self.get_damage_state();
-
-            // Do the healing
-            self.change_health_with_loading_state(amount, loading_map)?;
-
-            let (previous_health, current_health) = {
-                let state = &self.state;
-                healing_info.output.actual_damage_dealt = amount;
-                healing_info.output.actual_damage_clipped =
-                    state.previous_health - state.current_health;
-                (state.previous_health, state.current_health)
-            };
-
-            let frame_now = current_frame();
-
-            {
-                let state = &mut self.state;
-                state.last_damage_info = Some(healing_info.clone());
-                state.last_damage_cleared = false;
-                state.last_damage_timestamp = frame_now;
-                state.last_healing_timestamp = frame_now;
-            }
-
-            if current_health > previous_health {
-                self.notify_damage_modules_on_healing(healing_info);
-            }
-
-            // Handle damage state change
-            let new_state = self.get_damage_state();
-            if new_state != old_state {
-                self.notify_damage_modules_on_state_change(healing_info, old_state, new_state);
-            }
-        }
-
-        // Do damage FX. A failed FX call must not undo or retry the heal.
-        let _ = self.do_damage_fx(healing_info);
-
-        Ok(())
+    ) -> BodyResult<Option<PendingBodyHealing>> {
+        self.heal_body(healing_info, loading_map, true)
     }
 
     fn estimate_damage(&self, damage_info: &DamageInfoInput) -> BodyResult<f32> {
@@ -2583,7 +2531,121 @@ impl BodyModuleInterface for ActiveBody {
     }
 }
 
+impl PendingBodyHealing {
+    /// ActiveBody.cpp:825–851. The healing callbacks can inspect or change
+    /// the body. Re-read its state after those callbacks and emit FX last.
+    pub(crate) fn deliver(
+        self,
+        owner: &Arc<RwLock<Object>>,
+        body: &std::sync::Mutex<dyn BodyModuleInterface>,
+        healing_info: &mut DamageInfo,
+    ) {
+        if self.healed {
+            let behaviors = owner
+                .read()
+                .map(|owner| owner.get_behavior_modules())
+                .unwrap_or_default();
+            for mut behavior in behaviors {
+                if let Err(error) = behavior.on_healing_after_body(healing_info) {
+                    log::trace!("ActiveBody healing callback failed: {error}");
+                }
+            }
+        }
+        if let Some(old_state) = self.old_state {
+            let new_state = body.lock().ok().map(|body| body.get_damage_state());
+            if let Some(new_state) = new_state.filter(|state| *state != old_state) {
+                ActiveBody::notify_damage_state_for_owner(owner, healing_info, old_state, new_state);
+            }
+        }
+        if let Ok(mut body) = body.lock() {
+            body.emit_damage_fx(healing_info);
+        }
+    }
+}
+
 impl ActiveBody {
+    fn heal_body(
+        &mut self,
+        healing_info: &mut DamageInfo,
+        loading_map: Option<bool>,
+        scheduled: bool,
+    ) -> BodyResult<Option<PendingBodyHealing>> {
+        self.validate_armor_and_damage_fx()?;
+
+        if healing_info.input.damage_type != DamageType::Healing {
+            self.attempt_damage(healing_info)?;
+            return Ok(None);
+        }
+
+        // C++ ActiveBody.cpp:792-795 returns before clearing output.
+        if let Some(owner) = self.get_owner() {
+            if let Ok(owner_guard) = owner.read() {
+                let is_bridge = owner_guard.is_kind_of(KindOf::Bridge)
+                    || owner_guard.is_kind_of(KindOf::BridgeTower);
+                if owner_guard.is_effectively_dead() && !is_bridge {
+                    return Ok(None);
+                }
+            }
+        } else {
+            let state = &self.state;
+            if state.current_health <= 0.0 {
+                return Ok(None);
+            }
+        }
+
+        healing_info.output.actual_damage_dealt = 0.0;
+        healing_info.output.actual_damage_clipped = 0.0;
+
+        let amount =
+            self.adjust_damage_by_armor(healing_info.input.damage_type, healing_info.input.amount);
+
+        if amount > 0.0 {
+            let old_state = self.get_damage_state();
+
+            // Do the healing
+            self.change_health_with_loading_state(amount, loading_map)?;
+
+            let (previous_health, current_health) = {
+                let state = &self.state;
+                healing_info.output.actual_damage_dealt = amount;
+                healing_info.output.actual_damage_clipped =
+                    state.previous_health - state.current_health;
+                (state.previous_health, state.current_health)
+            };
+
+            let frame_now = current_frame();
+
+            {
+                let state = &mut self.state;
+                state.last_damage_info = Some(healing_info.clone());
+                state.last_damage_cleared = false;
+                state.last_damage_timestamp = frame_now;
+                state.last_healing_timestamp = frame_now;
+            }
+
+            let healed = current_health > previous_health;
+            if scheduled {
+                return Ok(Some(PendingBodyHealing { healed, old_state: Some(old_state) }));
+            }
+            if healed {
+                self.notify_damage_modules_on_healing(healing_info);
+            }
+
+            // Re-read after onHealing, which may itself adjust health.
+            let new_state = self.get_damage_state();
+            if new_state != old_state {
+                self.notify_damage_modules_on_state_change(healing_info, old_state, new_state);
+            }
+        }
+
+        if scheduled {
+            return Ok(Some(PendingBodyHealing { healed: false, old_state: None }));
+        }
+        // Do damage FX. A failed FX call must not undo or retry the heal.
+        let _ = self.do_damage_fx(healing_info);
+        Ok(None)
+    }
+
     fn change_health_with_loading_state(&mut self, delta: f32, loading_map: Option<bool>) -> BodyResult<()> {
         let is_structure = self.is_structure_for_damage_state();
         let transition = self.change_health_for_borrowed_owner(delta, is_structure)?;

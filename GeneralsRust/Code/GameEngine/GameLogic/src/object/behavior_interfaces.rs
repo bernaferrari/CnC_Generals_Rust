@@ -251,6 +251,31 @@ impl BehaviorInterfaceHandle {
         true
     }
 
+    /// ActiveBody runs onHealing without retaining the body's guard here.
+    pub(crate) fn on_healing_after_body(
+        &mut self,
+        info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use crate::modules::DamageModuleInterface;
+        use crate::object::behavior::minefield_behavior::MinefieldBehaviorModule;
+
+        if let BehaviorInterfaceKind::Template(behavior) = &self.kind
+            && behavior.entry.name().as_str().eq_ignore_ascii_case("MinefieldBehavior")
+            && let Some(result) = behavior.entry.with_module(|module| {
+                module.as_any_mut().downcast_mut::<MinefieldBehaviorModule>()
+                    .map(|mine| mine.behavior_mut().on_healing(info))
+            })
+        {
+            return result;
+        }
+        if let Ok(mut behavior) = self.access()
+            && let Some(damage) = behavior.get_damage()
+        {
+            damage.on_healing(info)?;
+        }
+        Ok(())
+    }
+
     /// Test/internal shared behavior retains its nonblocking access policy.
     /// Production views have only owned metadata and are always available.
     pub fn try_access(&mut self) -> Result<BehaviorInterfaceLease<'_>, BehaviorAccessError> {

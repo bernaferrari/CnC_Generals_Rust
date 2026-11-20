@@ -1491,4 +1491,195 @@ mod tests {
             assert_eq!(logic.get_frame(), 717);
         });
     }
+
+    #[test]
+    fn scheduled_minefield_healing_unmasks_when_first_virtual_mine_regrows() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+            "object::behavior::minefield_behavior::tests::scheduled_minefield_healing_unmasks_when_first_virtual_mine_regrows",
+            "GENERALS_MINEFIELD_REGROWTH_CHILD",
+        ) {
+            return;
+        }
+
+        use crate::system::game_logic::get_game_logic;
+        use crate::weapon::WeaponStore;
+        let world = new_for_world();
+        let peer = new_for_world();
+        let mount = |world: &Arc<_>| {
+            with_active_stores(world, || {
+                assert!(ensure_thing_factory_exists());
+                if get_module_factory().unwrap().is_none() {
+                    init_module_factory().unwrap();
+                }
+                crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+                crate::initialize_weapon_store().unwrap();
+                get_game_logic().lock().unwrap().set_current_frame(37);
+                assert_eq!(
+                    get_thing_factory()
+                        .unwrap()
+                        .as_mut()
+                        .unwrap()
+                        .load_ini_text(
+                            r#"
+    Object RegrowthDisarmingDozer
+        KindOf = VEHICLE DOZER
+        Geometry = SPHERE
+        GeometryMajorRadius = 4
+        Body = ActiveBody Health
+            InitialHealth = 100
+            MaxHealth = 100
+        End
+        Behavior = DozerAIUpdate Dozer
+        End
+    End
+    Object RegrowthLinkedMine
+        KindOf = MINE IMMOBILE
+        Geometry = CYLINDER
+        GeometryMajorRadius = 2
+        Body = ActiveBody Health
+            InitialHealth = 100
+            MaxHealth = 100
+        End
+        Behavior = MinefieldBehavior Mines
+            NumVirtualMines = 8
+            Regenerates = Yes
+            StopsRegenAfterCreatorDies = Yes
+        End
+        Behavior = AutoHealBehavior Heal
+            StartsActive = Yes
+            HealingAmount = 2
+            HealingDelay = 5000
+            StartHealingDelay = 15000
+        End
+    End
+    Object RegrowthMineCreator
+        KindOf = STRUCTURE IMMOBILE
+        Geometry = BOX
+        GeometryMajorRadius = 10
+        GeometryMinorRadius = 10
+        Body = ActiveBody Health
+            InitialHealth = 100
+            MaxHealth = 100
+        End
+    End
+    "#
+                        ),
+                    3
+                );
+                let spawn = |name, x| {
+                    let actor = TheThingFactory::get()
+                        .unwrap()
+                        .new_object_optional_team(TheThingFactory::find_template(name).unwrap(), None)
+                        .unwrap();
+                    actor
+                        .write()
+                        .unwrap()
+                        .set_position(&Coord3D::new(x, 105.0, 0.0))
+                        .unwrap();
+                    actor
+                };
+                let dozer = spawn("RegrowthDisarmingDozer", 105.0);
+                let mine = spawn("RegrowthLinkedMine", 108.0);
+                let producer = spawn("RegrowthMineCreator", 165.0);
+                mine.write()
+                    .unwrap()
+                    .set_producer(Some(&producer.read().unwrap()));
+                (dozer, mine, producer)
+            })
+        };
+        let (dozer, mine, producer) = mount(&world);
+        let (peer_dozer, peer_mine, peer_producer) = mount(&peer);
+        assert_eq!(
+            dozer.read().unwrap().get_id(),
+            peer_dozer.read().unwrap().get_id()
+        );
+        assert_eq!(
+            mine.read().unwrap().get_id(),
+            peer_mine.read().unwrap().get_id()
+        );
+        assert_eq!(
+            producer.read().unwrap().get_id(),
+            peer_producer.read().unwrap().get_id()
+        );
+
+        let observe = |mine: &Arc<RwLock<GameObject>>| {
+            let mine = mine.read().unwrap();
+            let count = mine
+                .module_by_name(&"MinefieldBehavior".into())
+                .unwrap()
+                .with_module_downcast::<MinefieldBehaviorModule, _, _>(|module| {
+                    module.behavior.virtual_mines_remaining
+                })
+                .unwrap();
+            let drawable = mine.get_drawable().unwrap();
+            let rubble = drawable
+                .read()
+                .unwrap()
+                .get_model_conditions()
+                .intersects(MODELCONDITION_RUBBLE);
+            let body = mine.get_body_module().unwrap();
+            let body = body.lock().unwrap();
+            (
+                body.get_health(),
+                body.get_last_healing_timestamp(),
+                count,
+                mine.test_status(ObjectStatusTypes::Masked),
+                rubble,
+                mine.is_destroyed(),
+            )
+        };
+        with_active_stores(&world, || {
+            let mut disarm = WeaponTemplate::new("RegrowthDozerDisarm".into());
+            disarm.primary_damage = 1.0;
+            disarm.weapon_speed = 99999.0;
+            disarm.min_weapon_speed = 99999.0;
+            disarm.attack_range = 5.0;
+            disarm.damage_type = DamageType::Disarm;
+            disarm.clip_size = 1;
+            disarm.clip_reload_time = 120;
+            let source = dozer.read().unwrap().get_id();
+            let victim = mine.read().unwrap().get_id();
+            WeaponStore::create_and_fire_temp_weapon_at_target(&Arc::new(disarm), source, victim)
+                .unwrap();
+            let (floor, _, count, masked, rubble, destroyed) = observe(&mine);
+            assert!((floor - 0.1).abs() < 0.0001);
+            assert_eq!((count, masked, rubble, destroyed), (0, true, true, false));
+
+            // Exercise ordinary scheduler, Body and Minefield delivery. The separate
+            // DISARM damage-to-AutoHeal wake bridge must supply this same deadline.
+            mine.read()
+                .unwrap()
+                .reschedule_named_update("AutoHealBehavior", 487);
+            dozer
+                .write()
+                .unwrap()
+                .set_position(&Coord3D::new(305.0, 105.0, 0.0))
+                .unwrap();
+            let mut logic = get_game_logic().lock().unwrap();
+            for frame in 38..=1388 {
+                logic.update(frame, || None).unwrap();
+                let (expected_health, last_heal, count, masked) = match frame {
+                    486 => (0.1, u32::MAX, 0, true),
+                    487 | 488 => (2.1, 487, 0, true),
+                    1237 | 1386 => (12.1, 1237, 0, true),
+                    1387 | 1388 => (14.1, 1387, 1, false),
+                    _ => continue,
+                };
+                let (health, timestamp, mines, is_masked, rubble, destroyed) = observe(&mine);
+                assert!(
+                    (health - expected_health).abs() < 0.0001,
+                    "f{frame}: HP {health}"
+                );
+                assert_eq!(
+                    (timestamp, mines, is_masked, rubble, destroyed),
+                    (last_heal, count, masked, masked, false),
+                    "f{frame}"
+                );
+            }
+        });
+        with_active_stores(&peer, || {
+            assert_eq!(observe(&peer_mine), (100.0, u32::MAX, 8, false, false, false));
+        });
+    }
 }
