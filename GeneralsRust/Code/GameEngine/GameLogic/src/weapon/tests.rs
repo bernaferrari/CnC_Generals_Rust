@@ -810,10 +810,10 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
     assert_eq!(peer_source.read().unwrap().get_id(), source_id);
     assert_eq!(peer_victim.read().unwrap().get_id(), victim_id);
     let impact = Coord3D::new(105.0, 105.0, 0.0);
-    let template = {
+    let (template, source_template) = {
         let source = source.read().unwrap();
         let (weapon, _) = source.get_current_weapon().unwrap();
-        Arc::clone(&weapon.template)
+        (Arc::clone(&weapon.template), Arc::clone(source.get_template()))
     };
     let score = |world: &EngineStores| {
         let players = world.services().players().read().unwrap();
@@ -861,8 +861,7 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
     let receiving_frame = with_active_stores(&driving, || {
         get_game_logic().lock().unwrap().get_frame()
     });
-    with_active_stores(&peer, || {
-        get_game_logic().lock().unwrap().set_current_frame(91);
+    let direct_hit = || {
         let mut damage = crate::damage::DamageInfo::with_simple(
             10.0,
             source_id,
@@ -870,11 +869,37 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
             crate::damage::DeathType::Normal,
         );
         victim.write().unwrap().attempt_damage(&mut damage).unwrap();
+        assert!(damage.input.source_template.as_ref().is_some_and(|template| {
+            Arc::ptr_eq(template, &source_template)
+        }));
+    };
+    with_active_stores(&peer, || {
+        get_game_logic().lock().unwrap().set_current_frame(91);
+        direct_hit();
     });
     assert_eq!(victim.read().unwrap().get_health(), 80.0);
     assert_eq!(peer_victim.read().unwrap().get_health(), 100.0);
     assert_eq!(attack_notice(&driving), (true, receiving_frame));
     assert_eq!(attack_notice(&peer), (false, 0));
+
+    // An already-dead actor in a different registry cannot reject damage
+    // to this living recipient with the same numeric ID (ActiveBody.cpp:335).
+    let fallen = new_for_world();
+    let (_, fallen_victim) = mount(&fallen, "FallenPositionalSource");
+    assert_eq!(fallen_victim.read().unwrap().get_id(), victim_id);
+    with_active_stores(&fallen, || {
+        fallen_victim.write().unwrap().kill(None, None);
+        assert!(fallen_victim.read().unwrap().is_effectively_dead());
+        assert!(
+            get_game_logic()
+                .lock()
+                .unwrap()
+                .find_object_by_id(victim_id)
+                .is_some_and(|actor| Arc::ptr_eq(&actor, &fallen_victim))
+        );
+        direct_hit();
+    });
+    assert_eq!(victim.read().unwrap().get_health(), 70.0);
 
     // A checked candidate keeps its actual identity across removal/replacement.
     with_active_stores(&driving, || {
@@ -897,7 +922,7 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
             source.reload_all_ammo(true).unwrap();
             source.fire_current_weapon_at_position(&impact).unwrap();
         }
-        assert_eq!(victim.read().unwrap().get_health(), 70.0);
+        assert_eq!(victim.read().unwrap().get_health(), 60.0);
         assert_eq!(attack_notice(&driving), (true, receiving_frame + 1));
         assert_eq!(attack_notice(&peer), (false, 0));
         let snapshot = {
@@ -925,10 +950,11 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
         let last_damage = || {
             let body = victim.read().unwrap().get_body_module().unwrap();
             let body = body.lock().unwrap();
-            (
-                body.get_last_damage_timestamp(),
-                body.get_last_damage_info().unwrap().input.source_id,
-            )
+            let damage = body.get_last_damage_info().unwrap();
+            assert!(damage.input.source_template.as_ref().is_some_and(|template| {
+                Arc::ptr_eq(template, &source_template)
+            }));
+            (body.get_last_damage_timestamp(), damage.input.source_id)
         };
         let (prior_damage_frame, prior_attacker) = last_damage();
         assert_eq!(prior_attacker, source_id);

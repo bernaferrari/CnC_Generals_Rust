@@ -1556,7 +1556,22 @@ impl ActiveBody {
         damage_info.output.actual_damage_dealt = 0.0;
         damage_info.output.actual_damage_clipped = 0.0;
 
-        if let Some(owner) = self.get_owner() {
+        let recipient = context.map(|context| context.recipient);
+        let attacker = context.and_then(|context| context.attacker);
+        let world = recipient.and_then(Object::owning_world_services);
+        let registry = world.as_ref().map(|world| world.object_registry());
+        let borrowed_source = |id| {
+            recipient
+                .filter(|source| source.get_id() == id)
+                .or_else(|| attacker.filter(|source| source.get_id() == id))
+        };
+
+        // ActiveBody.cpp:335–345 reads the real victim and damager.
+        if let Some(recipient) = recipient {
+            if recipient.is_effectively_dead() {
+                return Ok(());
+            }
+        } else if let Some(owner) = self.get_owner() {
             match owner.try_read() {
                 Ok(owner_guard) => {
                     if owner_guard.is_effectively_dead() {
@@ -1575,30 +1590,48 @@ impl ActiveBody {
             }
         }
 
-        if damage_info.input.source_id != INVALID_ID {
-            let mut skip_lookup = false;
-            if let Some(owner) = self.get_owner() {
-                match owner.try_read() {
-                    Ok(guard) if guard.get_id() == damage_info.input.source_id => {
-                        damage_info.input.source_template = Some(guard.get_template().clone());
-                        skip_lookup = true;
-                    }
-                    Ok(_) => {}
-                    Err(std::sync::TryLockError::WouldBlock) => {
-                        skip_lookup = true;
-                    }
-                    Err(std::sync::TryLockError::Poisoned(_)) => {
-                        skip_lookup = true;
+        let source_id = damage_info.input.source_id;
+        if source_id != INVALID_ID {
+            if let Some(recipient) = recipient {
+                let source_template = |source: &Object| Arc::clone(source.get_template());
+                let template = if let Some(source) = borrowed_source(source_id) {
+                    Some(source_template(source))
+                } else if let Some(registry) = registry {
+                    registry.with_object(source_id, source_template)
+                } else if recipient.owner_world.is_none() {
+                    OBJECT_REGISTRY.with_object(source_id, source_template)
+                } else {
+                    None
+                };
+                if let Some(template) = template {
+                    // Preserve the attacker's type for script queries after it dies.
+                    damage_info.input.source_template = Some(template);
+                }
+            } else {
+                let mut skip_lookup = false;
+                if let Some(owner) = self.get_owner() {
+                    match owner.try_read() {
+                        Ok(guard) if guard.get_id() == damage_info.input.source_id => {
+                            damage_info.input.source_template = Some(guard.get_template().clone());
+                            skip_lookup = true;
+                        }
+                        Ok(_) => {}
+                        Err(std::sync::TryLockError::WouldBlock) => {
+                            skip_lookup = true;
+                        }
+                        Err(std::sync::TryLockError::Poisoned(_)) => {
+                            skip_lookup = true;
+                        }
                     }
                 }
-            }
-            if !skip_lookup {
-                if let Some(template) = OBJECT_REGISTRY
-                    .with_object(damage_info.input.source_id, |damager_guard| {
-                        damager_guard.get_template().clone()
-                    })
-                {
-                    damage_info.input.source_template = Some(template);
+                if !skip_lookup {
+                    if let Some(template) = OBJECT_REGISTRY
+                        .with_object(damage_info.input.source_id, |damager_guard| {
+                            damager_guard.get_template().clone()
+                        })
+                    {
+                        damage_info.input.source_template = Some(template);
+                    }
                 }
             }
         }
@@ -1820,23 +1853,14 @@ impl ActiveBody {
                 )
             };
 
-            let recipient = context.map(|context| context.recipient);
-            let world = recipient.and_then(Object::owning_world_services);
             let frame_now = world
                 .as_ref()
                 .map_or_else(current_frame, |world| world.logic_frame());
-            let registry = world.as_ref().map(|world| world.object_registry());
             let history_tied = self.state.last_damage_timestamp == frame_now
                 || self.state.last_damage_timestamp == frame_now.wrapping_sub(1);
             // ActiveBody.cpp:547–570 classifies the exact incoming actor
             // and tests whether the earlier attacker is still registered.
             let source_id = damage_info.input.source_id;
-            let attacker = context.and_then(|context| context.attacker);
-            let borrowed_source = |id| {
-                recipient
-                    .filter(|source| source.get_id() == id)
-                    .or_else(|| attacker.filter(|source| source.get_id() == id))
-            };
             let is_preferred = |source: &Object| {
                 source.is_kind_of(KindOf::Vehicle)
                     || source.is_kind_of(KindOf::Infantry)
