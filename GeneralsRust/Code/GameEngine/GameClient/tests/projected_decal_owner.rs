@@ -208,6 +208,7 @@ fn receiving_live_decal_rows_keep_pixels_and_remove_absent_casters() {
             crc32fast::hash(&live_pixels)
         );
         check_sloped_decal(&mut renderer, &device, &queue, only_live[0].clone());
+        check_decal_batch_order(&mut renderer, &device, &queue, &only_live[0], &uniforms);
     });
 }
 
@@ -293,6 +294,72 @@ fn check_sloped_decal(
         "Lone Eagle slope at {center:?}, sloped and flat decal CRCs {:08x} {:08x}",
         crc32fast::hash(&sloped),
         crc32fast::hash(&flat)
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn check_decal_batch_order(
+    renderer: &mut game_client_rust::effects::particle_renderer::ParticleRenderer,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    base: &game_client_rust::effects::decals::DecalRenderItem,
+    uniforms: &game_client_rust::effects::particle_renderer::ParticleUniforms,
+) {
+    use game_client_rust::effects::decals::DecalRenderItem;
+    use glam::Vec3;
+
+    let row = |x, y, color| DecalRenderItem {
+        color,
+        position: Vec3::new(x, y, 0.0),
+        ..base.clone()
+    };
+    let mut missing = row(0.15, -0.13, [0.13, 0.46, 0.95, 0.36]);
+    missing.texture_name = "missing-adjacent-radius-decal.tga".into();
+
+    let rows = [
+        row(-0.17, 0.15, [0.68, 0.15, 0.14, 0.65]),
+        row(-0.15, 0.16, [0.19, 0.77, 0.32, 0.75]),
+        DecalRenderItem {
+            shadow_type: 0x40,
+            ..row(-0.13, 0.14, [0.33, 0.19, 0.86, 0.3])
+        },
+        row(-0.12, 0.12, [0.86, 0.68, 0.14, 0.58]),
+        missing.clone(),
+        DecalRenderItem {
+            position: Vec3::new(0.11, -0.13, 0.0),
+            color: [0.64, 0.26, 0.2, 0.52],
+            ..missing
+        },
+        row(0.15, -0.11, [0.18, 0.51, 0.24, 0.68]),
+    ];
+
+    let before = renderer.stats.draw_calls;
+    let ordered = read_projected_decal_pixels(renderer, device, queue, &rows, uniforms);
+    assert_eq!(renderer.stats.draw_calls - before, 5);
+    let mut changed_order = rows.clone();
+    changed_order.swap(2, 3);
+    assert_ne!(
+        ordered,
+        read_projected_decal_pixels(renderer, device, queue, &changed_order, uniforms),
+        "an intervening additive row with the same texture must retain its order"
+    );
+    let mut changed_missing_order = rows.clone();
+    changed_missing_order.swap(5, 6);
+    assert_ne!(
+        ordered,
+        read_projected_decal_pixels(renderer, device, queue, &changed_missing_order, uniforms),
+        "a fallback-textured row must retain its order relative to loaded art"
+    );
+    let mut loaded_only = rows;
+    loaded_only[4].texture_name.clone_from(&base.texture_name);
+    loaded_only[5].texture_name.clone_from(&base.texture_name);
+    assert_ne!(
+        ordered,
+        read_projected_decal_pixels(renderer, device, queue, &loaded_only, uniforms)
+    );
+    eprintln!(
+        "7 ordered decals in 5 receiving batches, native BGRA CRC {:08x}",
+        crc32fast::hash(&ordered)
     );
 }
 

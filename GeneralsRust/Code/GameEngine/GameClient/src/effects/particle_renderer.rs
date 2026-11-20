@@ -161,25 +161,26 @@ pub struct DecalVertex {
 
 /// C++ flushDecals is an ordered texture/type boundary, not a global bin.
 /// Only the immediately preceding compatible batch can absorb vertices.
-fn append_decal_batch(
+fn decal_batch_vertices(
     groups: &mut Vec<(String, u32, Vec<DecalVertex>)>,
     key: (String, u32),
-    vertices: Vec<DecalVertex>,
-) {
-    if let Some((texture, kind, existing)) = groups.last_mut()
-        && texture == &key.0
-        && *kind == key.1
+) -> &mut Vec<DecalVertex> {
+    if groups
+        .last()
+        .is_none_or(|(texture, kind, _)| texture != &key.0 || *kind != key.1)
     {
-        existing.extend(vertices);
-    } else {
-        groups.push((key.0, key.1, vertices));
+        groups.push((key.0, key.1, Vec::with_capacity(DECAL_DRAPE_VERTEX_COUNT)));
     }
+    &mut groups.last_mut().expect("active decal batch").2
 }
 
 const SHADOW_DECAL_TYPE: u32 = 0x0000_0001;
 const SHADOW_ADDITIVE_DECAL_TYPE: u32 = 0x0000_0040;
 const SHADOW_PROJECTION_TYPE: u32 = 0x0000_0004;
 const DECAL_DRAPE_GRID: usize = 4;
+const DECAL_DRAPE_POINTS: usize = DECAL_DRAPE_GRID + 1;
+const DECAL_DRAPE_VERTEX_COUNT: usize = DECAL_DRAPE_GRID * DECAL_DRAPE_GRID * 6;
+type DecalLattice = [[DecalVertex; DECAL_DRAPE_POINTS]; DECAL_DRAPE_POINTS];
 const DECAL_HEIGHT_LIFT: f32 = 0.15;
 
 fn decal_half_extents(decal: &DecalRenderItem) -> (f32, f32) {
@@ -203,18 +204,17 @@ fn sample_decal_ground_z(x: f32, y: f32, fallback: f32) -> f32 {
         .unwrap_or(fallback)
 }
 
-fn drape_decal_vertices(decal: &DecalRenderItem) -> Vec<DecalVertex> {
+fn build_decal_lattice(decal: &DecalRenderItem) -> Option<DecalLattice> {
     let (half_x, half_y) = decal_half_extents(decal);
     if half_x <= 0.0 || half_y <= 0.0 {
-        return Vec::new();
+        return None;
     }
     let sin_r = decal.rotation.sin();
     let cos_r = decal.rotation.cos();
     let base = decal.position;
     let color = decal.color;
-    const POINTS: usize = DECAL_DRAPE_GRID + 1;
     // Adjacent cells share the same world position, height and UV at each corner.
-    let lattice: [[DecalVertex; POINTS]; POINTS] = std::array::from_fn(|iy| {
+    Some(std::array::from_fn(|iy| {
         let v = iy as f32 / DECAL_DRAPE_GRID as f32;
         let ly = -half_y + v * half_y * 2.0;
         std::array::from_fn(|ix| {
@@ -231,9 +231,11 @@ fn drape_decal_vertices(decal: &DecalRenderItem) -> Vec<DecalVertex> {
                 uv: [u + decal.uv_offset[0], v + decal.uv_offset[1]],
             }
         })
-    });
+    }))
+}
 
-    let mut vertices = Vec::with_capacity(DECAL_DRAPE_GRID * DECAL_DRAPE_GRID * 6);
+fn append_draped_decal(vertices: &mut Vec<DecalVertex>, lattice: &DecalLattice) {
+    vertices.reserve(DECAL_DRAPE_VERTEX_COUNT);
     for iy in 0..DECAL_DRAPE_GRID {
         for ix in 0..DECAL_DRAPE_GRID {
             let top_left = lattice[iy][ix];
@@ -250,7 +252,6 @@ fn drape_decal_vertices(decal: &DecalRenderItem) -> Vec<DecalVertex> {
             ]);
         }
     }
-    vertices
 }
 
 impl ParticleBatch {
@@ -1704,10 +1705,9 @@ impl ParticleRenderer {
         // C++ flushDecals batches by texture + ShadowType. Group the same way.
         let mut groups: Vec<(String, u32, Vec<DecalVertex>)> = Vec::new();
         for decal in decals {
-            let verts = drape_decal_vertices(decal);
-            if verts.is_empty() {
+            let Some(lattice) = build_decal_lattice(decal) else {
                 continue;
-            }
+            };
             let texture_name = if decal.texture_name.is_empty()
                 || decal.texture_name.contains('.')
                 || decal.shadow_type == SHADOW_PROJECTION_TYPE
@@ -1720,7 +1720,7 @@ impl ParticleRenderer {
                 self.ensure_clamped_decal_texture(&texture_name);
             }
             let key = (texture_name, decal.shadow_type);
-            append_decal_batch(&mut groups, key, verts);
+            append_draped_decal(decal_batch_vertices(&mut groups, key), &lattice);
         }
 
         if groups.is_empty() {
@@ -2071,7 +2071,7 @@ mod tests {
             ("A.tga", 1, 5.0),
             ("A.tga", 2, 6.0),
         ] {
-            append_decal_batch(&mut groups, (texture.into(), kind), vec![vertex(stamp)]);
+            decal_batch_vertices(&mut groups, (texture.into(), kind)).push(vertex(stamp));
         }
         let actual: Vec<_> = groups
             .iter()
