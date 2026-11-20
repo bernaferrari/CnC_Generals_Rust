@@ -1185,7 +1185,9 @@ impl ParticleRenderer {
                         format: surface_format,
                         blend: Some(wgpu::BlendState {
                             color: wgpu::BlendComponent {
-                                src_factor: wgpu::BlendFactor::SrcAlpha,
+                                // WW3D SC_ADDITIVE uses ONE/ONE. Shadow.h supplies
+                                // the opacity-scaled packed diffuse components.
+                                src_factor: wgpu::BlendFactor::One,
                                 dst_factor: wgpu::BlendFactor::One,
                                 operation: wgpu::BlendOperation::Add,
                             },

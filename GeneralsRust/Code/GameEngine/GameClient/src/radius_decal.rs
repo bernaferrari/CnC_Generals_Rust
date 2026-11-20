@@ -8,7 +8,8 @@ use game_engine::common::game_lod;
 use game_engine::common::ini::{FieldParse, INI, INIError, INIResult};
 use game_engine::common::system::{Coord3D, Xfer, XferMode, XferVersion};
 use gamelogic::common::{
-    AsciiString, Bool, LOGICFRAMES_PER_SECOND, Real, SHADOW_ALPHA_DECAL, SHADOW_NAMES, UnsignedInt,
+    AsciiString, Bool, LOGICFRAMES_PER_SECOND, Real, SHADOW_ADDITIVE_DECAL, SHADOW_ALPHA_DECAL,
+    SHADOW_NAMES, UnsignedInt,
 };
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::{Player, ThePlayerList};
@@ -68,6 +69,7 @@ pub struct ShadowDecal {
     info: ShadowTypeInfo,
     angle: Real,
     color: u32,
+    additive_diffuse: u32,
     position: Coord3D,
     /// C++ `m_decalOffsetU/V` = offset * (1/size).
     uv_offset: (Real, Real),
@@ -83,6 +85,7 @@ impl ShadowDecal {
             info,
             angle: 0.0,
             color: 0xFFFF_FFFF,
+            additive_diffuse: 0xFFFF_FFFF,
             position: Coord3D::new(0.0, 0.0, 0.0),
             uv_offset: (0.0, 0.0),
             opacity: 255,
@@ -97,6 +100,7 @@ impl ShadowDecal {
 
     fn set_color(&mut self, color: u32) {
         self.color = color;
+        self.update_additive_diffuse();
     }
 
     fn set_position(&mut self, x: Real, y: Real, z: Real) {
@@ -109,6 +113,19 @@ impl ShadowDecal {
     }
     fn set_opacity(&mut self, opacity: i32) {
         self.opacity = opacity;
+        self.update_additive_diffuse();
+    }
+
+    fn update_additive_diffuse(&mut self) {
+        if self.info.shadow_type == SHADOW_ADDITIVE_DECAL {
+            // Shadow.h shifts to read each component, then ORs the scaled
+            // bytes without restoring their channel positions.
+            let opacity = self.opacity.clamp(0, 255) as f32 / 255.0;
+            let blue = real_to_int((self.color & 0xff) as f32 * opacity);
+            let green = real_to_int(((self.color >> 8) & 0xff) as f32 * opacity);
+            let red = real_to_int(((self.color >> 16) & 0xff) as f32 * opacity);
+            self.additive_diffuse = (blue | green | red) as u32;
+        }
     }
 
     fn release(&mut self) {
@@ -292,7 +309,12 @@ impl ProjectedShadowManager {
                 size_x,
                 size_y,
                 rotation: decal.angle,
-                color: argb_u32_to_rgba(decal.color, opacity),
+                color: if decal.info.shadow_type == SHADOW_ADDITIVE_DECAL {
+                    let diffuse = decal.additive_diffuse;
+                    argb_u32_to_rgba(diffuse, (diffuse >> 24) as f32 / 255.0)
+                } else {
+                    argb_u32_to_rgba(decal.color, opacity)
+                },
                 texture_name: decal.info.shadow_name.as_str().to_string(),
                 shadow_type: decal.info.shadow_type,
                 uv_offset: [decal.uv_offset.0, decal.uv_offset.1],

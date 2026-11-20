@@ -209,6 +209,7 @@ fn receiving_live_decal_rows_keep_pixels_and_remove_absent_casters() {
         );
         check_sloped_decal(&mut renderer, &device, &queue, only_live[0].clone());
         check_decal_batch_order(&mut renderer, &device, &queue, &only_live[0], &uniforms);
+        check_retail_additive_grid_style(&mut renderer, &device, &queue, &uniforms);
     });
 }
 
@@ -466,4 +467,115 @@ fn read_projected_decal_pixels(
         .chunks_exact(256)
         .flat_map(|row| row[..(4 * size.width) as usize].iter().copied())
         .collect()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn check_retail_additive_grid_style(
+    renderer: &mut game_client_rust::effects::particle_renderer::ParticleRenderer,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    uniforms: &game_client_rust::effects::particle_renderer::ParticleUniforms,
+) {
+    use game_client_rust::display::image::load_image_from_engine_filesystem;
+    use game_client_rust::effects::decals::DecalRenderItem;
+    use game_client_rust::radius_decal::{ProjectedShadowManager, ShadowTypeInfo};
+
+    let grid_image = load_image_from_engine_filesystem("EXGrid.tga").expect("retail EXGrid atlas");
+    assert!(grid_image.to_rgba8().pixels().any(|pixel| pixel[2] > 0));
+
+    let ordinary = DecalRenderItem {
+        texture_name: "EXGrid.tga".into(),
+        size: 1.5,
+        color: [0.74, 0.11, 0.17, 0.62],
+        shadow_type: gamelogic::common::SHADOW_ALPHA_DECAL,
+        ..Default::default()
+    };
+    let projection = DecalRenderItem {
+        shadow_type: gamelogic::common::SHADOW_PROJECTION,
+        ..ordinary.clone()
+    };
+    let alpha_pixels = read_projected_decal_pixels(renderer, device, queue, &[ordinary], uniforms);
+    assert_eq!(
+        alpha_pixels,
+        read_projected_decal_pixels(renderer, device, queue, &[projection], uniforms)
+    );
+    assert_ne!(
+        alpha_pixels,
+        read_projected_decal_pixels(renderer, device, queue, &[], uniforms)
+    );
+    eprintln!(
+        "EXGrid exact alpha/projection BGRA CRC {:08x}",
+        crc32fast::hash(&alpha_pixels)
+    );
+
+    let mut manager = ProjectedShadowManager::new();
+    let grid = manager
+        .add_decal(&ShadowTypeInfo {
+            allow_updates: false,
+            allow_world_align: true,
+            shadow_type: gamelogic::common::SHADOW_ADDITIVE_DECAL,
+            shadow_name: "EXGrid".into(),
+            size_x: 1.5,
+            size_y: 1.5,
+            offset_x: 0.0,
+            offset_y: 0.0,
+        })
+        .unwrap();
+    assert_eq!(
+        manager.collect_render_items_with_policy(false)[0].color,
+        [1.0; 4]
+    );
+    grid.set_color(0x0020_4080);
+    let expected = [0.0, 0.0, 224.0 / 255.0, 0.0];
+    assert_eq!(
+        manager.collect_render_items_with_policy(false)[0].color,
+        expected
+    );
+    for (opacity, blue) in [(246, 127u8), (161, 124), (8, 7)] {
+        grid.set_opacity(opacity);
+        assert_eq!(
+            manager.collect_render_items_with_policy(false)[0].color,
+            [0.0, 0.0, f32::from(blue) / 255.0, 0.0],
+        );
+    }
+    grid.set_opacity(255);
+    let actual = manager.collect_render_items_with_policy(false);
+    assert_eq!(actual.len(), 1);
+
+    // Original Shadow.h packs opacity-scaled channels with an unshifted OR.
+    // W3D flushDecals then uses ONE/ONE, including this zero-alpha input.
+    let original_style = DecalRenderItem {
+        color: expected,
+        ..actual[0].clone()
+    };
+    let cleared = read_projected_decal_pixels(renderer, device, queue, &[], uniforms);
+    let blended = read_projected_decal_pixels(renderer, device, queue, &[original_style], uniforms);
+    let blue_changes = blended
+        .chunks_exact(4)
+        .zip(cleared.chunks_exact(4))
+        .filter(|(before, after)| before[0] > after[0])
+        .count();
+    assert!(
+        blended
+            .chunks_exact(4)
+            .zip(cleared.chunks_exact(4))
+            .all(|(rgb, base)| rgb[1..] == base[1..])
+    );
+    eprintln!(
+        "EXGrid collected diffuse {:?} / original {:?}. Original packed row native blue deltas: {}. BGRA CRC {:08x} / clear {:08x}",
+        actual[0].color,
+        expected,
+        blue_changes,
+        crc32fast::hash(&blended),
+        crc32fast::hash(&cleared)
+    );
+    assert_eq!(
+        (actual[0].color, blue_changes > 0),
+        (expected, true),
+        "authored additive 0-alpha RGB+destination must preserve the raster output"
+    );
+    assert_eq!(
+        blended,
+        read_projected_decal_pixels(renderer, device, queue, &actual, uniforms)
+    );
 }
