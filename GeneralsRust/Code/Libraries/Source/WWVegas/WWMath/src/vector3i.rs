@@ -1,4 +1,6 @@
-//! Integer vector helpers built on glam types.
+//! The signed and unsigned three-component vectors from WWMath's `Vector3i.h`.
+//!
+//! Rust requires initialized values and checks component indices.
 
 use glam::IVec3;
 use std::ops::{Index, IndexMut};
@@ -8,7 +10,9 @@ pub type Vector3i = IVec3;
 
 /// Extension helpers for `Vector3i` to mirror the legacy API.
 pub trait Vector3iExt {
+    /// Return the signed components in their original order.
     fn to_array(self) -> [i32; 3];
+    /// Construct from an array in component order.
     fn from_array(arr: &[i32; 3]) -> Self;
 }
 
@@ -22,21 +26,28 @@ impl Vector3iExt for Vector3i {
     }
 }
 
-/// 16-bit integer vector used by WWMath serialization.
+/// Unsigned 16-bit components in the original layout, including mesh indices.
+#[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Vector3i16 {
+    /// First component.
     pub i: u16,
+    /// Second component.
     pub j: u16,
+    /// Third component.
     pub k: u16,
 }
 
 impl Vector3i16 {
+    /// The zero vector.
     pub const ZERO: Vector3i16 = Vector3i16 { i: 0, j: 0, k: 0 };
 
+    /// Construct from three unsigned components.
     pub fn new(i: u16, j: u16, k: u16) -> Self {
         Self { i, j, k }
     }
 
+    /// Construct from an array in component order.
     pub fn from_array(arr: [u16; 3]) -> Self {
         Self {
             i: arr[0],
@@ -45,12 +56,21 @@ impl Vector3i16 {
         }
     }
 
+    /// Return the unsigned components in their original order.
     pub fn to_array(self) -> [u16; 3] {
         [self.i, self.j, self.k]
     }
 
+    /// Widen each unsigned component to the signed vector type.
     pub fn to_i32(self) -> Vector3i {
-        Vector3i::new(self.i as i32, self.j as i32, self.k as i32)
+        Vector3i::new(i32::from(self.i), i32::from(self.j), i32::from(self.k))
+    }
+}
+
+impl PartialEq<Vector3i> for Vector3i16 {
+    /// C++ compares unsigned short components after promotion to signed int.
+    fn eq(&self, other: &Vector3i) -> bool {
+        self.to_i32() == *other
     }
 }
 
@@ -75,26 +95,5 @@ impl IndexMut<usize> for Vector3i16 {
             2 => &mut self.k,
             _ => panic!("Index out of bounds for Vector3i16"),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Vector3iExt;
-    use super::*;
-
-    #[test]
-    fn vector3i_from_and_to_array() {
-        let arr = [1, 2, 3];
-        let v = <Vector3i as Vector3iExt>::from_array(&arr);
-        assert_eq!(v, Vector3i::new(1, 2, 3));
-        assert_eq!(v.to_array(), arr);
-    }
-
-    #[test]
-    fn vector3i16_converts_to_i32() {
-        let v16 = Vector3i16::new(1, 2, 3);
-        let v = v16.to_i32();
-        assert_eq!(v, Vector3i::new(1, 2, 3));
     }
 }

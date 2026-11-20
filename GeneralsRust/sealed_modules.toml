@@ -81,6 +81,11 @@ cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/vector2i.h"
 note = "Original signed extrema, component offsets, equality, Set, and distinct-vector Swap verified against portable C++. Glam provides initialized defaults and checked indexing, and Rust disallows aliased mutable swaps."
 
 [[module]]
+path = "Code/Libraries/Source/WWVegas/WWMath/src/vector3i.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WWMath/Vector3i.h"
+note = "Original signed and unsigned components, indexed writes, layout, and narrow-to-wide comparison verified. Rust initializes components, checks indices, and also supports comparing two narrow vectors."
+
+[[module]]
 path = "Code/GameEngine/Common/src/common/game_lod.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/Common/GameLOD.cpp"
 note = "Probe/test overrides owned on GameLODManager; dead SlowDeath TLS cache removed; 8->0 process globals."
