@@ -805,7 +805,7 @@ impl GameLogic {
         }
         if !self.objects.get_mut(&ferry).unwrap().push_railed_contained_rider(passenger) { return Ok(false); }
         self.stamp_player_who_entered(ferry, passenger);
-        self.change_owned_containment_world_membership(passenger, false);
+        self.change_owned_containment_world_membership_with_track_effects(passenger, false, effects);
         self.railed_redeploy_occupants(ferry, effects)?;
         if !self.railed_birth_alive(ferry_birth) || !self.railed_birth_alive(rider_birth) { return Ok(true); }
         if !self.objects[&ferry].contained_unit_ids().contains(&passenger)

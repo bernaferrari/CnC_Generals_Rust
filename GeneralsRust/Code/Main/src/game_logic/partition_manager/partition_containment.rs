@@ -24,6 +24,38 @@ impl GameLogic {
         );
     }
 
+    pub(in crate::game_logic) fn change_owned_containment_world_membership_with_track_effects(
+        &mut self,
+        id: ObjectId,
+        add: bool,
+        _effects: &mut ScriptPresentationEffects<'_>,
+    ) {
+        change_world_membership(
+            &mut self.objects,
+            &mut self.partition_manager,
+            &mut self.ai_groups,
+            &mut self.pathfinding_system,
+            id,
+            add,
+            &mut Vec::new(),
+            true,
+            &mut |_actor| {
+                #[cfg(feature = "game_client")]
+                _effects.cap_owned_drawable_tracks(
+                    _actor,
+                    self.world_services.terrain().as_ref(),
+                    || {
+                        Self::live_draw_playback_identity_in_world(
+                            &self.live_draw_playback_world,
+                            self.visual_world_epoch,
+                            _actor,
+                        )
+                    },
+                );
+            },
+        );
+    }
+
     /// TunnelTracker::loadPostProcess visits only the saved passenger itself.
     pub(crate) fn restore_cave_passenger_world_membership(&mut self, id: ObjectId) {
         change_world_membership(

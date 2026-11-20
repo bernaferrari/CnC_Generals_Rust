@@ -11,6 +11,7 @@ use game_engine::common::system::archive_file_system::ArchiveFileSystem;
 use std::io::Read;
 
 const EPOCH: u64 = 103;
+const FERRY_MODEL: &str = "CVFerry";
 
 struct RetailTrackUnit {
     template: &'static str,
@@ -74,6 +75,12 @@ fn retail_quad_cannon_entering_tunnel_caps_its_track_before_redeployment() {
 
 #[test]
 #[ignore = "requires mounted retail sources and native WGPU"]
+fn retail_tank_boarding_ferry_breaks_its_track_before_redeployment() {
+    exercise_retail_track(BATTLEMASTER, TrackExercise::FerryEnter);
+}
+
+#[test]
+#[ignore = "requires mounted retail sources and native WGPU"]
 fn retail_tank_stationary_invisible_stealth_look_caps_its_track() {
     exercise_retail_track(BATTLEMASTER, TrackExercise::InvisibleStealth);
 }
@@ -127,6 +134,7 @@ enum TrackExercise {
     Disguise,
     TurnInPlace,
     TunnelEnter,
+    FerryEnter,
     InvisibleStealth,
 }
 
@@ -171,6 +179,20 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
             .load_model_from_bytes(&code, unit.model)
             .unwrap(),
     );
+    if matches!(exercise, TrackExercise::FerryEnter) {
+        let mut ferry_code = Vec::new();
+        archive
+            .open_file(&format!("Art/W3D/{FERRY_MODEL}.w3d"), 0)
+            .unwrap()
+            .read_to_end(&mut ferry_code)
+            .unwrap();
+        graphics.cache_model(
+            crate::assets::mesh_asset_resolve::canonical_model_key(FERRY_MODEL),
+            W3DLoader::new()
+                .load_model_from_bytes(&ferry_code, FERRY_MODEL)
+                .unwrap(),
+        );
+    }
     let definitions = RetailWorldDefinitions::load().unwrap();
     let mut make_world = |position: Vec3| {
         let mut world = GameLogic::new();
@@ -260,7 +282,10 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
 
     let placements: &[f32] = if matches!(
         exercise,
-        TrackExercise::TurnInPlace | TrackExercise::TunnelEnter | TrackExercise::InvisibleStealth
+        TrackExercise::TurnInPlace
+            | TrackExercise::TunnelEnter
+            | TrackExercise::FerryEnter
+            | TrackExercise::InvisibleStealth
     ) {
         &[45.0, 70.0, 95.0]
     } else {
@@ -390,10 +415,12 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
             assert_eq!(peer.active_edge_count(), 0);
             return;
         }
-        TrackExercise::TunnelEnter | TrackExercise::InvisibleStealth => {
+        TrackExercise::TunnelEnter
+        | TrackExercise::FerryEnter
+        | TrackExercise::InvisibleStealth => {
             assert_eq!(edges_before.last().unwrap().alpha, 1.0);
-            let entering_tunnel = matches!(exercise, TrackExercise::TunnelEnter);
-            if !entering_tunnel {
+            let hiding_by_stealth = matches!(exercise, TrackExercise::InvisibleStealth);
+            if hiding_by_stealth {
                 let mut observer = Player::new(1, Team::USA, "Enemy Track Observer", true);
                 observer.set_map_relationship(0, gamelogic::common::Relationship::Enemies);
                 world.add_player(observer);
@@ -408,12 +435,13 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
                 &mut render,
                 &mut graphics,
                 &mut world,
-                |world, effects| {
-                    if entering_tunnel {
-                        enter_retail_tunnel(world, id, effects);
-                    } else {
-                        hide_retail_track_by_stealth_look(world, id, effects);
+                |world, effects| match exercise {
+                    TrackExercise::TunnelEnter => enter_retail_tunnel(world, id, effects),
+                    TrackExercise::FerryEnter => enter_retail_ferry(world, id, effects),
+                    TrackExercise::InvisibleStealth => {
+                        hide_retail_track_by_stealth_look(world, id, effects)
                     }
+                    _ => unreachable!("one of the effective-hide exercises"),
                 },
             );
             let terrain = render.native_terrain().unwrap();
@@ -427,7 +455,7 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
                 "effective Drawable hide must cap the existing strip"
             );
             assert!(track.have_cap());
-            assert_eq!(track.have_anchor(), entering_tunnel);
+            assert_eq!(track.have_anchor(), !hiding_by_stealth);
             let peer = peer_render
                 .native_terrain()
                 .unwrap()
@@ -460,6 +488,47 @@ fn exercise_retail_track(unit: RetailTrackUnit, exercise: TrackExercise) {
             .unwrap()
             .receives_terrain_track(&peer_receipt)
     );
+}
+
+fn enter_retail_ferry(
+    world: &mut GameLogic,
+    id: ObjectId,
+    effects: &mut ScriptPresentationEffects<'_>,
+) {
+    world.with_own_services_mut(|world| {
+        let position = Vec3::new(150.0, 0.0, 50.0);
+        let ferry = world
+            .create_object_with_script_effects_checked(
+                "CivilianVehicleFerry",
+                Team::China,
+                position,
+                None,
+                effects,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(world.railed_dock_accepts_rider(ferry, id));
+        let source = world.current_native_slave_source(ferry, 0).unwrap();
+        assert!(
+            effects
+                .view
+                .as_deref_mut()
+                .unwrap()
+                .pristine_client_bone_transforms(&source, "FIREPOINT", 1, 32)
+                .unwrap()
+                .is_empty(),
+            "retail CVFerry redeploys riders at its center through the original no-firepoint route"
+        );
+        assert!(
+            world
+                .railed_add_contained_with_effects(ferry, id, effects)
+                .unwrap()
+        );
+        let rider = world.objects.get(&id).unwrap();
+        assert_eq!(rider.contained_by, Some(ferry));
+        assert!(rider.drawable_is_effectively_hidden());
+        assert_eq!(rider.get_position(), position);
+    });
 }
 
 fn hide_retail_track_by_stealth_look(
