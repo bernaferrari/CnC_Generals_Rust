@@ -9,6 +9,13 @@
 
 use super::campaign_manager::CampaignManager;
 use super::challenge_generals::{ChallengeGenerals, NUM_GENERALS};
+use game_engine::common::system::{
+    file::FileAccess,
+    file_system::{FileSystem, get_file_system},
+};
+use gamelogic::system::map_loader::MapLoader;
+use std::path::Path;
+use std::sync::Mutex;
 
 /// One mission step on a campaign chain, including briefing/score fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,8 +130,6 @@ pub fn campaign_map_stem(map_name: &str) -> String {
         .to_string()
 }
 
-use std::path::Path;
-
 /// Resolve a Campaign.ini map name against extracted MapsZH.
 pub fn resolve_campaign_map_file(map_name: &str) -> Option<std::path::PathBuf> {
     let stem = campaign_map_stem(map_name);
@@ -156,6 +161,20 @@ pub fn resolve_campaign_map_file(map_name: &str) -> Option<std::path::PathBuf> {
         }
     }
     None
+}
+
+fn campaign_map_loadable(files: &Mutex<FileSystem>, map_name: &str) -> bool {
+    // DifficultySelect and ChallengeMenu pass the authored map name to the
+    // original loader. TerrainLogic opens it through the mounted filesystem.
+    let mounted = files
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .open_mounted_file(map_name, FileAccess::READ);
+    let bytes = match mounted {
+        Some(mut file) => file.read_entire_and_close().ok(),
+        None => resolve_campaign_map_file(map_name).and_then(|path| std::fs::read(path).ok()),
+    };
+    bytes.is_some_and(|bytes| MapLoader::new().load_runtime_support_from_bytes(&bytes).is_ok())
 }
 
 /// Public helper used by host/golden: init INI store then walk USA/GLA/China
@@ -195,14 +214,14 @@ pub fn run_retail_campaign_and_challenge_playthrough() -> CampaignPlaythroughRep
                 .and_then(|(_, steps)| steps.first().cloned())
         });
 
+    let files = get_file_system();
     let usa_maps_on_disk = usa
         .iter()
-        .filter(|s| resolve_campaign_map_file(&s.map_name).is_some())
+        .filter(|s| campaign_map_loadable(&files, &s.map_name))
         .count();
     let challenge_map_on_disk = challenge
         .as_ref()
-        .and_then(|s| resolve_campaign_map_file(&s.map_name))
-        .is_some();
+        .is_some_and(|s| campaign_map_loadable(&files, &s.map_name));
 
     CampaignPlaythroughReport {
         campaigns_loaded: manager.campaign_count(),
@@ -231,6 +250,7 @@ pub struct CampaignPlaythroughReport {
     pub challenge_general_starts: Vec<(usize, CampaignPlaythroughStep)>,
     pub challenge_generals_unimplemented: usize,
     pub challenge_first: Option<CampaignPlaythroughStep>,
+    /// Maps that decode from the installed archives or loose files.
     pub usa_maps_on_disk: usize,
     pub challenge_map_on_disk: bool,
 }
@@ -315,6 +335,74 @@ mod tests {
     use super::*;
 
     #[test]
+    fn campaign_map_proof_reads_archives_and_rejects_missing_or_truncated_maps() {
+        use game_engine::common::system::{
+            DataChunkOutput,
+            big_file_system::BigArchiveBackend,
+            compression::{CompressionLevel, CompressionType, compress_data},
+            file_system::FileSystemBackend,
+        };
+
+        const VALID: &str = "Maps\\CampaignArchiveProof\\Complete.map";
+        const TRUNCATED: &str = "Maps\\CampaignArchiveProof\\Truncated.map";
+        const MISSING: &str = "Maps\\CampaignArchiveProof\\Missing.map";
+
+        let mut raw = DataChunkOutput::new();
+        raw.open_data_chunk("HeightMapData", 3);
+        for value in [2, 2, 0, 4] {
+            raw.write_int(value);
+        }
+        for sample in [1, 2, 3, 4] {
+            raw.write_byte(sample);
+        }
+        raw.close_data_chunk();
+        let compressed = compress_data(
+            &raw.into_ckmp_bytes(),
+            CompressionType::RefPack,
+            CompressionLevel::Default,
+        )
+        .unwrap();
+        let members = [
+            (VALID, compressed.as_slice()),
+            (TRUNCATED, &compressed[..compressed.len() / 2]),
+        ];
+
+        let directory_size = 16 + members.iter().map(|(name, _)| 9 + name.len()).sum::<usize>();
+        let data_size = members.iter().map(|(_, bytes)| bytes.len()).sum::<usize>();
+        let mut archive = Vec::new();
+        archive.extend_from_slice(b"BIGF");
+        archive.extend_from_slice(&((directory_size + data_size) as u32).to_le_bytes());
+        archive.extend_from_slice(&(members.len() as u32).to_be_bytes());
+        archive.extend_from_slice(&(directory_size as u32).to_be_bytes());
+        let mut offset = directory_size;
+        for (name, bytes) in members {
+            archive.extend_from_slice(&(offset as u32).to_be_bytes());
+            archive.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+            archive.extend_from_slice(name.as_bytes());
+            archive.push(0);
+            offset += bytes.len();
+        }
+        for (_, bytes) in members {
+            archive.extend_from_slice(bytes);
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("MapsZH.big"), archive).unwrap();
+        let mut backend = BigArchiveBackend::new();
+        backend.add_search_path(directory.path());
+        backend.init();
+        let mut file_system = FileSystem::new();
+        file_system.register_backend(Box::new(backend));
+        assert!(resolve_campaign_map_file(VALID).is_none());
+        assert!(file_system.does_file_exist(TRUNCATED));
+
+        let file_system = Mutex::new(file_system);
+        assert!(campaign_map_loadable(&file_system, VALID));
+        assert!(!campaign_map_loadable(&file_system, TRUNCATED));
+        assert!(!campaign_map_loadable(&file_system, MISSING));
+    }
+
+    #[test]
     fn usa_gla_china_and_all_challenge_generals_playthrough() {
         crate::test_support::ensure_ambient_host();
         if game_engine::common::system::install_layout::find_genseczh_big().is_none() {
@@ -350,7 +438,10 @@ mod tests {
             "md_usa01"
         );
         assert!(!report.usa_missions[0].movie_label.is_empty());
-        assert!(resolve_campaign_map_file(&report.usa_missions[0].map_name).is_some());
+        assert!(campaign_map_loadable(
+            &get_file_system(),
+            &report.usa_missions[0].map_name,
+        ));
         // C++ ScoreScreen startNextCampaignGame uses CampaignManager::getCurrentMap
         // after gotoNextMission; USA chain is MD_USA01 → MD_USA02.
         let mut score_mgr = CampaignManager::new();
@@ -367,6 +458,7 @@ mod tests {
         );
         let challenge = report.challenge_first.expect("challenge first mission");
         assert!(challenge.map_name.to_ascii_lowercase().contains("gc_"));
+        assert!(report.challenge_map_on_disk);
         assert_eq!(report.challenge_campaigns.len(), 9);
         assert_eq!(report.challenge_general_starts.len(), 9);
         assert_eq!(report.challenge_generals_unimplemented, 3);
