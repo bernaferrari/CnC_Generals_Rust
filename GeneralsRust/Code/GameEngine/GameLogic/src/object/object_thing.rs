@@ -168,6 +168,7 @@ impl std::fmt::Debug for ObjectWorld {
 pub(crate) struct ObjectThingHandle {
     object: Weak<RwLock<Object>>,
     world: Option<ObjectWorld>,
+    module_birth_frame: Option<u32>,
 }
 
 impl ObjectThingHandle {
@@ -175,11 +176,25 @@ impl ObjectThingHandle {
         Self {
             object: Arc::downgrade(object),
             world: None,
+            module_birth_frame: None,
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn with_world(object: &Arc<RwLock<Object>>, world: Option<ObjectWorld>) -> Self {
-        Self { object: Arc::downgrade(object), world }
+        Self::with_world_and_birth_frame(object, world, None)
+    }
+
+    pub(crate) fn with_world_and_birth_frame(
+        object: &Arc<RwLock<Object>>,
+        world: Option<ObjectWorld>,
+        module_birth_frame: Option<u32>,
+    ) -> Self {
+        Self {
+            object: Arc::downgrade(object),
+            world,
+            module_birth_frame,
+        }
     }
 
     fn with_object<F, R>(&self, f: F) -> Option<R>
@@ -283,15 +298,8 @@ impl ModuleThing for ObjectDrawableThingHandle {
 pub(crate) fn supplied_module_owner(
     thing: &dyn ModuleThing,
 ) -> Result<Arc<RwLock<Object>>, String> {
-    let thing: &dyn std::any::Any = thing;
-    let handle = if let Some(handle) = thing.downcast_ref::<ObjectThingHandle>() {
-        handle
-    } else if let Some(handle) = thing.downcast_ref::<ObjectDrawableThingHandle>() {
-        &handle.object
-    } else {
-        return Err("module Thing does not carry an exact Object owner".into());
-    };
-    handle
+    supplied_object_thing_handle(thing)
+        .ok_or("module Thing does not carry an exact Object owner")?
         .object
         .upgrade()
         .ok_or("module Thing owner has retired".into())
@@ -299,13 +307,21 @@ pub(crate) fn supplied_module_owner(
 
 /// Receiving world passed at Object assembly, if that assembly has a driving world.
 pub(crate) fn supplied_module_world(thing: &dyn ModuleThing) -> Option<ObjectWorld> {
+    supplied_object_thing_handle(thing)?.world.clone()
+}
+
+/// Operation input from the GameLogic allocating this Object identity.
+pub(crate) fn supplied_module_birth_frame(thing: &dyn ModuleThing) -> Option<u32> {
+    supplied_object_thing_handle(thing)?.module_birth_frame
+}
+
+fn supplied_object_thing_handle(thing: &dyn ModuleThing) -> Option<&ObjectThingHandle> {
     let thing: &dyn std::any::Any = thing;
-    let handle = if let Some(handle) = thing.downcast_ref::<ObjectThingHandle>() {
-        handle
-    } else {
-        &thing.downcast_ref::<ObjectDrawableThingHandle>()?.object
-    };
-    handle.world.clone()
+    thing.downcast_ref::<ObjectThingHandle>().or_else(|| {
+        thing
+            .downcast_ref::<ObjectDrawableThingHandle>()
+            .map(|handle| &handle.object)
+    })
 }
 
 pub(crate) fn make_drawable_module_thing_handle(

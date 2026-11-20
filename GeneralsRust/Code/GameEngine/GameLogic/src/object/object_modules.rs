@@ -932,6 +932,7 @@ impl Object {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -943,6 +944,7 @@ impl Object {
         body_definitions: Option<&Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&ModuleFactory>,
         cave_system: Option<crate::object::ObjectWorld>,
+        module_birth_frame: Option<u32>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let unpublished = !object
             .read()
@@ -963,8 +965,11 @@ impl Object {
             let _ = thing_template.module_descriptors();
         }
 
-        let thing_handle: Arc<ObjectThingHandle> =
-            Arc::new(ObjectThingHandle::with_world(object, cave_system.clone()));
+        let thing_handle = Arc::new(ObjectThingHandle::with_world_and_birth_frame(
+            object,
+            cave_system.clone(),
+            module_birth_frame,
+        ));
         let module_handle: Arc<dyn ModuleThing> = thing_handle.clone();
         let mut modules_to_install: Vec<Arc<ModuleEntry>> = Vec::new();
 

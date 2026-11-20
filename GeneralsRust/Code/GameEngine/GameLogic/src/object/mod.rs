@@ -2514,7 +2514,8 @@ mod vision;
 
 pub use object_thing::ObjectArcExt;
 pub(crate) use object_thing::{
-    ObjectThingHandle, make_drawable_module_thing_handle, supplied_module_world, supplied_module_owner,
+    ObjectThingHandle, make_drawable_module_thing_handle, supplied_module_birth_frame,
+    supplied_module_owner, supplied_module_world,
 };
 pub use object_thing::ObjectWorld;
 pub use object_xfer::ObjectXferError;

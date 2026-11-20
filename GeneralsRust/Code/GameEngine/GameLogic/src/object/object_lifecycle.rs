@@ -122,11 +122,13 @@ impl Object {
             None,
             cave_system,
             owner_roster,
+            None,
         )
     }
 
     /// Assemble the same installed modules/cache without ambient publication.
     /// Native onCreate/admission services are a separate explicit phase.
+    #[cfg(test)]
     pub(super) fn new_unpublished_preparing_ai(
         thing_template: Arc<dyn ThingTemplate>,
         object_id: ObjectID,
@@ -148,37 +150,11 @@ impl Object {
             None,
             cave_system,
             owner_roster,
+            None,
         )
     }
 
-    pub(super) fn new_unpublished_preparing_ai_with_locomotors(
-        thing_template: Arc<dyn ThingTemplate>,
-        object_id: ObjectID,
-        object_status_mask: ObjectStatusMaskType,
-        team: Option<Arc<RwLock<Team>>>,
-        prepare_unit_ai: bool,
-        lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
-        body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
-        module_factory: &game_engine::common::thing::module_factory::ModuleFactory,
-        cave_system: Option<crate::object::ObjectWorld>,
-        owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
-    ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
-        Self::new_with_id_admission(
-            thing_template,
-            object_id,
-            object_status_mask,
-            team,
-            prepare_unit_ai,
-            false,
-            Some(lookup),
-            Some(body_definitions),
-            Some(module_factory),
-            cave_system,
-            owner_roster,
-        )
-    }
-
-    fn new_with_id_admission(
+    pub(super) fn new_with_id_admission(
         thing_template: Arc<dyn ThingTemplate>,
         object_id: ObjectID,
         object_status_mask: ObjectStatusMaskType,
@@ -190,6 +166,7 @@ impl Object {
         module_factory: Option<&game_engine::common::thing::module_factory::ModuleFactory>,
         cave_system: Option<crate::object::ObjectWorld>,
         owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
+        module_birth_frame: Option<u32>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         // set_team runs on the still-unshared object: registration below is
         // what publishes the id, so the previous uniquely-owned write guard
@@ -246,6 +223,7 @@ impl Object {
             body_definitions.as_ref(),
             module_factory.or(local_catalog.as_ref()),
             cave_system,
+            module_birth_frame,
         ) {
             if publish && object_id != INVALID_ID {
                 OBJECT_REGISTRY.unregister_object(object_id);

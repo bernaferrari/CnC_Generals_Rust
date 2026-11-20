@@ -314,6 +314,14 @@ impl MinefieldBehavior {
         object: Arc<RwLock<GameObject>>,
         module_data: game_engine::common::thing::module::ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Self::new_with_birth_frame(object, module_data, None)
+    }
+
+    pub(crate) fn new_with_birth_frame(
+        object: Arc<RwLock<GameObject>>,
+        module_data: game_engine::common::thing::module::ModuleDataHandle,
+        module_birth_frame: Option<u32>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         if !module_data.is::<MinefieldBehaviorModuleData>() {
             return Err("Invalid module data".into());
         }
@@ -330,7 +338,10 @@ impl MinefieldBehavior {
         Ok(Self {
             object_id,
             owner: Arc::downgrade(&object),
-            next_call_frame_and_phase: crate::helpers::TheGameLogic::get_frame().saturating_add(1),
+            // MinefieldBehavior.cpp:102 uses UPDATE_SLEEP_NONE (one frame).
+            next_call_frame_and_phase: module_birth_frame
+                .unwrap_or_else(TheGameLogic::get_frame)
+                .saturating_add(1),
             next_death_check_frame: 0,
             scoot_frames_left: 0,
             scoot_vel: Coord3D::new(0.0, 0.0, 0.0),
@@ -1276,6 +1287,11 @@ mod tests {
         let receiving = new_for_world();
         let foreign = new_for_world();
         with_active_stores(&foreign, || {
+            foreign
+                .game_logic_mutex()
+                .lock()
+                .unwrap()
+                .set_current_frame(17);
             let template = install_mine_template();
             let team = Arc::new(RwLock::new(Team::new("ForeignMineTeam".into(), 1)));
             let peer = TheThingFactory::get()
@@ -1287,6 +1303,7 @@ mod tests {
                 .set_status(OBJECT_STATUS_NO_ATTACK_FROM_AI, false);
 
             let mut logic = GameLogic::new_with_engine_stores(Arc::clone(&receiving));
+            logic.set_current_frame(384);
             let definitions = Arc::new(
                 BodyDefinitionCatalog::new(
                     Some(&GlobalData::default()),
@@ -1324,6 +1341,7 @@ mod tests {
                 .unwrap();
             field
                 .with_module_downcast::<MinefieldBehaviorModule, _, _>(|module| {
+                    assert_eq!(module.initial_wake_frame(), 385);
                     let behavior = module.behavior_mut();
                     let mut damage = DamageInfo::with_simple(
                         55.0,
@@ -1340,6 +1358,97 @@ mod tests {
             assert_eq!(peer.get_health(), 100.0);
             assert!(!peer.test_status(ObjectStatusTypes::NoAttackFromAi));
             assert!(!peer.test_status(ObjectStatusTypes::Masked));
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn mounted_mine_birth_uses_the_locked_driver_frame_and_restores_the_saved_wake() {
+        use crate::object::body::active_body::BodyDefinitionCatalog;
+        use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
+        use crate::test_process::{TestProcess, run_bounded};
+        use game_engine::common::global_data::GlobalData;
+        use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+        use std::io::Cursor;
+
+        const NAME: &str = concat!(
+            module_path!(),
+            "::mounted_mine_birth_uses_the_locked_driver_frame_and_restores_the_saved_wake"
+        );
+        if let TestProcess::ParentVerified = run_bounded(
+            NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+            "GENERALS_CORE_MINE_BIRTH_FRAME_CHILD",
+        ) {
+            return;
+        }
+
+        let world = new_for_world();
+        with_active_stores(&world, || {
+            let template = install_mine_template();
+            let modules = get_module_factory().unwrap();
+            let modules = modules.as_ref().unwrap();
+            let definitions = Arc::new(
+                BodyDefinitionCatalog::new(
+                    Some(&GlobalData::default()),
+                    Default::default(),
+                    Default::default(),
+                )
+                .unwrap(),
+            );
+            let mut factory = ObjectFactory::new();
+            let mut logic = world.game_logic_mutex().lock().unwrap();
+            logic.set_current_frame(384);
+            let id = factory
+                .prepare_object_owned(
+                    &mut logic,
+                    Arc::clone(&template),
+                    Coord3D::ZERO,
+                    None,
+                    ObjectCreationFlags::NO_AI,
+                    &mut |_: &str| Ok(None),
+                    Arc::clone(&definitions),
+                    modules,
+                )
+                .unwrap();
+            let field = logic
+                .find_object_by_id(id)
+                .unwrap()
+                .read()
+                .unwrap()
+                .module_by_name(&"MinefieldBehavior".into())
+                .unwrap();
+            let mut saved = Vec::new();
+            field
+                .with_module_downcast::<MinefieldBehaviorModule, _, _>(|module| {
+                    assert_eq!(module.initial_wake_frame(), 385);
+                    module
+                        .xfer(&mut XferSave::new(Cursor::new(&mut saved), 1))
+                        .unwrap();
+                })
+                .unwrap();
+
+            logic.set_current_frame(717);
+            let mut restored = ObjectFactory::new();
+            restored
+                .prepare_saved_object(template, id, &mut |_: &str| Ok(None), definitions, modules)
+                .unwrap();
+            restored
+                .get_object(id)
+                .unwrap()
+                .get_base_object()
+                .unwrap()
+                .read()
+                .unwrap()
+                .module_by_name(&"MinefieldBehavior".into())
+                .unwrap()
+                .with_module_downcast::<MinefieldBehaviorModule, _, _>(|module| {
+                    module
+                        .xfer(&mut XferLoad::new(saved.as_slice(), 1))
+                        .unwrap();
+                    assert_eq!(module.initial_wake_frame(), 385);
+                })
+                .unwrap();
+            assert_eq!(logic.get_frame(), 717);
         });
     }
 }

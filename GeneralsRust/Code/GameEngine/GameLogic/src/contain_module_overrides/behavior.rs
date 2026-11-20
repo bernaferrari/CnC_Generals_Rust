@@ -119,7 +119,8 @@ pub(super) fn minefield_behavior_module_factory(
         Ok(object) => object,
         Err(error) => return failed_initialization_module("MinefieldBehavior", module_data, error),
     };
-    let behavior = MinefieldBehavior::new(object, module_data.clone())
+    let frame = crate::object::supplied_module_birth_frame(thing.as_ref());
+    let behavior = MinefieldBehavior::new_with_birth_frame(object, module_data.clone(), frame)
         .expect("MinefieldBehavior failed to initialize");
     let module_name = AsciiString::from("MinefieldBehavior");
     Box::new(MinefieldBehaviorModule::new(

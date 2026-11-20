@@ -265,6 +265,7 @@ impl ObjectFactory {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -288,6 +289,7 @@ impl ObjectFactory {
             ObjectStatusMaskType::NONE,
             false,
             Some(game_logic.allocate_object_id()),
+            Some(game_logic.get_frame()),
             None,
             None,
             None,
@@ -326,6 +328,7 @@ impl ObjectFactory {
             ObjectStatusMaskType::NONE,
             false,
             Some(game_logic.allocate_object_id()),
+            Some(game_logic.get_frame()),
             Some(lookup),
             Some(body_definitions),
             Some(module_factory),
@@ -367,6 +370,8 @@ impl ObjectFactory {
             ObjectStatusMaskType::NONE,
             false,
             Some(object_id),
+            // The original saved update wake is applied by Xfer.
+            Some(0),
             Some(lookup),
             Some(body_definitions),
             Some(module_factory),
@@ -384,6 +389,7 @@ impl ObjectFactory {
         extra_status: ObjectStatusMaskType,
         publish: bool,
         saved_id: Option<ObjectID>,
+        mut module_birth_frame: Option<u32>,
         lookup: Option<&mut crate::locomotor::LocomotorTemplateLookup<'_>>,
         body_definitions: Option<Arc<crate::object::body::active_body::BodyDefinitionCatalog>>,
         module_factory: Option<&ModuleFactory>,
@@ -409,6 +415,7 @@ impl ObjectFactory {
                 if owner_roster.is_none() {
                     owner_roster = logic.owned_player_list();
                 }
+                module_birth_frame = Some(logic.get_frame());
                 logic.allocate_object_id()
             }
         };
@@ -428,35 +435,26 @@ impl ObjectFactory {
         // C++ Object.cpp:419-429 caches an AI interface only from an authored
         // module. A supplied native constructor must not synthesize the legacy
         // Unit fallback when the template has no AI module.
-        let base_object = if let Some(lookup) = lookup {
-            Object::new_unpublished_preparing_ai_with_locomotors(
-                template.clone(),
-                object_id,
-                status_mask,
-                team.clone(),
-                prepare_ai,
-                lookup,
-                body_definitions.ok_or("native Object construction body definitions absent")?,
-                module_factory.ok_or("native Object construction module catalog absent")?,
-                cave_system,
-                owner_roster,
-            )?
-        } else {
-            let assemble = if publish {
-                Object::new_with_id_preparing_ai
-            } else {
-                Object::new_unpublished_preparing_ai
-            };
-            assemble(
-                template.clone(),
-                object_id,
-                status_mask,
-                team.clone(),
-                prepare_ai,
-                cave_system,
-                owner_roster,
-            )?
-        };
+        if lookup.is_some() && body_definitions.is_none() {
+            return Err("native Object construction body definitions absent".into());
+        }
+        if lookup.is_some() && module_factory.is_none() {
+            return Err("native Object construction module catalog absent".into());
+        }
+        let base_object = Object::new_with_id_admission(
+            template.clone(),
+            object_id,
+            status_mask,
+            team.clone(),
+            prepare_ai,
+            publish,
+            lookup,
+            body_definitions,
+            module_factory,
+            cave_system,
+            owner_roster,
+            module_birth_frame,
+        )?;
 
         // Set object ID and position
         {
