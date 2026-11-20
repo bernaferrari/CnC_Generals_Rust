@@ -9,6 +9,10 @@ impl TerrainVisualImpl {
     ) -> TerrainResult<()> {
         self.device = Some(Arc::clone(&device));
         self.queue = Some(Arc::clone(&queue));
+        self.shoreline_meshes.clear();
+        self.polygon_water_meshes.clear();
+        self.overlay.polygon_water_mesh_stamp = None;
+        self.overlay.overlays_dirty = true;
         self.terrain_material_bind_groups.clear();
         self.chunk_texture_bindings.clear();
         self.chunk_meshes.clear();

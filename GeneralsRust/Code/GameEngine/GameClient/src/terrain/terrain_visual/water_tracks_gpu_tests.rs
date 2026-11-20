@@ -6,6 +6,63 @@ use crate::terrain::water_tracks::{
 
 #[test]
 #[ignore = "requires a serialized native GPU"]
+fn unchanged_water_and_shoreline_keep_their_gpu_buffers() {
+    use game_engine::common::common_services::{CommonServices, with_common_services};
+
+    let (device, queue) = native_water_test_device();
+    let mut visual = TerrainVisualImpl::new();
+    visual.device = Some(Arc::clone(&device));
+    visual.queue = Some(Arc::clone(&queue));
+    let points = [[0.0, 0.0, 1.0], [4.0, 0.0, 1.0], [4.0, 4.0, 1.0], [0.0, 4.0, 1.0]];
+    visual.overlay.shoreline_tiles.push(crate::terrain::ShoreLineTile {
+        packed_xy: 0,
+        verts: points,
+        t: [0.0, 0.25, 0.5, 0.75],
+    });
+    visual.set_map_water_areas(vec![TerrainWaterArea {
+        points: points.to_vec(),
+        is_river: false,
+        river_start: 0,
+    }]);
+    visual.rebuild_all_overlays();
+    let buffers = |visual: &TerrainVisualImpl| {
+        let water = &visual.polygon_water_meshes[0];
+        let shore = &visual.shoreline_meshes[0];
+        (water.vertex_buffer.clone(), shore.vertex_buffer.clone())
+    };
+    let (first_water, first_shore) = buffers(&visual);
+    // Client-frame refresh and a separate dirty-overlay flush can run together.
+    visual.sync_polygon_water_meshes(&device).unwrap();
+    visual.rebuild_all_overlays();
+    assert_eq!(buffers(&visual), (first_water.clone(), first_shore.clone()));
+
+    visual.overlay.river_v_origin += 0.002;
+    visual.sync_polygon_water_meshes(&device).unwrap();
+    let (advanced_water, unchanged_shore) = buffers(&visual);
+    assert_ne!(advanced_water, first_water);
+    assert_eq!(unchanged_shore, first_shore);
+
+    let elevated = points.map(|[x, y, z]| [x, y, z + 1.0]);
+    visual.set_map_water_areas(vec![TerrainWaterArea {
+        points: elevated.to_vec(),
+        is_river: false,
+        river_start: 0,
+    }]);
+    let (replaced_water, _) = buffers(&visual);
+    assert_ne!(replaced_water, advanced_water);
+    let common = Arc::new(CommonServices::new());
+    with_common_services(&common, || visual.init_gpu_resources(device, queue)).unwrap();
+    visual.rebuild_all_overlays();
+    let (recreated_water, recreated_shore) = buffers(&visual);
+    assert_ne!(recreated_water, replaced_water);
+    assert_ne!(recreated_shore, first_shore);
+
+    visual.set_map_water_areas(Vec::new());
+    assert!(visual.polygon_water_meshes.is_empty());
+}
+
+#[test]
+#[ignore = "requires a serialized native GPU"]
 fn adjacent_water_tracks_preserve_ordered_color_and_shroud_pixels() {
     let (device, queue) = native_water_test_device();
     let mut visual = TerrainVisualImpl::new();

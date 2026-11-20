@@ -391,6 +391,14 @@ pub struct OverlayGpuState {
     pub overlays_dirty: bool,
     pub cloud_map: crate::terrain::textures::CloudMapTexture,
     pub last_sway_version: i32,
+    polygon_water_mesh_stamp: Option<PolygonWaterMeshStamp>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PolygonWaterMeshStamp {
+    river_phase: u32,
+    diffuse: u32,
+    feather: i32,
 }
 
 #[derive(Default)]

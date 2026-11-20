@@ -190,6 +190,7 @@ impl TerrainVisualImpl {
 
     pub fn set_map_water_areas(&mut self, areas: Vec<TerrainWaterArea>) {
         self.overlay.water_areas = areas;
+        self.overlay.polygon_water_mesh_stamp = None;
         self.overlay.overlays_dirty = true;
         if let Some(device) = self.device.clone() {
             let _ = self.sync_polygon_water_meshes(device.as_ref());
@@ -524,13 +525,23 @@ impl TerrainVisualImpl {
     }
 
     fn sync_polygon_water_meshes(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
-        self.polygon_water_meshes.clear();
         if self.overlay.water_areas.is_empty() {
+            self.polygon_water_meshes.clear();
+            self.overlay.polygon_water_mesh_stamp = None;
             return Ok(());
         }
         let feather = self.water_rules.feather_water.max(0);
         let diffuse = self.standing_water_diffuse_packed();
         let river_v = self.overlay.river_v_origin;
+        let stamp = PolygonWaterMeshStamp {
+            river_phase: river_v.to_bits(),
+            diffuse,
+            feather,
+        };
+        if self.overlay.polygon_water_mesh_stamp == Some(stamp) {
+            return Ok(());
+        }
+        self.polygon_water_meshes.clear();
         let layers = if feather > 0 { feather.min(5) } else { 1 };
         for area in &self.overlay.water_areas {
             if area.points.len() < 3 {
@@ -586,6 +597,7 @@ impl TerrainVisualImpl {
                 k += 2;
             }
         }
+        self.overlay.polygon_water_mesh_stamp = Some(stamp);
         Ok(())
     }
 
@@ -1079,7 +1091,11 @@ impl TerrainVisualImpl {
         }
     }
     fn rebuild_all_overlays(&mut self) {
-        self.upload_shoreline_meshes();
+        // The shoreline height/rules producers upload their new tiles directly.
+        // Only cold or recreated GPU resources need a deferred upload here.
+        if self.shoreline_meshes.is_empty() && !self.overlay.shoreline_tiles.is_empty() {
+            self.upload_shoreline_meshes();
+        }
         if let Some(device) = self.device.clone() {
             self.upload_water_grid_mesh(device.as_ref());
             let _ = self.sync_polygon_water_meshes(device.as_ref());
