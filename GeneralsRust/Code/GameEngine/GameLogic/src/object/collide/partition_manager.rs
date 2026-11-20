@@ -13,6 +13,7 @@ use crate::common::{PlayerMaskType, Relationship};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::terrain::get_terrain_logic;
 use game_engine::common::discrete_circle::DiscreteCircle;
+use game_engine::common::fast_hash::FxHashSet;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
@@ -312,6 +313,8 @@ pub struct PartitionManager {
     objects: HashMap<ObjectId, PartitionObject>,
     /// Contact list for collision detection
     contact_list: Vec<(ObjectId, ObjectId)>,
+    /// Reused membership scratch for pairs that can share several cells.
+    contact_pairs_seen: FxHashSet<(ObjectId, ObjectId)>,
     /// C++ storeFoggedCells keyed by `(player_index, store_to_fog)`.
     fogged_cells: HashMap<(usize, bool), HashSet<CellCoord>>,
     /// C++ PartitionCell shroud levels on the 40wu grid.
@@ -335,6 +338,7 @@ impl PartitionManager {
             cells: HashMap::new(),
             objects: HashMap::new(),
             contact_list: Vec::new(),
+            contact_pairs_seen: FxHashSet::default(),
             fogged_cells: HashMap::new(),
             shroud: super::partition_shroud::PartitionShroudGrid::new(),
             updated_since_last_reset: false,
@@ -652,22 +656,29 @@ impl PartitionManager {
     /// Matches C++ PartitionManager collision detection
     pub fn build_contact_list(&mut self) {
         self.contact_list.clear();
+        self.contact_pairs_seen.clear();
         for cell in self.cells.values() {
-            let objects: Vec<ObjectId> = cell.objects.iter().copied().collect();
-            for i in 0..objects.len() {
-                for j in (i + 1)..objects.len() {
-                    let id_a = objects[i];
-                    let id_b = objects[j];
-                    if let (Some(obj_a), Some(obj_b)) =
+            for (i, &id_a) in cell.objects.iter().enumerate() {
+                for &id_b in &cell.objects[i + 1..] {
+                    let (Some(obj_a), Some(obj_b)) =
                         (self.objects.get(&id_a), self.objects.get(&id_b))
-                    {
-                        let max_radius = obj_a.geometry.get_bounding_circle_radius()
-                            + obj_b.geometry.get_bounding_circle_radius();
-                        let dx = obj_a.position.x - obj_b.position.x;
-                        let dy = obj_a.position.y - obj_b.position.y;
-                        if dx * dx + dy * dy <= max_radius * max_radius {
-                            self.contact_list.push((id_a, id_b));
+                    else {
+                        continue;
+                    };
+                    // PartitionManager.cpp:2354–2361 deduplicates both sides
+                    // without changing the first encounter's orientation.
+                    if obj_a.cells.len() > 1 && obj_b.cells.len() > 1 {
+                        let pair = (id_a.min(id_b), id_a.max(id_b));
+                        if !self.contact_pairs_seen.insert(pair) {
+                            continue;
                         }
+                    }
+                    let max_radius = obj_a.geometry.get_bounding_circle_radius()
+                        + obj_b.geometry.get_bounding_circle_radius();
+                    let dx = obj_a.position.x - obj_b.position.x;
+                    let dy = obj_a.position.y - obj_b.position.y;
+                    if dx * dx + dy * dy <= max_radius * max_radius {
+                        self.contact_list.push((id_a, id_b));
                     }
                 }
             }
@@ -1846,6 +1857,7 @@ impl PartitionManager {
         self.cells.clear();
         self.objects.clear();
         self.contact_list.clear();
+        self.contact_pairs_seen.clear();
         self.shroud.clear();
         self.updated_since_last_reset = false;
     }
@@ -2062,6 +2074,40 @@ mod tests {
 
         assert_eq!(contacts.len(), 1); // Only 1 and 2 should be in contact
         assert!(contacts.contains(&(1, 2)) || contacts.contains(&(2, 1)));
+    }
+
+    #[test]
+    fn overlapping_cells_emit_one_contact_in_its_first_encounter_order() {
+        let mut pm = PartitionManager::new();
+        let geometry = GeometryInfo::new_cylinder(105., 12., false);
+        let first = Coord3D::new(131., 126., 0.);
+        let second = Coord3D::new(136., 128., 0.);
+        pm.register_object(7, first, geometry).unwrap();
+        pm.register_object(8, second, geometry).unwrap();
+
+        // The two occupancies share 21 buckets. Reflect either iteration
+        // orientation, including cells listing the same pair reversed.
+        assert_eq!(pm.cells.len(), 21);
+        let first_cell = pm.cells.values_mut().next().unwrap();
+        assert_eq!(first_cell.objects, [8, 7]);
+        first_cell.objects.swap(0, 1);
+        assert!(pm.cells.values().any(|cell| cell.objects == [8, 7]));
+        let ids = &pm.cells.values().next().unwrap().objects;
+        let encounter = (ids[0], ids[1]);
+
+        for _ in 0..2 {
+            pm.build_contact_list();
+            assert_eq!(pm.get_contact_list(), &[encounter]);
+        }
+
+        pm.update_object_position(7, Coord3D::new(500., 126., 0.))
+            .unwrap();
+        pm.build_contact_list();
+        assert!(pm.get_contact_list().is_empty());
+
+        pm.update_object_position(7, first).unwrap();
+        pm.build_contact_list();
+        assert_eq!(pm.get_contact_list(), &[(7, 8)]);
     }
 
     #[test]
