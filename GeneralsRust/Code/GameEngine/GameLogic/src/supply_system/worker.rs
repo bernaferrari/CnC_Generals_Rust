@@ -123,6 +123,15 @@ struct WorkerDozerTask {
     started_construction: bool,
 }
 
+#[cfg(test)]
+#[derive(Debug, PartialEq)]
+pub(crate) struct WorkerBuildOrderObservation {
+    pub request_target: ObjectID,
+    pub action_target: ObjectID,
+    pub order_frame: u32,
+    pub docks: [Option<Coord3D>; 3],
+}
+
 #[derive(Debug, Clone, Copy)]
 struct WorkerDockPoint {
     valid: bool,
@@ -477,32 +486,6 @@ impl WorkerAIUpdate {
         };
     }
 
-    fn find_action_position_for_target(&self, owner: &Object, target: &Object) -> Coord3D {
-        let radius = target.get_geometry_info().get_bounding_sphere_radius();
-        let start_angle = (owner.get_position().y - target.get_position().y)
-            .atan2(owner.get_position().x - target.get_position().x);
-        let mut options = FindPositionOptions::default();
-        options.min_radius = radius;
-        options.max_radius = radius;
-        options.start_angle = Some(start_angle);
-
-        let mut result = *target.get_position();
-        if let Some(partition) = ThePartitionManager::get() {
-            if partition.find_position_around_with_options(
-                target.get_position(),
-                &options,
-                &mut result,
-            ) {
-                return Coord3D::new(result.x, result.y, result.z);
-            }
-        }
-        Coord3D::new(
-            target.get_position().x,
-            target.get_position().y,
-            target.get_position().z,
-        )
-    }
-
     fn bridge_scaffold_blocks_heal(tower_id: ObjectID) -> bool {
         let Some(tower_obj) = TheGameLogic::find_object_by_id(tower_id) else {
             return false;
@@ -595,42 +578,70 @@ impl WorkerAIUpdate {
         }
     }
 
-    fn new_task(&mut self, task: WorkerDozerTaskSlot, target_id: ObjectID) {
-        // Wave 298: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
+    fn construction_objects(
+        &self,
+        target_id: ObjectID,
+    ) -> Option<(Arc<RwLock<Object>>, Arc<RwLock<Object>>)> {
+        if self.object_id == INVALID_ID || dual_world_registry_unavailable() {
+            return None;
         }
-
-        if self.object_id == INVALID_ID {
-            return;
+        let owner = TheGameLogic::find_object_by_id(self.object_id)?;
+        // The legacy construction query runs in the published Core world. Its
+        // installed Worker must be the owner registered in that same world.
+        if self.owner.as_ref().is_some_and(|bound| {
+            !std::ptr::eq(bound.as_ptr(), Arc::as_ptr(&owner))
+        }) {
+            return None;
         }
-        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
-            return;
-        };
-        let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
-            return;
+        Some((owner, TheGameLogic::find_object_by_id(target_id)?))
+    }
+
+    fn new_task(
+        &mut self,
+        task: WorkerDozerTaskSlot,
+        owner: Arc<RwLock<Object>>,
+        target: Arc<RwLock<Object>>,
+        owner_airborne: bool,
+    ) -> Option<ObjectID> {
+        use crate::object::update::ai_update::dozer_ai_update::DozerAIUpdate;
+
+        let mut dock = Coord3D::ZERO;
+        let has_dock = matches!(task, WorkerDozerTaskSlot::Build | WorkerDozerTaskSlot::Repair);
+        let (direct_target, target_id) = {
+            let owner = owner.read().ok()?;
+            let target = target.read().ok()?;
+            let direct = target.get_id();
+            let selected = if has_dock {
+                // WorkerAIUpdate.cpp:619–620 uses the shared Dozer order dock.
+                DozerAIUpdate::find_good_build_or_repair_position_and_target_with_locomotor(
+                    &owner, &target, &mut dock, Some(owner_airborne),
+                )?
+            } else {
+                direct
+            };
+            (direct, selected)
         };
 
-        self.preferred_dock = None;
-
-        if task == WorkerDozerTaskSlot::Build || task == WorkerDozerTaskSlot::Repair {
-            let pos = self.find_action_position_for_target(&owner_guard, &target_guard);
-            self.set_dock_points_for_task(task, pos);
-        }
+        // WorkerAIUpdate.cpp:631–645 claims the selected building before
+        // writing all three dock points and the task's original order frame.
         if task == WorkerDozerTaskSlot::Build {
-            if let Ok(mut target_write) = target.write() {
-                target_write.set_builder(Some(&owner_guard));
-            }
+            let target = if direct_target == target_id {
+                target
+            } else {
+                TheGameLogic::find_object_by_id(target_id)?
+            };
+            target.write().ok()?.set_builder_id(self.object_id);
         }
-
-        self.dozer_tasks[task.as_index()].target_id = target_id;
-        self.dozer_tasks[task.as_index()].order_frame = TheGameLogic::get_frame();
+        self.preferred_dock = None;
+        if has_dock {
+            self.set_dock_points_for_task(task, dock);
+        }
+        self.dozer_tasks[task.as_index()] = WorkerTaskEntry {
+            target_id,
+            order_frame: TheGameLogic::get_frame(),
+        };
         self.set_current_task(Some(task));
+        Some(target_id)
     }
 
     fn spawn_dozer_task_from_current(&mut self) {
@@ -681,21 +692,13 @@ impl WorkerAIUpdate {
     }
 
     /// Issue a repair task to this worker (matches C++ WorkerAIUpdate::privateRepair).
-    pub fn set_repair_target(&mut self, target_id: ObjectID, cmd_source: CommandSourceType) {
-        // Wave 298: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        if self.object_id == INVALID_ID {
-            return;
-        }
-        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
+    pub fn set_repair_target(
+        &mut self,
+        target_id: ObjectID,
+        cmd_source: CommandSourceType,
+        owner_airborne: bool,
+    ) {
+        let Some((owner, target)) = self.construction_objects(target_id) else {
             return;
         };
         let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
@@ -710,7 +713,11 @@ impl WorkerAIUpdate {
             return;
         }
 
-        self.new_task(WorkerDozerTaskSlot::Repair, target_id);
+        drop(target_guard);
+        drop(owner_guard);
+        let Some(target_id) = self.new_task(WorkerDozerTaskSlot::Repair, owner, target, owner_airborne) else {
+            return;
+        };
         self.dozer_task = Some(WorkerDozerTask {
             task_type: WorkerDozerTaskType::Repair,
             target_id,
@@ -729,21 +736,9 @@ impl WorkerAIUpdate {
         &mut self,
         target_id: ObjectID,
         cmd_source: CommandSourceType,
+        owner_airborne: bool,
     ) {
-        // Wave 298: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        if self.object_id == INVALID_ID {
-            return;
-        }
-        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
+        let Some((owner, target)) = self.construction_objects(target_id) else {
             return;
         };
         let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
@@ -759,7 +754,11 @@ impl WorkerAIUpdate {
             .map(|b| b.get_max_health())
             .unwrap_or(0.0);
 
-        self.new_task(WorkerDozerTaskSlot::Build, target_id);
+        drop(target_guard);
+        drop(owner_guard);
+        let Some(target_id) = self.new_task(WorkerDozerTaskSlot::Build, owner, target, owner_airborne) else {
+            return;
+        };
         self.dozer_task = Some(WorkerDozerTask {
             task_type: WorkerDozerTaskType::ResumeConstruction,
             target_id,
@@ -780,11 +779,17 @@ impl WorkerAIUpdate {
         total_build_frames: u32,
         max_health: f32,
         is_rebuild: bool,
+        owner_airborne: bool,
     ) {
-        self.new_task(WorkerDozerTaskSlot::Build, building_id);
+        let Some((owner, target)) = self.construction_objects(building_id) else {
+            return;
+        };
+        let Some(target_id) = self.new_task(WorkerDozerTaskSlot::Build, owner, target, owner_airborne) else {
+            return;
+        };
         self.dozer_task = Some(WorkerDozerTask {
             task_type: WorkerDozerTaskType::Build,
-            target_id: building_id,
+            target_id,
             dock_point: None,
             failed_attempts: 0,
             build_total_frames: total_build_frames.max(1),

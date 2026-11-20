@@ -370,7 +370,9 @@ impl UnitAiStateRuntime<'_, '_> {
             crate::ai::AiCommandType::Repair => {
                 if let Some(target_id) = command.obj {
                     if let Some(worker_ai) = self.runtime.components.worker_ai.as_mut() {
-                        worker_ai.set_repair_target(target_id, command.cmd_source);
+                        let owner_airborne = self.runtime.data.locomotor_set.get_active()
+                            .is_some_and(|locomotor| locomotor.get_legal_surfaces() & SURFACE_AIR != 0);
+                        worker_ai.set_repair_target(target_id, command.cmd_source, owner_airborne);
                     } else if let Some(dozer_ai) = self.runtime.components.dozer_ai.as_mut() {
                         dozer_ai.set_repair_target(target_id, command.cmd_source);
                     }
@@ -379,7 +381,9 @@ impl UnitAiStateRuntime<'_, '_> {
             crate::ai::AiCommandType::ResumeConstruction => {
                 if let Some(target_id) = command.obj {
                     if let Some(worker_ai) = self.runtime.components.worker_ai.as_mut() {
-                        worker_ai.set_resume_construction_target(target_id, command.cmd_source);
+                        let owner_airborne = self.runtime.data.locomotor_set.get_active()
+                            .is_some_and(|locomotor| locomotor.get_legal_surfaces() & SURFACE_AIR != 0);
+                        worker_ai.set_resume_construction_target(target_id, command.cmd_source, owner_airborne);
                     } else if let Some(dozer_ai) = self.runtime.components.dozer_ai.as_mut() {
                         dozer_ai.set_resume_construction_target(target_id, command.cmd_source);
                     }

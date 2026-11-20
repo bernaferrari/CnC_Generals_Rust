@@ -287,7 +287,13 @@ impl AIPlayer {
                         owner_airborne,
                     );
                 } else if let Some(worker_ai) = ai_g.get_worker_ai_update_interface_mut() {
-                    worker_ai.set_build_task(bldg_id, total_build_frames, build_max_health, false);
+                    worker_ai.set_build_task(
+                        bldg_id,
+                        total_build_frames,
+                        build_max_health,
+                        false,
+                        owner_airborne,
+                    );
                 }
             }
         }

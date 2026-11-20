@@ -1589,7 +1589,7 @@ impl DozerAIUpdate {
         )
     }
 
-    fn find_good_build_or_repair_position_and_target_with_locomotor(
+    pub(crate) fn find_good_build_or_repair_position_and_target_with_locomotor(
         me: &Object,
         target: &Object,
         position_out: &mut Coord3D,

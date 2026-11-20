@@ -155,6 +155,7 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
                                     total_build_frames,
                                     build_max_health,
                                     false,
+                                    owner_airborne,
                                 );
                             } else if let Some(dozer_ai) =
                                 ai_guard.get_dozer_ai_update_interface_mut()

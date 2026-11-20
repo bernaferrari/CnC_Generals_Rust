@@ -428,6 +428,7 @@ impl RebuildHoleBehavior {
                                 total_build_frames,
                                 build_max_health,
                                 true,
+                                owner_airborne,
                             );
                         } else if let Some(dozer_ai) = ai_guard.get_dozer_ai_update_interface_mut()
                         {

@@ -633,12 +633,26 @@ impl SupplyTruckAIInterface for WorkerAIUpdate {
 }
 
 impl WorkerAIUpdateInterface for WorkerAIUpdate {
+    #[cfg(test)]
+    fn construction_order_for_test(&self) -> Option<WorkerBuildOrderObservation> {
+        let task = WorkerDozerTaskSlot::Build.as_index();
+        let request = &self.dozer_tasks[task];
+        let action = self.dozer_task.as_ref()?;
+        Some(WorkerBuildOrderObservation {
+            request_target: request.target_id,
+            action_target: action.target_id,
+            order_frame: request.order_frame,
+            docks: self.dozer_dock_points[task].map(|dock| dock.valid.then_some(dock.location)),
+        })
+    }
+
     fn set_build_task(
         &mut self,
         building_id: ObjectID,
         total_build_frames: u32,
         max_health: f32,
         is_rebuild: bool,
+        owner_airborne: bool,
     ) {
         WorkerAIUpdate::set_build_task(
             self,
@@ -646,6 +660,7 @@ impl WorkerAIUpdateInterface for WorkerAIUpdate {
             total_build_frames,
             max_health,
             is_rebuild,
+            owner_airborne,
         );
     }
 }

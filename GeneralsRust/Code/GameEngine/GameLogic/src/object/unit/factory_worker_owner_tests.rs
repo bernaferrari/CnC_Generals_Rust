@@ -187,6 +187,112 @@ fn worker_wire(ai: &mut dyn AIUpdateInterface) -> Vec<u8> {
     wire.into_inner()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn installed_worker_build_orders_claim_before_starting_and_preserve_an_order_on_failure() {
+    use crate::common::INVALID_ID;
+    use crate::helpers::{TheTerrainLogic, TheThingFactory};
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+
+    if !child(concat!(module_path!(), "::installed_worker_build_orders_claim_before_starting_and_preserve_an_order_on_failure")) {
+        return;
+    }
+
+    fn admit(world: &Arc<EngineStores>, frame: u64) -> (ObjectID, Arc<Mutex<dyn AIUpdateInterface>>) {
+        with_active_stores(world, || {
+            worker_definitions();
+            world.game_logic_mutex().lock().unwrap().set_current_frame(frame);
+            world.ai().read().unwrap().pathfinder().unwrap().write().unwrap().reset_with_size(40, 40);
+            world.services().terrain().write().unwrap()
+                .try_restore_logic_height_map_with_effects(40, 40, &[0; 1600], &mut || {}).unwrap();
+            let definition = "
+                Object WorkerConstructionSite
+                    KindOf = STRUCTURE IMMOBILE
+                    Geometry = CYLINDER
+                    GeometryMajorRadius = 20
+                    GeometryHeight = 12
+                End
+            ";
+            assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(definition), 1);
+            let team = worker_team(9703, 0);
+            world.services().players().write().unwrap().get_player(0).unwrap().write().unwrap()
+                .set_default_team(Some(Arc::clone(&team)));
+            let template = TheThingFactory::find_template("WorkerOwnerWorker").unwrap();
+            let worker = TheThingFactory::get().unwrap().new_object_with_team_handle(template, team).unwrap();
+            let mut worker = worker.write().unwrap();
+            worker.set_position(&Coord3D::new(65., 105., 0.)).unwrap();
+            let id = worker.get_id();
+            let ai = worker.get_ai_update_interface().unwrap();
+            drop(worker);
+            let mut parent = ai.lock().unwrap();
+            parent.choose_locomotor_set(crate::common::LocomotorSetType::Normal).unwrap();
+            let mut surfaces = None;
+            parent.with_cur_locomotor(&mut |locomotor| surfaces = Some(locomotor.get_legal_surfaces()));
+            assert_eq!(surfaces, Some(SURFACE_GROUND));
+            assert!(parent.get_worker_ai_update_interface_mut().is_some());
+            drop(parent);
+            (id, ai)
+        })
+    }
+
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    let (worker_id, ai) = admit(&receiving, 37);
+    let (peer_worker_id, peer_ai) = admit(&peer, 71);
+    assert_eq!(worker_id, peer_worker_id);
+    let place = |world: &Arc<EngineStores>, builder, x| with_active_stores(world, || {
+        GameLogicBuildAssistantBackend.build_object_now(
+            builder, "WorkerConstructionSite", &BuildPosition { x, y: 105., z: 0. }, 0., 0,
+        ).unwrap()
+    });
+    let peer_site_id = place(&peer, None, 450.);
+    let site_id = place(&receiving, Some(worker_id), 105.);
+    assert_eq!(site_id, peer_site_id);
+
+    let site = receiving.game_logic_mutex().lock().unwrap().find_object_by_id(site_id).unwrap();
+    let peer_site = peer.game_logic_mutex().lock().unwrap().find_object_by_id(peer_site_id).unwrap();
+    assert_eq!(site.read().unwrap().get_builder_id(), worker_id);
+    assert_eq!(peer_site.read().unwrap().get_builder_id(), INVALID_ID);
+    let receiving_order = ai.lock().unwrap().get_worker_ai_update_interface_mut().unwrap()
+        .construction_order_for_test().unwrap();
+    assert_eq!(receiving_order.request_target, site_id);
+    assert_eq!(receiving_order.action_target, site_id);
+    assert_eq!(receiving_order.order_frame, 37);
+    assert!(receiving_order.docks[0].is_some());
+    assert_eq!(receiving_order.docks, [receiving_order.docks[0]; 3]);
+
+    with_active_stores(&receiving, || {
+        let mut peer_ai = peer_ai.lock().unwrap();
+        let worker = peer_ai.get_worker_ai_update_interface_mut().unwrap();
+        worker.set_build_task(site_id, 30, 100., false, false);
+        assert!(worker.construction_order_for_test().is_none());
+    });
+
+    with_active_stores(&peer, || {
+        let mut peer_ai = peer_ai.lock().unwrap();
+        let owner_airborne = crate::object::contain::transport_contain::selected_locomotor_is_airborne(&*peer_ai);
+        let worker = peer_ai.get_worker_ai_update_interface_mut().unwrap();
+        assert!(worker.construction_order_for_test().is_none());
+        // PartitionManager.cpp:3868–3871 accepts the scripted off-map center.
+        // DozerAIUpdate.cpp:1863–1868 biases it by half this site's major radius.
+        assert!(TheTerrainLogic::get().unwrap().get_maximum_pathfind_extent().hi.x < 440.);
+        worker.set_build_task(peer_site_id, 30, 100., false, owner_airborne);
+        let pending = worker.construction_order_for_test().unwrap();
+        assert_eq!(pending.request_target, peer_site_id);
+        assert_eq!(pending.action_target, peer_site_id);
+        assert_eq!(pending.order_frame, 71);
+        assert_eq!(pending.docks, [Some(Coord3D::new(440., 105., 0.)); 3]);
+        assert_eq!(peer_site.read().unwrap().get_builder_id(), peer_worker_id);
+
+        worker.set_build_task(u32::MAX, 90, 200., true, owner_airborne);
+        assert_eq!(worker.construction_order_for_test(), Some(pending));
+    });
+    assert_eq!(ai.lock().unwrap().get_worker_ai_update_interface_mut().unwrap()
+        .construction_order_for_test(), Some(receiving_order));
+}
+
 #[test]
 fn factory_worker_supply_interface_uses_authored_worker_capacity() {
     if !child(concat!(

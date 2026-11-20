@@ -75,13 +75,19 @@ pub trait SupplyTruckAIInterface: Send + Sync {
 
 /// Worker AI update interface (build/repair tasks).
 pub trait WorkerAIUpdateInterface: Send + Sync {
-    /// Assign a build task for a newly created construction site.
+    #[cfg(test)]
+    fn construction_order_for_test(&self) -> Option<crate::supply_system::WorkerBuildOrderObservation> {
+        None
+    }
+
+    /// Assign a build task using the installed parent's selected locomotor.
     fn set_build_task(
         &mut self,
         _building_id: ObjectID,
         _total_build_frames: u32,
         _max_health: f32,
         _is_rebuild: bool,
+        _owner_airborne: bool,
     ) {
     }
 }
