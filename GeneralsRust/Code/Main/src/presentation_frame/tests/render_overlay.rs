@@ -1,4 +1,151 @@
 #[test]
+fn receiving_publication_reuses_rider_rules_without_freezing_the_live_roster() {
+    use super::super::*;
+    use crate::game_logic::Player;
+    use crate::gameworld_shadow::GameWorldShadow;
+    use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+    use glam::Vec3;
+
+    const OBJECTS: &str = r#"
+Object MemoBike
+ KindOf = SELECTABLE VEHICLE
+ Locomotor = SET_NORMAL CombatBikeGroundLocomotor CombatBikeCliffLocomotor
+ Behavior = RiderChangeContain RiderModule
+  Slots = 1
+  AllowInsideKindOf = INFANTRY
+  Rider2 = MemoRifle RIDER2 WEAPON_RIDER2 STATUS_RIDER2 MemoCommands SET_NORMAL
+  ScuttleDelay = 1500
+  ScuttleStatus = TOPPLED
+ End
+End
+Object MemoBlockedBike
+ KindOf = SELECTABLE VEHICLE
+ Locomotor = SET_NORMAL CombatBikeGroundLocomotor CombatBikeCliffLocomotor
+ Behavior = RiderChangeContain RiderModule
+  Slots = 1
+  AllowInsideKindOf = INFANTRY
+  Rider2 = MemoBlockedEquivalent RIDER2 WEAPON_RIDER2 STATUS_RIDER2 MemoCommands SET_SLUGGISH
+  Rider3 = MemoRifle RIDER3 WEAPON_RIDER3 STATUS_RIDER3 MemoCommands SET_NORMAL
+  ScuttleDelay = 1500
+  ScuttleStatus = TOPPLED
+ End
+End
+Object MemoRifle
+ KindOf = SELECTABLE INFANTRY
+ TransportSlotCount = 1
+End
+ObjectReskin MemoAlternate MemoRifle
+End
+ObjectReskin MemoBlockedEquivalent MemoRifle
+End
+Object MemoUnrelated
+ KindOf = SELECTABLE INFANTRY
+ TransportSlotCount = 1
+End
+"#;
+
+    fn receive() -> GameLogic {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_ini_sources([("rider-roster.ini".into(), OBJECTS.into())])
+            .unwrap();
+        world.add_player(Player::new(1, Team::GLA, "RiderOwner", true));
+        world
+    }
+
+    fn spawn(world: &mut GameLogic, template: &str, x: f32) -> ObjectId {
+        world
+            .create_object_for_player_with_effects_checked(
+                template,
+                1,
+                Vec3::new(x, 0.0, 12.0),
+                None,
+                &mut Default::default(),
+            )
+            .unwrap()
+            .unwrap()
+    }
+
+    fn publish(world: &mut GameLogic) -> PresentationFrame {
+        let mut shadow = GameWorldShadow::new(64);
+        world.with_own_services_mut(|world| {
+            shadow.sync_from_host(world);
+            let shadow_order: Vec<_> = shadow
+                .world()
+                .world()
+                .entities()
+                .map(|entity| shadow.host_for_entity(entity.id).unwrap())
+                .collect();
+            let frame = PresentationFrame::build_with_victory_for_engine(world, 1, Some(&shadow));
+            assert_eq!(
+                frame.objects.iter().map(|row| row.id).collect::<Vec<_>>(),
+                shadow_order,
+            );
+            frame
+        })
+    }
+
+    fn riders(frame: &PresentationFrame, actor: ObjectId) -> &[String] {
+        &frame
+            .objects
+            .iter()
+            .find(|row| row.id == actor)
+            .unwrap()
+            .rider_change_allowed_templates
+    }
+
+    let mut world = receive();
+    let mut peer = receive();
+    let bike = spawn(&mut world, "MemoBike", 12.0);
+    let hidden_bike = spawn(&mut world, "MemoBike", 24.0);
+    let blocked_bike = spawn(&mut world, "MemoBlockedBike", 36.0);
+    let peer_bike = spawn(&mut peer, "MemoBike", 12.0);
+    assert_eq!(bike, peer_bike);
+    world.host_object_mut(hidden_bike).unwrap().set_drawable_hidden(true);
+    world.host_object_mut(blocked_bike).unwrap().set_drawable_hidden(true);
+
+    let mut first = publish(&mut world);
+    assert!(first.gameworld_primary_objects);
+    assert_eq!(riders(&first, bike), ["MemoRifle"]);
+    assert_eq!(riders(&first, hidden_bike), ["MemoRifle"]);
+    assert!(
+        first.direct_host_drawables.iter().all(|row| row.object.id != hidden_bike),
+        "the hidden bike only appears in the GameWorld roster"
+    );
+
+    let rider = spawn(&mut world, "MemoAlternate", 48.0);
+    spawn(&mut peer, "MemoUnrelated", 48.0);
+    first.overlay_host_fx_residual(&world);
+    assert_eq!(riders(&first, bike), ["MemoRifle", "MemoAlternate"]);
+
+    let current = publish(&mut world);
+    assert_eq!(current.frame, first.frame, "spawning a rider did not advance the clock");
+    assert_eq!(riders(&current, bike), ["MemoRifle", "MemoAlternate"]);
+    assert_eq!(riders(&current, hidden_bike), ["MemoRifle", "MemoAlternate"]);
+    assert_eq!(
+        riders(&current, blocked_bike),
+        ["MemoRifle"],
+        "the first equivalent row cannot authorize this alternate"
+    );
+    assert_eq!(riders(&publish(&mut peer), peer_bike), ["MemoRifle"]);
+    assert_eq!(
+        current
+            .direct_host_drawables
+            .iter()
+            .map(|row| row.object.id)
+            .collect::<Vec<_>>(),
+        [bike, rider],
+    );
+
+    let builder = SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&world).unwrap();
+    let wire = bincode_legacy::serialize(&saved).unwrap();
+    let restored = decode_bincode_world_snapshot(&wire).unwrap();
+    builder.restore_from_snapshot(&restored, &mut peer).unwrap();
+    assert_eq!(riders(&publish(&mut peer), peer_bike), ["MemoRifle", "MemoAlternate"]);
+}
+
+#[test]
 fn unit_render_input_world_matrix_applies_mesh_scale() {
     use super::super::*;
     use glam::Vec3;

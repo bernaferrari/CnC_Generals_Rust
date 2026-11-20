@@ -3,39 +3,49 @@ use crate::fow_rendering::{ObjectShroudFrame, ProjectedShroudMetadata};
 use crate::game_logic::{Object, RiderChangeRiderMetadata};
 use gamelogic::common::ObjectShroudStatus;
 
-/// Reuse the same input roster across all bikes that share authored enter rules
-/// in this borrowed view. Scuttle state still belongs to each individual bike.
-pub(super) struct RiderChangeRosters<'a> {
-    logic: &'a GameLogic,
-    entries: Vec<(&'a [RiderChangeRiderMetadata], Vec<String>)>,
+/// Reuse authored enter rules while building and overlaying one receiving
+/// world's presentation. Scuttle state still belongs to each individual bike.
+#[derive(Default)]
+pub(super) struct RiderChangeRosters {
+    entries: Vec<RiderChangeRoster>,
 }
 
-impl<'a> RiderChangeRosters<'a> {
-    pub(super) fn new(logic: &'a GameLogic) -> Self {
-        Self {
-            logic,
-            entries: Vec::new(),
-        }
-    }
+struct RiderChangeRoster {
+    rules: Vec<(Box<str>, bool)>,
+    templates: Vec<String>,
+}
 
-    pub(super) fn allowed_templates(&mut self, container: &'a Object) -> Vec<String> {
+impl RiderChangeRosters {
+    pub(super) fn allowed_templates(&mut self, logic: &GameLogic, container: &Object) -> Vec<String> {
         if !container.supports_authored_rider_change_normal_enter() {
             return Vec::new();
         }
         let rows = &container.get_template().contain_module.rider_change_riders;
-        let can_enter = |row: &RiderChangeRiderMetadata| {
-            row.physical_enter_supported && row.active_locomotor_name.is_some()
+        // Keep unsupported rows and their order: an unsupported equivalent
+        // row can precede a supported row in matching_rider_change_row.
+        let rules = || {
+            rows.iter().map(|row: &RiderChangeRiderMetadata| {
+                (
+                    row.template_name.as_str(),
+                    row.physical_enter_supported && row.active_locomotor_name.is_some(),
+                )
+            })
         };
-        if let Some((_, templates)) = self.entries.iter().find(|(previous, _)| {
-            previous.len() == rows.len()
-                && previous.iter().zip(rows).all(|(old, new)| {
-                    old.template_name == new.template_name && can_enter(old) == can_enter(new)
-                })
+        if let Some(entry) = self.entries.iter().find(|entry| {
+            entry.rules.len() == rows.len()
+                && entry
+                    .rules
+                    .iter()
+                    .map(|(name, eligible)| (name.as_ref(), *eligible))
+                    .eq(rules())
         }) {
-            return templates.clone();
+            return entry.templates.clone();
         }
-        let templates = self.logic.rider_change_presentation_templates(container);
-        self.entries.push((rows, templates.clone()));
+        let templates = logic.rider_change_presentation_templates(container);
+        self.entries.push(RiderChangeRoster {
+            rules: rules().map(|(name, eligible)| (name.into(), eligible)).collect(),
+            templates: templates.clone(),
+        });
         templates
     }
 }
@@ -353,6 +363,7 @@ impl PresentationFrame {
             discharges,
             camera_fade,
             HostRoster::Keep,
+            &mut RiderChangeRosters::default(),
         )
     }
 
@@ -368,6 +379,7 @@ impl PresentationFrame {
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
         camera_fade: super::camera_fade::FrameFade,
         host_roster: HostRoster,
+        rider_change_rosters: &mut RiderChangeRosters,
     ) -> Self {
         let keep_host_roster = host_roster == HostRoster::Keep;
         let application_assets = logic.application_assets();
@@ -446,7 +458,6 @@ impl PresentationFrame {
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().registered_len());
         let mut native_ghost_scale_sources = std::collections::HashMap::new();
         let mut structure_topple_transforms = std::collections::HashMap::new();
-        let mut rider_change_rosters = RiderChangeRosters::new(logic);
         let mut beacon_templates = game_engine::common::fast_hash::FxHashMap::default();
         for (obj, fow_visibility, drawable_shroud) in frozen_object_shrouds {
             // These facts also belong to registered Objects with hidden meshes.
@@ -1076,7 +1087,7 @@ impl PresentationFrame {
                     != crate::game_logic::ContainModuleKind::None,
                 contain_module_kind: containment.thing().template.contain_module.kind,
                 contain_admission: containment.normal_enter_admission(),
-                rider_change_allowed_templates: rider_change_rosters.allowed_templates(containment),
+                rider_change_allowed_templates: rider_change_rosters.allowed_templates(logic, containment),
                 contain_allow_allies_inside: containment.thing().template.contain_module.allow_allies_inside,
                 contain_allow_enemies_inside: containment.thing().template.contain_module.allow_enemies_inside,
                 contain_allow_neutral_inside: containment.thing().template.contain_module.allow_neutral_inside,
@@ -2296,6 +2307,7 @@ impl PresentationFrame {
             true,
             super::camera_fade::FrameFade::Compatibility,
             HostRoster::Keep,
+            &mut RiderChangeRosters::default(),
         )
     }
 
@@ -2306,6 +2318,7 @@ impl PresentationFrame {
         freeze_tints: bool,
         camera_fade: super::camera_fade::FrameFade,
         host_roster: HostRoster,
+        rider_change_rosters: &mut RiderChangeRosters,
     ) -> Self {
         // C++ GameLogic.cpp:3769 owns victory and killPlayer in the logic step.
         // Read its completed result and accepted discharges together; building
@@ -2320,6 +2333,7 @@ impl PresentationFrame {
             discharges,
             camera_fade,
             host_roster,
+            rider_change_rosters,
         );
         frame.match_over = victory.match_over;
         if let Some(v) = victory.outcome {

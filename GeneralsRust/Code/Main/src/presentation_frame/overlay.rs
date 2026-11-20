@@ -1,4 +1,5 @@
 use super::*;
+use super::build::{HostRoster, RiderChangeRosters};
 use crate::game_logic::KindOfSet;
 use game_engine::common::fast_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
@@ -1971,6 +1972,14 @@ impl PresentationFrame {
     /// fields would otherwise hard-default. Resolve the matching host Object once
     /// for its FX, kind facts, and receiving Drawable playback identity.
     pub fn overlay_host_fx_residual(&mut self, logic: &GameLogic) -> usize {
+        self.overlay_host_fx_residual_with_rider_rosters(logic, &mut RiderChangeRosters::default())
+    }
+
+    fn overlay_host_fx_residual_with_rider_rosters(
+        &mut self,
+        logic: &GameLogic,
+        rider_change_rosters: &mut RiderChangeRosters,
+    ) -> usize {
         let shroud = logic.world_services.shroud().lock().ok();
         let shroud_frame = crate::fow_rendering::ObjectShroudFrame::new(shroud.as_deref(), self.local_player_id);
         let local_team = logic
@@ -1978,7 +1987,6 @@ impl PresentationFrame {
             .map(|p| p.team)
             .unwrap_or(crate::game_logic::Team::Neutral);
         let mut stamped = 0usize;
-        let mut rider_change_rosters = super::build::RiderChangeRosters::new(logic);
         for ro in &mut self.objects {
             let Some(obj) = logic.host_object(ro.id) else {
                 continue;
@@ -2092,7 +2100,7 @@ impl PresentationFrame {
                 dirty = true;
             }
             let rider_change_allowed_templates =
-                rider_change_rosters.allowed_templates(containment);
+                rider_change_rosters.allowed_templates(logic, containment);
             if ro.rider_change_allowed_templates != rider_change_allowed_templates {
                 ro.rider_change_allowed_templates = rider_change_allowed_templates;
                 dirty = true;
@@ -2491,6 +2499,7 @@ impl PresentationFrame {
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
         camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
+        let mut rider_change_rosters = RiderChangeRosters::default();
         let mut frame = if let Some(logic) = host.as_deref_mut() {
             Self::build_from_logic_with_host_roster(
                 logic,
@@ -2500,6 +2509,7 @@ impl PresentationFrame {
                 discharges,
                 camera_fade,
                 Self::host_roster_for_gameworld(Some(shadow)),
+                &mut rider_change_rosters,
             )
         } else {
             // A no-host shell frame cannot reuse a host terrain payload.
@@ -2524,7 +2534,7 @@ impl PresentationFrame {
         }
         // Wave 498: host FX residual survives GameWorld object rebuild.
         if let Some(logic) = host.as_deref() {
-            let _ = frame.overlay_host_fx_residual(logic);
+            let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
         }
         // Wave 500: object FX residual names → particle list after host FX stamp.
         let _ = frame.append_object_residual_fx_particles();
@@ -2618,19 +2628,22 @@ impl PresentationFrame {
                 )
             }
             Some(shadow) => {
-                let mut frame = Self::build_from_logic_with_tint_update(
+                let mut rider_change_rosters = RiderChangeRosters::default();
+                let mut frame = Self::build_from_logic_with_host_roster(
                     logic,
                     local_player_id,
                     runtime_heightmap,
                     false,
                     discharges,
                     camera_fade,
+                    HostRoster::Keep,
+                    &mut rider_change_rosters,
                 );
                 let _ = frame.overlay_gameworld_shadow(shadow);
                 let _ = frame.append_missing_from_gameworld(shadow);
                 // Shadow overlay is non-authoritative for containment and can
                 // replace hidden/shared data with an entrance-local roster.
-                let _ = frame.overlay_host_fx_residual(logic);
+                let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
                 frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow));
                 frame
             }
@@ -2686,6 +2699,7 @@ impl PresentationFrame {
         camera_fade: super::camera_fade::FrameFade,
     ) -> Self {
         let gameworld_roster = shadow.filter(|_| presentation_from_gameworld_enabled());
+        let mut rider_change_rosters = RiderChangeRosters::default();
         let mut frame = Self::build_with_victory_with_tint_update(
             logic,
             local_player_id,
@@ -2693,6 +2707,7 @@ impl PresentationFrame {
             false,
             camera_fade,
             Self::host_roster_for_gameworld(gameworld_roster),
+            &mut rider_change_rosters,
         );
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {
@@ -2705,7 +2720,7 @@ impl PresentationFrame {
                     let _ = frame.overlay_gameworld_shadow(shadow);
                 }
                 // Wave 498: host FX residual after GW object rebuild.
-                let _ = frame.overlay_host_fx_residual(logic);
+                let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
                 // Wave 500: object FX residual names → particle list.
                 let _ = frame.append_object_residual_fx_particles();
             }
@@ -2714,7 +2729,7 @@ impl PresentationFrame {
                 let _ = frame.append_missing_from_gameworld(shadow);
                 // Shadow overlay is non-authoritative for containment and can
                 // replace hidden/shared data with an entrance-local roster.
-                let _ = frame.overlay_host_fx_residual(logic);
+                let _ = frame.overlay_host_fx_residual_with_rider_rosters(logic, &mut rider_change_rosters);
             }
             None => {}
         }
