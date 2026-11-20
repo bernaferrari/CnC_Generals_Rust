@@ -1820,15 +1820,23 @@ impl ActiveBody {
                 )
             };
 
-            let frame_now = current_frame();
+            let recipient = context.map(|context| context.recipient);
+            let world = recipient.and_then(Object::owning_world_services);
+            let frame_now = world
+                .as_ref()
+                .map_or_else(current_frame, |world| world.logic_frame());
+            let registry = world.as_ref().map(|world| world.object_registry());
             let history_tied = self.state.last_damage_timestamp == frame_now
                 || self.state.last_damage_timestamp == frame_now.wrapping_sub(1);
             // ActiveBody.cpp:547–570 classifies the exact incoming actor
             // and tests whether the earlier attacker is still registered.
             let source_id = damage_info.input.source_id;
-            let attacker = context
-                .and_then(|context| context.attacker)
-                .filter(|source| source.get_id() == source_id);
+            let attacker = context.and_then(|context| context.attacker);
+            let borrowed_source = |id| {
+                recipient
+                    .filter(|source| source.get_id() == id)
+                    .or_else(|| attacker.filter(|source| source.get_id() == id))
+            };
             let is_preferred = |source: &Object| {
                 source.is_kind_of(KindOf::Vehicle)
                     || source.is_kind_of(KindOf::Infantry)
@@ -1836,12 +1844,10 @@ impl ActiveBody {
             };
             let incoming_preferred = if !history_tied {
                 None
-            } else if source_id == self.owner_id {
-                context
-                    .map(|context| context.owner_is_preferred_source)
-                    .or_else(|| OBJECT_REGISTRY.with_object(source_id, is_preferred))
-            } else if let Some(attacker) = attacker {
-                Some(is_preferred(attacker))
+            } else if let Some(source) = borrowed_source(source_id) {
+                Some(is_preferred(source))
+            } else if let Some(registry) = registry {
+                registry.with_object(source_id, is_preferred)
             } else {
                 OBJECT_REGISTRY.with_object(source_id, is_preferred)
             };
@@ -1852,15 +1858,14 @@ impl ActiveBody {
                 .map(|damage| damage.input.source_id)
                 .unwrap_or(INVALID_ID);
             let prior_exists = history_tied
-                && attacker
-                    .and_then(Object::owning_world_services)
-                    .map_or_else(
-                        || OBJECT_REGISTRY.contains(prior_source),
-                        |world| world.object_registry().contains(prior_source),
-                    );
+                && registry.map_or_else(
+                    || OBJECT_REGISTRY.contains(prior_source),
+                    |registry| registry.contains(prior_source),
+                );
             self.record_damage_history(damage_info, frame_now, incoming_preferred, prior_exists);
 
-            // C++ ActiveBody.cpp:574-583 — victim player remembers who attacked.
+            // C++ ActiveBody.cpp:574–583 notifies the victim from the selected
+            // damage history before the authored onDamage callbacks.
             let last_source_id = self
                 .state
                 .last_damage_info
@@ -1868,22 +1873,32 @@ impl ActiveBody {
                 .map(|info| info.input.source_id)
                 .unwrap_or(INVALID_ID);
             if last_source_id != INVALID_ID {
-                if let Some(owner) = self.get_owner() {
-                    // try_read: the owner's write guard may be held by this
-                    // thread while the body mutates (self-sourced damage).
-                    if let Ok(owner_guard) = owner.try_read() {
-                        // `.flatten()`: with_object wraps the scoped player
-                        // lookup's own Option; keep only the source's index.
-                        let src_index = owner_guard.with_controlling_player(|_| {
-                            OBJECT_REGISTRY
-                                .with_object(last_source_id, |src| {
-                                    src.with_controlling_player(|g| g.get_player_index())
-                                })
-                                .flatten()
+                let player_index = |source: &Object| {
+                    source.with_controlling_player(|player| player.get_player_index())
+                };
+                if let Some(recipient) = recipient {
+                    let source_index = if let Some(source) = borrowed_source(last_source_id) {
+                        player_index(source)
+                    } else if let Some(registry) = registry {
+                        registry.with_object(last_source_id, player_index).flatten()
+                    } else if recipient.owner_world.is_none() {
+                        OBJECT_REGISTRY.with_object(last_source_id, player_index).flatten()
+                    } else {
+                        None
+                    };
+                    if let Some(source_index) = source_index {
+                        recipient.with_controlling_player_mut(|player| {
+                            player.set_attacked_by_at(source_index, frame_now);
                         });
-                        if let Some(Some(src_index)) = src_index {
+                    }
+                } else if let Some(owner) = self.get_owner() {
+                    if let Ok(owner_guard) = owner.try_read() {
+                        let source_index = owner_guard.with_controlling_player(|_| {
+                            OBJECT_REGISTRY.with_object(last_source_id, player_index).flatten()
+                        });
+                        if let Some(Some(source_index)) = source_index {
                             owner_guard.with_controlling_player_mut(|player| {
-                                player.set_attacked_by_at(src_index, frame_now)
+                                player.set_attacked_by_at(source_index, frame_now)
                             });
                         }
                     }

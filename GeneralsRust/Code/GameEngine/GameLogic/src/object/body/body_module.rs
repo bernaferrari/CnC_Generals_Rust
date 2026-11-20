@@ -429,7 +429,7 @@ pub trait BodyModuleInterface: Send + Sync {
 /// Actor facts the body can use while the damage caller holds Object guards.
 #[derive(Clone, Copy, Debug)]
 pub struct BodyDamageContext<'a> {
-    pub(crate) owner_is_preferred_source: bool,
+    pub(crate) recipient: &'a crate::object::Object,
     pub(crate) attacker: Option<&'a crate::object::Object>,
 }
 

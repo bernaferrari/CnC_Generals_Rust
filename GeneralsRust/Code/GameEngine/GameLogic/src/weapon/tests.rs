@@ -824,6 +824,11 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
             defender.get_score_keeper().get_total_buildings_lost(),
         )
     };
+    let attack_notice = |world: &EngineStores| {
+        let players = world.services().players().read().unwrap();
+        let defender = players.get_player(1).unwrap().read().unwrap();
+        (defender.get_attacked_by(0), defender.get_attacked_frame())
+    };
     let shoot = || {
         with_active_stores(&driving, || {
             WeaponStore::create_and_fire_temp_weapon_at_pos(&template, source_id, &impact)
@@ -851,6 +856,26 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
     assert_eq!(victim.read().unwrap().get_health(), 90.0);
     assert_eq!(peer_victim.read().unwrap().get_health(), 100.0);
 
+    // Body receives the real victim and its source ID while the selected
+    // peer has both numeric IDs and a different clock.
+    let receiving_frame = with_active_stores(&driving, || {
+        get_game_logic().lock().unwrap().get_frame()
+    });
+    with_active_stores(&peer, || {
+        get_game_logic().lock().unwrap().set_current_frame(91);
+        let mut damage = crate::damage::DamageInfo::with_simple(
+            10.0,
+            source_id,
+            crate::damage::DamageType::Unresistable,
+            crate::damage::DeathType::Normal,
+        );
+        victim.write().unwrap().attempt_damage(&mut damage).unwrap();
+    });
+    assert_eq!(victim.read().unwrap().get_health(), 80.0);
+    assert_eq!(peer_victim.read().unwrap().get_health(), 100.0);
+    assert_eq!(attack_notice(&driving), (true, receiving_frame));
+    assert_eq!(attack_notice(&peer), (false, 0));
+
     // A checked candidate keeps its actual identity across removal/replacement.
     with_active_stores(&driving, || {
         victim.write().unwrap().set_position(&impact).unwrap();
@@ -872,7 +897,9 @@ fn fired_radius_preserves_snapshotted_actor_identity_across_damage() {
             source.reload_all_ammo(true).unwrap();
             source.fire_current_weapon_at_position(&impact).unwrap();
         }
-        assert_eq!(victim.read().unwrap().get_health(), 80.0);
+        assert_eq!(victim.read().unwrap().get_health(), 70.0);
+        assert_eq!(attack_notice(&driving), (true, receiving_frame + 1));
+        assert_eq!(attack_notice(&peer), (false, 0));
         let snapshot = {
             let source = source.read().unwrap();
             let (weapon, _) = source.get_current_weapon().unwrap();

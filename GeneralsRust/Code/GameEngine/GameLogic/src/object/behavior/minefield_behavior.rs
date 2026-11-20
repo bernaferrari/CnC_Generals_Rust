@@ -1691,7 +1691,7 @@ mod tests {
                     .attempt_damage_with_context(
                         &mut damage,
                         &BodyDamageContext {
-                            owner_is_preferred_source: false,
+                            recipient: &actor,
                             attacker: None,
                         },
                     )

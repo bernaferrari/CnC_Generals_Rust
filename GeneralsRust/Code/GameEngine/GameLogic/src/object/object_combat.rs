@@ -2160,9 +2160,7 @@ impl Object {
         if let Some(body) = &self.body {
             let mut body_guard = body.lock().map_err(|_| ObjectError::LockPoisoned)?;
             let body_context = crate::object::body::BodyDamageContext {
-                owner_is_preferred_source: self.is_kind_of(KindOf::Vehicle)
-                    || self.is_kind_of(KindOf::Infantry)
-                    || self.is_faction_structure(),
+                recipient: self,
                 attacker: attacker.as_deref(),
             };
 
