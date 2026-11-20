@@ -469,10 +469,11 @@ impl WorldServices {
     }
     pub(crate) fn game_logic_mutex(self: &Arc<Self>) -> &'static Mutex<crate::system::game_logic::GameLogic> {
         *self.main_game_logic.get_or_init(|| {
-            let logic: &'static Mutex<crate::system::game_logic::GameLogic> = Box::leak(Box::new(Mutex::new(
-                crate::system::game_logic::GameLogic::new_with_world_services(Arc::clone(self)),
-            )));
-            if let Err(error) = self.object_registry.bind_owning_logic(logic) {
+            let logic = crate::system::game_logic::GameLogic::new_with_world_services(Arc::clone(self));
+            let partition = logic.partition_weak();
+            let logic: &'static Mutex<crate::system::game_logic::GameLogic> =
+                Box::leak(Box::new(Mutex::new(logic)));
+            if let Err(error) = self.object_registry.bind_owning_logic(logic, partition) {
                 log::warn!("world services GameLogic: {error}");
             }
             logic
@@ -731,11 +732,12 @@ impl EngineStores {
     pub(crate) fn game_logic_mutex(self: &Arc<Self>) -> &'static Mutex<crate::system::game_logic::GameLogic> {
         self.core_game_logic.get_or_init(|| {
             let logic = crate::system::game_logic::GameLogic::new_with_engine_stores(Arc::clone(self));
+            let partition = logic.partition_weak();
             // Process-lifetime Core slot: leak so accessors keep `&'static Mutex`.
             let logic: &'static Mutex<crate::system::game_logic::GameLogic> =
                 Box::leak(Box::new(Mutex::new(logic)));
             // C++ findObjectByID resolves this Core's own GameLogic.
-            if let Err(error) = self.services.object_registry().bind_owning_logic(logic) {
+            if let Err(error) = self.services.object_registry().bind_owning_logic(logic, partition) {
                 log::warn!("core GameLogic: {error}");
             }
             logic

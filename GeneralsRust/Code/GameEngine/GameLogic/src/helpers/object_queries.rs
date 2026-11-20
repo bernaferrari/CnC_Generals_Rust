@@ -93,32 +93,50 @@ impl ThePartitionManager {
             manager.find_objects_in_radius(*pos, radius)
         };
 
+        Self::filter_partition_positions(candidate_ids, pos, radius, borrowed_positions, |id| {
+            OBJECT_REGISTRY.with_object(id, |object| *object.get_position())
+        })
+    }
+
+    fn filter_partition_positions(
+        candidate_ids: Vec<ObjectID>,
+        pos: &Coord3D,
+        radius: Real,
+        borrowed_positions: &[(ObjectID, Coord3D)],
+        object_position: impl Fn(ObjectID) -> Option<Coord3D>,
+    ) -> Vec<ObjectID> {
         let radius_sqr = radius * radius;
         candidate_ids
             .into_iter()
             .filter_map(|id| {
-                if let Some((_, object_pos)) = borrowed_positions
-                    .iter()
-                    .find(|(held_id, _)| *held_id == id)
-                {
-                    let dx = object_pos.x - pos.x;
-                    let dy = object_pos.y - pos.y;
-                    return (dx * dx + dy * dy <= radius_sqr).then_some(id);
-                }
-                OBJECT_REGISTRY
-                    .with_object(id, |obj_guard| {
-                        let obj_pos = obj_guard.get_position();
-                        let dx = obj_pos.x - pos.x;
-                        let dy = obj_pos.y - pos.y;
-                        if dx * dx + dy * dy <= radius_sqr {
-                            Some(id)
-                        } else {
-                            None
-                        }
-                    })
-                    .flatten()
+                let position = borrowed_positions.iter()
+                    .find(|(held, _)| *held == id)
+                    .map(|(_, position)| *position)
+                    .or_else(|| object_position(id))?;
+                let dx = position.x - pos.x;
+                let dy = position.y - pos.y;
+                (dx * dx + dy * dy <= radius_sqr).then_some(id)
             })
             .collect()
+    }
+
+    /// Object.cpp:988–990 uses the scaffold's own partition. The receiving
+    /// GameLogic exposes its exact centre index through the registry pin,
+    /// including while the scheduler already borrows GameLogic.
+    pub(crate) fn iterate_construction_collisions_in_world(
+        world: &crate::system::engine_stores::WorldServices,
+        pos: &Coord3D,
+        geometry: &GeometryInfo,
+        held: ObjectID,
+    ) -> Vec<ObjectID> {
+        let radius = geometry.get_bounding_circle_radius().max(1.0);
+        let partition = world.object_registry().owning_partition();
+        let candidates = partition.as_ref().unwrap_or(&world.logic_managers().partition)
+            .read().unwrap_or_else(std::sync::PoisonError::into_inner)
+            .find_objects_in_radius_by_center(*pos, radius);
+        Self::filter_partition_positions(candidates, pos, radius, &[(held, *pos)], |id| {
+            world.object_registry().with_object(id, |object| *object.get_position())
+        })
     }
 
     /// C++ `PartitionManager::iteratePotentialCollisions`.

@@ -11,7 +11,7 @@ use crate::object::Object;
 use crate::scripting::engine::{ScriptEngineHandle, WeakScriptEngineHandle};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
 /// Shared handle to a registered object, resolved transiently by id. The
 /// registry is the owner; callers must not store these handles (host-only runs
@@ -52,6 +52,11 @@ impl RegistryStore {
     }
 }
 
+struct OwningGameLogic {
+    logic: &'static Mutex<crate::system::game_logic::GameLogic>,
+    partition: Weak<RwLock<crate::object::collide::partition_manager::PartitionManager>>,
+}
+
 /// Public façade matching the legacy `ObjectRegistry` API.
 #[derive(Default)]
 pub struct ObjectRegistry {
@@ -62,7 +67,7 @@ pub struct ObjectRegistry {
     /// GameLogic of the world that owns this registry (C++ `TheGameLogic` of
     /// that engine). Store misses consult only this logic, never whichever
     /// world is published on the calling thread.
-    owning_logic: OnceLock<&'static Mutex<crate::system::game_logic::GameLogic>>,
+    owning_logic: OnceLock<OwningGameLogic>,
     /// The owning world's `TheScriptEngine` slot (weak: the engine holds this
     /// registry for cave actions).
     owning_scripts: OnceLock<WeakScriptEngineHandle>,
@@ -74,9 +79,10 @@ impl ObjectRegistry {
     pub(crate) fn bind_owning_logic(
         &self,
         logic: &'static Mutex<crate::system::game_logic::GameLogic>,
+        partition: Weak<RwLock<crate::object::collide::partition_manager::PartitionManager>>,
     ) -> Result<(), &'static str> {
-        let bound = *self.owning_logic.get_or_init(|| logic);
-        if std::ptr::eq(bound, logic) {
+        let bound = self.owning_logic.get_or_init(|| OwningGameLogic { logic, partition });
+        if std::ptr::eq(bound.logic, logic) {
             Ok(())
         } else {
             Err("ObjectRegistry already belongs to another GameLogic")
@@ -89,7 +95,15 @@ impl ObjectRegistry {
     }
 
     pub(crate) fn owning_logic(&self) -> Option<&'static Mutex<crate::system::game_logic::GameLogic>> {
-        self.owning_logic.get().copied()
+        self.owning_logic.get().map(|owner| owner.logic)
+    }
+
+    /// Read the actual GameLogic centre index even during its update. This
+    /// link does not keep that spatial state alive after its owner retires.
+    pub(crate) fn owning_partition(
+        &self,
+    ) -> Option<Arc<RwLock<crate::object::collide::partition_manager::PartitionManager>>> {
+        self.owning_logic.get()?.partition.upgrade()
     }
 
     /// C++ `TheScriptEngine->removeObjectFromAttackPriority`-style cleanup on

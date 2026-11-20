@@ -950,6 +950,134 @@ fn completed_structure_refreshes_vision_and_pending_unlook_in_its_own_world() {
     assert!(!peer_spatial.contains(&id), "completion must not move the peer's same-ID spatial entry");
 }
 
+#[test]
+fn construction_completion_partition_pin_matches_both_receiving_logic_constructors() {
+    use crate::system::engine_stores::{new_for_world, new_world_services};
+
+    let core = new_for_world();
+    let core_logic = core.game_logic_mutex().lock().unwrap();
+    let core_index = core.services().object_registry().owning_partition().unwrap();
+    assert!(Arc::ptr_eq(&core_index, &core_logic.partition_weak().upgrade().unwrap()));
+    assert!(!Arc::ptr_eq(&core_index, &core.services().logic_managers().partition));
+
+    let main = new_world_services();
+    let main_logic = main.game_logic_mutex().lock().unwrap();
+    let main_index = main.object_registry().owning_partition().unwrap();
+    assert!(Arc::ptr_eq(&main_index, &main_logic.partition_weak().upgrade().unwrap()));
+    assert!(Arc::ptr_eq(&main_index, &main.logic_managers().partition));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn admit_completion_mine(
+    world: &Arc<crate::system::engine_stores::EngineStores>,
+    position: Coord3D,
+) -> Arc<RwLock<Object>> {
+    use crate::helpers::TheThingFactory;
+    use crate::system::engine_stores::with_active_stores;
+    use game_engine::common::thing::thing_factory::get_thing_factory;
+
+    with_active_stores(world, || {
+        let source = "
+            Object CompletionPartitionMine
+                KindOf = MINE IMMOBILE
+                Geometry = CYLINDER
+                GeometryMajorRadius = 2
+                GeometryHeight = 2
+            End
+        ";
+        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(source), 1);
+        let template = TheThingFactory::find_template("CompletionPartitionMine").unwrap();
+        let mine = Arc::new(RwLock::new(Object::new_test_from_template(0xBA_0442, 100., template)));
+        mine.write().unwrap().set_position(&position).unwrap();
+        assert!(mine.read().unwrap().is_kind_of(KindOf::Mine));
+        world.game_logic_mutex().lock().unwrap().register_object(Arc::clone(&mine)).unwrap();
+        mine
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn construction_completion_queries_its_partition_while_logic_is_borrowed() {
+    use crate::common::ObjectStatusTypes;
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::system::shroud_manager::ShroudState;
+    use crate::test_process::{TestProcess, run_bounded};
+
+    const NAME: &str = concat!(module_path!(), "::construction_completion_queries_its_partition_while_logic_is_borrowed");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME), "GENERALS_COMPLETION_PARTITION_OWNER_CHILD",
+    ) {
+        return;
+    }
+
+    for publish_peer in [false, true] {
+        let driving = new_for_world();
+        let peer = new_for_world();
+        let center = Coord3D::new(105., 105., 0.);
+        let other = Coord3D::new(255., 255., 0.);
+        let site = admit_vision_structure(&driving, center, 37, 23);
+        let peer_site = admit_vision_structure(&peer, other, 251, 41);
+        let mine = admit_completion_mine(&driving, other);
+        let peer_mine = admit_completion_mine(&peer, center);
+        let id = mine.read().unwrap().get_id();
+        assert_eq!(peer_mine.read().unwrap().get_id(), id);
+        let radius = site.read().unwrap().get_geometry_info().get_bounding_circle_radius();
+        assert!(!driving.game_logic_mutex().lock().unwrap().partition_manager()
+            .find_objects_in_radius_by_center(center, radius).contains(&id));
+        assert!(peer.game_logic_mutex().lock().unwrap().partition_manager()
+            .find_objects_in_radius_by_center(center, radius).contains(&id));
+        let witness = Coord3D::new(135., 105., 0.);
+        assert_eq!(driving.services().shroud().lock().unwrap().get_shroud_state(1, &witness), ShroudState::Hidden);
+
+        with_active_stores(&driving, || {
+            let logic = driving.game_logic_mutex().lock().unwrap();
+            let _frame = crate::system::game_logic::enter_update_frame(logic.get_frame());
+            let published = if publish_peer { &peer } else { &driving };
+            with_active_stores(published, || {
+                site.write().unwrap().clear_construction_completion_status();
+            });
+            assert_eq!(logic.get_frame(), 37);
+        });
+        let site = site.read().unwrap();
+        assert!(!site.test_status(ObjectStatusTypes::UnderConstruction));
+        // C++ clears the status before assigning the later complete sentinel.
+        assert_eq!(site.get_construction_percent(), 0.0);
+        assert!(peer_site.read().unwrap().test_status(ObjectStatusTypes::UnderConstruction));
+        assert!(!mine.read().unwrap().is_destroyed());
+        assert!(!peer_mine.read().unwrap().is_destroyed());
+        assert_eq!(driving.services().shroud().lock().unwrap().get_shroud_state(1, &witness), ShroudState::Visible);
+        assert_eq!(peer.services().shroud().lock().unwrap().get_shroud_state(1, &witness), ShroudState::Hidden);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn construction_completion_destroys_only_its_own_overlapping_neutral_mine() {
+    use crate::system::engine_stores::{new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+
+    const NAME: &str = concat!(module_path!(), "::construction_completion_destroys_only_its_own_overlapping_neutral_mine");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME), "GENERALS_COMPLETION_OWN_MINE_CHILD",
+    ) {
+        return;
+    }
+
+    let driving = new_for_world();
+    let peer = new_for_world();
+    let center = Coord3D::new(105., 105., 0.);
+    let site = admit_vision_structure(&driving, center, 37, 23);
+    let peer_site = admit_vision_structure(&peer, center, 251, 41);
+    let mine = admit_completion_mine(&driving, center);
+    let peer_mine = admit_completion_mine(&peer, center);
+    assert_eq!(mine.read().unwrap().get_id(), peer_mine.read().unwrap().get_id());
+    assert_eq!(site.read().unwrap().relationship_to(&mine.read().unwrap()), crate::common::Relationship::Neutral);
+    with_active_stores(&peer, || site.write().unwrap().clear_construction_completion_status());
+    assert!(mine.read().unwrap().is_destroyed());
+    assert!(!peer_mine.read().unwrap().is_destroyed());
+    assert!(peer_site.read().unwrap().is_under_construction());
+}
+
 #[cfg(panic = "unwind")]
 #[test]
 fn completion_with_poisoned_body_keeps_the_installed_footprint_intact() {

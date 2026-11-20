@@ -200,54 +200,61 @@ impl Object {
             let geometry = self.get_geometry_info().clone();
             let orientation = self.get_orientation();
 
-            if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-                // C++ ThingFactory::newObject registers the Object in the
-                // partition before initObject, so the query can return this
-                // Object. Its caller holds it, so pass its position as borrowed
-                // instead of reading it back through the registry.
-                let held = [(self.id, position)];
-                for object_id in partition.iterate_potential_collisions_with_borrowed_positions(
-                    &position,
-                    &geometry,
-                    orientation,
-                    &held,
-                ) {
-                    if object_id == self.id {
-                        continue;
-                    }
+            let world = self.owning_world_services();
+            // The partition may contain the scaffold, currently borrowed by
+            // this callback. Its known pose keeps the ordered query intact.
+            let candidates = match world.as_ref() {
+                Some(world) => crate::helpers::ThePartitionManager::iterate_construction_collisions_in_world(
+                    world, &position, &geometry, self.id,
+                ),
+                None => crate::helpers::ThePartitionManager::get().map(|partition| {
+                    partition.iterate_potential_collisions_with_borrowed_positions(
+                        &position, &geometry, orientation, &[(self.id, position)],
+                    )
+                }).unwrap_or_default(),
+            };
+            for object_id in candidates {
+                if object_id == self.id {
+                    continue;
+                }
 
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
-                    else {
+                let object = match world.as_ref() {
+                    Some(world) => world.object_registry().get_object(object_id),
+                    None => crate::helpers::TheGameLogic::find_object_by_id(object_id),
+                };
+                let Some(obj_arc) = object else {
+                    continue;
+                };
+
+                let (is_mine, relationship) = {
+                    let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
+                    if obj_guard.is_destroyed() {
+                        continue;
+                    }
+                    (
+                        obj_guard.is_kind_of(KindOf::Mine),
+                        self.relationship_to(&obj_guard),
+                    )
+                };
 
-                    let (is_mine, relationship) = {
-                        let Ok(obj_guard) = obj_arc.read() else {
-                            continue;
+                if !is_mine {
+                    continue;
+                }
+
+                match relationship {
+                    Relationship::Enemies => {
+                        if let Ok(mut obj_guard) = obj_arc.write() {
+                            obj_guard
+                                .kill(Some(DamageType::LandMine), Some(DeathType::Exploded));
+                        }
+                    }
+                    Relationship::Allies | Relationship::Neutral => {
+                        let _ = match world.as_ref() {
+                            Some(world) => world.destroy_logic_object(object_id),
+                            None => crate::helpers::TheGameLogic::destroy_object_by_id(object_id),
                         };
-                        if obj_guard.is_destroyed() {
-                            continue;
-                        }
-                        (
-                            obj_guard.is_kind_of(KindOf::Mine),
-                            self.relationship_to(&obj_guard),
-                        )
-                    };
-
-                    if !is_mine {
-                        continue;
-                    }
-
-                    match relationship {
-                        Relationship::Enemies => {
-                            if let Ok(mut obj_guard) = obj_arc.write() {
-                                obj_guard
-                                    .kill(Some(DamageType::LandMine), Some(DeathType::Exploded));
-                            }
-                        }
-                        Relationship::Allies | Relationship::Neutral => {
-                            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(object_id);
-                        }
                     }
                 }
             }

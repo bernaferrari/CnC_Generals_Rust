@@ -31,6 +31,10 @@ impl GameLogic {
         logic
     }
 
+    pub(crate) fn partition_weak(&self) -> std::sync::Weak<RwLock<PartitionManager>> {
+        Arc::downgrade(&self.partition)
+    }
+
     pub(crate) fn owning_world_services(&self) -> Option<Arc<crate::system::engine_stores::WorldServices>> {
         self.pathfinding_owner.as_ref().map(|owner| Arc::clone(owner.services()))
             .or_else(|| self.world_services.as_ref().and_then(std::sync::Weak::upgrade))
