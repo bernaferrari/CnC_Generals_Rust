@@ -11,7 +11,7 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         structure_topple_matrix: None,
         #[cfg(feature = "game_client")]
         specialized_draw: None,
-        draw_models: Vec::new(),
+        draw_models: Default::default(),
         draw_playback_identity: None,
         draw_animation_completion_targets: Vec::new(),
         projectile_clip_statuses: [None; 3],
@@ -227,7 +227,7 @@ fn unit_render_input_fixture() -> UnitRenderInput {
         structure_topple_matrix: None,
         #[cfg(feature = "game_client")]
         specialized_draw: None,
-        draw_models: Vec::new(),
+        draw_models: Default::default(),
         draw_playback_identity: None,
         draw_animation_completion_targets: Vec::new(),
         projectile_clip_statuses: [None; 3],

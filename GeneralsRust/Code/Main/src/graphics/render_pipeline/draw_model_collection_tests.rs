@@ -29,8 +29,8 @@ fn selected_modules() -> Vec<crate::assets::AuthoredDrawModel> {
 }
 
 #[test]
-fn collection_moves_selected_modules_and_nested_payloads_in_source_order() {
-    let mut selected = selected_modules();
+fn collection_borrows_selected_modules_and_nested_payloads_in_source_order() {
+    let selected = selected_modules();
     let expected = selected.clone();
     let vector = selected.as_ptr();
     let key = selected[0].model_key.as_ptr();
@@ -39,11 +39,7 @@ fn collection_moves_selected_modules_and_nested_payloads_in_source_order() {
     let animation_name = selected[0].animations[0].name.as_ptr();
     let child_name = selected[0].subobject_visibility[0].name.as_ptr();
 
-    let collected = selected_draw_models_for_collection(&mut selected, "ignored_fallback");
-    assert!(
-        selected.is_empty(),
-        "owned Draw modules transfer once into collection"
-    );
+    let collected = selected_draw_models_for_collection(&selected, "ignored_fallback");
     assert_eq!(
         collected, expected,
         "source order, repeated identities and directives stay exact"
@@ -51,7 +47,7 @@ fn collection_moves_selected_modules_and_nested_payloads_in_source_order() {
     assert_eq!(
         collected.as_ptr(),
         vector,
-        "reuse the already-owned vector allocation"
+        "reuse the existing model list"
     );
     assert_eq!(collected[0].model_key.as_ptr(), key);
     assert_eq!(collected[0].animations.as_ptr(), animations);
@@ -65,10 +61,10 @@ fn collection_moves_selected_modules_and_nested_payloads_in_source_order() {
 
 #[test]
 fn collection_retains_empty_and_legacy_exact_model_key_fallbacks() {
-    let mut empty = Vec::new();
-    assert!(selected_draw_models_for_collection(&mut empty, "  ").is_empty());
+    let empty = Vec::new();
+    assert!(selected_draw_models_for_collection(&empty, "  ").is_empty());
     let key = " Art/W3D/ExactModel.w3d ";
-    let collected = selected_draw_models_for_collection(&mut empty, key);
+    let collected = selected_draw_models_for_collection(&empty, key);
     assert_eq!(
         collected,
         vec![crate::assets::AuthoredDrawModel {

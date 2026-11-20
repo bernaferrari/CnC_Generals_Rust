@@ -34,10 +34,10 @@ fn prepare_client_drawable_restore_for_collection(
         if unit.receiving_draw_models.is_some() {
             unit.resolve_draw_models_for_frozen_conditions(frame.asset_owner.0.as_deref());
         }
-        for draw_model in unit.draw_models {
+        for draw_model in unit.draw_models.iter() {
             let key = (unit.id.0, draw_model.module_index);
             if let Some(identity) =
-                frozen_visual_identity_for_draw_model(unit.template_name.as_str(), &draw_model)
+                frozen_visual_identity_for_draw_model(unit.template_name.as_str(), draw_model)
             {
                 identities.insert(key, identity);
             }
@@ -1054,8 +1054,9 @@ End
         let partially = 1u128 << crate::game_logic::host_enum_table_residual::partially_constructed_model_bit();
 
         let absent = receiving.apply_live_draw_transition_playback(0, &identity, &mut playback).unwrap();
-        assert!(absent[0].model_key.is_empty());
+        assert!(absent.is_empty());
         assert_eq!(playback[&key].current_index, 0);
+        assert!(Arc::ptr_eq(&absent, &receiving.select_shared(0)));
         let forward = receiving.apply_live_draw_transition_playback(partially, &identity, &mut playback).unwrap();
         assert_eq!(forward[0].animation_mode, Mode::Once);
         assert_eq!(playback[&key].next_index, Some(1));
@@ -1066,6 +1067,7 @@ End
         playback.get_mut(&key).unwrap().animation_complete = true;
         let active = receiving.apply_live_draw_transition_playback(partially, &identity, &mut playback).unwrap();
         assert_eq!(active[0].animation_mode, Mode::Manual);
+        assert!(Arc::ptr_eq(&active, &receiving.select_shared(partially)));
         assert_eq!(playback[&key].next_index, None);
         assert_eq!(authored_animation_start_frame(&active[0], 4), 3.0);
 
@@ -1075,12 +1077,14 @@ End
         assert_eq!(playback[&key].next_index, Some(0));
         playback.get_mut(&key).unwrap().animation_complete = true;
         let retired = receiving.apply_live_draw_transition_playback(0, &identity, &mut playback).unwrap();
-        assert!(retired[0].model_key.is_empty());
+        assert!(Arc::ptr_eq(&retired, &absent));
+        assert_eq!(playback[&key].current_index, 0);
         assert_eq!(playback[&key].next_index, None);
 
         let reborn = LiveDrawPlaybackIdentity::new(world, Arc::new(()), 2, 7, 1);
         let fresh = receiving.apply_live_draw_transition_playback(0, &reborn, &mut playback).unwrap();
-        assert!(fresh[0].model_key.is_empty());
+        assert!(Arc::ptr_eq(&fresh, &absent));
+        assert_eq!(playback[&reborn.playback_key(0)].current_index, 0);
         assert_ne!(reborn.playback_key(0), key);
     }
 

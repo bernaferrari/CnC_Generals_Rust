@@ -523,7 +523,8 @@ impl PresentationFrame {
                     "RallyPointMarker",
                     &[],
                     input.model_condition_bits_with_combat_flags(),
-                );
+                )
+                .into();
                 input.model_key = input
                     .draw_models
                     .first()
@@ -567,7 +568,8 @@ impl PresentationFrame {
                 "RallyPointMarker",
                 &[],
                 input.model_condition_bits_with_combat_flags(),
-            );
+            )
+            .into();
             input.model_key = input
                 .draw_models
                 .first()

@@ -27,7 +27,7 @@ impl RenderPipeline {
         let mut requests = Vec::<(String, String)>::new();
         let mut seen = HashSet::new();
         for input in presentation.unit_render_inputs_shared().iter() {
-            for draw_model in &input.draw_models {
+            for draw_model in input.draw_models.iter() {
                 if draw_model.model_key.trim().is_empty()
                     || !matches!(
                         &draw_model.animation_mode,

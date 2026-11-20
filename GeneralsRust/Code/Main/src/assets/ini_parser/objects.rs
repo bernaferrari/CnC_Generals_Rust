@@ -551,6 +551,40 @@ impl ObjectDefinition {
         selected
     }
 
+    /// The receiving Draw roster contains exactly one destination per module.
+    /// A steady-state selection can keep sharing its cached model record.
+    pub(crate) fn advance_live_draw_module(
+        modules: &[DrawModuleDefinition],
+        playback_by_module: &mut HashMap<LiveDrawPlaybackKey, LiveDrawPlayback>,
+        identity: &LiveDrawPlaybackIdentity,
+        dest: &AuthoredDrawModel,
+    ) -> Option<AuthoredDrawModel> {
+        let module_index = dest.module_index;
+        let dest_index = dest.selected_condition_state_index;
+        let playback = playback_by_module
+            .entry(identity.playback_key(module_index))
+            .or_insert(LiveDrawPlayback {
+                current_index: dest_index,
+                next_index: None,
+                animation_complete: false,
+            });
+        let replacement = modules.get(module_index as usize).and_then(|module| {
+            module.replacement_draw_after_transition(
+                dest,
+                Some((module_index, playback.current_index, playback.animation_complete)),
+            )
+        });
+        let current = replacement.as_ref().unwrap_or(dest);
+        *playback = LiveDrawPlayback {
+            current_index: current.selected_condition_state_index,
+            next_index: (dest_index != current.selected_condition_state_index)
+                .then_some(dest_index),
+            // isAnimationComplete(nullptr) is true at the next Draw.
+            animation_complete: current.is_transition && current.model_key.is_empty(),
+        };
+        replacement
+    }
+
     fn apply_transition_playback(
         modules: &[DrawModuleDefinition],
         dest_models: Vec<AuthoredDrawModel>,
@@ -566,7 +600,9 @@ impl ObjectDefinition {
                     .iter()
                     .copied()
                     .find(|(module_index, _, _)| *module_index == dest.module_index);
-                module.authored_state_after_transition(dest, prior)
+                module
+                    .replacement_draw_after_transition(&dest, prior)
+                    .unwrap_or(dest)
             })
             .collect()
     }
@@ -1084,26 +1120,19 @@ impl DrawModuleDefinition {
         })
     }
 
-    fn authored_state_after_transition(
+    fn replacement_draw_after_transition(
         &self,
-        dest: AuthoredDrawModel,
+        dest: &AuthoredDrawModel,
         prior: Option<(u32, u32, bool)>,
-    ) -> AuthoredDrawModel {
-        let Some((_, prior_index, complete)) = prior else {
-            return dest;
-        };
+    ) -> Option<AuthoredDrawModel> {
+        let (_, prior_index, complete) = prior?;
         if prior_index == dest.selected_condition_state_index {
-            return dest;
+            return None;
         }
-        let Some(prior_state) = self.condition_states.get(prior_index as usize) else {
-            return dest;
-        };
-        let Some(dest_state) = self
+        let prior_state = self.condition_states.get(prior_index as usize)?;
+        let dest_state = self
             .condition_states
-            .get(dest.selected_condition_state_index as usize)
-        else {
-            return dest;
-        };
+            .get(dest.selected_condition_state_index as usize)?;
 
         // C++ keeps m_curState when it is a still-playing transition toward
         // the requested dest. A dest change mid-transition calls setModelState
@@ -1116,7 +1145,7 @@ impl DrawModuleDefinition {
                 .map(String::as_str)
                 .unwrap_or("");
             if !to_key.is_empty() && dest_state.transition_key.eq_ignore_ascii_case(to_key) {
-                return self.authored_draw_model(dest.module_index, prior_index, prior_state);
+                return Some(self.authored_draw_model(dest.module_index, prior_index, prior_state));
             }
         }
 
@@ -1127,7 +1156,7 @@ impl DrawModuleDefinition {
                 .allow_to_finish_key
                 .eq_ignore_ascii_case(&prior_state.transition_key)
         {
-            return self.authored_draw_model(dest.module_index, prior_index, prior_state);
+            return Some(self.authored_draw_model(dest.module_index, prior_index, prior_state));
         }
 
         if !prior_state.transition_key.is_empty() && !dest_state.transition_key.is_empty() {
@@ -1135,15 +1164,15 @@ impl DrawModuleDefinition {
                 .find_transition_for_keys(&prior_state.transition_key, &dest_state.transition_key)
             {
                 if let Ok(transition_index) = u32::try_from(transition_index) {
-                    return self.authored_draw_model(
+                    return Some(self.authored_draw_model(
                         dest.module_index,
                         transition_index,
                         transition,
-                    );
+                    ));
                 }
             }
         }
-        dest
+        None
     }
 }
 
@@ -1198,6 +1227,48 @@ mod native_render_roster_tests {
                 .collect::<Vec<_>>(),
             vec![1, 3]
         );
+        let identity = LiveDrawPlaybackIdentity::new(().into(), ().into(), 1, 7, 1);
+        let mut playback = HashMap::new();
+        let selected = ObjectDefinition::apply_live_draw_transition_playback_from_modules(
+            &modules,
+            &mut playback,
+            &identity,
+            owned.clone(),
+        );
+        assert_eq!(selected, owned);
+        assert_eq!(playback.len(), 3);
+        for model in &selected {
+            let state = playback[&identity.playback_key(model.module_index)];
+            assert_eq!(state.current_index, model.selected_condition_state_index);
+            assert_eq!(state.next_index, None);
+        }
+    }
+
+    #[test]
+    fn repeated_caller_rows_keep_the_first_destination_for_the_module() {
+        let rows = vec![
+            AuthoredDrawModel {
+                module_index: 2,
+                selected_condition_state_index: 4,
+                model_key: "FirstCallerModel".into(),
+                ..Default::default()
+            },
+            AuthoredDrawModel {
+                module_index: 2,
+                selected_condition_state_index: 6,
+                model_key: "LastCallerModel".into(),
+                ..Default::default()
+            },
+        ];
+        let identity = LiveDrawPlaybackIdentity::new(().into(), ().into(), 1, 7, 1);
+        let mut playback = HashMap::new();
+        let selected = ObjectDefinition::apply_live_draw_transition_playback_from_modules(
+            &[], &mut playback, &identity, rows.clone(),
+        );
+        assert_eq!(selected, rows);
+        let state = playback[&identity.playback_key(2)];
+        assert_eq!(state.current_index, 6);
+        assert_eq!(state.next_index, Some(4));
     }
     #[test]
     fn native_render_roster_uses_only_explicit_no_selectable_state_template_fallback() {

@@ -1,4 +1,6 @@
 use super::*;
+use crate::assets::AuthoredDrawModel;
+use std::sync::Arc;
 
 /// ActiveBody subclasses expose health/history; InactiveBody inherits the
 /// empty BodyModule interface. This is effective immutable content, not status.
@@ -57,9 +59,33 @@ pub(crate) struct ReceivingDrawModels {
 #[derive(Debug, Default)]
 struct SelectCache(
     std::sync::Mutex<
-        game_engine::common::fast_hash::FxHashMap<u128, Vec<crate::assets::AuthoredDrawModel>>,
+        game_engine::common::fast_hash::FxHashMap<u128, DrawSelection>,
     >,
 );
+
+#[derive(Debug, Clone)]
+struct DrawSelection {
+    native: Arc<[AuthoredDrawModel]>,
+    visible: Arc<[AuthoredDrawModel]>,
+}
+
+impl DrawSelection {
+    fn new(rows: Vec<AuthoredDrawModel>) -> Self {
+        let native: Arc<[AuthoredDrawModel]> = rows.into();
+        // Model=None still owns playback. Most rosters can share the same
+        // allocation for the native and mesh views of the selected state.
+        let visible = if native.iter().any(|model| model.model_key.is_empty()) {
+            native
+                .iter()
+                .filter(|model| !model.model_key.is_empty())
+                .cloned()
+                .collect()
+        } else {
+            Arc::clone(&native)
+        };
+        Self { native, visible }
+    }
+}
 
 impl SelectCache {
     /// Distinct condition masks per template are few; bound it regardless.
@@ -104,16 +130,21 @@ impl ReceivingDrawModels {
         &self,
         bits: u128,
     ) -> std::result::Result<Vec<crate::assets::AuthoredDrawModel>, ()> {
+        Ok(self.native_render_selection(bits)?.native.to_vec())
+    }
+
+    fn native_render_selection(&self, bits: u128) -> std::result::Result<DrawSelection, ()> {
         if let Ok(cache) = self.select_cache.0.lock() {
             if let Some(hit) = cache.get(&bits) {
                 return Ok(hit.clone());
             }
         }
-        let selected = crate::assets::ObjectDefinition::select_native_render_draws_from_modules(
+        let rows = crate::assets::ObjectDefinition::select_native_render_draws_from_modules(
             &self.modules,
             bits,
             self.base_model.as_deref(),
         )?;
+        let selected = DrawSelection::new(rows);
         if let Ok(mut cache) = self.select_cache.0.lock() {
             if cache.len() >= SelectCache::MAX_ENTRIES {
                 cache.clear();
@@ -131,14 +162,26 @@ impl ReceivingDrawModels {
             crate::assets::LiveDrawPlaybackKey,
             crate::assets::LiveDrawPlayback,
         >,
-    ) -> std::result::Result<Vec<crate::assets::AuthoredDrawModel>, ()> {
-        let dest = self.native_render_draws(bits)?;
-        Ok(crate::assets::ObjectDefinition::apply_live_draw_transition_playback_from_modules(
-            &self.modules,
-            playback,
-            identity,
-            dest,
-        ))
+    ) -> std::result::Result<Arc<[AuthoredDrawModel]>, ()> {
+        let dest = self.native_render_selection(bits)?;
+        let mut changed = None;
+        for (index, model) in dest.native.iter().enumerate() {
+            if let Some(replacement) = crate::assets::ObjectDefinition::advance_live_draw_module(
+                &self.modules,
+                playback,
+                identity,
+                model,
+            ) {
+                let models = changed.get_or_insert_with(|| dest.native.to_vec());
+                models[index] = replacement;
+            }
+        }
+        if let Some(mut models) = changed {
+            models.retain(|model| !model.model_key.is_empty());
+            Ok(models.into())
+        } else {
+            Ok(dest.visible)
+        }
     }
 
     pub(crate) fn transition_particle_modules(&self) -> &[(u32, String)] {
@@ -169,9 +212,13 @@ impl ReceivingDrawModels {
     }
 
     pub(crate) fn select(&self, bits: u128) -> Vec<crate::assets::AuthoredDrawModel> {
-        let mut selected = self.native_render_draws(bits).unwrap_or_default();
-        selected.retain(|model| !model.model_key.is_empty());
-        selected
+        self.select_shared(bits).to_vec()
+    }
+
+    pub(crate) fn select_shared(&self, bits: u128) -> Arc<[AuthoredDrawModel]> {
+        self.native_render_selection(bits)
+            .map(|selection| selection.visible)
+            .unwrap_or_default()
     }
 }
 

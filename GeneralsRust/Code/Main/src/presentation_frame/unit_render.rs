@@ -120,9 +120,9 @@ pub struct UnitRenderInput {
     /// Primary model retained for backwards-compatible callers. The WGPU mesh
     /// pass renders every entry in `draw_models`, not just this first key.
     pub model_key: String,
-    /// Exact selected models for all source-authored W3D Draw modules. Source
-    /// order and module identity are preserved; equal basenames are not merged.
-    pub draw_models: Vec<crate::assets::AuthoredDrawModel>,
+    /// Shared selected models in source order, retaining distinct module IDs
+    /// even when modules use the same basename.
+    pub draw_models: std::sync::Arc<[crate::assets::AuthoredDrawModel]>,
     /// Send-safe object/world identity frozen from the source host Drawable.
     /// Mutable transition playback belongs to the receiving RenderPipeline.
     pub(crate) draw_playback_identity: Option<crate::assets::LiveDrawPlaybackIdentity>,
@@ -373,22 +373,23 @@ impl UnitRenderInput {
         // W3DDebrisDraw module. Preserve its module identity and every other
         // Draw module; an empty selected state may still receive this authored
         // instance model because the DebrisDraw interface itself is present.
+        let mut draw_models = self.draw_models.to_vec();
         for module_index in debris_modules {
-            if let Some(draw) = self
-                .draw_models
+            if let Some(draw) = draw_models
                 .iter_mut()
                 .find(|draw| draw.module_index == module_index)
             {
                 draw.model_key = model_name.to_owned();
             } else {
-                self.draw_models.push(crate::assets::AuthoredDrawModel {
+                draw_models.push(crate::assets::AuthoredDrawModel {
                     module_index,
                     model_key: model_name.to_owned(),
                     ..Default::default()
                 });
             }
         }
-        self.draw_models.sort_by_key(|draw| draw.module_index);
+        draw_models.sort_by_key(|draw| draw.module_index);
+        self.draw_models = draw_models.into();
         if let Some(first) = self.draw_models.first() {
             self.model_key = first.model_key.clone();
         }
@@ -411,12 +412,12 @@ impl UnitRenderInput {
                 });
             }
         }
-        Self::with_draw_models(ro, draw_models)
+        Self::with_draw_models(ro, draw_models.into())
     }
 
     fn with_draw_models(
         ro: &RenderableObject,
-        draw_models: Vec<crate::assets::AuthoredDrawModel>,
+        draw_models: std::sync::Arc<[crate::assets::AuthoredDrawModel]>,
     ) -> Self {
         let model_key = draw_models
             .first()
@@ -572,7 +573,7 @@ impl UnitRenderInput {
         let mut input = if ro.receiving_draw_models.is_some() {
             // The authored selector fills the final models after stamping
             // the environment. No prior Draw selection needs to be copied.
-            Self::with_draw_models(ro, Vec::new())
+            Self::with_draw_models(ro, Default::default())
         } else {
             Self::from_renderable(ro)
         };
@@ -600,16 +601,20 @@ impl UnitRenderInput {
             .first_object_draw(self.model_condition_bits_with_combat_flags())
     }
 
-    pub(crate) fn resolve_draw_models_for_frozen_conditions(&mut self, asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>) {
+    pub(crate) fn resolve_draw_models_for_frozen_conditions(
+        &mut self,
+        asset_manager: Option<&std::sync::Mutex<crate::assets::AssetManager>>,
+    ) {
         let bits = self.model_condition_bits_with_combat_flags();
         let dest = match self.receiving_draw_models.as_deref() {
-            Some(models) => models.select(bits),
+            Some(models) => models.select_shared(bits),
             None => crate::assets::resolve_presentation_draw_models_for_conditions(
                 asset_manager,
                 &self.template_name,
                 &self.draw_models,
                 bits,
-            ),
+            )
+            .into(),
         };
         self.draw_models = dest;
         self.model_key = self
@@ -635,7 +640,7 @@ impl UnitRenderInput {
         // Object's table. Its receiving catalogue is a separate migration.
         self.receiving_draw_models = None;
         self.template_name = template_name.to_owned();
-        self.draw_models = dest;
+        self.draw_models = dest.into();
         self.model_key = self
             .draw_models
             .first()
@@ -654,23 +659,24 @@ impl UnitRenderInput {
         self.draw_animation_completion_targets.clear();
         if let Some(identity) = self.draw_playback_identity.as_ref() {
             self.draw_models = if let Some(receiving) = &self.receiving_draw_models {
-                receiving.apply_live_draw_transition_playback(
-                    self.model_condition_bits_with_combat_flags(),
-                    identity,
-                    playback_by_module,
-                ).unwrap_or_default()
+                receiving
+                    .apply_live_draw_transition_playback(
+                        self.model_condition_bits_with_combat_flags(),
+                        identity,
+                        playback_by_module,
+                    )
+                    .unwrap_or_default()
             } else {
-                crate::assets::apply_live_draw_transition_playback_for_object(
+                let mut models = crate::assets::apply_live_draw_transition_playback_for_object(
                     asset_manager,
                     playback_by_module,
                     identity,
                     &self.template_name,
-                    std::mem::take(&mut self.draw_models),
-                )
+                    self.draw_models.to_vec(),
+                );
+                models.retain(|model| !model.model_key.is_empty());
+                models.into()
             };
-            // Model=None is a real current state and can start or receive an
-            // authored transition. Only mesh submission drops empty models.
-            self.draw_models.retain(|model| !model.model_key.is_empty());
             self.draw_animation_completion_targets = self
                 .draw_models
                 .iter()

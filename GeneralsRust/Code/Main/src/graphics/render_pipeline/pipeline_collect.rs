@@ -44,23 +44,20 @@ impl FailedModelResolutions {
     }
 }
 
-/// Normalize an already-selected owned input for collection. This boundary
-/// preserves every selected source module and the legacy model-key fallback.
-fn selected_draw_models_for_collection(
-    draw_models: &mut Vec<crate::assets::AuthoredDrawModel>,
+/// Borrow the selected source modules, creating an owned row only for the
+/// legacy model-key fallback.
+fn selected_draw_models_for_collection<'a>(
+    draw_models: &'a [crate::assets::AuthoredDrawModel],
     model_key: &str,
-) -> Vec<crate::assets::AuthoredDrawModel> {
-    if draw_models.is_empty() {
-        (!model_key.trim().is_empty())
-            .then(|| crate::assets::AuthoredDrawModel {
-                module_index: 0,
-                model_key: model_key.to_owned(),
-                ..Default::default()
-            })
-            .into_iter()
-            .collect()
+) -> std::borrow::Cow<'a, [crate::assets::AuthoredDrawModel]> {
+    if draw_models.is_empty() && !model_key.trim().is_empty() {
+        std::borrow::Cow::Owned(vec![crate::assets::AuthoredDrawModel {
+            module_index: 0,
+            model_key: model_key.to_owned(),
+            ..Default::default()
+        }])
     } else {
-        std::mem::take(draw_models)
+        std::borrow::Cow::Borrowed(draw_models)
     }
 }
 
@@ -498,13 +495,12 @@ impl RenderPipeline {
             // `UnitRenderInput::from_renderable` normalizes old snapshots to
             // one module. Keep the same compatibility at this boundary for
             // direct test/boot inputs which still provide only `model_key`.
-            let mut draw_models =
-                selected_draw_models_for_collection(&mut u.draw_models, &u.model_key);
+            let mut draw_models = selected_draw_models_for_collection(&u.draw_models, &u.model_key);
             #[cfg(feature = "game_client")]
             if draw_models.is_empty() {
                 if let Some(spec) = specialized_draw {
                     if spec.is_debris() && !spec.model_name.trim().is_empty() {
-                        draw_models.push(crate::assets::AuthoredDrawModel {
+                        draw_models.to_mut().push(crate::assets::AuthoredDrawModel {
                             module_index: 0,
                             model_key: spec.model_name.clone(),
                             ..Default::default()
@@ -548,7 +544,7 @@ impl RenderPipeline {
 
             let expected_ghost_models = draw_models.len();
             let mut ghost_render_objects = Vec::new();
-            for draw_model in draw_models {
+            for draw_model in draw_models.iter() {
                 let draw_module_index = draw_model.module_index;
                 // A queued v4 visual record is a one-shot candidate. Remove
                 // it before culling/model resolution so an unavailable mesh
@@ -561,7 +557,7 @@ impl RenderPipeline {
                 // weapon clip feedback in slot order. Preserve that exact
                 // ordering before the HLOD resolver handles last-write wins.
                 let authored_subobject_visibility =
-                    u.authored_subobject_visibility_for_draw_model(&draw_model);
+                    u.authored_subobject_visibility_for_draw_model(draw_model);
                 let authored_primary_turret = draw_model.primary_turret.clone();
                 let model_name_owned = draw_model.model_key.clone();
                 if model_name_owned.trim().is_empty() {
@@ -641,7 +637,7 @@ impl RenderPipeline {
                                     draw_module_index,
                                     &w3d_model,
                                     template_name_owned.as_str(),
-                                    &draw_model,
+                                    draw_model,
                                     u.draw_animation_completion_target(draw_module_index),
                                     pending_client_drawable_restore,
                                     &visual_plans,
@@ -658,7 +654,7 @@ impl RenderPipeline {
                                 object_id,
                                 draw_module_index,
                                 Arc::clone(&w3d_model),
-                                &draw_model,
+                                draw_model,
                                 world_matrix,
                                 animation_binding.clone(),
                                 installed_controls,

@@ -418,8 +418,8 @@ fn unit_render_inputs_keep_distinct_source_draw_modules() {
         .expect("unit render input");
     assert_eq!(input.model_key, "ProbeBody");
     assert_eq!(
-        input.draw_models,
-        vec![
+        input.draw_models.as_ref(),
+        &[
             AuthoredDrawModel {
                 module_index: 0,
                 model_key: "ProbeBody".to_string(),
