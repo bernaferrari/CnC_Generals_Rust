@@ -797,11 +797,6 @@ impl UnitAIUpdate {
             let _ = wander_ai.update(self);
             self.runtime.components.wander_ai = Some(wander_ai);
         }
-        if let Some(mut dozer_ai) = self.runtime.components.dozer_ai.take() {
-            dozer_ai.update();
-            self.runtime.components.dozer_ai = Some(dozer_ai);
-        }
-
         if let Some(mut jet_ai) = self.runtime.components.jet_ai.take() {
             if let Some(machine) = self.ai_state_machine.as_mut() {
                 let mut runtime = super::UnitAiStateRuntime {
@@ -1584,6 +1579,12 @@ impl UnitAIUpdate {
         if let Some(mut worker_ai) = self.runtime.components.worker_ai.take() {
             worker_ai.update_with_ai(self);
             self.runtime.components.worker_ai = Some(worker_ai);
+        }
+        // DozerAIUpdate.cpp:1564–1574 also extends the completed parent tick.
+        if let Some(mut dozer_ai) = self.runtime.components.dozer_ai.take() {
+            let owner = self.runtime.native_owner();
+            dozer_ai.update_with_ai(self, owner.as_ref());
+            self.runtime.components.dozer_ai = Some(dozer_ai);
         }
         Ok(())
     }

@@ -1064,18 +1064,69 @@ fn construction_message_uses_authored_display_name_for_the_local_builder_only() 
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[test]
-fn build_assistant_assigns_the_installed_dozer_without_relocking_its_parent() {
+fn admit_installed_construction_dozer(
+    world: &Arc<crate::system::engine_stores::EngineStores>,
+) -> Arc<RwLock<Object>> {
     use crate::common::{Coord3D, LocomotorSetType};
     use crate::helpers::TheThingFactory;
     use crate::locomotor::{LocomotorTemplate, SURFACE_GROUND};
+    use crate::system::engine_stores::with_active_stores;
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::get_thing_factory;
+    let existing = admit_vision_structure(world, Coord3D::new(305., 305., 0.), 37, 23);
+    let team = existing.read().unwrap().get_team().unwrap();
+    with_active_stores(world, || {
+        if get_module_factory().unwrap().is_none() {
+            init_module_factory().unwrap();
+        }
+        crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+        let mut locomotor = LocomotorTemplate::new("CompletionDozerGround".into());
+        locomotor.surfaces = SURFACE_GROUND;
+        locomotor.max_speed = 3.0;
+        locomotor.acceleration = 0.1;
+        world.services().locomotor_store().register_template(locomotor);
+        let definitions = "
+            Object CompletionInstalledDozer
+                KindOf = VEHICLE DOZER
+                Body = ActiveBody Health
+                    MaxHealth = 100
+                    InitialHealth = 100
+                End
+                Behavior = DozerAIUpdate OrderedDock
+                End
+                Locomotor = SET_NORMAL CompletionDozerGround
+            End
+        ";
+        assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(definitions), 1);
+        let template = TheThingFactory::find_template("CompletionInstalledDozer").unwrap();
+        let dozer = TheThingFactory::get().unwrap().new_object_with_team_handle(template, team).unwrap();
+        let mut object = dozer.write().unwrap();
+        object.set_position(&Coord3D::new(65., 105., 0.)).unwrap();
+        let parent = object.get_ai_update_interface().expect("installed cached UnitAI");
+        drop(object);
+        let mut parent = parent.lock().unwrap();
+        parent.choose_locomotor_set(LocomotorSetType::Normal).unwrap();
+        let mut selected_surfaces = None;
+        parent.with_cur_locomotor(&mut |locomotor| {
+            selected_surfaces = Some(locomotor.get_legal_surfaces());
+        });
+        assert_eq!(selected_surfaces, Some(SURFACE_GROUND));
+        assert_eq!(
+            parent.get_dozer_ai_update_interface_mut().expect("installed Dozer behavior").get_current_task(),
+            DozerTask::Invalid
+        );
+        dozer
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn build_assistant_assigns_the_installed_dozer_without_relocking_its_parent() {
     use crate::object::contain::transport_contain::selected_locomotor_is_airborne;
     use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
     use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
     use crate::test_process::{TestProcess, run_bounded};
     use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
-    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
-    use game_engine::common::thing::thing_factory::get_thing_factory;
 
     const NAME: &str = concat!(module_path!(), "::build_assistant_assigns_the_installed_dozer_without_relocking_its_parent");
     if let TestProcess::ParentVerified = run_bounded(
@@ -1086,57 +1137,10 @@ fn build_assistant_assigns_the_installed_dozer_without_relocking_its_parent() {
     }
     let _isolation = crate::object::registry::test_isolation_lock().lock().unwrap();
 
-    fn admit_dozer(world: &Arc<EngineStores>) -> Arc<RwLock<Object>> {
-        let existing = admit_vision_structure(world, Coord3D::new(305., 305., 0.), 37, 23);
-        let team = existing.read().unwrap().get_team().unwrap();
-        with_active_stores(world, || {
-            if get_module_factory().unwrap().is_none() {
-                init_module_factory().unwrap();
-            }
-            crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
-            let mut locomotor = LocomotorTemplate::new("CompletionDozerGround".into());
-            locomotor.surfaces = SURFACE_GROUND;
-            locomotor.max_speed = 3.0;
-            locomotor.acceleration = 0.1;
-            world.services().locomotor_store().register_template(locomotor);
-            let definitions = "
-                Object CompletionInstalledDozer
-                    KindOf = VEHICLE DOZER
-                    Body = ActiveBody Health
-                        MaxHealth = 100
-                        InitialHealth = 100
-                    End
-                    Behavior = DozerAIUpdate OrderedDock
-                    End
-                    Locomotor = SET_NORMAL CompletionDozerGround
-                End
-            ";
-            assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(definitions), 1);
-            let template = TheThingFactory::find_template("CompletionInstalledDozer").unwrap();
-            let dozer = TheThingFactory::get().unwrap().new_object_with_team_handle(template, team).unwrap();
-            let mut object = dozer.write().unwrap();
-            object.set_position(&Coord3D::new(65., 105., 0.)).unwrap();
-            let parent = object.get_ai_update_interface().expect("installed cached UnitAI");
-            drop(object);
-            let mut parent = parent.lock().unwrap();
-            parent.choose_locomotor_set(LocomotorSetType::Normal).unwrap();
-            let mut selected_surfaces = None;
-            parent.with_cur_locomotor(&mut |locomotor| {
-                selected_surfaces = Some(locomotor.get_legal_surfaces());
-            });
-            assert_eq!(selected_surfaces, Some(SURFACE_GROUND));
-            assert_eq!(
-                parent.get_dozer_ai_update_interface_mut().expect("installed Dozer behavior").get_current_task(),
-                DozerTask::Invalid
-            );
-            dozer
-        })
-    }
-
     let receiving = new_for_world();
     let peer = new_for_world();
-    let dozer = admit_dozer(&receiving);
-    let peer_dozer = admit_dozer(&peer);
+    let dozer = admit_installed_construction_dozer(&receiving);
+    let peer_dozer = admit_installed_construction_dozer(&peer);
     let dozer_id = dozer.read().unwrap().get_id();
     assert_eq!(peer_dozer.read().unwrap().get_id(), dozer_id);
     let place = |world: &Arc<EngineStores>, builder, x| with_active_stores(world, || {
@@ -1174,6 +1178,87 @@ fn build_assistant_assigns_the_installed_dozer_without_relocking_its_parent() {
         assert!(dozer.is_task_pending(DozerTask::Build));
     });
     assert_eq!(other_target.read().unwrap().get_builder_id(), dozer_id);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn installed_dozer_enters_parent_movement_from_its_authored_start_dock() {
+    use crate::ai::states::AIStateType;
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+
+    const NAME: &str = concat!(module_path!(), "::installed_dozer_enters_parent_movement_from_its_authored_start_dock");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_INSTALLED_DOZER_MOVEMENT_CHILD",
+    ) {
+        return;
+    }
+
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    let dozer = admit_installed_construction_dozer(&receiving);
+    let peer_dozer = admit_installed_construction_dozer(&peer);
+    let dozer_id = dozer.read().unwrap().get_id();
+    assert_eq!(peer_dozer.read().unwrap().get_id(), dozer_id);
+    let peer_parent = peer_dozer.read().unwrap().get_ai_update_interface().unwrap();
+    let peer_state = peer_parent.lock().unwrap().get_current_state_id();
+
+    let place = |world: &Arc<EngineStores>, builder, x| with_active_stores(world, || {
+        let terrain = world.services().terrain();
+        terrain.write().unwrap()
+            .try_restore_logic_height_map_with_effects(40, 40, &[0; 1600], &mut || {}).unwrap();
+        let pathfinder = world.ai().read().unwrap().pathfinder().unwrap();
+        pathfinder.write().unwrap().rebuild_from_terrain(&terrain.read().unwrap());
+        GameLogicBuildAssistantBackend.build_object_now(
+            builder, "CompletionVisionStructure", &BuildPosition { x, y: 105., z: 0. }, 0., 0,
+        ).unwrap()
+    });
+    let peer_scaffold = place(&peer, None, 250.);
+    let scaffold = place(&receiving, Some(dozer_id), 290.);
+    assert_eq!(scaffold, peer_scaffold);
+    let parent = dozer.read().unwrap().get_ai_update_interface().unwrap();
+    let pathfinder = receiving.ai().read().unwrap().pathfinder().unwrap();
+    let peer_pathfinder = peer.ai().read().unwrap().pathfinder().unwrap();
+
+    with_active_stores(&receiving, || {
+        let mut ai = parent.lock().unwrap();
+        let (dock, moving) = ai.get_dozer_ai_update_interface_mut().unwrap().construction_move_for_test().unwrap();
+        assert!(!moving);
+        assert!(dock.x > 160.);
+        assert!(!ai.is_waiting_for_path());
+        receiving.game_logic_mutex().lock().unwrap().set_current_frame(38);
+        ai.update().unwrap();
+
+        assert_eq!(ai.get_current_state_id(), Some(AIStateType::MoveTo as u32));
+        assert_eq!(ai.get_goal_position(), Some(dock));
+        assert_eq!(ai.get_ignored_obstacle_id(), scaffold);
+        assert_eq!(ai.get_last_command_source(), CommandSourceType::FromAi);
+        assert!(ai.is_waiting_for_path());
+        assert_eq!(ai.get_dozer_ai_update_interface_mut().unwrap().construction_move_for_test(), Some((dock, true)));
+        assert_eq!(pathfinder.write().unwrap().pathfinding_system_mut().pending_path_request_count(), 1);
+        drop(ai);
+
+        for _ in 0..3 {
+            pathfinder.write().unwrap().process_pathfind_queue().unwrap();
+        }
+        assert_eq!(pathfinder.write().unwrap().pathfinding_system_mut().pending_path_request_count(), 0);
+        let ai = parent.lock().unwrap();
+        assert!(!ai.is_waiting_for_path());
+        assert!(ai.get_path().is_some());
+        assert_eq!(ai.get_path_destination(), Some(dock));
+        let scaffold = receiving.game_logic_mutex().lock().unwrap().find_object_by_id(scaffold).unwrap();
+        assert_eq!(scaffold.read().unwrap().get_construction_percent(), 0.);
+    });
+
+    assert_eq!(peer_pathfinder.write().unwrap().pathfinding_system_mut().pending_path_request_count(), 0);
+    let mut peer_ai = peer_parent.lock().unwrap();
+    assert_eq!(peer_ai.get_current_state_id(), peer_state);
+    assert_eq!(peer_ai.get_ignored_obstacle_id(), INVALID_ID);
+    assert!(!peer_ai.is_waiting_for_path());
+    assert!(peer_ai.get_dozer_ai_update_interface_mut().unwrap().construction_move_for_test().is_none());
 }
 
 #[cfg(not(target_arch = "wasm32"))]

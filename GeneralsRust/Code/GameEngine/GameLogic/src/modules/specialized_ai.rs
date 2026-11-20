@@ -102,6 +102,11 @@ pub trait DozerAIUpdateInterface: Send + Sync {
         None
     }
 
+    #[cfg(test)]
+    fn construction_move_for_test(&self) -> Option<(crate::common::Coord3D, bool)> {
+        None
+    }
+
     fn validate_owned_snapshot(&self) -> Result<(), String> {
         Err("Dozer owned snapshot unavailable".into())
     }
