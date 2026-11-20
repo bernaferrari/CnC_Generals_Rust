@@ -8,7 +8,7 @@ use crate::modules::{AIUpdateInterface, FAST_AS_POSSIBLE, PhysicsBehaviorExt};
 use crate::object::Object;
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
-use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
+use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
 use std::sync::{Arc, Mutex, RwLock};
 
 fn child(name: &str) -> bool {
@@ -39,9 +39,7 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        if get_thing_factory().unwrap().is_none() {
-            init_thing_factory().unwrap();
-        }
+        assert!(ensure_thing_factory_exists());
         if get_module_factory().unwrap().is_none() {
             init_module_factory().unwrap();
         }
