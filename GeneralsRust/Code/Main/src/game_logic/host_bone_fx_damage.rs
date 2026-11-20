@@ -1005,6 +1005,20 @@ pub fn bone_world_pos(origin: Vec3, yaw: f32, model: &str, scale: f32, bone: &st
     rotate_yaw_host(origin, yaw, bone_local_pos(model, scale, bone))
 }
 
+impl crate::game_logic::Object {
+    pub(in crate::game_logic) fn ensure_compatibility_bone_fx(&mut self) {
+        if self.bone_fx_damage.is_none()
+            && let Some(module) = HostBoneFxDamageData::from_compatibility_template(
+                self.get_template(),
+                &self.template_name,
+            )
+        {
+            // Only a present module writes the inline schedules and bone arrays.
+            self.bone_fx_damage = Some(module);
+        }
+    }
+}
+
 impl crate::game_logic::GameLogic {
     pub(crate) fn update_owned_bone_fx_with_effects(
         &mut self,
@@ -1016,12 +1030,7 @@ impl crate::game_logic::GameLogic {
             let Some(object) = self.objects.get_mut(&id) else {
                 return Ok(());
             };
-            if object.bone_fx_damage.is_none() {
-                object.bone_fx_damage = HostBoneFxDamageData::from_compatibility_template(
-                    object.get_template(),
-                    &object.template_name,
-                );
-            }
+            object.ensure_compatibility_bone_fx();
             let Some(bfx) = object.bone_fx_damage.as_mut() else {
                 return Ok(());
             };

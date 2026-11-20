@@ -309,13 +309,7 @@ impl Object {
         // C++ BoneFXDamage::onBodyDamageStateChange residual.
         let mut yielded = None;
         if old_state != state && show_health_visuals {
-            if self.bone_fx_damage.is_none() {
-                self.bone_fx_damage =
-                    crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_compatibility_template(
-                        self.get_template(),
-                        &self.template_name,
-                    );
-            }
+            self.ensure_compatibility_bone_fx();
             let retired = self
                 .bone_fx_damage
                 .as_mut()
