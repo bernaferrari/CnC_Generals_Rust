@@ -819,3 +819,7 @@ impl GameClient {
             .with_manager(|manager| manager.draw_all_with_radar(radar, &mut context));
     }
 }
+
+#[cfg(test)]
+#[path = "native_draw_physics_tests.rs"]
+mod native_draw_physics_tests;
