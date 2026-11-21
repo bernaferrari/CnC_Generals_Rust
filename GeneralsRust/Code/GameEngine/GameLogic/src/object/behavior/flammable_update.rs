@@ -4,7 +4,7 @@
 //! Author: EA Pacific (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{AsciiString, Bool, ModuleData, ObjectID, Real, UnsignedInt, XferVersion};
+use crate::common::{AsciiString, Bool, ModuleData, NameKeyType, ObjectID, Real, UnsignedInt, XferVersion};
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::Object as GameObject;
@@ -241,17 +241,22 @@ impl FlammableUpdate {
                 })
                 .flatten())
         };
-        let mut wake = |object: &GameObject, name: &str, sleep: UpdateSleepTime| {
+        // C++ setWakeFrame targets `this`: the own-wake call carries this
+        // instance's module tag; the FireSpread target keeps its class wake.
+        let self_tag = self.module_data.read().get_module_tag_name_key();
+        let mut wake = |object: &GameObject, name: &str, tag: NameKeyType, sleep: UpdateSleepTime| {
             let wake_frame = match sleep {
                 UpdateSleepTime::None => frame.saturating_add(1),
                 UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
                 UpdateSleepTime::Frames(frames) => frame.saturating_add(frames),
             };
-            object.reschedule_named_update(name, wake_frame);
+            if tag == 0 || !object.reschedule_tagged_update(tag, wake_frame) {
+                object.reschedule_named_update(name, wake_frame);
+            }
             Ok(())
         };
         if let Err(error) =
-            self.try_to_ignite_with_services_at(frame, &mut audio, &mut spread, &mut wake)
+            self.try_to_ignite_with_services_at(frame, &mut audio, &mut spread, self_tag, &mut wake)
         {
             log::debug!("Flammable ignition unavailable: {error}");
         }
@@ -265,7 +270,8 @@ impl FlammableUpdate {
         frame: UnsignedInt,
         audio: &mut dyn FnMut(&crate::common::audio::AudioEventRts) -> u32,
         spread: &mut dyn FnMut(&GameObject) -> Result<Option<UnsignedInt>, String>,
-        wake: &mut dyn FnMut(&GameObject, &str, UpdateSleepTime) -> Result<(), String>,
+        self_tag: NameKeyType,
+        wake: &mut dyn FnMut(&GameObject, &str, NameKeyType, UpdateSleepTime) -> Result<(), String>,
     ) -> Result<(), String> {
         if self.status != FlammabilityStatus::Normal {
             return Ok(());
@@ -296,7 +302,7 @@ impl FlammableUpdate {
         if let Ok(object) = owner.try_read() {
             if let Some(delay) = spread(&object)? {
                 self.last_fire_spread_wake = Some(UpdateSleepTime::Frames(delay));
-                wake(&object, "FireSpreadUpdate", UpdateSleepTime::Frames(delay))?;
+                wake(&object, "FireSpreadUpdate", 0, UpdateSleepTime::Frames(delay))?;
             }
         }
         self.status = FlammabilityStatus::Aflame;
@@ -319,7 +325,7 @@ impl FlammableUpdate {
         };
         self.last_wake_sleep = Some(sleep);
         if let Ok(object) = owner.try_read() {
-            wake(&object, "FlammableUpdate", sleep)?;
+            wake(&object, "FlammableUpdate", self_tag, sleep)?;
         }
         Ok(())
     }
@@ -743,7 +749,7 @@ pub(crate) fn ignite_installed_silent_at(
                 })
                 .ok_or("owned FireSpread callback is busy")?
         };
-        let mut wake = |_object: &GameObject, name: &str, sleep: UpdateSleepTime| {
+        let mut wake = |_object: &GameObject, name: &str, _tag: NameKeyType, sleep: UpdateSleepTime| {
             if name == "FlammableUpdate" {
                 pending = Some(sleep);
                 return Ok(());
@@ -753,7 +759,8 @@ pub(crate) fn ignite_installed_silent_at(
             }
             Ok(())
         };
-        flammable.try_to_ignite_with_services_at(frame, &mut audio, &mut spread, &mut wake)
+        let self_tag = flammable.module_data.read().get_module_tag_name_key();
+        flammable.try_to_ignite_with_services_at(frame, &mut audio, &mut spread, self_tag, &mut wake)
     })?;
     if let Some(sleep) = pending {
         scheduler.awaken_update_module_with_current(&self_proxy, None, frame, sleep.to_u32())?;

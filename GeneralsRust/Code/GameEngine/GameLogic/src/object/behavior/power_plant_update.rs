@@ -169,7 +169,10 @@ impl PowerPlantUpdate {
             return;
         };
         if let Ok(guard) = object.read() {
-            guard.reschedule_named_update("PowerPlantUpdate", self.next_call_frame_and_phase);
+            let module_tag = self.module_data.read().get_module_tag_name_key();
+            if !guard.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
+                guard.reschedule_named_update("PowerPlantUpdate", self.next_call_frame_and_phase);
+            }
         }
     }
 
@@ -444,5 +447,112 @@ mod tests {
         assert!(loaded.extended);
         assert_eq!(loaded.next_call_frame_and_phase, 0x1234);
         assert_eq!(loaded.extend_done_frame, 77);
+    }
+    /// C++ `UpdateModule::setWakeFrame` wakes `this` only. Two differently
+    /// tagged PowerPlantUpdate instances on one Object must schedule
+    /// independently through `reschedule_tagged_update`.
+    #[test]
+    fn tagged_power_plant_wake_hits_only_the_matching_installed_entry() {
+        use crate::modules::UpdateModulePtr;
+        use crate::object::ModuleUpdateProxy;
+
+        fn install(
+            owner: &Arc<RwLock<GameObject>>,
+            register: &mut dyn FnMut(ObjectID, UpdateModulePtr, UnsignedInt),
+            tag: NameKeyType,
+        ) -> UpdateModulePtr {
+            let data = game_engine::common::thing::module::ModuleDataHandle::new(
+                PowerPlantUpdateModuleData {
+                    module_tag_name_key: tag,
+                    ..Default::default()
+                },
+            );
+            let behavior =
+                PowerPlantUpdate::new_with_module_data(owner.clone(), data.clone()).unwrap();
+            let module = PowerPlantUpdateModule::new(
+                behavior,
+                &AsciiString::from("PowerPlantUpdate"),
+                data.clone(),
+            );
+            owner.write().unwrap().install_update_module(
+                "PowerPlantUpdate",
+                Box::new(module),
+                data,
+            );
+            let (id, entry) = {
+                let object = owner.read().unwrap();
+                (object.get_id(), object.modules.last().unwrap().clone())
+            };
+            let proxy: UpdateModulePtr =
+                Arc::new(RwLock::new(ModuleUpdateProxy::new(entry.clone(), id)));
+            owner
+                .write()
+                .unwrap()
+                .attach_update_module_registration(proxy.clone(), Some(&entry))
+                .unwrap();
+            register(id, proxy.clone(), 40);
+            proxy
+        }
+
+        let _serial = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = crate::system::engine_stores::new_for_world();
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                let id = 0xD160;
+                let owner = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
+                let ambient = crate::system::game_logic::get_game_logic();
+                ambient.lock().unwrap().admit_scheduling_owner(id, owner.clone());
+                let mut register = |id, proxy, wake| {
+                    ambient
+                        .lock()
+                        .unwrap()
+                        .register_sleepy_update_module(id, proxy, wake);
+                };
+                let first = install(&owner, &mut register, 1);
+                let second = install(&owner, &mut register, 2);
+
+                // Install order is preserved and each entry keeps its own tag.
+                {
+                    let object = owner.read().unwrap();
+                    let tags: Vec<NameKeyType> = object
+                        .modules
+                        .iter()
+                        .map(|entry| entry.module_tag_key())
+                        .collect();
+                    assert_eq!(tags, vec![1, 2]);
+                    assert!(!object.reschedule_tagged_update(0, 99));
+                    assert!(!object.reschedule_tagged_update(77, 99));
+                }
+
+                {
+                    let object = owner.read().unwrap();
+                    assert!(object.reschedule_tagged_update(1, 17));
+                }
+                {
+                    let scheduler = ambient.lock().unwrap();
+                    let (first_id, first_wake) = scheduler.sleepy_entry_for(&first).unwrap();
+                    let (second_id, second_wake) = scheduler.sleepy_entry_for(&second).unwrap();
+                    assert_eq!((first_id, first_wake), (id, 17));
+                    assert_eq!(
+                        (second_id, second_wake),
+                        (id, 40),
+                        "sibling registration keeps its object id and wake frame"
+                    );
+                }
+
+                {
+                    let object = owner.read().unwrap();
+                    assert!(object.reschedule_tagged_update(2, 55));
+                }
+                {
+                    let mut scheduler = ambient.lock().unwrap();
+                    assert_eq!(scheduler.sleepy_entry_for(&first).unwrap().1, 17);
+                    assert_eq!(scheduler.sleepy_entry_for(&second).unwrap().1, 55);
+                    scheduler.unregister_update_module(id, first.clone());
+                    scheduler.unregister_update_module(id, second.clone());
+                }
+            });
+        });
     }
 }

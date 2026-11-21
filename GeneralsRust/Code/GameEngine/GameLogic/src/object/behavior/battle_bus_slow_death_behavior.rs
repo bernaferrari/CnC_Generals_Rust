@@ -801,10 +801,10 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             {
                 if let Ok(guard) = object.read() {
-                    guard.reschedule_named_update(
-                        "BattleBusSlowDeathBehavior",
-                        now.saturating_add(1),
-                    );
+                    let module_tag = self.module_data.read().get_module_tag_name_key();
+                    if !guard.reschedule_tagged_update(module_tag, now.saturating_add(1)) {
+                        guard.reschedule_named_update("BattleBusSlowDeathBehavior", now.saturating_add(1));
+                    }
                 }
             }
         } else {

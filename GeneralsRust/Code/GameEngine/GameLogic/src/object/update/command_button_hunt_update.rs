@@ -172,10 +172,10 @@ impl CommandButtonHuntUpdate {
         self.next_call_frame_and_phase = UpdateSleepTime::Forever.to_u32();
         if let Some(object_arc) = self.object_arc() {
             if let Ok(object) = object_arc.read() {
-                object.reschedule_named_update(
-                    "CommandButtonHuntUpdate",
-                    self.next_call_frame_and_phase,
-                );
+                let module_tag = self.module_data.read().get_module_tag_name_key();
+                if !object.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
+                    object.reschedule_named_update("CommandButtonHuntUpdate", self.next_call_frame_and_phase);
+                }
             }
         }
     }
@@ -214,8 +214,10 @@ impl CommandButtonHuntUpdate {
             let _ = self.update_simple();
             let now = TheGameLogic::get_frame();
             self.next_call_frame_and_phase = now.saturating_add(1);
-            object
-                .reschedule_named_update("CommandButtonHuntUpdate", self.next_call_frame_and_phase);
+            let module_tag = self.module_data.read().get_module_tag_name_key();
+            if !object.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
+                object.reschedule_named_update("CommandButtonHuntUpdate", self.next_call_frame_and_phase);
+            }
         }
     }
 

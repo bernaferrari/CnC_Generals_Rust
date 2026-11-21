@@ -429,11 +429,17 @@ impl ToppleUpdate {
         let data = view.read();
         let now = crate::helpers::TheGameLogic::get_frame();
         self.next_call_frame_and_phase = now.saturating_add(1);
-        obj.reschedule_named_update("ToppleUpdate", self.next_call_frame_and_phase);
+        let module_tag = self.module_data.read().get_module_tag_name_key();
+        if !obj.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
+            obj.reschedule_named_update("ToppleUpdate", self.next_call_frame_and_phase);
+        }
 
         if data.kill_when_start_toppled {
             self.next_call_frame_and_phase = UpdateSleepTime::Forever.to_u32();
-            obj.reschedule_named_update("ToppleUpdate", self.next_call_frame_and_phase);
+            let module_tag = self.module_data.read().get_module_tag_name_key();
+            if !obj.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
+                obj.reschedule_named_update("ToppleUpdate", self.next_call_frame_and_phase);
+            }
             obj.kill(None, None);
             return;
         }

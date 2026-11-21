@@ -43,7 +43,7 @@ use crate::object::behavior::behavior_module::BehaviorModuleData;
 use game_engine::common::global_data;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
+use game_engine::common::thing::module::{ModuleData, ModuleDataHandle, ModuleDataView};
 use glam::{Mat4, Quat, Vec3};
 use std::any::Any;
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -407,10 +407,16 @@ impl PhysicsBehaviorHandle {
 
         if schedule && !self.state.has_flag(FLAG_IS_IN_UPDATE) {
             if let Some(owner) = obj {
-                owner.reschedule_named_update("PhysicsBehavior", now.wrapping_add(1));
+                let module_tag = self.module_data.read().get_module_tag_name_key();
+                if !owner.reschedule_tagged_update(module_tag, now.wrapping_add(1)) {
+                    owner.reschedule_named_update("PhysicsBehavior", now.wrapping_add(1));
+                }
             } else if let Some(owner) = self.object_arc() {
                 if let Ok(owner) = owner.read() {
-                    owner.reschedule_named_update("PhysicsBehavior", now.wrapping_add(1));
+                    let module_tag = self.module_data.read().get_module_tag_name_key();
+                    if !owner.reschedule_tagged_update(module_tag, now.wrapping_add(1)) {
+                        owner.reschedule_named_update("PhysicsBehavior", now.wrapping_add(1));
+                    }
                 }
             }
         }
@@ -522,7 +528,10 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
             if let Some(obj) = self.object_arc() {
                 if let Ok(obj) = obj.read() {
                     let now = TheGameLogic::get_frame();
-                    obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+                    let module_tag = self.module_data.read().get_module_tag_name_key();
+                    if !obj.reschedule_tagged_update(module_tag, now.saturating_add(1)) {
+                        obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+                    }
                 }
             }
         }
@@ -607,7 +616,10 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
             if let Some(obj) = self.object_arc() {
                 if let Ok(obj) = obj.read() {
                     let now = TheGameLogic::get_frame();
-                    obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+                    let module_tag = self.module_data.read().get_module_tag_name_key();
+                    if !obj.reschedule_tagged_update(module_tag, now.saturating_add(1)) {
+                        obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+                    }
                 }
             }
         }
@@ -1276,7 +1288,10 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
         }
 
         let now = TheGameLogic::get_frame();
-        obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+        let module_tag = self.module_data.read().get_module_tag_name_key();
+        if !obj.reschedule_tagged_update(module_tag, now.saturating_add(1)) {
+            obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+        }
         Ok(())
     }
 }

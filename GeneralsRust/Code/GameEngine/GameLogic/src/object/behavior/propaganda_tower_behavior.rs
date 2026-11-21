@@ -227,10 +227,10 @@ impl PropagandaTowerBehavior {
             return;
         };
         if let Ok(guard) = obj.read() {
-            guard.reschedule_named_update(
-                "PropagandaTowerBehavior",
-                self.next_call_frame_and_phase,
-            );
+            let module_tag = self.module_data.read().get_module_tag_name_key();
+            if !guard.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
+                guard.reschedule_named_update("PropagandaTowerBehavior", self.next_call_frame_and_phase);
+            }
         }
     }
 

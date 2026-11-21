@@ -526,7 +526,10 @@ impl MinefieldBehavior {
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         {
             if let Ok(guard) = object.read() {
-                guard.reschedule_named_update("MinefieldBehavior", self.next_call_frame_and_phase);
+                let module_tag = self.module_data.read().get_module_tag_name_key();
+                if !guard.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
+                    guard.reschedule_named_update("MinefieldBehavior", self.next_call_frame_and_phase);
+                }
             }
         }
         Ok(())
@@ -765,7 +768,10 @@ impl MinefieldBehavior {
                 slot.id = other_id;
                 slot.collide_time = now;
                 if let Ok(object) = owner.read() {
-                    object.reschedule_named_update("MinefieldBehavior", now.saturating_add(1));
+                    let module_tag = self.module_data.read().get_module_tag_name_key();
+                    if !object.reschedule_tagged_update(module_tag, now.saturating_add(1)) {
+                        object.reschedule_named_update("MinefieldBehavior", now.saturating_add(1));
+                    }
                 }
             }
             return;

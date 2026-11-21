@@ -2421,10 +2421,10 @@ impl SpecialPowerUpdateInterface for SpecialAbilityUpdate {
         if obj_id != INVALID_ID {
             if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
                 if let Ok(guard) = obj.read() {
-                    guard.reschedule_named_update(
-                        "SpecialAbilityUpdate",
-                        self.next_call_frame_and_phase,
-                    );
+                    let module_tag = self.module_data.read().get_module_tag_name_key();
+                    if !guard.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
+                        guard.reschedule_named_update("SpecialAbilityUpdate", self.next_call_frame_and_phase);
+                    }
                 }
             }
         }

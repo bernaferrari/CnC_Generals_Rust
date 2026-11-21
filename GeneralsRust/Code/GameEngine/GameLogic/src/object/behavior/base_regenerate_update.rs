@@ -85,7 +85,10 @@ impl BaseRegenerateUpdate {
             return;
         };
         if let Ok(guard) = object.read() {
-            guard.reschedule_named_update("BaseRegenerateUpdate", wake_frame);
+            let module_tag = self.module_data.read().get_module_tag_name_key();
+            if !guard.reschedule_tagged_update(module_tag, wake_frame) {
+                guard.reschedule_named_update("BaseRegenerateUpdate", wake_frame);
+            }
         }
     }
 

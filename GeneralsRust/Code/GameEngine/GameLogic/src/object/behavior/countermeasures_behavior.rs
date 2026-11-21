@@ -921,10 +921,10 @@ impl UpgradeModuleInterface for CountermeasuresBehavior {
                 if self.upgrade_mux.attempt_upgrade(mask, object_guard) {
                     let now = crate::helpers::TheGameLogic::get_frame();
                     self.next_call_frame_and_phase = now.saturating_add(1);
-                    object_guard.reschedule_named_update(
-                        "CountermeasuresBehavior",
-                        self.next_call_frame_and_phase,
-                    );
+                    let module_tag = self.module_data.read().get_module_tag_name_key();
+                    if !object_guard.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
+                        object_guard.reschedule_named_update("CountermeasuresBehavior", self.next_call_frame_and_phase);
+                    }
                     true
                 } else {
                     false

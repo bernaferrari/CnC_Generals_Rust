@@ -144,7 +144,10 @@ impl PoisonedBehavior {
         let Ok(object) = object.read() else {
             return;
         };
-        object.reschedule_named_update("PoisonedBehavior", wake_frame);
+        let module_tag = self.module_data.read().get_module_tag_name_key();
+        if !object.reschedule_tagged_update(module_tag, wake_frame) {
+            object.reschedule_named_update("PoisonedBehavior", wake_frame);
+        }
     }
 
     fn set_poison_tint(&self, enabled: bool) {

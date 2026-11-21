@@ -321,10 +321,10 @@ impl DamageModuleInterface for SupplyWarehouseCripplingBehavior {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj_guard) = obj.read() {
-                obj_guard.reschedule_named_update(
-                    "SupplyWarehouseCripplingBehavior",
-                    self.next_call_frame_and_phase,
-                );
+                let module_tag = self.module_data.read().get_module_tag_name_key();
+                if !obj_guard.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
+                    obj_guard.reschedule_named_update("SupplyWarehouseCripplingBehavior", self.next_call_frame_and_phase);
+                }
             }
         }
 

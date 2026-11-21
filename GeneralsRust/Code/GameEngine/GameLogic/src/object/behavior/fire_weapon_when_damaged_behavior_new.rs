@@ -460,7 +460,10 @@ impl FireWeaponWhenDamagedBehavior {
             UPDATE_SLEEP_FOREVER.to_u32()
         };
         if let Ok(obj_guard) = object.read() {
-            obj_guard.reschedule_named_update("FireWeaponWhenDamagedBehavior", wake_frame);
+            let module_tag = module_data.read().get_module_tag_name_key();
+            if !obj_guard.reschedule_tagged_update(module_tag, wake_frame) {
+                obj_guard.reschedule_named_update("FireWeaponWhenDamagedBehavior", wake_frame);
+            }
         }
         drop(guard);
 
@@ -560,7 +563,10 @@ impl FireWeaponWhenDamagedBehavior {
                     UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
                     UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
                 };
-                obj_guard.reschedule_named_update("FireWeaponWhenDamagedBehavior", wake_frame);
+                let module_tag = self.module_data.read().get_module_tag_name_key();
+                if !obj_guard.reschedule_tagged_update(module_tag, wake_frame) {
+                    obj_guard.reschedule_named_update("FireWeaponWhenDamagedBehavior", wake_frame);
+                }
             }
         }
     }

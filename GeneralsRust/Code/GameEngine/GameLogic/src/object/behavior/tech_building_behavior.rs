@@ -181,7 +181,10 @@ impl TechBuildingBehavior {
         }
         let wake = self.next_call_frame_and_phase;
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(id, |guard| {
-            guard.reschedule_named_update("TechBuildingBehavior", wake);
+            let module_tag = self.module_data.read().get_module_tag_name_key();
+            if !guard.reschedule_tagged_update(module_tag, wake) {
+                guard.reschedule_named_update("TechBuildingBehavior", wake);
+            }
         });
     }
 

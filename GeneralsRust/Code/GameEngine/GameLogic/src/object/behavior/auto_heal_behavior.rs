@@ -1125,7 +1125,10 @@ impl AutoHealBehavior {
         let Ok(object) = object_arc.read() else {
             return;
         };
-        object.reschedule_named_update("AutoHealBehavior", wake_frame);
+        let module_tag = self.module_data.read().get_module_tag_name_key();
+        if !object.reschedule_tagged_update(module_tag, wake_frame) {
+            object.reschedule_named_update("AutoHealBehavior", wake_frame);
+        }
     }
 
     /// Last `setWakeFrame` requested by ctor / onDamage / update.
