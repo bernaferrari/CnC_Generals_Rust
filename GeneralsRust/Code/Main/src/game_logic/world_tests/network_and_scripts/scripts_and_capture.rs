@@ -3018,9 +3018,11 @@ fn live_named_set_attitude_drains_to_host_ai() {
         o.set_ai_attitude_i8(0);
     }
 
-    request_host_script_named_attitude(HostScriptNamedAttitudeRequest {
-        unit: "Hero".into(),
-        mood: 2,
+    logic.with_own_services(|| {
+        request_host_script_named_attitude(HostScriptNamedAttitudeRequest {
+            unit: "Hero".into(),
+            mood: 2,
+        });
     });
     logic.scripts_loaded = true;
     logic.evaluate_and_execute_scripts(0.0);
@@ -3044,8 +3046,13 @@ fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
     drain_script_act_b_queues();
 
     let mut logic = GameLogic::new();
+    logic.admit_default_locomotors_if_unadmitted();
     let mut t = ThingTemplate::new("Scout");
     t.set_health(100.0);
+    // C++ doSetStoppingDistance stamps aiUpdate->getCurLocomotor()
+    // (ScriptActions.cpp:3864-3867), and the close-enough arrival check only
+    // runs inside doLocomotor — a locomotor-less member is skipped outright.
+    t.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     logic.templates.insert("Scout".into(), t);
     let id = logic
         .create_object("Scout", Team::USA, Vec3::ZERO)
@@ -3056,9 +3063,11 @@ fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
         o.request_path(Vec3::new(10.0, 0.0, 0.0), None);
     }
 
-    request_host_script_stopping_distance(HostScriptStoppingDistanceRequest::Team {
-        team: "TeamA".into(),
-        distance: 25.0,
+    logic.with_own_services(|| {
+        request_host_script_stopping_distance(HostScriptStoppingDistanceRequest::Team {
+            team: "TeamA".into(),
+            distance: 25.0,
+        });
     });
     logic.scripts_loaded = true;
     logic.evaluate_and_execute_scripts(0.0);
@@ -3080,9 +3089,11 @@ fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
         );
     }
 
-    request_host_script_stopping_distance(HostScriptStoppingDistanceRequest::Team {
-        team: "TeamA".into(),
-        distance: 0.25,
+    logic.with_own_services(|| {
+        request_host_script_stopping_distance(HostScriptStoppingDistanceRequest::Team {
+            team: "TeamA".into(),
+            distance: 0.25,
+        });
     });
     logic.evaluate_and_execute_scripts(0.0);
     assert_eq!(
@@ -3540,8 +3551,15 @@ fn live_team_garrison_nearest_preserves_roster_order_for_membership() {
     };
     for id in [first_by_roster, first_by_id] {
         logic.host_object_mut(id).unwrap().team_instance_name = "RosterOrderTeam".into();
-        roster.write().unwrap().add_member(id.0);
     }
+    // C++ Object::setTeam prepends each member (Object.cpp:849), so the
+    // head-of-list roster order is the reverse of admission order. The C++
+    // action iterates the list from the head; pin the roster directly so
+    // `first_by_roster` (the higher ID) really is the head member.
+    roster
+        .write()
+        .unwrap()
+        .restore_owned_members(&[first_by_roster.0, first_by_id.0]);
     roster.write().unwrap().set_active();
 
     let mut action = ScriptAction::new(ScriptActionType::TeamGarrisonNearestBuilding);
@@ -3560,7 +3578,7 @@ fn live_team_garrison_nearest_preserves_roster_order_for_membership() {
     script.action = Some(Box::new(action));
     let mut scripts = ScriptList::new();
     scripts.append_script(Box::new(script));
-    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let engine = ScriptEngine::new_with_services(&logic.world_services).unwrap();
     engine
         .set_script_list_for_player(0, Some(Box::new(scripts)))
         .unwrap();

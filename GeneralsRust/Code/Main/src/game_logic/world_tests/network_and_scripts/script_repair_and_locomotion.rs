@@ -45,11 +45,15 @@ fn live_object_force_select_selects_lowest_id_and_centers() {
         o.team_instance_name = "teamAmerica".into();
     }
 
-    request_host_script_force_select(HostScriptForceSelectRequest {
-        team: "teamAmerica".into(),
-        object_type: "AmericaInfantryRanger".into(),
-        center_in_view: true,
-        audio: "SelectRanger".into(),
+    // Script requests ride this world's own queues; a bare request would land
+    // on whichever services were last published on this thread.
+    logic.with_own_services(|| {
+        request_host_script_force_select(HostScriptForceSelectRequest {
+            team: "teamAmerica".into(),
+            object_type: "AmericaInfantryRanger".into(),
+            center_in_view: true,
+            audio: "SelectRanger".into(),
+        });
     });
     logic.scripts_loaded = true;
     logic.evaluate_and_execute_scripts(0.0);
@@ -147,9 +151,11 @@ fn live_player_repair_named_structure_queues_ai_repair() {
         o.owner_player_id = Some(1);
     }
 
-    request_host_script_player_misc(HostScriptPlayerMiscRequest::RepairNamed {
-        player: "Player_America".into(),
-        structure: "Bunker".into(),
+    logic.with_own_services(|| {
+        request_host_script_player_misc(HostScriptPlayerMiscRequest::RepairNamed {
+            player: "Player_America".into(),
+            structure: "Bunker".into(),
+        });
     });
     logic.scripts_loaded = true;
     logic.evaluate_and_execute_scripts(0.0);

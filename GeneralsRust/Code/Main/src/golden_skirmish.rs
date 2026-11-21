@@ -2056,10 +2056,26 @@ fn boot_golden_world(map_exists: bool) -> GameLogic {
         let _ = crate::subsystem_manager::SubsystemInterface::init(
             &mut crate::subsystem_manager::FileSystemSubsystem::new(),
         );
-        if let Ok(definitions) = crate::parallel_harness::RetailWorldDefinitions::load() {
-            let _ = logic.with_own_services_mut(|logic| definitions.admit(logic));
-        }
     }
+    admit_boot_definitions(&mut logic);
+    logic
+}
+
+/// Admit the retail startup definitions into a fresh world in application
+/// boot order (C++ GameEngine::init, GameEngine.cpp:428-458). NewGame on a
+/// never-admitted world fails closed, so harness worlds that run a game
+/// without loading a map must take this step too.
+fn admit_boot_definitions(logic: &mut GameLogic) {
+    if let Ok(definitions) = crate::parallel_harness::RetailWorldDefinitions::load() {
+        let _ = logic.with_own_services_mut(|logic| definitions.admit(logic));
+    }
+}
+
+/// Fresh world with the retail startup definitions admitted, for harness
+/// phases that run NewGame/skirmish apply without loading a map.
+pub(crate) fn boot_definitions_world() -> GameLogic {
+    let mut logic = GameLogic::new();
+    admit_boot_definitions(&mut logic);
     logic
 }
 
