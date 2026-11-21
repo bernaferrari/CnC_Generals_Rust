@@ -1006,7 +1006,19 @@ mod tests {
         // ScriptEngine.cpp:5514-5518 expiry appends MSG_CLEAR_GAME_DATA.
         use game_engine::common::message_stream::{GameMessageType, get_message_stream};
         use gamelogic::scripting::core::ScriptAction;
-        use gamelogic::scripting::evaluator::ScriptEvaluator;
+        use gamelogic::scripting::engine::ScriptExecutionDriver;
+
+        // The receiving side of closeWindows: C++ GameLogic::closeWindows
+        // iterates this game's window list; a headless receiver has none.
+        struct QuickVictoryDriver;
+        impl ScriptExecutionDriver for QuickVictoryDriver {
+            fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
+                Ok(())
+            }
+            fn close_game_windows(&mut self) -> Option<gamelogic::GameLogicResult<()>> {
+                Some(Ok(()))
+            }
+        }
 
         initialize_script_engine().expect("script engine should initialize");
         let hooks = MissionScriptHooks::new();
@@ -1025,10 +1037,18 @@ mod tests {
             }
         }
 
-        let evaluator = ScriptEvaluator::new(get_script_engine());
-        evaluator
-            .execute_action(&ScriptAction::new(ScriptActionType::Quickvictory))
-            .expect("QuickVictory should execute");
+        if let Ok(guard) = get_script_engine().read() {
+            if let Some(engine) = guard.as_ref() {
+                engine
+                    .friend_execute_action_with_driver_checked(
+                        &ScriptAction::new(ScriptActionType::Quickvictory),
+                        None,
+                        gamelogic::scripting::executor::ScriptContext::new(),
+                        &mut QuickVictoryDriver,
+                    )
+                    .expect("QuickVictory should execute");
+            }
+        }
 
         {
             let engine = get_script_engine();

@@ -239,8 +239,11 @@ mod owned_receipt_tests {
                     output,
                 ),
                 4 => {
+                    // C++ Player.cpp:2410 bounty is REAL_TO_INT_CEIL(cost*pct);
+                    // REAL_TO_INT_CEIL of an integral k yields k+1, so cost 4 at
+                    // 100% deposits exactly 5 like the other routes.
                     player.cash_bounty_percent = 1.0;
-                    assert_eq!(player.do_bounty_for_kill(5, output), 5);
+                    assert_eq!(player.do_bounty_for_kill(4, output), 5);
                 }
                 _ => unreachable!(),
             }

@@ -2814,33 +2814,40 @@ fn live_host_script_visual_status_apply() {
         o.team_instance_name = "teamAmerica".into();
         o.owner_player_id = Some(0);
     }
+    // The named-script cache seeded at create_object saw an empty name; the
+    // fixture rename must be admitted the same way a C++ map load names it.
+    logic.add_receiving_named_script_object(id);
 
-    request_host_script_flash(HostScriptFlashRequest::Named {
-        unit: "FlashRanger".into(),
-        seconds: 2,
-        white: false,
-    });
-    request_host_script_flash(HostScriptFlashRequest::Team {
-        team: "teamAmerica".into(),
-        seconds: 3,
-        white: true,
-    });
-    request_host_script_emoticon(HostScriptEmoticonRequest::Named {
-        unit: "FlashRanger".into(),
-        emoticon: "EmoticonAlert".into(),
-        duration_frames: -30,
-    });
-    request_host_script_held(HostScriptHeldRequest {
-        unit: "FlashRanger".into(),
-        held: true,
-    });
-    request_host_script_custom_color(HostScriptCustomColorRequest {
-        unit: "FlashRanger".into(),
-        color_raw: 0xFFFF_0000,
-    });
-    request_host_script_repulsor(HostScriptRepulsorRequest::Named {
-        unit: "FlashRanger".into(),
-        enabled: true,
+    // The request queues live on the receiving world's published services;
+    // outside this scope the ambient head can be a stale foreign world.
+    logic.with_own_services(|| {
+        request_host_script_flash(HostScriptFlashRequest::Named {
+            unit: "FlashRanger".into(),
+            seconds: 2,
+            white: false,
+        });
+        request_host_script_flash(HostScriptFlashRequest::Team {
+            team: "teamAmerica".into(),
+            seconds: 3,
+            white: true,
+        });
+        request_host_script_emoticon(HostScriptEmoticonRequest::Named {
+            unit: "FlashRanger".into(),
+            emoticon: "EmoticonAlert".into(),
+            duration_frames: -30,
+        });
+        request_host_script_held(HostScriptHeldRequest {
+            unit: "FlashRanger".into(),
+            held: true,
+        });
+        request_host_script_custom_color(HostScriptCustomColorRequest {
+            unit: "FlashRanger".into(),
+            color_raw: 0xFFFF_0000,
+        });
+        request_host_script_repulsor(HostScriptRepulsorRequest::Named {
+            unit: "FlashRanger".into(),
+            enabled: true,
+        });
     });
     logic.evaluate_and_execute_scripts(0.0);
 
@@ -2866,27 +2873,29 @@ fn live_host_script_visual_status_apply() {
     assert!(obj.status.repulsor, "OBJECT_STATUS_REPULSOR");
     assert_eq!(obj.repulsor_until_frame, 0, "script repulsor is permanent");
 
-    request_host_script_held(HostScriptHeldRequest {
-        unit: "FlashRanger".into(),
-        held: false,
-    });
-    request_host_script_custom_color(HostScriptCustomColorRequest {
-        unit: "FlashRanger".into(),
-        color_raw: 0,
-    });
-    request_host_script_repulsor(HostScriptRepulsorRequest::Team {
-        team: "teamAmerica".into(),
-        enabled: false,
-    });
-    request_host_script_emoticon(HostScriptEmoticonRequest::Team {
-        team: "teamAmerica".into(),
-        emoticon: "EmoticonCheer".into(),
-        duration_frames: 45,
-    });
-    request_host_script_flash(HostScriptFlashRequest::Named {
-        unit: "FlashRanger".into(),
-        seconds: 2,
-        white: false,
+    logic.with_own_services(|| {
+        request_host_script_held(HostScriptHeldRequest {
+            unit: "FlashRanger".into(),
+            held: false,
+        });
+        request_host_script_custom_color(HostScriptCustomColorRequest {
+            unit: "FlashRanger".into(),
+            color_raw: 0,
+        });
+        request_host_script_repulsor(HostScriptRepulsorRequest::Team {
+            team: "teamAmerica".into(),
+            enabled: false,
+        });
+        request_host_script_emoticon(HostScriptEmoticonRequest::Team {
+            team: "teamAmerica".into(),
+            emoticon: "EmoticonCheer".into(),
+            duration_frames: 45,
+        });
+        request_host_script_flash(HostScriptFlashRequest::Named {
+            unit: "FlashRanger".into(),
+            seconds: 2,
+            white: false,
+        });
     });
     logic.evaluate_and_execute_scripts(0.0);
 

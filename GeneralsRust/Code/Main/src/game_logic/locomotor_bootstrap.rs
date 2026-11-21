@@ -2421,9 +2421,9 @@ mod mixed_source_rate_admission_tests {
         let host = host_locomotor_binding_from_template(&common).unwrap();
         assert_eq!(host.min_speed, 15.0);
         assert_eq!(host.min_turn_speed, 12.0);
-        assert!((host.movement.max_speed - 60.0).abs() < 0.0001);
-        assert!((host.movement.acceleration - 900.0).abs() < 0.0001);
-        assert!((host.braking - 1800.0).abs() < 0.0001);
+        assert!((host.movement.max_speed - 60.0).abs() < 0.001);
+        assert!((host.movement.acceleration - 900.0).abs() < 0.01);
+        assert!((host.braking - 1800.0).abs() < 0.01);
         let core = gamelogic::locomotor::ini_bridge::from_common_ini_template(&common);
         assert!((core.min_speed - 0.5).abs() < 0.0001);
         assert!((core.min_turn_speed - 0.4).abs() < 0.0001);

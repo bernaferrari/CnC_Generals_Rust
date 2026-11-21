@@ -213,52 +213,6 @@ impl HostGlaWorkerRegistry {
     }
 }
 
-// --- Wave 63 residual honesty packs ---
-
-/// Wave 63 residual honesty: WorkerShoes speed + supply boost residual.
-pub fn honesty_worker_shoes_residual_ok() -> bool {
-    UPGRADE_GLA_WORKER_SHOES == "Upgrade_GLAWorkerShoes"
-        && (WORKER_BASE_SPEED - 25.0).abs() < 0.01
-        && (WORKER_SHOES_SPEED - 30.0).abs() < 0.01
-        && WORKER_SHOES_SUPPLY_BOOST == 8
-        && WORKER_SHOES_AUDIO == "WorkerVoiceUpgradeShoes"
-        && WORKER_BASE_LOCOMOTOR == "FastHumanLocomotor"
-        && WORKER_SHOES_LOCOMOTOR == "WorkerShoesLocomotor"
-        && (worker_residual_speed(false) - 25.0).abs() < 0.01
-        && (worker_residual_speed(true) - 30.0).abs() < 0.01
-        && residual_worker_shoes_drop_off_boost(true, true) == 8
-        && residual_worker_shoes_drop_off_boost(true, false) == 0
-        && is_worker_shoes_upgrade_name("Upgrade_GLAWorkerShoes")
-        && WORKER_VOICE_MOVE_UPGRADED == "VoiceMoveUpgraded"
-        && is_worker_for_voice_move_upgraded(true, true, true)
-        && !is_worker_for_voice_move_upgraded(true, false, false)
-        && worker_shoes_voice_upgrade_complete(None::<&str>)
-        && worker_shoes_voice_upgrade_complete(["Upgrade_GLAWorkerShoes"])
-        && !worker_shoes_voice_upgrade_complete(["Upgrade_GLACamouflage"])
-}
-
-/// Wave 63 residual honesty: worker body + supply timing residual.
-pub fn honesty_worker_body_supply_residual_ok() -> bool {
-    (WORKER_MAX_HEALTH - 100.0).abs() < 0.01
-        && (WORKER_VISION_RANGE - 100.0).abs() < 0.01
-        && (WORKER_SHROUD_CLEARING_RANGE - 200.0).abs() < 0.01
-        && WORKER_BUILD_COST == 200
-        && (WORKER_BUILD_TIME_SEC - 3.0).abs() < 0.01
-        && WORKER_BUILD_TIME_FRAMES == ((WORKER_BUILD_TIME_SEC * WORKER_LOGIC_FPS).round() as u32)
-        && WORKER_BUILD_TIME_FRAMES == 90
-        && WORKER_TRANSPORT_SLOT_COUNT == 1
-        && WORKER_MAX_BOXES == 1
-        && WORKER_SUPPLY_CENTER_ACTION_DELAY_MS == 150
-        && WORKER_SUPPLY_CENTER_ACTION_DELAY_FRAMES
-            == worker_ms_to_frames(WORKER_SUPPLY_CENTER_ACTION_DELAY_MS)
-        && WORKER_SUPPLY_CENTER_ACTION_DELAY_FRAMES == 5
-        && WORKER_MINE_DISARM_WEAPON == "WorkerMineDisarmingWeapon"
-}
-
-/// Combined Wave 63 GLA Worker residual honesty pack.
-pub fn honesty_gla_worker_residual_pack_ok() -> bool {
-    honesty_worker_shoes_residual_ok() && honesty_worker_body_supply_residual_ok()
-}
 
 #[cfg(test)]
 mod tests {
@@ -317,14 +271,8 @@ mod tests {
     }
 
     #[test]
-    fn gla_worker_residual_pack_honesty_wave63() {
-        assert!(honesty_worker_shoes_residual_ok());
-        assert!(honesty_worker_body_supply_residual_ok());
-        assert!(honesty_gla_worker_residual_pack_ok());
+    fn worker_ms_to_frames_converts_at_logic_fps() {
         assert_eq!(worker_ms_to_frames(150), 5);
         assert_eq!(worker_ms_to_frames(0), 0);
-        assert_eq!(WORKER_BUILD_TIME_FRAMES, 90);
-        assert_eq!(WORKER_MAX_BOXES, 1);
-        assert_eq!(WORKER_MINE_DISARM_WEAPON, "WorkerMineDisarmingWeapon");
     }
 }

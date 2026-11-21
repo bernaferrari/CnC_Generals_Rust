@@ -706,11 +706,14 @@ impl GameLogic {
             return SimulationStepOutcome::Failed(error);
         }
         self.tick_airfield_runway_clear();
-        if let Err(error) = self.tick_shock_stun_all_with_effects(&mut ui) {
+        // C++ PartitionManager collide residual (broadphase fail-closed O(n²)).
+        // Physics motion runs first: its sole Euler step handles the ground
+        // slam and admits the C++ bounce force; the shock pass then applies
+        // stun bookkeeping on the post-contact state.
+        if let Err(error) = self.integrate_owned_physics_motion_with_effects(&mut ui) {
             return SimulationStepOutcome::Failed(error);
         }
-        // C++ PartitionManager collide residual (broadphase fail-closed O(n²)).
-        if let Err(error) = self.integrate_owned_physics_motion_with_effects(&mut ui) {
+        if let Err(error) = self.tick_shock_stun_all_with_effects(&mut ui) {
             return SimulationStepOutcome::Failed(error);
         }
 
