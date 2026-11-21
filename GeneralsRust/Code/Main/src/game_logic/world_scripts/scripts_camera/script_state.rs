@@ -597,12 +597,18 @@ impl GameLogic {
         let mut attacked = std::collections::HashMap::new();
         let mut cash_map = std::collections::HashMap::new();
         let mut safe_map = std::collections::HashMap::new();
-        let mut ai_mgr = std::mem::take(&mut self.ai_manager);
         let player_rows: Vec<(u32, String, crate::game_logic::Team)> = self
             .players
             .values()
             .map(|p| (p.id, p.map_side.map_player_name.clone(), p.team))
             .collect();
+        // C++ AIPlayer::isSupplySourceSafe / findSupplyCenter calls getAiEnemy
+        // per player (AIPlayer.cpp:966,2164): refresh each skirmish deadline
+        // while the controller map is whole so peer recursion stays live.
+        for (pid, _, _) in &player_rows {
+            self.query_owned_ai_enemy(*pid);
+        }
+        let mut ai_mgr = std::mem::take(&mut self.ai_manager);
         for (pid, name, _team) in player_rows {
             let key = name.trim().to_ascii_lowercase();
             if key.is_empty() {
@@ -852,6 +858,14 @@ impl GameLogic {
             && defenses.is_empty()
         {
             return;
+        }
+        // C++ AIPlayer::buildBySupplies -> findSupplyCenter -> getAiEnemy
+        // (AIPlayer.cpp:1828,2164): run the deadline check while the
+        // controller map is whole; the detached pass then reads the result.
+        for (player_token, _, _) in &supply_centers {
+            if let Some(id) = crate::ai::AIManager::resolve_player_id(self, player_token) {
+                self.query_owned_ai_enemy(id);
+            }
         }
         let mut ai_mgr = std::mem::take(&mut self.ai_manager);
         for (player_token, power_name) in fires {

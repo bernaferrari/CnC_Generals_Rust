@@ -373,7 +373,6 @@ impl AIPlayer {
         self.ensure_skirmish_new_map(game_logic, ai_data);
 
         self.last_update_time = current_time;
-        self.update_enemy_assessment(game_logic, current_time);
         // C++ Player::preTeamDestroy / AIPlayer::aiPreTeamDestroy — drop wiped
         // TeamInQueue entries before checkReadyTeams / checkQueuedTeams.
         self.purge_destroyed_or_wiped_queued_teams(game_logic);

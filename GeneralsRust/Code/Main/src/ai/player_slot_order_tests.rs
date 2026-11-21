@@ -56,6 +56,9 @@ fn enemy_tie_world(first: u32, insertion: [u32; 3]) -> GameLogic {
     ai.next_team_time = f32::MAX;
     ai.next_team_queue_time = f32::MAX;
     world.ai_manager.ai_players.insert(1, ai);
+    // Slot 1 has an installed skirmish controller; mark the owning Player so
+    // the receiving-world enemy query admits it (live_peer_target_tests.rs).
+    world.get_player_mut(1).unwrap().map_side.is_skirmish_ai = true;
     world
 }
 
@@ -65,9 +68,12 @@ fn fixed_tick_enemy_ties_choose_lower_slot_in_independent_worlds() {
     let mut second = enemy_tie_world(2, [3, 2, 1]);
     second.update_with_dt_budget(1.0 / 30.0, 1);
     first.update_with_dt_budget(1.0 / 30.0, 1);
-    for world in [&first, &second] {
+    for world in [&mut first, &mut second] {
         assert_eq!(world.frame, 1);
-        assert_eq!(world.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+        // getAiEnemy is query-triggered (AISkirmishPlayer.cpp:530-536); the
+        // tick alone must not assess, the first query checks immediately.
+        assert_eq!(world.ai_manager.ai_players[&1].enemy_player_id, None);
+        assert_eq!(world.query_owned_ai_enemy(1), Some(2));
         // First check is immediate (deadline 0); the next is five seconds of frames later.
         assert!(world.ai_manager.ai_players[&1].frame_to_check_enemy >= 150);
     }

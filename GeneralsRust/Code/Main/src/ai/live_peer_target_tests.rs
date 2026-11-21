@@ -86,6 +86,23 @@ fn owned_enemy_query_recurses_at_deadline_without_crossing_worlds() {
     assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 300);
 }
 
+/// AISkirmishPlayer.cpp:530-536 — getAiEnemy is query-triggered; the
+/// per-update AI pass must not assess until a query site asks.
+#[test]
+fn ai_update_pass_leaves_enemy_stale_until_a_query_site() {
+    let mut world = live_peer_world();
+    let data = AiDataView::from_world(&world);
+    let mut ai = world.ai_manager.ai_players.remove(&1).unwrap();
+    ai.update_before_queued_teams(&mut world, 1.0, &data);
+    world.ai_manager.ai_players.insert(1, ai);
+    // No eager assessment: the deadline and cached enemy are untouched.
+    assert_eq!(world.ai_manager.ai_players[&1].enemy_player_id, None);
+    assert_eq!(world.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+    // The first query still performs the frame-0 check immediately.
+    assert_eq!(world.query_owned_ai_enemy(1), Some(2));
+    assert_eq!(world.ai_manager.ai_players[&1].frame_to_check_enemy, 150);
+}
+
 #[test]
 fn existing_self_target_participates_when_both_enemies_are_crippled() {
     let mut world = world_with_enemy_objects(&[

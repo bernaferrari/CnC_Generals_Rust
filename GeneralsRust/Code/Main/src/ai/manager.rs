@@ -122,7 +122,6 @@ impl AIManager {
                     let active = ai.is_active;
                     if active {
                         ai.last_update_time = current_time;
-                        ai.update_enemy_assessment(game_logic, current_time);
                         ai.purge_destroyed_or_wiped_queued_teams(game_logic);
                     }
                     game_logic.ai_manager.ai_players.insert(id, ai);
