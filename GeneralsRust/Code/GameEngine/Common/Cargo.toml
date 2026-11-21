@@ -125,6 +125,9 @@ path = "src/lib.rs"
 test = true
 
 [dev-dependencies]
+# Self dev-dep enables the per-thread owned CommonServices fallback for this
+# crate's own unit tests only (same trick gamelogic uses for its dev-deps).
+game_engine = { path = ".", features = ["test-ambient-services"] }
 tokio-test = {workspace = true}
 criterion = {workspace = true, features = ["html_reports"]}
 

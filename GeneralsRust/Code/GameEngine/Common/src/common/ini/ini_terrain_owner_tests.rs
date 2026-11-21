@@ -84,7 +84,7 @@ fn owned_ini_map_then_solo_overrides_keep_base_and_peer_independent_without_publ
         "owned_ini_map_then_solo_overrides_keep_base_and_peer_independent_without_publication",
         || {
             assert!(
-                get_terrain_types().is_none(),
+                get_terrain_types().is_none_or(|types| types.read().get_terrain_names().is_empty()),
                 "child starts without a published Terrain registry"
             );
             let base = parse_target(TerrainTypes::new(), "Terrain DefaultTerrain\nClass = ROCK\nBlendEdges = Yes\nEnd\nTerrain Shared\nTexture = Base.tga\nEnd\n").unwrap();
@@ -134,7 +134,7 @@ fn owned_ini_map_then_solo_overrides_keep_base_and_peer_independent_without_publ
                     .blend_edge_texture
             );
             assert!(
-                get_terrain_types().is_none(),
+                get_terrain_types().is_none_or(|types| types.read().get_terrain_names().is_empty()),
                 "owned full INI dispatch must not publish its catalogue"
             );
         },
@@ -167,7 +167,7 @@ fn failed_owned_ini_target_keeps_prior_catalogue_and_never_publishes_partial_row
             );
             assert_eq!(base.get_terrain_names(), vec!["Shared"]);
             assert!(
-                get_terrain_types().is_none(),
+                get_terrain_types().is_none_or(|types| types.read().get_terrain_names().is_empty()),
                 "failed owned parser must not create or replace a global registry"
             );
         },

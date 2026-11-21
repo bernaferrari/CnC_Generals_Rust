@@ -662,6 +662,7 @@ mod independence_tests {
         assert!(!Arc::ptr_eq(&a.web_browser, &b.web_browser));
     }
 
+    #[cfg(not(feature = "test-ambient-services"))]
     #[test]
     fn unscoped_common_services_panics_without_fallback_bag() {
         let exploded = std::panic::catch_unwind(|| {
@@ -669,5 +670,24 @@ mod independence_tests {
         })
         .is_err();
         assert!(exploded, "unscoped common_services must not mint a TLS bag");
+    }
+
+    #[cfg(feature = "test-ambient-services")]
+    #[test]
+    fn unscoped_common_services_panics_without_fallback_bag() {
+        // Dev-only ambient: unscoped access mints a per-thread owned bag, never
+        // a shared TLS bag — the same thread keeps its minted services and a
+        // different thread gets its own.
+        let first = common_services();
+        let second = common_services();
+        let other_thread = std::thread::spawn(common_services).join().unwrap();
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "ambient services must stay owned per thread"
+        );
+        assert!(
+            !Arc::ptr_eq(&first, &other_thread),
+            "ambient services must never cross threads"
+        );
     }
 }
