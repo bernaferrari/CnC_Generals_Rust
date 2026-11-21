@@ -2815,6 +2815,23 @@ impl CnCGameEngine {
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new_unpublished();
+        // TerrainLogic::enableWaterGrid reads the receiving application's
+        // authored GameData. Keep the candidate's copy detached until commit.
+        let receiving_game_data = live_services
+            .common()
+            .system
+            .global_data
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .as_ref()
+            .map(|data| Arc::new(parking_lot::RwLock::new(data.read().clone())));
+        *staged
+            .world_services
+            .common()
+            .system
+            .global_data
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = receiving_game_data;
         // C++ client/audio random streams outlive a map reload. The detached
         // candidate starts at the receiving world's current position; only a
         // successful candidate commits the draws made while rebuilding it.

@@ -328,13 +328,15 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
             // Seed a save-time FOW state that differs from map-start reveals. The
             // staged candidate must carry these raw counters and the pending
             // expiry queue rather than retaining its map-load singleton state.
-            let expected_shroud = {
+            // Bind source's services so the seed lands on the same bag the save
+            // serializes (world_services.shroud()), independent of ambient head.
+            let expected_shroud = source.with_own_services(|| {
                 let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
                 let mut shroud = shroud_manager.lock().expect("source shroud lock");
                 shroud.do_shroud_reveal(&glam::Vec3::ZERO, 75.0, 1);
                 shroud.queue_undo_shroud_reveal(&glam::Vec3::ZERO, 75.0, 1, 41, 321);
                 shroud.snapshot_state()
-            };
+            });
             // Initial config already admitted the actual China AI; mutate
             // that same owner rather than append a second out-of-range player.
             source.set_ai_active(1, false);
@@ -907,8 +909,10 @@ fn forced_post_restore_failure_restores_globals_and_tls_effect_queues() {
                 "rollback must preserve the legacy AI group-ID allocator"
             );
             assert_eq!(
-                gamelogic::ai::integration::with_ai_integration(|manager| {
-                    manager.get_ai_player_count()
+                gamelogic::system::engine_stores::with_active_stores(&foreign_core, || {
+                    gamelogic::ai::integration::with_ai_integration(|manager| {
+                        manager.get_ai_player_count()
+                    })
                 }),
                 Some(live_integration_ai_player_count),
                 "rollback must preserve the live AI integration manager"
@@ -1832,8 +1836,12 @@ End
                     &foreign_parser
                 ));
                 admit_skirmish_fixture(&mut source, &map_name, "Human", false);
-                game_engine::common::ini::ini_game_data::init_global_data();
-                {
+                // TerrainLogic::newMap -> enableWaterGrid reads the GameData
+                // water row through the loading world's own CommonServices,
+                // so register this map's settings on that owner, not the
+                // ambient scope.
+                source.with_own_services(|| {
+                    game_engine::common::ini::ini_game_data::init_global_data();
                     let definitions = game_engine::common::ini::get_global_data().unwrap();
                     let mut definitions = definitions.write();
                     definitions.vertex_water_available_maps[0] = map_name.clone();
@@ -1842,7 +1850,7 @@ End
                     definitions.vertex_water_grid_size[0] = 1.0;
                     definitions.vertex_water_attenuation_a[0] = 1.0;
                     definitions.vertex_water_attenuation_range[0] = 1.0;
-                }
+                });
                 assert!(
                     source.load_map(&map_name),
                     "actual owned map load under foreign Core scope"
@@ -2389,6 +2397,15 @@ End
                 assert!(source.isInGame());
                 assert_eq!(source.get_players().len(), saved_player_count);
                 assert!(source.get_player(0).unwrap().is_human);
+                assert!(gamelogic::system::engine_stores::is_services_active(
+                    &source.world_services
+                ));
+                assert_eq!(
+                    gamelogic::ai::integration::with_ai_integration(|ai| ai.get_ai_player_count()),
+                    None,
+                    "the committed Main world must not adopt Core AI"
+                );
+                drop(source);
                 assert_eq!(
                     gamelogic::ai::integration::with_ai_integration(|ai| ai.get_ai_player_count()),
                     Some(integration_count)
@@ -2407,7 +2424,9 @@ End
             let resumed = foreign_ai.create_group().read().unwrap().get_id();
             assert_eq!(resumed, next_id.wrapping_add(1));
             assert_eq!(
-                gamelogic::ai::integration::with_ai_integration(|ai| ai.get_ai_player_count()),
+                gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                    gamelogic::ai::integration::with_ai_integration(|ai| ai.get_ai_player_count())
+                }),
                 Some(integration_count)
             );
         },
