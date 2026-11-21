@@ -182,9 +182,12 @@ mod tests {
         let config = PoolConfig::for_game_objects("TestPool");
         let pool = ObjectPool::<GameObject>::new(config).unwrap();
 
-        for i in 0..10 {
-            let _handle = pool.alloc(GameObject::new(i)).unwrap();
-        }
+        // Handles must outlive the snapshot: dropping a PoolHandle
+        // deallocates its slot, so each iteration's temporary would leave
+        // active_allocations at 0.
+        let handles: Vec<_> = (0..10)
+            .map(|i| pool.alloc(GameObject::new(i)).unwrap())
+            .collect();
 
         let stats = pool.stats().snapshot();
         assert_eq!(stats.total_allocations, 10);

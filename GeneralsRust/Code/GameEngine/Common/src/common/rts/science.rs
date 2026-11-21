@@ -2414,9 +2414,12 @@ mod tests {
         exp.reset_rank(&store, 0);
         exp.skill_points_modifier = 2.0;
 
-        let gained = exp.add_skill_points(50, &store, 5);
+        // C++ Player.cpp:2450 promotes while m_skillPoints >= m_levelUp, so
+        // an exactly-at-threshold total would gain a rank; 80 stays below the
+        // rank-2 threshold of 100.
+        let gained = exp.add_skill_points(40, &store, 5);
         assert!(!gained);
-        assert_eq!(exp.skill_points, 100);
+        assert_eq!(exp.skill_points, 80);
     }
 
     #[test]

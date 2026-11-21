@@ -1019,9 +1019,16 @@ mod tests {
 
     #[test]
     fn test_model_loading() {
+        // Model::load goes through the real ResourceManager, so the fixture
+        // needs an actual file on disk; an absolute path resolves regardless
+        // of the process cwd.
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.w3d");
+        std::fs::write(&file, b"w3d-test-bytes").unwrap();
+
         let mut model = Model::new();
         model.set_name("test_model".to_string());
-        model.model_file = "test.w3d".to_string();
+        model.model_file = file.to_string_lossy().into_owned();
 
         assert!(!model.is_loaded);
         assert!(!model.is_loading);
@@ -1043,9 +1050,13 @@ mod tests {
         assert_eq!(manager.get_loaded_count(), 0);
         assert!(manager.get_model_names().is_empty());
 
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.w3d");
+        std::fs::write(&file, b"w3d-test-bytes").unwrap();
+
         let mut model = Model::new();
         model.set_name("test_model".to_string());
-        model.model_file = "test.w3d".to_string();
+        model.model_file = file.to_string_lossy().into_owned();
 
         manager.add_model(model);
         assert_eq!(manager.get_model_names().len(), 1);

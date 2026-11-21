@@ -596,12 +596,15 @@ mod player_template_loading_tests {
             |ini| ini.parse_current_file_into_player_templates(&mut store),
         );
         assert!(result.is_err());
-        assert_eq!(store.len(), 2);
+        // C++ PlayerTemplate.cpp:370-376: a brand-new record only push_backs
+        // after initFromINI succeeds; the malformed China def leaves no
+        // partial entry. The parsed prefix (America) is retained.
+        assert_eq!(store.len(), 1);
         assert_eq!(
             store.find_template("FactionAmerica").unwrap().side,
             "America"
         );
-        assert_eq!(store.find_template("FactionChina").unwrap().side, "China");
+        assert!(store.find_template("FactionChina").is_none());
         assert!(store.find_template("FactionUnreached").is_none());
         // The loader continues to the next source without discarding records
         // already parsed by the existing field dispatch.

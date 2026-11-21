@@ -614,10 +614,13 @@ mod tests {
         tracker.update_nemesis(Some(55), false, false, true, false, 300);
         assert_eq!(tracker.get_cur_nemesis(300), Some(55));
 
-        // Structure target
+        // Structure target: C++ TunnelTracker.cpp:89 only replaces the
+        // nemesis when the previous one expired; the frame-300 nemesis is
+        // still valid until frame 420, so 400 keeps it and 430 replaces it.
         tracker.update_nemesis(Some(66), false, true, false, false, 400);
-        // Previous nemesis expired, so new one should be set
-        assert_eq!(tracker.get_cur_nemesis(400), Some(66));
+        assert_eq!(tracker.get_cur_nemesis(400), Some(55));
+        tracker.update_nemesis(Some(66), false, true, false, false, 430);
+        assert_eq!(tracker.get_cur_nemesis(430), Some(66));
 
         // Aircraft target
         tracker.cur_nemesis_id = INVALID_ID; // clear for test
