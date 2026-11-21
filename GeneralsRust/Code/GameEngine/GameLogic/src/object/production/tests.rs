@@ -96,26 +96,6 @@ mod integration_tests {
     }
 
     #[test]
-    fn test_multiple_exit_strategies() {
-        // Test different exit strategies produce correct behavior
-        let exits = vec![Coord3D::new(100.0, 100.0, 0.0)];
-
-        // Default exit
-        let default_exit = DefaultProductionExit::new(1, exits.clone());
-        assert_eq!(default_exit.get_door_count(), 1);
-
-        // Queue exit
-        let queue_positions = vec![Coord3D::new(50.0, 50.0, 0.0)];
-        let queue_exit = QueueProductionExit::new(1, exits.clone(), queue_positions);
-        assert_eq!(queue_exit.get_door_count(), 1);
-
-        // Spawn point exit
-        let spawn_points = vec![Coord3D::new(100.0, 100.0, 500.0)];
-        let spawn_exit = SpawnPointProductionExit::new(1, spawn_points, true);
-        assert_eq!(spawn_exit.get_door_count(), 1);
-    }
-
-    #[test]
     fn test_rally_point_types() {
         // Test all rally point types
         let pos_rally = RallyPoint::at_position(Coord3D::new(100.0, 200.0, 0.0));

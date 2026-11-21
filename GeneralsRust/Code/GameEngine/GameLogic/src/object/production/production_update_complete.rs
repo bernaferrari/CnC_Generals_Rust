@@ -13,7 +13,6 @@
 use super::build_cost_calculator::{
     BuildCostCalculator, BuildFacilityContext, PlayerBuildModifiers,
 };
-use super::exit_strategies::ProductionExitStrategy;
 use super::prerequisite_checker::{
     CanMakeType, PlayerBuildState, Prerequisite, PrerequisiteChecker,
 };
@@ -429,7 +428,6 @@ pub struct ProductionUpdateComplete {
     /// Reference to the owning object
     owner_id: ObjectID,
     /// Exit strategy for spawned units (legacy; spawn uses ModuleExitInterface).
-    exit_strategy: Option<Arc<Mutex<dyn ProductionExitStrategy>>>,
     /// Whether production is currently enabled
     production_enabled: bool,
     /// Last frame production was updated
@@ -523,7 +521,6 @@ impl ProductionUpdateComplete {
             construction_complete_frame: 0,
             current_door: 0,
             owner_id,
-            exit_strategy: None,
             production_enabled: true,
             last_update_frame: 0,
             cost_calculator: BuildCostCalculator::new(),
@@ -537,9 +534,6 @@ impl ProductionUpdateComplete {
     }
 
     /// Set the exit strategy
-    pub fn set_exit_strategy(&mut self, strategy: Arc<Mutex<dyn ProductionExitStrategy>>) {
-        self.exit_strategy = Some(strategy);
-    }
 
     /// Request a unique production ID
     /// Matches C++ requestUniqueUnitID line 188

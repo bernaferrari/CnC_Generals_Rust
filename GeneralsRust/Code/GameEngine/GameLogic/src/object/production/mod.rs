@@ -7,7 +7,6 @@
 pub mod build_cost_calculator;
 pub mod construction;
 pub mod dock_update;
-pub mod exit_strategies;
 pub mod prerequisite_checker;
 pub mod prison_dock;
 pub mod production_update;
@@ -39,10 +38,6 @@ pub use construction::{
 pub use dock_update::{
     DockUpdate, DockUpdateData, RepairDockUpdate, RepairDockUpdateData, RepairDockUpdateModule,
     SupplyCenterDockUpdate, SupplyCenterDockUpdateData, SupplyCenterDockUpdateModule,
-};
-pub use exit_strategies::{
-    DefaultProductionExit, ProductionExitStrategy, QueueProductionExit, SpawnPointProductionExit,
-    SupplyCenterProductionExit,
 };
 pub use prerequisite_checker::{CanMakeType, PlayerBuildState, Prerequisite, PrerequisiteChecker};
 pub use prison_dock::{PrisonDockUpdate, PrisonDockUpdateData, PrisonDockUpdateModule};

@@ -6,7 +6,6 @@
 use super::build_cost_calculator::{
     BuildCostCalculator, BuildFacilityContext, PlayerBuildModifiers,
 };
-use super::exit_strategies::ProductionExitStrategy;
 use super::prerequisite_checker::{
     CanMakeType, PlayerBuildState, Prerequisite, PrerequisiteChecker,
 };
@@ -102,8 +101,6 @@ pub struct ProductionUpdate {
     door_hold_open: Vec<bool>,
     /// Reference to the owning object
     owner_id: ObjectID,
-    /// Exit strategy for spawned units
-    exit_strategy: Option<Arc<Mutex<dyn ProductionExitStrategy>>>,
     /// Whether production is currently enabled
     production_enabled: bool,
     /// Last frame production was updated
@@ -132,7 +129,6 @@ impl ProductionUpdate {
             current_door: 0,
             door_hold_open: vec![false; num_doors],
             owner_id,
-            exit_strategy: None,
             production_enabled: true,
             last_update_frame: 0,
             cost_calculator: BuildCostCalculator::new(),
@@ -217,11 +213,6 @@ impl ProductionUpdate {
 
     pub fn set_economy_manager(&mut self, economy: Arc<Mutex<EconomyManager>>) {
         self.economy_manager = Some(economy);
-    }
-
-    /// Set the exit strategy
-    pub fn set_exit_strategy(&mut self, strategy: Arc<Mutex<dyn ProductionExitStrategy>>) {
-        self.exit_strategy = Some(strategy);
     }
 
     /// Add an item to the production queue with full C++ compatibility
@@ -473,36 +464,10 @@ impl ProductionUpdate {
             // Get rally point for this unit type
             let rally = self.rally_points.get_rally(Some(&entry.template_name));
 
-            // Spawn the unit using exit strategy
-            if let Some(strategy) = &self.exit_strategy {
-                let mut strategy_guard = strategy
-                    .lock()
-                    .map_err(|_| "Failed to lock exit strategy".to_string())?;
-
-                strategy_guard.spawn_unit(
-                    &entry.template_name,
-                    self.owner_id,
-                    self.current_door,
-                    rally.clone(),
-                )?;
-            } else {
-                return Err("No exit strategy configured".to_string());
-            }
-
-            // Only dequeue after successful spawn so failed exits keep the item queued.
-            let _ = self.queue.dequeue();
-
-            // Rotate door index for next spawn
-            self.current_door = (self.current_door + 1) % self.data.num_doors;
-
-            // Start next item if queue has more
-            if !self.queue.is_empty() {
-                self.start_production()?;
-            } else {
-                self.state = ProductionState::Idle;
-            }
-
-            Ok(())
+            // Authored exit modules (Default/Queue/SpawnPointProductionExit*)
+            // own unit spawn; this core queue has no exit strategy.
+            let _ = rally;
+            Err("No exit strategy configured".to_string())
         } else {
             Err("No completed unit to spawn".to_string())
         }
