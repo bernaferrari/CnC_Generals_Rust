@@ -2812,7 +2812,17 @@ impl GameLogic {
                                                 &mut self.queued_audio_events,
                                             ),
                                         );
+                                        // C++ AIUpdate.cpp:1018-1045 — movementComplete
+                                        // consumption clears path, queue-for-path,
+                                        // MOVING, and the ignored obstacle for any
+                                        // appearance.
                                         obj.maintain_pos_valid = false;
+                                        obj.movement.clear_path();
+                                        obj.movement.target_position = None;
+                                        obj.waiting_for_path = false;
+                                        obj.pending_quick_path_goal = false;
+                                        obj.queue_for_path_frame = 0;
+                                        obj.set_status_moving(false);
                                         obj.can_path_through_units = false;
                                         obj.ignored_obstacle_id = None;
                                         obj.set_precise_z_pos(false);
@@ -3004,6 +3014,18 @@ impl GameLogic {
                                             &mut self.queued_audio_events,
                                         ),
                                     );
+                                    // C++ AIUpdateInterface::update consumes
+                                    // m_movementComplete appearance-agnostically:
+                                    // setQueueForPathTime(0), destroyPath()
+                                    // (m_path NULL + m_waitingForPath FALSE +
+                                    // setLocomotorGoalNone), MOVING clear, and
+                                    // ignoreObstacle(NULL) (AIUpdate.cpp:1018-1045).
+                                    obj.movement.clear_path();
+                                    obj.movement.target_position = None;
+                                    obj.waiting_for_path = false;
+                                    obj.pending_quick_path_goal = false;
+                                    obj.queue_for_path_frame = 0;
+                                    obj.set_status_moving(false);
                                     obj.can_path_through_units = false;
                                     obj.ignored_obstacle_id = None;
                                     obj.set_precise_z_pos(false);

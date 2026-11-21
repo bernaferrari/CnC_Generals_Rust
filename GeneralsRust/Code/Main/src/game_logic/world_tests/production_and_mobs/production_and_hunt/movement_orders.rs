@@ -724,9 +724,11 @@ fn guard_object_adjusts_off_an_impassable_post() {
     use crate::game_logic::{GuardMode, KindOf, Player, ThingTemplate};
     use gamelogic::ai::pathfind_astar::PathfindCellType;
     let mut logic = GameLogic::new();
+    logic.admit_default_locomotors_if_unadmitted();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
     let mut inf_t = ThingTemplate::new("GuardInf");
     inf_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+    inf_t.set_locomotor_name(crate::game_logic::BASIC_HUMAN_LOCOMOTOR);
     logic.templates.insert("GuardInf".into(), inf_t);
     let mut bld_t = ThingTemplate::new("GuardPost");
     bld_t.add_kind_of(KindOf::Structure).set_health(500.0);

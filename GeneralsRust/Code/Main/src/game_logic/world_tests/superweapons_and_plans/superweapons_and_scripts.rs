@@ -1307,6 +1307,7 @@ fn ai_production_queues_units_instead_of_spawning_immediately() {
     war_factory
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::FSWarFactory)
         .set_health(1500.0)
         .set_cost(1000, -2);
     game_logic

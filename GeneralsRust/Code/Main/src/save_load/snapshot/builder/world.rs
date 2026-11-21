@@ -937,6 +937,12 @@ impl SnapshotBuilder {
             &object_status_bits,
             game_logic,
         )?;
+        // C++ Object admission notifications stamp the restored frame as the
+        // last objects-changed-trigger-areas time; the lazy guard-area scan
+        // window must not expire against a pre-save stamp (hq-df6h5).
+        game_logic
+            .frame_objects_changed_trigger_areas
+            .set(game_logic.frame);
         super::super::garrison_team_identity_persist::apply_rows(
             &garrison_original_team_instances,
             game_logic,

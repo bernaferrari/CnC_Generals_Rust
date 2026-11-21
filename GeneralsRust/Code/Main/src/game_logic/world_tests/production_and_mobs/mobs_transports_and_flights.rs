@@ -126,6 +126,17 @@ fn map_placed_create_modules_run_on_build_complete() {
     player.did_preorder = true;
     logic.players.insert(0, player);
 
+    // TheUpgradeCenter holds every parsed Upgrade template; giveUpgrade needs
+    // the template's mask, so admit the authored Upgrade definitions.
+    for (name, upgrade_type) in [("Upgrade_AmericaRadar", "OBJECT")] {
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(&format!("Upgrade {name}\nType = {upgrade_type}\nEnd\n"), |ini| {
+            ini.read_line()?;
+            logic.upgrade_definitions.parse_upgrade_definition(ini)
+        })
+        .expect("upgrade def");
+    }
+
     let mut sc = ThingTemplate::new("AmericaSupplyCenter");
     sc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::SupplyCenter)
@@ -170,6 +181,20 @@ fn grant_upgrade_create_branches_player_vs_object_type() {
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
 
+    // TheUpgradeCenter holds every parsed Upgrade template; giveUpgrade needs
+    // the template's mask, so admit the authored Upgrade definitions.
+    for (name, upgrade_type) in [
+        ("Upgrade_AmericaRadar", "OBJECT"),
+        ("Upgrade_AmericaSupplyLines", "PLAYER"),
+    ] {
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(&format!("Upgrade {name}\nType = {upgrade_type}\nEnd\n"), |ini| {
+            ini.read_line()?;
+            logic.upgrade_definitions.parse_upgrade_definition(ini)
+        })
+        .expect("upgrade def");
+    }
+
     let mut obj_tpl = ThingTemplate::new("ObjectGrantBuilding");
     obj_tpl.add_kind_of(KindOf::Structure).set_health(1000.0);
     obj_tpl
@@ -211,9 +236,14 @@ fn grant_upgrade_create_branches_player_vs_object_type() {
 
     let obj = logic.host_object(oid).expect("oid");
     assert!(obj.has_upgrade_tag("Upgrade_AmericaRadar"));
-    assert!(!obj.has_upgrade_tag("Upgrade_AmericaSupplyLines"));
+    // C++ Object::hasUpgrade reads only m_objectUpgradesCompleted
+    // (Object.cpp:4432-4438); the PLAYER grant must not giveUpgrade either
+    // object. applied_upgrades is the combined observation cache — the
+    // onUpgradeCompleted updateUpgradeModules broadcast may legitimately
+    // publish the tag — so assert the authority mask instead.
+    assert!(!obj.has_object_upgrade_complete("Upgrade_AmericaSupplyLines"));
     let player_bldg = logic.host_object(pid).expect("pid");
-    assert!(!player_bldg.has_upgrade_tag("Upgrade_AmericaSupplyLines"));
+    assert!(!player_bldg.has_object_upgrade_complete("Upgrade_AmericaSupplyLines"));
     let player = logic.players.get(&0).expect("p");
     assert!(
         player
@@ -3380,7 +3410,10 @@ fn a10_transport_pose_uses_the_receiving_world_after_id_collision() {
         (logic, jet, trigger)
     }
 
-    let (mut receiving, receiving_jet, receiving_area) = make_world(19101, 20);
+    // The A10 launches from the closest map edge (world_min.x = -2000) and
+    // advances 22.0/frame toward the target, so its first pose lands near
+    // x = -1978; the receiving trigger area covers that cell.
+    let (mut receiving, receiving_jet, receiving_area) = make_world(19101, -1990);
     let (mut peer, peer_jet, peer_area) = make_world(19102, 500);
     assert_eq!(
         receiving_jet, peer_jet,
@@ -3394,15 +3427,22 @@ fn a10_transport_pose_uses_the_receiving_world_after_id_collision() {
         .expect("receiving transport")
         .attach_team_factory(&peer.team_factory);
 
+    let launch = receiving
+        .host_object(receiving_jet)
+        .expect("receiving transport")
+        .get_position();
     receiving.frame = 1;
     receiving.update_a10_strike_flights();
     let moved = receiving
         .host_object(receiving_jet)
         .expect("transport survives first movement")
         .get_position();
+    // DeliverPayloadAIUpdate transports advance at a fixed 22.0/frame toward
+    // the target; the spawn edge is the closest world bound, so assert the
+    // step, not an absolute coordinate.
     assert!(
-        (moved.x - 22.0).abs() < 0.01,
-        "unexpected first A10 step: {moved:?}"
+        (moved.x - launch.x - 22.0).abs() < 0.01,
+        "unexpected first A10 step: {launch:?} -> {moved:?}"
     );
     assert!(receiving
         .host_trigger_world

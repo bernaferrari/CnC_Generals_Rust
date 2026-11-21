@@ -133,7 +133,8 @@ impl GameLogic {
             return None;
         }
         if let Some(trigger) = polygon {
-            if self.note_host_guard_area_occupancy(trigger) {
+            let noted = self.note_host_guard_area_occupancy(trigger);
+            if noted {
                 self.frame_objects_changed_trigger_areas.set(self.frame);
             }
             if host_guard_area_stamp_expired(
@@ -457,6 +458,10 @@ impl GameLogic {
             return;
         }
         let mut goal = goal;
+        // C++ AIGuardReturnState::onEnter (AIGuard.cpp:618-622) pre-adjusts the
+        // goal only under isDoingGroundMovement, then setAdjustsDestination(true)
+        // and AIInternalMoveToState::onEnter clears it for an ultra-accurate
+        // locomotor (AIStates.cpp:1601-1605).
         let ground = self
             .objects
             .get(&object_id)
@@ -464,11 +469,9 @@ impl GameLogic {
         if ground {
             self.adjust_guard_goal(object_id, &mut goal);
         }
-        if let Some(o) = self.objects.get_mut(&object_id) {
-            // C++ sets adjust true, then AIInternalMoveToState::onEnter clears
-            // it for an ultra-accurate locomotor.
-            o.set_adjust_destinations(!o.ultra_accurate);
-        }
+        // computePath calls requestPath(&m_goalPosition, getAdjustsDestination())
+        // so m_isFinalGoal follows adjustsDestination (AIStates.cpp:1583).
+        self.note_move_to_request_path(object_id);
         let installed = self.path_approach_with_state(object_id, goal, state.clone());
         if let Some(o) = self.objects.get_mut(&object_id) {
             o.set_ai_state(

@@ -1638,6 +1638,7 @@ fn live_air_hold_clears_the_ignore_and_the_queue() {
     use crate::game_logic::{KindOf, LocomotorAppearance, ObjectId, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
+    logic.admit_default_locomotors_if_unadmitted();
     let mut jet_t = ThingTemplate::new("HoldJet");
     jet_t.add_kind_of(KindOf::Aircraft).set_health(100.0);
     logic.templates.insert("HoldJet".into(), jet_t);
@@ -1648,6 +1649,8 @@ fn live_air_hold_clears_the_ignore_and_the_queue() {
     {
         let ai_entry_frame = logic.frame;
         let unit = logic.host_object_mut(id).expect("jet");
+        unit.cur_locomotor_name =
+            Some(crate::game_logic::locomotor_bootstrap::RAPTOR_JET_LOCOMOTOR.into());
         unit.loco_appearance = LocomotorAppearance::Wings;
         unit.movement.set_path_coords(vec![Vec3::ZERO, goal]);
         unit.movement.path_cursor = unit.movement.path.cursor_at_ordinal(1);

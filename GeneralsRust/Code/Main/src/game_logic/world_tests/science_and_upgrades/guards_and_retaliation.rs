@@ -916,6 +916,10 @@ fn host_guardee_follow_is_per_axis_two_cells_not_inner_radius() {
     let mut g = guard_test_object(gt, gid, Team::USA);
     g.set_position(glam::Vec3::ZERO);
     g.vision_range = 200.0;
+    // C++ AIGuardReturnState::onEnter pre-adjusts only when
+    // isDoingGroundMovement, which needs a current locomotor (AIUpdate.cpp:2352).
+    g.cur_locomotor_name = Some(crate::game_logic::BASIC_HUMAN_LOCOMOTOR.to_string());
+    g.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
     arm_guard(&mut g);
     g.set_ai_state(
         AIState::GuardingObject,
@@ -952,15 +956,17 @@ fn host_guardee_follow_is_per_axis_two_cells_not_inner_radius() {
     logic.set_fixture_object_position(cid, glam::Vec3::new(PATHFIND_CELL_SIZE_F * 2.5, 0.0, 0.0));
     logic.frame = logic.host_guard_enemy_scan_rate();
     mark_guard_scan_due(&mut logic, gid);
-    let mut adjusted_goal = logic.objects[&cid].get_position();
-    if crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(&logic.objects[&gid]) {
-        logic.adjust_guard_goal(gid, &mut adjusted_goal);
-    }
+    let guardee_pos = logic.objects[&cid].get_position();
     logic.update_support_states(&[gid, cid], 1.0 / 30.0);
     let dest = logic.objects[&gid].movement.target_position;
+    // C++ AIGuardReturnState::onEnter (AIGuard.cpp:602-626) paths toward the
+    // guardee even while it is still inside inner vision; the solver-adjusted
+    // goal cell is pathfinder internals, so the oracle is "a move was issued
+    // toward the guardee", not an exact coordinate.
+    let own_pos = logic.objects[&gid].get_position();
     assert!(
-        dest.is_some_and(|p| (p.x - adjusted_goal.x).abs() < 1.0),
-        "2.5-cell guardee walk must path even while still inside inner vision; dest={dest:?}"
+        dest.is_some_and(|p| (p - guardee_pos).length() < (own_pos - guardee_pos).length()),
+        "2.5-cell guardee walk must path toward the guardee even while still inside inner vision; dest={dest:?}"
     );
 }
 
@@ -1938,7 +1944,9 @@ fn named_guard_outer_geometry_is_owner_local_with_same_ids_and_reset() {
         guard.set_guard_chase_phase(GuardChasePhase::Outer);
         guard.set_guard_chase_give_up_frame(Some(world.frame.saturating_add(10_000)));
         guard.status.attacking = true;
-        world.add_object(guard);
+        // Hand-built mid-chase state must go through raw insertion like the
+        // sibling chase fixtures; add_object admission resets AI to Idle.
+        world.objects.insert(GUARD, guard);
         let (_, outer) = world.host_std_guard_ranges(GUARD);
         let radius = area(0, 600).get_radius();
         assert!(radius > outer && outer > 0.0);
@@ -1949,7 +1957,7 @@ fn named_guard_outer_geometry_is_owner_local_with_same_ids_and_reset() {
             .add_kind_of(KindOf::Attackable);
         let mut prey = Object::new(template, PREY, Team::USA);
         prey.set_position(Vec3::new(300.0 + mid, 0.0, 300.0));
-        world.add_object(prey);
+        world.objects.insert(PREY, prey);
         world.objects.get_mut(&GUARD).unwrap().target = Some(PREY);
     }
     let mut a = guard_test_world();

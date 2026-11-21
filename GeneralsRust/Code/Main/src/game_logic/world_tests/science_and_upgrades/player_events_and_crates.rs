@@ -3007,13 +3007,15 @@ fn guard_retaliate_returns_to_guard_not_idle() {
         o.ai_state()
     );
     assert!(o.movement.target_position.is_some());
-    // Arrive at post.
+    // Arrive at post. C++ AIStates.cpp:701 defines AI_GUARD_RETALIATE's
+    // success and failure successors as AI_IDLE; the machine does not
+    // resume the previous guard root after returning.
     logic.set_fixture_object_position(id, glam::Vec3::ZERO);
     logic
         .tick_guard_retaliate_states()
         .expect("valid guard retaliation fixture");
     let o = &logic.objects[&id];
-    assert_eq!(o.ai_state(), AIState::GuardingArea);
+    assert_eq!(o.ai_state(), AIState::Idle);
 }
 
 #[test]

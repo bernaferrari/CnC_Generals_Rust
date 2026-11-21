@@ -22,6 +22,20 @@ fn populate(logic: &mut GameLogic, enemy_inside: bool) {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0);
+    // Author the WeaponSet row on the catalog template: C++ WeaponSet rules
+    // come from the WeaponTemplate catalog, which outlives load. Arming only
+    // the object's own template clone loses the row across snapshot restore.
+    crate::fixture_content::arm_template(
+        &mut template,
+        [
+            Some(crate::fixture_content::FixtureWeapon::from_stats(
+                "FixtureWeapon0",
+                &wave21_guard_weapon(),
+            )),
+            None,
+            None,
+        ],
+    );
     logic
         .templates
         .insert("OwnedAreaGuard".into(), template.clone());
