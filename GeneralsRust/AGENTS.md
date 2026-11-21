@@ -144,7 +144,6 @@ process-wide static; the payload is `Arc<…Services>`, not the simulation:
 
 | Name | Reason |
 |------|--------|
-| `CRC_DEBUG_BAG` | `cfg(feature=debug_crc)` instrumentation bag |
 | `PERF_GATHER_REGISTRY` | `cfg(feature=perf_timers)` instrumentation bag |
 
 Do **not** add TLS or process statics for gameplay. Put fields on the owning

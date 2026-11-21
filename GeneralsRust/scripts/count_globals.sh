@@ -353,7 +353,6 @@ ALLOWED_STATIC_EXCEPTIONS = {
     # Example: "GLOBAL_ALLOCATOR": "#[global_allocator] must be static (Rust)",
     # Source-counted even when the feature is off; bags only exist under
     # debug_crc / perf_timers and are process instrumentation, not game state.
-    "CRC_DEBUG_BAG": "cfg(feature=debug_crc) instrumentation bag",
     "PERF_GATHER_REGISTRY": "cfg(feature=perf_timers) instrumentation bag",
 }
 

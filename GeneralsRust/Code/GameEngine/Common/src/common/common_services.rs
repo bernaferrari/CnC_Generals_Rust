@@ -228,6 +228,9 @@ pub struct CommonServices {
     pub application: Arc<ApplicationChannels>,
     pub random: RandomServices,
     pub crc_flags: CrcRuntimeFlags,
+    /// Debug CRC trace ring + options (was process `CRC_DEBUG_BAG`; debug_crc only).
+    #[cfg(feature = "debug_crc")]
+    pub crc_debug: Mutex<crate::common::crc_debug::CrcDebugState>,
     /// ThingFactory slot for this instance (C++ `TheThingFactory`).
     pub thing_factory: Arc<ParkingMutex<Option<ThingFactory>>>,
     /// ModuleFactory slot for this instance (C++ `TheModuleFactory`).
@@ -284,6 +287,8 @@ impl Default for CommonServices {
             application: Arc::new(ApplicationChannels::new()),
             random: RandomServices::default(),
             crc_flags: CrcRuntimeFlags::default(),
+            #[cfg(feature = "debug_crc")]
+            crc_debug: Mutex::new(crate::common::crc_debug::CrcDebugState::new()),
             thing_factory: Arc::new(ParkingMutex::new(None)),
             module_factory: Arc::new(ParkingMutex::new(None)),
             name_key_namespace: Mutex::new(NameKeyNamespace::new()),

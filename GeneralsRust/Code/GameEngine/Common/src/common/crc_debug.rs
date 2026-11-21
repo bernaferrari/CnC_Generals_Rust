@@ -108,14 +108,14 @@ impl Default for CrcDebugBuffer {
 
 #[cfg(feature = "debug_crc")]
 #[derive(Debug)]
-struct CrcDebugState {
+pub(crate) struct CrcDebugState {
     config: RefCell<CrcDebugConfig>,
     buffer: RefCell<CrcDebugBuffer>,
 }
 
 #[cfg(feature = "debug_crc")]
 impl CrcDebugState {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut config = CrcDebugConfig::default();
         config.apply_env_overrides();
         Self {
@@ -309,36 +309,31 @@ fn ordered_crc_lines(lines: &[String], next: usize, written: usize) -> impl Iter
     oldest.iter().chain(before_next).map(String::as_str)
 }
 
+/// The debug CRC trace ring and options live on the owning game instance's
+/// [`CommonServices`](crate::common::common_services::CommonServices) bag
+/// (`CommonServices::crc_debug`), beside the non-debug `CrcRuntimeFlags`.
+/// With no game published there is no owner, so calls no-op rather than mix
+/// traces into shared process state (was process `CRC_DEBUG_BAG`).
 #[cfg(feature = "debug_crc")]
-struct CrcDebugBag {
-    state: std::sync::Mutex<CrcDebugState>,
-}
-
-#[cfg(feature = "debug_crc")]
-static CRC_DEBUG_BAG: std::sync::LazyLock<CrcDebugBag> =
-    std::sync::LazyLock::new(|| CrcDebugBag {
-        state: std::sync::Mutex::new(CrcDebugState::new()),
-    });
-
-#[cfg(feature = "debug_crc")]
-fn with_crc_state<R>(f: impl FnOnce(&CrcDebugState) -> R) -> R {
-    let guard = CRC_DEBUG_BAG.state.lock().unwrap_or_else(|p| p.into_inner());
-    f(&guard)
+fn with_crc_state<R>(f: impl FnOnce(&CrcDebugState) -> R) -> Option<R> {
+    let services = crate::common::common_services::try_common_services()?;
+    let guard = services.crc_debug.lock().unwrap_or_else(|p| p.into_inner());
+    Some(f(&guard))
 }
 
 #[cfg(feature = "debug_crc")]
 pub fn current_crc_debug_config() -> CrcDebugConfig {
-    with_crc_state(|state| state.config().borrow().clone())
+    with_crc_state(|state| state.config().borrow().clone()).unwrap_or_default()
 }
 
 #[cfg(feature = "debug_crc")]
 pub fn set_crc_debug_config(config: CrcDebugConfig) {
-    with_crc_state(|state| state.set_config(config));
+    let _ = with_crc_state(|state| state.set_config(config));
 }
 
 #[cfg(feature = "debug_crc")]
 pub fn apply_command_line_settings(settings: &CrcDebugSettings) {
-    with_crc_state(|state| state.update_config(|config| {
+    let _ = with_crc_state(|state| state.update_config(|config| {
         config.first_frame_to_log = settings.first_frame_to_log;
         config.last_frame_to_log = settings.last_frame_to_log;
         config.keep_crc_saves = settings.keep_crc_saves;
@@ -510,7 +505,7 @@ where
         }
 
         let update_to_apply = update.clone();
-        with_crc_state(|state| {
+        let _ = with_crc_state(|state| {
             state.update_config(move |config| {
                 update_to_apply.apply(config);
                 if config.first_frame_to_log >= 0 {
@@ -608,6 +603,7 @@ fn is_frame_ok_to_log() -> bool {
             && !config.debug_ignore_sync_errors
             && config.includes_frame(time::frame())
     })
+    .unwrap_or(false)
 }
 
 /// Placeholder functions that would be implemented elsewhere
@@ -649,7 +645,7 @@ fn get_machine_name() -> String {
 /// Output CRC debug lines to file
 #[cfg(feature = "debug_crc")]
 pub fn output_crc_debug_lines() {
-    with_crc_state(|state| {
+    let _ = with_crc_state(|state| {
         let mut buffer = state.buffer().borrow_mut();
 
         if buffer.dumped {
@@ -677,7 +673,7 @@ pub fn output_crc_debug_lines() {
 /// Mirrors the commented-out C++ `outputCRCDumpLines()` body.
 #[cfg(feature = "debug_crc")]
 pub fn output_crc_dump_lines() {
-    with_crc_state(|state| {
+    let _ = with_crc_state(|state| {
         let buffer = state.buffer().borrow();
 
         for line in ordered_crc_lines(
@@ -712,7 +708,7 @@ pub fn add_crc_debug_line(message: &str) {
         return;
     }
 
-    with_crc_state(|state| {
+    let _ = with_crc_state(|state| {
         let mut buffer = state.buffer().borrow_mut();
 
         if buffer.dumped {
@@ -759,7 +755,7 @@ pub fn add_crc_dump_line(message: &str) {
         return;
     }
 
-    with_crc_state(|state| {
+    let _ = with_crc_state(|state| {
         let mut buffer = state.buffer().borrow_mut();
 
         if buffer.dumped {
@@ -991,11 +987,12 @@ macro_rules! dump_real_named {
     };
 }
 
-/// CRC runtime flags live on [`crate::common::common_services::CommonServices::crc_flags`].
+/// CRC runtime flags live on [`crate::common::common_services::CommonServices::crc_flags`];
+/// under `debug_crc` the config/ring live on `CommonServices::crc_debug` instead.
 
 #[cfg(feature = "debug_crc")]
 pub fn set_debug_ignore_sync_errors(enabled: bool) {
-    with_crc_state(|state| {
+    let _ = with_crc_state(|state| {
         state.update_config(|config| {
             config.debug_ignore_sync_errors = enabled;
         });
@@ -1014,6 +1011,7 @@ pub fn set_debug_ignore_sync_errors(enabled: bool) {
 #[cfg(feature = "debug_crc")]
 pub fn debug_ignore_sync_errors() -> bool {
     with_crc_state(|state| state.config().borrow().debug_ignore_sync_errors)
+        .unwrap_or(false)
 }
 
 #[cfg(not(feature = "debug_crc"))]
@@ -1027,7 +1025,7 @@ pub fn debug_ignore_sync_errors() -> bool {
 
 #[cfg(feature = "debug_crc")]
 pub fn set_net_crc_interval(interval: i32) {
-    with_crc_state(|state| {
+    let _ = with_crc_state(|state| {
         state.update_config(|config| {
             config.net_crc_interval = interval;
         });
@@ -1045,7 +1043,7 @@ pub fn set_net_crc_interval(interval: i32) {
 
 #[cfg(feature = "debug_crc")]
 pub fn net_crc_interval() -> i32 {
-    with_crc_state(|state| state.config().borrow().net_crc_interval)
+    with_crc_state(|state| state.config().borrow().net_crc_interval).unwrap_or(1)
 }
 
 #[cfg(not(feature = "debug_crc"))]
@@ -1059,7 +1057,7 @@ pub fn net_crc_interval() -> i32 {
 
 #[cfg(feature = "debug_crc")]
 pub fn set_replay_crc_interval(interval: i32) {
-    with_crc_state(|state| {
+    let _ = with_crc_state(|state| {
         state.update_config(|config| {
             config.replay_crc_interval = interval;
         });
@@ -1077,7 +1075,7 @@ pub fn set_replay_crc_interval(interval: i32) {
 
 #[cfg(feature = "debug_crc")]
 pub fn replay_crc_interval() -> i32 {
-    with_crc_state(|state| state.config().borrow().replay_crc_interval)
+    with_crc_state(|state| state.config().borrow().replay_crc_interval).unwrap_or(100)
 }
 
 #[cfg(not(feature = "debug_crc"))]
@@ -1091,7 +1089,67 @@ pub fn replay_crc_interval() -> i32 {
 
 #[cfg(all(test, feature = "debug_crc"))]
 mod tests {
-    use super::{CrcDebugConfig, ordered_crc_lines};
+    use super::{
+        CrcDebugConfig, add_crc_debug_line, current_crc_debug_config, net_crc_interval,
+        ordered_crc_lines, set_crc_debug_config, set_net_crc_interval,
+    };
+    use crate::common::common_services::{CommonServices, with_common_services};
+    use std::sync::Arc;
+
+    fn recorded_lines(services: &Arc<CommonServices>) -> Vec<String> {
+        let guard = services.crc_debug.lock().unwrap_or_else(|p| p.into_inner());
+        let buffer = guard.buffer().borrow();
+        ordered_crc_lines(
+            &buffer.debug_strings,
+            buffer.next_debug_string,
+            buffer.num_debug_strings,
+        )
+        .map(str::to_owned)
+        .collect()
+    }
+
+    #[test]
+    fn two_instances_keep_separate_crc_traces_and_configs() {
+        let a = Arc::new(CommonServices::new());
+        let b = Arc::new(CommonServices::new());
+
+        let enable_all_frames = |services: &Arc<CommonServices>| {
+            with_common_services(services, || {
+                let mut config = current_crc_debug_config();
+                config.enabled = true;
+                config.first_frame_to_log = 0;
+                config.last_frame_to_log = u32::MAX;
+                set_crc_debug_config(config);
+            });
+        };
+        enable_all_frames(&a);
+        enable_all_frames(&b);
+
+        with_common_services(&a, || {
+            set_net_crc_interval(11);
+            add_crc_debug_line("alpha-first");
+        });
+        with_common_services(&b, || {
+            set_net_crc_interval(22);
+            add_crc_debug_line("beta-only");
+        });
+        with_common_services(&a, || {
+            add_crc_debug_line("alpha-second");
+        });
+
+        let a_lines = recorded_lines(&a);
+        let b_lines = recorded_lines(&b);
+        assert_eq!(a_lines.len(), 2);
+        assert_eq!(b_lines.len(), 1);
+        assert!(a_lines.iter().all(|line| line.contains("alpha")));
+        assert!(b_lines.iter().all(|line| line.contains("beta")));
+        // Ring order stays oldest-to-newest within each instance.
+        assert!(a_lines[0].contains("alpha-first"));
+        assert!(a_lines[1].contains("alpha-second"));
+
+        with_common_services(&a, || assert_eq!(net_crc_interval(), 11));
+        with_common_services(&b, || assert_eq!(net_crc_interval(), 22));
+    }
 
     #[test]
     fn crc_logging_uses_inclusive_unsigned_frame_bounds() {
