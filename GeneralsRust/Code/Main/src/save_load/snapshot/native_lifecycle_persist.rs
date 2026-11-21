@@ -360,7 +360,6 @@ fn validate_legacy_admission(
         (definitions.next().map(|definition| &definition.kind), tags.as_slice()),
         (Some(NativeLifecycleKind::Lifetime(_)), ["LifetimeUpdate"])
             | (Some(NativeLifecycleKind::HeightDie(_)), ["HeightDieUpdate"])
-            | (None, [])
     ) && definitions.next().is_none();
     if !matching {
         return Err(corrupted(
