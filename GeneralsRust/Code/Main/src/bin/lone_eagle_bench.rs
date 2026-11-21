@@ -201,6 +201,9 @@ fn run_mode(
         } else if std::env::var_os("LONE_EAGLE_BENCH_UNCAPPED").is_some() {
             command.args(["-nofpslimit", "-novsync"]);
         }
+        if let Ok(extra) = std::env::var("LONE_EAGLE_BENCH_EXTRA_ARGS") {
+            command.args(extra.split_whitespace().map(str::to_owned));
+        }
     }
     let capture_sample = windowed
         && std::env::var_os("LONE_EAGLE_BENCH_SAMPLE").is_some_and(|value| value == "1");

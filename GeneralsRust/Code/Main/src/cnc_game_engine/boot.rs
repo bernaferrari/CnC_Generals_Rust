@@ -500,6 +500,11 @@ impl CnCGameEngine {
         let pipeline_timer = InitTimer::new("✅ RenderPipeline initialized");
         let mut render_pipeline = RenderPipeline::initialize(ww3d.clone(), &graphics_system)?;
         pipeline_timer.finish();
+        let render_interpolation = command_line.has_option("interpolate");
+        render_pipeline.set_render_interpolation_enabled(render_interpolation);
+        if render_interpolation {
+            info!("Render interpolation enabled (-interpolate): unit transforms blend between 30Hz logic frames");
+        }
 
         // C++ parity: BIG archives MUST be initialized BEFORE asset manager so textures/INI can be read
         info!("📦 Initializing BIG archive file system...");
@@ -1004,6 +1009,7 @@ impl CnCGameEngine {
             ww3d,
             graphics_system,
             render_pipeline,
+            render_interpolation,
 
             message_processor,
             subsystem_app_active: false,

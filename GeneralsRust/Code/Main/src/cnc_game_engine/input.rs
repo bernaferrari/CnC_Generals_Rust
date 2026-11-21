@@ -2089,6 +2089,25 @@ impl CnCGameEngine {
             .unwrap_or_default();
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
+        // Opt-in render interpolation: blend object roots from the previous
+        // logic frame toward the current one by the fixed-step leftover.
+        // Any frozen/paused/stepped clock presents the current frame instead.
+        let interpolation_alpha = if self.render_interpolation
+            && matches!(self.current_state, GameState::InGame)
+            && !self.game_logic.is_paused()
+            && !self.presentation_or_boot_time_frozen()
+            && self.fixed_logic_step.is_none()
+            && self
+                .golden_capture
+                .as_ref()
+                .is_none_or(|golden| !golden.logic_frozen())
+        {
+            Some(self.game_logic.logic_interpolation_alpha())
+        } else {
+            None
+        };
+        self.render_pipeline
+            .set_interpolation_alpha(interpolation_alpha);
         #[cfg(feature = "game_client")]
         {
             let ui = self.game_client.in_game_ui_subsystem();

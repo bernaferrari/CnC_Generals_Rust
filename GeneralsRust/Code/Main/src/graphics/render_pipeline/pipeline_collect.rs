@@ -187,6 +187,7 @@ impl RenderPipeline {
         // Share the immutable frame: copying its object roster and shroud bytes
         // here adds allocations on every draw without changing any render input.
         let presentation = self.presentation_frame.clone();
+        self.interpolation_begin_collect(presentation.as_deref());
         let animation_roster = std::cell::LazyCell::new(|| {
             let frame = presentation.as_ref()?;
             let mut objects = game_engine::common::fast_hash::FxHashMap::with_capacity_and_hasher(
@@ -415,6 +416,9 @@ impl RenderPipeline {
                 continue;
             }
             let object_id = u.id;
+            // Base object matrix root (no per-drawable instance transform);
+            // recorded once per object, even for rows later culled below.
+            self.interpolation_record_object_root(object_id, u.world_matrix());
             let native_ghost_scales = presentation
                 .as_ref()
                 .and_then(|frame| frame.native_ghost_scale_sources.get(&object_id))
@@ -1206,6 +1210,7 @@ impl RenderPipeline {
                     continue;
                 }
                 let world_matrix = gameplay_to_render_transform(p.world_matrix());
+                self.interpolation_record_projectile_root(p.id, world_matrix);
                 let world_position = world_matrix.w_axis.truncate();
                 let template_name = if p.projectile_object_name.is_empty() {
                     model_name
@@ -1292,6 +1297,8 @@ impl RenderPipeline {
                 self.render_items.len()
             );
         }
+
+        self.interpolation_apply(0);
 
         Ok(volume_shadow_casters)
     }
@@ -1866,6 +1873,7 @@ impl RenderPipeline {
 
         let submissions_count = submissions.len();
         let mut bridge_items_added = 0usize;
+        let items_start = self.render_items.len();
 
         for drained in submissions {
             let submission = drained.submission;
@@ -2201,6 +2209,8 @@ impl RenderPipeline {
                 RenderModelLoadResult::Deferred => {}
             }
         }
+
+        self.interpolation_apply(items_start);
 
         if bridge_items_added > 0 && self.frame_number.is_multiple_of(300) {
             debug!(

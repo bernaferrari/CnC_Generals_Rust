@@ -239,7 +239,8 @@ impl CommandLineArgs {
                     "seed" | "netminplayers" | "playstats" | "forcebenchmark" | "nosizzle"
                     | "noshaders" | "particleedit" | "scriptdebug" | "wincursors"
                     | "constantdebug" | "showteamdot" | "nomovecamera" | "nodraw"
-                    | "jumptoframe" | "nomusic" | "noshellanim" | "noshellmap" | "novsync" => {}
+                    | "jumptoframe" | "nomusic" | "noshellanim" | "noshellmap" | "novsync"
+                    | "interpolate" => {}
                     "server" => parsed.server_mode = true,
                     "client" => parsed.client_mode = true,
                     "port" => {
@@ -683,6 +684,7 @@ impl CommandLineArgs {
         println!("    -noaudio               Disable audio system");
         println!("    -novideo               Disable video system (server mode only)");
         println!("    -novsync               Request unsynchronized window presentation");
+        println!("    -interpolate           Interpolate unit transforms between logic frames (smooth high-FPS rendering)");
         println!("    -dev, -developer       Enable developer mode");
         println!("    -quickstart            Skip intro videos and menus");
         println!("    -autoreplay            Automatically replay last game");
@@ -1247,5 +1249,25 @@ mod tests {
             spaced.get_option_value("gpui_frame").map(String::as_str),
             Some("/tmp/f")
         );
+    }
+
+    #[test]
+    fn test_interpolate_flag_parses_case_insensitively() {
+        let lower = CommandLineArgs::parse_from_args(vec![
+            "generals".to_string(),
+            "-interpolate".to_string(),
+        ])
+        .unwrap();
+        assert!(lower.has_option("interpolate"));
+
+        let mixed = CommandLineArgs::parse_from_args(vec![
+            "generals".to_string(),
+            "-Interpolate".to_string(),
+        ])
+        .unwrap();
+        assert!(mixed.has_option("interpolate"));
+
+        let absent = CommandLineArgs::parse_from_args(vec!["generals".to_string()]).unwrap();
+        assert!(!absent.has_option("interpolate"));
     }
 }

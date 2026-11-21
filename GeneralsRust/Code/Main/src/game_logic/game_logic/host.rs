@@ -1475,6 +1475,13 @@ pub struct GameLogic {
     pub(super) install_multiplayer_scripts: bool,
 }
 impl GameLogic {
+    /// Fixed-step leftover normalized to [0,1]: how far this world is through
+    /// the current 30 Hz logic frame. Read by opt-in render interpolation;
+    /// callers gate pause/freeze before using it.
+    pub(crate) fn logic_interpolation_alpha(&self) -> f32 {
+        (self.accumulated_time / LOGIC_FRAME_TIMESTEP).clamp(0.0, 1.0)
+    }
+
     /// Asset service bound to this world, not the thread's active service.
     pub(crate) fn application_assets(&self) -> Option<std::sync::Arc<std::sync::Mutex<crate::assets::AssetManager>>> {
         self.application_assets.clone().or_else(|| {

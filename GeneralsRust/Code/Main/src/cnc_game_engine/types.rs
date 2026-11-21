@@ -856,6 +856,9 @@ pub struct CnCGameEngine {
     pub(crate) ww3d: ww3d_engine::SharedEngine,
     pub(crate) graphics_system: GraphicsSystem,
     pub(crate) render_pipeline: RenderPipeline,
+    /// `-interpolate` command-line flag, read once at boot. Drives per-render
+    /// alpha passed to the pipeline; off keeps collect byte-identical.
+    pub(crate) render_interpolation: bool,
 
     // Platform message handling
     pub(crate) message_processor: WindowMessageProcessor,

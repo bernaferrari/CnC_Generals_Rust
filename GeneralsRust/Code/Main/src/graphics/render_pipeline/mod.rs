@@ -731,6 +731,9 @@ pub struct RenderPipeline {
     // Render items for current frame
     render_items: Vec<RenderItem>,
 
+    /// Opt-in `-interpolate` root-blend state; disabled leaves collect untouched.
+    interpolation: render_interpolation::RenderInterpolation,
+
     /// Immutable native W3D observations from the completed model collection.
     committed_host_ghost_draws:
         Vec<crate::game_logic::game_logic::world_objects::fog_ghosts::CommittedHostGhostDraw>,
@@ -977,6 +980,7 @@ mod pipeline_execute;
 mod pipeline_lifecycle;
 mod pipeline_minimap;
 mod pipeline_prewarm;
+mod render_interpolation;
 
 #[cfg(feature = "game_client")]
 mod specialized_draw_inputs;
