@@ -32,6 +32,30 @@ pub(crate) struct OwnedObjectTransform {
     pub(crate) pose_changed: bool,
 }
 
+/// Active map extent of the receiving world, if one is published.
+/// Mirrors C++ `TheTerrainLogic->getExtent` inside `Object::reactToTransformChange`
+/// (Object.cpp:1764-1771); absent services means no terrain exists to compare.
+fn receiving_terrain_extent() -> Option<crate::common::Region3D> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    let terrain = services.terrain().read().ok()?;
+    let extent = terrain.get_extent();
+    if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
+        return Some(extent);
+    }
+    let extent = terrain.get_maximum_pathfind_extent();
+    if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
+        return Some(extent);
+    }
+    // No map is loaded — a state C++ never reaches during play. Mirror the
+    // unloaded-terrain 50000-unit fallback helpers::TheTerrainLogic uses,
+    // expanded by one unit so the strict isInRegionNoZ bounds match the
+    // inclusive edges the legacy derived reader used.
+    Some(crate::common::Region3D::new(
+        crate::common::Coord3D::new(-1.0, -1.0, 0.0),
+        crate::common::Coord3D::new(50001.0, 50001.0, 0.0),
+    ))
+}
+
 impl Object {
     /// Get unit direction vector in 2D (x, y) based on the object's facing angle.
     /// Returns (cos(angle), sin(angle)) representing the forward direction.
@@ -119,6 +143,11 @@ impl Object {
         }
         if pos_diff {
             self.set_trigger_area_flags_with_context(frame, changed);
+            // Object.cpp:1764-1771 — reactToTransformChange refreshes OFF_MAP
+            // from TheTerrainLogic->getExtent, the published receiving world.
+            if let Some(extent) = receiving_terrain_extent() {
+                self.refresh_off_map_status(&extent);
+            }
         }
     }
 
@@ -771,6 +800,10 @@ impl Object {
         if moved {
             self.set_trigger_area_flags_for_change_in_position();
             self.react_contain_to_transform();
+            // Object.cpp:1764-1771 — same OFF_MAP refresh as the transform path.
+            if let Some(extent) = receiving_terrain_extent() {
+                self.refresh_off_map_status(&extent);
+            }
         }
 
         Ok(())
@@ -1170,14 +1203,10 @@ impl Object {
         Ok(())
     }
 
-    /// Returns true if the object is currently flagged as outside the playable area.
+    /// C++ `Object::isOffMap` — the private OFF_MAP status bit, updated by
+    /// the transform paths and `friend_notifyOfNewMapBoundary`.
     pub fn is_off_map(&self) -> bool {
-        let Some(terrain) = crate::helpers::TheTerrainLogic::get() else {
-            return false;
-        };
-        let extent = terrain.get_maximum_pathfind_extent();
-        let pos = self.get_position();
-        pos.x < extent.lo.x || pos.x > extent.hi.x || pos.y < extent.lo.y || pos.y > extent.hi.y
+        self.private_status & (ObjectPrivateStatusBits::OffMap as u8) != 0
     }
 
     //=========================================================================
@@ -1355,6 +1384,79 @@ mod trigger_identity_tests {
                 "position ({x}, {y})"
             );
         }
+    }
+
+    #[test]
+    fn is_off_map_reads_the_canonical_private_status_bit() {
+        let mut object = Object::new_test(0x00B0_1B20, 100.0);
+        assert!(!object.is_off_map());
+        object.private_status |= ObjectPrivateStatusBits::OffMap as u8;
+        assert!(object.is_off_map());
+        object.private_status &= !(ObjectPrivateStatusBits::OffMap as u8);
+        assert!(!object.is_off_map());
+    }
+
+    /// Object.cpp:1752-1774 — every pose writer refreshes OFF_MAP from the
+    /// receiving world's active extent once a component moves past 0.01.
+    #[test]
+    fn ambient_pose_writers_refresh_off_map_from_the_published_extent() {
+        let _lock = crate::test_sync::lock();
+        fn stores_with_active_cells(size: i32) -> Arc<crate::system::engine_stores::EngineStores> {
+            let mut map = crate::system::map_loader::MapData::new();
+            map.width = 10;
+            map.height = 10;
+            map.heightmap = vec![0; 100];
+            map.boundaries = vec![
+                crate::common::ICoord2D::new(10, 10),
+                crate::common::ICoord2D::new(size, size),
+            ];
+            let stores = crate::system::engine_stores::new_for_world();
+            {
+                let mut terrain = stores.services().terrain().write().unwrap();
+                terrain.load_map_data(map);
+                terrain.restore_active_boundary_from_snapshot(1);
+            }
+            stores
+        }
+
+        // Active extent 50 units; maximum pathfind extent 100 units.
+        let small = stores_with_active_cells(5);
+        crate::system::engine_stores::with_active_stores(&small, || {
+            let mut object = Object::new_test(0x00B0_1B21, 100.0);
+            object.set_position(&Coord3D::new(25.0, 25.0, 0.0)).unwrap();
+            assert!(!object.is_off_map());
+
+            // Inside the maximum extent but outside the active boundary:
+            // C++ compares against getExtent (active), not the maximum.
+            object.set_position(&Coord3D::new(75.0, 75.0, 0.0)).unwrap();
+            assert!(object.is_off_map());
+
+            object.set_position(&Coord3D::new(49.998, 25.0, 0.0)).unwrap();
+            assert!(!object.is_off_map());
+
+            // A sub-0.01 component move does not satisfy isPosDifferent
+            // (Object.cpp:1683 strict >0.01), so this edge crossing leaves
+            // the bit unchanged even though the point is now outside.
+            object.set_position(&Coord3D::new(50.006, 25.0, 0.0)).unwrap();
+            assert!(!object.is_off_map());
+
+            object.set_position(&Coord3D::new(25.0, 25.0, 0.0)).unwrap();
+            assert!(!object.is_off_map());
+
+            // The matrix writer refreshes through the same path.
+            let mut matrix = object.get_transform_matrix();
+            matrix.w_axis = glam::Vec4::new(75.0, 75.0, 0.0, 1.0);
+            object.set_transform_matrix(&matrix);
+            assert!(object.is_off_map());
+        });
+
+        // A same-ID peer in another world keeps its own bit and boundary.
+        let large = stores_with_active_cells(10);
+        crate::system::engine_stores::with_active_stores(&large, || {
+            let mut peer = Object::new_test(0x00B0_1B21, 100.0);
+            peer.set_position(&Coord3D::new(75.0, 75.0, 0.0)).unwrap();
+            assert!(!peer.is_off_map());
+        });
     }
 
     fn square(id: i32, name: &str) -> PolygonTrigger {
