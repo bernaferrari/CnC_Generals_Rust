@@ -89,6 +89,11 @@ pub fn breadth_factions() -> BreadthCategoryResult {
             ],
         };
         let mut logic = GameLogic::new();
+        // NewGame requires admitted ordered receiving Object content; admit an
+        // empty roster since this category only checks player/team admission.
+        logic
+            .admit_object_ini_sources(std::iter::empty::<(String, String)>())
+            .expect("admit empty receiving roster");
         match apply_skirmish_config(&mut logic, &cfg) {
             Ok(()) => {
                 let team_ok = logic
@@ -148,8 +153,136 @@ pub fn breadth_modules() -> BreadthCategoryResult {
     }
 }
 
+// Ordered Object INI for the economy/combat category. Walking infantry
+// author AIUpdateInterface + the walk Locomotor (can_move gates
+// Enter/capture), the capture power is the authored SpecialAbility chain,
+// and the A10 strike is an authored OCL module bound to its SpecialPower
+// catalog entry (SpecialPower.cpp:308 canUseSpecialPower).
+const BREADTH_ECON_OBJECTS: &str = concat!(
+    "Object BreadthJet\n",
+    "KindOf = AIRCRAFT SELECTABLE\n",
+    "Body = ActiveBody Body\n",
+    "MaxHealth = 200\n",
+    "InitialHealth = 200\n",
+    "End\n",
+    "End\n",
+    "Object BreadthTransport\n",
+    "KindOf = VEHICLE SELECTABLE\n",
+    "Body = ActiveBody Body\n",
+    "MaxHealth = 400\n",
+    "InitialHealth = 400\n",
+    "End\n",
+    "Behavior = TransportContain BreadthContain\n",
+    " Slots = 5\n",
+    " AllowInsideKindOf = INFANTRY\n",
+    "End\n",
+    "End\n",
+    "Object BreadthInfantry\n",
+    "KindOf = INFANTRY SELECTABLE\n",
+    "VisionRange = 200\n",
+    "TransportSlotCount = 1\n",
+    "Locomotor = SET_NORMAL BreadthWalkLocomotor\n",
+    "Body = ActiveBody Body\n",
+    "MaxHealth = 100\n",
+    "InitialHealth = 100\n",
+    "End\n",
+    "Behavior = AIUpdateInterface Brain\n",
+    "End\n",
+    "Behavior = SpecialAbility CaptureTag\n",
+    " SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n",
+    "End\n",
+    "Behavior = SpecialAbilityUpdate CaptureUpdateTag\n",
+    " SpecialPowerTemplate = SpecialAbilityRangerCaptureBuilding\n",
+    " StartAbilityRange = 5\n",
+    " UnpackTime = 0\n",
+    " PreparationTime = 0\n",
+    " PackTime = 0\n",
+    "End\n",
+    "Behavior = OCLSpecialPower A10Tag\n",
+    " SpecialPowerTemplate = SuperweaponA10ThunderboltMissileStrike\n",
+    " OCL = OCL_A10Strike\n",
+    " CreateLocation = CREATE_AT_LOCATION\n",
+    "End\n",
+    "End\n",
+    "Object BreadthEnemyBldg\n",
+    "KindOf = STRUCTURE SELECTABLE CAPTURABLE MP_COUNT_FOR_VICTORY\n",
+    "BuildCost = 1000\n",
+    "Body = ActiveBody Body\n",
+    "MaxHealth = 500\n",
+    "InitialHealth = 500\n",
+    "End\n",
+    "End\n",
+    "Object BreadthSellBldg\n",
+    "KindOf = STRUCTURE SELECTABLE MP_COUNT_FOR_VICTORY\n",
+    "BuildCost = 2000\n",
+    "Body = ActiveBody Body\n",
+    "MaxHealth = 500\n",
+    "InitialHealth = 500\n",
+    "End\n",
+    "End\n",
+    "Object BreadthStealth\n",
+    "KindOf = INFANTRY SELECTABLE\n",
+    "Body = ActiveBody Body\n",
+    "MaxHealth = 80\n",
+    "InitialHealth = 80\n",
+    "End\n",
+    "End\n",
+    "Object BreadthDetector\n",
+    "KindOf = INFANTRY SELECTABLE\n",
+    "Body = ActiveBody Body\n",
+    "MaxHealth = 80\n",
+    "InitialHealth = 80\n",
+    "End\n",
+    "End\n",
+);
+
 pub fn breadth_economy_combat() -> BreadthCategoryResult {
     let mut logic = GameLogic::new();
+    // NewGame requires admitted ordered receiving Object content, and
+    // create_object under admitted content resolves only the receiving
+    // catalog (ensure_host_spawn_template).
+    if let Err(error) = (|| -> Result<(), String> {
+        // C++ GameEngine::init loads Locomotor.ini before Object INI
+        // (GameEngine.cpp:428-458): walking infantry need a locomotor so
+        // can_move gates Enter/capture the same way retail units do.
+        let mut locomotors =
+            game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+        locomotors
+            .apply_source(
+                "Locomotor BreadthWalkLocomotor\n Surfaces = GROUND\n Speed = 30\n Acceleration = 60\n TurnRate = 360\n Appearance = TWO_LEGS\nEnd\n",
+            )
+            .map_err(|error| format!("locomotor parse: {error}"))?;
+        logic.admit_locomotor_definitions(locomotors)?;
+        let sciences =
+            std::sync::Arc::new(game_engine::common::rts::science::ScienceNameFacts::default());
+        let mut actions =
+            game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions::default(
+            );
+        actions
+            .apply_source(
+                concat!(
+                    "SpecialPower SpecialAbilityRangerCaptureBuilding\n ReloadTime = 15000\nEnd\n",
+                    "SpecialPower SuperweaponA10ThunderboltMissileStrike\n ReloadTime = 120000\nEnd\n",
+                ),
+                &sciences,
+            )
+            .map_err(|error| format!("action parse: {error}"))?;
+        let content = crate::assets::ReceivingObjectContent::from_sources_with_catalogs(
+            [("breadth_econ.ini".to_string(), BREADTH_ECON_OBJECTS.to_string())],
+            sciences,
+            std::sync::Arc::new(actions),
+        )
+        .map_err(|error| format!("object parse: {error}"))?;
+        logic
+            .admit_receiving_module_content_with_weapons(content, None)
+            .map_err(|error| error.to_string())
+    })() {
+        return BreadthCategoryResult {
+            category: "economy_combat_variants".into(),
+            ok: false,
+            detail: format!("admission: {error}"),
+        };
+    }
     let cfg = SkirmishMatchConfig {
         source_game_info: None,
         recorded_palette: None,
@@ -173,31 +306,11 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
 
     let system = CommandSystem::new();
 
-    logic.templates.insert(
-        "BreadthJet".into(),
-        tpl("BreadthJet", &[KindOf::Aircraft, KindOf::Selectable], 200.0),
-    );
     let aircraft_ok = logic
         .create_object("BreadthJet", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .is_some();
 
     // Transport: Vehicle can_contain + Infantry Enter -> AIState::Entering + target set.
-    logic.templates.insert(
-        "BreadthTransport".into(),
-        tpl(
-            "BreadthTransport",
-            &[KindOf::Vehicle, KindOf::Selectable],
-            400.0,
-        ),
-    );
-    logic.templates.insert(
-        "BreadthInfantry".into(),
-        tpl(
-            "BreadthInfantry",
-            &[KindOf::Infantry, KindOf::Selectable],
-            100.0,
-        ),
-    );
     let transport = logic.create_object("BreadthTransport", Team::USA, Vec3::new(10.0, 0.0, 0.0));
     let infantry = logic.create_object("BreadthInfantry", Team::USA, Vec3::new(12.0, 0.0, 0.0));
     let mut transport_ok = false;
@@ -219,23 +332,34 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     }
 
     // Capture: requires completed capture upgrade; Capturing → ownership transfer residual.
-    logic.templates.insert(
-        "BreadthEnemyBldg".into(),
-        tpl_cost(
-            "BreadthEnemyBldg",
-            &[KindOf::Structure, KindOf::Selectable],
-            500.0,
-            1_000,
-        ),
-    );
-    // Place enemy close enough for instant residual capture (range ≈ selection radii + pad).
-    let enemy = logic.create_object("BreadthEnemyBldg", Team::China, Vec3::new(10.0, 0.0, 0.0));
+    // Place the capturable enemy at the captor's position: C++ accepts the
+    // order at-goal without a path and SpecialAbilityUpdate starts
+    // preparation inside its authored StartAbilityRange next frame.
+    let enemy = logic.create_object("BreadthEnemyBldg", Team::China, Vec3::new(12.0, 0.0, 0.0));
+    // NO_BUILDINGS defeat counts MP_COUNT_FOR_VICTORY structures; the capture
+    // below flips China's first building to USA. Give China a second victory
+    // structure so the surviving owner is not defeated before the stealth leg.
+    let _china_keep = logic.create_object("BreadthEnemyBldg", Team::China, Vec3::new(60.0, 0.0, 0.0));
     let mut capture_ok = false;
     if let (Some(eid), Some(iid)) = (enemy, infantry) {
-        if let Some(p) = logic.get_player_mut(0) {
-            p.unlocked_sciences
-                .insert("Upgrade_AmericaRangerCaptureBuilding".into());
-        }
+        // C++ ActionManager::canCaptureBuilding runs isObjectShroudedForAction —
+        // the local player must see the target. A live game seeds map shroud and
+        // runs Object::look every frame.
+        // Mark this target as seen by the local player before issuing capture.
+        logic
+            .world_services
+            .shroud()
+            .lock()
+            .expect("shroud")
+            .mark_host_object_seen(0, eid.0);
+        // Authored module timers seed at full ReloadTime on spawn (C++
+        // SpecialPowerModule ctor recharge). ScriptActions' named-set
+        // countdown residual is the same authority a script would use.
+        let _ = logic.script_set_special_power_countdown(
+            iid,
+            &crate::command_system::SpecialPowerType::RangerCaptureBuilding,
+            0,
+        );
         let cap_cmd = command(
             2,
             0,
@@ -265,16 +389,13 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     // Special power: consume charge + SpecialAbility AI state (production executor path).
     let mut special_ok = false;
     if let Some(iid) = infantry {
-        // C++ SpecialPowerStore::canUseSpecialPower science residual for A10 strike.
-        if let Some(p) = logic.get_player_mut(0) {
-            p.unlocked_sciences
-                .insert("SCIENCE_A10ThunderboltMissileStrike1".into());
-        }
-        // Re-arm special power readiness after prior command may have changed state.
-        if let Some(u) = logic./* Wave 950 */ host_object_mut(iid) {
-            u.special_power_ready = true;
-            u.special_power_cooldown_remaining = 0.0;
-        }
+        // Same scripted countdown residual — the authored OCL module was
+        // created at full 120s recharge.
+        let _ = logic.script_set_special_power_countdown(
+            iid,
+            &SpecialPowerType::Airstrike,
+            0,
+        );
         let sp_cmd = command(
             3,
             0,
@@ -288,28 +409,22 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         special_ok = sp_result == CommandResult::Success
             && logic
                 .host_object(iid)
-                .map(|o| {
-                    o.ai_state() == AIState::SpecialAbility
-                        && !o.special_power_ready
-                        && o.special_power_cooldown_remaining > 0.0
-                })
-                .unwrap_or(false);
+                .map(|o| o.ai_state() == AIState::SpecialAbility)
+                .unwrap_or(false)
+            && !logic.is_special_power_ready_for(iid, &SpecialPowerType::Airstrike);
     }
 
     // Salvage/Sell: must refund cash AND destroy the structure (no-op sell fails).
     let mut salvage_ok = false;
     // Ensure production sell percentage is non-zero for refund assertion.
     game_engine::common::global_data::write().sell_percentage = 0.5;
-    logic.templates.insert(
-        "BreadthSellBldg".into(),
-        tpl_cost(
-            "BreadthSellBldg",
-            &[KindOf::Structure, KindOf::Selectable],
-            500.0,
-            2_000,
-        ),
-    );
-    if let Some(bldg) = logic.create_object("BreadthSellBldg", Team::USA, Vec3::new(0.0, 0.0, 10.0))
+    let sell_bldg = logic.create_object("BreadthSellBldg", Team::USA, Vec3::new(0.0, 0.0, 10.0));
+    // Skirmish NO_BUILDINGS defeat counts only MP_COUNT_FOR_VICTORY structures
+    // (C++ Team::hasAnyBuildings). Keep a second structure alive so the sold
+    // building's destruction does not kill the player and wipe his cash
+    // (Player.cpp killPlayer defeat residual).
+    let _keep_bldg = logic.create_object("BreadthSellBldg", Team::USA, Vec3::new(30.0, 0.0, 10.0));
+    if let Some(bldg) = sell_bldg
     {
         // Confirm template cost is present on the live object (sell refund source).
         let cost = logic
@@ -349,33 +464,39 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
     }
 
     // Stealth residual: stealthed not targetable until detector reveals.
-    logic.templates.insert(
-        "BreadthStealth".into(),
-        tpl(
-            "BreadthStealth",
-            &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
-            80.0,
-        ),
-    );
-    logic.templates.get_mut("BreadthStealth").unwrap().stealth_update =
-        Some(crate::game_logic::object::StealthUpdateData {
-            innate_stealth: false,
-            granted_by_special_power: true,
-            forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::FIRING_WEAPON,
-            ..Default::default()
-        });
-    logic.templates.insert(
-        "BreadthDetector".into(),
-        tpl(
-            "BreadthDetector",
-            &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
-            80.0,
-        ),
-    );
+    // The receiving route materializes each admitted template lazily on
+    // first spawn; materialize both, then attach the fixture module data and
+    // ATTACKABLE flag so the spawned objects carry them.
+    let materialized = logic.ensure_host_spawn_template("BreadthStealth")
+        && logic.ensure_host_spawn_template("BreadthDetector");
+    if !materialized {
+        return BreadthCategoryResult {
+            category: "economy_combat_variants".into(),
+            ok: false,
+            detail: "stealth/detector spawn template admission failed".into(),
+        };
+    }
+    let stealth_tpl = logic.templates.get_mut("BreadthStealth").unwrap();
+    stealth_tpl.add_kind_of(KindOf::Attackable);
+    stealth_tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
+        innate_stealth: false,
+        granted_by_special_power: true,
+        forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::FIRING_WEAPON,
+        ..Default::default()
+    });
+    logic
+        .templates
+        .get_mut("BreadthDetector")
+        .unwrap()
+        .add_kind_of(KindOf::Attackable);
     let mut stealth_ok = false;
-    if let Some(sid) = logic.create_object("BreadthStealth", Team::USA, Vec3::new(0.0, 0.0, 20.0)) {
+    let stealth_obj = logic.create_object("BreadthStealth", Team::USA, Vec3::new(0.0, 0.0, 20.0));
+    if let Some(sid) = stealth_obj {
+        // C++ StealthUpdate::receiveGrant(true) (StealthUpdate.cpp:178-201):
+        // granted-by-special-power stealth wakes the sleeping module, sets
+        // STEALTHED, and pins stealth_allowed_frame = now.
+        logic.receive_stealth_grant(sid, true, 0);
         if let Some(u) = logic.host_object_mut(sid) {
-            u.set_status_stealthed(true);
             u.set_status_detected(false);
         }
         let hidden = logic
@@ -401,6 +522,12 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             if let Err(error) = logic.update_stealth_and_detection() {
                 return BreadthCategoryResult { category: "economy_combat_variants".into(), ok: false, detail: format!("stealth update: {error}") };
             }
+            // Detector scan sets detection_expires_frame; the DETECTED status
+            // bit is synced by the next per-frame StealthUpdate module run
+            // (stealth_update.rs detected = detection_expires_frame > now).
+            if let Err(error) = logic.update_stealth_and_detection() {
+                return BreadthCategoryResult { category: "economy_combat_variants".into(), ok: false, detail: format!("stealth update: {error}") };
+            }
             detected_ok = logic
                 .host_object(sid)
                 .map(|o| {
@@ -419,19 +546,21 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             u.set_status_detected(false);
             // GPS-style grant: the inherited StealthUpdate forbids FIRING_*.
             u.innate_stealth = true;
-            // last_fire_time=-1 so weapon_ready at t=0 (Weapon::default reload=1.0
-            // would otherwise make fire_at return false — same setup as unit tests).
-            u.weapon = Some(crate::game_logic::Weapon {
+        }
+        // host_object_mut above synchronized and marked this exact host row.
+        // Release that facade borrow before borrowing its disjoint combat owner.
+        if let Some(u) = logic.objects.get_mut(&sid) {
+            // C++ Weapon::fireWeapon needs the slot's WeaponTemplate
+            // (DamageType et al.); author a real PRIMARY row instead of a
+            // nameless Weapon the dtype lookup vetoes. last_fire_time=-1 so
+            // weapon_ready at t=0.
+            crate::fixture_content::arm_slot_with_stats(u, 0, crate::game_logic::Weapon {
                 damage: 10.0,
                 range: 100.0,
                 reload_time: 0.5,
                 last_fire_time: -1.0,
                 ..crate::game_logic::Weapon::default()
             });
-        }
-        // host_object_mut above synchronized and marked this exact host row.
-        // Release that facade borrow before borrowing its disjoint combat owner.
-        if let Some(u) = logic.objects.get_mut(&sid) {
             fire_break_ok = u.fire_at(
                 ObjectId(9999),
                 0.0,
@@ -449,11 +578,6 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         fire_break_ok &= logic.host_object(sid).is_some_and(|u| !u.status.stealthed);
 
         stealth_ok = hidden && detected_ok && fire_break_ok;
-        if !stealth_ok {
-            log::warn!(
-                "stealth fail: hidden={hidden} detected_ok={detected_ok} fire_break_ok={fire_break_ok}"
-            );
-        }
     }
 
     let ok = cash_ok
@@ -670,16 +794,11 @@ pub fn breadth_saveload_multipoint() -> BreadthCategoryResult {
     if let Err(error) = crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::Skirmish) {
         return BreadthCategoryResult { category: "saveload_multipoint".into(), ok: false, detail: format!("startup: {error}") };
     }
-    logic.templates.insert(
-        "BreadthSnapUnit".into(),
-        tpl(
-            "BreadthSnapUnit",
-            &[KindOf::Infantry, KindOf::Selectable],
-            100.0,
-        ),
-    );
+    // Retail boot admits the full receiving catalog; custom templates inserted
+    // directly into `templates` are bypassed by the receiving route, so spawn a
+    // real admitted object.
     let unit_id = logic
-        .create_object("BreadthSnapUnit", Team::USA, Vec3::new(1.0, 0.0, 1.0))
+        .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(1.0, 0.0, 1.0))
         .expect("snap unit");
     let builder = SnapshotBuilder::new();
     let snap1 = match builder.create_world_snapshot(&logic) {
@@ -706,28 +825,38 @@ pub fn breadth_saveload_multipoint() -> BreadthCategoryResult {
     };
 
     // Restore multipoint: snap1 then snap2 with state assertions.
+    // Restore targets need the same admitted catalog as the source world.
     let mut r1 = GameLogic::new();
-    r1.templates.insert(
-        "BreadthSnapUnit".into(),
-        tpl(
-            "BreadthSnapUnit",
-            &[KindOf::Infantry, KindOf::Selectable],
-            100.0,
-        ),
-    );
-    let restore1_ok =
-        builder.restore_from_snapshot(&snap1, &mut r1).is_ok() && r1.host_object(unit_id).is_some();
+    // C++ restores a full save into a world whose map load already created
+    // the team prototypes (TeamFactory roster); persist_roster restore
+    // validates that coverage, so the target must boot the same game mode
+    // and admit the same player (player admission authors teamRustPlayer0).
+    crate::cnc_game_engine::start_standalone_game(&mut r1, GameMode::Skirmish)
+        .expect("boot breadth restore target");
+    r1.add_player(crate::game_logic::Player::new(0, Team::USA, "USA Commander", true));
+    r1.templates = logic.templates.clone();
+    r1.receiving_module_content = logic.receiving_module_content.clone();
+    r1.receiving_object_definitions = logic.receiving_object_definitions.clone();
+    r1.receiving_template_baseline = logic.receiving_template_baseline.clone();
+    r1.weapon_definition_base = logic.weapon_definition_base.clone();
+    r1.weapon_definitions = logic.weapon_definitions.clone();
+    r1.projectile_definitions = logic.projectile_definitions.clone();
+    let restore1 = builder.restore_from_snapshot(&snap1, &mut r1);
+    let restore1_ok = restore1.is_ok() && r1.host_object(unit_id).is_some();
 
     let mut r2 = GameLogic::new();
-    r2.templates.insert(
-        "BreadthSnapUnit".into(),
-        tpl(
-            "BreadthSnapUnit",
-            &[KindOf::Infantry, KindOf::Selectable],
-            100.0,
-        ),
-    );
-    let restore2_ok = builder.restore_from_snapshot(&snap2, &mut r2).is_ok()
+    crate::cnc_game_engine::start_standalone_game(&mut r2, GameMode::Skirmish)
+        .expect("boot breadth restore target");
+    r2.add_player(crate::game_logic::Player::new(0, Team::USA, "USA Commander", true));
+    r2.templates = logic.templates.clone();
+    r2.receiving_module_content = logic.receiving_module_content.clone();
+    r2.receiving_object_definitions = logic.receiving_object_definitions.clone();
+    r2.receiving_template_baseline = logic.receiving_template_baseline.clone();
+    r2.weapon_definition_base = logic.weapon_definition_base.clone();
+    r2.weapon_definitions = logic.weapon_definitions.clone();
+    r2.projectile_definitions = logic.projectile_definitions.clone();
+    let restore2 = builder.restore_from_snapshot(&snap2, &mut r2);
+    let restore2_ok = restore2.is_ok()
         && r2.host_object(unit_id).is_some()
         && r2.get_frame() >= frame_mid.saturating_sub(1);
 
@@ -736,8 +865,8 @@ pub fn breadth_saveload_multipoint() -> BreadthCategoryResult {
         category: "saveload_multipoint".into(),
         ok,
         detail: format!(
-            "restore1={restore1_ok},restore2={restore2_ok},frame1={},frame2={}",
-            snap1.frame_number, snap2.frame_number
+            "restore1={restore1_ok}({:?}),restore2={restore2_ok}({:?}),frame1={},frame2={}",
+            restore1.err(), restore2.err(), snap1.frame_number, snap2.frame_number
         ),
     }
 }

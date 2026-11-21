@@ -16,9 +16,16 @@ fn actual_options_apply_uses_own_path_then_cancel_does_not_commit_draft_scroll()
             #[cfg(feature = "game_client")]
             let legacy_user_data = directory.path().join("legacy-lod-user-data");
             #[cfg(feature = "game_client")]
+            std::fs::create_dir(&legacy_user_data).unwrap();
+            #[cfg(feature = "game_client")]
             game_engine::common::ini::ini_game_data::ensure_global_data()
                 .write()
                 .set_path_user_data(legacy_user_data.to_str().unwrap().to_string());
+            // C++ OptionsMenu populate probes TheGameLODManager->findStaticLODLevel()
+            // (OptionsMenu.cpp:763); the port writes IdealStaticGameLOD through the
+            // same UserDataDir adapter. Run that real probe inside the child.
+            #[cfg(feature = "game_client")]
+            game_engine::common::game_lod::ensure_static_lod_applied();
             let a_path = directory.path().join("A.ini");
             let b_path = directory.path().join("B.ini");
             std::fs::write(&a_path, "MusicVolume = 71\n").unwrap();
