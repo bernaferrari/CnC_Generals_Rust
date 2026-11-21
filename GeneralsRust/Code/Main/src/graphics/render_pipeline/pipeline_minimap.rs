@@ -590,7 +590,10 @@ impl RenderPipeline {
     ) -> crate::graphics::move_line_upload::MoveLineUpload {
         match self.presentation_frame.as_ref() {
             Some(frame) => {
-                crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(frame)
+                crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(
+                    frame,
+                    &|id, p| self.interpolate_object_point(id, p),
+                )
             }
             None => crate::graphics::move_line_upload::MoveLineUpload::empty(),
         }
@@ -602,7 +605,10 @@ impl RenderPipeline {
     ) -> crate::graphics::attack_line_upload::AttackLineUpload {
         match self.presentation_frame.as_ref() {
             Some(frame) => {
-                crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(frame)
+                crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(
+                    frame,
+                    &|id, p| self.interpolate_object_point(id, p),
+                )
             }
             None => crate::graphics::attack_line_upload::AttackLineUpload::empty(),
         }

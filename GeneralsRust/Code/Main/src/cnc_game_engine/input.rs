@@ -2108,6 +2108,7 @@ impl CnCGameEngine {
         };
         self.render_pipeline
             .set_interpolation_alpha(interpolation_alpha);
+        self.render_pipeline.prepare_interpolation();
         #[cfg(feature = "game_client")]
         {
             let ui = self.game_client.in_game_ui_subsystem();
@@ -2246,11 +2247,18 @@ impl CnCGameEngine {
                     )
                 })
                 .unwrap_or_default();
+            let render_pipeline = &self.render_pipeline;
             let native_specs = live_terrain_decals.into_iter().map(|spec| {
+                // `-interpolate`: the decal center rides the blended pose of
+                // the object it is anchored to; identity otherwise.
+                let position = render_pipeline.interpolate_object_point(
+                    spec.object_id,
+                    glam::Vec3::from(spec.position),
+                );
                 game_client::radius_decal::LiveTerrainDecalSpec {
                     texture: spec.texture,
                     radius: spec.radius,
-                    position: spec.position,
+                    position: [position.x, position.y, position.z],
                     color: spec.color,
                     opacity: spec.opacity,
                 }

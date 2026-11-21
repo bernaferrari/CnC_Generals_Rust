@@ -90,7 +90,7 @@ pub(super) fn evaluate_presentation_residuals(
     let move_pres =
         crate::presentation_frame::PresentationFrame::build_from_logic(&mut move_logic, 0);
     let move_pack =
-        crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(&move_pres);
+        crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(&move_pres, &|_, p: glam::Vec3| p);
     let move_line_upload_ok = move_empty.honesty.cpu_pack_ok
         && move_empty.is_upload_ready()
         && move_pack.honesty.has_geometry
@@ -123,7 +123,7 @@ pub(super) fn evaluate_presentation_residuals(
     let atk_pres =
         crate::presentation_frame::PresentationFrame::build_from_logic(&mut atk_logic, 0);
     let atk_pack =
-        crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(&atk_pres);
+        crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(&atk_pres, &|_, p: glam::Vec3| p);
     let attack_line_upload_ok = atk_empty.honesty.cpu_pack_ok
         && atk_empty.is_upload_ready()
         && atk_pack.honesty.has_geometry

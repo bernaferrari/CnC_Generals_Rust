@@ -743,12 +743,13 @@ pub(crate) fn volume_shadow_caster_ids(
 pub fn collect_blob_shadows_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
 ) -> Vec<GroundCircle> {
-    collect_remaining_blob_shadows(frame, &std::collections::HashSet::new())
+    collect_remaining_blob_shadows(frame, &std::collections::HashSet::new(), &|_, p| p)
 }
 
 fn collect_remaining_blob_shadows(
     frame: &crate::presentation_frame::PresentationFrame,
     projected_shadow_ids: &std::collections::HashSet<u32>,
+    interp: &crate::graphics::move_line_upload::InterpPoint<'_>,
 ) -> Vec<GroundCircle> {
     // C++ addShadow NULL + renderShadows skip when !m_useShadowDecals.
     if !game_engine::common::game_lod::use_shadow_decals() {
@@ -777,13 +778,15 @@ fn collect_remaining_blob_shadows(
                 0.0,
             );
             let radius = sx.max(sy) * 0.5;
+            // `-interpolate`: the disc anchor rides the blended root pose.
+            let anchor = interp(u.id, u.position);
             GroundCircle {
                 // C++ ShadowOffsetX/Y are world X/Y; live Y is height so offset Y maps to Z.
                 // Disc Y is frozen terrain height, never unit altitude (jets/Comanches).
                 position: glam::Vec3::new(
-                    u.position.x + ox,
+                    anchor.x + ox,
                     blob_disc_ground_y(frame, u.id),
-                    u.position.z + oy,
+                    anchor.z + oy,
                 ),
                 radius,
                 color: [0.0, 0.0, 0.0, 0.4],
@@ -879,6 +882,7 @@ fn pack_health_bar_quads(
     display_size: (f32, f32),
     camera_zoom: f32,
     hovered_id: Option<u32>,
+    interp: &crate::graphics::move_line_upload::InterpPoint<'_>,
 ) -> (Vec<f32>, usize) {
     use crate::game_logic::host_enum_table_residual::{
         MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, host_model_condition_has,
@@ -951,10 +955,12 @@ fn pack_health_bar_quads(
         // Project the bar anchor (unit top + lift) into tactical-viewport
         // pixels; the viewport starts at target pixel (0,0) so the coordinates
         // double as full-target pixels for the clip conversion below.
+        // `-interpolate`: the anchor rides the blended root pose.
+        let object_position = interp(object.id, object.position);
         let anchor = Vec3::new(
-            object.position.x,
-            object.position.y + object.health_box_z_offset,
-            object.position.z,
+            object_position.x,
+            object_position.y + object.health_box_z_offset,
+            object_position.z,
         );
         let clip = view_proj * anchor.extend(1.0);
         if clip.w <= 0.0 {
@@ -1062,8 +1068,14 @@ pub fn enqueue_selection_render(
 ) {
     let view_proj = *projection_matrix * *view_matrix;
 
+    // `-interpolate`: overlay anchors ride the same blended pose as the
+    // corrected meshes; an absent flag leaves every point unchanged.
+    let interp = |id: crate::game_logic::ObjectId, p: glam::Vec3| -> glam::Vec3 {
+        pipeline.interpolate_object_point(id, p)
+    };
+
     let mut ground_circles = presentation
-        .map(|frame| collect_remaining_blob_shadows(frame, projected_shadow_ids))
+        .map(|frame| collect_remaining_blob_shadows(frame, projected_shadow_ids, &interp))
         .unwrap_or_default();
     ground_circles.extend(ground_markers);
 
@@ -1080,29 +1092,32 @@ pub fn enqueue_selection_render(
                 display_size,
                 camera_zoom,
                 hovered_drawable,
+                &interp,
             )
         })
         .unwrap_or_default();
-    pipeline.debug_last_selection_indicators = selected_bars;
 
     // Move/attack order line residual from presentation snapshot.
     let mut order_line_vertices: Vec<f32> = Vec::new();
     if let Some(frame) = presentation {
         if show_move_lines {
             let move_pack =
-                crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(frame);
+                crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(
+                    frame, &interp,
+                );
             order_line_vertices.extend_from_slice(&move_pack.vertices);
         }
         if show_attack_lines {
             let atk_pack =
                 crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(
-                    frame,
+                    frame, &interp,
                 );
             order_line_vertices.extend_from_slice(&atk_pack.vertices);
         }
         // Structure rally-point line residual (selected producers → rally).
         order_line_vertices.extend(pack_rally_point_lines(frame));
     }
+    pipeline.debug_last_selection_indicators = selected_bars;
 
     let drag_rect = drag_rect.filter(|rect| rect.is_valid());
     let rmb_scroll_anchor = rmb_scroll_anchor.filter(|anchor| {
@@ -1312,6 +1327,41 @@ mod presentation_selection_tests {
         // volumes and projected decals (W3DShadow.cpp), so the forward pass
         // samples no cascade map (asserted by the renderer crate's
         // live_cascade_shadow tests). The blob discs above are that decal pass.
+    }
+
+    #[test]
+    fn blob_shadow_anchor_follows_interp_remap() {
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("SelInterpMap");
+        crate::fixture_content::admit_fixture_objects(
+            &mut logic,
+            &[
+                crate::fixture_content::FixtureObject::new("SelUnit").field("Shadow = SHADOW_DECAL").kind_of("INFANTRY SELECTABLE").health(100.0).walker(),
+            ],
+        );
+        crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg).expect("config");
+        let id = logic
+            .create_object("SelUnit", Team::USA, Vec3::new(12.0, 4.0, -7.0))
+            .expect("unit");
+        if let Some(o) = logic.host_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+            o.selection_radius = 9.0;
+        }
+        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
+        let base = collect_blob_shadows_from_presentation(&snap);
+        let shift = Vec3::new(5.0, 0.0, 2.0);
+        let blobs =
+            collect_remaining_blob_shadows(&snap, &std::collections::HashSet::new(), &|_, p| {
+                p + shift
+            });
+        assert_eq!(blobs.len(), base.len());
+        for (blended, current) in blobs.iter().zip(base.iter()) {
+            assert!((blended.position.x - (current.position.x + 5.0)).abs() < 0.01);
+            assert!((blended.position.z - (current.position.z + 2.0)).abs() < 0.01);
+            // Disc Y still drapes frozen terrain height, not the blended pose.
+            assert!((blended.position.y - current.position.y).abs() < 0.01);
+        }
     }
 
     #[test]
@@ -1597,6 +1647,7 @@ mod presentation_selection_tests {
                 (640.0, 480.0),
                 1.0,
                 None,
+                &|_, p| p,
             );
             assert_eq!(selected_bars, 1);
             assert_eq!(packed.len(), 180, "one outlined health bar");
@@ -1665,6 +1716,7 @@ mod presentation_selection_tests {
                 (640.0, 480.0),
                 1.0,
                 hover,
+                &|_, p| p,
             )
         };
 
@@ -1716,6 +1768,7 @@ mod presentation_selection_tests {
                 (640.0, 480.0),
                 zoom,
                 None,
+                &|_, p| p,
             );
             assert_eq!(selected_bars, 1);
             let width = (packed[6] - packed[0]) * 0.5 * 640.0;

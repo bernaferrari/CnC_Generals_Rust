@@ -5,10 +5,20 @@
 //! transforms from the previous and current presentation logic frames are
 //! blended by `alpha = accumulated_time / LOGIC_FRAME_TIMESTEP` and the
 //! resulting root correction is applied to every render item owned by that
-//! root. Disabled (flag absent) the collector is untouched.
+//! root, plus the object-anchored overlays (health bars, blob shadows,
+//! order lines, radius decals). Disabled (flag absent) the collector is
+//! untouched.
+//!
+//! Out of scope by design: already-emitted world-space particles and
+//! particle emitters attached to units — emitted particles live in world
+//! space and moving them with the unit would be wrong.
+//!
+//! Note: gameplay and render space coincide here
+//! (`gameplay_to_render_transform` is the identity), so the same correction
+//! applies to presentation object positions consumed by overlays.
 
-use game_engine::common::fast_hash::FxHashMap;
-use glam::Mat4;
+use game_engine::common::fast_hash::{FxHashMap, FxHashSet};
+use glam::{Mat4, Vec3};
 
 use crate::game_logic::ObjectId;
 use crate::graphics::render_item::{RenderItem, RenderItemOwner};
@@ -38,29 +48,34 @@ pub(super) struct RenderInterpolation {
     alpha: Option<f32>,
     /// Presentation logic frame the current roots belong to.
     curr_frame: Option<u32>,
-    /// Presentation frame admitted by `begin_collect` this collect. `None`
-    /// disables both recording and correction for that collect.
-    roots_frame: Option<u32>,
     prev_roots: FxHashMap<InterpKey, Mat4>,
     curr_roots: FxHashMap<InterpKey, Mat4>,
-    /// Per-collect correction cache; computed once per key, not per mesh.
-    corrections: FxHashMap<InterpKey, Option<Mat4>>,
+    /// Keys present in both snapshots whose roots differ and pass the blend
+    /// guards (finite, non-degenerate, not a teleport). Rebuilt once per
+    /// presentation logic frame.
+    moving: FxHashSet<InterpKey>,
+    /// Per-render corrections for `moving`, keyed non-identity only.
+    /// Recomputed each prepare since alpha changes per render.
+    corrections: FxHashMap<InterpKey, Mat4>,
 }
 
 impl RenderInterpolation {
-    /// Rotate root snapshots when the installed presentation logic frame
-    /// advances. A consecutive frame hands curr to prev; any jump (load,
-    /// reset, replay seek) clears both so nothing blends across it.
-    /// Re-collecting the same frame keeps both snapshots untouched.
-    fn begin_collect(&mut self, frame_id: Option<u32>) {
+    /// Refresh corrections for this render against the installed presentation
+    /// frame. Runs once per render, before collect and overlays read the
+    /// correction map. Root snapshots rotate when the presentation logic
+    /// frame advances (a consecutive frame hands curr to prev; any jump or
+    /// decrease clears both so nothing blends across a load/reset/seek) and
+    /// are captured only on that change; re-preparing the same frame reuses
+    /// both snapshots.
+    fn prepare(&mut self, frame: Option<&crate::presentation_frame::PresentationFrame>) {
+        self.corrections.clear();
         if !self.enabled {
             return;
         }
-        self.corrections.clear();
-        self.roots_frame = frame_id;
-        let Some(id) = frame_id else {
+        let Some(frame) = frame else {
             return;
         };
+        let id = frame.frame.0;
         if self.curr_frame != Some(id) {
             if self.curr_frame == id.checked_sub(1) {
                 self.prev_roots = std::mem::take(&mut self.curr_roots);
@@ -69,39 +84,72 @@ impl RenderInterpolation {
             }
             self.curr_roots.clear();
             self.curr_frame = Some(id);
+            // Same root sources the collector uses: the base object matrix
+            // (not the per-drawable instance matrix) for units and the
+            // projectile world matrix. `gameplay_to_render_transform` is the
+            // identity, so collect's recorded values equal these.
+            let unit_inputs = frame.unit_render_inputs_shared();
+            for u in unit_inputs.iter() {
+                self.curr_roots
+                    .insert(InterpKey::Object(u.id), u.world_matrix());
+            }
+            for p in frame.projectile_render_inputs() {
+                self.curr_roots
+                    .insert(InterpKey::Projectile(p.id), p.world_matrix());
+            }
+            self.rebuild_moving();
+        }
+        self.refresh_corrections();
+    }
+
+    /// Recompute `corrections` from `moving` at the current alpha. No-op for
+    /// `None` or >= 1.0 alpha (current-frame rendering needs no correction).
+    fn refresh_corrections(&mut self) {
+        self.corrections.clear();
+        let Some(alpha) = self.alpha else {
+            return;
+        };
+        if !(alpha < 1.0) {
+            return;
+        }
+        for &key in self.moving.iter() {
+            let prev = self.prev_roots[&key];
+            let curr = self.curr_roots[&key];
+            let Some(blended) = blend_roots(prev, curr, alpha) else {
+                continue;
+            };
+            let correction = blended * curr.inverse();
+            if correction != Mat4::IDENTITY {
+                self.corrections.insert(key, correction);
+            }
         }
     }
 
-    /// Record one render-space root matrix for this frame. Repeated records
-    /// within a frame keep the first value so multiple renders of the same
-    /// logic frame stay identical.
-    fn record_root(&mut self, key: InterpKey, root: Mat4) {
-        if self.enabled && self.roots_frame.is_some() {
-            self.curr_roots.entry(key).or_insert(root);
+    /// Recompute `moving` for the current prev/curr pair: roots must exist
+    /// in both snapshots, differ, and pass the blend guards.
+    fn rebuild_moving(&mut self) {
+        self.moving.clear();
+        for (&key, &curr) in self.curr_roots.iter() {
+            let Some(&prev) = self.prev_roots.get(&key) else {
+                continue;
+            };
+            if prev != curr && roots_blendable(&prev, &curr) {
+                self.moving.insert(key);
+            }
         }
     }
 
-    fn correction(&self, key: InterpKey, alpha: f32) -> Option<Mat4> {
-        let prev = self.prev_roots.get(&key).copied()?;
-        let curr = self.curr_roots.get(&key).copied()?;
-        if prev == curr {
-            return Some(Mat4::IDENTITY);
-        }
-        let blended = blend_roots(prev, curr, alpha)?;
-        Some(blended * curr.inverse())
+    /// The correction this render applies to an object root, `None` when the
+    /// object is stationary, unknown, blended-out, or interpolation is off.
+    fn object_correction(&self, object_id: ObjectId) -> Option<Mat4> {
+        self.corrections.get(&InterpKey::Object(object_id)).copied()
     }
 
     /// Rewrites `items`' world matrices to the alpha-blended root pose.
     /// `C = blend(prev, curr, alpha) * curr.inverse()` maps the current root
     /// pose onto the blended pose while preserving each mesh's local offset.
     fn apply_to_items(&mut self, items: &mut [RenderItem]) {
-        if !self.enabled || self.roots_frame.is_none() {
-            return;
-        }
-        let Some(alpha) = self.alpha else {
-            return;
-        };
-        if !(alpha < 1.0) {
+        if !self.enabled || self.corrections.is_empty() {
             return;
         }
         for item in items {
@@ -110,14 +158,7 @@ impl RenderInterpolation {
                 RenderItemOwner::PresentationProjectile(id) => InterpKey::Projectile(id),
                 _ => continue,
             };
-            let correction = if let Some(cached) = self.corrections.get(&key) {
-                *cached
-            } else {
-                let computed = self.correction(key, alpha);
-                self.corrections.insert(key, computed);
-                computed
-            };
-            let Some(correction) = correction else {
+            let Some(&correction) = self.corrections.get(&key) else {
                 continue;
             };
             item.set_world_matrix(correction * item.world_matrix);
@@ -125,24 +166,25 @@ impl RenderInterpolation {
     }
 }
 
+/// Guard for whether a prev/curr root pair can blend at all: both finite,
+/// non-degenerate, and not a teleport/spawn/load-in distance apart.
+fn roots_blendable(prev: &Mat4, curr: &Mat4) -> bool {
+    prev.is_finite()
+        && curr.is_finite()
+        && prev.determinant().abs() > MIN_ROOT_DETERMINANT
+        && curr.determinant().abs() > MIN_ROOT_DETERMINANT
+        && prev
+            .w_axis
+            .truncate()
+            .distance(curr.w_axis.truncate())
+            <= TELEPORT_DISTANCE
+}
+
 /// Blend `alpha` (0 = prev, 1 = curr) between two root matrices. Scale and
 /// translation lerp; rotation slerps along the shortest path. `None` when no
 /// safe blend exists (non-finite, degenerate, or teleport-distance roots).
 fn blend_roots(prev: Mat4, curr: Mat4, alpha: f32) -> Option<Mat4> {
-    if !prev.is_finite() || !curr.is_finite() {
-        return None;
-    }
-    if prev.determinant().abs() <= MIN_ROOT_DETERMINANT
-        || curr.determinant().abs() <= MIN_ROOT_DETERMINANT
-    {
-        return None;
-    }
-    if prev
-        .w_axis
-        .truncate()
-        .distance(curr.w_axis.truncate())
-        > TELEPORT_DISTANCE
-    {
+    if !roots_blendable(&prev, &curr) {
         return None;
     }
     let (prev_scale, prev_rot, prev_trans) = prev.to_scale_rotation_translation();
@@ -166,28 +208,25 @@ impl super::RenderPipeline {
         self.interpolation.alpha = alpha;
     }
 
-    /// Root rotation at the start of `collect_render_items`.
-    pub(super) fn interpolation_begin_collect(
-        &mut self,
-        frame: Option<&crate::presentation_frame::PresentationFrame>,
-    ) {
-        self.interpolation.begin_collect(frame.map(|f| f.frame.0));
+    /// Refresh interpolation corrections for this render. Runs immediately
+    /// after `set_interpolation_alpha`, before collect and overlay packing,
+    /// so every consumer sees the same correction map.
+    pub(crate) fn prepare_interpolation(&mut self) {
+        let frame = self.presentation_frame.as_deref();
+        self.interpolation.prepare(frame);
     }
 
-    /// Base object matrix root for one collected object (not the per-drawable
-    /// instance matrix; mesh-local offsets ride the correction).
-    pub(super) fn interpolation_record_object_root(&mut self, object_id: ObjectId, root: Mat4) {
-        self.interpolation.record_root(InterpKey::Object(object_id), root);
+    /// The root correction this render applies to an object's mesh, for
+    /// overlay consumers that anchor to that object.
+    pub(crate) fn interpolated_object_correction(&self, object_id: ObjectId) -> Option<Mat4> {
+        self.interpolation.object_correction(object_id)
     }
 
-    /// Root for one collected presentation projectile.
-    pub(super) fn interpolation_record_projectile_root(
-        &mut self,
-        projectile_id: ObjectId,
-        root: Mat4,
-    ) {
-        self.interpolation
-            .record_root(InterpKey::Projectile(projectile_id), root);
+    /// `point` moved to the blended pose for `object_id`; unchanged when the
+    /// object has no correction this render (idle, unknown, or disabled).
+    pub(crate) fn interpolate_object_point(&self, object_id: ObjectId, point: Vec3) -> Vec3 {
+        self.interpolated_object_correction(object_id)
+            .map_or(point, |correction| correction.transform_point3(point))
     }
 
     /// Apply corrections to items pushed since `items_start` of this collect.
@@ -235,8 +274,9 @@ mod tests {
             interp.curr_roots.insert(InterpKey::Object(ObjectId(*id)), *root);
         }
         interp.curr_frame = Some(2);
-        interp.roots_frame = Some(2);
+        interp.rebuild_moving();
         interp.alpha = alpha;
+        interp.refresh_corrections();
         interp
     }
 
@@ -300,39 +340,56 @@ mod tests {
         assert_eq!(items[0].world_matrix, curr);
     }
 
+    /// Drive a logic-frame change in tests the way `prepare` does without a
+    /// `PresentationFrame`: rotate snapshots, install new roots, rebuild.
+    fn prepare_frame(interp: &mut RenderInterpolation, id: u32, roots: &[(u32, Mat4)]) {
+        if interp.curr_frame == id.checked_sub(1) {
+            interp.prev_roots = std::mem::take(&mut interp.curr_roots);
+        } else {
+            interp.prev_roots.clear();
+        }
+        interp.curr_roots.clear();
+        interp.curr_frame = Some(id);
+        for (object, root) in roots {
+            interp
+                .curr_roots
+                .insert(InterpKey::Object(ObjectId(*object)), *root);
+        }
+        interp.rebuild_moving();
+        interp.refresh_corrections();
+    }
+
     #[test]
     fn frame_jump_or_decrease_clears_prev() {
         let mut interp = RenderInterpolation {
             enabled: true,
+            alpha: Some(0.5),
             ..Default::default()
         };
-        interp.begin_collect(Some(4));
-        interp.record_root(InterpKey::Object(ObjectId(1)), Mat4::IDENTITY);
+        prepare_frame(&mut interp, 4, &[(1, Mat4::IDENTITY)]);
 
         // Jump 4 -> 6: prev cleared, no blend.
-        interp.begin_collect(Some(6));
-        interp.record_root(
-            InterpKey::Object(ObjectId(1)),
-            Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+        prepare_frame(
+            &mut interp,
+            6,
+            &[(1, Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)))],
         );
-        interp.alpha = Some(0.5);
         let mut items = vec![object_item(1, Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)))];
         interp.apply_to_items(&mut items);
         assert_eq!(items[0].world_position, Vec3::new(10.0, 0.0, 0.0));
 
         // Consecutive 6 -> 7: prev = frame-6 roots, blend applies.
-        interp.begin_collect(Some(7));
-        interp.record_root(
-            InterpKey::Object(ObjectId(1)),
-            Mat4::from_translation(Vec3::new(20.0, 0.0, 0.0)),
+        prepare_frame(
+            &mut interp,
+            7,
+            &[(1, Mat4::from_translation(Vec3::new(20.0, 0.0, 0.0)))],
         );
         let mut items = vec![object_item(1, Mat4::from_translation(Vec3::new(20.0, 0.0, 0.0)))];
         interp.apply_to_items(&mut items);
         assert!(items[0].world_position.abs_diff_eq(Vec3::new(15.0, 0.0, 0.0), 1e-4));
 
         // Decrease 7 -> 5 (load/replay seek): prev cleared, no blend.
-        interp.begin_collect(Some(5));
-        interp.record_root(InterpKey::Object(ObjectId(1)), Mat4::IDENTITY);
+        prepare_frame(&mut interp, 5, &[(1, Mat4::IDENTITY)]);
         let mut items = vec![object_item(1, Mat4::IDENTITY)];
         interp.apply_to_items(&mut items);
         assert_eq!(items[0].world_matrix, Mat4::IDENTITY);
@@ -361,35 +418,152 @@ mod tests {
     fn recollecting_same_frame_keeps_prev_and_curr() {
         let mut interp = RenderInterpolation {
             enabled: true,
+            alpha: Some(0.5),
             ..Default::default()
         };
-        interp.begin_collect(Some(4));
-        interp.record_root(InterpKey::Object(ObjectId(1)), Mat4::IDENTITY);
-        interp.begin_collect(Some(5));
-        interp.record_root(
-            InterpKey::Object(ObjectId(1)),
-            Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+        prepare_frame(&mut interp, 4, &[(1, Mat4::IDENTITY)]);
+        prepare_frame(
+            &mut interp,
+            5,
+            &[(1, Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)))],
         );
 
-        // Second collect of the same frame must not rotate the snapshots.
-        interp.begin_collect(Some(5));
-        interp.record_root(
-            InterpKey::Object(ObjectId(1)),
-            Mat4::from_translation(Vec3::new(99.0, 0.0, 0.0)),
-        );
-        assert_eq!(
-            interp.curr_roots.get(&InterpKey::Object(ObjectId(1))),
-            Some(&Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)))
-        );
+        // Re-preparing the same frame must not rotate the snapshots; a fresh
+        // `refresh_corrections` on the same roots is a no-op source-wise.
+        let before_curr = interp.curr_roots.clone();
+        let before_prev = interp.prev_roots.clone();
+        interp.refresh_corrections();
+        assert_eq!(interp.curr_roots, before_curr);
+        assert_eq!(interp.prev_roots, before_prev);
         assert_eq!(
             interp.prev_roots.get(&InterpKey::Object(ObjectId(1))),
             Some(&Mat4::IDENTITY)
         );
 
-        interp.alpha = Some(0.5);
         let mut items = vec![object_item(1, Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)))];
         interp.apply_to_items(&mut items);
         assert!(items[0].world_position.abs_diff_eq(Vec3::new(5.0, 0.0, 0.0), 1e-4));
+    }
+
+    #[test]
+    fn moving_set_excludes_idle_teleport_and_spawn() {
+        let mut interp = interp_with_roots(
+            &[
+                (1, Mat4::IDENTITY),
+                (2, Mat4::IDENTITY),
+                (3, Mat4::IDENTITY),
+            ],
+            &[
+                (1, Mat4::from_translation(Vec3::new(5.0, 0.0, 0.0))),
+                (2, Mat4::IDENTITY),
+                (3, Mat4::from_translation(Vec3::new(500.0, 0.0, 0.0))),
+                (4, Mat4::IDENTITY),
+            ],
+            Some(0.5),
+        );
+        // 1 moves -> moving; 2 identical -> excluded; 3 teleport -> excluded;
+        // 4 spawn (no prev) -> excluded.
+        assert!(interp.moving.contains(&InterpKey::Object(ObjectId(1))));
+        assert!(!interp.moving.contains(&InterpKey::Object(ObjectId(2))));
+        assert!(!interp.moving.contains(&InterpKey::Object(ObjectId(3))));
+        assert!(!interp.moving.contains(&InterpKey::Object(ObjectId(4))));
+        assert!(interp
+            .corrections
+            .contains_key(&InterpKey::Object(ObjectId(1))));
+        assert_eq!(interp.corrections.len(), 1);
+        interp.alpha = None;
+        interp.refresh_corrections();
+        assert!(interp.corrections.is_empty());
+    }
+
+    #[test]
+    fn interpolate_object_point_tracks_the_blended_pose() {
+        let prev = Mat4::from_translation(Vec3::ZERO);
+        let curr = Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0));
+        let mut interp = interp_with_roots(&[(1, prev)], &[(1, curr)], Some(0.5));
+        let p = interp
+            .object_correction(ObjectId(1))
+            .unwrap()
+            .transform_point3(Vec3::new(10.0, 0.0, 0.0));
+        assert!(p.abs_diff_eq(Vec3::new(5.0, 0.0, 0.0), 1e-4));
+        // Unknown object -> no correction.
+        assert!(interp.object_correction(ObjectId(99)).is_none());
+        // Disabled / full alpha -> no correction for consumers.
+        interp.enabled = false;
+        interp.corrections.clear();
+        assert!(interp.object_correction(ObjectId(1)).is_none());
+    }
+
+    #[test]
+    fn prepare_captures_the_same_roots_collect_computes() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        use crate::presentation_frame::PresentationFrame;
+
+        // The overlay/collect contract: gameplay and render space coincide,
+        // so collect's `gameplay_to_render_transform(root)` equals the root.
+        #[cfg(feature = "game_client")]
+        assert_eq!(
+            super::super::gameplay_to_render_transform(Mat4::from_translation(
+                Vec3::new(1.0, 2.0, 3.0)
+            )),
+            Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0))
+        );
+
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("InterpU");
+        t.set_health(50.0);
+        t.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("InterpU".into(), t);
+        let id = logic
+            .create_object("InterpU", Team::USA, Vec3::new(4.0, 0.0, 8.0))
+            .unwrap();
+        logic.frame = 5;
+        let frame5 = PresentationFrame::build_from_logic(&mut logic, 0);
+        let expected_root = frame5
+            .unit_render_inputs()
+            .into_iter()
+            .find(|u| u.id == id)
+            .unwrap()
+            .world_matrix();
+
+        let mut interp = RenderInterpolation {
+            enabled: true,
+            alpha: Some(0.5),
+            ..Default::default()
+        };
+        interp.prepare(Some(&frame5));
+        assert_eq!(interp.curr_frame, Some(frame5.frame.0));
+        assert_eq!(
+            interp.curr_roots.get(&InterpKey::Object(id)),
+            Some(&expected_root),
+            "prepare must capture the same base matrix collect records"
+        );
+
+        // Next consecutive frame with the unit moved: curr->prev rotates and
+        // the object joins `moving`.
+        logic.set_fixture_object_position(id, Vec3::new(14.0, 0.0, 8.0));
+        logic.frame = 6;
+        let frame6 = PresentationFrame::build_from_logic(&mut logic, 0);
+        interp.prepare(Some(&frame6));
+        assert_eq!(
+            interp.prev_roots.get(&InterpKey::Object(id)),
+            Some(&expected_root)
+        );
+        assert!(interp.moving.contains(&InterpKey::Object(id)));
+        let c = interp.object_correction(id).unwrap();
+        let moved = c.transform_point3(Vec3::new(14.0, 0.0, 8.0));
+        assert!((moved.x - 9.0).abs() < 0.1, "alpha 0.5 blends 4->14 to ~9, got {}", moved.x);
+
+        // Same frame re-prepared: snapshots stable, correction recomputed.
+        let prev_roots = interp.prev_roots.clone();
+        interp.alpha = Some(0.25);
+        interp.prepare(Some(&frame6));
+        assert_eq!(interp.prev_roots, prev_roots);
+        let moved = interp
+            .object_correction(id)
+            .unwrap()
+            .transform_point3(Vec3::new(14.0, 0.0, 8.0));
+        assert!((moved.x - 6.5).abs() < 0.1, "alpha 0.25 blends 4->14 to ~6.5, got {}", moved.x);
     }
 
     #[test]
@@ -403,6 +577,8 @@ mod tests {
         interp
             .curr_roots
             .insert(InterpKey::Projectile(ObjectId(9)), curr);
+        interp.rebuild_moving();
+        interp.refresh_corrections();
 
         let mut items = vec![RenderItem::new_presentation_projectile(
             ObjectId(9),

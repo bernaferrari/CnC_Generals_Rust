@@ -2505,6 +2505,8 @@ impl PresentationFrame {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LiveTerrainDecalSpec {
+    /// Owning object for `-interpolate` anchor correction.
+    pub object_id: crate::game_logic::ObjectId,
     pub texture: String,
     pub radius: f32,
     pub position: [f32; 3],
@@ -2559,6 +2561,7 @@ pub(crate) fn live_terrain_decal_specs(
             _ => [255, 255, 255],
         };
         specs.push(LiveTerrainDecalSpec {
+            object_id: obj.id,
             texture: texture.to_owned(),
             radius: size * 0.5,
             position: [obj.position.x, obj.position.y, obj.position.z],

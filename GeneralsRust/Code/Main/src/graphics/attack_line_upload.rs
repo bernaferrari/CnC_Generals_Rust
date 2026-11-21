@@ -53,11 +53,17 @@ impl AttackLineUpload {
         }
     }
 
-    pub fn pack_from_presentation(frame: &PresentationFrame) -> Self {
-        Self::pack_objects(&frame.objects)
+    pub fn pack_from_presentation(
+        frame: &PresentationFrame,
+        interp: &crate::graphics::move_line_upload::InterpPoint<'_>,
+    ) -> Self {
+        Self::pack_objects(&frame.objects, interp)
     }
 
-    pub fn pack_objects(objects: &[RenderableObject]) -> Self {
+    pub fn pack_objects(
+        objects: &[RenderableObject],
+        interp: &crate::graphics::move_line_upload::InterpPoint<'_>,
+    ) -> Self {
         let mut by_id: HashMap<u32, Vec3> = HashMap::new();
         for o in objects {
             if !o.destroyed {
@@ -80,8 +86,8 @@ impl AttackLineUpload {
                 unresolved += 1;
                 continue;
             };
-            push_vertex(&mut vertices, o.position, color);
-            push_vertex(&mut vertices, tpos, color);
+            push_vertex(&mut vertices, interp(o.id, o.position), color);
+            push_vertex(&mut vertices, interp(tid, tpos), color);
             lines += 1;
         }
         if vertices.is_empty() {
@@ -124,7 +130,7 @@ mod tests {
     fn empty_pack_is_honest() {
         let mut logic = GameLogic::new();
         let frame = PresentationFrame::build_from_logic(&mut logic, 0);
-        let pack = AttackLineUpload::pack_from_presentation(&frame);
+        let pack = AttackLineUpload::pack_from_presentation(&frame, &|_, p: glam::Vec3| p);
         assert!(pack.honesty.cpu_pack_ok);
         assert!(!pack.honesty.has_geometry);
         assert!(pack.is_upload_ready());
@@ -149,7 +155,7 @@ mod tests {
         let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let ro = frame.objects.iter().find(|o| o.id == a).expect("a");
         assert_eq!(ro.attack_target, Some(b));
-        let pack = AttackLineUpload::pack_from_presentation(&frame);
+        let pack = AttackLineUpload::pack_from_presentation(&frame, &|_, p: glam::Vec3| p);
         assert!(pack.honesty.has_geometry);
         assert_eq!(pack.honesty.lines_packed, 1);
         assert_eq!(pack.honesty.unresolved_targets, 0);
@@ -157,6 +163,45 @@ mod tests {
         assert_eq!(
             pack.vertices.len(),
             ATTACK_LINE_VERTICES_PER_SEGMENT * ATTACK_LINE_FLOATS_PER_VERTEX
+        );
+    }
+
+    #[test]
+    fn interp_moves_both_object_endpoints() {
+        let mut logic = GameLogic::new();
+        for (name, pos) in [("AtkC", Vec3::ZERO), ("AtkD", Vec3::new(20.0, 0.0, 0.0))] {
+            let mut t = ThingTemplate::new(name);
+            t.set_health(40.0);
+            t.add_kind_of(KindOf::Infantry);
+            logic.templates.insert(name.into(), t);
+            let _ = logic.create_object(name, Team::USA, pos).expect("spawn");
+        }
+        let ids: Vec<_> = logic.host_objects().registered_keys().copied().collect();
+        let (a, b) = (ids[0], ids[1]);
+        if let Some(obj) = logic.host_object_mut(a) {
+            obj.target = Some(b);
+        }
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let pos_of = |id| {
+            frame
+                .objects
+                .iter()
+                .find(|o| o.id == id)
+                .map(|o| o.position)
+                .unwrap()
+        };
+        let shift = Vec3::new(5.0, 0.0, 0.0);
+        let pack = AttackLineUpload::pack_from_presentation(&frame, &|id, p: glam::Vec3| {
+            if id == a { p + shift } else { p - shift }
+        });
+        // Both endpoints are objects; each rides its own blended pose.
+        assert_eq!(
+            Vec3::new(pack.vertices[0], pack.vertices[1], pack.vertices[2]),
+            pos_of(a) + shift
+        );
+        assert_eq!(
+            Vec3::new(pack.vertices[7], pack.vertices[8], pack.vertices[9]),
+            pos_of(b) - shift
         );
     }
 }
