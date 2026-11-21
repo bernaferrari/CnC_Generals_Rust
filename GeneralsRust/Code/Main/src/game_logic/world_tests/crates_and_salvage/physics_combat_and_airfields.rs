@@ -2602,14 +2602,23 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         .create_object("PitchTgt", Team::China, glam::Vec3::new(100.0, -80.0, 0.0))
         .expect("tgt");
     if let Some(o) = logic.objects.get_mut(&sc) {
-        crate::fixture_content::arm_with_stats(
+        // Retail Weapon.ini StrategyCenterGun authors the loft window
+        // (MinTargetPitch = 45, MaxTargetPitch = 80); C++ defaults to ±PI
+        // (Weapon.cpp:255-256), so a fixture Weapon.ini row without them
+        // would be pitch-unlimited and the gate below would never engage.
+        crate::fixture_content::arm_with_slot_stats_and_fields(
             o,
-            crate::game_logic::Weapon {
-                damage: 50.0,
-                range: 400.0,
-                reload_time: 0.0,
-                ..Default::default()
-            },
+            [
+                Some(crate::game_logic::Weapon {
+                    damage: 50.0,
+                    range: 400.0,
+                    reload_time: 0.0,
+                    ..Default::default()
+                }),
+                None,
+                None,
+            ],
+            [&["MinTargetPitch = 45", "MaxTargetPitch = 80"], &[], &[]],
         );
         o.weapon.as_mut().unwrap().last_fire_time = -100.0;
         o.health.current = 5000.0;
@@ -2633,7 +2642,8 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         .unwrap_or(0.0);
     logic.health_events.clear_damage();
     for _ in 0..30 {
-        logic.update_combat(&[sc, tgt], 1.0 / 30.0);
+        logic.frame = logic.frame.wrapping_add(1);
+        step_authored_combat(&mut logic, &[sc, tgt]);
     }
     let h1 = logic
         .objects
@@ -2670,8 +2680,11 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         o.set_status_attacking(true);
     }
     logic.health_events.clear_damage();
-    for _ in 0..30 {
-        logic.update_combat(&[sc, tgt], 1.0 / 30.0);
+    // Authored WeaponSpeed is distance per second: the ~200-unit lofted shot
+    // flies for ~30 frames as queued delayed damage (C++ WeaponStore::update).
+    for _ in 0..60 {
+        logic.frame = logic.frame.wrapping_add(1);
+        step_authored_combat(&mut logic, &[sc, tgt]);
     }
     let h2 = logic
         .objects

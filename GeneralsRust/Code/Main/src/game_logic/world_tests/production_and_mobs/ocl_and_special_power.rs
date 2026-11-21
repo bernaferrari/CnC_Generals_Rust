@@ -202,10 +202,30 @@ fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
 
     game_logic.update_combat(&[infantry_id, chinook_id, enemy_id], 1.0 / 30.0);
 
-    let enemy_hp_after = game_logic
+    // Authored WeaponSpeed is distance per second: the passenger shot takes
+    // real flight frames, so C++ queues it as delayed damage instead of
+    // landing same-frame (WeaponStore::update). HP is unchanged right after
+    // the fire frame and drops once the queued shot is due (~5 frames).
+    let enemy_hp_after_fire_frame = game_logic
         .host_object(enemy_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
+    assert_eq!(
+        enemy_hp_after_fire_frame, enemy_hp_before,
+        "passenger shot is delayed damage, not instant"
+    );
+    let mut enemy_hp_after = enemy_hp_after_fire_frame;
+    for _ in 0..10 {
+        game_logic.frame = game_logic.frame.wrapping_add(1);
+        game_logic.apply_owned_projectileless_delayed_damage().unwrap();
+        enemy_hp_after = game_logic
+            .host_object(enemy_id)
+            .map(|e| e.health.current)
+            .unwrap_or(0.0);
+        if enemy_hp_after < enemy_hp_before {
+            break;
+        }
+    }
     assert!(
         enemy_hp_after < enemy_hp_before,
         "Combat Chinook passenger residual fire must damage nearby enemy (before={enemy_hp_before}, after={enemy_hp_after})"

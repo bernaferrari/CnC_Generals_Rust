@@ -3187,8 +3187,6 @@ fn script_move_towards_nearest_writes_live() {
 
 #[test]
 fn script_wait_for_not_contained_uses_live_contained_by_census() {
-    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
-
     use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
     use gamelogic::scripting::executor::{
         ScriptActionDispatcher, ScriptActionResult, ScriptContext,
@@ -3196,6 +3194,9 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
     use std::sync::{Arc, RwLock};
 
     let mut logic = GameLogic::new();
+    // The dispatcher reads host facts from its engine's owning world; bind
+    // it to this fixture world so the injected census is visible.
+    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new_with_services(&logic.world_services).expect("script engine");
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_infantry_template(&mut logic);
     let rider = logic
