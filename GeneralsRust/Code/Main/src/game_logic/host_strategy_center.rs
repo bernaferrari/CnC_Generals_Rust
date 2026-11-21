@@ -782,7 +782,7 @@ pub fn strategy_center_gun_weapon() -> Weapon {
         can_target_ground: true,
         projectile_speed: STRATEGY_CENTER_GUN_PROJECTILE_SPEED,
         pre_attack_delay: 0.0,
-        splash_radius: 0.0,
+        splash_radius: STRATEGY_CENTER_GUN_PRIMARY_RADIUS,
         suspend_fx_frame: 0,
         reloading_clip: false,
         last_bonus_rof: 0.0,

@@ -255,6 +255,17 @@ impl GameLogic {
                 self.battle_drone_residual_fires =
                     self.battle_drone_residual_fires.saturating_add(1);
             }
+            if object
+                .weapon_name_for_slot(event.weapon_slot)
+                .is_some_and(|w| {
+                    w.eq_ignore_ascii_case(
+                        crate::game_logic::host_helix_minigun::HELIX_MINIGUN_WEAPON,
+                    )
+                })
+            {
+                self.helix_minigun_residual_fires =
+                    self.helix_minigun_residual_fires.saturating_add(1);
+            }
             object.stamp_weapon_discharge_marker(WeaponDischargeMarker {
                 sequence: event.sequence,
                 weapon_slot: event.weapon_slot,

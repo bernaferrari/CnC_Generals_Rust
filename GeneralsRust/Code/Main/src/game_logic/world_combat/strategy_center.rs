@@ -98,6 +98,59 @@ impl GameLogic {
                 center_id, target_id, 0, origin, presentation_effects,
             )?;
             if fired {
+                // Authored-rule discharges still carry StrategyCenterGun's
+                // ScatterRadius/VsInfantry: record the same residual
+                // bookkeeping the synthetic route computes so scatter
+                // honesty is observable on either fire path.
+                let intended_is_infantry = self
+                    .objects
+                    .get(&target_id)
+                    .map(|o| o.is_kind_of(KindOf::Infantry))
+                    .unwrap_or(false);
+                let seed = crate::game_logic::weapon_bootstrap::scatter_seed_for_shot(
+                    center_id.0,
+                    target_id.0,
+                    self.frame,
+                );
+                let (victim_pos, hit_r) = self
+                    .objects
+                    .get(&target_id)
+                    .map(|o| {
+                        (
+                            o.get_position(),
+                            if o.selection_radius > 0.0 {
+                                o.selection_radius
+                            } else {
+                                crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS
+                            },
+                        )
+                    })
+                    .unwrap_or((
+                        origin,
+                        crate::game_logic::weapon_bootstrap::DEFAULT_SCATTER_HIT_RADIUS,
+                    ));
+                let (scattered_impact, scattered) =
+                    crate::game_logic::host_strategy_center::strategy_center_gun_scatter_aim(
+                        victim_pos,
+                        intended_is_infantry,
+                        seed,
+                    );
+                if scattered {
+                    self.strategy_center_gun_scatter_applied =
+                        self.strategy_center_gun_scatter_applied.saturating_add(1);
+                }
+                if crate::game_logic::host_strategy_center::strategy_center_gun_scatter_misses(
+                    seed,
+                    hit_r,
+                    intended_is_infantry,
+                ) {
+                    let dx = scattered_impact.x - victim_pos.x;
+                    let dz = scattered_impact.z - victim_pos.z;
+                    if (dx * dx + dz * dz).sqrt() > STRATEGY_CENTER_GUN_PRIMARY_RADIUS {
+                        self.strategy_center_gun_scatter_misses =
+                            self.strategy_center_gun_scatter_misses.saturating_add(1);
+                    }
+                }
                 self.notify_turret_fired(center_id);
                 self.battle_plans.record_turret_fire(0);
             }

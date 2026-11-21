@@ -306,6 +306,13 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
         target,
         1, // CPP startAttack clamps activation to at least frame one.
     );
+    // The live host stamps authored SwathOfDeathDistance/Amplitude from the
+    // source object's ParticleUplinkCannonUpdate module data; admit the same
+    // retail values here.
+    reg.get_mut(id).unwrap().swath_settings = ParticleSwathSettings {
+        swath_of_death_distance: PARTICLE_SWATH_OF_DEATH_DISTANCE,
+        swath_of_death_amplitude: PARTICLE_SWATH_OF_DEATH_AMPLITUDE,
+    };
     assert!(reg.honesty_queue_ok(HostSuperweaponKind::ParticleCannon));
     assert_eq!(
         reg.get(id).unwrap().impact_frame,
@@ -438,6 +445,10 @@ fn particle_uplink_swath_of_death_residual_honesty() {
         click,
         0,
     );
+    reg.get_mut(id).unwrap().swath_settings = ParticleSwathSettings {
+        swath_of_death_distance: PARTICLE_SWATH_OF_DEATH_DISTANCE,
+        swath_of_death_amplitude: PARTICLE_SWATH_OF_DEATH_AMPLITUDE,
+    };
     reg.record_impact_complete(id, 0.0, 0, 0);
     let field_id = reg.beam_fields()[0].id;
     let spawn = reg.beam_fields()[0].spawn_frame;
@@ -493,6 +504,10 @@ fn particle_cannon_owner_disable_starts_decay_and_stops_pulses() {
     let target = Vec3::ZERO;
     let spawn = 10;
     let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, target, spawn, 1);
+    reg.beam_fields[0].swath_settings = ParticleSwathSettings {
+        swath_of_death_distance: PARTICLE_SWATH_OF_DEATH_DISTANCE,
+        swath_of_death_amplitude: PARTICLE_SWATH_OF_DEATH_AMPLITUDE,
+    };
     let objects = vec![
         (ObjectId(1), Vec3::new(-400.0, 0.0, 0.0), Team::USA, true),
         (ObjectId(2), target - Vec3::X * 100., Team::GLA, true),

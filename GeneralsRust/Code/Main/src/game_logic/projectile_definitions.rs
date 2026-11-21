@@ -756,6 +756,21 @@ Object StingerMissile
  End
  Locomotor = SET_NORMAL StingerMissileLocomotor
 End
+Object StrategyCenterArtilleryShell
+ Behavior = PhysicsBehavior AuthoredPhys
+ Mass = 1
+ End
+ Behavior = MissileAIUpdate AuthoredShell
+ TryToFollowTarget = No
+ FuelLifetime = 4000
+ IgnitionDelay = 0
+ IgnitionFX = None
+ InitialVelocity = 20
+ DistanceToTravelBeforeTurning = 40
+ DistanceToTargetBeforeDiving = 50
+ End
+ Locomotor = SET_NORMAL NuclearCannonShellLocomotor
+End
 "#,
                 "explicit-projectile-fixture.ini",
             )

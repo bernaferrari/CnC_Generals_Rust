@@ -2084,6 +2084,19 @@ impl GameLogic {
                     damage_type,
                     result.hp_lost,
                 );
+                // Intended-only residual (PrimaryDamageRadius 0): count each
+                // victim a Helix's Direct shot actually damaged, never asserted
+                // at discharge time.
+                if result.hp_lost > 0.0
+                    && self
+                        .objects
+                        .get(&shooter_id)
+                        .map(|shooter| shooter.is_helix_transport)
+                        .unwrap_or(false)
+                {
+                    self.helix_minigun_residual_units_hit =
+                        self.helix_minigun_residual_units_hit.saturating_add(1);
+                }
                 if result.destroyed {
                     log::debug!(
                         "Projectile destroyed object {} (damage: {:.1}, type: {:?})",

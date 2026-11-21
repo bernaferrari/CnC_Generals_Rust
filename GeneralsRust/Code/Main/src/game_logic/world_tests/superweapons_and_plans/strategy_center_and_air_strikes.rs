@@ -6,10 +6,13 @@ use super::*;
 fn rest_strategy_center_turret_at_natural_pose(logic: &mut GameLogic, sc_id: crate::game_logic::ObjectId) {
     use crate::game_logic::host_strategy_center::{
         STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+        STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME,
     };
     let sc = logic.host_object_mut(sc_id).expect("strategy center");
     sc.turret_ai.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
     sc.turret_ai.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+    // Retail AIUpdate Turret TurretTurnRate = 60 deg/sec (FactionBuilding.ini:305826).
+    sc.turret_ai.turret_turn_rate_rad = STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME.to_radians();
 }
 
 #[test]
@@ -416,12 +419,39 @@ fn strategy_center_bombardment_turret_fire_residual() {
 
     let mut game_logic = GameLogic::new();
 
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    // Retail Weapon.ini:129040 — WeaponSet::getAbleToUseWeaponAgainstTarget
+    // resolves the authored template's DamageType/AntiMask.
+    crate::assets::ini_template_loader::register_weapons_from_ini_text(
+        "Weapon StrategyCenterGun\n PrimaryDamage = 200.0\n PrimaryDamageRadius = 25.0\n ScatterRadius = 15.0\n ScatterRadiusVsInfantry = 15.0\n AttackRange = 400.0\n MinimumAttackRange = 100.0\n DamageType = EXPLOSION\n DeathType = EXPLODED\n WeaponSpeed = 150\n ProjectileObject = StrategyCenterArtilleryShell\n FireSound = StrategyCenter_ArtilleryRound\n DelayBetweenShots = 7000\n ClipSize = 0\nEnd\n",
+    );
+
+    // Authored ProjectileObject fire spawns the retail shell object
+    // (WeaponObjects.ini:542192 — KindOf PROJECTILE + MissileAIUpdate).
+    game_logic.projectile_definitions =
+        crate::game_logic::projectile_definitions::fixture_projectile_definitions();
+    game_logic.admit_default_locomotors_if_unadmitted();
+    let mut shell_tpl = ThingTemplate::new("StrategyCenterArtilleryShell");
+    shell_tpl
+        .add_kind_of(KindOf::Projectile)
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("StrategyCenterArtilleryShell".to_string(), shell_tpl);
+
     let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
     sc_template
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSStrategyCenter)
         .add_kind_of(KindOf::Selectable)
-        .set_health(1500.0);
+        .set_health(1500.0)
+        // Retail FactionBuilding.ini:305730-305734 — WeaponSet Conditions=None
+        // authors PRIMARY StrategyCenterGun so WeaponSet::getAbleToUseWeapon-
+        // AgainstTarget resolves the template's DamageType/AntiMask.
+        .set_primary_weapon_name(
+            crate::game_logic::host_strategy_center::STRATEGY_CENTER_GUN_WEAPON,
+        );
     game_logic
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);
@@ -440,10 +470,15 @@ fn strategy_center_bombardment_turret_fire_residual() {
         .expect("strategy center");
     rest_strategy_center_turret_at_natural_pose(&mut game_logic, sc_id);
 
-    // Without Bombardment: no StrategyCenterGun residual.
+    // Retail WeaponSet Conditions=None always binds StrategyCenterGun;
+    // Bombardment gates the turret residual, not weapon presence.
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
-        assert!(sc.weapon.is_none(), "turret disabled without Bombardment");
+        assert!(sc.weapon.is_some(), "authored PRIMARY bound at create");
+        assert!(
+            !game_logic.strategy_center_bombardment_turret_active(sc_id),
+            "turret residual inactive without Bombardment"
+        );
     }
 
     // Enemy in range band (min 100, max 400).
@@ -467,13 +502,19 @@ fn strategy_center_bombardment_turret_fire_residual() {
         .expect("close enemy");
     let close_hp_before = game_logic.host_object(close_id).unwrap().health.current;
 
+    // PartitionManager::update fills the dirty cells so the shell's detonation
+    // splash lookup can find both enemies (retail ticks it every frame).
+    game_logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .expect("partition drain");
+
     assert!(!game_logic.honesty_battle_plan_turret_fire_ok());
 
     // Activate Bombardment → equip StrategyCenterGun only after unpack ACTIVE.
     assert!(game_logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id),));
     assert!(
-        game_logic.host_object(sc_id).unwrap().weapon.is_none(),
-        "turret must not equip during UNPACKING residual"
+        !game_logic.strategy_center_bombardment_turret_active(sc_id),
+        "turret residual must stay gated during UNPACKING"
     );
     advance_battle_plan_door_to_active(&mut game_logic);
     {
@@ -531,7 +572,12 @@ fn strategy_center_bombardment_turret_fire_residual() {
         game_logic
             .tick_battle_plan_door_residuals()
             .expect("valid battle-plan test state");
-        if game_logic.honesty_battle_plan_turret_fire_ok() {
+        // Authored StrategyCenterArtilleryShell WeaponSpeed 150 — drain the
+        // projectile flight so its impact damage lands like retail.
+        step_authored_combat(&mut game_logic, &[sc_id, enemy_id, close_id]);
+        if game_logic.honesty_battle_plan_turret_fire_ok()
+            && game_logic.host_object(enemy_id).unwrap().health.current < enemy_hp_before
+        {
             break;
         }
         game_logic.frame = game_logic.frame.saturating_add(1);
@@ -617,15 +663,42 @@ fn strategy_center_gun_scatter_misses_infantry_residual() {
     };
 
     let mut logic = GameLogic::new();
+
+    // Authored ProjectileObject fire spawns the retail shell object
+    // (WeaponObjects.ini:542192 — KindOf PROJECTILE + MissileAIUpdate).
+    // Install the profile and admit the locomotor catalog before Object
+    // content so the shell's SET_NORMAL binding resolves.
+    logic.projectile_definitions =
+        crate::game_logic::projectile_definitions::fixture_projectile_definitions();
+    logic.admit_default_locomotors_if_unadmitted();
+    let mut shell_tpl = ThingTemplate::new("StrategyCenterArtilleryShell");
+    shell_tpl
+        .add_kind_of(KindOf::Projectile)
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("StrategyCenterArtilleryShell".to_string(), shell_tpl);
+
     ensure_test_infantry_template(&mut logic);
     ensure_test_tank_template(&mut logic);
+
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    crate::assets::ini_template_loader::register_weapons_from_ini_text(
+        "Weapon StrategyCenterGun\n PrimaryDamage = 200.0\n PrimaryDamageRadius = 25.0\n ScatterRadius = 15.0\n ScatterRadiusVsInfantry = 15.0\n AttackRange = 400.0\n MinimumAttackRange = 100.0\n DamageType = EXPLOSION\n DeathType = EXPLODED\n WeaponSpeed = 150\n ProjectileObject = StrategyCenterArtilleryShell\n FireSound = StrategyCenter_ArtilleryRound\n DelayBetweenShots = 7000\n ClipSize = 0\nEnd\n",
+    );
 
     let mut sc_template = ThingTemplate::new("AmericaStrategyCenter");
     sc_template
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSStrategyCenter)
         .add_kind_of(KindOf::Selectable)
-        .set_health(1500.0);
+        .set_health(1500.0)
+        // Retail FactionBuilding.ini:305730-305734 — WeaponSet Conditions=None
+        // authors PRIMARY StrategyCenterGun.
+        .set_primary_weapon_name(
+            crate::game_logic::host_strategy_center::STRATEGY_CENTER_GUN_WEAPON,
+        );
     logic
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);
@@ -655,6 +728,11 @@ fn strategy_center_gun_scatter_misses_infantry_residual() {
     if let Some(o) = logic.objects.get_mut(&inf) {
         o.set_selection_radius(0.5);
     }
+    // PartitionManager::update fills the dirty cells so the shell's detonation
+    // splash lookup can find the infantry (retail ticks it every frame).
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .expect("partition drain");
 
     assert!(logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(sc_id)));
     advance_battle_plan_door_to_active(&mut logic);
