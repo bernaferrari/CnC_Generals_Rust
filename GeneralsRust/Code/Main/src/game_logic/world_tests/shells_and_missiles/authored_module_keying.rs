@@ -223,29 +223,40 @@ fn patriot_create_binding_keys_on_authored_weapon_set() {
 /// KINDOF_SPAWNS_ARE_THE_WEAPONS bit, not the template name.
 #[test]
 fn stinger_hive_spawn_keys_on_authored_spawns_are_the_weapons() {
-    let run = |name: &str, hive: bool| -> usize {
+    // C++ SpawnBehavior (FactionBuilding.ini GLAStingerSite) is what spawns
+    // the soldiers — the SPAWNS_ARE_THE_WEAPONS KindOf marks hive damage
+    // semantics only. The spawn roster keys on the authored module, so a
+    // renamed hull carrying the authored SpawnBehavior still spawns three
+    // GLAInfantryStingerSoldier children while a Stinger-named hull with
+    // no authored SpawnBehavior spawns nothing.
+    let run = |name: &str, authored_spawn: bool| -> usize {
         let mut logic = GameLogic::new();
         logic.add_player(crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
-        let mut site = crate::game_logic::ThingTemplate::new(name);
-        site.add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::Selectable)
-            .add_kind_of(KindOf::FSBaseDefense)
-            .set_health(1000.0);
-        if hive {
-            site.add_kind_of(KindOf::SpawnsAreTheWeapons);
-        }
-        logic.templates.insert(name.into(), site);
-        let mut soldier = crate::game_logic::ThingTemplate::new("GLAInfantryStingerSoldier");
-        soldier
-            .add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Selectable)
-            .set_health(100.0);
+        let spawn = if authored_spawn {
+            r#" Behavior = SpawnBehavior SiteSpawn
+  SpawnNumber = 3
+  SpawnTemplateName = GLAInfantryStingerSoldier
+ End
+ Behavior = DefaultProductionExitUpdate SiteExit
+  UnitCreatePoint = X:0 Y:0 Z:0
+  NaturalRallyPoint = X:0 Y:0 Z:0
+ End
+"#
+        } else {
+            ""
+        };
+        let ini = format!(
+            "Object {name}\n KindOf = STRUCTURE SELECTABLE FS_BASE_DEFENSE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody SiteBody\n  MaxHealth = 1000\n  InitialHealth = 1000\n End\n{spawn}End\nObject GLAInfantryStingerSoldier\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody SoldierBody\n  MaxHealth = 100\n  InitialHealth = 100\n End\nEnd\n"
+        );
         logic
-            .templates
-            .insert("GLAInfantryStingerSoldier".into(), soldier);
+            .admit_object_ini_sources([("stinger-hive-fixture.ini".to_string(), ini)])
+            .expect("stinger spawn definitions");
         let site_id = logic
             .create_object(name, Team::GLA, Vec3::ZERO)
             .expect("site");
+        for _ in 0..32 {
+            logic.update();
+        }
         logic
             .objects
             .registered_values()
@@ -255,12 +266,12 @@ fn stinger_hive_spawn_keys_on_authored_spawns_are_the_weapons() {
     assert_eq!(
         run("TestHiveDefense", true),
         3,
-        "authored SPAWNS_ARE_THE_WEAPONS hive spawns its Stinger soldiers"
+        "authored SpawnBehavior hive spawns its Stinger soldiers"
     );
     assert_eq!(
         run("GLAStingerSite", false),
         0,
-        "Stinger-named structure without the authored hive KindOf spawns nothing"
+        "Stinger-named structure without the authored SpawnBehavior spawns nothing"
     );
 }
 

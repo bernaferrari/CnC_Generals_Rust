@@ -5,6 +5,7 @@ use super::helpers::*;
 
 #[test]
 fn continue_attack_range_chains_to_nearby_same_team_target() {
+    ensure_host_weapon_store();
     let mut logic = GameLogic::new();
     {
         let mut tmpl = ThingTemplate::new("ContAtk");
@@ -56,6 +57,11 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
             o.health.maximum = 1.0;
         }
     }
+    // C++ PartitionManager::update runs every frame and fills cells; the
+    // fixture must drain the dirty queue before the chain scan can see them.
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     // Direct kill path via helper (combat path may miss mines without AntiMine).
     let pos = logic.objects.get(&mine1).unwrap().get_position();
     let team = logic.objects.get(&mine1).unwrap().team;

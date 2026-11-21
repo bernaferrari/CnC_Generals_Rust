@@ -100,7 +100,18 @@ impl GameLogic {
 
         // Host residual: China Gattling Tank dual ground/AA + continuous-fire ramp state.
         // Fail-closed: not Overlord/Helix/building gattling payloads.
-        if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
+        // Keyed on the authored PRIMARY weapon (GattlingTankGun), not the
+        // template name — C++ WeaponSet::updateWeaponSet binds whatever the
+        // authored WeaponSet names (hq-2qedt.159).
+        if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name)
+            && object
+                .weapon_name_for_slot(0)
+                .is_none_or(|name| {
+                    name.eq_ignore_ascii_case(
+                        crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN,
+                    )
+                })
+        {
             use crate::game_logic::host_gattling_tank::{
                 GattlingFireLevel, gattling_air_weapon, gattling_ground_weapon,
                 has_chain_guns_upgrade,

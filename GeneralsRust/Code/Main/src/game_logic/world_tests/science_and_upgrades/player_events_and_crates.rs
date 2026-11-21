@@ -2309,20 +2309,21 @@ fn slave_drone_attach_inherits_master_rank() {
         &mut logic,
         crate::game_logic::host_slave_drones::SlaveDroneKind::Scout,
     );
-    let mid = ObjectId(6100);
-    let mut mt = ThingTemplate::new("AmericaVehicleHumvee");
-    mt.set_primary_weapon_name("HumveeGun");
-    mt.add_kind_of(KindOf::Vehicle);
-    logic.objects.insert(mid, {
-        let mut o = Object::new(mt, mid, Team::USA);
-        o.set_position(glam::Vec3::ZERO);
-        let _ = o.set_min_veterancy_level(
+    // C++ Object::createObject assigns every Object its spawn birth;
+    // a hand-inserted master (visual_object_generation == 0) fails
+    // spawn_identity_matches, so attach through a real create_object.
+    let mid = logic
+        .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
+        .expect("humvee master");
+    let _ = logic
+        .objects
+        .get_mut(&mid)
+        .expect("humvee")
+        .set_min_veterancy_level(
             VeterancyLevel::Elite,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             &mut crate::game_logic::VeterancyFeedback::standalone(),
         );
-        o
-    });
     let drone = logic
         .residual_attach_slave_drone(mid, SlaveDroneKind::Scout)
         .expect("scout attach");

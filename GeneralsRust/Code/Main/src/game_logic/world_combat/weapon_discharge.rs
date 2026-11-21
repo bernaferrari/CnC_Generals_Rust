@@ -244,6 +244,17 @@ impl GameLogic {
                 self.hellfire_drone_residual_auto_fires =
                     self.hellfire_drone_residual_auto_fires.saturating_add(1);
             }
+            if object
+                .weapon_name_for_slot(event.weapon_slot)
+                .is_some_and(|w| {
+                    w.eq_ignore_ascii_case(
+                        crate::game_logic::host_slave_drones::BATTLE_DRONE_MACHINE_GUN,
+                    )
+                })
+            {
+                self.battle_drone_residual_fires =
+                    self.battle_drone_residual_fires.saturating_add(1);
+            }
             object.stamp_weapon_discharge_marker(WeaponDischargeMarker {
                 sequence: event.sequence,
                 weapon_slot: event.weapon_slot,

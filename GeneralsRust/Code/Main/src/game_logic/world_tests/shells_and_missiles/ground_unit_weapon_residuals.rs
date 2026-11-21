@@ -410,6 +410,13 @@ fn battle_drone_residual_attach_fire_and_repair() {
         .map(|m| m.health.current)
         .unwrap_or(0.0);
 
+    // C++ giveUpgrade sets the master's upgrade bit before the
+    // ObjectCreationUpgrade module spawns the drone (Object.cpp);
+    // residual_attach models only the creation module's spawn step.
+    game_logic
+        .host_object_mut(master_id)
+        .unwrap()
+        .apply_upgrade_tag(crate::game_logic::host_slave_drones::UPGRADE_AMERICA_BATTLE_DRONE);
     let drone_id = game_logic
         .residual_attach_slave_drone(master_id, SlaveDroneKind::Battle)
         .expect("battle drone attach");

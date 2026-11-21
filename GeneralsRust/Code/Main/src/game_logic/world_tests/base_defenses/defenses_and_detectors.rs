@@ -64,14 +64,6 @@ Object TestInfantry
   InitialHealth = 80
  End
 End
-; Retail Upgrade.ini:186-191 — QueueUpgrade resolves the authored definition
-; (fail-closed on unadmitted names); 30.0s maps to 900 logic frames.
-Upgrade Upgrade_AmericaSentryDroneGun
-  DisplayName        = UPGRADE:AmericaSentryDroneGun
-  BuildTime          = 30.0
-  BuildCost          = 1000
-  ButtonImage        = SASentryUpgr
-End
 Object FixtureStealthVictim
  KindOf = INFANTRY SELECTABLE SCORE
  Body = ActiveBody FixtureTargetBody
@@ -106,6 +98,38 @@ End
                 SENTRY_INI.to_string(),
             )])
             .unwrap(),
+        )
+        .unwrap();
+    // C++ UpgradeCenter::init loads Upgrade.ini at GameEngine::init; the
+    // receiving loader only admits Object blocks, so authored Upgrade
+    // definitions (WeaponSetUpgrade's TriggeredBy mux mask) must register
+    // into this world's UpgradeCenter. Retail Upgrade.ini:186-191 — 30.0s
+    // maps to 900 logic frames.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        game_logic,
+        "Upgrade_AmericaSentryDroneGun",
+        "PLAYER",
+        1000,
+        30,
+    );
+    // Weapon.ini is its own catalog (GameEngine::init admission); the
+    // PLAYER_UPGRADE WeaponSet row resolves SentryDroneGun against this
+    // world's weapon_definitions. Retail Weapon.ini: SentryDroneGun
+    // PrimaryDamage = 8, AttackRange = 150, DelayBetweenShots = 200,
+    // WeaponSpeed = 600.
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        "Weapon SentryDroneGun\n PrimaryDamage = 8\n DamageType = SMALL_ARMS\n DeathType = NORMAL\n AttackRange = 150\n DelayBetweenShots = 200\n WeaponSpeed = 600\n AntiGround = Yes\n AntiAirborneVehicle = Yes\nEnd\n",
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    game_logic
+        .admit_weapon_content_snapshot(
+            weapons
+                .into_values()
+                .map(|rule| (rule.name.clone(), rule))
+                .collect(),
+            &[],
         )
         .unwrap();
 }
@@ -419,7 +443,13 @@ fn sentry_drone_residual_detect_and_auto_fire() {
     // target; the special residual never directly bypasses DeployStyle.
     game_logic.set_current_frame(60);
     game_logic.tick_deploy_style_updates();
-    game_logic.update_combat(&[sentry_id, stealth_id], LOGIC_FRAME_TIMESTEP);
+    // Authored WeaponSpeed 600 travels ~147.5 units in ~8 frames; drain
+    // projectile impacts + delayed damage each combat step (same drain as
+    // the Hellfire/Stinger residual tests).
+    for step in 0..10 {
+        game_logic.set_current_frame(60 + step);
+        step_authored_combat(&mut game_logic, &[sentry_id, stealth_id]);
+    }
     let enemy_hp_after = game_logic
         .host_object(stealth_id)
         .map(|e| e.health.current)
