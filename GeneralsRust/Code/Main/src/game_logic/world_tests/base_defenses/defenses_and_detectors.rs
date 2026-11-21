@@ -1,13 +1,121 @@
 //! Behavior suite extracted from `base_defenses`.
 use super::*;
 
+/// Retail AmericaVehicleSentryDrone authored modules (AmericaVehicle.ini):
+/// DeployStyleAIUpdate 1000/1000ms, StealthUpdate Delay=2000 InnateStealth,
+/// StealthDetectorUpdate 900ms/225, WeaponSetUpgrade -> SentryDroneGun.
+/// Raw ThingTemplates carry no receiving module content, so spawn-time
+/// authored installs (detector, stealth, deploy style, WeaponSetUpgrade)
+/// only exist when the fixture admits this Object source.
+fn admit_sentry_drone_fixture(game_logic: &mut GameLogic) {
+    const SENTRY_INI: &str = r#"
+Object AmericaVehicleSentryDrone
+ KindOf = PRELOAD SELECTABLE CAN_ATTACK VEHICLE SCORE ATTACK_NEEDS_LINE_OF_SIGHT DRONE
+ Body = ActiveBody FixtureSentryBody
+  MaxHealth = 300
+  InitialHealth = 300
+ End
+ WeaponSet
+  Conditions = None
+  Weapon = PRIMARY None
+ End
+ WeaponSet
+  Conditions = PLAYER_UPGRADE
+  Weapon = PRIMARY SentryDroneGun
+ End
+ Behavior = WeaponSetUpgrade FixtureWSU
+  TriggeredBy = Upgrade_AmericaSentryDroneGun
+ End
+ Behavior = DeployStyleAIUpdate FixtureDeploy
+  AutoAcquireEnemiesWhenIdle = Yes
+  PackTime = 1000
+  UnpackTime = 1000
+  TurretsFunctionOnlyWhenDeployed = Yes
+  TurretsMustCenterBeforePacking = Yes
+ End
+ Behavior = StealthUpdate FixtureStealth
+  StealthDelay = 2000
+  StealthForbiddenConditions = FIRING_PRIMARY MOVING
+  InnateStealth = Yes
+ End
+ Behavior = StealthDetectorUpdate FixtureDetector
+  DetectionRate = 900
+  DetectionRange = 225
+  CanDetectWhileGarrisoned = No
+  CanDetectWhileContained = No
+ End
+End
+Object TestBarracks
+ KindOf = STRUCTURE SELECTABLE
+ ; Retail CommandSet.ini:758 — SentryDroneGun is a War Factory research.
+ CommandSet = AmericaWarFactoryCommandSet
+ Body = ActiveBody FixtureProducerBody
+  MaxHealth = 500
+  InitialHealth = 500
+ End
+ ; ProductionUpdate -> building_data, required by can_source_queue_upgrade.
+ Behavior = ProductionUpdate FixtureProduction
+ End
+End
+Object TestInfantry
+ KindOf = INFANTRY SELECTABLE SCORE
+ Body = ActiveBody FixtureTargetBody
+  MaxHealth = 80
+  InitialHealth = 80
+ End
+End
+; Retail Upgrade.ini:186-191 — QueueUpgrade resolves the authored definition
+; (fail-closed on unadmitted names); 30.0s maps to 900 logic frames.
+Upgrade Upgrade_AmericaSentryDroneGun
+  DisplayName        = UPGRADE:AmericaSentryDroneGun
+  BuildTime          = 30.0
+  BuildCost          = 1000
+  ButtonImage        = SASentryUpgr
+End
+Object FixtureStealthVictim
+ KindOf = INFANTRY SELECTABLE SCORE
+ Body = ActiveBody FixtureTargetBody
+  MaxHealth = 80
+  InitialHealth = 80
+ End
+ ; C++ markAsDetected runs on the victim's StealthUpdate module
+ ; (StealthDetectorUpdate -> getStealthUpdate): stealth-capable enemies must
+ ; author one (retail stealthed infantry carry StealthUpdate InnateStealth).
+ Behavior = StealthUpdate FixtureEnemyStealth
+  StealthDelay = 2000
+  InnateStealth = Yes
+ End
+End
+"#;
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(SENTRY_INI, "sentry-fixture.ini")
+        .unwrap();
+    let template = GameLogic::build_template_from_object_definition(
+        "AmericaVehicleSentryDrone",
+        parser.get_definition("AmericaVehicleSentryDrone").unwrap(),
+        None,
+    );
+    game_logic
+        .templates
+        .insert("AmericaVehicleSentryDrone".to_string(), template);
+    game_logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "sentry-fixture.ini".into(),
+                SENTRY_INI.to_string(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+}
+
 #[test]
 fn sentry_drone_residual_detect_and_auto_fire() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::host_sentry_drone::{
-        SENTRY_DETECTION_RANGE, SENTRY_DRONE_GUN_WEAPON, SENTRY_PACK_TIME_FRAMES,
-        SENTRY_TURRETS_MUST_CENTER_BEFORE_PACK, SENTRY_TURRETS_ONLY_WHEN_DEPLOYED,
-        SENTRY_UNPACK_TIME_FRAMES, UPGRADE_AMERICA_SENTRY_DRONE_GUN, is_sentry_drone_template,
+        SENTRY_DETECTION_RANGE, SENTRY_DRONE_GUN_WEAPON, UPGRADE_AMERICA_SENTRY_DRONE_GUN,
+        is_sentry_drone_template,
     };
     use crate::game_logic::host_upgrades::HostUpgradeKind;
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
@@ -21,26 +129,15 @@ fn sentry_drone_residual_detect_and_auto_fire() {
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_barracks_template(&mut game_logic);
 
-    let mut sentry_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleSentryDrone");
-    sentry_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(300.0);
-    // Retail AmericaVehicleSentryDrone's exact DeployStyleAIUpdate module.
-    // The Sentry auto-acquire residual is permitted only through this authored
-    // metadata, never by the template basename alone.
-    sentry_tpl.deploy_style_metadata = Some(crate::game_logic::DeployStyleMetadata {
-        pack_time_frames: SENTRY_PACK_TIME_FRAMES,
-        unpack_time_frames: SENTRY_UNPACK_TIME_FRAMES,
-        turrets_function_only_when_deployed: SENTRY_TURRETS_ONLY_WHEN_DEPLOYED,
-        turrets_must_center_before_packing: SENTRY_TURRETS_MUST_CENTER_BEFORE_PACK,
-        ..Default::default()
-    });
-    // No primary weapon until gun upgrade residual.
-    game_logic
-        .templates
-        .insert("AmericaVehicleSentryDrone".to_string(), sentry_tpl);
+    // Authored Object INI carries every module the spawn installs read:
+    // DeployStyleAIUpdate (auto-acquire residual gate), StealthUpdate
+    // (InnateStealth + delay), StealthDetectorUpdate, WeaponSetUpgrade
+    // (SentryDroneGun). Never a template-basename fallback.
+    admit_sentry_drone_fixture(&mut game_logic);
+    // QueueUpgrade walks the producer's CommandSet through the receiving
+    // action catalog — admit the retail CommandButton/CommandSet content so
+    // AmericaWarFactoryCommandSet resolves the SentryDroneGun button.
+    admit_retail_command_catalog(&mut game_logic);
 
     let producer_id = game_logic
         .create_object("TestBarracks", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
@@ -92,9 +189,10 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         );
     }
 
-    // Place stealthed enemy within detection range.
+    // Place stealthed enemy within detection range (authored StealthUpdate —
+    // C++ only module-carrying objects can be markAsDetected).
     let mut stealth_id = game_logic
-        .create_object("TestInfantry", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .create_object("FixtureStealthVictim", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
         .expect("stealthed enemy");
     {
         let frame = game_logic.frame;
@@ -341,22 +439,13 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
     use crate::game_logic::host_sentry_drone::SENTRY_STEALTH_DELAY_FRAMES;
 
     let mut game_logic = GameLogic::new();
-    let mut sentry_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleSentryDrone");
-    sentry_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(300.0);
-    // Authored `Behavior = StealthUpdate`: InnateStealth, MOVING FIRING_PRIMARY.
-    sentry_tpl.stealth_update = Some(crate::game_logic::object::StealthUpdateData {
-        stealth_delay_frames: SENTRY_STEALTH_DELAY_FRAMES,
-        forbidden_conditions: crate::game_logic::object::StealthForbiddenConditions::MOVING
-            .union(crate::game_logic::object::StealthForbiddenConditions::FIRING_PRIMARY),
-        ..Default::default()
-    });
-    game_logic
-        .templates
-        .insert("AmericaVehicleSentryDrone".to_string(), sentry_tpl);
+    // Authored `Behavior = StealthUpdate`: InnateStealth, MOVING FIRING_PRIMARY
+    // (and the detector/deploy/WeaponSetUpgrade modules the spawn installs read).
+    admit_sentry_drone_fixture(&mut game_logic);
+    // QueueUpgrade walks the producer's CommandSet through the receiving
+    // action catalog — admit the retail CommandButton/CommandSet content so
+    // AmericaWarFactoryCommandSet resolves the SentryDroneGun button.
+    admit_retail_command_catalog(&mut game_logic);
 
     let sentry_id = game_logic
         .create_object(
@@ -432,12 +521,22 @@ fn sentry_drone_uncloaks_while_moving_and_recloaks_after_fire_delay() {
     );
 
     // FIRING_PRIMARY forbids stealth; after fire, wait delay again.
+    // C++ StealthUpdate.cpp:336-361 reads the slot weapon's
+    // getLastShotFiringFrame, so the sentry must carry its gun
+    // (retail: Upgrade_AmericaSentryDroneGun) with a recent per-weapon
+    // last_fire_frame — a bare object-level field has no firing weapon.
     let fire_frame = game_logic.frame.saturating_add(1);
     {
         let s = game_logic.host_object_mut(sentry_id).unwrap();
+        s.weapon = Some(crate::game_logic::Weapon {
+            damage: 8.0,
+            range: 150.0,
+            can_target_ground: true,
+            ..Default::default()
+        });
         s.set_status_firing_weapon(true);
         s.last_fire_slot = 0;
-        s.last_fire_frame = fire_frame;
+        s.weapon.as_mut().unwrap().last_fire_frame = fire_frame;
     }
 
     game_logic.frame = allowed.saturating_add(1);
@@ -578,7 +677,13 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("humvee");
 
-    // Attach Scout residual.
+    // C++ Object::giveUpgrade sets the upgrade bit before the
+    // ObjectCreationUpgrade module fires; the residual attach models the
+    // module only, so the fixture performs the giveUpgrade half.
+    game_logic
+        .host_object_mut(master_id)
+        .unwrap()
+        .apply_upgrade_tag(UPGRADE_AMERICA_SCOUT_DRONE);
     let scout_id = game_logic
         .residual_attach_slave_drone(master_id, SlaveDroneKind::Scout)
         .expect("scout attach");
@@ -587,9 +692,11 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         assert!(is_scout_drone_template(&s.template_name));
         assert!(s.is_detector, "scout must spawn as detector residual");
         assert!(
-            (s.detection_range - SCOUT_DETECTION_RANGE).abs() < 0.1,
+            // Retail Scout authors DetectionRate only; DetectionRange 0 falls
+            // back to vision range (StealthDetectorUpdate.cpp / Object.cpp).
+            (s.effective_detection_range() - SCOUT_DETECTION_RANGE).abs() < 0.1,
             "scout detection range residual 150, got {}",
-            s.detection_range
+            s.effective_detection_range()
         );
         assert!(s.weapon.is_none(), "scout sensor drone has no gun residual");
     }
@@ -625,6 +732,10 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
     assert!(game_logic.honesty_scout_drone_detect_ok());
 
     // Attach Hellfire residual to same master (fail-closed: no ConflictsWith skip).
+    game_logic
+        .host_object_mut(master_id)
+        .unwrap()
+        .apply_upgrade_tag(UPGRADE_AMERICA_HELLFIRE_DRONE);
     let hf_id = game_logic
         .residual_attach_slave_drone(master_id, SlaveDroneKind::Hellfire)
         .expect("hellfire attach");

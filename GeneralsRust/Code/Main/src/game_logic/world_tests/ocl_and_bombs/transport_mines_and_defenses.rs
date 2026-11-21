@@ -1745,6 +1745,13 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
     ensure_host_weapon_store();
 
     let mut game_logic = GameLogic::new();
+    // The authored StingerMissile flies MissileAIUpdate on its authored
+    // StingerMissileLocomotor (WeaponObjects.ini:2735). Install the projectile
+    // profile first so locomotor admission binds it, then admit the catalog
+    // before Objects are created.
+    game_logic.projectile_definitions =
+        crate::game_logic::projectile_definitions::fixture_projectile_definitions();
+    game_logic.admit_default_locomotors_if_unadmitted();
     ensure_test_tank_template(&mut game_logic);
 
     let mut stinger_tpl = crate::game_logic::ThingTemplate::new("GLA_StingerSite");
@@ -1753,12 +1760,37 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::FSBaseDefense)
+        // Retail GLAStingerSite is a hive: SPAWNS_ARE_THE_WEAPONS + SpawnBehavior
+        // (SpawnTemplateName = GLAInfantryStingerSoldier), FactionBuilding.ini.
+        .add_kind_of(KindOf::SpawnsAreTheWeapons)
         .set_health(400.0)
         .set_primary_weapon_name(STINGER_PRIMARY_WEAPON)
         .set_secondary_weapon_name(STINGER_SECONDARY_WEAPON);
     game_logic
         .templates
         .insert("GLA_StingerSite".to_string(), stinger_tpl);
+
+    // Spawn soldiers are the weapons; the hive cannot fire with zero of them.
+    let mut soldier_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryStingerSoldier");
+    soldier_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(50.0);
+    game_logic
+        .templates
+        .insert("GLAInfantryStingerSoldier".to_string(), soldier_tpl);
+
+    // StingerMissileWeapon is a ProjectileObject weapon (Weapon.ini
+    // ProjectileObject = StingerMissile); the authored fire must be able to
+    // spawn the missile object the same way OCL projectile spawns do.
+    let mut missile_tpl = crate::game_logic::ThingTemplate::new("StingerMissile");
+    missile_tpl
+        .add_kind_of(KindOf::Projectile)
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("StingerMissile".to_string(), missile_tpl);
 
     let mut aircraft_tpl = crate::game_logic::ThingTemplate::new("TestAircraft");
     aircraft_tpl
@@ -1773,6 +1805,25 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
     let stinger_id = game_logic
         .create_object("GLA_StingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("stinger");
+    // C++ SpawnBehavior spawns the soldier children on build; the residual
+    // hive refuses to fire while it has zero live spawns.
+    for i in 0..3 {
+        let soldier_id = game_logic
+            .create_object(
+                "GLAInfantryStingerSoldier",
+                Team::GLA,
+                Vec3::new(5.0 + i as f32, 0.0, 0.0),
+            )
+            .expect("stinger soldier");
+        let birth = game_logic
+            .host_object(soldier_id)
+            .expect("soldier obj")
+            .visual_object_generation;
+        game_logic
+            .host_object_mut(stinger_id)
+            .unwrap()
+            .remember_spawn_behavior_child(soldier_id, birth, None);
+    }
     {
         let s = game_logic.host_object(stinger_id).expect("stinger obj");
         assert!(is_stinger_site_structure(&s.template_name));
@@ -1802,7 +1853,10 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
         .unwrap_or(0.0);
     for f in 0..80 {
         game_logic.frame = f;
-        game_logic.update_combat(&[stinger_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        // StingerMissile has a finite authored WeaponSpeed: the residual shot
+        // queues WeaponSpeed-delayed damage that the tick drains per frame
+        // (C++ WeaponStore::update / ProjectileUpdate).
+        super::super::helpers::step_authored_combat(&mut game_logic, &[stinger_id, enemy_id]);
     }
     let hp_after = game_logic
         .host_object(enemy_id)
@@ -1848,7 +1902,7 @@ fn stinger_site_residual_dual_fire_and_ap_rockets() {
         .unwrap_or(0.0);
     for f in 80..160 {
         game_logic.frame = f;
-        game_logic.update_combat(&[stinger_id, air_id], LOGIC_FRAME_TIMESTEP);
+        super::super::helpers::step_authored_combat(&mut game_logic, &[stinger_id, air_id]);
     }
     let air_hp_after = game_logic
         .host_object(air_id)

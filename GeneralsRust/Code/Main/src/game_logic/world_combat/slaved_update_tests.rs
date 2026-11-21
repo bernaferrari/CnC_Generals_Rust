@@ -470,6 +470,15 @@ pub(in crate::game_logic) fn install_slave_fixture(
             }
             SlaveDroneKind::Scout => "",
         };
+        // Retail Scout/Hellfire drones author StealthDetectorUpdate
+        // (DetectionRate 500, no DetectionRange → vision-range fallback);
+        // BattleDrone authors none.
+        let detector = match kind {
+            SlaveDroneKind::Scout | SlaveDroneKind::Hellfire => {
+                " Behavior = StealthDetectorUpdate FixtureDetector\n  DetectionRate = 500\n  CanDetectWhileGarrisoned = No\n  CanDetectWhileContained = No\n End\n"
+            }
+            SlaveDroneKind::Battle => "",
+        };
         format!(
             r#"
 Object {name}
@@ -479,6 +488,7 @@ Object {name}
   InitialHealth = 100
  End
 {weapon_set} VisionRange = {vision}
+{detector}
  Locomotor = SET_NORMAL ComancheLocomotor
  Behavior = AIUpdateInterface FixtureSlaveAI
   AutoAcquireEnemiesWhenIdle = Yes
@@ -662,6 +672,12 @@ Object TestInfantry
  Body = ActiveBody FixtureTargetBody
   MaxHealth = 80
   InitialHealth = 80
+ End
+ ; C++ markAsDetected runs on the victim's StealthUpdate module; stealth
+ ; fixtures must author one (retail stealthed infantry carry InnateStealth).
+ Behavior = StealthUpdate FixtureEnemyStealth
+  StealthDelay = 2000
+  InnateStealth = Yes
  End
 End
 Object MissileDefenderMissile

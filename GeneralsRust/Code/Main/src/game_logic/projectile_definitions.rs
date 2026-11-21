@@ -742,9 +742,19 @@ Object TomahawkMissile
  End
 End
 Object StingerMissile
- Behavior = MissileAIUpdate AuthoredStinger
- IgnitionFX = None
+ Behavior = PhysicsBehavior AuthoredPhys
+ Mass = 1
  End
+ Behavior = MissileAIUpdate AuthoredStinger
+ TryToFollowTarget = Yes
+ FuelLifetime = 5000
+ InitialVelocity = 200
+ IgnitionDelay = 0
+ DistanceToTravelBeforeTurning = 5
+ IgnitionFX = None
+ DistanceToTargetForLock = 100
+ End
+ Locomotor = SET_NORMAL StingerMissileLocomotor
 End
 "#,
                 "explicit-projectile-fixture.ini",

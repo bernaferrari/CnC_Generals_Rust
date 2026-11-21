@@ -240,6 +240,25 @@ impl GameLogic {
                 for id in &spotting_detectors {
                     spotted_detectors.insert(*id);
                 }
+                // Residual bookkeeping: count reveals by drone detector kinds
+                // (declared counters were never incremented anywhere).
+                for det_id in &spotting_detectors {
+                    match self.objects.get(det_id).map(|d| d.template_name.as_str()) {
+                        Some(name)
+                            if crate::game_logic::host_sentry_drone::is_sentry_drone_template(name) =>
+                        {
+                            self.sentry_drone_residual_detects =
+                                self.sentry_drone_residual_detects.saturating_add(1);
+                        }
+                        Some(name)
+                            if crate::game_logic::host_slave_drones::is_scout_drone_template(name) =>
+                        {
+                            self.scout_drone_residual_detects =
+                                self.scout_drone_residual_detects.saturating_add(1);
+                        }
+                        _ => {}
+                    }
+                }
                 self.mark_stealth_detected(sid, best_expires.wrapping_sub(frame));
                 if let Some(obj) = self.objects.get_mut(&sid) {
                     obj.apply_detected_heat_vision_second_pass();

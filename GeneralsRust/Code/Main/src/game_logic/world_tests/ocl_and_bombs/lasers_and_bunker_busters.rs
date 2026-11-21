@@ -545,7 +545,9 @@ fn gattling_building_residual_ramp_fire_rate_and_aa() {
             }
         }
         game_logic.set_current_frame(30 + (i as u64) * 15);
-        game_logic.update_combat(&[gattling_id, enemy], LOGIC_FRAME_TIMESTEP);
+        // Drain WeaponSpeed-delayed damage/projectiles like a real tick
+        // (C++ WeaponStore::update / ProjectileUpdate).
+        super::super::helpers::step_authored_combat(&mut game_logic, &[gattling_id, enemy]);
     }
 
     assert!(
@@ -604,7 +606,7 @@ fn gattling_building_residual_ramp_fire_rate_and_aa() {
             }
         }
         game_logic.set_current_frame(500 + (i as u64) * 10);
-        game_logic.update_combat(&[gattling_id, air], LOGIC_FRAME_TIMESTEP);
+        super::super::helpers::step_authored_combat(&mut game_logic, &[gattling_id, air]);
     }
     let air_hp_after = game_logic
         .host_object(air)

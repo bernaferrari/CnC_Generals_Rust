@@ -401,7 +401,10 @@ impl GameLogic {
         // its live spawns are the weapons (Object.cpp / SpawnBehavior).
         let is_stinger = attacker.is_kind_of(KindOf::SpawnsAreTheWeapons);
         let is_patriot = crate::game_logic::host_base_defense::authors_patriot_weapon_set(attacker);
-        let dual_slot = is_stinger || is_patriot;
+        // C++ WeaponSet auto-choose (AutoChooseSources) selects the slot whose
+        // weapon can hit the victim — AA secondary vs airborne, primary
+        // otherwise — for every dual-slot base defense, including Gattling.
+        let dual_slot = is_stinger || is_patriot || is_gattling;
         // Retail Patriot WeaponSet: AA lives in TERTIARY (SECONDARY is the assist weapon).
         let air_slot: u8 = if is_patriot {
             crate::game_logic::host_base_defense::PATRIOT_AIR_WEAPON_SLOT
@@ -592,6 +595,21 @@ impl GameLogic {
             )? {
                 if turret_enabled { self.notify_turret_fired(defense_id); }
                 self.base_defense_residual_fires = self.base_defense_residual_fires.saturating_add(1);
+                // C++ continuous fire lives on the weapon discharge itself, so
+                // the authored-rule path must ramp the structure gattling too
+                // (GattlingWeaponFire applies on every accepted shot).
+                if is_gattling {
+                    self.advance_gattling_building_continuous_fire(defense_id, Some(target_id), slot);
+                }
+                if is_stinger {
+                    if slot == 1 {
+                        self.stinger_site_residual_aa_fires =
+                            self.stinger_site_residual_aa_fires.saturating_add(1);
+                    } else {
+                        self.stinger_site_residual_ground_fires =
+                            self.stinger_site_residual_ground_fires.saturating_add(1);
+                    }
+                }
                 if is_patriot {
                     if target_is_air {
                         self.patriot_residual_aa_fires = self.patriot_residual_aa_fires.saturating_add(1);

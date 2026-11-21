@@ -37,6 +37,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
                 damage: 999.0,
                 range: 50.0,
                 reload_time: 0.0,
+                can_target_ground: true,
                 ..Default::default()
             },
         );
@@ -400,23 +401,69 @@ fn stinger_scatter_misses_infantry_residual() {
 
     ensure_host_weapon_store();
     let mut logic = GameLogic::new();
+    // Authored StingerMissile flies MissileAIUpdate on its authored locomotor;
+    // install the projectile profile first so locomotor admission binds it.
+    logic.projectile_definitions =
+        crate::game_logic::projectile_definitions::fixture_projectile_definitions();
+    logic.admit_default_locomotors_if_unadmitted();
     let mut stinger_tpl = ThingTemplate::new("GLAStingerSite");
     stinger_tpl
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::FSBaseDefense)
+        // Retail GLAStingerSite is a hive: SPAWNS_ARE_THE_WEAPONS +
+        // SpawnBehavior (SpawnTemplateName = GLAInfantryStingerSoldier),
+        // FactionBuilding.ini — the hive cannot fire with zero live spawns.
+        .add_kind_of(KindOf::SpawnsAreTheWeapons)
         .set_health(1000.0)
         .set_primary_weapon_name(STINGER_PRIMARY_WEAPON);
     logic
         .templates
         .insert("GLAStingerSite".to_string(), stinger_tpl);
+    let mut soldier_tpl = ThingTemplate::new("GLAInfantryStingerSoldier");
+    soldier_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(50.0);
+    logic
+        .templates
+        .insert("GLAInfantryStingerSoldier".to_string(), soldier_tpl);
+    // StingerMissileWeapon is a ProjectileObject weapon (Weapon.ini
+    // ProjectileObject = StingerMissile); authored fire must spawn the missile.
+    let mut missile_tpl = ThingTemplate::new("StingerMissile");
+    missile_tpl
+        .add_kind_of(KindOf::Projectile)
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("StingerMissile".to_string(), missile_tpl);
     ensure_test_infantry_template(&mut logic);
     ensure_test_tank_template(&mut logic);
 
     let stinger = logic
         .create_object("GLAStingerSite", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("stinger");
+    // C++ SpawnBehavior spawns the soldier children on build; the residual
+    // hive refuses to fire while it has zero live spawns.
+    for i in 0..3 {
+        let soldier_id = logic
+            .create_object(
+                "GLAInfantryStingerSoldier",
+                Team::GLA,
+                glam::Vec3::new(5.0 + i as f32, 0.0, 0.0),
+            )
+            .expect("stinger soldier");
+        let birth = logic
+            .host_object(soldier_id)
+            .expect("soldier obj")
+            .visual_object_generation;
+        logic
+            .host_object_mut(stinger)
+            .unwrap()
+            .remember_spawn_behavior_child(soldier_id, birth, None);
+    }
 
     if let Some(s) = logic.objects.get_mut(&stinger) {
         if let Some(w) = s.weapon.as_mut() {
@@ -433,7 +480,7 @@ fn stinger_scatter_misses_infantry_residual() {
     let mut saw_apply = false;
     for f in 0..80u32 {
         logic.frame = f;
-        logic.update_combat(&[stinger, inf], LOGIC_FRAME_TIMESTEP);
+        step_authored_combat(&mut logic, &[stinger, inf]);
         if logic.stinger_scatter_applied > 0 {
             saw_apply = true;
         }
@@ -463,7 +510,7 @@ fn stinger_scatter_misses_infantry_residual() {
     let hp_before = logic.host_object(tank).unwrap().health.current;
     for f in 80..160u32 {
         logic.frame = f;
-        logic.update_combat(&[stinger, tank], LOGIC_FRAME_TIMESTEP);
+        step_authored_combat(&mut logic, &[stinger, tank]);
     }
     let hp_after = logic
         .host_object(tank)
