@@ -34,6 +34,7 @@ impl PathfindingGrid {
             fence_bits: vec![0u64; words],
             transparent_bits: vec![0u64; words],
             path_zones: vec![0u16; cells],
+            path_zone_equiv: Vec::new(),
             ground_water_zones: Vec::new(),
             ground_cliff_zones: Vec::new(),
             ground_rubble_zones: Vec::new(),
@@ -1192,6 +1193,7 @@ impl PathfindingGrid {
         self.pinched_bits.fill(0);
         self.terrain_zones.fill(0);
         self.path_zones.fill(0);
+        self.path_zone_equiv.clear();
         self.ground_water_zones.clear();
         self.ground_cliff_zones.clear();
         self.ground_rubble_zones.clear();

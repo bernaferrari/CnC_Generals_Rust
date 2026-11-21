@@ -689,6 +689,9 @@ pub struct PathfindingGrid {
     occ_goal_aircraft: Vec<u32>,
     /// Structure-aware zone ids (obstacles split zones). 0 = uninitialized.
     path_zones: Vec<u16>,
+    /// C++ `m_terrainZones` — terrain zone equivalences over `path_zones`,
+    /// recomputed with the zones in `rebuild_path_zones` rather than per query.
+    path_zone_equiv: Vec<u16>,
     /// C++ `m_groundWaterZones` — leftover `build_surface_combiners`.
     ground_water_zones: Vec<u16>,
     /// C++ `m_groundCliffZones` — leftover `build_surface_combiners`.

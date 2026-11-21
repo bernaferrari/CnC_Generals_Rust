@@ -238,6 +238,7 @@ impl PathfindingGrid {
         let mut zones = std::mem::take(&mut self.path_zones);
         self.merge_zones_via_connect_layer(&mut zones);
         self.path_zones = zones;
+        self.path_zone_equiv = self.compute_path_zone_equivalences();
         self.build_surface_combiners();
     }
 
@@ -400,10 +401,28 @@ impl PathfindingGrid {
 
     /// CPP terrain() / m_terrainZones: fold OBSTACLE into CLEAR in the
     /// existing path-zone namespace. Water/cliff/rubble keep distinct zones
+    /// C++ `m_terrainZones` (AIPathfind.cpp:2217): the terrain-equivalence
+    /// table is computed once when zones are built, not per query.
+    pub(super) fn terrain_path_zone_equivalences(&self) -> &[u16] {
+        &self.path_zone_equiv
+    }
+
+    /// Recompute `path_zone_equiv` over the current `path_zones`
     /// so the ordinary locomotor surface combiners still apply afterward.
-    pub(super) fn terrain_path_zone_equivalences(&self) -> Vec<u16> {
+    fn compute_path_zone_equivalences(&self) -> Vec<u16> {
         let max_zone = self.path_zones.iter().copied().max().unwrap_or(0);
-        let mut equivalents: Vec<u16> = (0..=max_zone).collect();
+        // Union-find over zone ids; each component's root is its smallest
+        // zone id, matching the previous linear-scan merge (which always
+        // collapsed a pair toward the minimum representative).
+        let mut parent: Vec<u16> = (0..=max_zone).collect();
+        fn find(parent: &mut [u16], mut x: u16) -> u16 {
+            while parent[x as usize] != x {
+                let next = parent[x as usize];
+                parent[x as usize] = parent[next as usize];
+                x = parent[x as usize];
+            }
+            x
+        }
         let terrain_type = |kind| {
             if kind == PathfindCellType::Obstacle {
                 PathfindCellType::Clear
@@ -426,21 +445,18 @@ impl PathfindingGrid {
                     if zone == 0 || other == 0 {
                         continue;
                     }
-                    let a = equivalents[zone as usize];
-                    let b = equivalents[other as usize];
+                    let a = find(&mut parent, zone);
+                    let b = find(&mut parent, other);
                     if a == b {
                         continue;
                     }
-                    let representative = a.min(b);
-                    for value in &mut equivalents {
-                        if *value == a || *value == b {
-                            *value = representative;
-                        }
-                    }
+                    parent[a.max(b) as usize] = a.min(b);
                 }
             }
         }
-        equivalents
+        (0..=max_zone)
+            .map(|zone| find(&mut parent, zone))
+            .collect()
     }
 
     /// C++ `PathfindZoneManager::getEffectiveZone` (AIPathfind.cpp:3118).
