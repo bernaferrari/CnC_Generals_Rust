@@ -400,14 +400,18 @@ fn nested_attack_machine_fires_an_explicit_tertiary_slot() {
         let mut object = Object::new(attacker_template, attacker_id, Team::USA);
         object.set_position(Vec3::ZERO);
         object.set_orientation(0.0);
-        object.tertiary_weapon = Some(Weapon {
-            damage: 73.0,
-            range: 100.0,
-            reload_time: 1.0,
-            last_fire_time: -10.0,
-            projectile_speed: 200.0,
-            ..Weapon::default()
-        });
+        crate::fixture_content::arm_slot_with_stats(
+            &mut object,
+            2,
+            Weapon {
+                damage: 73.0,
+                range: 100.0,
+                reload_time: 1.0,
+                last_fire_time: -10.0,
+                projectile_speed: 200.0,
+                ..Weapon::default()
+            },
+        );
         object.set_active_weapon_slot(2);
         object
     });

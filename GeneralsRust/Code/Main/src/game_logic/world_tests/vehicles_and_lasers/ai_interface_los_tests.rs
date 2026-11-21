@@ -108,25 +108,25 @@ fn scene_for_weapon(
                 .unwrap(),
             )
             .unwrap();
-        let mut weapons = std::collections::HashMap::new();
-        assert_eq!(
-            crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
-                &mut weapons,
-                AI_WEAPON_SOURCE,
-                crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
-            ),
-            2
-        );
-        logic
-            .admit_weapon_content_snapshot(
-                weapons
-                    .into_values()
-                    .map(|rule| (rule.name.clone(), rule))
-                    .collect(),
-                &[],
-            )
-            .unwrap();
     }
+    let mut weapons = std::collections::HashMap::new();
+    assert_eq!(
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut weapons,
+            AI_WEAPON_SOURCE,
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        ),
+        2
+    );
+    logic
+        .admit_weapon_content_snapshot(
+            weapons
+                .into_values()
+                .map(|rule| (rule.name.clone(), rule))
+                .collect(),
+            &[],
+        )
+        .unwrap();
     let source = logic
         .create_object(&name, Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
         .unwrap();

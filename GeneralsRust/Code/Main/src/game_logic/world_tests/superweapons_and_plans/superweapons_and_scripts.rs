@@ -3379,12 +3379,12 @@ fn script_team_nearest_and_partial_command_button_live() {
 
     // Owned command execution resolves actual authored definitions; these
     // commands are not inferred from a missing catalog's button spelling.
-    let mut ini = game_engine::common::ini::INI::new();
-    ini.with_inline_source(
-        "CommandButton FixturePartialReadyStop\n Command = STOP\n SpecialPower = FixturePartialReadyPower\nEnd\nCommandButton FixtureNearestHijack\n Command = HIJACK_VEHICLE\n SpecialPower = FixtureNearestObjectPower\n Options = NEED_TARGET_ENEMY_OBJECT\nEnd\n",
-        |ini| ini.parse_current_file(),
-    ).expect("authored STOP and HIJACK command definitions");
     let mut logic = GameLogic::new();
+    let command_source = "CommandButton FixturePartialReadyStop\n Command = STOP\n SpecialPower = FixturePartialReadyPower\nEnd\nCommandButton FixtureNearestHijack\n Command = HIJACK_VEHICLE\n SpecialPower = FixtureNearestObjectPower\n Options = NEED_TARGET_ENEMY_OBJECT\nEnd\n";
+    logic.load_own_command_ini_for_test(command_source);
+    logic
+        .admit_fixture_command_action_source(command_source)
+        .expect("authored STOP and HIJACK command definitions");
     logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_player_for_team(&mut logic, Team::China);

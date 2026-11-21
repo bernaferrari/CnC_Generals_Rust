@@ -19,6 +19,7 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0);
+    hacker_tpl.set_locomotor_name(crate::game_logic::BASIC_HUMAN_LOCOMOTOR);
     hacker_tpl.hacker_disable_building = Some(HackerDisableBuildingMetadata {
         special_power_template: "SpecialAbilityHackerDisableBuilding".to_string(),
         update_module_starts_attack: true,
@@ -41,6 +42,7 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
     game_logic
         .templates
         .insert("TypedHackerDisableSource".to_string(), hacker_tpl);
+    game_logic.admit_default_locomotors_if_unadmitted();
 
     let hacker_id = game_logic
         .create_object_for_player("TypedHackerDisableSource", 0, Vec3::new(200.0, 0.0, 0.0))
@@ -103,10 +105,21 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
     game_logic
         .update_ai(&[hacker_id, target_id], 1.0 / 60.0)
         .expect("receiving AI operation succeeds");
-    // C++ NeedToFace before unpack: first in-range tick may still be approaching.
-    game_logic
-        .update_ai(&[hacker_id, target_id], 1.0)
-        .expect("receiving AI operation succeeds");
+    // C++ NeedToFace before unpack: the armed ANGLE goal integrates through
+    // the locomotor pass (AIUpdate + doLocomotor run in the same frame).
+    for _ in 0..90 {
+        game_logic.update_movement_for_test(&[hacker_id, target_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[hacker_id, target_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
+        if game_logic
+            .host_object(hacker_id)
+            .and_then(|source| source.hacker_disable_channel)
+            .is_some_and(|channel| channel.phase == HackerDisableChannelPhase::Unpacking)
+        {
+            break;
+        }
+    }
     assert_eq!(
         game_logic
             .host_object(hacker_id)
@@ -228,6 +241,7 @@ fn hacker_disable_building_queues_pack_unpack_prep_audio() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(100.0);
+    hacker_tpl.set_locomotor_name(crate::game_logic::BASIC_HUMAN_LOCOMOTOR);
     hacker_tpl.hacker_disable_building = Some(HackerDisableBuildingMetadata {
         special_power_template: "SpecialAbilityHackerDisableBuilding".to_string(),
         update_module_starts_attack: true,
@@ -250,6 +264,7 @@ fn hacker_disable_building_queues_pack_unpack_prep_audio() {
     game_logic
         .templates
         .insert("TypedHackerDisableAudio".to_string(), hacker_tpl);
+    game_logic.admit_default_locomotors_if_unadmitted();
 
     let hacker_id = game_logic
         .create_object_for_player("TypedHackerDisableAudio", 0, Vec3::new(10.0, 0.0, 0.0))
@@ -271,9 +286,21 @@ fn hacker_disable_building_queues_pack_unpack_prep_audio() {
     game_logic
         .update_ai(&[hacker_id, target_id], 1.0 / 60.0)
         .expect("receiving AI operation succeeds");
-    game_logic
-        .update_ai(&[hacker_id, target_id], 1.0)
-        .expect("receiving AI operation succeeds");
+    // NeedToFace arms an ANGLE goal that integrates through the locomotor
+    // pass; run both passes until the facing turn completes.
+    for _ in 0..90 {
+        game_logic.update_movement_for_test(&[hacker_id, target_id], 1.0 / 30.0);
+        game_logic
+            .update_ai(&[hacker_id, target_id], 1.0 / 30.0)
+            .expect("receiving AI operation succeeds");
+        if game_logic
+            .host_object(hacker_id)
+            .and_then(|source| source.hacker_disable_channel)
+            .is_some_and(|channel| channel.phase == HackerDisableChannelPhase::Unpacking)
+        {
+            break;
+        }
+    }
     assert_eq!(
         game_logic
             .host_object(hacker_id)
@@ -731,14 +758,19 @@ fn fire_weapon_when_damaged_reaction_splash() {
 fn structure_topple_crush_sweep_kills_nearby_infantry() {
     use crate::game_logic::host_structure_topple::HostStructureToppleState;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    assert_eq!(
-        crate::assets::ini_template_loader::register_weapons_from_ini_text(
-            "Weapon ToppledStructureWeapon\n PrimaryDamage = 99999\n PrimaryDamageRadius = 20\n DamageType = EXPLOSION\n DeathType = EXPLODED\nEnd\n",
-        ),
-        1,
-        "actual authored crush weapon"
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        "Weapon ToppledStructureWeapon\n PrimaryDamage = 9999.0\n PrimaryDamageRadius = 20.0\n AttackRange = 100.0\n DamageType = EXPLOSION\n DeathType = EXPLODED\n WeaponSpeed = 99999.0\n ProjectileObject = NONE\n RadiusDamageAffects = ALLIES ENEMIES NEUTRALS\nEnd\n",
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
     );
     let mut logic = GameLogic::new();
+    logic
+        .admit_weapon_content_snapshot(
+            weapons.into_values().map(|w| (w.name.clone(), w)).collect(),
+            &[],
+        )
+        .expect("actual authored crush weapon");
     let mut bt = ThingTemplate::new("AmericaWarFactory");
     bt.set_health(100.0);
     bt.add_kind_of(KindOf::Structure);
@@ -783,6 +815,11 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
             st.dir_y = 0.0;
         }
     }
+    // C++ PartitionManager::update runs every frame and fills the cells the
+    // splash iterateObjectsInRange scans; drain the dirty queue first.
+    logic
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     let samples = logic
         .objects
         .get_mut(&bid)

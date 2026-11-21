@@ -231,6 +231,8 @@ fn host_attack_los_gates_fire_through_building() {
 fn host_attack_los_allows_fire_in_open() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
+    // CPP AIUpdate.cpp:2353-2356: no current locomotor means no LOS answer.
+    let locomotor = authored_ground_los_locomotor(&mut logic);
     for (name, kinds) in [
         (
             "LosAtk2",
@@ -245,6 +247,10 @@ fn host_attack_los_allows_fire_in_open() {
         if !logic.templates.contains_key(name) {
             let mut tmpl = ThingTemplate::new(name);
             tmpl.set_health(200.0);
+            if name == "LosAtk2" {
+                tmpl.set_locomotor_name(locomotor);
+                tmpl.set_locomotor_set_names(&[locomotor.to_string()]);
+            }
             for k in kinds {
                 tmpl.add_kind_of(k);
             }
@@ -281,7 +287,23 @@ fn host_attack_los_allows_fire_in_open() {
         .get(&tgt)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    logic.update_combat(&[atk, tgt], 1.0 / 30.0);
+    // Authored WeaponSpeed schedules delayed damage: run combat frames and
+    // drain the projectileless queue until it lands (C++ WeaponStore::update).
+    for _ in 0..60 {
+        logic.frame += 1;
+        logic.update_combat(&[atk, tgt], 1.0 / 30.0);
+        logic.apply_owned_projectileless_delayed_damage().unwrap();
+        let _ = logic.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
+        if logic
+            .objects
+            .get(&tgt)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0)
+            < hp_before - 1.0
+        {
+            break;
+        }
+    }
     let hp_after = logic
         .objects
         .get(&tgt)
