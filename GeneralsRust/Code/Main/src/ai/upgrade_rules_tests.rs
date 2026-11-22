@@ -108,18 +108,18 @@ fn named_ai_upgrade_queues_from_driving_rules_when_active_world_has_object_type(
 }
 
 #[test]
-fn automatic_ai_upgrade_queues_authored_cost_and_time_in_each_driving_world() {
+fn named_ai_upgrade_queues_authored_cost_and_time_in_each_driving_world() {
     let (mut first, mut first_ai, first_producer) = upgrade_world("PLAYER", 321, 7);
     let (mut second, mut second_ai, second_producer) = upgrade_world("PLAYER", 654, 19);
     assert_eq!(first_producer, second_producer);
     let other_stores = std::sync::Arc::clone(&second.world_services);
     with_world_services(&other_stores, || {
-        first_ai.try_queue_structure_upgrade(&mut first)
+        assert!(first_ai.build_upgrade(&mut first, UPGRADE_AMERICA_SUPPLY_LINES));
     });
     assert_queued(&first, first_producer, 321, 7);
     let other_stores = std::sync::Arc::clone(&first.world_services);
     with_world_services(&other_stores, || {
-        second_ai.try_queue_structure_upgrade(&mut second)
+        assert!(second_ai.build_upgrade(&mut second, UPGRADE_AMERICA_SUPPLY_LINES));
     });
     assert_queued(&second, second_producer, 654, 19);
     assert_eq!(first_ai.activity_count, 1);
@@ -127,11 +127,11 @@ fn automatic_ai_upgrade_queues_authored_cost_and_time_in_each_driving_world() {
 }
 
 #[test]
-fn automatic_ai_research_accepts_authored_zero_cost_without_charging_player() {
+fn named_ai_research_accepts_authored_zero_cost_without_charging_player() {
     // AIPlayer.cpp:1728-1803 and ProductionUpdate.cpp:250-284 do not
     // reject an authored zero-cost upgrade.
     let (mut world, mut ai, producer) = upgrade_world("PLAYER", 0, 7);
-    ai.try_queue_structure_upgrade(&mut world);
+    assert!(ai.build_upgrade(&mut world, UPGRADE_AMERICA_SUPPLY_LINES));
     assert_queued(&world, producer, 0, 7);
     assert_eq!(ai.activity_count, 1);
 }

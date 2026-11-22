@@ -1,4 +1,4 @@
-//! CPP AIPlayer::update resumes upgrades, science and bridge effects with
+//! CPP AIPlayer::update resumes science and bridge effects with
 //! the session's canonical controllers visible at each immediate effect.
 use super::*;
 
@@ -115,24 +115,8 @@ impl GameLogic {
         data: &AiDataView,
         mut observe: impl FnMut(&GameLogic, &'static str),
     ) {
-        // CPP AIPlayer.cpp2910 suppresses both upgrade and science admission
-        // in the first two logic frames. Bridge and local strategy still run.
+        // The frame gate covers skills. Research enters via AI_PLAYER_BUILD_UPGRADE.
         if self.get_frame() >= 2 {
-            let attempts = self
-                .ai_manager
-                .ai_players
-                .get(&player)
-                .map(|ai| ai.prepare_structure_upgrades(self))
-                .unwrap_or_default();
-            for attempt in attempts {
-                observe(self, "upgrade");
-                if attempt.execute(self) {
-                    if let Some(ai) = self.ai_manager.ai_players.get_mut(&player) {
-                        ai.activity_count = ai.activity_count.saturating_add(1);
-                    }
-                    break;
-                }
-            }
             let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
                 return;
             };
@@ -209,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn upgrades_and_science_effects_observe_canonical_controllers_in_cpp_phase_order() {
+    fn science_effects_observe_canonical_controllers() {
         let (mut world, producer) = world();
         world.frame = 2;
         let data = AiDataView::from_world(&world);
@@ -220,15 +204,9 @@ mod tests {
             assert_eq!(world.ai_manager.ai_players[&2].player_id, 2);
             phases.push(phase);
         });
-        assert_eq!(phases.first(), Some(&"upgrade"));
-        assert!(phases[1..].iter().all(|phase| *phase == "science"));
-        assert!(phases.len() > 1);
-        assert!(
-            world
-                .get_player(1)
-                .unwrap()
-                .has_queued_upgrade("Upgrade_AmericaRangerCaptureBuilding")
-        );
+        assert!(!phases.is_empty());
+        assert!(phases.iter().all(|phase| *phase == "science"));
+        assert_eq!(world.get_player(1).unwrap().resources.supplies, 20000);
         assert!(
             world
                 .host_object(producer)
@@ -237,28 +215,20 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .production_queue
-                .iter()
-                .any(|item| item.is_upgrade())
-        );
-        assert_eq!(world.ai_manager.ai_players[&1].activity_count, 1);
-        assert!(
-            !world
-                .get_player(2)
-                .unwrap()
-                .has_queued_upgrade("Upgrade_AmericaRangerCaptureBuilding")
+                .is_empty()
         );
         assert_eq!(world.get_player(2).unwrap().resources.supplies, 20000);
         assert_eq!(world.get_player(2).unwrap().science_purchase_points, 1);
     }
 
     #[test]
-    fn first_two_frames_do_not_admit_upgrade_or_science_effects() {
+    fn first_two_frames_do_not_admit_science_effects() {
         let (mut world, _) = world();
         let data = AiDataView::from_world(&world);
         for frame in [0, 1] {
             world.frame = frame;
             world.update_owned_ai_postmilitary_observing(1, 0.0, &data, |_, _| {
-                panic!("first two frames cannot admit upgrade/science effects");
+                panic!("first two frames cannot admit science effects");
             });
         }
         assert_eq!(world.ai_manager.ai_players.len(), 2);

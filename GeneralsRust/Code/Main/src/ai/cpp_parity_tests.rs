@@ -3175,13 +3175,11 @@ fn late_game_team_keeps_higher_tier_templates_instead_of_default_infantry() {
     let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
     let _ = logic.create_object("AmericaWarFactory", Team::USA, Vec3::new(64.0, 0.0, 0.0));
     let _ = logic.create_object("AmericaAirfield", Team::USA, Vec3::new(128.0, 0.0, 0.0));
-    let strategy = logic
-        .create_object(
-            "AmericaStrategyCenter",
-            Team::USA,
-            Vec3::new(0.0, 0.0, 64.0),
-        )
-        .expect("strategy center");
+    let _ = logic.create_object(
+        "AmericaStrategyCenter",
+        Team::USA,
+        Vec3::new(0.0, 0.0, 64.0),
+    );
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     ai.current_strategy = AIStrategy::LateGame;
@@ -3224,26 +3222,10 @@ fn late_game_team_keeps_higher_tier_templates_instead_of_default_infantry() {
             && planned.contains(&"AmericaPatriotBattery"),
         "skirmish layout must include tech, air, and SideInfo defense: {planned:?}"
     );
-    logic.frame = 2;
-    ai.do_upgrades_and_skills(&mut logic);
-    let player = logic.get_player(1).expect("AI player");
-    assert!(
-        player.has_queued_upgrade("Upgrade_AmericaSupplyLines")
-            || player.has_queued_upgrade("Upgrade_AmericaRangerCaptureBuilding")
-            || player.has_queued_upgrade("Upgrade_AmericaAdvancedTraining")
-            || logic
-                .host_object(strategy)
-                .and_then(|object| object.building_data.as_ref())
-                .is_some_and(|building| building
-                    .production_queue
-                    .iter()
-                    .any(|item| item.is_upgrade())),
-        "live AI must queue a structure upgrade via AIPlayer::buildUpgrade residual"
-    );
 }
 
 #[test]
-fn do_upgrades_does_not_research_supply_lines_at_barracks() {
+fn named_ai_research_uses_matching_barracks_command() {
     let mut logic = crate::game_logic::GameLogic::new();
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
     player.resources.supplies = 20_000;
@@ -3258,7 +3240,8 @@ fn do_upgrades_does_not_research_supply_lines_at_barracks() {
     let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-    ai.do_upgrades_and_skills(&mut logic);
+    assert!(!ai.build_upgrade(&mut logic, "Upgrade_AmericaSupplyLines"));
+    assert!(ai.build_upgrade(&mut logic, "Upgrade_AmericaRangerCaptureBuilding"));
     let player = logic.get_player(1).expect("AI player");
     assert!(
         !player.has_queued_upgrade("Upgrade_AmericaSupplyLines"),

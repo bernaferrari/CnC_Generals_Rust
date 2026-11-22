@@ -290,6 +290,67 @@ fn supply_script_acquires_enemy_at_deadline_in_only_the_receiving_world() {
 }
 
 #[test]
+fn ai_match_phase_queues_research_only_after_the_authored_action() {
+    use crate::game_logic::host_upgrade_rules::register_test_upgrade;
+    use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
+
+    let (mut owner, _, _) = world();
+    let producer = owner
+        .create_object_for_player("AmericaSupplyCenter", 1, Vec3::new(100.0, 0.0, 0.0))
+        .unwrap();
+    let cost = 321;
+    register_test_upgrade(&mut owner, UPGRADE_AMERICA_SUPPLY_LINES, "PLAYER", cost, 7);
+    owner.get_player_mut(1).unwrap().science_purchase_points = 0;
+    let money_before = owner.get_player(1).unwrap().effective_supplies();
+
+    owner.frame = 2;
+    crate::ai::AIManager::update_owned_with_effects(&mut owner, 2.0 / 30.0, &mut Default::default())
+        .unwrap();
+    assert_eq!(
+        owner.get_player(1).unwrap().effective_supplies(),
+        money_before
+    );
+    assert!(owner.host_upgrades().entries_snapshot().is_empty());
+    assert!(
+        owner
+            .host_object(producer)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue
+            .is_empty()
+    );
+
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let mut upgrade = action(
+        ScriptActionType::AiPlayerBuildUpgrade,
+        ParameterType::Side,
+        "OwnedBuilder",
+    );
+    upgrade
+        .add_parameter(Parameter::with_string(
+            ParameterType::Upgrade,
+            UPGRADE_AMERICA_SUPPLY_LINES.into(),
+        ))
+        .unwrap();
+    run(&engine, &mut owner, &upgrade);
+    let player = owner.get_player(1).unwrap();
+    assert_eq!(player.effective_supplies(), money_before - cost);
+    assert!(player.has_queued_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+    let queue = &owner
+        .host_object(producer)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap()
+        .production_queue;
+    assert_eq!(queue.len(), 1);
+    assert!(queue[0].is_upgrade());
+    assert_eq!(queue[0].template_name, UPGRADE_AMERICA_SUPPLY_LINES);
+}
+
+#[test]
 fn upgrade_and_nearest_team_actions_apply_immediately_to_actual_owner() {
     use super::condition_cursor_control_tests::admit;
     let (mut owner, unit, _) = world();

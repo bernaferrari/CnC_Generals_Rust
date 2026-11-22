@@ -1075,8 +1075,7 @@ impl AIPlayer {
     }
 
     /// C++ `AIPlayer::doUpgradesAndSkills` (AIPlayer.cpp:2908) spends science
-    /// points from an `AISideInfo` SkillSet. Host also runs a
-    /// residual of `AIPlayer::buildUpgrade` (AIPlayer.cpp:1728).
+    /// points from an `AISideInfo` SkillSet.
     pub(super) fn do_upgrades_and_skills(&mut self, game_logic: &mut GameLogic) {
         game_logic.with_own_services_mut(|game_logic| {
 
@@ -1095,7 +1094,6 @@ impl AIPlayer {
         if game_logic.get_frame() < 2 {
             return;
         }
-        self.try_queue_structure_upgrade(game_logic);
         self.try_purchase_skillset_science_with_ai_data(game_logic, ai_data);
     }
 
@@ -1316,25 +1314,6 @@ impl AIPlayer {
         world.apply_receiving_science_action(player, name, false, None, &mut |_| {});
     }
 
-    /// C++ `AIPlayer::buildUpgrade` residual — queue one structure upgrade.
-    pub(super) fn structure_upgrade_candidates(&self) -> &'static [&'static str] {
-        use crate::game_logic::host_upgrades::{
-            UPGRADE_AMERICA_ADVANCED_TRAINING, UPGRADE_AMERICA_RANGER_CAPTURE,
-            UPGRADE_AMERICA_SUPPLY_LINES, UPGRADE_CHINA_NATIONALISM,
-            UPGRADE_CHINA_REDGUARD_CAPTURE, UPGRADE_GLA_AP_BULLETS, UPGRADE_GLA_REBEL_CAPTURE,
-        };
-        match self.team {
-            Team::USA => &[
-                UPGRADE_AMERICA_SUPPLY_LINES,
-                UPGRADE_AMERICA_RANGER_CAPTURE,
-                UPGRADE_AMERICA_ADVANCED_TRAINING,
-            ],
-            Team::China => &[UPGRADE_CHINA_NATIONALISM, UPGRADE_CHINA_REDGUARD_CAPTURE],
-            Team::GLA => &[UPGRADE_GLA_REBEL_CAPTURE, UPGRADE_GLA_AP_BULLETS],
-            _ => &[],
-        }
-    }
-
     pub(super) fn preferred_upgrade_producer_names(upgrade_name: &str) -> &'static [&'static str] {
         let n = upgrade_name.to_ascii_lowercase();
         if n.contains("supplylines") {
@@ -1422,67 +1401,6 @@ impl AIPlayer {
                     ))
                 .then_some(id)
             })
-    }
-
-    pub(super) fn try_queue_structure_upgrade(&mut self, world: &mut GameLogic) {
-        for attempt in self.prepare_structure_upgrades(world) {
-            if attempt.execute(world) {
-                self.activity_count = self.activity_count.saturating_add(1);
-                break;
-            }
-        }
-    }
-
-    pub(super) fn prepare_structure_upgrades(
-        &self,
-        game_logic: &GameLogic,
-    ) -> Vec<super::postmilitary_owner::UpgradeAttempt> {
-        let mut attempts = Vec::new();
-        let Some(player) = game_logic.get_player(self.player_id) else {
-            return attempts;
-        };
-        if !player.is_alive {
-            return attempts;
-        }
-        let candidates: Vec<&'static str> = self
-            .structure_upgrade_candidates()
-            .iter()
-            .copied()
-            .filter(|name| !player.has_unlocked_upgrade(name) && !player.has_queued_upgrade(name))
-            .collect();
-        for upgrade_name in candidates {
-            let kind = HostUpgradeKind::from_name(upgrade_name);
-            let upgrade_type = game_logic.upgrade_type(upgrade_name);
-            let authored = game_logic.upgrade_template(upgrade_name);
-            let cost = Resources {
-                supplies: authored
-                    .as_ref()
-                    .map(|template| template.get_cost().max(0) as u32)
-                    .unwrap_or_else(|| kind.retail_build_cost()),
-                power: 0,
-            };
-            let Some(player) = game_logic.get_player(self.player_id) else {
-                return attempts;
-            };
-            // Authored zero cost is a valid upgrade, not a missing definition.
-            // Preserve the residual sentinel only for an unknown fallback.
-            if (authored.is_none() && cost.supplies == 0) || !player.can_afford(&cost) {
-                continue;
-            }
-            let Some(producer_id) =
-                self.find_upgrade_producer(game_logic, upgrade_name, upgrade_type)
-            else {
-                continue;
-            };
-            attempts.push(super::postmilitary_owner::UpgradeAttempt {
-                player: self.player_id,
-                team: self.team,
-                name: upgrade_name.into(),
-                producer: producer_id,
-                cost,
-            });
-        }
-        attempts
     }
 
     /// Pick candidate team name for the current strategy (same as select_team_to_build).
