@@ -740,6 +740,117 @@ fn tight_road_curve_preserves_max_cell_height_over_a_slope() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn render_named_road_pixel(texel: [u8; 4], ambient: f32) -> ([u8; 4], [u8; 4]) {
+    use game_engine::common::ini::ini_road::TerrainRoadCollection;
+
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("authored road test requires a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("authored road test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let directory = tempfile::tempdir().unwrap();
+    let texture_path = directory.path().join("SnowRoadPalette.tga");
+    image::RgbaImage::from_pixel(64, 64, image::Rgba(texel))
+        .save_with_format(&texture_path, image::ImageFormat::Tga)
+        .unwrap();
+
+    let mut definitions = TerrainRoadCollection::new();
+    let road_definition = definitions.new_road(AsciiString::from("SnowRoadPalette"));
+    road_definition.texture = AsciiString::from(texture_path.to_str().unwrap());
+    let roads = [RuntimeRoadVisualSegment {
+        start: [26.0, 0.0, 2.0],
+        end: [40.0, 0.0, 2.0],
+        width: 2.0,
+        template_name: "SnowRoadPalette".to_owned(),
+        width_in_texture: 1.0,
+        road_type_id: road_definition.id,
+        start_is_angled: false,
+        start_is_join: false,
+        end_is_angled: false,
+        end_is_join: false,
+        curve_radius: 0.0,
+    }];
+    let terrain = [(
+        TerrainSourceTileClass {
+            first_tile: 0,
+            num_tiles: 1,
+            width: 1,
+            name: "SnowRoadReceiver".to_owned(),
+        },
+        [255; 3],
+    )];
+    let mut visual = live_terrain_visual(
+        &device,
+        &queue,
+        &terrain,
+        HeightMap::new(64, 64, 0.0, 1.0),
+        ambient,
+    );
+    visual.create_road_pipeline(&device).unwrap();
+    visual.admit_road_presentation(definitions.presentation());
+    visual.set_runtime_map_road_segments(&roads, &[]).unwrap();
+    visual.update_road_meshes().unwrap();
+    assert!(
+        visual
+            .road_named_bind_groups
+            .contains_key(&texture_path.to_str().unwrap().to_ascii_lowercase()),
+        "the receiving road definition must bind its own authored palette"
+    );
+
+    // X=[30,34], Z=[0,4]. Column 16 crosses the road at row 4, with row 0
+    // outside its coverage.
+    let transform = Mat4::from_cols_array_2d(&[
+        [0.5, 0.0, 0.0, 0.0],
+        [0.0, 0.0, -0.02, 0.0],
+        [0.0, 0.5, 0.0, 0.0],
+        [-16.0, -1.0, 0.5, 1.0],
+    ]);
+    let pixels = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+    let pixel = |row: usize| pixels[row * 256 + 64..row * 256 + 68].try_into().unwrap();
+    (pixel(4), pixel(0))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn assert_road_pixel(road: [u8; 4], expected: [u8; 3]) {
+    assert_eq!(road[3], 255);
+    // The native UNORM blend may round to an adjacent channel value when
+    // the sample is near the center of the authored coverage ramp.
+    assert!(
+        road[..3]
+            .iter()
+            .zip(expected)
+            .all(|(&actual, expected)| actual.abs_diff(expected) <= 1),
+        "authored road pixel {road:?} differs from {expected:?}",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
+fn authored_road_keeps_dark_palette_rgb_and_coverage_alpha() {
+    // A visible texel from retail TRGravelRoadS.dds. W3DShaderManager.cpp
+    // :2377-2391 alpha-blends its unmodified RGB at full diffuse.
+    let (road, terrain) = render_named_road_pixel([16, 8, 8, 253], 1.0);
+    assert_eq!(terrain, [255; 4]);
+    assert_road_pixel(road, [10, 10, 18]);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
+fn authored_road_uses_diffuse_below_the_old_lighting_floor() {
+    let (road, terrain) = render_named_road_pixel([180, 140, 100, 255], 0.2);
+    assert_road_pixel(road, [20, 28, 36]);
+    // The adjacent terrain is still shaded by the separate terrain pass.
+    assert_eq!(terrain, [89, 89, 89, 255]);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "requires a native GPU adapter"]
 fn consecutive_road_textures_batch_with_identical_lit_and_shrouded_pixels() {

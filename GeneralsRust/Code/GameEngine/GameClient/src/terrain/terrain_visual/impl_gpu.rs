@@ -1008,6 +1008,13 @@ impl TerrainVisualImpl {
                     return;
                 }
 
+                let diffuse_mode = if texture_name.is_empty()
+                    || matches!(road.road_type, RoadType::WoodenBridge { .. })
+                {
+                    RoadDiffuseMode::Compatibility
+                } else {
+                    RoadDiffuseMode::AuthoredRoad
+                };
                 let kind = segment
                     .properties
                     .texture_override
@@ -1043,9 +1050,11 @@ impl TerrainVisualImpl {
                                 global_lights,
                                 ambient_color,
                                 dynamic_lights,
+                                diffuse_mode,
                             );
                             road_batches.append(
                                 texture_name,
+                                diffuse_mode,
                                 &gpu_vertices,
                                 indices.iter().map(|&index| u32::from(index)),
                             );
@@ -1088,8 +1097,14 @@ impl TerrainVisualImpl {
                     global_lights,
                     ambient_color,
                     dynamic_lights,
+                    diffuse_mode,
                 );
-                road_batches.append(texture_name, &gpu_vertices, indices.iter().copied());
+                road_batches.append(
+                    texture_name,
+                    diffuse_mode,
+                    &gpu_vertices,
+                    indices.iter().copied(),
+                );
             });
 
         self.road_meshes = road_batches.finish();
@@ -1172,21 +1187,24 @@ impl TerrainVisualImpl {
             }),
             index_count: indices.len() as u32,
             texture_name: String::new(),
+            diffuse_mode: RoadDiffuseMode::Compatibility,
             bib_highlight: false,
         })
     }
 
-    /// C++ `RoadSegment::updateSegLighting`: `getStaticDiffuse` into vertex color.
-    /// `loadFloat4PtSection` leaves `diffuse=0`, which unpacks to black and
-    /// produced the pitch-black road strips. Floor at 0.35 so unlit verts stay visible.
+    /// C++ RoadSegment::updateSegLighting writes getStaticDiffuse into vertex color.
     fn apply_road_vertex_static_diffuse(
         vertices: &mut [OverlayGpuVertex],
         height_map: Option<&HeightMap>,
         global_lights: &[(Vec3, [f32; 3])],
         ambient_color: [f32; 3],
         dynamic_lights: &[DisplayDynamicLight],
+        diffuse_mode: RoadDiffuseMode,
     ) {
-        const COLOR_FLOOR: f32 = 0.35;
+        let minimum_diffuse = match diffuse_mode {
+            RoadDiffuseMode::Compatibility => 0.35,
+            RoadDiffuseMode::AuthoredRoad => 0.0,
+        };
         for vertex in vertices {
             let normal = height_map.map_or(Vec3::Y, |height_map| {
                 // W3DRoadBuffer.cpp updateSegLighting rounds each coordinate
@@ -1203,9 +1221,9 @@ impl TerrainVisualImpl {
             let lit =
                 Self::terrain_static_diffuse_from_normal(normal, global_lights, ambient_color);
             vertex.color = [
-                lit[0].max(COLOR_FLOOR),
-                lit[1].max(COLOR_FLOOR),
-                lit[2].max(COLOR_FLOOR),
+                lit[0].max(minimum_diffuse),
+                lit[1].max(minimum_diffuse),
+                lit[2].max(minimum_diffuse),
             ];
             let r = (vertex.color[0] * 255.0).round() as u32;
             let g = (vertex.color[1] * 255.0).round() as u32;
@@ -1385,14 +1403,24 @@ impl TerrainVisualImpl {
         if (!self.road_meshes.is_empty() || !self.bridge_meshes.is_empty())
             && let Some(road_bg) = self.road_texture_bind_group.as_ref()
         {
-            pass.set_pipeline(road_pipeline);
             pass.set_bind_group(0, camera_bg, &[]);
+            let mut current_pipeline: Option<&wgpu::RenderPipeline> = None;
             for mesh in self.road_meshes.iter().chain(self.bridge_meshes.iter()) {
-                let texture_bg = self
+                let texture = self
                     .road_named_bind_groups
-                    .get(&mesh.texture_name.to_ascii_lowercase())
-                    .map(|named| &named.bind_group)
-                    .unwrap_or(road_bg);
+                    .get(&mesh.texture_name.to_ascii_lowercase());
+                let pipeline = match (mesh.diffuse_mode, texture) {
+                    (RoadDiffuseMode::AuthoredRoad, Some(_)) => self
+                        .authored_road_pipeline
+                        .as_ref()
+                        .unwrap_or(road_pipeline),
+                    _ => road_pipeline,
+                };
+                if current_pipeline.is_none_or(|current| !std::ptr::eq(current, pipeline)) {
+                    pass.set_pipeline(pipeline);
+                    current_pipeline = Some(pipeline);
+                }
+                let texture_bg = texture.map_or(road_bg, |named| &named.bind_group);
                 pass.set_bind_group(1, texture_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -3393,6 +3421,7 @@ struct RoadMeshBatches<'a> {
     vertices: Vec<RoadVertex>,
     indices: Vec<u32>,
     texture_name: String,
+    diffuse_mode: RoadDiffuseMode,
     vertex_limit: usize,
     index_limit: usize,
 }
@@ -3407,6 +3436,7 @@ impl<'a> RoadMeshBatches<'a> {
             vertices: Vec::new(),
             indices: Vec::new(),
             texture_name: String::new(),
+            diffuse_mode: RoadDiffuseMode::Compatibility,
             vertex_limit: element_limit(std::mem::size_of::<RoadVertex>() as u64),
             index_limit: element_limit(std::mem::size_of::<u32>() as u64),
         }
@@ -3415,11 +3445,13 @@ impl<'a> RoadMeshBatches<'a> {
     fn append(
         &mut self,
         texture_name: &str,
+        diffuse_mode: RoadDiffuseMode,
         vertices: &[RoadVertex],
         indices: impl ExactSizeIterator<Item = u32>,
     ) {
         if !self.vertices.is_empty()
             && (!self.texture_name.eq_ignore_ascii_case(texture_name)
+                || self.diffuse_mode != diffuse_mode
                 || self.vertices.len().saturating_add(vertices.len()) > self.vertex_limit
                 || self.indices.len().saturating_add(indices.len()) > self.index_limit)
         {
@@ -3427,6 +3459,7 @@ impl<'a> RoadMeshBatches<'a> {
         }
         if self.vertices.is_empty() {
             self.texture_name = texture_name.to_owned();
+            self.diffuse_mode = diffuse_mode;
         }
         let base = self.vertices.len() as u32;
         self.vertices.extend_from_slice(vertices);
@@ -3441,6 +3474,7 @@ impl<'a> RoadMeshBatches<'a> {
             &self.indices,
         ) {
             mesh.texture_name = std::mem::take(&mut self.texture_name);
+            mesh.diffuse_mode = self.diffuse_mode;
             self.meshes.push(mesh);
         }
         self.vertices.clear();

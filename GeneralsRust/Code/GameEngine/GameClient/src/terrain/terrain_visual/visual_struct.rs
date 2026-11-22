@@ -147,6 +147,7 @@ pub struct TerrainVisualImpl {
     shroud_gpu: ShroudGpuState,
     water_named_bind_groups: HashMap<String, NamedWaterBind>,
     road_pipeline: Option<wgpu::RenderPipeline>,
+    authored_road_pipeline: Option<wgpu::RenderPipeline>,
     /// C++ W3DSnow _PresetAlphaShader DEPTH_WRITE_DISABLE.
     snow_pipeline: Option<wgpu::RenderPipeline>,
     /// Bind group 1: road albedo + repeat sampler (C++ RoadType::applyTexture).
@@ -428,12 +429,19 @@ struct WaterTrackIndexBuffer {
     buffer: Buffer,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RoadDiffuseMode {
+    Compatibility,
+    AuthoredRoad,
+}
+
 struct GpuRoadMesh {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     index_count: u32,
     /// Empty for overlays that use a separate bind group (bibs, scorch, tracks).
     texture_name: String,
+    diffuse_mode: RoadDiffuseMode,
     /// Faction-bib split (C++ renderBibs W3DBibBuffer.cpp:404-412): highlight
     /// bibs draw with the TBRedBib.tga bind group after the normal TBBib set.
     bib_highlight: bool,

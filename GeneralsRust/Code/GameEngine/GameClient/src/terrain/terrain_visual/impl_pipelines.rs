@@ -530,9 +530,14 @@ impl TerrainVisualImpl {
             })
         };
         self.road_pipeline = Some(ground_overlay_pipeline("Road Pipeline", "fs_main", true));
+        self.authored_road_pipeline = Some(ground_overlay_pipeline(
+            "Authored Road Pipeline",
+            "fs_texture_diffuse",
+            true,
+        ));
         self.tank_track_pipeline = Some(ground_overlay_pipeline(
             "Tank Track Pipeline",
-            "fs_tank_track",
+            "fs_texture_diffuse",
             false,
         ));
         self.snow_pipeline = Some(

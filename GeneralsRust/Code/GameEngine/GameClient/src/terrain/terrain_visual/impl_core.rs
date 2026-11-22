@@ -168,6 +168,7 @@ impl TerrainVisualImpl {
             shroud_gpu: ShroudGpuState::default(),
             water_named_bind_groups: HashMap::new(),
             road_pipeline: None,
+            authored_road_pipeline: None,
             snow_pipeline: None,
             road_texture_bind_group_layout: None,
             road_texture: None,
