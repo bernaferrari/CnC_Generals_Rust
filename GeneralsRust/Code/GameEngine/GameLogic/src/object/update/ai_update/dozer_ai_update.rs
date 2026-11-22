@@ -749,18 +749,7 @@ impl DozerAIUpdate {
                 valid: true,
                 location: position,
             };
-            let mut offset = position - target_pos;
-            offset.z = 0.0;
-            let len = (offset.x * offset.x + offset.y * offset.y).sqrt();
-            if len > 0.0 {
-                offset.x /= len;
-                offset.y /= len;
-            }
-            offset.x *= 5.0 * PATHFIND_CELL_SIZE_F;
-            offset.y *= 5.0 * PATHFIND_CELL_SIZE_F;
-            let mut end_pos = position;
-            end_pos.x += offset.x;
-            end_pos.y += offset.y;
+            let end_pos = Self::build_end_dock(&position, &target_pos);
             self.task_owner.docks[idx][DozerDockPoint::End.as_index()] = DozerDockPointInfo {
                 valid: true,
                 location: end_pos,
@@ -1805,30 +1794,15 @@ impl DozerAIUpdate {
         position_out: &mut Coord3D,
         owner_airborne: bool,
     ) -> bool {
-        let mut working = *target.get_position();
+        let (working, options) = Self::build_or_repair_position_query(
+            me.get_id(),
+            me.get_position(),
+            target.get_id(),
+            target.get_position(),
+            target.get_geometry_info().get_major_radius(),
+            owner_airborne,
+        );
         let mut best = working;
-        let mut offset = *me.get_position() - *target.get_position();
-        let len = (offset.x * offset.x + offset.y * offset.y + offset.z * offset.z).sqrt();
-        if len > 0.0 {
-            offset.x /= len;
-            offset.y /= len;
-            offset.z /= len;
-        }
-        let scale = target.get_geometry_info().get_major_radius() / 2.0;
-        working.x += offset.x * scale;
-        working.y += offset.y * scale;
-        working.z += offset.z * scale;
-
-        let mut options = FindPositionOptions::default();
-        options.min_radius = 0.0;
-        options.max_radius = 100.0;
-        options.source_to_path_to_dest_id = Some(me.get_id());
-        if owner_airborne {
-            options.ignore_object_id = Some(target.get_id());
-        } else {
-            options.max_z_delta = 10.0;
-        }
-
         let found = if let Some(partition) = ThePartitionManager::get() {
             partition.find_position_around_with_options(&working, &options, &mut best)
         } else {
@@ -1836,6 +1810,59 @@ impl DozerAIUpdate {
         };
         *position_out = if found { best } else { working };
         found
+    }
+
+    /// C++ DozerAIUpdate::findGoodBuildOrRepairPosition inputs, separated from
+    /// the process partition lookup so a receiving world can execute the same
+    /// search against its own partition and terrain.
+    pub(crate) fn build_or_repair_position_query(
+        owner_id: ObjectID,
+        owner_position: &Coord3D,
+        target_id: ObjectID,
+        target_position: &Coord3D,
+        target_major_radius: Real,
+        owner_airborne: bool,
+    ) -> (Coord3D, FindPositionOptions) {
+        let mut working = *target_position;
+        let mut offset = *owner_position - *target_position;
+        let len = (offset.x * offset.x + offset.y * offset.y + offset.z * offset.z).sqrt();
+        if len > 0.0 {
+            offset.x /= len;
+            offset.y /= len;
+            offset.z /= len;
+        }
+        let scale = target_major_radius / 2.0;
+        working.x += offset.x * scale;
+        working.y += offset.y * scale;
+        working.z += offset.z * scale;
+
+        let mut options = FindPositionOptions::default();
+        options.min_radius = 0.0;
+        options.max_radius = 100.0;
+        options.source_to_path_to_dest_id = Some(owner_id);
+        if owner_airborne {
+            options.ignore_object_id = Some(target_id);
+        } else {
+            options.max_z_delta = 10.0;
+        }
+        (working, options)
+    }
+
+    /// C++ DozerAIUpdate::newTask stores the End dock five path cells beyond
+    /// the Action dock, in the direction away from the target.
+    pub(crate) fn build_end_dock(action: &Coord3D, target: &Coord3D) -> Coord3D {
+        let mut offset = Coord3D::new(action.x - target.x, action.y - target.y, 0.0);
+        let len = (offset.x * offset.x + offset.y * offset.y).sqrt();
+        if len > 0.0 {
+            offset.x /= len;
+            offset.y /= len;
+            offset.x *= 5.0 * PATHFIND_CELL_SIZE_F;
+            offset.y *= 5.0 * PATHFIND_CELL_SIZE_F;
+        }
+        let mut end = *action;
+        end.x += offset.x;
+        end.y += offset.y;
+        end
     }
 
     pub fn find_good_build_or_repair_position_and_target(
@@ -2128,6 +2155,53 @@ impl Snapshotable for DozerAIUpdateModule {
 mod tests {
     use super::*;
     use crate::common::LocomotorSetType;
+
+    #[test]
+    fn build_dock_query_matches_cpp_bias_and_locomotor_options() {
+        let owner = Coord3D::new(100.0, 0.0, 0.0);
+        let target = Coord3D::new(0.0, 0.0, 0.0);
+        let (ground_center, ground) = DozerAIUpdate::build_or_repair_position_query(
+            17, &owner, 29, &target, 20.0, false,
+        );
+        assert_eq!(ground_center, Coord3D::new(10.0, 0.0, 0.0));
+        assert_eq!(ground.min_radius, 0.0);
+        assert_eq!(ground.max_radius, 100.0);
+        assert_eq!(ground.max_z_delta, 10.0);
+        assert_eq!(ground.source_to_path_to_dest_id, Some(17));
+        assert_eq!(ground.ignore_object_id, None);
+
+        let (air_center, air) = DozerAIUpdate::build_or_repair_position_query(
+            17, &owner, 29, &target, 20.0, true,
+        );
+        assert_eq!(air_center, ground_center);
+        assert_eq!(air.max_z_delta, FindPositionOptions::default().max_z_delta);
+        assert_eq!(air.source_to_path_to_dest_id, Some(17));
+        assert_eq!(air.ignore_object_id, Some(29));
+    }
+
+    #[test]
+    fn build_end_dock_is_five_cells_outward_and_preserves_action_height() {
+        let action = Coord3D::new(10.0, 20.0, 5.0);
+        let target = Coord3D::new(0.0, 0.0, -2.0);
+        let end = DozerAIUpdate::build_end_dock(&action, &target);
+        let distance = 5.0 * PATHFIND_CELL_SIZE_F;
+        let step_x = distance / 5.0_f32.sqrt();
+        assert!((end.x - (10.0 + step_x)).abs() < 0.0001);
+        assert!((end.y - (20.0 + 2.0 * step_x)).abs() < 0.0001);
+        assert_eq!(end.z, action.z);
+        let action_with_negative_zero = Coord3D::new(action.x, action.y, -0.0);
+        assert_eq!(
+            DozerAIUpdate::build_end_dock(&action_with_negative_zero, &target)
+                .z
+                .to_bits(),
+            (-0.0_f32).to_bits()
+        );
+        assert_eq!(
+            DozerAIUpdate::build_end_dock(&target, &target),
+            target,
+            "a zero XY direction leaves the End dock at the Action point",
+        );
+    }
 
     fn parse_field(data: &mut DozerAIUpdateModuleData, token: &str, values: &[&str]) {
         let field = DOZER_AI_UPDATE_FIELDS
