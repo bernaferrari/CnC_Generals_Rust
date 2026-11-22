@@ -160,24 +160,13 @@ impl ReplayPendingState {
         &mut self,
         player_index: i32,
         slot: u8,
-        kind: u8,
-        ids: &[ObjectId],
+        action: TeamSlotAction<'_>,
     ) {
         if self.recorder.is_playback() {
             return;
         }
-        let ty = match kind {
-            0 => GameMessageType::CreateTeamSlot(slot),
-            1 => GameMessageType::SelectTeamSlot(slot),
-            _ => GameMessageType::AddTeamSlot(slot),
-        };
-        let mut message = GameMessage::with_player(ty, player_index);
-        if kind == 0 {
-            for id in ids {
-                message.append_object_id_argument(object_id_to_message(*id));
-            }
-        }
-        self.recorded_messages.push(message);
+        self.recorded_messages
+            .push(team_slot_message(player_index, slot, action));
     }
 
     pub(crate) fn logic_crc_due_owned(&self, frame: u32) -> bool {

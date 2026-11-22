@@ -41,24 +41,30 @@ impl CnCGameEngine {
 
     /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
     pub(crate) fn record_control_group_create(&mut self, group_num: u8, ids: &[ObjectId]) {
+        use crate::command_system::TeamSlotAction;
+
         if let Some(local_player) = self.game_logic.local_player_id() {
             self.game_logic.replay_pending.record_team_slot_owned(
                 local_player as i32,
                 group_num,
-                0,
-                ids,
+                TeamSlotAction::Create(ids),
             );
         }
     }
 
     /// C++ `Player::processSelectTeamGameMessage` / `processAddTeamGameMessage`.
     fn record_control_group_select(&mut self, group_num: u8, add: bool) {
+        use crate::command_system::TeamSlotAction;
+
         if let Some(local_player) = self.game_logic.local_player_id() {
             self.game_logic.replay_pending.record_team_slot_owned(
                 local_player as i32,
                 group_num,
-                if add { 2 } else { 1 },
-                &[],
+                if add {
+                    TeamSlotAction::Add
+                } else {
+                    TeamSlotAction::Select
+                },
             );
         }
     }

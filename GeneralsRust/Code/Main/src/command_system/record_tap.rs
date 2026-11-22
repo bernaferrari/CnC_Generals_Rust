@@ -54,6 +54,28 @@ pub enum ReplayTeamOp {
     },
 }
 
+/// Control-group commands recorded from a live selection.
+pub enum TeamSlotAction<'a> {
+    Create(&'a [ObjectId]),
+    Select,
+    Add,
+}
+
+fn team_slot_message(player_index: i32, slot: u8, action: TeamSlotAction<'_>) -> GameMessage {
+    let ty = match action {
+        TeamSlotAction::Create(_) => GameMessageType::CreateTeamSlot(slot),
+        TeamSlotAction::Select => GameMessageType::SelectTeamSlot(slot),
+        TeamSlotAction::Add => GameMessageType::AddTeamSlot(slot),
+    };
+    let mut message = GameMessage::with_player(ty, player_index);
+    if let TeamSlotAction::Create(ids) = action {
+        for id in ids {
+            message.append_object_id_argument(object_id_to_message(*id));
+        }
+    }
+    message
+}
+
 fn intern_name(name: &str) -> u32 {
     game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(name)
 }
@@ -516,24 +538,12 @@ pub fn host_recorder_is_playback() -> bool {
 }
 
 /// C++ SelectionXlat.cpp:1047 MSG_CREATE/SELECT/ADD_TEAM0+group.
-/// `kind`: 0=create, 1=select, 2=add.
-pub fn tap_host_team_slot_for_recorder(slot: u8, kind: u8, ids: &[ObjectId]) {
+pub fn tap_host_team_slot_for_recorder(slot: u8, action: TeamSlotAction<'_>) {
     install_host_replay_bridges();
     if with_recorder(|recorder| recorder.is_playback()).unwrap_or(false) {
         return;
     }
-    let message_type = match kind {
-        0 => GameMessageType::CreateTeamSlot(slot),
-        1 => GameMessageType::SelectTeamSlot(slot),
-        _ => GameMessageType::AddTeamSlot(slot),
-    };
-    let mut message = GameMessage::with_player(message_type, host_local_player_index());
-    if kind == 0 {
-        for id in ids {
-            message.append_object_id_argument(object_id_to_message(*id));
-        }
-    }
-    append_to_command_list(message);
+    append_to_command_list(team_slot_message(host_local_player_index(), slot, action));
 }
 
 fn host_local_player_index() -> i32 {

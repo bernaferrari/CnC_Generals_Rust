@@ -321,7 +321,10 @@ fn tap_create_team_slot_records_object_ids() {
         "tap_create_team_slot_records_object_ids",
         || {
             // C++ SelectionXlat.cpp:1047 MSG_CREATE_TEAM0+group carries object IDs.
-            tap_host_team_slot_for_recorder(3, 0, &[ObjectId(11), ObjectId(12)]);
+            tap_host_team_slot_for_recorder(
+                3,
+                TeamSlotAction::Create(&[ObjectId(11), ObjectId(12)]),
+            );
             let snap = snapshot_command_list();
             let team = snap
                 .iter()
@@ -331,6 +334,26 @@ fn tap_create_team_slot_records_object_ids() {
             let ids = object_ids_from_message(team);
             assert_eq!(ids, vec![ObjectId(11), ObjectId(12)]);
         },
+    );
+}
+
+#[test]
+fn recorded_team_slot_actions_replay_with_the_original_player_and_selection() {
+    let mut recording = ReplayPendingState::default();
+    let ids = [ObjectId(11), ObjectId(12)];
+    recording.record_team_slot_owned(4, 3, TeamSlotAction::Create(&ids));
+    recording.record_team_slot_owned(4, 3, TeamSlotAction::Select);
+    recording.record_team_slot_owned(4, 3, TeamSlotAction::Add);
+
+    let mut replay = ReplayPendingState::default();
+    apply_replay_messages_to_host(&mut replay, &recording.recorded_messages);
+    assert_eq!(
+        replay.take_team_ops(),
+        [
+            ReplayTeamOp::Create { player_index: 4, slot: 3, ids: ids.into() },
+            ReplayTeamOp::Select { player_index: 4, slot: 3 },
+            ReplayTeamOp::Add { player_index: 4, slot: 3 },
+        ]
     );
 }
 
