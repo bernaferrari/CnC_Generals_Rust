@@ -98,8 +98,6 @@ impl WindowManager {
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
         selected: Option<&mut GameWindow>,
     ) {
-        const GGM_LEFT_DRAG: u32 = 16384;
-        const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
         if let Some(old) = self.lone_window.as_ref().and_then(|w| w.upgrade()) {
             let same = window.map(|w| Rc::ptr_eq(&old, w)).unwrap_or(false);
             if !same {
@@ -317,7 +315,8 @@ impl WindowManager {
 
         // C++ GameWindowManager.cpp:830-878 routes captured input through
         // the captor branch and skips normal lone-popup dismissal and
-        // left-down grabbing (1118-1161).
+        // left-down grabbing (1118-1161). Normal input over empty space
+        // also skips both because there is no target to dispatch to.
         if capture_window.is_none() && target_window.is_some() {
             self.close_lone_window_after_mouse_message(
                 old_lone.as_ref(),
@@ -362,20 +361,6 @@ impl WindowManager {
             );
         }
 
-        if target_window.is_none()
-            && matches!(
-                msg,
-                WindowMessage::LeftUp | WindowMessage::MiddleUp | WindowMessage::RightUp
-            )
-        {
-            self.close_lone_window_after_mouse_message(
-                old_lone.as_ref(),
-                None,
-                msg,
-                context,
-                emitted_messages,
-            );
-        }
         if handled_window.is_some() {
             WindowInputReturnCode::Used
         } else {

@@ -1007,7 +1007,7 @@ fn handled_mouse_down_outside_lone_window_closes_it_like_cpp() {
     {
         let close_count = Rc::clone(&close_count);
         lone.borrow_mut().set_system_callback(move |_, msg, _, _| {
-            if msg == WindowMessage::User(16389) {
+            if msg == WindowMessage::User(GGM_CLOSE) {
                 *close_count.borrow_mut() += 1;
                 WindowMsgHandled::Handled
             } else {
@@ -1031,6 +1031,47 @@ fn handled_mouse_down_outside_lone_window_closes_it_like_cpp() {
 }
 
 #[test]
+fn mouse_release_over_empty_space_preserves_lone_popup_like_cpp() {
+    let mut manager = WindowManager::new();
+    let lone = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    manager.test_create_window(None, 200, 0, 100, 100).unwrap();
+    let close_count = Rc::new(Cell::new(0));
+    let callback_count = Rc::clone(&close_count);
+    lone.borrow_mut().set_system_callback(move |_, msg, _, _| {
+        if msg == WindowMessage::User(GGM_CLOSE) {
+            callback_count.set(callback_count.get() + 1);
+            WindowMsgHandled::Handled
+        } else {
+            WindowMsgHandled::Ignored
+        }
+    });
+    manager.test_set_lone_window(Some(&lone));
+
+    for release in [
+        WindowMessage::LeftUp,
+        WindowMessage::MiddleUp,
+        WindowMessage::RightUp,
+    ] {
+        assert_eq!(
+            manager.test_process_mouse_event(release, 150, 10, 0),
+            WindowInputReturnCode::NotUsed
+        );
+        assert!(manager.lone_window.is_some(), "{release:?} over empty space");
+        assert_eq!(close_count.get(), 0);
+    }
+
+    assert_eq!(
+        manager.test_process_mouse_event(WindowMessage::LeftUp, 210, 10, 0),
+        WindowInputReturnCode::NotUsed
+    );
+    assert!(
+        manager.lone_window.is_none(),
+        "a release over a window dismisses the popup"
+    );
+    assert_eq!(close_count.get(), 1);
+}
+
+#[test]
 fn captured_left_down_preserves_lone_popup_and_skips_grab_like_cpp() {
     crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
@@ -1041,7 +1082,7 @@ fn captured_left_down_preserves_lone_popup_and_skips_grab_like_cpp() {
     {
         let close_count = Rc::clone(&close_count);
         lone_popup.borrow_mut().set_system_callback(move |_, msg, _, _| {
-            if msg == WindowMessage::User(16389) {
+            if msg == WindowMessage::User(GGM_CLOSE) {
                 *close_count.borrow_mut() += 1;
                 WindowMsgHandled::Handled
             } else {
@@ -1086,7 +1127,7 @@ fn lone_window_itself_is_not_its_own_child_like_cpp() {
     {
         let close_count = Rc::clone(&close_count);
         lone.borrow_mut().set_system_callback(move |_, msg, _, _| {
-            if msg == WindowMessage::User(16389) {
+            if msg == WindowMessage::User(GGM_CLOSE) {
                 *close_count.borrow_mut() += 1;
                 WindowMsgHandled::Handled
             } else {
@@ -1119,7 +1160,7 @@ fn strict_lone_window_child_keeps_lone_window_open_like_cpp() {
     {
         let close_count = Rc::clone(&close_count);
         lone.borrow_mut().set_system_callback(move |_, msg, _, _| {
-            if msg == WindowMessage::User(16389) {
+            if msg == WindowMessage::User(GGM_CLOSE) {
                 *close_count.borrow_mut() += 1;
                 WindowMsgHandled::Handled
             } else {
@@ -2224,7 +2265,7 @@ fn tab_navigation_clears_lone_window_like_cpp() {
     {
         let close_count = Rc::clone(&close_count);
         lone.borrow_mut().set_system_callback(move |_, msg, _, _| {
-            if msg == WindowMessage::User(16389) {
+            if msg == WindowMessage::User(GGM_CLOSE) {
                 *close_count.borrow_mut() += 1;
                 WindowMsgHandled::Handled
             } else {
