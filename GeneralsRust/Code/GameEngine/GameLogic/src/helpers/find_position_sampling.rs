@@ -2,13 +2,13 @@
 //! admission borrowed from the receiving terrain/pathfinder/partition owner.
 use crate::common::{Coord3D, Real};
 
-pub(crate) fn find_position_around_candidates(
+pub(crate) fn find_position_around_candidates<T>(
     center: Coord3D,
     min_radius: Real,
     max_radius: Real,
     start_angle: Real,
-    mut admit: impl FnMut(Coord3D, Real) -> Option<Coord3D>,
-) -> Option<Coord3D> {
+    mut admit: impl FnMut(Coord3D, Real) -> Option<T>,
+) -> Option<T> {
     const RING_SPACING: Real = 5.0;
     const TWO_PI: Real = std::f32::consts::PI * 2.0;
     let mut dist = min_radius;
@@ -75,7 +75,7 @@ mod tests {
     fn rejected_fixed_radius_has_no_other_side_or_ring_before_dozer_fallback() {
         let target = Coord3D::new(11.0, 29.0, 47.0);
         let mut checked = 0;
-        let found = find_position_around_candidates(target, 12.0, 12.0, 0.3, |_, _| {
+        let found = find_position_around_candidates::<Coord3D>(target, 12.0, 12.0, 0.3, |_, _| {
             checked += 1;
             None
         });

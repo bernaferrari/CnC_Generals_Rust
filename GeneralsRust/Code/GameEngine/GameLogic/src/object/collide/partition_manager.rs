@@ -173,25 +173,25 @@ impl CellCoord {
     /// in radius zero. DiscreteCircle is for threat/value rasterization;
     /// using it here misses candidates across a cell boundary.
     pub fn cells_in_radius(&self, radius: f32) -> Vec<CellCoord> {
+        self.iter_cells_in_radius(radius).collect()
+    }
+
+    fn iter_cells_in_radius(self, radius: f32) -> impl Iterator<Item = CellCoord> {
         let cell_radius = super::partition_coi::world_to_cell_dist(radius.max(0.0));
         let extent = cell_radius + 1;
         let radius_squared = i64::from(cell_radius) * i64::from(cell_radius);
-        let mut cells = Vec::new();
-        for dy in -extent..=extent {
-            for dx in -extent..=extent {
+        (-extent..=extent).flat_map(move |dy| {
+            (-extent..=extent).filter_map(move |dx| {
                 // Equivalent to C++'s minimum of the16 corner distances.
                 // Cell widths cancel; touching footprints have zero gap.
                 let gap_x = i64::from((dx.abs() - 1).max(0));
                 let gap_y = i64::from((dy.abs() - 1).max(0));
-                if gap_x * gap_x + gap_y * gap_y <= radius_squared {
-                    cells.push(CellCoord {
-                        x: self.x + dx,
-                        y: self.y + dy,
-                    });
-                }
-            }
-        }
-        cells
+                (gap_x * gap_x + gap_y * gap_y <= radius_squared).then(|| CellCoord {
+                    x: self.x + dx,
+                    y: self.y + dy,
+                })
+            })
+        })
     }
 }
 
@@ -594,6 +594,19 @@ impl PartitionManager {
             filters,
             super::partition_distance::DistanceCalculationType::FromCenter2D,
         )
+    }
+
+    /// IDs in the footprint of a nearby query before distance and shape
+    /// filtering. An object that touches several cells may occur repeatedly.
+    pub(crate) fn collision_candidates_near(
+        &self,
+        center: &Coord3D,
+        radius: f32,
+    ) -> impl Iterator<Item = ObjectId> + '_ {
+        CellCoord::from_world_pos(center)
+            .iter_cells_in_radius(radius)
+            .filter_map(|cell| self.cells.get(&cell))
+            .flat_map(|cell| cell.objects.iter().copied())
     }
 
     pub fn find_objects_in_radius_dc(

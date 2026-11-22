@@ -1695,6 +1695,90 @@ fn admit_physical_construction_builder(
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
+fn build_assistant_dozer_dock_checks_receiving_path_reachability() {
+    use crate::ai::pathfind_astar::PathfindCellType;
+    use crate::system::build_assistant_bridge::GameLogicBuildAssistantBackend;
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::test_process::{TestProcess, run_bounded};
+    use game_engine::common::random_value::SessionRandom;
+    use game_engine::common::system::build_assistant::{BuildAssistantBackend, Coord3D as BuildPosition};
+
+    const NAME: &str = concat!(module_path!(), "::build_assistant_dozer_dock_checks_receiving_path_reachability");
+    if let TestProcess::ParentVerified = run_bounded(
+        NAME.strip_prefix("gamelogic::").unwrap_or(NAME),
+        "GENERALS_CORE_BUILD_DOCK_CELL_CHILD",
+    ) {
+        return;
+    }
+
+    let receiving = new_for_world();
+    let peer = new_for_world();
+    let actor = admit_physical_construction_builder(&receiving, false);
+    let peer_actor = admit_physical_construction_builder(&peer, false);
+    let id = actor.read().unwrap().get_id();
+    assert_eq!(peer_actor.read().unwrap().get_id(), id);
+    for world in [&receiving, &peer] {
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 40;
+        map.height = 40;
+        map.heightmap = vec![0; 1600];
+        map.boundaries = vec![crate::common::ICoord2D::new(40, 40)];
+        let terrain = world.services().terrain();
+        terrain.write().unwrap().try_load_map_geometry(map).unwrap();
+        world.ai().read().unwrap().pathfinder().unwrap().write().unwrap()
+            .rebuild_from_terrain(&terrain.read().unwrap());
+    }
+    let preferred = Coord3D::new(276., 105., 0.);
+    let receiving_pathfinder = receiving.ai().read().unwrap().pathfinder().unwrap();
+    // A path cell can be blocked even when the height map has clear line of sight.
+    // Cliff remains classified through placement and its local pinch refresh.
+    receiving_pathfinder.write().unwrap().set_cell_type_at(&preferred, PathfindCellType::Cliff);
+
+    let place = |world: &Arc<EngineStores>, actor: &Arc<RwLock<Object>>, random: &SessionRandom| {
+        let scaffold = with_active_stores(world, || {
+            world.services().common().with_logic_rng_owner(random.clone(), || {
+                GameLogicBuildAssistantBackend.build_object_now(
+                    Some(id), "PhysicalConstructionSite", &BuildPosition { x: 290., y: 105., z: 0. }, 0., 0,
+                ).expect("real BuildAssistant order")
+            })
+        });
+        let parent = actor.read().unwrap().get_ai_update_interface().unwrap();
+        let mut parent = parent.lock().unwrap();
+        let dozer = parent.get_dozer_ai_update_interface_mut().unwrap();
+        assert_eq!(dozer.active_build_target(), Some(scaffold));
+        (scaffold, dozer.construction_move_for_test().unwrap().0)
+    };
+
+    let random = SessionRandom::default();
+    let peer_random = SessionRandom::default();
+    for stream in [&random, &peer_random] {
+        stream.script_unit_real(0.5); // C++ first angle is pi, towards the builder.
+        stream.script_unit_real(0.25);
+    }
+    let (scaffold, dock) = {
+        let _held_peer_actor = peer_actor.write().unwrap();
+        place(&receiving, &actor, &random)
+    };
+    assert_eq!(random.script_remaining(), 1);
+    assert_eq!(peer_random.script_remaining(), 2);
+    let (peer_scaffold, peer_dock) = place(&peer, &peer_actor, &peer_random);
+    assert_eq!(peer_random.script_remaining(), 1);
+    assert_eq!(scaffold, peer_scaffold);
+    assert!(peer_dock.distance(preferred) < 0.01, "unexpected original first dock {peer_dock:?}");
+    assert_eq!(
+        receiving_pathfinder.read().unwrap().get_cell_type_at(&preferred),
+        Some(PathfindCellType::Cliff),
+    );
+    assert_eq!(
+        receiving_pathfinder.read().unwrap().get_cell_type_at(&dock),
+        Some(PathfindCellType::Clear),
+        "the receiving match chose its blocked dock {dock:?}",
+    );
+    assert!(dock.distance(peer_dock) > 1.0);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
 fn installed_dozer_motive_force_wakes_physics_without_postponing_its_due_frame() {
     use crate::test_process::{TestProcess, run_bounded};
 

@@ -1764,6 +1764,10 @@ impl Pathfinder {
         &mut self.inner
     }
 
+    pub(crate) fn pathfinding_system(&self) -> &pathfind_complete::PathfindingSystem {
+        &self.inner
+    }
+
     pub fn process_pathfind_queue(&mut self) -> Result<(), AiError> {
         self.inner
             .process_queue_with_ai(PATHFIND_CELLS_PER_FRAME, |ai, pathfinder| {

@@ -104,6 +104,18 @@ pub trait DozerAIUpdateInterface: Send + Sync {
         None
     }
 
+    /// Admit a first authored Build after placement and dock selection.
+    fn admit_placed_build(
+        &mut self,
+        _scaffold: &Object,
+        _dock: Coord3D,
+        _total_build_frames: u32,
+        _max_health: f32,
+        _frame: u32,
+    ) -> Result<(), String> {
+        Err("Dozer has no placed Build admission".into())
+    }
+
     #[cfg(test)]
     fn owned_state_observation_for_test(
         &self,

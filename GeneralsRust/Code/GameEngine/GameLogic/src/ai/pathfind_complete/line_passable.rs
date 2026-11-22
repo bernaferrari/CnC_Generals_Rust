@@ -993,9 +993,23 @@ impl PathfindingSystem {
         ignore_obstacle_id: Option<ObjectID>,
         observations: Option<&PathfindObservations<'_>>,
     ) -> bool {
-        let destination_layer = observations.map_or(PathfindLayerEnum::Ground, |world| {
-            PathfindLayerEnum::from_u32(world.terrain.get_layer_for_destination(to) as u32)
+        self.client_safe_quick_does_path_exist_with_terrain(
+            surfaces, from, to, ignore_obstacle_id, observations.map(|world| world.terrain),
+        )
+    }
+
+    pub(crate) fn client_safe_quick_does_path_exist_with_terrain(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        from: &Coord3D,
+        to: &Coord3D,
+        ignore_obstacle_id: Option<ObjectID>,
+        terrain: Option<&crate::terrain::TerrainLogic>,
+    ) -> bool {
+        let layer_at = |position| terrain.map_or(PathfindLayerEnum::Ground, |terrain| {
+            PathfindLayerEnum::from_u32(terrain.get_layer_for_destination(position) as u32)
         });
+        let destination_layer = layer_at(to);
         // C++ validMovementPosition uses truncating coordinates; worldToCell
         // below uses floor and clips before reading the zone cells.
         let destination = Self::world_to_cell_trunc(to);
@@ -1008,9 +1022,7 @@ impl PathfindingSystem {
         ) {
             return false;
         }
-        let from_layer = observations.map_or(PathfindLayerEnum::Ground, |world| {
-            PathfindLayerEnum::from_u32(world.terrain.get_layer_for_destination(from) as u32)
-        });
+        let from_layer = layer_at(from);
         let clipped = |position: &Coord3D| {
             let coord = GridCoord::from_world(position);
             GridCoord::new(

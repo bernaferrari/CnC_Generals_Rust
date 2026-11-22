@@ -27,17 +27,6 @@ pub struct OwnedDozerBuildCompletion {
 
 /// AI update interface (matching C++ AIUpdateInterface)
 pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
-    #[cfg(test)]
-    fn install_owned_dozer_build_for_test(
-        &mut self,
-        _target: crate::common::ObjectID,
-        _start: crate::common::Coord3D,
-        _action: crate::common::Coord3D,
-        _end: crate::common::Coord3D,
-        _frames: u32,
-    ) -> Result<(), String> {
-        Err("AI has no Dozer Build fixture admission".into())
-    }
     /// Read this frame's completion handoff so the caller can release its AI
     /// borrow before running the external effects.
     fn pending_owned_dozer_build_completion(&self) -> Option<OwnedDozerBuildCompletion> {

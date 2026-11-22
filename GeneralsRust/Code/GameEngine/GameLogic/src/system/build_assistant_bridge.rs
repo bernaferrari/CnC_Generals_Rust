@@ -6,11 +6,14 @@ use crate::common::Coord3D as LogicCoord3D;
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::object::contain::transport_contain::selected_locomotor_is_airborne;
 use crate::object::production::construction::FoundationValidator;
+use crate::object::update::ai_update::dozer_ai_update::DozerTask;
 use crate::player::player_list;
 use game_engine::common::system::build_assistant::{
     BuildAssistantBackend, Coord3D, LegalBuildCode, LocalLegalToBuildOptions, ObjectID,
     set_build_assistant_backend,
 };
+
+mod dozer_dock;
 
 #[derive(Debug, Default)]
 pub struct GameLogicBuildAssistantBackend;
@@ -25,17 +28,10 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
         owning_player: u32,
     ) -> Option<ObjectID> {
         let template = TheThingFactory::find_template(template_name)?;
+        let builder = builder_id.and_then(TheGameLogic::find_object_by_id);
 
-        let team = if let Some(builder_id) = builder_id {
-            if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
-                if let Ok(guard) = builder.read() {
-                    guard.get_team()
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+        let team = if builder_id.is_some() {
+            builder.as_ref()?.read().ok()?.get_team()
         } else {
             let __player_list_arc = player_list();
         if let Ok(list) = __player_list_arc.read() {
@@ -63,25 +59,22 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
             factory.new_object(Arc::clone(&template), &team).ok()?
         };
 
-        let mut build_max_health = 0.0;
-        if let Ok(guard) = new_object.read() {
-            if let Some(body) = guard.get_body_module() {
-                if let Ok(body_guard) = body.lock() {
-                    build_max_health = body_guard.get_max_health();
-                }
-            }
-        }
+        let (placement_world, build_max_health) = {
+            let object = new_object.read().ok()?;
+            let max_health = object.get_body_module()
+                .and_then(|body| body.lock().ok().map(|body| body.get_max_health()))
+                .unwrap_or(0.0);
+            (object.owning_world_services(), max_health)
+        };
 
         if let Ok(mut guard) = new_object.write() {
             let _ = guard.set_position(&LogicCoord3D::new(pos.x, pos.y, pos.z));
             let _ = guard.set_orientation(angle as f32);
-            if let Some(builder_id) = builder_id {
-                if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
-                    if let Ok(builder_guard) = builder.read() {
-                        guard.set_producer(Some(&*builder_guard));
-                        guard.set_builder(Some(&*builder_guard));
-                    }
-                }
+            if let Some(builder) = &builder
+                && let Ok(builder_guard) = builder.read()
+            {
+                guard.set_producer(Some(&*builder_guard));
+                guard.set_builder(Some(&*builder_guard));
             }
             guard.set_construction_percent(0.0);
             if build_max_health > 0.0 {
@@ -91,7 +84,9 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
 
         // C++ DozerAIUpdate.cpp:1692-1696 / WorkerAIUpdate.cpp:404-408 —
         // flattenTerrain then snap Z to getGroundHeight before pathfind add.
-        let terrain = crate::terrain::get_terrain_logic();
+        let terrain = placement_world.as_ref()
+            .map(|world| Arc::clone(world.terrain()))
+            .unwrap_or_else(crate::terrain::get_terrain_logic);
         let ground_height = terrain.write().ok().map(|mut terrain| {
             terrain.flatten_terrain(&new_object);
             terrain.get_ground_height(pos.x, pos.y, None)
@@ -116,65 +111,70 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
             let _ = world.destroy_logic_object(id);
             return None;
         }
+        let receiving_core = placed.classified_pathfinding_owner().cloned();
+        let scaffold_id = placed.get_id();
         drop(placed);
 
-        if let Some(builder_id) = builder_id {
-            if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
-                if let Ok(builder_guard) = builder.read() {
-                    let total_build_frames = {
-                        let player_id_opt = builder_guard.get_controlling_player_id();
-                        if let Some(id) = player_id_opt {
-                            let __player_list_arc = player_list();
-        if let Ok(list) = __player_list_arc.read() {
-                                if let Some(player) = list.get_player(id as i32) {
-                                    if let Ok(player_guard) = player.read() {
-                                        template.calc_time_to_build(Some(&*player_guard)).max(1)
-                                            as u32
-                                    } else {
-                                        template.calc_time_to_build(None).max(1) as u32
-                                    }
-                                } else {
-                                    template.calc_time_to_build(None).max(1) as u32
+        if let Some(builder) = builder
+            && let Ok(builder_guard) = builder.read()
+        {
+            let ai = builder_guard.get_ai_update_interface();
+            let builder_id = builder_guard.get_id();
+            let position = *builder_guard.get_position();
+            let player_id = builder_guard.get_controlling_player_id();
+            let services = builder_guard.owning_world_services();
+            let core = receiving_core.filter(|core| {
+                services.as_ref().is_some_and(|world| Arc::ptr_eq(core.services(), world))
+            });
+            drop(builder_guard);
+
+            let roster = services.as_ref()
+                .map(|world| Arc::clone(world.players()))
+                .unwrap_or_else(player_list);
+            let player = player_id.and_then(|id| roster.read().ok()?.get_player(id as i32).cloned());
+            let player = player.as_ref().and_then(|player| player.read().ok());
+            let total_build_frames = template
+                .calc_time_to_build(player.as_deref().map(|player| player as &dyn std::any::Any))
+                .max(1) as u32;
+            drop(player);
+            let frame = core.as_ref().map(|core| core.services().logic_frame());
+            if let Some(ai) = ai
+                && let Ok(mut ai) = ai.try_lock()
+            {
+                let airborne = selected_locomotor_is_airborne(&*ai);
+                if let Some(worker) = ai.get_worker_ai_update_interface_mut() {
+                    worker.set_build_task(scaffold_id, total_build_frames, build_max_health, false, airborne);
+                } else {
+                    let surfaces = core.as_ref().and_then(|_| ai.get_locomotor_set_clone())
+                        .map(|locomotors| locomotors.get_valid_surfaces());
+                    if let Some(dozer) = ai.get_dozer_ai_update_interface_mut() {
+                        if let (Some(core), Some(frame), Some(surfaces)) = (core, frame, surfaces)
+                            && !dozer.is_any_task_pending()
+                            && dozer.get_current_task() == DozerTask::Invalid
+                        {
+                            let source = dozer_dock::DozerDockSource { id: builder_id, position, airborne, surfaces };
+                            let placed_order = dozer_dock::find_build_dock(&core, &source, &new_object)
+                                .and_then(|dock| {
+                                    let scaffold = new_object.try_read().map_err(|_| "placed scaffold borrowed")?;
+                                    dozer.admit_placed_build(&scaffold, dock, total_build_frames, build_max_health, frame)
+                                });
+                            if let Err(error) = placed_order {
+                                log::error!("cannot admit placed Dozer construction {scaffold_id}: {error}");
+                                drop(ai);
+                                if let Err(error) = core.services().destroy_logic_object(scaffold_id) {
+                                    log::error!("cannot retire rejected scaffold {scaffold_id}: {error}");
                                 }
-                            } else {
-                                template.calc_time_to_build(None).max(1) as u32
+                                return None;
                             }
                         } else {
-                            template.calc_time_to_build(None).max(1) as u32
-                        }
-                    };
-
-                    let ai = builder_guard.get_ai_update_interface();
-                    drop(builder_guard);
-                    if let Some(ai) = ai {
-                        if let Ok(mut ai_guard) = ai.try_lock() {
-                            let owner_airborne = selected_locomotor_is_airborne(&*ai_guard);
-                            if let Some(worker_ai) = ai_guard.get_worker_ai_update_interface_mut() {
-                                worker_ai.set_build_task(
-                                    new_object.read().map(|g| g.get_id()).unwrap_or(0),
-                                    total_build_frames,
-                                    build_max_health,
-                                    false,
-                                    owner_airborne,
-                                );
-                            } else if let Some(dozer_ai) =
-                                ai_guard.get_dozer_ai_update_interface_mut()
-                            {
-                                dozer_ai.set_build_task(
-                                    new_object.read().map(|g| g.get_id()).unwrap_or(0),
-                                    total_build_frames,
-                                    build_max_health,
-                                    false,
-                                    owner_airborne,
-                                );
-                            }
+                            dozer.set_build_task(scaffold_id, total_build_frames, build_max_health, false, airborne);
                         }
                     }
                 }
             }
         }
 
-        new_object.read().ok().map(|guard| guard.get_id())
+        Some(scaffold_id)
     }
 
     fn is_location_legal_to_build(

@@ -189,7 +189,6 @@ fn core_frame_completes_the_receiving_dozer_scaffold_once_and_sends_it_to_end_do
     let start_dock = position - Coord3D::new(30.0, 0.0, 0.0);
     // Original newTask uses one location for Start and Action and places
     // End five path cells outward. Reproduce the actor parked one unit short.
-    let action_dock = start_dock;
     let end_dock = start_dock - Coord3D::new(50.0, 0.0, 0.0);
     let builder = Arc::clone(&game.source);
     game.operate(0, |world| {
@@ -202,9 +201,8 @@ fn core_frame_completes_the_receiving_dozer_scaffold_once_and_sends_it_to_end_do
         scaffold.set_status(ObjectStatusTypes::UnderConstruction.into(), true);
     }
     let runtime = ai(&game);
-    runtime.lock().unwrap().install_owned_dozer_build_for_test(
-        scaffold_id, start_dock, action_dock, end_dock, 3,
-    ).unwrap();
+    runtime.lock().unwrap().get_dozer_ai_update_interface_mut().unwrap()
+        .admit_placed_build(&game.target.read().unwrap(), start_dock, 3, 0.0, 1).unwrap();
     let frame = |game: &mut NativeMatch, frame| game.with_native_services(frame, |factory, players, services, scheduler| {
         crate::modules::ai_native_world::update_game_logic_with_native_modules(factory, players, services, scheduler, || None)
     }).unwrap();

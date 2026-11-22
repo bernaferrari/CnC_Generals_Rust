@@ -35,20 +35,6 @@ impl AIUpdateInterface for UnitAIUpdate {
             .is_doing_ground_movement_for_owner_with_world(object, Some(world))
     }
 
-    #[cfg(test)]
-    fn install_owned_dozer_build_for_test(
-        &mut self,
-        target: ObjectID,
-        start: Coord3D,
-        action: Coord3D,
-        end: Coord3D,
-        frames: u32,
-    ) -> Result<(), String> {
-        self.runtime.components.dozer_ai.as_mut()
-            .ok_or("Dozer Build fixture has no installed Dozer")?
-            .install_owned_build_task_for_test(target, start, action, end, frames);
-        Ok(())
-    }
 
     fn pending_owned_dozer_build_completion(
         &self,

@@ -527,22 +527,28 @@ impl DozerAIUpdate {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn install_owned_build_task_for_test(
+    fn install_placed_build_task(
         &mut self,
         target_id: ObjectID,
         start: Coord3D,
-        action: Coord3D,
-        end: Coord3D,
+        target_position: Coord3D,
         total_build_frames: u32,
+        max_health: f32,
+        frame: u32,
     ) {
         let task = DozerTask::Build;
-        self.task_owner.requests[task.as_index()] = DozerTaskEntry {
+        let task_index = task.as_index();
+        self.task_owner.requests[task_index] = DozerTaskEntry {
             target_id,
-            order_frame: 1,
+            order_frame: frame,
         };
-        for (point, position) in [start, action, end].into_iter().enumerate() {
-            self.task_owner.docks[task.as_index()][point] = DozerDockPointInfo {
+        let end = Self::build_end_dock(&start, &target_position);
+        for (point, position) in [
+            (DozerDockPoint::Start, start),
+            (DozerDockPoint::Action, start),
+            (DozerDockPoint::End, end),
+        ] {
+            self.task_owner.docks[task_index][point.as_index()] = DozerDockPointInfo {
                 valid: true,
                 location: position,
             };
@@ -550,7 +556,7 @@ impl DozerAIUpdate {
         self.task_owner.current = task;
         self.task_owner.primary.state = crate::object::update::ai_update::dozer_ai_update::owned_state::PrimaryState::Idle;
         self.task_owner.primary.control.initialized = true;
-        self.task_owner.primary.actions[task.as_index()].reset();
+        self.task_owner.primary.actions[task_index].reset();
         self.task_owner.build_sub_task = DozerBuildSubTask::SelectBuildDockLocation;
         self.task_owner.construct_is_rebuild = false;
         self.dozer_task = Some(DozerActionTask {
@@ -559,7 +565,7 @@ impl DozerAIUpdate {
             dock_point: Some(start),
             failed_attempts: 0,
             build_total_frames: total_build_frames.max(1),
-            build_max_health: 0.0,
+            build_max_health: max_health,
             started_construction: false,
         });
         self.action_state = DozerActionState::PickActionPos;
@@ -1962,6 +1968,31 @@ impl DozerAIUpdate {
 }
 
 impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
+    fn admit_placed_build(
+        &mut self,
+        scaffold: &Object,
+        dock: Coord3D,
+        total_build_frames: u32,
+        max_health: f32,
+        frame: u32,
+    ) -> Result<(), String> {
+        if self.is_any_task_pending() || self.task_owner.current != DozerTask::Invalid {
+            return Err("Dozer already has an admitted task".into());
+        }
+        if scaffold.get_builder_id() != self.object_id || !scaffold.is_under_construction() {
+            return Err("placed scaffold does not belong to this Dozer".into());
+        }
+        self.install_placed_build_task(
+            scaffold.get_id(),
+            dock,
+            *scaffold.get_position(),
+            total_build_frames,
+            max_health,
+            frame,
+        );
+        Ok(())
+    }
+
     fn active_build_target(&self) -> Option<ObjectID> {
         DozerAIUpdate::active_build_target(self)
     }
