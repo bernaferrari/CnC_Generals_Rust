@@ -2,17 +2,27 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 impl GameLogic {
-    /// Run the tighten state before doLocomotor can patch the blocked path.
-    pub(in super::super) fn tick_host_tighten_states(&mut self, object_ids: &[ObjectId]) {
+    /// Advance the movement state before doLocomotor observes or patches its path.
+    pub(in super::super) fn tick_host_pre_locomotor_movement_states(
+        &mut self,
+        object_ids: &[ObjectId],
+        effects: &mut ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         for &object_id in object_ids {
-            if let Some(object) = self.objects.get_mut(&object_id) {
+            let Some(object) = self.objects.get_mut(&object_id) else {
+                continue;
+            };
+            if object.has_active_selected_follow_path() {
+                self.tick_selected_ground_follow_path(object_id, effects)?;
+            } else {
                 let ready = !object.has_temporary_ai_move()
                     && !object.waiting_for_path
                     && !object.movement.path.is_empty();
                 object.unit_ai_runtime.update_tighten_path_check(ready);
+                self.update_tighten_blocked_path(object_id);
             }
-            self.update_tighten_blocked_path(object_id);
         }
+        Ok(())
     }
 
     /// AIMoveAndTightenState::computePath owns one retry when blocked and stuck.

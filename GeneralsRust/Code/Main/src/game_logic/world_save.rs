@@ -23,6 +23,8 @@ mod world_bridges;
 mod world_load;
 #[path = "world_save/world_paths.rs"]
 mod world_paths;
+#[path = "world_save/follow_path.rs"]
+mod follow_path;
 #[path = "world_save/world_players.rs"]
 mod world_players;
 #[path = "world_save/world_runtime.rs"]

@@ -370,6 +370,16 @@ impl SnapshotBuilder {
             ),
         );
 
+        let follow_path = object.unit_ai_runtime.follow_path_index();
+        object
+            .unit_ai_runtime
+            .machine()
+            .validate_follow_path_index(follow_path)
+            .map_err(SaveLoadError::Corrupted)?;
+        if let Some(index) = follow_path {
+            modules.insert("FollowPath".into(), ModuleSnapshot::FollowPath(index));
+        }
+
         if object.get_template().production_exit_metadata.is_some_and(|m| m.is_queue()) {
             modules.insert("QueueExit".to_owned(), ModuleSnapshot::QueueExit(object.production_exit_state));
         }

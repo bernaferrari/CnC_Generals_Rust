@@ -1472,7 +1472,17 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_set_formation(unit_id, 0, glam::Vec2::ZERO);
-            if !self.game_logic.append_unit_waypoint(unit_id, goal) {
+            let accepted = if self.game_logic.uses_selected_ground_follow_path(unit_id) {
+                self.game_logic
+                    .append_selected_ground_follow_path(unit_id, goal)
+                    .unwrap_or_else(|error| {
+                        log::error!("Selected FollowPath admission failed: {error}");
+                        false
+                    })
+            } else {
+                self.game_logic.append_unit_waypoint(unit_id, goal)
+            };
+            if !accepted {
                 continue;
             }
             if !was_moving {

@@ -3218,7 +3218,9 @@ impl GameLogic {
             }
             self.admit_host_radar_disabled_edges(id);
             if let Some(goal) = plant_goal {
-                self.apply_arrival_goal_snap(id, Some(goal));
+                if self.objects.get(&id).is_none_or(|unit| !unit.has_active_selected_follow_path()) {
+                    self.apply_arrival_goal_snap(id, Some(goal));
+                }
             }
             self.finish_transport_return_phase_with_effects(id, effects)?;
             if idle_after_locomotion && self.objects.contains_key(&id) {

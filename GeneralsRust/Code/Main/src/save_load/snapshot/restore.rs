@@ -502,6 +502,24 @@ impl SnapshotBuilder {
             };
             capsule.validate_for_template(template)?;
             capsule.validate_ai_state_projection(&snapshot.status.ai_state)?;
+            if snapshot.modules.iter().any(|(key, value)| {
+                matches!(value, ModuleSnapshot::FollowPath(_)) != (key == "FollowPath")
+            }) {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid FollowPath module identity".into(),
+                ));
+            }
+            let index = match snapshot.modules.get("FollowPath") {
+                Some(ModuleSnapshot::FollowPath(index)) => Some(*index),
+                _ => None,
+            };
+            if let Some(control) = capsule.continuation() {
+                control.validate_follow_path_index(index).map_err(SaveLoadError::Corrupted)?;
+            } else if index.is_some() {
+                return Err(SaveLoadError::Corrupted(
+                    "FollowPath requires a receiving BaseAI owner".into(),
+                ));
+            }
         }
         super::containment_admission::validate(objects)?;
         Ok(())
@@ -1030,7 +1048,7 @@ impl SnapshotBuilder {
                     object.cave_needs_build_complete = *needs_build_complete;
                     object.cave_index = *cave_index;
                 }
-                ModuleSnapshot::BaseAi(_) => {}
+                ModuleSnapshot::BaseAi(_) | ModuleSnapshot::FollowPath(_) => {}
                 ModuleSnapshot::ObjectTransform(_) => {}
                 ModuleSnapshot::DozerTasks(_) => {}
                 ModuleSnapshot::ActiveWeaponStatus(status) => object.weapon_fire_status = *status,

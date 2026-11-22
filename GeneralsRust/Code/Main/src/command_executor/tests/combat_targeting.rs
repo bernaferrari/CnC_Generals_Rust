@@ -1195,6 +1195,126 @@ fn add_waypoint_uses_group_destinations() {
 }
 
 #[test]
+fn selected_add_waypoint_keeps_braking_on_the_active_authored_leg() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+    use crate::game_logic::{GameLogic, ObjectId, Player, Team};
+    use glam::Vec3;
+
+    let start = Vec3::new(75.0, 0.0, 75.0);
+    let first = Vec3::new(165.0, 0.0, 75.0);
+    let second = Vec3::new(255.0, 0.0, 75.0);
+    let make_world = || {
+        let mut world = GameLogic::new();
+        admit_fixture_objects(
+            &mut world,
+            &[FixtureObject::new("FollowPathRanger")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0)
+                .field("Geometry = CYLINDER")
+                .field("GeometryMajorRadius = 3")
+                .field("GeometryHeight = 10")
+                .walker()],
+        );
+        world.add_player(Player::new(1, Team::USA, "Waypoint Owner", true));
+        world.override_world_size(600.0, 600.0);
+        world.pathfinding_system.map_ready = true;
+        let id = world
+            .create_object_for_player("FollowPathRanger", 1, start)
+            .unwrap();
+        (world, id)
+    };
+    let issue = |world: &mut GameLogic, id: ObjectId, command_id, destination| {
+        assert_eq!(
+            CommandExecutor::new(world, 1)
+                .execute_command(GameCommand {
+                    command_type: CommandType::AddWaypoint { destination },
+                    player_id: 1,
+                    command_id,
+                    timestamp: std::time::UNIX_EPOCH,
+                    selected_units: vec![id],
+                    modifier_keys: ModifierKeys::default(),
+                })
+                .unwrap(),
+            CommandResult::Success
+        );
+    };
+
+    let (mut world, id) = make_world();
+    let (mut peer, peer_id) = make_world();
+    let first_cell = world.pathfinding_system.grid.world_to_grid(first);
+    let second_cell = world.pathfinding_system.grid.world_to_grid(second);
+    assert_eq!(id, peer_id);
+    for receiver in [&mut world, &mut peer] {
+        issue(receiver, id, 1, first);
+        receiver.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        let actor = receiver.host_object(id).unwrap();
+        assert!(actor.has_ai_update_interface() && actor.is_effectively_moving());
+        assert_eq!(actor.path_extra_distance, 0.0);
+        assert_eq!(receiver.pathfinding_ground_goal(first_cell), Some(id));
+    }
+    let active_goal = world.host_object(id).unwrap().movement.target_position;
+    assert!(active_goal.is_some());
+
+    issue(&mut world, id, 2, second);
+
+    // The selected-group command immediately reserves the new destination.
+    assert_eq!(world.pathfinding_ground_goal(first_cell), None);
+    assert_eq!(world.pathfinding_ground_goal(second_cell), Some(id));
+    let actor = world.host_object(id).unwrap();
+    assert_eq!(actor.movement.target_position, active_goal);
+    // AI_FOLLOW_PATH only appends this order. It next changes braking
+    // look-ahead when the active move-to leg returns to AIFollowPathState.
+    assert_eq!(actor.path_extra_distance, 0.0);
+    assert_eq!(peer.host_object(peer_id).unwrap().path_extra_distance, 0.0);
+    assert_eq!(peer.pathfinding_ground_goal(first_cell), Some(peer_id));
+    assert_eq!(peer.pathfinding_ground_goal(second_cell), None);
+
+    issue(&mut world, id, 3, Vec3::new(175.0, 0.0, 175.0));
+    let original = world.host_object(id).unwrap();
+    let authored = original.capture_base_ai_continuation().goals.path;
+    assert_eq!(authored.len(), 3);
+    assert_eq!(original.unit_ai_runtime.follow_path_index(), Some(0));
+    assert_eq!(original.path_extra_distance, 0.0);
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut manager = crate::save_load::SaveFileManager::with_save_directory(dir.path());
+    manager.init().unwrap();
+    manager.quick_save(&world).unwrap();
+    let crate::save_load::DecodedGameSave { snapshot, .. } =
+        manager.load_game_snapshot("quicksave").unwrap();
+    let (mut restored, restored_id) = make_world();
+    assert_eq!(restored_id, id);
+    manager
+        .restore_game_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    let loaded = restored.host_object(id).unwrap();
+    assert_eq!(loaded.capture_base_ai_continuation().goals.path, authored);
+    assert_eq!(loaded.unit_ai_runtime.follow_path_index(), Some(0));
+    assert_eq!(loaded.path_extra_distance, 0.0);
+
+    let delta = authored[2] - authored[1];
+    let second_leg_lookahead = delta.x.hypot(delta.z);
+    for _ in 0..300 {
+        world.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        restored.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        let source = world.host_object(id).unwrap();
+        let loaded = restored.host_object(id).unwrap();
+        let index = source.unit_ai_runtime.follow_path_index();
+        assert_eq!(loaded.unit_ai_runtime.follow_path_index(), index);
+        assert_eq!(loaded.get_position(), source.get_position());
+        assert_eq!(loaded.path_extra_distance, source.path_extra_distance);
+        if index == Some(1) {
+            assert!((source.get_position() - authored[0]).length() < 10.0);
+            assert_eq!(source.path_extra_distance, second_leg_lookahead);
+            return;
+        }
+    }
+    panic!("the selected actor never reached the second authored leg");
+}
+
+#[test]
 fn add_waypoint_skips_immobile_and_still_succeeds() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;

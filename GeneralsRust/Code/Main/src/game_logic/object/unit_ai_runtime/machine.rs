@@ -133,6 +133,20 @@ impl BaseAiContinuation {
     pub(crate) fn root_state(&self) -> AIState {
         self.parent_state().unwrap_or(self.ai_state)
     }
+    pub(crate) fn validate_follow_path_index(&self, index: Option<u32>) -> Result<(), String> {
+        match index {
+            None if self.goals.path.is_empty() => Ok(()),
+            Some(index)
+                if self.ai_state == AIState::Moving
+                    && self.parent.is_none()
+                    && !self.locked
+                    && (index as usize) < self.goals.path.len() =>
+            {
+                Ok(())
+            }
+            _ => Err("FollowPath index/path requires its active moving root".into()),
+        }
+    }
     pub(crate) fn validate(&self) -> Result<(), String> {
         if self.retaliate.victim == Some(crate::game_logic::INVALID_OBJECT_ID) {
             return Err("guard retaliation victim cannot be the invalid object ID".into());
@@ -212,7 +226,71 @@ impl BaseAiContinuation {
         Ok(())
     }
 }
+#[derive(Clone, Copy)]
+pub(crate) struct FollowPathLeg {
+    pub(crate) position: Vec3,
+    pub(crate) extra_distance: Option<f32>,
+}
+
 impl UnitAiRuntime {
+    pub(crate) fn start_follow_path(&mut self, goals: Vec<Vec3>) -> FollowPathLeg {
+        self.machine.goals.path = goals;
+        self.follow_path_index = Some(0);
+        self.current_follow_path_leg().expect("admitted nonempty FollowPath")
+    }
+
+    pub(crate) fn append_follow_path_goal(&mut self, point: Vec3) -> bool {
+        let path = &mut self.machine.goals.path;
+        if path.last() == Some(&point) {
+            return true;
+        }
+        if path.len() == 65_536 {
+            return false;
+        }
+        path.push(point);
+        true
+    }
+
+    fn current_follow_path_leg(&self) -> Option<FollowPathLeg> {
+        let index = self.follow_path_index? as usize;
+        let path = &self.machine.goals.path;
+        let position = *path.get(index)?;
+        let extra_distance = path.get(index + 1).map(|next| {
+            let delta = *next - position;
+            let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+            delta.x.hypot(delta.z) + if index + 2 < path.len() { 4.0 * cell } else { 0.0 }
+        });
+        Some(FollowPathLeg { position, extra_distance })
+    }
+
+    /// C++ AIStates.cpp:3318-3348. One reported internal move result, then
+    /// skip every authored point nearer than a cell, including on a retry.
+    pub(crate) fn consume_follow_path_move_result(
+        &mut self,
+        current: Vec3,
+        failed: bool,
+    ) -> Option<FollowPathLeg> {
+        let mut index = self.follow_path_index? as usize;
+        if failed && self.follow_path_retries > 0 {
+            self.follow_path_retries -= 1;
+        } else {
+            index += 1;
+        }
+        let path = &self.machine.goals.path;
+        let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+        while path.get(index).is_some_and(|point| {
+            let delta = *point - current;
+            delta.x * delta.x + delta.z * delta.z < cell * cell
+        }) {
+            index += 1;
+        }
+        if index == path.len() {
+            return None;
+        }
+        self.follow_path_index = Some(index as u32);
+        self.current_follow_path_leg()
+    }
+
     pub(crate) fn machine(&self) -> &BaseAiContinuation {
         &self.machine
     }
@@ -221,10 +299,26 @@ impl UnitAiRuntime {
     }
     pub(crate) fn restore_machine(&mut self, value: BaseAiContinuation) -> Result<(), String> {
         value.validate()?;
+        self.follow_path_index = None;
+        self.follow_path_retries = initial_follow_path_retries();
         self.machine = value;
         Ok(())
     }
+    pub(crate) fn follow_path_index(&self) -> Option<u32> {
+        self.follow_path_index
+    }
+    pub(crate) fn restore_follow_path_index(&mut self, index: u32) -> Result<(), String> {
+        self.machine.validate_follow_path_index(Some(index))?;
+        self.follow_path_index = Some(index);
+        Ok(())
+    }
+    fn clear_follow_path(&mut self) {
+        if self.follow_path_index.take().is_some() {
+            self.machine.goals.path.clear();
+        }
+    }
     pub(crate) fn enter_root(&mut self, state: AIState) {
+        self.clear_follow_path();
         if state != AIState::Moving {
             self.machine.tighten_check_for_path = false;
             self.machine.tighten_repath_available = None;
@@ -285,6 +379,7 @@ impl UnitAiRuntime {
         self.machine.ai_dead
     }
     pub(crate) fn clear_machine_after_exit(&mut self) {
+        self.clear_follow_path();
         self.machine.parent = None;
         self.machine.ai_state = AIState::Uninitialized;
         self.machine.goals = Default::default();
@@ -391,6 +486,7 @@ impl UnitAiRuntime {
         self.machine.auto_acquire_when_idle = value;
     }
     pub(crate) fn enter_hunt(&mut self) {
+        self.clear_follow_path();
         if self.machine.parent_state() != Some(AIState::Hunting) {
             self.machine.parent = Some(ParentMachineContinuation {
                 state: AIState::Hunting,

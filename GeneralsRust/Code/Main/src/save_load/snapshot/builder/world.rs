@@ -1252,6 +1252,10 @@ impl SnapshotBuilder {
                 }
             };
             owner.apply_after_admission(object)?;
+            if let Some(ModuleSnapshot::FollowPath(index)) = saved.modules.get("FollowPath") {
+                object.unit_ai_runtime.restore_follow_path_index(*index)
+                    .map_err(SaveLoadError::Corrupted)?;
+            }
             for module in saved.modules.values() {
                 if let ModuleSnapshot::AIUpdate(old) = module {
                     super::super::attack_state_persist::restore(old, object)?;

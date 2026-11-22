@@ -1903,6 +1903,15 @@ impl GameLogic {
             return Ok(());
         };
         unit.pending_quick_path_goal = false;
+        if unit.has_active_selected_follow_path() {
+            // The actor consumes this failed leg in its next AI update,
+            // rather than replacing its still-active FollowPath with Idle.
+            unit.waiting_for_path = false;
+            unit.movement.target_position = None;
+            unit.movement.clear_path();
+            unit.set_locomotor_goal_none();
+            return Ok(());
+        }
         let overlay = unit.has_temporary_ai_move() && !matches!(unit.ai_state(), AIState::Moving);
         let completed_move = !overlay
             && matches!(unit.ai_state(), AIState::Moving)

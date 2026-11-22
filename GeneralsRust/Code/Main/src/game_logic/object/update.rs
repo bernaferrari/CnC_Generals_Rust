@@ -134,8 +134,13 @@ impl Object {
     /// Preserve their completed paths until the
     /// next state update can observe the same last-node success that C++
     /// `AIInternalMoveToState::update` returns before `doLocomotor`.
+    pub(crate) fn has_active_selected_follow_path(&self) -> bool {
+        self.unit_ai_runtime.follow_path_index().is_some() && !self.has_temporary_ai_move()
+    }
+
     pub(crate) fn needs_internal_move_arrival_observation(&self) -> bool {
-        self.has_guard_quick_exit_overlay()
+        self.has_active_selected_follow_path()
+            || self.has_guard_quick_exit_overlay()
             || self.ai_state() == AIState::Panic
             || matches!(
                 self.unit_ai_runtime.guard_phase(),
@@ -150,7 +155,10 @@ impl Object {
         &mut self,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        if self.needs_internal_move_arrival_observation() {
+        if self.has_active_selected_follow_path() {
+            self.movement.target_position = None;
+            self.is_braking = false;
+        } else if self.needs_internal_move_arrival_observation() {
             self.movement.target_position = None;
             self.movement.velocity = glam::Vec3::ZERO;
             self.set_status_moving(false);
@@ -413,6 +421,9 @@ impl Object {
     /// point, plus 4 cells when another point follows. Contact's 10 cells
     /// stay only while `is_attack_path` is still that approach.
     pub fn refresh_follow_path_extra_distance(&mut self) {
+        if self.has_active_selected_follow_path() {
+            return;
+        }
         self.note_projectile_last_segment_precise_z();
         let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
         if self.is_attack_path && (self.path_extra_distance - 10.0 * cell).abs() < 0.01 {

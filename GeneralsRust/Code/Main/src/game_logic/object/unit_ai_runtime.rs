@@ -7,9 +7,29 @@ use super::GuardChasePhase;
 use crate::game_logic::ObjectId;
 use glam::Vec3;
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct UnitAiRuntime {
     machine: BaseAiContinuation,
+    // The index is saved with its explicit FollowPath module. C++ does not
+    // transfer the state's constructor-owned retry count (AIStates.cpp:3215).
+    #[serde(skip)]
+    follow_path_index: Option<u32>,
+    #[serde(skip, default = "initial_follow_path_retries")]
+    follow_path_retries: u8,
+}
+
+const fn initial_follow_path_retries() -> u8 {
+    10
+}
+
+impl Default for UnitAiRuntime {
+    fn default() -> Self {
+        Self {
+            machine: BaseAiContinuation::default(),
+            follow_path_index: None,
+            follow_path_retries: initial_follow_path_retries(),
+        }
+    }
 }
 
 /// The guard machine owns its continuation as one value. Hunt, wander and
@@ -360,4 +380,5 @@ mod tests {
 }
 
 mod machine;
+pub(crate) use machine::FollowPathLeg;
 pub use machine::{BaseAiContinuation, GuardTargetType, TemporaryAiMove};
