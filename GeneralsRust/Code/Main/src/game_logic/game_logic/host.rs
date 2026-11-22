@@ -1703,6 +1703,15 @@ pub struct RuntimeWeatherState {
     pub visible: bool,
 }
 
+impl RuntimeWeatherState {
+    pub(crate) fn is_snowy(&self) -> bool {
+        self.current_weather
+            .as_bytes()
+            .windows(b"snow".len())
+            .any(|word| word.eq_ignore_ascii_case(b"snow"))
+    }
+}
+
 impl GameLogic {
     pub(crate) fn set_script_input_enabled(&mut self, enabled: bool) {
         self.script_input_enabled = enabled;

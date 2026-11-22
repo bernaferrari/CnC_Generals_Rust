@@ -1259,11 +1259,10 @@ mod lighting_parity_tests {
 
 /// Model condition weather/time observation, without a full presentation freeze.
 pub(super) fn current_model_environment(logic: &GameLogic) -> (bool, bool) {
-    let weather = logic.weather_state().current_weather.to_ascii_lowercase();
     let rules = logic.lighting_rules();
     let follow_weather = rules.force_models_to_follow_weather;
     let is_night = matches!(rules.time_of_day, TimeOfDay::Night);
-    let is_snow = weather.contains("snow") && follow_weather;
+    let is_snow = follow_weather && logic.weather_state().is_snowy();
     (is_snow, is_night)
 }
 

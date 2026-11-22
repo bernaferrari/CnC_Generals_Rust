@@ -58,12 +58,7 @@ impl GameLogic {
         object_weather: i32,
     ) {
         let follow = self.lighting_rules().force_models_to_follow_weather;
-        let world_is_snow = follow
-            && self
-                .weather_state
-                .current_weather
-                .to_ascii_lowercase()
-                .contains("snow");
+        let world_is_snow = follow && self.weather_state.is_snowy();
         let snow = super::script_loader::resolve_object_weather_snow(object_weather, world_is_snow);
         let snow_b = crate::game_logic::host_enum_table_residual::snow_model_bit();
         if let Some(created) = self.objects.get_mut(&id) {

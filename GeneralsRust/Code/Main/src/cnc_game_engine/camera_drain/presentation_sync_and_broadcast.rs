@@ -503,12 +503,7 @@ impl CnCGameEngine {
         self.game_client
             .admit_draw_icon_ui(self.game_logic.get_draw_icon_ui());
         let lighting = self.game_logic.lighting_rules();
-        let weather_is_snowy = self
-            .game_logic
-            .weather_state()
-            .current_weather
-            .to_ascii_lowercase()
-            .contains("snow");
+        let weather_is_snowy = self.game_logic.weather_state().is_snowy();
         self.game_client
             .set_session_model_environment(lighting, weather_is_snowy);
         // C++ GameLogic::update setFrame(TheGameLogic->getFrame()) before client update.

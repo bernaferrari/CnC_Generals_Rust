@@ -233,13 +233,10 @@ mod sides_host_apply_tests {
     fn world_info_weather_is_owned_by_each_runtime_session() {
         let mut logic = GameLogic::new();
         let mut peer = GameLogic::new();
-        assert!(
-            !logic
-                .weather_state()
-                .current_weather
-                .to_ascii_lowercase()
-                .contains("snow")
-        );
+        assert!(!logic.weather_state().is_snowy());
+        logic.set_weather_state("Light SNoW flurries", 0.5, 30.0, 60.0);
+        assert!(logic.weather_state().is_snowy());
+        assert!(!peer.weather_state().is_snowy());
         logic.apply_world_info_weather(Some(1));
         assert_eq!(logic.weather_state().current_weather, "snowy");
         assert_eq!(peer.weather_state().current_weather, "normal");

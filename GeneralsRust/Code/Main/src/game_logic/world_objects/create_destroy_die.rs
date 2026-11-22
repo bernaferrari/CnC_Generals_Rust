@@ -122,7 +122,7 @@ fn query_pristine_local_bones(
             .map_or(parent.occupants.len(), |building| building.garrisoned_units.len())
             .min(u16::MAX as usize) as u16);
     let weather = (
-        world.weather_state().current_weather.to_ascii_lowercase().contains("snow")
+        world.weather_state().is_snowy()
             && world.lighting_rules().force_models_to_follow_weather,
         matches!(world.lighting_rules().time_of_day,
             game_engine::common::ini::ini_game_data::TimeOfDay::Night),

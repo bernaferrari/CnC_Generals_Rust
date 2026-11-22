@@ -332,15 +332,9 @@ impl CnCGameEngine {
         let early_menu_frame = self.menu_world_frames_rendered < 5;
         let t0 = std::time::Instant::now();
         let snow_dt = self.snow_anim2d_dt_for_present();
-        let post_draw_menu_world = self.receiving_menu_world_facts();
-        let shell_menu_world = self.receiving_menu_world_facts();
+        let menu_world = self.receiving_menu_world_facts();
         let lighting = self.game_logic.lighting_rules();
-        let weather_is_snowy = self
-            .game_logic
-            .weather_state()
-            .current_weather
-            .to_ascii_lowercase()
-            .contains("snow");
+        let weather_is_snowy = self.game_logic.weather_state().is_snowy();
         let requested_time_of_day;
         {
             let gc = &mut self.game_client;
@@ -351,7 +345,7 @@ impl CnCGameEngine {
                     self.menu_world_frames_rendered
                 );
             }
-            let _ = gc.ensure_shell_visible(Some(shell_menu_world));
+            let _ = gc.ensure_shell_visible(Some(menu_world));
             let _ = gc.create_frame_tick_message();
             let t1 = std::time::Instant::now();
             if early_menu_frame {
@@ -374,7 +368,7 @@ impl CnCGameEngine {
             if early_menu_frame {
                 debug!("Menu update_internal: calling gc.update_post_draw_ui");
             }
-            let _ = gc.update_post_draw_ui(Some(post_draw_menu_world), None);
+            let _ = gc.update_post_draw_ui(Some(menu_world), None);
             let _ = (t1, t2, t3);
         }
         if let Some(time_of_day) = requested_time_of_day {
