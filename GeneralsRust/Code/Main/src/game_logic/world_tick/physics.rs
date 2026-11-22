@@ -1300,6 +1300,7 @@ impl GameLogic {
         let slot = if let Some(row) = u.selected_authored_weapon_row() {
             u.select_authored_combat_weapon_slot(
                 row, v, current_time, command_source.unwrap_or(u.last_command_source),
+                |rule| self.receiving_weapon_bonus_fields(u, Some(rule)).0,
             )
         } else {
             self.with_own_services(|| {

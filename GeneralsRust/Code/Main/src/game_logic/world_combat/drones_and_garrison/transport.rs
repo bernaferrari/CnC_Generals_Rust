@@ -94,9 +94,8 @@ impl GameLogic {
                 {
                     continue;
                 }
-                let Some(slot) = attacker.select_combat_weapon_slot_with_solo_set(
-                    target, current_time, &self.solo_weapon_bonus_set,
-                ) else {
+                let Some(slot) = self.select_receiving_combat_weapon_slot(attacker, target, current_time)
+                else {
                     continue;
                 };
                 let Some(weapon) = attacker.weapon_slot(slot) else {
@@ -133,9 +132,8 @@ impl GameLogic {
             {
                 continue;
             }
-            let Some(slot) = attacker.select_combat_weapon_slot_with_solo_set(
-                target, current_time, &self.solo_weapon_bonus_set,
-            ) else {
+            let Some(slot) = self.select_receiving_combat_weapon_slot(attacker, target, current_time)
+            else {
                 continue;
             };
             let Some(weapon) = attacker.weapon_slot(slot) else {

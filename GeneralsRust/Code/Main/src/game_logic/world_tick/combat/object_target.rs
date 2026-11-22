@@ -82,11 +82,7 @@ impl GameLogic {
                 let invuln_hidden = target.is_eject_invulnerable() && is_enemy;
                 let enemy_or_forced = attacker.force_attack || is_enemy;
                 let slot = if enemy_or_forced && !stealthed_hidden && !invuln_hidden {
-                    attacker.select_combat_weapon_slot_with_solo_set(
-                        target,
-                        current_time,
-                        &self.solo_weapon_bonus_set,
-                    )
+                    self.select_receiving_combat_weapon_slot(attacker, target, current_time)
                 } else {
                     None
                 };

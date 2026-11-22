@@ -339,12 +339,8 @@ impl GameLogic {
             let Some(attacker) = self.objects.get(&garrisoned_id) else {
                 return Ok(());
             };
-            let slot = attacker
-                .select_combat_weapon_slot_with_solo_set(
-                    target_obj,
-                    current_time,
-                    &self.solo_weapon_bonus_set,
-                )
+            let slot = self
+                .select_receiving_combat_weapon_slot(attacker, target_obj, current_time)
                 .or_else(|| {
                     let s = attacker.active_weapon_slot;
                     attacker

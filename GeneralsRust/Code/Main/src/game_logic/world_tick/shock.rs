@@ -1686,6 +1686,22 @@ impl GameLogic {
         )
     }
 
+    /// Choose against an already borrowed receiving pair, including passive fire.
+    pub(in crate::game_logic) fn select_receiving_combat_weapon_slot(
+        &self,
+        source: &Object,
+        target: &Object,
+        current_time: f32,
+    ) -> Option<u8> {
+        source.select_combat_weapon_slot_for_source(
+            target,
+            current_time,
+            Some(&self.solo_weapon_bonus_set),
+            source.last_command_source,
+            |rule| self.receiving_weapon_bonus_fields(source, Some(rule)).0,
+        )
+    }
+
     pub(in crate::game_logic) fn receiving_weapon_bonus_fields_for_slot(
         &self,
         source: &Object,

@@ -895,19 +895,21 @@ impl Object {
     /// ready suppression, zero-damage (DAMAGE_UNRESISTABLE exception),
     /// and unready-but-valid backup.
     pub fn select_combat_weapon_slot(&self, target: &Object, current_time: f32) -> Option<u8> {
+        // The standalone adapter has no GameData owner or container to borrow.
+        // The authored slot still carries its own bonus rows.
         self.select_combat_weapon_slot_for_source(
-            target, current_time, None, self.last_command_source,
-        )
-    }
-
-    pub(crate) fn select_combat_weapon_slot_with_solo_set(
-        &self,
-        target: &Object,
-        current_time: f32,
-        solo_set: &gamelogic::weapon::WeaponBonusSet,
-    ) -> Option<u8> {
-        self.select_combat_weapon_slot_for_source(
-            target, current_time, Some(solo_set), self.last_command_source,
+            target,
+            current_time,
+            None,
+            self.last_command_source,
+            |rule| {
+                self.weapon_bonus_fields_with_owned_extra(
+                    None,
+                    &gamelogic::weapon::WeaponBonusSet::new(),
+                    rule.extra_bonus.as_ref(),
+                )
+                .0
+            },
         )
     }
 
@@ -917,6 +919,7 @@ impl Object {
         current_time: f32,
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
         command_source: u32,
+        damage_multiplier: impl Fn(&gamelogic::weapon::WeaponTemplate) -> f32,
     ) -> Option<u8> {
         // C++ WeaponSet.cpp:782-783 / leftover weapon_set.rs:683-685 —
         // locked current slot stays until someone unlocks. A reloading
@@ -928,7 +931,9 @@ impl Object {
             return Some(slot);
         }
         if let Some(row) = self.selected_authored_weapon_row() {
-            return self.select_authored_combat_weapon_slot(row, target, current_time, command_source);
+            return self.select_authored_combat_weapon_slot(
+                row, target, current_time, command_source, damage_multiplier,
+            );
         }
         self.select_legacy_combat_weapon_slot(target, current_time, solo_set)
     }
@@ -1121,6 +1126,7 @@ impl Object {
         target: &Object,
         current_time: f32,
         command_source: u32,
+        damage_multiplier: impl Fn(&gamelogic::weapon::WeaponTemplate) -> f32,
     ) -> Option<u8> {
         let policy = row.choice.as_ref()?;
         let frame = (current_time * 30.0).round() as u32;
@@ -1149,7 +1155,14 @@ impl Object {
             {
                 continue;
             }
-            let damage = Self::estimate_native_weapon_damage(rule, target);
+            // Weapon.cpp:2371–2384 computes the receiving bonus before the
+            // body estimates damage. The estimator's special 0/1 results
+            // are eligibility values and must not themselves be multiplied.
+            let damage = Self::estimate_native_weapon_damage(
+                rule,
+                target,
+                rule.primary_damage * damage_multiplier(rule),
+            );
             if gamelogic::weapon::choose_best_eliminates_zero_damage(damage, rule.damage_type) {
                 continue;
             }
@@ -1468,7 +1481,7 @@ impl Object {
         }
         let name = self.weapon_name_for_slot(slot).unwrap_or("");
         if let Some(rule) = self.selected_native_weapon_rule(slot) {
-            return Self::estimate_native_weapon_damage(&rule, target);
+            return Self::estimate_native_weapon_damage(&rule, target, rule.primary_damage);
         }
         let est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(name);
         let Some(dt) = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name) else {
@@ -1485,6 +1498,7 @@ impl Object {
     fn estimate_native_weapon_damage(
         rule: &gamelogic::weapon::WeaponTemplate,
         target: &Object,
+        primary_damage: f32,
     ) -> f32 {
         use gamelogic::damage::{DamageType, DeathType};
         let est = crate::game_logic::weapon_bootstrap::HostEstimateWeapon {
@@ -1495,7 +1509,7 @@ impl Object {
             damage_type_kill_garrisoned: rule.damage_type == DamageType::KillGarrisoned,
             death_type_burned: rule.death_type == DeathType::Burned,
             allow_attack_garrisoned_bldgs: rule.allow_attack_garrisoned_bldgs,
-            primary_damage: rule.primary_damage,
+            primary_damage,
         };
         let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
             target,

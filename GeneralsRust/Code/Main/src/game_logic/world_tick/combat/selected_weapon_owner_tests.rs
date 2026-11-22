@@ -827,3 +827,201 @@ End
         Some(0)
     );
 }
+
+#[test]
+fn authored_damage_choice_and_shot_use_receiving_weapon_bonuses() {
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+
+    let setup = |global_percent: u32| {
+        let mut world = GameLogic::new();
+        world
+            .admit_combat_bonus_ini_sources([format!(
+                "GameData\n WeaponBonus = PLAYER_UPGRADE DAMAGE {global_percent}%\nEnd\n"
+            )])
+            .unwrap();
+        let objects = r#"
+Object BonusChoiceShooter
+    KindOf = INFANTRY SELECTABLE CAN_ATTACK
+    TransportSlotCount = 1
+    Body = ActiveBody BodyTag
+        MaxHealth = 100
+        InitialHealth = 100
+    End
+    Behavior = AIUpdateInterface Brain
+    End
+    WeaponSet
+        Conditions = NONE
+        Weapon = PRIMARY BonusChoicePrimary
+        Weapon = SECONDARY BonusChoiceSecondary
+    End
+End
+Object BonusChoiceCarrier
+    KindOf = VEHICLE SELECTABLE
+    Body = ActiveBody BodyTag
+        MaxHealth = 100
+        InitialHealth = 100
+    End
+    Behavior = TransportContain Transport
+        ContainMax = 2
+        Slots = 2
+        AllowInsideKindOf = INFANTRY
+        WeaponBonusPassedToPassengers = Yes
+        PassengersAllowedToFire = Yes
+    End
+End
+Object BonusChoiceVictim
+    KindOf = SELECTABLE
+    Body = ActiveBody BodyTag
+        MaxHealth = 1000
+        InitialHealth = 1000
+    End
+End
+"#;
+        world
+            .admit_object_ini_sources([("authored-choice-bonus.ini".into(), objects.into())])
+            .unwrap();
+        let weapons = r#"
+Weapon BonusChoicePrimary
+    PrimaryDamage = 112.5
+    AttackRange = 200
+    DamageType = UNRESISTABLE
+    WeaponSpeed = 999999
+    ProjectileObject = NONE
+    DelayBetweenShots = 2000
+End
+Weapon BonusChoiceSecondary
+    PrimaryDamage = 100
+    AttackRange = 200
+    DamageType = UNRESISTABLE
+    WeaponSpeed = 999999
+    ProjectileObject = NONE
+    DelayBetweenShots = 2000
+    WeaponBonus = PLAYER_UPGRADE DAMAGE 125%
+End
+"#;
+        let mut definitions = HashMap::new();
+        assert_eq!(
+            parse_weapon_definitions_ini_into(
+                &mut definitions,
+                weapons,
+                WeaponDefinitionLoadType::Normal
+            ),
+            2
+        );
+        world
+            .admit_weapon_content_snapshot(
+                definitions
+                    .into_values()
+                    .map(|rule| (rule.name.clone(), rule))
+                    .collect(),
+                &[],
+            )
+            .unwrap();
+        for (id, team, name) in [(1, Team::USA, "Owner"), (2, Team::China, "Victim")] {
+            let mut player = Player::new(id, team, name, id == 1);
+            player.alliance_team = id as i32;
+            world.add_player(player);
+        }
+        world.frame = 100;
+        let shooter = world
+            .create_object_for_player("BonusChoiceShooter", 1, Vec3::ZERO)
+            .unwrap();
+        let carrier = world
+            .create_object_for_player("BonusChoiceCarrier", 1, Vec3::new(-200.0, 0.0, 0.0))
+            .unwrap();
+        let victim = world
+            .create_object_for_player("BonusChoiceVictim", 2, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        (world, shooter, carrier, victim)
+    };
+    let (mut driving, shooter, carrier, victim) = setup(100);
+    let (mut peer, peer_shooter, peer_carrier, peer_victim) = setup(200);
+    assert_eq!(
+        (shooter, carrier, victim),
+        (peer_shooter, peer_carrier, peer_victim)
+    );
+    let t = driving.frame as f32 * LOGIC_FRAME_TIMESTEP;
+
+    assert!(driving.choose_best_weapon_for_target(shooter, Some(victim), t));
+    assert_eq!(
+        driving.host_object(shooter).unwrap().selected_weapon_slot(),
+        Some(0)
+    );
+    for world in [&mut driving, &mut peer] {
+        world
+            .host_object_mut(shooter)
+            .unwrap()
+            .set_weapon_bonus_player_upgrade(true);
+    }
+    // Global 200% plus weapon 125% is additive. Both estimates are 225.
+    assert!(peer.choose_best_weapon_for_target(shooter, Some(victim), t));
+    assert_eq!(
+        peer.host_object(shooter).unwrap().selected_weapon_slot(),
+        Some(0)
+    );
+
+    peer.with_own_services(|| {
+        assert!(driving.choose_best_weapon_for_target(shooter, Some(victim), t));
+        assert_eq!(
+            driving.host_object(shooter).unwrap().selected_weapon_slot(),
+            Some(1)
+        );
+
+        let source = driving.host_object_mut(shooter).unwrap();
+        source.set_weapon_bonus_player_upgrade(false);
+        source.contained_by = Some(carrier);
+        assert!(
+            driving
+                .host_object(carrier)
+                .unwrap()
+                .passes_weapon_bonus_to_passengers()
+        );
+        assert!(driving.choose_best_weapon_for_target(shooter, Some(victim), t));
+        assert_eq!(
+            driving.host_object(shooter).unwrap().selected_weapon_slot(),
+            Some(0)
+        );
+        driving
+            .host_object_mut(carrier)
+            .unwrap()
+            .set_weapon_bonus_player_upgrade(true);
+        assert!(driving.choose_best_weapon_for_target(shooter, Some(victim), t));
+        assert_eq!(
+            driving.host_object(shooter).unwrap().selected_weapon_slot(),
+            Some(1)
+        );
+
+        // Exercise the separate actual object-fire selection boundary. A
+        // physics-only fix would reselect primary here before the shot.
+        let source = driving.host_object_mut(shooter).unwrap();
+        source.contained_by = None;
+        source.set_weapon_bonus_player_upgrade(true);
+        source.set_active_weapon_slot(0);
+        source.restore_ai_state(AIState::Attacking);
+        source.target = Some(victim);
+        let result = driving.update_object_target_combat(
+            CombatAttackInput {
+                attacker_id: shooter,
+                current_time: t,
+                attacker_team: Team::USA,
+                target_id: Some(victim),
+                target_location: None,
+                overcharge: false,
+            },
+            victim,
+        );
+        assert!(matches!(result, CombatShotResult::Delivered));
+        assert_eq!(
+            driving.host_object(shooter).unwrap().selected_weapon_slot(),
+            Some(1)
+        );
+        assert_eq!(driving.host_object(victim).unwrap().health.current, 875.0);
+        assert_eq!(peer.host_object(victim).unwrap().health.current, 1000.0);
+        assert_eq!(
+            peer.host_object(shooter).unwrap().selected_weapon_slot(),
+            Some(0)
+        );
+    });
+}
