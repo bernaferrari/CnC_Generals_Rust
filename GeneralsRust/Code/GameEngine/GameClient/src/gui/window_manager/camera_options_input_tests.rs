@@ -170,6 +170,13 @@ fn click_options_with_terrain_lod(
         bind.menus = context.menus.as_mut().map(|menus| menus.reborrow());
         crate::gui::callbacks::menu_callbacks::simulate_options_menu_bind_controls(&mut bind);
     }
+    // Mouse entry highlights the checkbox before the button press grabs it.
+    // C++ GadgetCheckBoxInput requires that highlight on LeftUp.
+    owner.with_manager(|manager| {
+        manager.process_mouse_event_with_control_bar(
+            WindowMessage::MousePos, x, y, data, &mut context,
+        );
+    });
     for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         owner.with_manager(|manager| {
             assert_eq!(
