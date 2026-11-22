@@ -387,6 +387,9 @@ impl ScriptConditionEvaluator<'_> {
         if let Some(result) = self.eval_owned_player_census(condition, driver)? {
             return Ok(result);
         }
+        if let Some(result) = self.eval_owned_player_supply(condition, driver)? {
+            return Ok(result);
+        }
 
         if matches!(
             condition_type,

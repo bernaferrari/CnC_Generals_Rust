@@ -22,12 +22,6 @@ pub struct HostScriptQuerySnapshot {
     pub areas: HashMap<String, (f32, f32, f32, f32)>,
     /// Script team-instance name → host object ids (C++ Team member list).
     pub team_instance_ids: HashMap<String, Vec<u32>>,
-    /// Live AIPlayer::isSupplySourceAttacked keyed by player name.
-    pub supply_source_attacked: HashMap<String, bool>,
-    /// Cash at the preferred warehouse (or -1 if none).
-    pub supply_center_cash: HashMap<String, i32>,
-    /// isLocationSafe of that warehouse.
-    pub supply_center_location_safe: HashMap<String, bool>,
     /// Live host Player money/power/object census keyed by lowercase SIDE name.
     pub player_census: HashMap<String, HostScriptPlayerCensus>,
     /// World tech-building census for SKIRMISH_TECH_BUILDING_WITHIN_DISTANCE.
@@ -431,40 +425,6 @@ impl HostScriptQuery {
 
     pub fn host_script_team_unit_ids(&self, team: u32) -> Vec<u32> {
         self.with_mut(|slot| slot.team_unit_ids(team).to_vec())
-    }
-
-    /// Live `AIPlayer::isSupplySourceAttacked` for leftover conditions.
-    pub fn host_query_supply_source_attacked(&self, player_name: &str) -> Option<bool> {
-        let key = host_player_query_key(player_name);
-        if key.is_empty() {
-            return None;
-        }
-        self.with_mut(|slot| slot.supply_source_attacked.get(&key).copied())
-    }
-
-    /// Live `AIPlayer::isSupplySourceSafe(min)` for leftover conditions.
-    pub fn host_query_supply_source_safe(&self, player_name: &str, min_supplies: i32) -> Option<bool> {
-        let key = host_player_query_key(player_name);
-        if key.is_empty() {
-            return None;
-        }
-        self.with_mut(|slot| {
-            let snap = slot;
-            let Some(&cash) = snap.supply_center_cash.get(&key) else {
-                // A known player without an AI has no cash row: C++
-                // `Player::isSupplySourceSafe` returns TRUE when `m_ai` is NULL.
-                return snap.supply_center_location_safe.get(&key).copied();
-            };
-            if cash < min_supplies {
-                return Some(true);
-            }
-            Some(
-                snap.supply_center_location_safe
-                    .get(&key)
-                    .copied()
-                    .unwrap_or(true),
-            )
-        })
     }
 
     /// Live host Player census for leftover/live script player conditions.
@@ -1259,10 +1219,6 @@ impl HostScriptQuery {
             .into_iter()
             .any(|(id, _, _)| host_object_did_exit(world, id, trigger, now))
     }
-}
-
-fn host_player_query_key(name: &str) -> String {
-    name.trim().to_ascii_lowercase()
 }
 
 fn host_kind_token(name: &str) -> String {

@@ -35,7 +35,6 @@ impl GameLogic {
         // Host script path: named-unit/team/area queries hit HOST objects.
         // Crate evaluator sees the name→id map + query snapshot (no crate Objects).
         self.inject_host_script_query_snapshot();
-        self.inject_host_supply_source_queries();
 
         // Increment script frame counter
         self.mission_script_counter += 1;

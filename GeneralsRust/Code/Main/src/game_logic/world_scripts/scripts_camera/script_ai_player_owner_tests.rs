@@ -101,6 +101,18 @@ fn owner_world() -> (GameLogic, ObjectId) {
 }
 
 #[test]
+fn script_frame_without_supply_conditions_does_not_assess_enemies() {
+    let (mut world, _) = owner_world();
+    world.get_player_mut(1).unwrap().map_side.is_skirmish_ai = true;
+    world.scripts_loaded = true;
+    world.frame = 50;
+
+    world.evaluate_and_execute_scripts(1.0 / 30.0);
+
+    assert_eq!(world.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+}
+
+#[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn authored_player_ai_actions_ignore_foreign_same_id_controller_and_preserve_core_fallback() {
     super::sequential_actor_tests::isolated(

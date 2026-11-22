@@ -42,6 +42,14 @@ pub enum ScriptPlayerAreaQuery<'a> {
     Units,
 }
 
+/// The two supply conditions make distinct AI queries. A safety check is
+/// given the authored cash threshold while an attack check consumes a scan.
+#[derive(Clone, Copy)]
+pub enum ScriptSupplyQuery {
+    Safe { minimum_cash: i32 },
+    Attacked,
+}
+
 #[derive(Clone, Copy)]
 pub enum ScriptSkirmishCensus {
     NeutralUnmanned,
@@ -1504,6 +1512,18 @@ pub trait ScriptExecutionDriver {
         _player: &str,
         _current_player: Option<&str>,
     ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// Resolve the player and return its mask and supply condition at the
+    /// evaluation point (ScriptConditions.cpp:2547–2575).
+    fn player_supply_source(
+        &mut self,
+        _player: &str,
+        _player_mask: u32,
+        _current_player: Option<&str>,
+        _query: ScriptSupplyQuery,
+    ) -> ScriptOwnerQuery<(u32, bool)> {
         ScriptOwnerQuery::Unavailable
     }
 

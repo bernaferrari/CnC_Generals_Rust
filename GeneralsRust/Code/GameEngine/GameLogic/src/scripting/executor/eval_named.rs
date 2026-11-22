@@ -1684,6 +1684,60 @@ impl ScriptConditionEvaluator<'_> {
         Ok(ScriptConditionResult::False)
     }
 
+    pub(super) fn eval_owned_player_supply(
+        &self,
+        condition: &mut Condition,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<Option<ScriptConditionResult>, ScriptError> {
+        use crate::scripting::engine::{ScriptOwnerQuery, ScriptSupplyQuery};
+
+        // ScriptConditions.cpp:170 caches unsuccessful side lookups.
+        const MISSING_PLAYER_MASK: u32 = 0xFFFF_0000;
+        let frame = self.context.with_state(|state| state.current_frame);
+        let query = match condition.get_condition_type() {
+            ConditionType::SupplySourceSafe => {
+                // ScriptConditions.cpp:2550–2555 reuses the cached result
+                // through the deadline, including the frame it names.
+                if frame <= condition.custom_frame && matches!(condition.custom_data, -1 | 1) {
+                    return Ok(Some(Self::bool_result(condition.custom_data == 1)));
+                }
+                ScriptSupplyQuery::Safe {
+                    minimum_cash: self.get_condition_int_param(condition, 1)?,
+                }
+            }
+            ConditionType::SupplySourceAttacked => ScriptSupplyQuery::Attacked,
+            _ => return Ok(None),
+        };
+        let player = condition
+            .get_parameter(0)
+            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?;
+        let token = player.get_string();
+        let cached_mask = player.get_int() as u32;
+        let current_player = self.context.borrowed_engine().get_current_player_name();
+        let (value, mask) = match driver.player_supply_source(
+            token,
+            cached_mask,
+            current_player.as_deref(),
+            query,
+        ) {
+            ScriptOwnerQuery::Present((mask, value)) => {
+                (Some(value), if token == THIS_PLAYER_ENEMY { 0 } else { mask })
+            }
+            ScriptOwnerQuery::Missing => (None, MISSING_PLAYER_MASK),
+            ScriptOwnerQuery::Unavailable => return Ok(None),
+        };
+        if cached_mask == 0 && let Some(player) = condition.parameters[0].as_mut() {
+            player.int_value = mask as i32;
+        }
+        if let ScriptSupplyQuery::Safe { .. } = query {
+            condition.custom_frame = frame.wrapping_add(2 * LOGICFRAMES_PER_SECOND as u32);
+            if let Some(safe) = value {
+                condition.custom_data = if safe { 1 } else { -1 };
+            }
+        }
+        Ok(Some(Self::bool_result(value.unwrap_or(false))))
+    }
+
     pub(crate) fn eval_supply_source_safe(
         &self,
         condition: &mut Condition,
@@ -1721,23 +1775,11 @@ impl ScriptConditionEvaluator<'_> {
         drop(player);
         drop(players);
 
-        let is_safe = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            self.host_query().host_query_supply_source_safe(&player_name, min_supply_amount)
-                .unwrap_or(false)
-        } else {
-            with_ai_integration_mut(|manager| {
-                manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
-                    crate::ai::integration::IntegratedAiPlayer::Standard(ai) => {
-                        ai.is_supply_source_safe(min_supply_amount)
-                    }
-                    crate::ai::integration::IntegratedAiPlayer::Skirmish(ai) => {
-                        ai.is_supply_source_safe(min_supply_amount)
-                    }
-                })
-            })
-            .flatten()
-            .unwrap_or(false)
-        };
+        let is_safe = with_ai_integration_mut(|manager| {
+            manager.with_ai_player_mut(player_id, |ai| ai.is_supply_source_safe(min_supply_amount))
+        })
+        .flatten()
+        .unwrap_or(true);
 
         condition.custom_data = if is_safe { 1 } else { -1 };
         Ok(if is_safe {
@@ -1768,22 +1810,11 @@ impl ScriptConditionEvaluator<'_> {
         drop(player);
         drop(players);
 
-        let attacked = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            self.host_query().host_query_supply_source_attacked(&player_name).unwrap_or(false)
-        } else {
-            with_ai_integration_mut(|manager| {
-                manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
-                    crate::ai::integration::IntegratedAiPlayer::Standard(ai) => {
-                        ai.is_supply_source_attacked()
-                    }
-                    crate::ai::integration::IntegratedAiPlayer::Skirmish(ai) => {
-                        ai.is_supply_source_attacked()
-                    }
-                })
-            })
-            .flatten()
-            .unwrap_or(false)
-        };
+        let attacked = with_ai_integration_mut(|manager| {
+            manager.with_ai_player_mut(player_id, |ai| ai.is_supply_source_attacked())
+        })
+        .flatten()
+        .unwrap_or(false);
 
         Ok(if attacked {
             ScriptConditionResult::True

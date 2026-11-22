@@ -7,7 +7,8 @@ use gamelogic::scripting::engine::{
     ScriptExecutionDriver, ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery,
     ScriptPlayerAreaQuery, ScriptPlayerConstructionRequest, ScriptPlayerEventSource,
     ScriptPlayerRankRequest, ScriptSightingFilter, ScriptSkirmishCensus,
-    ScriptSpecialPowerReadiness, ScriptTeamPresence, ScriptTeamStatus, ScriptWaterRequest,
+    ScriptSpecialPowerReadiness, ScriptSupplyQuery, ScriptTeamPresence, ScriptTeamStatus,
+    ScriptWaterRequest,
 };
 use std::sync::{Arc, RwLock};
 
@@ -3025,6 +3026,52 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 && !object.is_kind_of(KindOf::Inert)
                 && !object.is_kind_of(KindOf::Mine)
         }))
+    }
+
+    fn player_supply_source(
+        &mut self,
+        token: &str,
+        player_mask: u32,
+        current_player: Option<&str>,
+        query: ScriptSupplyQuery,
+    ) -> ScriptOwnerQuery<(u32, bool)> {
+        let player = if player_mask == 0 {
+            if token == gamelogic::scripting::core::THIS_PLAYER_ENEMY {
+                if let Some(current) = current_player.and_then(|name| self.named_player_id(name)) {
+                    self.world.query_owned_ai_enemy(current);
+                }
+            }
+            self.script_player_id(token, current_player)
+        } else if player_mask.is_power_of_two() {
+            Some(player_mask.trailing_zeros())
+        } else {
+            None
+        };
+        let Some(player) = player.filter(|id| self.world.players.contains_key(id)) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let player_mask = 1u32.checked_shl(player).unwrap_or(0);
+        let value = match query {
+            ScriptSupplyQuery::Safe { minimum_cash } => {
+                // AIPlayer.cpp:966,2164 checks getAiEnemy only within
+                // findSupplyCenter, after the script condition cache admits this query.
+                self.world.query_owned_ai_enemy(player);
+                self.world
+                    .ai_manager
+                    .ai_players
+                    .get(&player)
+                    .is_none_or(|ai| ai.is_supply_source_safe(self.world, minimum_cash))
+            }
+            ScriptSupplyQuery::Attacked => {
+                let Some(mut ai) = self.world.ai_manager.ai_players.remove(&player) else {
+                    return ScriptOwnerQuery::Present((player_mask, false));
+                };
+                let attacked = ai.is_supply_source_attacked(self.world);
+                self.world.ai_manager.ai_players.insert(player, ai);
+                attacked
+            }
+        };
+        ScriptOwnerQuery::Present((player_mask, value))
     }
 
     fn object_status(&self, id: u32) -> ScriptOwnerQuery<ScriptObjectStatus> {
