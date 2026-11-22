@@ -162,15 +162,135 @@ fn cpp_save_file_type(save_type: SaveFileType) -> i32 {
     }
 }
 
+/// Exact C++ `GameState::xfer` record shared by the writer and listing reader.
+/// Field order and primitive widths mirror GameState.cpp:1539-1642.
+#[derive(Default)]
+struct CppGameStateHeader {
+    version: u8,
+    file_type: i32,
+    mission_map_name: String,
+    date: [u16; 8],
+    description: String,
+    map_label: String,
+    campaign_side: String,
+    mission_number: i32,
+}
+
+impl CppGameStateHeader {
+    fn for_save_info(save_info: &SaveGameInfo) -> Self {
+        Self {
+            version: CPP_GAME_STATE_XFER_VERSION,
+            file_type: cpp_save_file_type(save_info.save_type),
+            mission_map_name: if save_info.save_type == SaveFileType::Mission {
+                save_info.map_name.clone()
+            } else {
+                String::new()
+            },
+            date: local_date_fields(save_info.save_date),
+            description: save_info.description.clone(),
+            map_label: map_leaf_name(&save_info.map_name),
+            campaign_side: save_info.campaign_side.clone().unwrap_or_default(),
+            mission_number: save_info
+                .mission_number
+                .map(|number| number as i32)
+                .unwrap_or(CPP_INVALID_MISSION_NUMBER),
+        }
+    }
+
+    fn into_save_info(self) -> SaveGameInfo {
+        let save_type = if self.file_type == CPP_SAVE_FILE_TYPE_MISSION {
+            SaveFileType::Mission
+        } else {
+            SaveFileType::Normal
+        };
+        let map_name = if save_type == SaveFileType::Mission && !self.mission_map_name.is_empty() {
+            self.mission_map_name
+        } else {
+            self.map_label
+        };
+        let (year, month, day, hour, minute, second, milliseconds) = (
+            self.date[0] as i32,
+            self.date[1].clamp(1, 12) as u32,
+            self.date[2].clamp(1, 31) as u32,
+            self.date[4].min(23) as u32,
+            self.date[5].min(59) as u32,
+            self.date[6].min(59) as u32,
+            self.date[7] as u32,
+        );
+        let save_date = civil_utc_to_system_time(
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            milliseconds,
+        );
+        SaveGameInfo {
+            pristine_map_name: None,
+            filename: String::new(),
+            display_name: self.description.clone(),
+            description: self.description,
+            map_name,
+            campaign_side: if self.campaign_side.is_empty() {
+                None
+            } else {
+                Some(self.campaign_side)
+            },
+            mission_number: if self.mission_number >= 0 {
+                Some(self.mission_number as u32)
+            } else {
+                None
+            },
+            save_date,
+            game_version: String::new(),
+            play_time: std::time::Duration::from_secs(0),
+            difficulty: GameDifficulty::Medium,
+            save_type,
+        }
+    }
+}
+
+/// Transfer the single typed GameState layout. The wrappers only adapt
+/// SaveGameInfo to/from this C++ record; field order lives here once.
+fn transfer_cpp_game_state_header(
+    xfer: &mut impl CommonXfer,
+    header: &mut CppGameStateHeader,
+) -> SaveLoadResult<()> {
+    let serialization_error = |error: std::io::Error| {
+        SaveLoadError::Serialization(error.to_string())
+    };
+    xfer
+        .xfer_version(&mut header.version, CPP_GAME_STATE_XFER_VERSION)
+        .map_err(serialization_error)?;
+    if header.version != CPP_GAME_STATE_XFER_VERSION {
+        return Err(SaveLoadError::VersionMismatch {
+            expected: u32::from(CPP_GAME_STATE_XFER_VERSION),
+            actual: u32::from(header.version),
+        });
+    }
+    xfer.xfer_int(&mut header.file_type)
+        .map_err(serialization_error)?;
+    xfer.xfer_ascii_string(&mut header.mission_map_name)
+        .map_err(serialization_error)?;
+    for field in &mut header.date {
+        xfer.xfer_unsigned_short(field)
+            .map_err(serialization_error)?;
+    }
+    xfer.xfer_unicode_string(&mut header.description)
+        .map_err(serialization_error)?;
+    xfer.xfer_ascii_string(&mut header.map_label)
+        .map_err(serialization_error)?;
+    xfer.xfer_ascii_string(&mut header.campaign_side)
+        .map_err(serialization_error)?;
+    xfer.xfer_int(&mut header.mission_number)
+        .map_err(serialization_error)?;
+    Ok(())
+}
+
 fn write_ascii<W: Write + Seek>(xfer: &mut CommonXferSave<W>, value: &str) -> SaveLoadResult<()> {
     let mut owned = value.to_string();
     xfer.xfer_ascii_string(&mut owned)
-        .map_err(|e| SaveLoadError::Serialization(e.to_string()))
-}
-
-fn write_unicode<W: Write + Seek>(xfer: &mut CommonXferSave<W>, value: &str) -> SaveLoadResult<()> {
-    let mut owned = value.to_string();
-    xfer.xfer_unicode_string(&mut owned)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))
 }
 
@@ -179,33 +299,7 @@ fn write_cpp_game_state_header<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
     save_info: &SaveGameInfo,
 ) -> SaveLoadResult<()> {
-    let mut version = CPP_GAME_STATE_XFER_VERSION;
-    xfer.xfer_version(&mut version, CPP_GAME_STATE_XFER_VERSION)
-        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-    let mut file_type = cpp_save_file_type(save_info.save_type);
-    xfer.xfer_int(&mut file_type)
-        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-    let mission_map = if save_info.save_type == SaveFileType::Mission {
-        save_info.map_name.as_str()
-    } else {
-        ""
-    };
-    write_ascii(xfer, mission_map)?;
-    let mut date = local_date_fields(save_info.save_date);
-    for field in &mut date {
-        xfer.xfer_unsigned_short(field)
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-    }
-    write_unicode(xfer, &save_info.description)?;
-    write_ascii(xfer, &map_leaf_name(&save_info.map_name))?;
-    write_ascii(xfer, save_info.campaign_side.as_deref().unwrap_or(""))?;
-    let mut mission_number = save_info
-        .mission_number
-        .map(|n| n as i32)
-        .unwrap_or(CPP_INVALID_MISSION_NUMBER);
-    xfer.xfer_int(&mut mission_number)
-        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-    Ok(())
+    transfer_cpp_game_state_header(xfer, &mut CppGameStateHeader::for_save_info(save_info))
 }
 
 /// C++ `CampaignManager::xfer` v5 (`CampaignManager.cpp`) for CHUNK_Campaign.
@@ -425,13 +519,6 @@ fn read_ascii(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<String
     Ok(value)
 }
 
-fn read_unicode(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<String> {
-    let mut value = String::new();
-    xfer.xfer_unicode_string(&mut value)
-        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-    Ok(value)
-}
-
 /// Parse C++ `GameState::xfer` enough to list a save. Version 2 is accepted.
 fn parse_cpp_game_state_header(payload: &[u8]) -> SaveLoadResult<SaveGameInfo> {
     let actual = *payload.first().ok_or(SaveLoadError::InvalidFormat)?;
@@ -442,67 +529,9 @@ fn parse_cpp_game_state_header(payload: &[u8]) -> SaveLoadResult<SaveGameInfo> {
         });
     }
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
-    let mut version = 0u8;
-    xfer.xfer_version(&mut version, CPP_GAME_STATE_XFER_VERSION)
-        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-    let mut file_type = CPP_SAVE_FILE_TYPE_NORMAL;
-    xfer.xfer_int(&mut file_type)
-        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-    let mission_map_name = read_ascii(&mut xfer)?;
-    let mut date = [0u16; 8];
-    for field in &mut date {
-        xfer.xfer_unsigned_short(field)
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-    }
-    let description = read_unicode(&mut xfer)?;
-    let map_label = read_ascii(&mut xfer)?;
-    let campaign_side = read_ascii(&mut xfer)?;
-    let mut mission_number = CPP_INVALID_MISSION_NUMBER;
-    xfer.xfer_int(&mut mission_number)
-        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-
-    let save_type = if file_type == CPP_SAVE_FILE_TYPE_MISSION {
-        SaveFileType::Mission
-    } else {
-        SaveFileType::Normal
-    };
-    let map_name = if save_type == SaveFileType::Mission && !mission_map_name.is_empty() {
-        mission_map_name
-    } else {
-        map_label
-    };
-    let (year, month, day, hour, minute, second, milliseconds) = (
-        date[0] as i32,
-        date[1].clamp(1, 12) as u32,
-        date[2].clamp(1, 31) as u32,
-        date[4].min(23) as u32,
-        date[5].min(59) as u32,
-        date[6].min(59) as u32,
-        date[7] as u32,
-    );
-    let save_date = civil_utc_to_system_time(year, month, day, hour, minute, second, milliseconds);
-    Ok(SaveGameInfo {
-        pristine_map_name: None,
-        filename: String::new(),
-        display_name: description.clone(),
-        description,
-        map_name,
-        campaign_side: if campaign_side.is_empty() {
-            None
-        } else {
-            Some(campaign_side)
-        },
-        mission_number: if mission_number >= 0 {
-            Some(mission_number as u32)
-        } else {
-            None
-        },
-        save_date,
-        game_version: String::new(),
-        play_time: std::time::Duration::from_secs(0),
-        difficulty: GameDifficulty::Medium,
-        save_type,
-    })
+    let mut header = CppGameStateHeader::default();
+    transfer_cpp_game_state_header(&mut xfer, &mut header)?;
+    Ok(header.into_save_info())
 }
 
 fn civil_utc_to_system_time(

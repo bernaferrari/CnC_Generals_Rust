@@ -270,6 +270,32 @@ fn host_lists_cpp_game_state_version_2_without_rejecting() {
 }
 
 #[test]
+fn game_state_header_transfer_preserves_genuine_retail_header_bytes() {
+    // Checked-in outer-v23 archives contain unmodified C++ GameState headers;
+    // keep the shared transfer record pinned to those bytes as well as to the
+    // host writer exercised above.
+    for bytes in [
+        include_bytes!("../../../tests/fixtures/alliance_save_load/alliance_only.sav").as_slice(),
+        include_bytes!("../../../tests/fixtures/alliance_save_load/explicit_map.sav").as_slice(),
+    ] {
+        let blocks = walk_named_chunks(bytes).expect("walk retail save chunks");
+        let (_, payload) = blocks
+            .iter()
+            .find(|(name, _)| name == CHUNK_GAME_STATE)
+            .expect("retail GameState chunk");
+        let info = parse_cpp_game_state_header(payload).expect("decode retail header");
+        assert_eq!(info.save_type, SaveFileType::Normal);
+        let mut header = CppGameStateHeader::default();
+        let mut reader = CommonXferLoad::new(Cursor::new(payload.as_slice()), SAVE_FILE_VERSION);
+        transfer_cpp_game_state_header(&mut reader, &mut header).expect("read retail header record");
+        let mut encoded = Cursor::new(Vec::new());
+        let mut writer = CommonXferSave::new(&mut encoded, SAVE_FILE_VERSION);
+        transfer_cpp_game_state_header(&mut writer, &mut header).expect("write retail header record");
+        assert_eq!(encoded.get_ref(), payload);
+    }
+}
+
+#[test]
 fn game_state_header_writes_empty_campaign_and_invalid_mission() {
     // C++ GameState.cpp:1632-1638: no current campaign → empty side + -1.
     let mut payload = Vec::new();
