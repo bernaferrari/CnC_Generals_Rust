@@ -194,11 +194,12 @@ impl crate::scripting::engine::ScriptExecutionDriver for OwnedAreaCensus {
     fn player_area_value(
         &mut self,
         player: &str,
+        _: u32,
         area: &str,
         _: Option<&str>,
         query: crate::scripting::engine::ScriptPlayerAreaQuery<'_>,
-    ) -> crate::scripting::engine::ScriptOwnerQuery<(i32, bool)> {
-        use crate::scripting::engine::{ScriptOwnerQuery, ScriptPlayerAreaQuery};
+    ) -> crate::scripting::engine::ScriptOwnerQuery<crate::scripting::engine::ScriptPlayerAreaCensus> {
+        use crate::scripting::engine::{ScriptOwnerQuery, ScriptPlayerAreaCensus, ScriptPlayerAreaQuery};
         if area != "HoldZone" || !self.objects.iter().any(|(owner, _)| owner == player) {
             return ScriptOwnerQuery::Missing;
         }
@@ -251,7 +252,11 @@ impl crate::scripting::engine::ScriptExecutionDriver for OwnedAreaCensus {
             };
             value = value.wrapping_add(contribution);
         }
-        ScriptOwnerQuery::Present((value, false))
+        ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::Measured {
+            player_mask: 1,
+            value,
+            membership_changed: false,
+        })
     }
 }
 fn owned_area_unit(

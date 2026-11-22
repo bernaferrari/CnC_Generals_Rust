@@ -2223,7 +2223,8 @@ fn live_skirmish_leftover_conditions_read_host_snapshot() {
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     use crate::scripting::engine::{
-        ScriptOwnerQuery, ScriptPlayerAreaQuery, ScriptSkirmishCensus, ScriptSpecialPowerReadiness,
+        ScriptOwnerQuery, ScriptPlayerAreaCensus, ScriptPlayerAreaQuery, ScriptSkirmishCensus,
+        ScriptSpecialPowerReadiness,
     };
     struct Owner;
     impl ScriptExecutionDriver for Owner {
@@ -2236,19 +2237,22 @@ fn live_skirmish_leftover_conditions_read_host_snapshot() {
         fn player_area_value(
             &mut self,
             player: &str,
+            _: u32,
             area: &str,
             _: Option<&str>,
             query: ScriptPlayerAreaQuery<'_>,
-        ) -> ScriptOwnerQuery<(i32, bool)> {
+        ) -> ScriptOwnerQuery<ScriptPlayerAreaCensus> {
             assert_eq!((player, area), ("PlyrAmerica", "HoldZone"));
-            ScriptOwnerQuery::Present((
-                if matches!(query, ScriptPlayerAreaQuery::Value) {
-                    2000
-                } else {
-                    1
-                },
-                false,
-            ))
+            let value = if matches!(query, ScriptPlayerAreaQuery::Value) {
+                2000
+            } else {
+                1
+            };
+            ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::Measured {
+                player_mask: 1,
+                value,
+                membership_changed: false,
+            })
         }
         fn skirmish_census(
             &self,

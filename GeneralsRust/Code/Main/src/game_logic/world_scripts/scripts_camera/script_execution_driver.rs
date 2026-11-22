@@ -1585,31 +1585,59 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn player_area_value(
         &mut self,
         player: &str,
+        player_mask: u32,
         area: &str,
         current_player: Option<&str>,
         query: ScriptPlayerAreaQuery<'_>,
-    ) -> ScriptOwnerQuery<(i32, bool)> {
+    ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptPlayerAreaCensus> {
+        use gamelogic::scripting::engine::ScriptPlayerAreaCensus;
+
+        let resolve_player = |driver: &mut Self| {
+            driver
+                .query_condition_player_id(player, player_mask, current_player)
+                .filter(|id| driver.world.players.contains_key(id))
+        };
+        let mask_for = |id| 1u32.checked_shl(id).unwrap_or(0);
+        // CPP2088 resolves SIDE first for value. CPP420/513/2472 need
+        // a live polygon before they can resolve SIDE.
         let value_owner = if matches!(query, ScriptPlayerAreaQuery::Value) {
-            match self.script_player_id(player, current_player) {
+            match resolve_player(self) {
                 Some(owner) => Some(owner),
-                None => return ScriptOwnerQuery::Missing,
+                None => return ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::MissingPlayer),
             }
         } else {
             None
         };
         let Some(area) = self.world.qualified_script_area(area, current_player) else {
-            return ScriptOwnerQuery::Missing;
+            return match value_owner {
+                Some(owner) => ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::MissingArea {
+                    player_mask: mask_for(owner),
+                }),
+                None => ScriptOwnerQuery::Missing,
+            };
         };
-        let Some(owner) = value_owner.or_else(|| self.script_player_id(player, current_player)) else {
+        if value_owner.is_none()
+            && self
+                .world
+                .host_trigger_world
+                .lock()
+                .expect("owned player polygon census")
+                .trigger_area_by_canonical_name(&area)
+                .is_none()
+        {
             return ScriptOwnerQuery::Missing;
+        }
+        let Some(owner) = value_owner.or_else(|| resolve_player(self)) else {
+            return ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::MissingPlayer);
         };
+        let player_mask = mask_for(owner);
         let geometry = self
             .world
             .host_trigger_world
             .lock()
             .expect("owned player polygon census");
         let Some(trigger) = geometry.trigger_area_by_canonical_name(&area) else {
-            return ScriptOwnerQuery::Missing;
+            return ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::MissingArea { player_mask });
         };
         let mut value = 0i32;
         let mut changed = false;
@@ -1667,7 +1695,11 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             };
             value = value.wrapping_add(contribution);
         }
-        ScriptOwnerQuery::Present((value, changed))
+        ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::Measured {
+            player_mask,
+            value,
+            membership_changed: changed,
+        })
     }
 
     fn named_query_fact(

@@ -1,6 +1,8 @@
 //! CPP ScriptConditions420/513/2088: an owner-selected polygon census.
 use super::*;
-use crate::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery, ScriptPlayerAreaQuery};
+use crate::scripting::engine::{
+    ScriptExecutionDriver, ScriptOwnerQuery, ScriptPlayerAreaCensus, ScriptPlayerAreaQuery,
+};
 impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_owned_player_area(
         &self,
@@ -25,7 +27,6 @@ impl ScriptConditionEvaluator<'_> {
                 | ConditionType::SkirmishPlayerIsOutsideArea
         );
         let inverted = kind == ConditionType::SkirmishPlayerIsOutsideArea;
-        let player = self.get_condition_string_param(condition, 0)?;
         let area = self.get_condition_string_param(
             condition,
             if units_query {
@@ -65,12 +66,39 @@ impl ScriptConditionEvaluator<'_> {
             _ if units_query => ScriptPlayerAreaQuery::Units,
             _ => ScriptPlayerAreaQuery::Value,
         };
-        let (count, changed) =
-            match driver.player_area_value(&player, &area, current.as_deref(), query) {
-                ScriptOwnerQuery::Unavailable => return Ok(None),
-                ScriptOwnerQuery::Missing => return Ok(Some(Self::bool_result(false))),
-                ScriptOwnerQuery::Present(value) => value,
-            };
+        let player = condition
+            .parameters
+            .first_mut()
+            .and_then(Option::as_mut)
+            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?;
+        let (count, changed) = match driver.player_area_value(
+            player.get_string(),
+            player.get_int() as u32,
+            &area,
+            current.as_deref(),
+            query,
+        ) {
+            ScriptOwnerQuery::Unavailable => return Ok(None),
+            ScriptOwnerQuery::Missing => return Ok(Some(Self::bool_result(false))),
+            ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::MissingPlayer) => {
+                player.cache_condition_player_mask(None);
+                // CPP::evaluateSkirmishPlayerIsOutsideArea first finds
+                // the trigger, then negates the failed player query.
+                return Ok(Some(Self::bool_result(inverted)));
+            }
+            ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::MissingArea { player_mask }) => {
+                player.cache_condition_player_mask(Some(player_mask));
+                return Ok(Some(Self::bool_result(false)));
+            }
+            ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::Measured {
+                player_mask,
+                value,
+                membership_changed,
+            }) => {
+                player.cache_condition_player_mask(Some(player_mask));
+                (value, membership_changed)
+            }
+        };
         let frame = match driver.object_count_changed_frame() {
             ScriptOwnerQuery::Present(frame) => frame,
             ScriptOwnerQuery::Missing | ScriptOwnerQuery::Unavailable => {
@@ -128,14 +156,19 @@ mod tests {
         fn player_area_value(
             &mut self,
             _: &str,
+            _: u32,
             _: &str,
             _: Option<&str>,
             _: ScriptPlayerAreaQuery<'_>,
-        ) -> ScriptOwnerQuery<(i32, bool)> {
+        ) -> ScriptOwnerQuery<ScriptPlayerAreaCensus> {
             if self.missing {
                 ScriptOwnerQuery::Missing
             } else {
-                ScriptOwnerQuery::Present((self.count, self.changed))
+                ScriptOwnerQuery::Present(ScriptPlayerAreaCensus::Measured {
+                    player_mask: 1,
+                    value: self.count,
+                    membership_changed: self.changed,
+                })
             }
         }
         fn object_count_changed_frame(&self) -> ScriptOwnerQuery<u32> {

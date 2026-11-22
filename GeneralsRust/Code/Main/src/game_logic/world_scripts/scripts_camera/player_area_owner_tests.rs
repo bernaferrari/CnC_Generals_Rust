@@ -70,6 +70,73 @@ fn team_state_condition(kind: ConditionType, team: &str, state: &str) -> Conditi
     condition
 }
 
+fn player_area_condition(kind: ConditionType, side: &str) -> Condition {
+    let mut condition = Condition::new(kind);
+    condition
+        .add_parameter(Parameter::with_string(ParameterType::Side, side.into()))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            "OwnerTriangle".into(),
+        ))
+        .unwrap();
+    condition
+}
+
+#[test]
+fn outside_area_distinguishes_an_absent_player_from_an_absent_trigger() {
+    let (mut owner, ..) = world();
+    let (mut peer, ..) = world();
+    area(&mut owner);
+    let condition = player_area_condition(
+        ConditionType::SkirmishPlayerIsOutsideArea,
+        "UnknownAreaPlayer",
+    );
+    assert!(owner.owned_script_condition_for_test(condition.clone()));
+    assert!(!peer.owned_script_condition_for_test(condition));
+}
+
+#[test]
+fn player_area_assesses_the_enemy_only_after_finding_the_trigger() {
+    use gamelogic::common::Relationship;
+    use gamelogic::scripting::core::{OrCondition, Script, THIS_PLAYER_ENEMY};
+
+    let (mut owner, _, target) = world();
+    owner.game_mode = GameMode::Skirmish;
+    owner.frame = 149;
+    let player = owner.get_player_mut(1).unwrap();
+    player.is_human = false;
+    player.map_side.is_skirmish_ai = true;
+    player.set_map_relationship(2, Relationship::Enemies);
+    owner
+        .ai_manager
+        .add_ai_player(1, Team::USA, crate::ai::AIDifficulty::Medium);
+    owner.set_fixture_object_position(target, Vec3::new(2.0, 0.0, 2.0));
+
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(player_area_condition(
+        ConditionType::SkirmishPlayerHasUnitsInArea,
+        THIS_PLAYER_ENEMY,
+    ))));
+    let mut script = Script::new();
+    script.condition = Some(Box::new(branch));
+    let evaluate = |owner: &mut GameLogic, script: &mut Script| {
+        owner
+            .with_owned_script_engine(|engine, world| {
+                world.evaluate_owned_script_conditions(engine, script, Some("NamedOwner"))
+            })
+            .unwrap()
+    };
+
+    assert!(!evaluate(&mut owner, &mut script));
+    assert_eq!(owner.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+    area(&mut owner);
+    assert!(evaluate(&mut owner, &mut script));
+    assert_eq!(owner.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+    assert_eq!(owner.ai_manager.ai_players[&1].frame_to_check_enemy, 299);
+}
+
 #[test]
 fn team_inside_area_condition_reads_the_receiving_same_id_objects() {
     use super::condition_cursor_control_tests::admit;

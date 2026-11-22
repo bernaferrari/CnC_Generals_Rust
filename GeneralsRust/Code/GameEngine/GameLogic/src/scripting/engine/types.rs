@@ -42,6 +42,18 @@ pub enum ScriptPlayerAreaQuery<'a> {
     Units,
 }
 
+/// The scalar result and SIDE lookup state from an owned polygon census.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptPlayerAreaCensus {
+    MissingPlayer,
+    MissingArea { player_mask: u32 },
+    Measured {
+        player_mask: u32,
+        value: i32,
+        membership_changed: bool,
+    },
+}
+
 /// The two supply conditions make distinct AI queries. A safety check is
 /// given the authored cash threshold while an attack check consumes a scan.
 #[derive(Clone, Copy)]
@@ -1494,13 +1506,15 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
+    /// `Missing` means the area was absent before the SIDE lookup.
     fn player_area_value(
         &mut self,
         _player: &str,
+        _player_mask: u32,
         _area: &str,
         _current_player: Option<&str>,
         _query: ScriptPlayerAreaQuery<'_>,
-    ) -> ScriptOwnerQuery<(i32, bool)> {
+    ) -> ScriptOwnerQuery<ScriptPlayerAreaCensus> {
         ScriptOwnerQuery::Unavailable
     }
 
