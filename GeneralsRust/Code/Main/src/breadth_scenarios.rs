@@ -222,6 +222,10 @@ const BREADTH_ECON_OBJECTS: &str = concat!(
     "End\n",
     "Object BreadthStealth\n",
     "KindOf = INFANTRY SELECTABLE\n",
+    "WeaponSet\n",
+    " Conditions = None\n",
+    " Weapon = PRIMARY BreadthStealthGun\n",
+    "End\n",
     "Body = ActiveBody Body\n",
     "MaxHealth = 80\n",
     "InitialHealth = 80\n",
@@ -273,8 +277,21 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
             std::sync::Arc::new(actions),
         )
         .map_err(|error| format!("object parse: {error}"))?;
+        let mut weapons = std::collections::HashMap::new();
+        let count = crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut weapons,
+            "Weapon BreadthStealthGun\n PrimaryDamage = 10\n AttackRange = 100\n DelayBetweenShots = 0\n DamageType = SMALL_ARMS\n ProjectileObject = NONE\nEnd\n",
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        );
+        if count != 1 {
+            return Err("could not admit breadth stealth weapon".into());
+        }
+        let weapons = weapons
+            .into_values()
+            .map(|weapon| (weapon.name.clone(), weapon))
+            .collect();
         logic
-            .admit_receiving_module_content_with_weapons(content, None)
+            .admit_receiving_module_content_with_weapons(content, Some(weapons))
             .map_err(|error| error.to_string())
     })() {
         return BreadthCategoryResult {
@@ -550,17 +567,6 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         // host_object_mut above synchronized and marked this exact host row.
         // Release that facade borrow before borrowing its disjoint combat owner.
         if let Some(u) = logic.objects.get_mut(&sid) {
-            // C++ Weapon::fireWeapon needs the slot's WeaponTemplate
-            // (DamageType et al.); author a real PRIMARY row instead of a
-            // nameless Weapon the dtype lookup vetoes. last_fire_time=-1 so
-            // weapon_ready at t=0.
-            crate::fixture_content::arm_slot_with_stats(u, 0, crate::game_logic::Weapon {
-                damage: 10.0,
-                range: 100.0,
-                reload_time: 0.5,
-                last_fire_time: -1.0,
-                ..crate::game_logic::Weapon::default()
-            });
             fire_break_ok = u.fire_at(
                 ObjectId(9999),
                 0.0,
