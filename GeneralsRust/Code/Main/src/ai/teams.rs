@@ -1340,7 +1340,7 @@ impl AIPlayer {
         upgrade_name: &str,
         upgrade_type: gamelogic::upgrade::UpgradeType,
     ) -> bool {
-        if !object.is_alive() || !object.is_constructed() {
+        if !object.is_alive() || !object.is_constructed() || object.status.sold {
             return false;
         }
         let Some(building) = object.building_data.as_ref() else {
@@ -1369,38 +1369,49 @@ impl AIPlayer {
             .any(|item| item.is_upgrade() && item.template_name.eq_ignore_ascii_case(upgrade_name))
     }
 
-    /// C++ `AIPlayer::buildUpgrade` walks BuildList factories whose
-    /// CommandSet has a button for exactly this upgrade
-    /// (`Object::canProduceUpgrade`).  The residual preferred-name table is
-    /// that exact CommandSet identity, so a same-team building that passes
-    /// only the loose queue checks must NOT be selected.
+    /// C++ AIPlayer.cpp:1774–1803 walks the player's live BuildList in order.
     pub(super) fn find_upgrade_producer(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
         upgrade_name: &str,
         upgrade_type: gamelogic::upgrade::UpgradeType,
     ) -> Option<ObjectId> {
-        let game_logic = &AiWorldView::new(game_logic);
-        let preferred = Self::preferred_upgrade_producer_names(upgrade_name);
-        game_logic
-            .host_objects()
-            .registered()
-            .find_map(|(&id, object)| {
-                let name_ok = preferred.iter().any(|name| {
-                    object.template_name.eq_ignore_ascii_case(name)
-                        || object.get_template().name.eq_ignore_ascii_case(name)
+        let world = AiWorldView::new(game_logic);
+        let definitions = world.upgrade_action_definitions();
+        let overrides = world.control_bar_overrides();
+        let eligible = |object: &crate::game_logic::Object| {
+            world.object_owned_by_player(object, self.player_id)
+                && Self::building_can_queue_upgrade(
+                    definitions,
+                    overrides,
+                    object,
+                    upgrade_name,
+                    upgrade_type,
+                )
+        };
+        if definitions.is_some() {
+            return self
+                .building_queue
+                .iter()
+                .filter_map(|pad| pad.object_id)
+                .find(|id| {
+                    world.host_object(*id).is_some_and(|object| {
+                        object.get_template().authors_behavior_module("ProductionUpdate")
+                            && eligible(object)
+                    })
                 });
-                (game_logic.object_owned_by_player(object, self.player_id)
-                    && name_ok
-                    && Self::building_can_queue_upgrade(
-                        game_logic.upgrade_action_definitions(),
-                        game_logic.control_bar_overrides(),
-                        object,
-                        upgrade_name,
-                        upgrade_type,
-                    ))
-                .then_some(id)
-            })
+        }
+
+        // Standalone fixture worlds with no command catalog use the retail
+        // producer names as their compatibility definition.
+        let preferred = Self::preferred_upgrade_producer_names(upgrade_name);
+        world.host_objects().registered().find_map(|(&id, object)| {
+            (preferred.iter().any(|name| {
+                object.template_name.eq_ignore_ascii_case(name)
+                    || object.get_template().name.eq_ignore_ascii_case(name)
+            }) && eligible(object))
+            .then_some(id)
+        })
     }
 
     /// Pick candidate team name for the current strategy (same as select_team_to_build).
