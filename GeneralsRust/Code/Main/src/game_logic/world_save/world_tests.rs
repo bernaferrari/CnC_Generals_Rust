@@ -488,6 +488,94 @@ mod landmark_bridge_and_new_map_tests {
     }
 
     #[test]
+    fn authored_map_walker_on_bridge_starts_with_only_the_deck_position_claim() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "authored_map_walker_on_bridge_starts_with_only_the_deck_position_claim",
+            || {
+                use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+                use game_engine::common::system::DataChunkOutput;
+                use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+
+                const WALKER: &str = "MapPlacedBridgeWalker";
+                let directory = tempfile::tempdir().unwrap();
+                let path = directory.path().join("BridgeWalker.map");
+                let mut map = DataChunkOutput::new();
+                map.open_data_chunk("HeightMapData", 3);
+                for value in [21, 21, 1, 441] {
+                    map.write_int(value);
+                }
+                for _ in 0..441 {
+                    map.write_byte(0);
+                }
+                map.close_data_chunk();
+                map.open_data_chunk("ObjectsList", 3);
+                for (x, flags) in [(20.0, 0x10), (80.0, 0x20)] {
+                    map.open_data_chunk("Object", 3);
+                    for value in [x, 50.0, 21.0, 0.0] {
+                        map.write_real(value);
+                    }
+                    map.write_int(flags);
+                    map.write_ascii_string("OwnedBridge0");
+                    map.close_data_chunk();
+                }
+                map.open_data_chunk("Object", 3);
+                for value in [55.0, 50.0, 21.0, 0.0] {
+                    map.write_real(value);
+                }
+                map.write_int(0);
+                map.write_ascii_string(WALKER);
+                let mut properties = Dict::new();
+                properties.set_ascii_string(NameKeyGenerator::name_to_key("originalOwner"), "team");
+                map.write_dict(&properties);
+                map.close_data_chunk();
+                map.close_data_chunk();
+                std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+
+                let mut world = GameLogic::new();
+                admit_fixture_objects(
+                    &mut world,
+                    &[
+                        FixtureObject::new("GenericBridge")
+                            .kind_of("STRUCTURE BRIDGE IMMOBILE")
+                            .health(300.0),
+                        FixtureObject::new(WALKER)
+                            .kind_of("INFANTRY SELECTABLE")
+                            .health(100.0)
+                            .field("Geometry = CYLINDER")
+                            .field("GeometryMajorRadius = 3")
+                            .field("GeometryHeight = 10")
+                            .walker(),
+                    ],
+                );
+                world.start_new_game(GameMode::SinglePlayer).unwrap();
+                assert!(world.load_map(path.to_str().unwrap()));
+                let actor = world
+                    .host_objects()
+                    .registered_values()
+                    .find(|unit| unit.template_name == WALKER)
+                    .expect("the deck placement was admitted");
+                let pose = Vec3::new(55.0, 21.0, 50.0);
+                assert_eq!(world.frame, 0);
+                assert_eq!(actor.get_position(), pose);
+                assert!(actor.has_ai_update_interface());
+
+                let layer = PathfindLayerEnum::from_u32(world.path_layer_for_point(pose) as u32);
+                let grid = &world.pathfinding_system.grid;
+                let cell = grid.world_to_grid(pose);
+                assert_ne!(layer, PathfindLayerEnum::Ground);
+                assert!(grid.layer_cell_type(layer as u8, cell).is_some());
+                assert!(!grid.object_interacts_with_bridge_end(pose, 3.0, layer));
+
+                assert_eq!(actor.pathfind_layer, layer as u8);
+                assert_eq!(actor.pathfind_cur_cell, (cell.x, cell.y));
+                assert_eq!(grid.position_unit_on_layer(cell, layer), actor.id.0);
+                assert_eq!(world.pathfinding_ground_position(cell), None);
+            },
+        );
+    }
+
+    #[test]
     fn landmark_bridge_object_registers_leftover_deck() {
         let mut logic = GameLogic::new();
         logic.override_world_size(64.0, 64.0);

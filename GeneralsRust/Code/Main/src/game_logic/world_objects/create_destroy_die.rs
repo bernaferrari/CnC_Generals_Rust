@@ -32,6 +32,7 @@ mod spawn_scheduler_garrison;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FactoryCreationPurpose {
     AtCreation,
+    MapPlacement,
     SpawnBehavior,
     ProductionExit,
     InstantLineBuild,
@@ -1532,6 +1533,47 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        self.create_object_on_exact_team_with_purpose_checked(
+            template,
+            controller,
+            position,
+            (team_name, team_id, activate),
+            FactoryCreationPurpose::AtCreation,
+            interpreter,
+            ui,
+        )
+    }
+
+    pub(in crate::game_logic) fn create_object_for_map_placement_with_effects_checked(
+        &mut self,
+        template: &str,
+        controller: u32,
+        team_name: &str,
+        team_id: u32,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        self.create_object_on_exact_team_with_purpose_checked(
+            template,
+            controller,
+            position,
+            (team_name, team_id, false),
+            FactoryCreationPurpose::MapPlacement,
+            None,
+            effects,
+        )
+    }
+
+    fn create_object_on_exact_team_with_purpose_checked(
+        &mut self,
+        template: &str,
+        controller: u32,
+        position: Vec3,
+        initial_team: (&str, u32, bool),
+        creation_purpose: FactoryCreationPurpose,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         let Some(player) = self.players.get(&controller) else {
             return Ok(None);
         };
@@ -1541,8 +1583,8 @@ impl GameLogic {
             faction,
             Some(controller),
             position,
-            FactoryCreationPurpose::AtCreation,
-            Some((team_name, team_id, activate)),
+            creation_purpose,
+            Some(initial_team),
             interpreter,
             ui,
         )?
@@ -2669,6 +2711,7 @@ impl GameLogic {
                     "Object {id} disappeared during factory placement"
                 )));
             }
+            verify_factory_birth!();
             self.host_radar_observe_object_position(id);
             if crate::game_logic::host_bridge_behavior::is_bridge_span_template(template_name) {
                 let object = self
@@ -2688,8 +2731,8 @@ impl GameLogic {
 
             if !starts_under_construction && matches!(creation_purpose, FactoryCreationPurpose::AtCreation | FactoryCreationPurpose::SpawnBehavior)
             {
-                // C++ GameLogic.cpp:1878-1885 every map object runs CreateModules
-                // onBuildComplete (SupplyCenter/GrantUpgrade/Preorder/LockWeapon/SP).
+                // Ordinary authored placements run BuildComplete in the map loop
+                // after authored properties and path layer (GameLogic.cpp:1873–1888).
                 self.apply_create_modules_on_build_complete_with_effects_checked(
                     id,
                     interpreter,
@@ -2712,8 +2755,9 @@ impl GameLogic {
                 if creation_purpose != FactoryCreationPurpose::SpawnBehavior {
                     self.record_structure_completion(id);
                 }
-                // Static path/LOS obstacle (C++ pathfind structure residual).
-                self.block_structure_object_path(id);
+                if creation_purpose != FactoryCreationPurpose::MapPlacement {
+                    self.block_structure_object_path(id);
+                }
             }
             if !matches!(
                 creation_purpose,
@@ -2840,18 +2884,21 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        let Some(object) = self.objects.get(&object_id) else {
+            return Ok(());
+        };
+        let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
+        let grants = object.thing().template.grant_upgrade_creates.clone();
         self.apply_preorder_create(object_id);
-        let grants = self
-            .objects
-            .get(&object_id)
-            .map(|obj| obj.thing().template.grant_upgrade_creates.clone())
-            .unwrap_or_default();
         self.apply_grant_upgrade_creates_with_interpreter_and_effects(
             object_id,
             &grants,
             interpreter,
             ui,
         )?;
+        if !self.object_birth_matches(object_id, &birth) {
+            return Ok(());
+        }
         self.apply_lock_weapon_create(object_id);
         // C++ SpecialPowerCreate::onBuildComplete walks every getSpecialPower().
         self.on_structure_superweapon_creation(object_id);

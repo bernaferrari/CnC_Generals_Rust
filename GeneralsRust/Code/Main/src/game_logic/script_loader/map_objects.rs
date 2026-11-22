@@ -495,7 +495,7 @@ pub fn parse_objects_list_for_settings_from_chunky(
             z = 0.0;
         }
         let angle = reader.read_f32()?;
-        let _flags = reader.read_i32()?;
+        let flags = reader.read_i32()? as u32;
         let template = reader.read_ascii_string()?;
         if template.is_empty() {
             return Ok(());
@@ -591,6 +591,7 @@ pub fn parse_objects_list_for_settings_from_chunky(
 
         objects.push(PlacedObject {
             template,
+            flags,
             name,
             position: Coord3D::new(x, y, z),
             rotation: Some(angle),
@@ -765,7 +766,7 @@ fn parse_map_object_chunk(
         z = 0.0;
     }
     let angle = reader.read_f32()?;
-    let _flags = reader.read_i32()?;
+    let flags = reader.read_i32()? as u32;
     let template = reader.read_ascii_string()?;
     if template.is_empty() {
         return Ok(None);
@@ -822,6 +823,7 @@ fn parse_map_object_chunk(
 
     Ok(Some(PlacedObject {
         template,
+        flags,
         name,
         position: Coord3D::new(x, y, z),
         rotation: Some(angle),
@@ -1163,6 +1165,7 @@ fn parse_object_creation_chunk(
 
     Ok(Some(PlacedObject {
         template,
+        flags: 0,
         name: None,
         position,
         rotation,

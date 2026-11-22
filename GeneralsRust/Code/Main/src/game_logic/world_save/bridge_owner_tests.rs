@@ -751,6 +751,7 @@ fn native_bridge_body_callbacks_continue_through_damage_and_direct_healing() {
             let mut source = load(&path);
             let (layer, raw_id, _) = bridges(&source)[0];
             let id = ObjectId(raw_id);
+            assert_eq!(source.host_objects().registered_len(), 1, "only the bridge span is an actor");
             source.frame = 23;
             source.spawn_bridge_scaffolding(id);
             let maximum = source.objects[&id].health.maximum;
@@ -801,7 +802,7 @@ fn native_bridge_body_callbacks_continue_through_damage_and_direct_healing() {
                 (DamageType::Unresistable, maximum),
                 (DamageType::Healing, maximum * 0.25),
             ] {
-                for owner in [&mut source, &mut restored] {
+                for (receiver_index, owner) in [&mut source, &mut restored].into_iter().enumerate() {
                     owner.frame = owner.frame.wrapping_add(1);
                     if kind == DamageType::Healing {
                         // C++ attemptDamage rejects dead bodies before its healing
@@ -825,7 +826,14 @@ fn native_bridge_body_callbacks_continue_through_damage_and_direct_healing() {
                     if kind == DamageType::Healing {
                         assert!(terrain.is_bridge_repaired(id.0));
                     } else {
-                        assert!(terrain.is_bridge_broken(id.0));
+                        let bridge_object = &owner.objects[&id];
+                        assert!(
+                            terrain.is_bridge_broken(id.0),
+                            "receiver {receiver_index} bridge {id} health {} of {} state {:?}",
+                            bridge_object.health.current,
+                            bridge_object.health.maximum,
+                            bridge_object.body_damage_state,
+                        );
                     }
                     let cell = owner
                         .pathfinding_system

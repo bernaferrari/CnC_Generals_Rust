@@ -894,6 +894,9 @@ impl GameLogic {
                         // Build a mapping from map-defined player IDs to teams.
                         let mut map_player_to_team: HashMap<u32, Team> = HashMap::new();
                         for obj in objects {
+                            if obj.is_terrain_endpoint() {
+                                continue;
+                            }
                             if let Some(pid) = obj.player_id {
                                 if let Some(team) =
                                     obj.team_name.as_deref().and_then(Self::team_from_string)
@@ -973,7 +976,7 @@ impl GameLogic {
                                     "Spawning world objects",
                                 )?;
                             }
-                            if Self::apply_map_object_scorch(obj) {
+                            if obj.is_terrain_endpoint() || Self::apply_map_object_scorch(obj) {
                                 continue;
                             }
 
@@ -1004,15 +1007,15 @@ impl GameLogic {
                             };
                             if let Some(birth) = created {
                                 let id = birth.id;
-                                spawned_object_ids.push((id, index));
                                 self.apply_update_obj_values_from_map_properties_with_effects(
                                     id,
                                     &obj.properties,
-                                    &mut native
-                                        .as_mut()
-                                        .map(|native| native.effects())
-                                        .unwrap_or_default(),
+                                    &mut effects,
                                 );
+                                if let Err(error) = birth.require_current(self) {
+                                    log::error!("Map object retired during authored properties: {error}");
+                                    return Ok(false);
+                                }
                                 if obj.unsellable == Some(true) {
                                     if let Some(created) = self.objects.get_mut(&id) {
                                         created.set_script_unsellable(true);
@@ -1082,17 +1085,22 @@ impl GameLogic {
                                         self.apply_upgrade_to_object_with_effects(
                                             id,
                                             trimmed,
-                                            &mut native
-                                                .as_mut()
-                                                .map(|native| native.effects())
-                                                .unwrap_or_default(),
+                                            &mut effects,
                                         );
+                                        if let Err(error) = birth.require_current(self) {
+                                            log::error!("Map object retired during authored upgrade: {error}");
+                                            return Ok(false);
+                                        }
                                     }
                                 }
-                                if let Err(error) = birth.activate(self) {
-                                    log::error!("Map Team activation rejected: {error}");
+
+                                // GameLogic.cpp:1873–1888: properties, layer,
+                                // BuildComplete, selected Team, path-map admission.
+                                if let Err(error) = birth.finish(self, &mut effects) {
+                                    log::error!("Map object completion rejected: {error}");
                                     return Ok(false);
                                 }
+                                spawned_object_ids.push((id, index));
                             }
                         }
                         report_progress(

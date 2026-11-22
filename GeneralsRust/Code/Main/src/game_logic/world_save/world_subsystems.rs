@@ -259,8 +259,17 @@ impl GameLogic {
             }
             grant_upgrades.push(upgrade_name);
         }
-        for upgrade_name in grant_upgrades {
-            self.apply_upgrade_to_object_with_effects(id, &upgrade_name, effects);
+        if !grant_upgrades.is_empty() {
+            let Some(actor) = self.objects.get(&id) else {
+                return;
+            };
+            let birth = std::sync::Arc::downgrade(&actor.visual_draw_identity_token);
+            for upgrade_name in grant_upgrades {
+                self.apply_upgrade_to_object_with_effects(id, &upgrade_name, effects);
+                if !self.object_birth_matches(id, &birth) {
+                    return;
+                }
+            }
         }
 
         if let Some(time_val) = get_int(well_known_keys::key_object_time()) {
@@ -1237,12 +1246,18 @@ if let Ok(mut list) = __arc_bind.write() {
     /// Block one structure footprint without full rebuild.
     /// C++ `addObjectToPathfindMap` at dozer/worker placement, including scaffolds.
     pub(in super::super) fn block_structure_object_path(&mut self, object_id: ObjectId) {
+        if self.objects.get(&object_id).is_some_and(|object| {
+            object.is_kind_of(KindOf::Structure) && object.is_alive()
+        }) {
+            self.classify_object_path(object_id);
+        }
+    }
+
+    /// C++ Pathfinder::addObjectToPathfindMap also admits authored fences.
+    pub(in crate::game_logic) fn classify_object_path(&mut self, object_id: ObjectId) {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
-        if !obj.is_kind_of(KindOf::Structure) || !obj.is_alive() {
-            return;
-        }
         ({
             let ground_owner = self.world_services.terrain();
             let ground_loan = ground_owner

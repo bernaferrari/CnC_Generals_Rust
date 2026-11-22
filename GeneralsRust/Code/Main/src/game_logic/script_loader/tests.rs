@@ -608,6 +608,16 @@ End\n";
             3,
             &object_endpoint(40.0, 0.0, 20.0, FLAG_BRIDGE_POINT2, "TestBridge"),
         ));
+        objects_payload.extend_from_slice(&chunk(
+            4,
+            3,
+            &object_endpoint(10.0, 0.0, 0.0, FLAG_ROAD_POINT1, "UnlistedRoad"),
+        ));
+        objects_payload.extend_from_slice(&chunk(
+            4,
+            3,
+            &object_endpoint(15.0, 0.0, 0.0, 0, "OrdinaryActor"),
+        ));
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&chunk(1, 1, &dict_real(5, 7.5)));
@@ -640,6 +650,16 @@ End\n";
         assert_eq!(bridges[0].template_name, "TestBridge");
         assert_eq!(bridges[0].from.z, 20.0);
         assert_eq!(bridges[0].to.z, 20.0);
+
+        let roads = TerrainRoadCollection::default();
+        let standard = parse_object_placements_from_chunky(&chunky, &roads).unwrap();
+        let (combined, _, _) = parse_objects_list_for_settings_from_chunky(&chunky, &roads).unwrap();
+        for objects in [standard, combined] {
+            assert_eq!(objects.len(), 4);
+            assert!(objects[..3].iter().all(PlacedObject::is_terrain_endpoint));
+            assert_eq!(objects[3].template, "OrdinaryActor");
+            assert!(!objects[3].is_terrain_endpoint());
+        }
 
         let missing = ChunkyMap {
             source: PathBuf::from("Empty.map"),

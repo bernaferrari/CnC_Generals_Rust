@@ -4,6 +4,8 @@
 #[derive(Debug, Clone)]
 pub struct PlacedObject {
     pub template: String,
+    /// C++ MapObject flags. Kept with the original record index for save bindings.
+    pub flags: u32,
     pub name: Option<String>,
     pub position: Coord3D,
     pub rotation: Option<f32>,
@@ -28,6 +30,12 @@ pub struct PlacedObject {
 }
 
 impl PlacedObject {
+    /// GameLogic.cpp:1791 skips these records when it creates game Objects.
+    pub(crate) fn is_terrain_endpoint(&self) -> bool {
+        use game_engine::map_object::{FLAG_BRIDGE_FLAGS, FLAG_ROAD_FLAGS};
+        self.flags & (FLAG_BRIDGE_FLAGS | FLAG_ROAD_FLAGS) != 0
+    }
+
     /// C++ MapObject MO_SCORCH classification and authored parameters.
     /// Coordinates retain source XYZ; observing definitions has no native effects.
     pub(crate) fn terrain_scorch(&self) -> Option<([f32; 3], f32, i32)> {
@@ -316,6 +324,7 @@ mod authored_scorch_handoff_tests {
             properties.set_real(NameKeyGenerator::name_to_key("objectRadius"), 17.5);
             let object = PlacedObject {
                 template: "Scorch".into(),
+                flags: 0,
                 name: None,
                 position: Coord3D::new(11.0, 23.0, 7.0),
                 rotation: None,

@@ -1,18 +1,56 @@
 //! GameLogic.cpp1850–1860 / PlayerList.cpp262–275: validate originalOwner
 //! before ThingFactory construction, retaining the exact receiving Team pointer.
 use super::*;
+use std::sync::{Arc, RwLock, Weak};
 
-/// Original map loop retains its selected Team across instance properties;
-/// activation is not a second membership/Energy admission.
+/// Receives map-instance properties between factory birth and map completion.
 pub(in crate::game_logic) struct MapObjectBirth {
     pub(in crate::game_logic) id: ObjectId,
-    team: std::sync::Arc<std::sync::RwLock<gamelogic::team::Team>>,
+    actor: Weak<()>,
+    team: Arc<RwLock<gamelogic::team::Team>>,
+    ordinary_position: Option<Vec3>,
 }
+
 impl MapObjectBirth {
-    pub(in crate::game_logic) fn activate(
-        self,
+    // The original GameLogic keeps a destroyed Object allocated until the
+    // destruction queue drains. Check the birth, not health or destroyed flags.
+    pub(in crate::game_logic) fn require_current(
+        &self,
         world: &GameLogic,
     ) -> gamelogic::GameLogicResult<()> {
+        if !world.object_birth_matches(self.id, &self.actor) {
+            return Err(gamelogic::GameLogicError::InvalidObject(self.id.0));
+        }
+        Ok(())
+    }
+
+    pub(in crate::game_logic) fn finish(
+        self,
+        world: &mut GameLogic,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.require_current(world)?;
+        if let Some(position) = self.ordinary_position {
+            let layer = world.path_layer_for_point(position);
+            world.set_owned_pathfinder_layer(self.id, layer);
+            world.with_own_services_mut(|world| {
+                world.apply_create_modules_on_build_complete_with_effects_checked(
+                    self.id, None, effects,
+                )
+            })?;
+            self.require_current(world)?;
+        }
+
+        self.activate_selected_team(world)?;
+        if self.ordinary_position.is_some() {
+            world.classify_object_path(self.id);
+        }
+        Ok(())
+    }
+
+    /// Original map loop activates the selected Team pointer even if the
+    /// ThingFactory redirected the actor to neutral during construction.
+    fn activate_selected_team(&self, world: &GameLogic) -> gamelogic::GameLogicResult<()> {
         let id = self
             .team
             .read()
@@ -23,7 +61,7 @@ impl MapObjectBirth {
             .lock()
             .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
             .find_team_by_id(id);
-        if current.is_none_or(|current| !std::sync::Arc::ptr_eq(&current, &self.team)) {
+        if current.is_none_or(|current| !Arc::ptr_eq(&current, &self.team)) {
             return Err(gamelogic::GameLogicError::Configuration(
                 "map Team was retired before activation".into(),
             ));
@@ -124,7 +162,7 @@ impl GameLogic {
             .lock()
             .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
             .find_team_by_id(identity);
-        if current.is_none_or(|current| !std::sync::Arc::ptr_eq(&current, &team)) {
+        if current.is_none_or(|current| !Arc::ptr_eq(&current, &team)) {
             return Err(invalid(
                 "map Team was retired during its creation callbacks",
             ));
@@ -141,10 +179,34 @@ impl GameLogic {
         let owner = owner
             .filter(|id| self.players.contains_key(id))
             .ok_or_else(|| invalid("map Team has no admitted receiving controller"))?;
-        let id = self.create_object_on_exact_script_team_with_effects_checked(
-            template, owner, &name, identity, position, false, None, effects,
-        )?;
-        Ok(id.map(|id| MapObjectBirth { id, team }))
+        // Original bridge and wall objects are handled in a separate prepass.
+        // Leave their existing admission route until that prepass is ported.
+        let bridge_or_wall = self.templates.get(template).is_some_and(|template| {
+            template.receiving_bridge().unwrap_or_else(|| {
+                template.is_kind_of(KindOf::LandmarkBridge) || template.is_kind_of(KindOf::Bridge)
+            }) || template.is_kind_of(KindOf::WalkOnTopOfWall)
+        });
+        let id = if bridge_or_wall {
+            self.create_object_on_exact_script_team_with_effects_checked(
+                template, owner, &name, identity, position, false, None, effects,
+            )?
+        } else {
+            self.create_object_for_map_placement_with_effects_checked(
+                template, owner, &name, identity, position, effects,
+            )?
+        };
+        let Some(id) = id else {
+            return Ok(None);
+        };
+        let actor = self
+            .host_object(id)
+            .ok_or(gamelogic::GameLogicError::InvalidObject(id.0))?;
+        Ok(Some(MapObjectBirth {
+            id,
+            actor: Arc::downgrade(&actor.visual_draw_identity_token),
+            team,
+            ordinary_position: (!bridge_or_wall).then_some(position),
+        }))
     }
 }
 
@@ -157,10 +219,15 @@ mod tests {
     fn fixture_world() -> GameLogic {
         let content = crate::assets::ReceivingObjectContent::from_sources([(
             "map-owner.ini".into(),
-            "Object ChinaMapPlant\nKindOf = STRUCTURE\nEnergyProduction = 20\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject MapPoweredConsumer\nKindOf = STRUCTURE POWERED\nEnergyProduction = -10\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject MapCallbackWitness\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
+            "Object ChinaMapPlant\nKindOf = STRUCTURE\nEnergyProduction = 20\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject MapCompletionFactory\nKindOf = STRUCTURE IMMOBILE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = SupplyCenterCreate CompletionTag\nEnd\nGeometry = BOX\nGeometryIsSmall = No\nGeometryMajorRadius = 12\nGeometryMinorRadius = 8\nGeometryHeight = 10\nEnd\nObject MapPoweredConsumer\nKindOf = STRUCTURE POWERED\nEnergyProduction = -10\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject MapCallbackWitness\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
         )]).unwrap();
         let mut world = GameLogic::new();
         world.admit_receiving_module_content(content).unwrap();
+        add_fixture_players(&mut world);
+        world
+    }
+
+    fn add_fixture_players(world: &mut GameLogic) {
         let mut neutral = Player::new(0, Team::Neutral, "Neutral Label", false);
         neutral.map_side.role = PlayerSideRole::Neutral;
         neutral.map_side.map_player_name.clear();
@@ -171,7 +238,6 @@ mod tests {
         world.add_player(
             Player::new(2, Team::USA, "Same Display", false).with_script_identity("MapTwo"),
         );
-        world
     }
     fn placed(raw: &str) -> crate::game_logic::script_loader::PlacedObject {
         let mut properties = Dict::new();
@@ -181,6 +247,7 @@ mod tests {
         );
         crate::game_logic::script_loader::PlacedObject {
             template: "ChinaMapPlant".into(),
+            flags: 0,
             name: None,
             position: gamelogic::common::Coord3D::new(0., 0., 0.),
             rotation: None,
@@ -243,7 +310,7 @@ mod tests {
             !team.read().unwrap().is_active(),
             "map Team waits for instance properties before activation"
         );
-        birth.activate(&world).unwrap();
+        birth.finish(&mut world, &mut Default::default()).unwrap();
         assert!(team.read().unwrap().is_active());
         assert_eq!(world.get_player(1).unwrap().power_produced, 0);
         assert_eq!(world.get_player(2).unwrap().power_produced, 20);
@@ -251,6 +318,126 @@ mod tests {
         assert!(peer.host_object(id).is_none());
         assert_eq!(peer.get_player(2).unwrap().power_produced, 0);
     }
+    #[test]
+    fn ordinary_map_birth_defers_completion_and_static_path_until_after_properties() {
+        let mut world = fixture_world();
+        named(&mut world, false);
+        let mut map_object = placed("ExactMapTeam");
+        map_object.template = "MapCompletionFactory".into();
+        map_object.properties.set_int(key_object_initial_health(), 50);
+        let position = Vec3::new(45., 0., 55.);
+        let cell = world.pathfinding_system.grid.world_to_grid(position);
+        let mut effects = Default::default();
+        let birth = world
+            .create_placed_map_object_with_effects_checked(&map_object, position, &mut effects)
+            .unwrap()
+            .unwrap();
+        let id = birth.id;
+        assert_eq!(world.supply_create_center_registers, 0);
+        assert!(!world.is_pathfinding_static_blocked(cell.x, cell.y));
+
+        world.apply_update_obj_values_from_map_properties_with_effects(
+            id, &map_object.properties, &mut effects,
+        );
+        assert_eq!(world.host_object(id).unwrap().unit_health_script_percent(), 50);
+        birth.finish(&mut world, &mut effects).unwrap();
+
+        assert_eq!(world.supply_create_center_registers, 1);
+        assert!(world.is_pathfinding_static_blocked(cell.x, cell.y));
+    }
+
+    #[test]
+    fn map_birth_cannot_complete_same_id_actor_in_peer_world() {
+        let mut world = fixture_world();
+        let mut peer = fixture_world();
+        named(&mut world, false);
+        named(&mut peer, false);
+        let mut effects = Default::default();
+        let mut map_object = placed("ExactMapTeam");
+        map_object.template = "MapCompletionFactory".into();
+        let birth = world
+            .create_placed_map_object_with_effects_checked(&map_object, Vec3::ZERO, &mut effects)
+            .unwrap()
+            .unwrap();
+        let peer_birth = peer
+            .create_placed_map_object_with_effects_checked(&map_object, Vec3::ZERO, &mut effects)
+            .unwrap()
+            .unwrap();
+        let id = birth.id;
+        assert_eq!(peer_birth.id, id);
+
+        assert!(matches!(
+            birth.finish(&mut peer, &mut effects),
+            Err(gamelogic::GameLogicError::InvalidObject(raw_id)) if raw_id == id.0
+        ));
+        assert_eq!(world.supply_create_center_registers, 0);
+        assert_eq!(peer.supply_create_center_registers, 0);
+        peer_birth.finish(&mut peer, &mut effects).unwrap();
+        assert_eq!(peer.supply_create_center_registers, 1);
+    }
+
+    #[test]
+    fn map_property_replacement_retains_the_original_birth_until_destruction_drains() {
+        use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+        use game_engine::common::name_key_generator::NameKeyGenerator;
+
+        const SOURCE: &str = "FakeGLAMapPlacementFixture";
+        const REPLACEMENT: &str = "GLAMapPlacementFixture";
+        const UPGRADE: &str = "Upgrade_BecomeRealMapPlacementFixture";
+        let mut world = GameLogic::new();
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, UPGRADE, "OBJECT", 0, 1,
+        );
+        admit_fixture_objects(
+            &mut world,
+            &[
+                FixtureObject::new(SOURCE)
+                    .kind_of("VEHICLE SELECTABLE")
+                    .health(100.0)
+                    .walker()
+                    .module(format!(
+                        "Behavior = ReplaceObjectUpgrade MapReplacement\n TriggeredBy = {UPGRADE}\n ReplaceObject = {REPLACEMENT}\nEnd"
+                    )),
+                FixtureObject::new(REPLACEMENT)
+                    .kind_of("VEHICLE SELECTABLE")
+                    .health(100.0)
+                    .walker(),
+            ],
+        );
+        add_fixture_players(&mut world);
+        named(&mut world, false);
+        let mut map_object = placed("ExactMapTeam");
+        map_object.template = SOURCE.into();
+        map_object.properties.set_ascii_string(
+            NameKeyGenerator::name_to_key("objectGrantUpgrade0"),
+            UPGRADE,
+        );
+        let position = Vec3::new(45., 0., 55.);
+        let mut effects = Default::default();
+        let birth = world
+            .create_placed_map_object_with_effects_checked(&map_object, position, &mut effects)
+            .unwrap()
+            .unwrap();
+        let source = birth.id;
+        world.apply_update_obj_values_from_map_properties_with_effects(
+            source, &map_object.properties, &mut effects,
+        );
+        assert!(world.host_object(source).unwrap().status.destroyed);
+        let replacement = world
+            .host_objects()
+            .registered_values()
+            .find(|object| object.template_name == REPLACEMENT)
+            .unwrap()
+            .id;
+        assert_ne!(replacement, source);
+        assert_eq!(world.host_object(replacement).unwrap().owner_player_id, Some(2));
+
+        birth.finish(&mut world, &mut effects).unwrap();
+        world.process_destroy_list();
+        assert!(world.host_object(source).is_none());
+        assert!(world.host_object(replacement).is_some());
+    }
+
     #[test]
     fn unknown_map_team_falls_back_to_actual_reserved_neutral_not_auxiliary_player() {
         let mut world = fixture_world();
@@ -412,7 +599,7 @@ mod tests {
             assert_eq!(actor.team_instance_id, Some(neutral));
             assert!(!selected.read().unwrap().has_member(id.0));
             assert!(!selected.read().unwrap().is_active());
-            birth.activate(&world).unwrap();
+            birth.finish(&mut world, &mut Default::default()).unwrap();
             assert!(
                 selected.read().unwrap().is_active(),
                 "GameLogic map loop activates its retained validateTeam pointer, not the redirected actor's Team"
