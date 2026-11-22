@@ -200,8 +200,7 @@ impl GameLogic {
             .filter(|ai| {
                 now >= ai.next_team_queue_time
                     && now >= ai.next_team_time
-                    && ai.team_queue.len() < 3
-                    && self.get_player(player).is_none_or(|p| p.can_build_units)
+                    && ai.can_attempt_team_selection(self)
             })
             .map(|ai| {
                 ai.team_factory
@@ -229,25 +228,16 @@ impl GameLogic {
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return Ok(());
         };
-        let selection = if due {
-            if now >= ai.next_team_time
-                && ai.should_build_new_team_after_owned_conditions(
-                    self,
-                    data,
-                    &conditions,
-                    &candidates,
-                )
-            {
-                ai.prepare_team_selection_with_conditions(
-                    self,
-                    now,
-                    data,
-                    Some(&conditions),
-                    Some(candidates),
-                )
-            } else {
-                OwnedTeamSelection::None
-            }
+        // selectTeamToBuild considers reinforcement even when every new
+        // prototype fails its production condition or instance limit.
+        let selection = if due && now >= ai.next_team_time && ai.can_attempt_team_selection(self) {
+            ai.prepare_team_selection_with_conditions(
+                self,
+                now,
+                data,
+                Some(&conditions),
+                Some(candidates),
+            )
         } else {
             OwnedTeamSelection::None
         };

@@ -89,7 +89,7 @@ impl AIPlayer {
                 .expect("AI team queue failed");
 
             let selected_team = if current_time >= self.next_team_time
-                && self.should_build_new_team_with_ai_data(game_logic, ai_data)
+                && self.can_attempt_team_selection(game_logic)
             {
                 self.select_team_to_build_with_ai_data(game_logic, current_time, ai_data)
             } else {

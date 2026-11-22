@@ -1424,58 +1424,27 @@ impl AIPlayer {
         }
     }
 
-    /// Check if AI should build a new team
-    pub(super) fn should_build_new_team(&self, game_logic: &(impl AiReadSource + ?Sized)) -> bool {
-        let ai_data = AiDataView::from_source(game_logic);
-        self.should_build_new_team_with_ai_data(game_logic, &ai_data)
-    }
-
-    pub(super) fn should_build_new_team_with_ai_data(
+    pub(super) fn can_attempt_team_selection(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
-        ai_data: &AiDataView,
     ) -> bool {
-        let game_logic = &AiWorldView::new(game_logic);
-        if !game_logic
-            .get_player(self.player_id)
-            .map(|p| p.can_build_units)
-            .unwrap_or(true)
-        {
-            return false;
-        }
-        if self.team_queue.len() >= 3 {
-            return false;
-        }
-        self.player_team_prototype_candidates()
-            .iter()
-            .any(|(name, _)| {
-                self.is_a_good_idea_to_build_team_with_ai_data(game_logic, name, ai_data)
-            })
+        self.team_queue.len() < 3
+            && game_logic
+                .ai_view()
+                .get_player(self.player_id)
+                .is_none_or(|player| player.can_build_units)
     }
 
-    pub(super) fn should_build_new_team_after_owned_conditions(
-        &self,
-        world: &(impl AiReadSource + ?Sized),
-        data: &AiDataView,
-        conditions: &HashMap<String, bool>,
-        candidates: &[(String, i32)],
-    ) -> bool {
-        let view = AiWorldView::new(world);
-        if !view
-            .get_player(self.player_id)
-            .is_none_or(|p| p.can_build_units)
-            || self.team_queue.len() >= 3
-        {
-            return false;
-        }
-        candidates.iter().any(|(name, _)| {
-            self.is_a_good_idea_with_condition(
-                world,
-                name,
-                data,
-                conditions.get(name).copied().unwrap_or(false),
-            )
-        })
+    #[cfg(test)]
+    pub(super) fn should_build_new_team(&self, game_logic: &(impl AiReadSource + ?Sized)) -> bool {
+        let ai_data = AiDataView::from_source(game_logic);
+        self.can_attempt_team_selection(game_logic)
+            && self
+                .player_team_prototype_candidates()
+                .iter()
+                .any(|(name, _)| {
+                    self.is_a_good_idea_to_build_team_with_ai_data(game_logic, name, &ai_data)
+                })
     }
 
     /// C++ `AIPlayer::selectTeamToBuild` — player TeamPrototypes only.

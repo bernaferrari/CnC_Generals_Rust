@@ -1,7 +1,15 @@
 //! CPP AIPlayer1513/1638: player prototype order and live native reinforcement.
 use super::*;
+use gamelogic::scripting::core::{Condition, ConditionType, OrCondition, Script, ScriptList};
 
 fn fixture(priority: i32) -> (GameLogic, ObjectId, u32) {
+    fixture_with_new_team_condition(priority, ConditionType::ConditionTrue)
+}
+
+fn fixture_with_new_team_condition(
+    priority: i32,
+    new_team_condition: ConditionType,
+) -> (GameLogic, ObjectId, u32) {
     let mut world = GameLogic::new();
     let mut player = Player::new(1, Team::USA, "Owner", false).with_script_identity("Owner");
     player.resources.supplies = 50_000;
@@ -83,9 +91,8 @@ fn fixture(priority: i32) -> (GameLogic, ObjectId, u32) {
             )
             .unwrap();
     }
-    use gamelogic::scripting::core::{Condition, ConditionType, OrCondition, Script, ScriptList};
     let mut condition = OrCondition::new();
-    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    condition.set_first_and_condition(Some(Box::new(Condition::new(new_team_condition))));
     let mut script = Script::new();
     script.set_name("AlwaysBuild".into());
     script.condition = Some(Box::new(condition));
@@ -152,6 +159,47 @@ fn actual_native_selection_filters_controller_and_preserves_admission_order() {
             .unwrap()
             .team_id,
         Some(instance)
+    );
+}
+
+#[test]
+fn owned_selection_reinforces_when_no_new_team_is_eligible() {
+    let (mut world, _, instance) = fixture_with_new_team_condition(50, ConditionType::ConditionFalse);
+    let first_decision = 2.0;
+    let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+    ai.next_team_time = first_decision;
+    ai.next_team_queue_time = first_decision;
+    let data = world_view::AiDataView::from_world(&world);
+
+    world.frame = 30;
+    world.update_owned_ai_military(1, 1.0, &data);
+    assert!(world.ai_manager.ai_players[&1].team_queue.is_empty());
+
+    world.frame = 60;
+    world.update_owned_ai_military(1, first_decision, &data);
+    let ai = &world.ai_manager.ai_players[&1];
+    assert_eq!(ai.team_queue.len(), 1);
+    let queued = ai.team_queue.front().unwrap();
+    assert!(queued.reinforcement);
+    assert_eq!(queued.team_id, Some(instance));
+    assert_eq!(queued.work_orders.len(), 1);
+    let order = &queued.work_orders[0];
+    assert_eq!(order.num_required, 1);
+    assert_eq!(order.template_name, "AmericaTankCrusader");
+    let producer = order.factory_id.expect("repeat queueUnits in the same AI pass");
+    let queue = &world
+        .host_object(producer)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap()
+        .production_queue;
+    assert_eq!(queue.len(), 1);
+    assert_eq!(queue[0].template_name, "AmericaTankCrusader");
+    assert_eq!(ai.next_team_time, first_decision);
+    assert_eq!(
+        ai.next_team_queue_time,
+        first_decision + AIPlayer::TEAM_QUEUE_RETRY_SECONDS
     );
 }
 
