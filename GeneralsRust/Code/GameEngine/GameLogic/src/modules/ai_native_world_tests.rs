@@ -499,15 +499,15 @@ impl NativeMatch {
         current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
         f: impl FnOnce(&mut BorrowedAiWorld<'_>) -> R,
     ) -> R {
-        self.with_native_services(frame, current_update, |factory, players, services| {
-            f(&mut BorrowedAiWorld::new(factory, players, services).unwrap())
+        self.with_native_services(frame, |factory, players, services, scheduler| {
+            f(&mut BorrowedAiWorld::new(factory, players, services, scheduler, current_update).unwrap())
         })
     }
 
     fn dispose_destroyed(&mut self, frame: u32) -> Result<usize, String> {
-        self.with_native_services(frame, None, |factory, players, services| {
+        self.with_native_services(frame, |factory, players, services, scheduler| {
             super::ai_native_world::owned_disposal::finish_native_destroyed_objects(
-                factory, players, services,
+                factory, players, services, scheduler,
             )
         })
     }
@@ -515,11 +515,11 @@ impl NativeMatch {
     fn with_native_services<R>(
         &mut self,
         frame: u32,
-        current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
         f: impl for<'a> FnOnce(
             &'a mut ObjectFactory,
             &'a crate::player::PlayerList,
             AiNativeServices<'a>,
+            &'a mut crate::system::game_logic::GameLogic,
         ) -> R,
     ) -> R {
         let locality = LocalPlayers(&self.players);
@@ -535,8 +535,6 @@ impl NativeMatch {
             kill_award_events: &mut self.kill_awards,
             groups: &mut self.groups,
             disposal: Some(&mut self.disposal),
-            current_update,
-            update_scheduler: &mut self.scheduler,
             teams: &self.teams,
             client_random: &mut self.client_random,
             dirty_ui_objects: &mut self.dirty_ui,
@@ -559,7 +557,7 @@ impl NativeMatch {
             gravity: crate::physics::GRAVITY,
             movement_penalty: crate::locomotor::BodyDamageType::ReallyDamaged,
         };
-        f(&mut self.factory, &self.players, services)
+        f(&mut self.factory, &self.players, services, &mut self.scheduler)
     }
     fn issue_enter(&mut self, frame: u32) {
         let ai = self

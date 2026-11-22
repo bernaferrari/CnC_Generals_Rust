@@ -11,9 +11,9 @@ impl Object {
             .iter()
             .find(|registration| Arc::ptr_eq(&registration.module, proxy))
             .ok_or("scheduled AI proxy belongs to another object")?;
-        let index = registration
-            .module_index
-            .ok_or("native constructor-helper AI tick is not admitted")?;
+        let Some(index) = registration.module_index else {
+            return Ok(None);
+        };
         let entry = self
             .modules
             .get(index)

@@ -272,8 +272,6 @@ impl AdmissionMatch {
                 kill_award_events: &mut kill_awards,
                 groups: &mut groups,
                 disposal: None,
-                current_update: None,
-                update_scheduler: &mut scheduler,
                 teams: &teams,
                 client_random: &mut client_random,
                 dirty_ui_objects: &mut dirty_ui,
@@ -296,6 +294,8 @@ impl AdmissionMatch {
                 gravity: -0.1,
                 movement_penalty: crate::locomotor::BodyDamageType::ReallyDamaged,
             },
+            &mut scheduler,
+            None,
         )
         .unwrap();
         let source = self.source.read().unwrap();

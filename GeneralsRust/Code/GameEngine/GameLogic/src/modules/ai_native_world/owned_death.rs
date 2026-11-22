@@ -51,13 +51,13 @@ impl BorrowedAiWorld<'_> {
             if !Arc::ptr_eq(&ai, &installed) {
                 return Err("native lethal AI registration mismatch".into());
             }
-            self.services
+            self
                 .update_scheduler
                 .validate_owned_update_wake(&proxy)?;
         }
         let slow_proxies = victim.named_update_registrations("SlowDeathBehavior");
         for proxy in &slow_proxies {
-            self.services
+            self
                 .update_scheduler
                 .validate_owned_update_wake(proxy)?;
         }
@@ -146,7 +146,7 @@ impl BorrowedAiWorld<'_> {
             object: &victim,
             player: Some(index),
         };
-        let scoring = self.services.update_scheduler.is_scoring_enabled();
+        let scoring = self.update_scheduler.is_scoring_enabled();
         victim_player
             .write()
             .expect("admitted victim player")
@@ -180,11 +180,11 @@ impl BorrowedAiWorld<'_> {
                 .expect("admitted dying AI")
                 .mark_dead_owned()
                 .expect("admitted death latch");
-            self.services
+            self
                 .update_scheduler
                 .awaken_update_module_with_current(
                     &proxies[0],
-                    self.services.current_update.as_ref(),
+                    self.current_update.as_ref(),
                     self.services.frame,
                     self.services.frame.wrapping_add(1),
                 )
@@ -254,11 +254,10 @@ impl BorrowedAiWorld<'_> {
                     .destroy_object_owned(id)
                     .expect("admitted slow instant destruction"),
                 OwnedSlowBegin::Wake(wake) => self
-                    .services
                     .update_scheduler
                     .awaken_update_module_with_current(
                         &proxy,
-                        self.services.current_update.as_ref(),
+                        self.current_update.as_ref(),
                         self.services.frame,
                         match wake {
                             crate::modules::UpdateSleepTime::None => {
@@ -299,14 +298,14 @@ impl BorrowedAiWorld<'_> {
                 object.named_update_registrations("SlowDeathBehavior"),
             )
         };
-        self.services
+        self
             .update_scheduler
             .validate_scheduling_owner(id, owner)?;
-        self.services
+        self
             .update_scheduler
             .admit_scheduling_owner(id, owner.clone());
         for proxy in proxies {
-            self.services
+            self
                 .update_scheduler
                 .register_sleepy_update_module(
                     id,
@@ -324,7 +323,6 @@ impl BorrowedAiWorld<'_> {
         owner: &Arc<RwLock<Object>>,
     ) -> Result<crate::modules::UpdateSleepTime, String> {
         let current = self
-            .services
             .current_update
             .as_ref()
             .ok_or("native SlowDeath requires its exact running proxy")?

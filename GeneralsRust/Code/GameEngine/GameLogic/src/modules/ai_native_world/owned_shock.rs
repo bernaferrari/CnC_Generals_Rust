@@ -25,7 +25,7 @@ impl BorrowedAiWorld<'_> {
         if let Some(physics) = object.get_physics() {
             physics.validate_shock_at(&object)?;
             let proxy = physics.installed_update_proxy(&object)?;
-            self.services
+            self
                 .update_scheduler
                 .validate_owned_update_wake(&proxy)?;
         }
@@ -55,22 +55,22 @@ impl BorrowedAiWorld<'_> {
         force.z = force.length();
         let wake = physics.prepare_shock_at(&force, &object, self.services.frame)?;
         if wake {
-            self.services
+            self
                 .update_scheduler
                 .awaken_update_module_with_current(
                     &proxy,
-                    self.services.current_update.as_ref(),
+                    self.current_update.as_ref(),
                     self.services.frame,
                     self.services.frame.wrapping_add(1),
                 )?;
         }
         let wake = physics.prepare_random_rotation_at(&object, self.services.random)?;
         if wake {
-            self.services
+            self
                 .update_scheduler
                 .awaken_update_module_with_current(
                     &proxy,
-                    self.services.current_update.as_ref(),
+                    self.current_update.as_ref(),
                     self.services.frame,
                     self.services.frame.wrapping_add(1),
                 )?;

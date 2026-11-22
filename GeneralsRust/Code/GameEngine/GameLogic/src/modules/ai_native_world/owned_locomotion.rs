@@ -95,17 +95,16 @@ impl BorrowedAiWorld<'_> {
             (physics, ai_proxy, physics_proxy)
         };
         let current_update = self
-            .services
             .current_update
             .as_ref()
             .ok_or("native locomotion requires its driving AI update proxy")?;
         if !Arc::ptr_eq(&current_ai, current_update) {
             return Err("driving update proxy is not this owner's installed AI module".into());
         }
-        self.services
+        self
             .update_scheduler
             .validate_owned_update_wake(&current_ai)?;
-        self.services
+        self
             .update_scheduler
             .validate_owned_update_wake(&current_physics)?;
         Ok((physics, current_ai, current_physics))
@@ -162,7 +161,7 @@ impl BorrowedAiWorld<'_> {
             .get_forward_speed_2d_with_object(&object);
 
         let mut wake = || {
-            self.services
+            self
                 .update_scheduler
                 .awaken_update_module_with_current(
                     &proxy,

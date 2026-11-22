@@ -18,7 +18,7 @@ impl NativeDisposalState {
 }
 
 impl AiNativeServices<'_> {
-    fn reborrow(&mut self) -> AiNativeServices<'_> {
+    pub(super) fn reborrow(&mut self) -> AiNativeServices<'_> {
         AiNativeServices {
             weapon_store: self.weapon_store,
             historic_damage_limit: self.historic_damage_limit,
@@ -35,8 +35,6 @@ impl AiNativeServices<'_> {
             client_random: self.client_random,
             idle_worker_events: self.idle_worker_events,
             dirty_ui_objects: self.dirty_ui_objects,
-            current_update: self.current_update.clone(),
-            update_scheduler: self.update_scheduler,
             terrain: self.terrain,
             pathfinder: self.pathfinder,
             collision: self.collision,
@@ -64,21 +62,20 @@ pub(crate) fn finish_native_destroyed_objects(
     factory: &mut ObjectFactory,
     players: &PlayerList,
     mut services: AiNativeServices<'_>,
+    scheduler: &mut crate::system::game_logic::GameLogic,
 ) -> Result<usize, String> {
-    if services.current_update.is_some() {
-        return Err("physical deletion must follow the update phase".into());
-    }
     if services.disposal.is_none() {
         return Err("native deletion requires its script owner".into());
     }
     let mut retired = 0;
-    while let Some(id) = services.update_scheduler.next_native_destroyed_object() {
+    while let Some(id) = scheduler.next_native_destroyed_object() {
         let owner = factory
             .get_object(id)
             .and_then(|slot| slot.get_base_object())
             .ok_or("queued native deletion object absent")?;
         {
-            let world = BorrowedAiWorld::new(factory, players, services.reborrow())?;
+            let world =
+                BorrowedAiWorld::new(factory, players, services.reborrow(), scheduler, None)?;
             world.validate_owned_destroy(id)?;
         }
         services
@@ -110,9 +107,7 @@ pub(crate) fn finish_native_destroyed_objects(
         }
         // CPP GameLogic.cpp2500-2506 removes all update registrations/list and
         // lookup before Object::~Object callbacks can observe that absence.
-        services
-            .update_scheduler
-            .unlink_native_destroyed_object(id, &owner)?;
+        scheduler.unlink_native_destroyed_object(id, &owner)?;
         let retiring = factory.take_native_retiring_object(id, &owner)?;
         let (team, controller, is_dozer, notify_count) = {
             let object = owner
@@ -145,9 +140,7 @@ pub(crate) fn finish_native_destroyed_objects(
             services.pathfinder.remove_wall_from_object(&object);
         }
         if notify_count {
-            services
-                .update_scheduler
-                .notify_native_object_count_changed(services.frame);
+            scheduler.notify_native_object_count_changed(services.frame);
             services
                 .disposal
                 .as_deref_mut()

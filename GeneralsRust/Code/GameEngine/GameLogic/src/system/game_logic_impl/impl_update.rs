@@ -92,7 +92,7 @@ impl GameLogic {
         frame: u32,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, None, None, None, observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, None, None, None, None, observe_camera)
     }
 
     /// Update with a borrowed UI callback for a deferred new-game start.
@@ -103,7 +103,7 @@ impl GameLogic {
         hooks: &mut dyn crate::helpers::LoadScreenHooks,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, Some(hooks), None, None, observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, Some(hooks), None, None, None, observe_camera)
     }
 
     pub fn update_with_upgrade_services(
@@ -115,6 +115,7 @@ impl GameLogic {
         self.update_with_optional_upgrade_services(
             frame,
             Some(services),
+            None,
             None,
             None,
             None,
@@ -136,6 +137,7 @@ impl GameLogic {
             frame,
             upgrades,
             minefield,
+            None,
             None,
             None,
             None,
@@ -173,7 +175,28 @@ impl GameLogic {
         scripts: &mut dyn FnMut(&mut Self) -> Result<(), GameLogicError>,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, None, Some(scripts), Some(script_engine), observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, None, Some(scripts), Some(script_engine), None, observe_camera)
+    }
+
+    /// Runs the normal frame phases with a receiving native callback at each
+    /// original due registration. The driver receives the scheduler only for
+    /// that callback and returns its sleep after releasing its owner loans.
+    pub(crate) fn update_with_native_modules(
+        &mut self,
+        frame: u32,
+        driver: &mut dyn NativeFrameDriver,
+        observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+    ) -> Result<(), GameLogicError> {
+        self.update_with_optional_upgrade_services(
+            frame,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(driver),
+            observe_camera,
+        )
     }
 
     fn update_with_optional_upgrade_services(
@@ -184,6 +207,7 @@ impl GameLogic {
         mut load_screen_hooks: Option<&mut dyn crate::helpers::LoadScreenHooks>,
         scripts: Option<&mut dyn FnMut(&mut Self) -> Result<(), GameLogicError>>,
         script_engine: Option<&crate::scripting::engine::ScriptEngine>,
+        mut native_modules: Option<&mut dyn NativeFrameDriver>,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
         self.last_update_was_empty_noop = false;
@@ -414,14 +438,15 @@ impl GameLogic {
         //   c. Stealth is broken, OBJECT_STATUS_STEALTHED cleared
         //   d. Stealth delay timer starts
         //   e. After delay + weapon stop, stealth reactivates
-        if services.is_some() || minefield.is_some() {
-            self.process_sleepy_updates_with_upgrade_services(
-                frame,
-                services.as_mut().map(|s| &mut **s as &mut dyn UpgradeCompletionServices),
-                minefield.as_mut().map(|s| &mut **s as &mut dyn MinefieldPlacementServices),
-            );
-        } else {
-            self.process_sleepy_updates(frame);
+        let sleepy_result = self.process_sleepy_updates_with_upgrade_services(
+            frame,
+            services.as_mut().map(|s| &mut **s as &mut dyn UpgradeCompletionServices),
+            minefield.as_mut().map(|s| &mut **s as &mut dyn MinefieldPlacementServices),
+            native_modules.as_mut().map(|driver| &mut **driver as &mut dyn NativeFrameDriver),
+        );
+        if let Err(error) = sleepy_result {
+            self.is_in_update = false;
+            return Err(error);
         }
 
         // -----------------------------------------------------------------------
@@ -450,7 +475,26 @@ impl GameLogic {
         // AI runs AFTER object updates so AI decisions are based on the latest
         // world state. This ordering is critical: objects move first, then
         // AI observes the new positions and issues commands for the next frame.
-        if let Err(e) = self.update_ai_players(frame) {
+        if let Some(driver) = native_modules {
+            if let Err(error) = driver.update_ai_phase(self) {
+                self.is_in_update = false;
+                return Err(GameLogicError::AIError(error));
+            }
+            // Script-backed AI production can reenter object services. Run
+            // it only after the supplied driver has returned all its loans.
+            if let Some(world) = self.owning_world_services() {
+                let mut integration = world
+                    .logic_managers()
+                    .ai_integration
+                    .write()
+                    .expect("receiving AI integration poisoned");
+                if let Some(manager) = integration.as_mut()
+                    && let Err(error) = manager.update_ai_players_only()
+                {
+                    warn!("AI player update failed at frame {frame}: {error:?}");
+                }
+            }
+        } else if let Err(e) = self.update_ai_players(frame) {
             warn!("AI update phase failed: {}", e);
             // Don't abort - continue with other systems
         }

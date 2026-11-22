@@ -21,14 +21,13 @@ impl BorrowedAiWorld<'_> {
             (physics, proxy)
         };
         let current = self
-            .services
             .current_update
             .as_ref()
             .ok_or("Physics phase requires its actual driving proxy")?;
         if !Arc::ptr_eq(&proxy, current) {
             return Err("Physics phase belongs to another update proxy".into());
         }
-        self.services
+        self
             .update_scheduler
             .validate_owned_update_wake(&proxy)?;
         let frame = self.services.frame;
@@ -381,7 +380,7 @@ impl BorrowedAiWorld<'_> {
         } else {
             crate::modules::UpdateSleepTime::None
         };
-        self.services
+        self
             .update_scheduler
             .finish_owned_scheduled_update(self.services.frame, update, sleep);
         Ok(())

@@ -41,8 +41,6 @@ pub struct AiNativeServices<'a> {
     pub client_random: &'a mut game_engine::common::random_value::RandomState,
     pub idle_worker_events: &'a mut crate::helpers::IdleWorkerEvents,
     pub dirty_ui_objects: &'a mut Vec<ObjectID>,
-    pub current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
-    pub update_scheduler: &'a mut crate::system::game_logic::GameLogic,
     pub terrain: &'a crate::terrain::TerrainLogic,
     pub pathfinder: &'a mut crate::ai::Pathfinder,
     pub collision: &'a mut crate::object::collide::collision_system::CollisionSystem,
@@ -66,6 +64,8 @@ pub struct BorrowedAiWorld<'a> {
     factory: &'a mut ObjectFactory,
     players: &'a PlayerList,
     services: AiNativeServices<'a>,
+    update_scheduler: &'a mut crate::system::game_logic::GameLogic,
+    current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
     exit_driving: bool,
     pending_exit: Option<owned_exit::ExitContinuation>,
 }
@@ -74,20 +74,48 @@ impl<'a> BorrowedAiWorld<'a> {
         factory: &'a mut ObjectFactory,
         players: &'a PlayerList,
         services: AiNativeServices<'a>,
+        update_scheduler: &'a mut crate::system::game_logic::GameLogic,
+        current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
     ) -> Result<Self, String> {
-        if !services.shroud.has_shroud_grid() {
-            return Err("native Enter requires its driving shroud grid".into());
-        }
-        for player in players.iter() {
-            drop(player.read().map_err(|_| "native Enter player poisoned")?);
-        }
-        Ok(Self {
+        Self::validate_receiving_services(players, &services)?;
+        Ok(Self::from_receiving_services(
             factory,
             players,
             services,
+            update_scheduler,
+            current_update,
+        ))
+    }
+
+    fn validate_receiving_services(
+        players: &PlayerList,
+        services: &AiNativeServices<'_>,
+    ) -> Result<(), String> {
+        if !services.shroud.has_shroud_grid() {
+            return Err("native AI requires its driving shroud grid".into());
+        }
+        for player in players.iter() {
+            drop(player.read().map_err(|_| "native AI player poisoned")?);
+        }
+        Ok(())
+    }
+
+    fn from_receiving_services(
+        factory: &'a mut ObjectFactory,
+        players: &'a PlayerList,
+        services: AiNativeServices<'a>,
+        update_scheduler: &'a mut crate::system::game_logic::GameLogic,
+        current_update: Option<game_engine::common::thing::update_module::UpdateModulePtr>,
+    ) -> Self {
+        Self {
+            factory,
+            players,
+            services,
+            update_scheduler,
+            current_update,
             exit_driving: false,
             pending_exit: None,
-        })
+        }
     }
 
     /// Player and team owners are immutable inputs, separate from the mutable factory.
@@ -126,8 +154,7 @@ impl<'a> BorrowedAiWorld<'a> {
                 return Err("stealth already admitted or restored".into());
             }
         }
-        self.services
-            .update_scheduler
+        self.update_scheduler
             .validate_scheduling_owner(id, &owner)?;
         let mut object = owner
             .try_write()
@@ -148,12 +175,10 @@ impl<'a> BorrowedAiWorld<'a> {
             object.set_status(crate::common::ObjectStatusMaskType::CAN_STEALTH, true);
         }
         drop(object);
-        self.services
-            .update_scheduler
+        self.update_scheduler
             .admit_scheduling_owner(id, Arc::clone(&owner));
         for proxy in proxies {
-            self.services
-                .update_scheduler
+            self.update_scheduler
                 .register_sleepy_update_module(id, proxy, wake);
         }
         Ok(())
@@ -239,6 +264,7 @@ impl<'a> BorrowedAiWorld<'a> {
         let terrain = self.services.terrain;
         let players = self.players;
         let frame = self.services.frame;
+        let scheduler = &*self.update_scheduler;
         self.services
             .pathfinder
             .pathfinding_system_mut()
@@ -246,21 +272,28 @@ impl<'a> BorrowedAiWorld<'a> {
                 max_per_frame,
                 Some(terrain.get_extent()),
                 |id, pathfinder| {
-                    let Some(object) = factory
-                        .get_object(id)
-                        .and_then(|object| object.get_base_object())
-                    else {
-                        // CPP drops a physically removed owner; there is no residual lookup.
+                    // C++ starts each queued request by looking up a live
+                    // Object in this GameLogic, then uses its installed AI.
+                    let Some(object) = scheduler.find_object_by_id(id) else {
                         return Ok(true);
                     };
                     let ai = object
                         .read()
-                        .map_err(|_| "queued Enter object poisoned")?
+                        .map_err(|_| "queued movement object poisoned")?
                         .get_ai_update_interface();
                     let Some(ai) = ai else {
                         // AIPathfind.cpp:5907-5915 skips objects without AI.
                         return Ok(true);
                     };
+                    if !factory
+                        .get_object(id)
+                        .and_then(|instance| instance.get_base_object())
+                        .is_some_and(|native| Arc::ptr_eq(&native, &object))
+                    {
+                        return Err(
+                            "queued movement factory differs from the scheduler owner".into()
+                        );
+                    }
                     let mut ai = ai.lock().map_err(|_| "queued Enter interface poisoned")?;
                     ai.do_enter_pathfind_with_services(
                         pathfinder, factory, players, terrain, frame,
@@ -465,12 +498,12 @@ impl AiWorld for BorrowedAiWorld<'_> {
         &self,
         index: i32,
     ) -> Option<Arc<RwLock<crate::tunnel_tracker::TunnelTracker>>> {
-        let system = self.services.update_scheduler.owned_cave_system()?;
+        let system = self.update_scheduler.owned_cave_system()?;
         let system = system.lock().ok()?;
         system.get_tunnel_tracker_for_cave_index(index).ok()
     }
     fn cave_capacity(&self) -> Option<i32> {
-        self.services.update_scheduler.owned_cave_capacity()
+        self.update_scheduler.owned_cave_capacity()
     }
     fn shorten_ai_queue_wake(&mut self, owner_id: ObjectID, frames: u32) -> Result<(), String> {
         let owner = self
@@ -486,7 +519,6 @@ impl AiWorld for BorrowedAiWorld<'_> {
         // wrapper's owned inherited clock as well as its heap entry. Verify
         // the actual installed derived wrapper without borrowing runtime AI.
         let is_current = self
-            .services
             .current_update
             .as_ref()
             .is_some_and(|current| Arc::ptr_eq(current, &proxy));
@@ -512,9 +544,9 @@ impl AiWorld for BorrowedAiWorld<'_> {
             }
         }
         let now = self.services.frame;
-        self.services.update_scheduler.shorten_owned_update_wake(
+        self.update_scheduler.shorten_owned_update_wake(
             &proxy,
-            self.services.current_update.as_ref(),
+            self.current_update.as_ref(),
             now,
             now.wrapping_add(frames),
         )
@@ -989,8 +1021,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
         if !Arc::ptr_eq(&actual_rider, passenger) || !Arc::ptr_eq(&actual_owner, owner) {
             return Err("native remove participant belongs to another factory".into());
         }
-        self.services
-            .update_scheduler
+        self.update_scheduler
             .validate_scheduling_owner(rider.get_id(), passenger)?;
         rider.controlling_player_id_from_pin()?;
         owner_guard.controlling_player_id_from_pin()?;
@@ -1701,17 +1732,14 @@ impl AiWorld for BorrowedAiWorld<'_> {
         let exact_owner = self
             .object(object.get_id())
             .expect("admitted factory owner absent");
-        self.services
-            .update_scheduler
+        self.update_scheduler
             .admit_scheduling_owner(object.get_id(), exact_owner);
         for module in object.named_update_registrations("PhysicsBehavior") {
-            self.services
-                .update_scheduler
-                .register_sleepy_update_module(
-                    object.get_id(),
-                    module,
-                    self.services.frame.wrapping_add(1),
-                );
+            self.update_scheduler.register_sleepy_update_module(
+                object.get_id(),
+                module,
+                self.services.frame.wrapping_add(1),
+            );
         }
     }
     fn set_object_layer(&mut self, object: &mut Object, layer: PathfindLayerEnum) {
@@ -1825,6 +1853,7 @@ mod owned_destroy;
 #[path = "ai_native_world/owned_dozer.rs"]
 mod owned_dozer;
 mod owned_updates;
+pub use owned_updates::update_game_logic_with_native_modules;
 
 #[path = "ai_native_world/owned_ground_maintenance.rs"]
 mod owned_ground_maintenance;

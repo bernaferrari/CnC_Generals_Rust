@@ -848,3 +848,33 @@ fn unmanned_dozer_save_load_retains_frozen_fortify_task_without_peer_change() {
         .unwrap()
         .is_disabled_by_type(DisabledType::DisabledUnmanned));
 }
+
+#[test]
+fn core_frame_drives_native_dozer_and_pathfinder_to_its_dock() {
+    let mut game = world();
+    let peer = world();
+    request(&mut game, 10);
+
+    let peer_state = observation(&peer);
+    let peer_pose = *peer.source.read().unwrap().get_position();
+    let start = *game.source.read().unwrap().get_position();
+    let mut arrived_at = None;
+    for frame in 11..200 {
+        game.with_native_services(frame, |factory, players, services, scheduler| {
+            super::super::ai_native_world::update_game_logic_with_native_modules(
+                factory, players, services, scheduler, || None,
+            )
+        })
+        .unwrap();
+        if observation(&game).action == 2 {
+            arrived_at = Some(frame);
+            break;
+        }
+    }
+
+    assert!(arrived_at.is_some(), "the game frame never advanced Fortify to its action");
+    assert_eq!(observation(&game).current_task, DozerTask::Fortify);
+    assert!(game.source.read().unwrap().get_position().x > start.x + 20.0);
+    assert_eq!(observation(&peer), peer_state);
+    assert_eq!(*peer.source.read().unwrap().get_position(), peer_pose);
+}

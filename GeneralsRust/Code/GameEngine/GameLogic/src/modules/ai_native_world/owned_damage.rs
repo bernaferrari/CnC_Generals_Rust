@@ -40,7 +40,7 @@ impl BorrowedAiWorld<'_> {
                 object.named_update_registrations("AutoHealBehavior"),
             )
         };
-        self.services
+        self
             .update_scheduler
             .validate_scheduling_owner(id, owner)?;
         let mut admitted = Vec::new();
@@ -80,11 +80,11 @@ impl BorrowedAiWorld<'_> {
             });
             wakes.push(wake);
         }
-        self.services
+        self
             .update_scheduler
             .admit_scheduling_owner(id, Arc::clone(owner));
         for (proxy, wake) in proxies.into_iter().zip(wakes) {
-            self.services
+            self
                 .update_scheduler
                 .register_sleepy_update_module(id, proxy, wake);
         }
@@ -173,12 +173,12 @@ impl BorrowedAiWorld<'_> {
         }
         if outcome.damaged {
             for (handle, proxy) in auto_heals.into_iter().zip(proxies) {
-                self.services
+                self
                     .update_scheduler
                     .wake_auto_heal_after_damage(
                         &handle,
                         &proxy,
-                        self.services.current_update.as_ref(),
+                        self.current_update.as_ref(),
                         self.services.frame,
                     )
                     .expect("pre-admitted damage callback wake");
@@ -475,7 +475,7 @@ impl BorrowedAiWorld<'_> {
             return Err("native damage callback registration mismatch".into());
         }
         for proxy in &proxies {
-            self.services
+            self
                 .update_scheduler
                 .validate_owned_update_wake(proxy)?;
         }

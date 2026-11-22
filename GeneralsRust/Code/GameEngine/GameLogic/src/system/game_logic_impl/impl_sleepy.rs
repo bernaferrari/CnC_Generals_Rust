@@ -362,6 +362,18 @@ fn awaken_collision_physics(
     }
 }
 
+/// Native callbacks borrow the driving scheduler only at their original
+/// frame positions; they never select a separate match to run a phase.
+pub(crate) trait NativeFrameDriver {
+    fn update_module(
+        &mut self,
+        scheduler: &mut GameLogic,
+        ready: &NativeScheduledUpdate,
+    ) -> Result<Option<UpdateSleepTime>, String>;
+
+    fn update_ai_phase(&mut self, scheduler: &mut GameLogic) -> Result<(), String>;
+}
+
 pub(crate) struct NativeScheduledUpdate {
     pub(crate) object_id: ObjectID,
     pub(crate) module: UpdateModulePtr,
@@ -469,8 +481,10 @@ impl GameLogic {
         );
     }
 
+    #[cfg(test)]
     fn process_sleepy_updates(&mut self, current_frame: UnsignedInt) {
-        self.process_sleepy_updates_with_upgrade_services(current_frame, None, None);
+        self.process_sleepy_updates_with_upgrade_services(current_frame, None, None, None)
+            .expect("a legacy-only scheduler cannot fail native dispatch");
     }
 
     fn process_sleepy_updates_with_upgrade_services(
@@ -478,19 +492,42 @@ impl GameLogic {
         current_frame: UnsignedInt,
         mut services: Option<&mut dyn UpgradeCompletionServices>,
         mut minefield: Option<&mut dyn MinefieldPlacementServices>,
-    ) {
+        mut native: Option<&mut dyn NativeFrameDriver>,
+    ) -> Result<(), GameLogicError> {
         let loading_map = self.is_loading_map();
         let world = self.owning_world_services();
         let mut minefield_effects = Vec::new();
         // C++ GameLogic.cpp:3698–3736 keeps a module registered during update,
         // then rebalances it immediately before executing the next callback.
-        while let Some((object_id, module)) = self.due_sleepy_candidate(current_frame) {
-            let object_disabled = match self.objects.get(&object_id) {
-                Some(object) => object.read().ok().map(|object| object.get_disabled_flags()),
-                None => {
-                    self.unregister_update_module(object_id, module);
+        loop {
+            let (object_id, module, object_disabled) = if let Some(driver) = native.as_deref_mut() {
+                let Some(ready) = self
+                    .next_owned_scheduled_update(current_frame)
+                    .map_err(GameLogicError::Generic)?
+                else {
+                    break;
+                };
+                let sleep = if ready.should_process {
+                    driver.update_module(self, &ready).map_err(GameLogicError::Generic)?
+                } else {
+                    Some(UpdateSleepTime::None)
+                };
+                if let Some(sleep) = sleep {
+                    self.finish_owned_scheduled_update(current_frame, ready, sleep);
                     continue;
                 }
+                // The due registration already passed the disabled check.
+                (ready.object_id, ready.module, None)
+            } else {
+                let Some((object_id, module)) = self.due_sleepy_candidate(current_frame) else {
+                    break;
+                };
+                let Some(owner) = self.objects.get(&object_id) else {
+                    self.unregister_update_module(object_id, module);
+                    continue;
+                };
+                let mask = owner.read().ok().map(|object| object.get_disabled_flags());
+                (object_id, module, mask)
             };
             let upgrade_observation = services.as_ref().and_then(|services| {
                 self.objects.get(&object_id).map(|owner| {
@@ -577,6 +614,7 @@ impl GameLogic {
             }
             self.finish_scheduled_sleep(&module, current_frame, sleep);
         }
+        Ok(())
     }
 
     pub(crate) fn validate_owned_update_wake(
@@ -1223,6 +1261,58 @@ mod sleepy_parity_tests {
     fn insert_test_object(logic: &mut GameLogic, id: ObjectID) {
         let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
         logic.objects.insert(id, object);
+    }
+
+    #[test]
+    fn native_callback_can_retire_its_due_proxy_before_legacy_dispatch() {
+        struct Driver {
+            native: UpdateModulePtr,
+            selected: bool,
+        }
+
+        impl NativeFrameDriver for Driver {
+            fn update_module(
+                &mut self,
+                scheduler: &mut GameLogic,
+                ready: &NativeScheduledUpdate,
+            ) -> Result<Option<UpdateSleepTime>, String> {
+                if Arc::ptr_eq(&ready.module, &self.native) {
+                    // Native callbacks may reenter the registration. The
+                    // dispatch loans never write-lock this proxy around them.
+                    assert!(ready.module.try_write().is_ok());
+                    scheduler.unregister_update_module(ready.object_id, Arc::clone(&ready.module));
+                    self.selected = true;
+                    return Ok(Some(UpdateSleepTime::Frames(7)));
+                }
+                assert!(self.selected);
+                Ok(None)
+            }
+
+            fn update_ai_phase(&mut self, _: &mut GameLogic) -> Result<(), String> {
+                unreachable!("this exercises only the scheduled module phase")
+            }
+        }
+
+        let mut logic = GameLogic::new();
+        logic.frame = 1;
+        insert_test_object(&mut logic, 1);
+        insert_test_object(&mut logic, 2);
+        let (native, native_legacy_calls) =
+            counting_ptr(DisabledMaskType::none(), UpdateSleepTime::None);
+        let (legacy, legacy_calls) =
+            counting_ptr(DisabledMaskType::none(), UpdateSleepTime::Frames(7));
+        logic.register_sleepy_update_module(1, Arc::clone(&native), 1);
+        logic.register_sleepy_update_module(2, Arc::clone(&legacy), 2);
+        let mut driver = Driver { native, selected: false };
+
+        logic
+            .process_sleepy_updates_with_upgrade_services(2, None, None, Some(&mut driver))
+            .unwrap();
+
+        assert_eq!(native_legacy_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(legacy_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(logic.sleepy_entry_for(&driver.native), None);
+        assert_eq!(logic.sleepy_entry_for(&legacy), Some((2, 9)));
     }
 
     #[test]

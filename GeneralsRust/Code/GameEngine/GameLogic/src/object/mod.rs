@@ -1560,6 +1560,7 @@ struct ModuleUpdateProxy {
     // C++ phases are fixed by the module class, not mutable update state
     // (UpdateModule.h:134, AIUpdate.h:580, PhysicsUpdate.h:199).
     phase: SleepyUpdatePhase,
+    ai_update: bool,
 }
 
 fn module_with_downcast<T: 'static, F, R>(module: &mut dyn Module, func: F) -> Option<R>
@@ -1586,9 +1587,9 @@ where
 impl ModuleUpdateProxy {
     fn new(entry: Arc<ModuleEntry>, object_id: ObjectID) -> Self {
         let module_name = entry.name().clone();
-        let phase = if entry.data().read().is_ai_module_data() {
-            // C++ AIUpdate.h:570-580: immutable class metadata puts AI before Physics.
-            // Missing dispatch stays missing until the exact runtime is bound.
+        let ai_update = entry.data().read().is_ai_module_data();
+        let phase = if ai_update {
+            // C++ AIUpdate.h:570–580: immutable class metadata puts AI before Physics.
             SleepyUpdatePhase::Initial
         } else {
             entry
@@ -1601,6 +1602,7 @@ impl ModuleUpdateProxy {
             object_id,
             module_name,
             phase,
+            ai_update,
         }
     }
 
@@ -1740,6 +1742,10 @@ impl UpdateModuleInterface for ModuleUpdateProxy {
     }
 
     fn get_disabled_types_to_process(&self) -> DisabledMaskType {
+        // C++ AIUpdate.h:282 allows a held unit's AI to stay scheduled.
+        if self.ai_update {
+            return DisabledMaskType::HELD;
+        }
         self.entry
             .with_module(Self::dispatch_disabled_mask)
             .unwrap_or_else(DisabledMaskType::none)

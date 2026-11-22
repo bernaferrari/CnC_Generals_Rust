@@ -47,9 +47,9 @@ impl Object {
             .iter()
             .find(|entry| Arc::ptr_eq(&entry.module, proxy))
             .ok_or("native scheduled proxy belongs to another object")?;
-        let index = registration
-            .module_index
-            .ok_or("native constructor-helper tick not admitted")?;
+        let Some(index) = registration.module_index else {
+            return Ok(false);
+        };
         let entry = self
             .modules
             .get(index)

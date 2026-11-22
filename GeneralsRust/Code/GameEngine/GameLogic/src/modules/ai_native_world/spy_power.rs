@@ -159,7 +159,7 @@ impl BorrowedAiWorld<'_> {
             let (proxy, active, mask) = entry
                 .try_with_module(|module| spy(module).unwrap().owned_observation())
                 .ok_or("SpyVision module already borrowed or poisoned")??;
-            self.services
+            self
                 .update_scheduler
                 .validate_owned_update_wake(&proxy)?;
             if active {
@@ -209,11 +209,11 @@ impl BorrowedAiWorld<'_> {
             } else {
                 now.wrapping_add(1)
             };
-            self.services
+            self
                 .update_scheduler
                 .awaken_update_module_with_current(
                     &proxy,
-                    self.services.current_update.as_ref(),
+                    self.current_update.as_ref(),
                     now,
                     wake,
                 )?;
@@ -247,11 +247,11 @@ impl BorrowedAiWorld<'_> {
             } else {
                 now.wrapping_add(duration)
             };
-            self.services
+            self
                 .update_scheduler
                 .awaken_update_module_with_current(
                     &proxy,
-                    self.services.current_update.as_ref(),
+                    self.current_update.as_ref(),
                     now,
                     wake,
                 )?;

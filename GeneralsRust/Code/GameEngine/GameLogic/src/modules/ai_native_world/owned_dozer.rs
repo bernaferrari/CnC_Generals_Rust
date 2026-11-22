@@ -79,7 +79,7 @@ impl BorrowedAiWorld<'_> {
         // A scheduled owner is not necessarily a spatial participant: enclosed
         // passengers remain scheduled. Require the receiving roster to be complete
         // for exposed objects rather than treating missing registrations as empty.
-        for &id in self.services.update_scheduler.get_all_object_ids() {
+        for &id in self.update_scheduler.get_all_object_ids() {
             let object = self
                 .object(id)
                 .ok_or("Dozer partition roster object absent")?;
@@ -155,7 +155,7 @@ impl BorrowedAiWorld<'_> {
             crate::object::collide::Coord3D::new(position.x, position.y, position.z);
         let probe_info = CollideInfo::new(probe_position, probe, angle);
         // Original flags are NONE: neither the dozer nor its target is ignored.
-        for &id in self.services.update_scheduler.get_all_object_ids() {
+        for &id in self.update_scheduler.get_all_object_ids() {
             // C++ iteratePotentialCollisions only visits registered partition
             // participants. Contained objects remain scheduled after removal.
             if self

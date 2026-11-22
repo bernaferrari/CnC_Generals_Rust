@@ -31,12 +31,11 @@ impl BorrowedAiWorld<'_> {
             }
         }
         for proxy in object.named_update_registrations("AutoHealBehavior") {
-            self.services
+            self
                 .update_scheduler
                 .validate_owned_update_wake(&proxy)?;
         }
         let actual = self
-            .services
             .update_scheduler
             .find_object_by_id(id)
             .ok_or("native destroy scheduler owner absent")?;
@@ -110,7 +109,7 @@ impl BorrowedAiWorld<'_> {
             ai.set_locomotor_goal_none();
             ai.destroy_path();
         }
-        self.services
+        self
             .update_scheduler
             .queue_native_destroy(id, &owner)?;
         owner
@@ -144,11 +143,11 @@ impl BorrowedAiWorld<'_> {
             }
         })?;
         for proxy in proxies {
-            self.services
+            self
                 .update_scheduler
                 .awaken_update_module_with_current(
                     &proxy,
-                    self.services.current_update.as_ref(),
+                    self.current_update.as_ref(),
                     self.services.frame,
                     UpdateSleepTime::Forever.to_u32(),
                 )?;
