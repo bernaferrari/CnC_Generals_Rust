@@ -43,7 +43,6 @@ fn three_way_blend_setting_changes_actual_terrain_pixels() {
         });
         visual.load_heightmap_from_data(map, None, None).unwrap();
         visual.create_terrain_pipeline(device).unwrap();
-        visual.create_extra_blend_pipeline(device).unwrap();
         visual.device = Some(Arc::clone(device));
         visual.upload_extra_blend_overlay();
 
@@ -175,6 +174,99 @@ fn three_way_blend_setting_changes_actual_terrain_pixels() {
     assert_eq!(on, debug, "nonzero debug mode must keep the extra pass");
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native wgpu device for offscreen readback"]
+fn extra_terrain_blend_uses_corner_alpha_even_when_class_art_is_fully_transparent() {
+    use crate::terrain::textures::BlendTileInfo;
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        ..Default::default()
+    }))
+    .expect("extra-blend alpha test requires a GPU adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("extra-blend coverage from authored corners"),
+        ..Default::default()
+    }))
+    .expect("extra-blend alpha test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+
+    let classes: Vec<_> = [
+        ("AlphaTestBase", [0, 0, 255]),
+        ("AlphaTestPrimary", [0, 255, 0]),
+        ("AlphaTestThird", [255, 0, 0]),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (name, rgb))| (TerrainSourceTileClass {
+        first_tile: index as i32, num_tiles: 1, width: 1, name: name.into(),
+    }, rgb))
+    .collect();
+
+    let mut map = HeightMap::new(4, 4, 0.0, 1.0);
+    let mut primary = BlendTileInfo::new();
+    primary.blend_ndx = 4;
+    primary.vert = 1;
+    let mut extra = BlendTileInfo::new();
+    extra.blend_ndx = 8;
+    extra.horiz = 1;
+    map.blended_tiles = vec![BlendTileInfo::new(), primary, extra];
+    map.blend_tile_ndxes[5] = 1;
+    map.extra_blend_tile_ndxes[5] = 2;
+    let transform = Mat4::from_cols_array_2d(&[
+        [2.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
+        [0.0, 2.0, 0.0, 0.0], [-3.0, -3.0, 0.5, 1.0],
+    ]);
+
+    let mut opaque = live_terrain_visual(&device, &queue, &classes, map.clone(), 1.0);
+    let mut transparent = live_terrain_visual(&device, &queue, &classes, map, 1.0);
+    let metadata: Vec<_> = classes.iter().map(|(class, _)| class.clone()).collect();
+    assert_eq!(
+        transparent.load_source_tiles_from_texture_classes_with_reader(&metadata, |path| {
+            let (_, rgb) = classes.iter().find(|(class, _)| {
+                path.to_ascii_lowercase().contains(&class.name.to_ascii_lowercase())
+            })?;
+            // Retail 32-bit ground TGAs can carry RGB with all alpha zero.
+            let alpha = if rgb[0] == 255 { 0 } else { 255 };
+            let mut tga = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 64, 0, 32, 8];
+            for _ in 0..64 * 64 {
+                tga.extend_from_slice(&[rgb[2], rgb[1], rgb[0], alpha]);
+            }
+            Some(tga)
+        }).unwrap(),
+        3,
+    );
+    let enabled_opaque = render_live_terrain_visual_with_transform(
+        &device, &queue, &mut opaque, transform,
+    );
+    let enabled_transparent = render_live_terrain_visual_with_transform(
+        &device, &queue, &mut transparent, transform,
+    );
+    transparent.set_use_3way_terrain_blends(0);
+    let disabled = render_live_terrain_visual_with_transform(
+        &device, &queue, &mut transparent, transform,
+    );
+
+    for (column, expected_red) in [(8, 68u8), (24, 195u8)] {
+        let start = 4 * 256 + column * 4;
+        let solid = &enabled_opaque[start..start + 3];
+        let clear = &enabled_transparent[start..start + 3];
+        let base = &disabled[start..start + 3];
+        assert_eq!(base[2], 0, "base and first blend contribute no red at column {column}");
+        assert!(
+            solid[2].abs_diff(expected_red) <= 2,
+            "authored overlay ramp at column {column}: {solid:?}",
+        );
+        assert_eq!(
+            clear, solid,
+            "stored alpha changed authored coverage at column {column}",
+        );
+    }
+}
+
 /// Read pixels from the same admitted heightmap, class art, chunk upload and
 /// draw path used by terrain rendering. The class list is deliberately an
 /// input so larger material sets can reuse this fixture.
@@ -207,7 +299,6 @@ fn live_terrain_visual(
     }).unwrap();
     visual.load_heightmap_from_data(map, None, None).unwrap();
     visual.create_terrain_pipeline(device).unwrap();
-    visual.create_extra_blend_pipeline(device).unwrap();
     visual.device = Some(Arc::clone(device));
     visual.queue = Some(Arc::clone(queue));
     visual
@@ -302,6 +393,71 @@ fn render_live_terrain_visual_with_transform(
     let pixels = readback.slice(..).get_mapped_range().unwrap().to_vec();
     readback.unmap();
     pixels
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native wgpu device for offscreen readback"]
+fn live_terrain_quarters_sample_the_authored_pixels_at_a_chunk_seam() {
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        ..Default::default()
+    }))
+    .expect("terrain quarter pixel test requires a GPU adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("terrain quarter pixels at a chunk seam"),
+        ..Default::default()
+    }))
+    .expect("terrain quarter pixel test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+
+    let class = TerrainSourceTileClass {
+        first_tile: 0,
+        num_tiles: 1,
+        width: 1,
+        name: "SeamQuarters".into(),
+    };
+    let mut map = HeightMap::new(35, 4, 0.0, 1.0);
+    // The two cells use neighboring quarters of the same source tile.
+    map.tile_ndxes[35 + 32] = 1;
+    let mut visual = live_terrain_visual(&device, &queue, &[(class.clone(), [0, 0, 255])], map, 1.0);
+    assert_eq!(
+        visual.load_source_tiles_from_texture_classes_with_reader(&[class], |_| {
+            let mut tga = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 64, 0, 24, 0];
+            for _ in 0..64 {
+                for x in 0..64 {
+                    let bgr = match x {
+                        20..=21 => [0, 0, 255],
+                        42..=43 => [0, 255, 0],
+                        _ => [255, 0, 0],
+                    };
+                    tga.extend_from_slice(&bgr);
+                }
+            }
+            Some(tga)
+        }).unwrap(),
+        1,
+    );
+
+    let transform = Mat4::from_cols_array_2d(&[
+        [2.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
+        [0.0, 8.0, 0.0, 0.0], [-64.0, -12.0, 0.5, 1.0],
+    ]);
+    let pixels = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+    // View x=[31.5,32.5] around the x=32 seam and z=[1.375,1.625].
+    // Both derivatives advance exactly one source texel per pixel, so this
+    // exercises class addressing at LOD 0 independently of mip filtering.
+    for (column, expected) in [(4, [0, 0, 255]), (8, [255, 0, 0]), (27, [0, 255, 0])] {
+        let start = 4 * 256 + column * 4;
+        let bgr = &pixels[start..start + 3];
+        assert!(
+            bgr.iter().zip(expected).all(|(actual, expected)| actual.abs_diff(expected) <= 2),
+            "column {column}: expected {expected:?}, got {bgr:?}",
+        );
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

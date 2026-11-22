@@ -50,7 +50,6 @@ impl TerrainVisualImpl {
 
         // Create terrain render pipeline
         self.create_terrain_pipeline(device.as_ref())?;
-        self.create_extra_blend_pipeline(device.as_ref())?;
 
         // Create skybox background pipeline before terrain/water draws.
         self.create_skybox_background_pipeline(device.as_ref())?;

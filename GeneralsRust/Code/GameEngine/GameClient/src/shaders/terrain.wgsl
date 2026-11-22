@@ -106,6 +106,17 @@ fn vs_main(vertex: TerrainVertex) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return shade_terrain(in);
+}
+
+@fragment
+fn fs_extra_blend(in: VertexOutput) -> @location(0) vec4<f32> {
+    // C++ TerrainTex.cpp uploads ground RGB with opaque A1. The extra blend
+    // samples that atlas and takes coverage from the authored vertex alpha.
+    return vec4<f32>(shade_terrain(in).rgb, in.color.a);
+}
+
+fn shade_terrain(in: VertexOutput) -> vec4<f32> {
     let weight_sum = in.blend_weights.x + in.blend_weights.y + in.blend_weights.z + in.blend_weights.w;
     let blend = select(in.blend_weights, vec4<f32>(1.0, 0.0, 0.0, 0.0), weight_sum <= 0.0);
     // Explicit gradients keep sampling valid inside the slot switch
