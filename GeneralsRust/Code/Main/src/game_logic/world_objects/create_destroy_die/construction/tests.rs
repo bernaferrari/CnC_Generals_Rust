@@ -679,3 +679,84 @@ fn rebuilt_structure_callback_rebinds_only_exact_owned_hole_successor() {
     );
     assert!(world.new_script_messages.is_empty());
 }
+
+#[test]
+fn retiring_wall_drops_the_deck_without_splatting_its_occupant() {
+    use gamelogic::ai::pathfind_astar::{PathfindCellType, PathfindLayerEnum};
+
+    let deck = Vec3::new(85.0, 12.0, 85.0);
+    let fixture = || {
+        let (mut world, _) = construction_world(1000, 0);
+        let mut wall = ThingTemplate::new("RetiringWall");
+        wall.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Immobile)
+            .add_kind_of(KindOf::WalkOnTopOfWall)
+            .set_health(500.0);
+        wall.geometry_info.authored = true;
+        wall.geometry_info.geom_type = crate::game_logic::HostGeometryType::Box;
+        wall.geometry_info.major_radius = 35.0;
+        wall.geometry_info.minor_radius = 35.0;
+        wall.authored_instant_death = Some(vec![Default::default()]);
+        world.templates.insert("RetiringWall".into(), wall);
+
+        let mut infantry = ThingTemplate::new("WallOccupant");
+        infantry.add_kind_of(KindOf::Infantry).set_health(100.0);
+        world.templates.insert("WallOccupant".into(), infantry);
+
+        let ground = Vec3::new(deck.x, 0.0, deck.z);
+        let wall = world.create_object_for_player("RetiringWall", 0, ground).unwrap();
+        let occupant = world.create_object_for_player("WallOccupant", 0, deck).unwrap();
+        world.host_object_mut(occupant).unwrap().pathfind_layer = PathfindLayerEnum::Wall as u8;
+        world.pathfinding_system.sync_wall_pieces_from_objects(world.objects.read(), deck.y);
+        assert!(world.pathfinding_system.is_point_on_wall(deck));
+        (world, wall, occupant)
+    };
+    let (mut world, wall, occupant) = fixture();
+    let (mut peer, peer_wall, peer_occupant) = fixture();
+    assert_eq!((wall, occupant), (peer_wall, peer_occupant));
+
+    let hit = world.apply_owned_kill(
+        wall,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+    ).unwrap().unwrap();
+    assert!(hit.destroyed);
+    assert!(world.pending_object_removal_snapshot().iter().any(|removal| {
+        removal.id == wall && removal.after_death
+    }));
+    peer.destroy_object(peer_wall).unwrap();
+
+    let deck_cell = world.pathfinding_system.grid.world_to_grid(deck);
+    for world in [&world, &peer] {
+        // GameLogic.cpp:3971 compacts membership immediately. The raw Wall
+        // allocation keeps its classified deck until Object.cpp:584.
+        assert!(world.host_object(wall).is_some());
+        assert_eq!(world.pathfinding_system.grid.wall_piece_count(), 0);
+        assert_eq!(
+            world.pathfinding_system.grid.layer_cell_type(PathfindLayerEnum::Wall as u8, deck_cell),
+            Some(PathfindCellType::Clear),
+        );
+    }
+
+    world.process_destroy_list();
+    assert!(peer.host_object(wall).is_some());
+    assert_eq!(
+        peer.pathfinding_system.grid.layer_cell_type(PathfindLayerEnum::Wall as u8, deck_cell),
+        Some(PathfindCellType::Clear),
+    );
+    peer.process_destroy_list();
+
+    for world in [&world, &peer] {
+        assert!(world.host_object(wall).is_none());
+        assert_eq!(
+            world.pathfinding_system.grid.layer_cell_type(PathfindLayerEnum::Wall as u8, deck_cell),
+            None,
+        );
+        // GameLogic.cpp:2498-2505 unlinks the retired piece before the
+        // destructor. AIPathfind.cpp:3733 cannot resolve its impact footprint.
+        assert_eq!(
+            world.host_object(occupant).map(|object| object.health.current),
+            Some(100.0),
+        );
+    }
+}

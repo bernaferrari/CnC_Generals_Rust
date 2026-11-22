@@ -138,40 +138,6 @@ impl GameLogic {
             // C++ FireWeaponWhenDeadBehavior::onDie residual.
             self.apply_fire_weapon_when_dead_with_effects(event.id, presentation_effects)?;
 
-            // C++ classifyObjectFootprint: kill anyone still on LAYER_WALL
-            // for this piece, then reclassify (AIPathfind.cpp:4126-4153).
-            if self
-                .objects
-                .get(&event.id)
-                .is_some_and(|o| o.is_kind_of(KindOf::WalkOnTopOfWall))
-            {
-                let splat = self
-                    .pathfinding_system
-                    .splat_units_on_wall_piece(event.id, self.objects.read());
-                self.pathfinding_system.remove_wall_piece(event.id);
-                for sid in splat {
-                    if sid == event.id {
-                        continue;
-                    }
-                    if let Some(unit) = self.objects.get_mut(&sid) {
-                        // C++ DAMAGE_FALLING / DEATH_SPLATTED / HUGE_DAMAGE_AMOUNT
-                        // (AIPathfind.cpp:4143-4148).
-                        let receiving_damage_target_id = unit.id;
-                        if self.apply_residual_damage_owned_with_effects(
-                            receiving_damage_target_id,
-                            1.0e9,
-                            Some(event.id),
-                            crate::game_logic::combat::DamageType::Falling,
-                            crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
-                            None,
-                            presentation_effects,
-                        )? {
-                            self.queue_after_death_completion(sid, event.killer);
-                        }
-                    }
-                }
-            }
-
             // Defensive admission for residual after-death queue producers;
             // ordinary onDie/onDelete already consumed this registered latch.
             self.unregister_tunnel_containment_with_effects(event.id, presentation_effects);

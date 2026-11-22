@@ -28,11 +28,15 @@ impl GameLogic {
         object.status.destroyed = true;
         object.set_locomotor_goal_none();
         object.movement.clear_path();
+        let wall_piece = object.is_kind_of(KindOf::WalkOnTopOfWall);
         // Queue before OpenContain child deletion. Reentrant deletion sees
         // the DESTROYED latch and appends distinct children to this same list.
         self.objects_to_destroy
             .push_back(DestructionEvent::direct(id));
         self.apply_object_delete_callbacks_with_effects(id, effects)?;
+        if wall_piece {
+            self.pathfinding_system.unregister_wall_piece(id);
+        }
         Ok(())
     }
 
@@ -98,13 +102,6 @@ impl GameLogic {
             object.handle_partition_cell_maintenance_with_partition_owner(
                 &mut self.partition_manager,
             );
-        }
-        if self
-            .objects
-            .get(&id)
-            .is_some_and(|o| o.is_kind_of(KindOf::WalkOnTopOfWall))
-        {
-            self.pathfinding_system.remove_wall_piece(id);
         }
         Ok(())
     }

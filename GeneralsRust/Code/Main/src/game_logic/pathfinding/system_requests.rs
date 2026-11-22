@@ -1388,6 +1388,32 @@ impl PathfindingSystem {
         self.grid.remove_wall_piece(id.0);
     }
 
+    pub(crate) fn unregister_wall_piece(&mut self, id: ObjectId) {
+        self.grid.unregister_wall_piece(id.0);
+    }
+
+    pub(crate) fn retire_detached_wall_piece(&mut self, object: &Object) {
+        if !object.is_kind_of(KindOf::WalkOnTopOfWall) {
+            return;
+        }
+        // The destructor cannot look up this ID. Ignore all remaining
+        // registrations for the retired ID, even in older queued saves.
+        self.grid.wall_pieces.retain(|piece| piece.id != object.id.0);
+        let fence = object.thing().template.fence_width > 0.0
+            && !object.is_kind_of(KindOf::DefensiveWall);
+        if fence
+            || object.is_kind_of(KindOf::Mine)
+            || object.is_kind_of(KindOf::Projectile)
+            || object.is_kind_of(KindOf::BridgeTower)
+            || object.is_kind_of(KindOf::BlastCrater)
+        {
+            return;
+        }
+        if self.grid.wall_bounds.is_some() {
+            self.grid.classify_wall_layer();
+        }
+    }
+
     pub fn is_point_on_wall(&self, pos: Vec3) -> bool {
         self.grid.is_point_on_wall(pos)
     }

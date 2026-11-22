@@ -54,6 +54,7 @@ impl GameLogic {
                 object.pathfind_goal_layer,
             );
         }
+        self.pathfinding_system.retire_detached_wall_piece(&object);
         // GameLogic.cpp2501–2506 removes BOTH lookup and original list before
         // friend_deleteInstance. The owned value keeps its original team until
         // Object.cpp604 sendObjectDestroyed completes, then setTeam(NULL)607.

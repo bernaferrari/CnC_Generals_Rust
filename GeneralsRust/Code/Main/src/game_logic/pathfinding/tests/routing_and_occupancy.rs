@@ -1008,6 +1008,35 @@ fn infantry_paths_along_classified_wall() {
 }
 
 #[test]
+fn wall_reclassification_resets_only_the_classified_layer_claims() {
+    let mut grid = open_grid(32, 32);
+    let wall = PathfindLayerEnum::Wall;
+    let ground = PathfindLayerEnum::Ground;
+    let kept_deck = GridPos::new(17, 8);
+    grid.add_wall_piece(1, Vec3::new(85.0, 0.0, 85.0), 0.0, 35.0, 35.0);
+    grid.add_wall_piece(2, Vec3::new(175.0, 0.0, 85.0), 0.0, 35.0, 35.0);
+    grid.allocate_and_classify_wall_layer();
+    assert_eq!(grid.path_cell_on_layer(kept_deck, wall), (wall, PathfindCellType::Clear));
+
+    for (layer, unit) in [(wall, 3), (ground, 4)] {
+        grid.mark_occupancy(kept_deck, false, unit, layer);
+        grid.mark_occupancy(kept_deck, true, unit, layer);
+    }
+    assert_eq!(grid.raw_occupancy_bits(kept_deck, wall).goal_unit, 3);
+    assert_eq!(grid.raw_occupancy_bits(kept_deck, wall).pos_unit, 3);
+
+    grid.remove_wall_piece(1);
+
+    assert_eq!(grid.path_cell_on_layer(kept_deck, wall), (wall, PathfindCellType::Clear));
+    let wall_claims = grid.raw_occupancy_bits(kept_deck, wall);
+    let ground_claims = grid.raw_occupancy_bits(kept_deck, ground);
+    assert_eq!((wall_claims.pos_unit, wall_claims.goal_unit), (0, 0));
+    assert_eq!((ground_claims.pos_unit, ground_claims.goal_unit), (4, 4));
+    assert!(!grid.occupant_slots.contains_key(&3));
+    assert!(grid.occupant_slots.contains_key(&4));
+}
+
+#[test]
 fn destroy_wall_piece_splats_units_on_deck() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(160.0, 160.0);

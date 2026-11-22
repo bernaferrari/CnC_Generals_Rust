@@ -962,6 +962,30 @@ impl PathfindingGrid {
             self.terrain_gen = self.terrain_gen.wrapping_add(1);
             return;
         };
+        // AIPathfind.cpp:3789 resets each raw Wall cell, including its
+        // PathfindCellInfo. Ground cells under this extent keep their claims.
+        if let Some(mut occupancy) = self.layer_occ.remove(&LAYER_WALL_ID) {
+            let outside = |x, y| {
+                !(min_cell.x..=max_cell.x).contains(&x) || !(min_cell.y..=max_cell.y).contains(&y)
+            };
+            occupancy.occ_pos_unit.retain(|&(x, y), id| {
+                if outside(x, y) {
+                    return true;
+                }
+                self.remove_occupant_slots(*id, false, 1);
+                false
+            });
+            occupancy.occ_goal_unit.retain(|&(x, y), id| {
+                if outside(x, y) {
+                    return true;
+                }
+                self.remove_occupant_slots(*id, true, 1);
+                false
+            });
+            if !occupancy.occ_pos_unit.is_empty() || !occupancy.occ_goal_unit.is_empty() {
+                self.layer_occ.insert(LAYER_WALL_ID, occupancy);
+            }
+        }
         if self.bridge_layers.iter().any(|b| b.id == LAYER_WALL_ID && b.destroyed) {
             self.terrain_gen = self.terrain_gen.wrapping_add(1);
             return;
@@ -1030,14 +1054,21 @@ impl PathfindingGrid {
         });
     }
 
-    /// C++ `Pathfinder::removeWallPiece` (AIPathfind.cpp:3896-3923).
+    /// Emulate both removal phases for direct grid callers.
     pub fn remove_wall_piece(&mut self, id: u32) {
-        if let Some(i) = self.wall_pieces.iter().position(|p| p.id == id) {
-            let last = self.wall_pieces.len() - 1;
-            self.wall_pieces.swap(i, last);
-            self.wall_pieces.pop();
+        if self.unregister_wall_piece(id) {
             self.classify_wall_layer();
         }
+    }
+
+    /// C++ Pathfinder::removeWallPiece only compacts membership. The
+    /// destructor reclassifies the allocated deck after unlinking the Object.
+    pub(super) fn unregister_wall_piece(&mut self, id: u32) -> bool {
+        let Some(index) = self.wall_pieces.iter().position(|piece| piece.id == id) else {
+            return false;
+        };
+        self.wall_pieces.swap_remove(index);
+        true
     }
 
     /// C++ classifyObjectFootprint remove: `isPointOnWall(&curID, 1, pos)`.

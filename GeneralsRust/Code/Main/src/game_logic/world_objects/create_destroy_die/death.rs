@@ -591,11 +591,16 @@ impl GameLogic {
         id: ObjectId,
         killer: Option<Team>,
     ) {
-        if self.objects.contains_key(&id)
-            && !self.objects_to_destroy.iter().any(|event| event.id == id)
-        {
-            self.objects_to_destroy
-                .push_back(DestructionEvent::after_death(id, killer));
+        let Some(object) = self.objects.get(&id) else {
+            return;
+        };
+        if self.objects_to_destroy.iter().any(|event| event.id == id) {
+            return;
+        }
+        self.objects_to_destroy
+            .push_back(DestructionEvent::after_death(id, killer));
+        if object.is_kind_of(KindOf::WalkOnTopOfWall) {
+            self.pathfinding_system.unregister_wall_piece(id);
         }
     }
     pub(crate) fn pending_object_removal_snapshot(
