@@ -69,9 +69,7 @@ impl PathfindingGrid {
             flight_bridge_order: Vec::new(),
             layer_occ: HashMap::new(),
             wall_pieces: Vec::new(),
-            wall_cells: HashMap::new(),
-            wall_layer_allocated: false,
-            wall_bounds: None,
+            wall_cells: WallCells::default(),
             wall_classified_as_bridge: false,
             wall_map_initialized: false,
             wall_height: 0.0,
@@ -299,7 +297,7 @@ impl PathfindingGrid {
         ground_source: &PathfindingGround<'_>,
     ) -> f32 {
         if !self.wall_classified_as_bridge
-            && self.wall_cells.contains_key(&(pos.x, pos.y))
+            && self.wall_cells.get(pos).is_some()
             && self.wall_height > 0.0
         {
             return self.wall_height;

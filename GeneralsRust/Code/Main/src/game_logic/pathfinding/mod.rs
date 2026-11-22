@@ -704,6 +704,14 @@ struct HostWallPiece {
     orientation: f32,
     major: f32,
     minor: f32,
+    inverse_rotation: (f32, f32),
+}
+
+/// C++ `m_layers[LAYER_WALL]`. One row-major grid covers the retained extent.
+#[derive(Debug, Clone, Default)]
+struct WallCells {
+    bounds: Option<(GridPos, GridPos)>,
+    cells: Vec<PathfindCellType>,
 }
 
 /// Pathfinding grid
@@ -764,11 +772,7 @@ pub struct PathfindingGrid {
     layer_occ: HashMap<u8, LayerOccupancy>,
     /// C++ `m_wallPieces` geometry for `allocateCellsForWallLayer`.
     wall_pieces: Vec<HostWallPiece>,
-    /// C++ `m_layers[LAYER_WALL]` classified non-IMPASSABLE cells.
-    wall_cells: HashMap<(i32, i32), PathfindCellType>,
-    /// Slot 15 has allocated wall cell storage, even after its pieces disappear.
-    wall_layer_allocated: bool,
-    wall_bounds: Option<(GridPos, GridPos)>,
+    wall_cells: WallCells,
     wall_classified_as_bridge: bool,
     wall_map_initialized: bool,
     /// C++ `m_wallHeight`.

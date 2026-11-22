@@ -352,7 +352,7 @@ impl PathfindingSystem {
             }
         }
         for layer in &self.grid.bridge_layers {
-            if layer.id == LAYER_WALL_ID && self.grid.wall_layer_allocated && !self.grid.wall_classified_as_bridge {
+            if layer.id == LAYER_WALL_ID && self.grid.wall_cells.bounds().is_some() && !self.grid.wall_classified_as_bridge {
                 continue;
             }
             let pf_layer = PathfindLayerEnum::from_u32(layer.id as u32);
@@ -368,10 +368,9 @@ impl PathfindingSystem {
                 }
             }
         }
-        if !self.grid.wall_classified_as_bridge && !self.grid.wall_cells.is_empty() {
-            let pf_layer = PathfindLayerEnum::Wall;
-            for ((x, y), ty) in &self.grid.wall_cells {
-                finder.set_cell_type_on_layer(GridCoord::new(*x, *y), pf_layer, *ty);
+        if !self.grid.wall_classified_as_bridge {
+            for (pos, ty) in self.grid.wall_cells.iter() {
+                finder.set_cell_type_on_layer(GridCoord::new(pos.x, pos.y), PathfindLayerEnum::Wall, ty);
             }
         }
         self.crate_astar = Some(HostCrateAStar { finder, stamp });
@@ -1386,15 +1385,7 @@ impl PathfindingSystem {
         } else {
             major
         };
-        let position = obj.get_position();
-        HostWallPiece {
-            id: obj.id.0,
-            pos_x: position.x,
-            pos_z: position.z,
-            orientation: obj.get_orientation(),
-            major,
-            minor,
-        }
+        HostWallPiece::new(obj.id.0, obj.get_position(), obj.get_orientation(), major, minor)
     }
 
     pub fn remove_wall_piece(&mut self, id: ObjectId) {
@@ -1412,7 +1403,7 @@ impl PathfindingSystem {
         // The destructor cannot look up this ID. Ignore all remaining
         // registrations for the retired ID, even in older queued saves.
         self.grid.wall_pieces.retain(|piece| piece.id != object.id.0);
-        if Self::participates_in_wall_footprint_removal(object) && self.grid.wall_bounds.is_some() {
+        if Self::participates_in_wall_footprint_removal(object) && self.grid.wall_cells.bounds().is_some() {
             self.reclassify_wall_after_footprint_removal();
         }
     }
@@ -1431,7 +1422,7 @@ impl PathfindingSystem {
     /// C++ AIPathfind.cpp:4126 removes membership before falling damage.
     /// The live object remains addressable until the Player callback returns.
     pub(crate) fn begin_live_wall_footprint_removal(&mut self, wall: &Object) -> bool {
-        if self.grid.wall_bounds.is_none() || !Self::participates_in_wall_footprint_removal(wall) {
+        if self.grid.wall_cells.bounds().is_none() || !Self::participates_in_wall_footprint_removal(wall) {
             return false;
         }
         self.grid.wall_pieces.retain(|piece| piece.id != wall.id.0);

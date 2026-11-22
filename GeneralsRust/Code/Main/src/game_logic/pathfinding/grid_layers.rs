@@ -1,5 +1,137 @@
 use super::*;
 
+impl HostWallPiece {
+    pub(super) fn new(id: u32, pos: Vec3, orientation: f32, major: f32, minor: f32) -> Self {
+        Self {
+            id,
+            pos_x: pos.x,
+            pos_z: pos.z,
+            orientation,
+            major,
+            minor,
+            inverse_rotation: (-orientation).sin_cos(),
+        }
+    }
+}
+
+impl WallCells {
+    pub(super) fn bounds(&self) -> Option<(GridPos, GridPos)> {
+        self.bounds
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.cells.clear();
+    }
+
+    pub(super) fn get(&self, pos: GridPos) -> Option<PathfindCellType> {
+        let (lo, hi) = self.bounds?;
+        if pos.x < lo.x || pos.y < lo.y || pos.x > hi.x || pos.y > hi.y {
+            return None;
+        }
+        let width = (hi.x - lo.x + 1) as usize;
+        let index = (pos.y - lo.y) as usize * width + (pos.x - lo.x) as usize;
+        self.cells
+            .get(index)
+            .copied()
+            .filter(|ty| *ty != PathfindCellType::Impassable)
+    }
+
+    pub(super) fn iter(&self) -> impl Iterator<Item = (GridPos, PathfindCellType)> + '_ {
+        self.bounds.into_iter().flat_map(move |(lo, hi)| {
+            let width = (hi.x - lo.x + 1) as usize;
+            self.cells.iter().copied().enumerate().filter_map(move |(index, ty)| {
+                (ty != PathfindCellType::Impassable).then(|| {
+                    let pos = GridPos::new(lo.x + (index % width) as i32, lo.y + (index / width) as i32);
+                    (pos, ty)
+                })
+            })
+        })
+    }
+
+    fn classify(&mut self, origin: Vec3, step: f32, pieces: &[HostWallPiece]) {
+        let Some((lo, hi)) = self.bounds else { return };
+        if pieces.is_empty() {
+            return;
+        }
+        let width = (hi.x - lo.x + 1) as usize;
+        let height = (hi.y - lo.y + 1) as usize;
+        self.cells.reserve(width * height);
+        let columns: Vec<_> = (lo.x..=hi.x)
+            .map(|x| {
+                let left = origin.x + x as f32 * step;
+                (left, left + step)
+            })
+            .collect();
+        let mut top = vec![[false; 2]; width];
+        let mut bottom = vec![[false; 2]; width];
+        let mut previous_bottom = None;
+        for y in lo.y..=hi.y {
+            let top_z = origin.z + y as f32 * step;
+            let bottom_z = top_z + step;
+            // Preserve each cell's original arithmetic. At fractional
+            // origins the previous bottom and this top can round differently.
+            if previous_bottom == Some(top_z.to_bits()) {
+                std::mem::swap(&mut top, &mut bottom);
+            } else {
+                Self::sample_row(&columns, top_z, pieces, &mut top);
+            }
+            Self::sample_row(&columns, bottom_z, pieces, &mut bottom);
+            previous_bottom = Some(bottom_z.to_bits());
+            self.cells.extend(top.iter().zip(&bottom).map(|(top, bottom)| {
+                match u8::from(top[0]) + u8::from(top[1]) + u8::from(bottom[0]) + u8::from(bottom[1]) {
+                    0 => PathfindCellType::Impassable,
+                    4 => PathfindCellType::Clear,
+                    _ => PathfindCellType::BridgeImpassable,
+                }
+            }));
+        }
+
+        // AIPathfind.cpp:3554-3579 uses the original classifications for every
+        // neighbor check. Cliff can only be written by this pass, so it still
+        // represents an originally clear neighbor.
+        for row in 1..height.saturating_sub(1) {
+            for col in 1..width.saturating_sub(1) {
+                let index = row * width + col;
+                if self.cells[index] != PathfindCellType::Clear {
+                    continue;
+                }
+                let near_edge = (row - 1..=row + 1).any(|neighbor| {
+                    let left = neighbor * width + col - 1;
+                    self.cells[left..left + 3].iter().any(|ty| {
+                        !matches!(ty, PathfindCellType::Clear | PathfindCellType::Cliff)
+                    })
+                });
+                if near_edge {
+                    self.cells[index] = PathfindCellType::Cliff;
+                }
+            }
+        }
+    }
+
+    fn sample_row(
+        columns: &[(f32, f32)],
+        z: f32,
+        pieces: &[HostWallPiece],
+        row: &mut [[bool; 2]],
+    ) {
+        let covered = |x| pieces.iter().any(|piece| PathfindingGrid::wall_piece_contains(piece, x, z));
+        let mut previous = None;
+        for (&(left, right), sample) in columns.iter().zip(row) {
+            let left_covered = match previous {
+                Some((x, covered)) if x == left.to_bits() => covered,
+                _ => covered(left),
+            };
+            let right_covered = if left.to_bits() == right.to_bits() {
+                left_covered
+            } else {
+                covered(right)
+            };
+            *sample = [left_covered, right_covered];
+            previous = Some((right.to_bits(), right_covered));
+        }
+    }
+}
+
 impl PathfindingGrid {
     pub(super) fn terrain_zone_passable(ty: PathfindCellType) -> bool {
         // Terrain-only: structures (Obstacle) are ignored for UI zones.
@@ -715,7 +847,7 @@ impl PathfindingGrid {
         }
         // newMap allocates bridge cells only below LAYER_LAST. Slot 15 is
         // classified as a wall there, even when its bridge pointer is set.
-        if layer_id == LAYER_WALL_ID && !self.wall_layer_allocated {
+        if layer_id == LAYER_WALL_ID && self.wall_cells.bounds().is_none() {
             if let Some(layer) = self.bridge_layers.iter_mut().find(|b| b.id == layer_id) {
                 layer.destroyed = destroyed;
                 layer.cells.clear();
@@ -749,7 +881,7 @@ impl PathfindingGrid {
         // Entry/side lines sit up to ~1 cell outside the deck AABB.
         let pad = self.grid_size;
         let (lo, hi) = if layer_id == LAYER_WALL_ID {
-            self.wall_bounds.expect("allocated wall layer has bounds")
+            self.wall_cells.bounds().expect("allocated wall layer has bounds")
         } else {
             (
                 self.world_to_grid(Vec3::new(min_x - pad, 0.0, min_z - pad)),
@@ -837,8 +969,8 @@ impl PathfindingGrid {
 
     /// C++ `PathfindLayer::getCell` type (NULL/IMPASSABLE → None).
     pub fn layer_cell_type(&self, layer: u8, pos: GridPos) -> Option<PathfindCellType> {
-        if layer == LAYER_WALL_ID && self.wall_layer_allocated && !self.wall_classified_as_bridge {
-            return self.wall_cells.get(&(pos.x, pos.y)).copied();
+        if layer == LAYER_WALL_ID && self.wall_cells.bounds().is_some() && !self.wall_classified_as_bridge {
+            return self.wall_cells.get(pos);
         }
         self.bridge_layers
             .iter()
@@ -872,8 +1004,7 @@ impl PathfindingGrid {
 
     pub(super) fn wall_piece_contains(piece: &HostWallPiece, x: f32, z: f32) -> bool {
         // C++ PathfindLayer::isPointOnWall — Cos/Sin(-orientation).
-        let ori = -piece.orientation;
-        let (s, c) = ori.sin_cos();
+        let (s, c) = piece.inverse_rotation;
         let ptx = x - piece.pos_x;
         let ptz = z - piece.pos_z;
         let ptx_new = (ptx * c - ptz * s).abs();
@@ -898,20 +1029,6 @@ impl PathfindingGrid {
             }
         }
         (lo_x, lo_z, hi_x, hi_z)
-    }
-
-    pub(super) fn wall_corner_count(&self, pos: GridPos, pieces: &[HostWallPiece]) -> u32 {
-        let tl = self.cell_corner_xz(pos);
-        let s = self.grid_size;
-        let pts = [
-            (tl.x, tl.y),
-            (tl.x, tl.y + s),
-            (tl.x + s, tl.y + s),
-            (tl.x + s, tl.y),
-        ];
-        pts.iter()
-            .filter(|(x, z)| pieces.iter().any(|p| Self::wall_piece_contains(p, *x, *z)))
-            .count() as u32
     }
 
     /// C++ `allocateCellsForWallLayer` + `classifyWallCells` (AIPathfind.cpp:3386-3583).
@@ -949,8 +1066,7 @@ impl PathfindingGrid {
             self.terrain_gen = self.terrain_gen.wrapping_add(1);
             return;
         }
-        self.wall_layer_allocated = true;
-        self.wall_bounds = Some((min_cell, max_cell));
+        self.wall_cells.bounds = Some((min_cell, max_cell));
         self.classify_wall_layer();
     }
 
@@ -958,7 +1074,7 @@ impl PathfindingGrid {
     pub(super) fn classify_wall_layer(&mut self) {
         self.wall_classified_as_bridge = false;
         self.wall_cells.clear();
-        let Some((min_cell, max_cell)) = self.wall_bounds else {
+        let Some((min_cell, max_cell)) = self.wall_cells.bounds() else {
             self.terrain_gen = self.terrain_gen.wrapping_add(1);
             return;
         };
@@ -990,51 +1106,7 @@ impl PathfindingGrid {
             self.terrain_gen = self.terrain_gen.wrapping_add(1);
             return;
         }
-        let pieces = self.wall_pieces.clone();
-        let mut raw: HashMap<(i32, i32), PathfindCellType> = HashMap::new();
-        for y in min_cell.y..=max_cell.y {
-            for x in min_cell.x..=max_cell.x {
-                let count = self.wall_corner_count(GridPos::new(x, y), &pieces);
-                let ty = if count == 4 {
-                    PathfindCellType::Clear
-                } else if count != 0 {
-                    PathfindCellType::BridgeImpassable
-                } else {
-                    PathfindCellType::Impassable
-                };
-                if ty != PathfindCellType::Impassable {
-                    raw.insert((x, y), ty);
-                }
-            }
-        }
-        // C++ pinch: any 3x3 neighbor not CLEAR → pinched; pinched CLEAR → CLIFF.
-        let mut pinched = HashSet::new();
-        for y in (min_cell.y + 1)..max_cell.y {
-            for x in (min_cell.x + 1)..max_cell.x {
-                let mut pinch = false;
-                'adj: for dy in -1..=1 {
-                    for dx in -1..=1 {
-                        let ty = raw
-                            .get(&(x + dx, y + dy))
-                            .copied()
-                            .unwrap_or(PathfindCellType::Impassable);
-                        if ty != PathfindCellType::Clear {
-                            pinch = true;
-                            break 'adj;
-                        }
-                    }
-                }
-                if pinch {
-                    pinched.insert((x, y));
-                }
-            }
-        }
-        for (k, ty) in raw.iter_mut() {
-            if pinched.contains(k) && *ty == PathfindCellType::Clear {
-                *ty = PathfindCellType::Cliff;
-            }
-        }
-        self.wall_cells = raw;
+        self.wall_cells.classify(self.origin, self.grid_size, &self.wall_pieces);
         self.terrain_gen = self.terrain_gen.wrapping_add(1);
     }
 
@@ -1044,14 +1116,9 @@ impl PathfindingGrid {
             return;
         }
         // Native records duplicates; removal searches for the first matching ID.
-        self.wall_pieces.push(HostWallPiece {
-            id,
-            pos_x: pos.x,
-            pos_z: pos.z,
-            orientation,
-            major: major.max(0.1),
-            minor: minor.max(0.1),
-        });
+        self.wall_pieces.push(HostWallPiece::new(
+            id, pos, orientation, major.max(0.1), minor.max(0.1),
+        ));
     }
 
     /// Emulate both removal phases for direct grid callers.
@@ -1176,7 +1243,7 @@ impl PathfindingGrid {
 
     pub(super) fn host_deck_layer_at(&self, pos: GridPos) -> Option<u8> {
         self.bridge_layers.iter().find_map(|layer| {
-            if layer.id == LAYER_WALL_ID && self.wall_layer_allocated && !self.wall_classified_as_bridge {
+            if layer.id == LAYER_WALL_ID && self.wall_cells.bounds().is_some() && !self.wall_classified_as_bridge {
                 return None;
             }
             layer.cells.get(&(pos.x, pos.y)).and_then(|(ty, _)| {
@@ -1298,7 +1365,7 @@ impl PathfindingGrid {
     ) -> u8 {
         let Some(id) = (2u8..=LAYER_WALL_ID).find(|id| {
             !self.bridge_layers.iter().any(|b| b.id == *id)
-                && (*id != LAYER_WALL_ID || !self.wall_layer_allocated)
+                && (*id != LAYER_WALL_ID || self.wall_cells.bounds().is_none())
         }) else {
             return PathfindLayerEnum::Ground as u8;
         };
@@ -1614,7 +1681,7 @@ impl PathfindingGrid {
             }
             return None;
         }
-        if current as u8 == LAYER_WALL_ID && self.wall_layer_allocated && !self.wall_classified_as_bridge {
+        if current as u8 == LAYER_WALL_ID && self.wall_cells.bounds().is_some() && !self.wall_classified_as_bridge {
             return None;
         }
         self.bridge_layers
