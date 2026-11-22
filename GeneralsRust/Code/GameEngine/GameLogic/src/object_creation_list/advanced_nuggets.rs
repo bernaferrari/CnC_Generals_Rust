@@ -1098,6 +1098,8 @@ mod tests {
         fn random_value_real(&self, lo: Real, _hi: Real) -> Real {
             lo
         }
+        // Advanced-only nugget tests never exercise the lifetime override.
+        fn set_object_lifetime(&self, _object: &Arc<RwLock<Object>>, _min: u32, _max: u32) {}
     }
 
     struct TestFactory;

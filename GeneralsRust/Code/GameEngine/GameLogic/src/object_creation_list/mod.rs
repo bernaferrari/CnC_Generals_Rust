@@ -46,6 +46,7 @@ pub trait GameLogicContext {
     fn get_frame(&self) -> UnsignedInt;
     fn random_value(&self, lo: Int, hi: Int) -> Int;
     fn random_value_real(&self, lo: Real, hi: Real) -> Real;
+    fn set_object_lifetime(&self, object: &Arc<RwLock<Object>>, min: u32, max: u32);
 }
 
 /// Factory boundary for OCL creation. The canonical team handle may cross
@@ -94,6 +95,31 @@ impl GameLogicContext for LiveGameLogicContext {
 
     fn random_value_real(&self, lo: Real, hi: Real) -> Real {
         crate::helpers::get_game_logic_random_value_real(lo, hi)
+    }
+
+    /// C++ ObjectCreationList.cpp:918-934 — the newborn's first installed
+    /// LifetimeUpdate is rescheduled through the owning world's scheduler.
+    /// The object's read guard is dropped before the GameLogic mutex is
+    /// acquired; only a world bound through the canonical ObjectWorld path
+    /// qualifies (no ambient fallback to another world).
+    fn set_object_lifetime(&self, object: &Arc<RwLock<Object>>, min: u32, max: u32) {
+        let Some(world) = object.read().ok().and_then(|object| {
+            object
+                .find_update_module("LifetimeUpdate")
+                .and_then(|_| object.owning_world_services())
+        }) else {
+            return;
+        };
+        let Some(logic) = world.object_registry().owning_logic() else {
+            return;
+        };
+        let mut random =
+            game_engine::common::common_services::ReceivingLogicRandom::new(world.common());
+        if let Ok(mut logic) = logic.lock() {
+            if let Err(error) = logic.set_ocl_lifetime_range(object, min, max, &mut random) {
+                log::debug!("OCL lifetime override unavailable: {error}");
+            }
+        }
     }
 }
 

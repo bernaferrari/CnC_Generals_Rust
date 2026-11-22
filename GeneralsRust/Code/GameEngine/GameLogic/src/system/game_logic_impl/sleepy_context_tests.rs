@@ -906,3 +906,130 @@ fn fire_spread_scheduled_ignition_uses_the_already_borrowed_scheduler() {
         assert_eq!(restored_wake, Some(Some(65)));
     });
 }
+
+/// C++ ObjectCreationList.cpp:918-934 adjusts only the newborn's FIRST
+/// installed LifetimeUpdate registration; a foreign Arc carrying the same ID
+/// is rejected before any RNG draw.
+#[test]
+fn ocl_lifetime_override_updates_only_the_first_installed_registration() {
+    use crate::object::behavior::lifetime_update::{
+        LifetimeUpdate, LifetimeUpdateModule, LifetimeUpdateModuleData,
+    };
+    use game_engine::common::common_services::LogicRandom;
+    use game_engine::common::system::xfer_save::XferSave;
+    use game_engine::common::thing::module::ModuleDataHandle;
+    use std::io::Cursor;
+
+    let _guard = crate::test_sync::lock();
+
+    struct LifetimeDraw {
+        draws: u32,
+    }
+    impl LogicRandom for LifetimeDraw {
+        fn next_u32(&mut self) -> u32 {
+            panic!("OCL lifetime override draws only next_int")
+        }
+        fn next_int(&mut self, lo: i32, hi: i32) -> i32 {
+            assert_eq!((lo, hi), (45, 45));
+            self.draws += 1;
+            45
+        }
+        fn next_real(&mut self, _lo: f32, _hi: f32) -> f32 {
+            panic!("OCL lifetime override draws only next_int")
+        }
+    }
+
+    let lifetimes = |owner: &Arc<RwLock<Object>>| -> Vec<(u32, Option<u32>)> {
+        owner
+            .read()
+            .unwrap()
+            .behavior_modules()
+            .iter()
+            .filter(|handle| handle.module_name() == "LifetimeUpdate")
+            .map(|handle| {
+                handle
+                    .with_module_downcast::<LifetimeUpdateModule, _, _>(|module| {
+                        (
+                            module.behavior_mut().get_die_frame(),
+                            module.get_initial_wake_frame(),
+                        )
+                    })
+                    .expect("LifetimeUpdate installed")
+            })
+            .collect()
+    };
+
+    let id: crate::common::ObjectID = 0x0C11;
+    let mut object = Object::new_test(id, 100.0);
+    // LifetimeUpdate retains only the owner ID, so a temporary same-ID owner
+    // supplies the constructor identity.
+    let ctor_owner = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+    for _ in 0..2 {
+        let data = ModuleDataHandle::new(LifetimeUpdateModuleData::default());
+        let behavior = LifetimeUpdate::new(ctor_owner.clone(), data.clone())
+            .expect("LifetimeUpdate creates");
+        object.install_update_module(
+            "LifetimeUpdate",
+            Box::new(LifetimeUpdateModule::new(
+                behavior,
+                &crate::common::AsciiString::from("LifetimeUpdate"),
+                data.clone(),
+            )),
+            data,
+        );
+    }
+    let proxies = object.attach_installed_update_proxies_for_test();
+    assert_eq!(proxies.len(), 2);
+    let owner = Arc::new(RwLock::new(object));
+
+    let mut world = GameLogic::new();
+    world.frame = 10;
+    world.admit_scheduling_owner(id, owner.clone());
+    world.register_sleepy_update_module(id, proxies[0].clone(), 90);
+    world.register_sleepy_update_module(id, proxies[1].clone(), 110);
+    let before = lifetimes(&owner);
+
+    // A different Arc carrying the same ID is not this scheduler's owner.
+    let foreign = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+    let mut random = LifetimeDraw { draws: 0 };
+    assert!(world
+        .set_ocl_lifetime_range(&foreign, 45, 45, &mut random)
+        .is_err());
+    assert_eq!(random.draws, 0);
+
+    world
+        .set_ocl_lifetime_range(&owner, 45, 45, &mut random)
+        .expect("installed LifetimeUpdate reschedules");
+    assert_eq!(random.draws, 1);
+    assert_eq!(world.sleepy_entry_for(&proxies[0]), Some((id, 55)));
+    assert_eq!(world.sleepy_entry_for(&proxies[1]), Some((id, 110)));
+    assert_eq!(count_registration(&world, &proxies[0]), 1);
+    assert_eq!(count_registration(&world, &proxies[1]), 1);
+
+    let after = lifetimes(&owner);
+    // First installed: die frame and recorded wake both moved to now + 45.
+    assert_eq!(after[0], (55, Some(55)));
+    // Second installed is untouched by the override.
+    assert_eq!(after[1], before[1]);
+
+    // Packed Xfer tail: C++ UpdateModule serializes (wake << 2) | phase, then
+    // the raw die frame — both little-endian u32s.
+    let mut bytes = Vec::new();
+    owner
+        .read()
+        .unwrap()
+        .behavior_modules()
+        .iter()
+        .find(|handle| handle.module_name() == "LifetimeUpdate")
+        .expect("LifetimeUpdate installed")
+        .with_module(|module| {
+            game_engine::common::system::Snapshotable::xfer(
+                module,
+                &mut XferSave::new(Cursor::new(&mut bytes), 1),
+            )
+            .expect("LifetimeUpdate saves");
+        });
+    let tail = &bytes[bytes.len() - 8..];
+    assert_eq!(&tail[..4], &((55u32 << 2) | 2).to_le_bytes());
+    assert_eq!(&tail[4..], &55u32.to_le_bytes());
+}

@@ -653,6 +653,55 @@ impl GameLogic {
         Ok(())
     }
 
+    /// Apply an OCL override to the newborn object's first installed LifetimeUpdate.
+    pub(crate) fn set_ocl_lifetime_range(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        min: u32,
+        max: u32,
+        random: &mut dyn game_engine::common::common_services::LogicRandom,
+    ) -> Result<(), String> {
+        use crate::object::behavior::lifetime_update::LifetimeUpdateModule;
+        let (entry, proxy) = {
+            let object = owner.read().map_err(|_| "LifetimeUpdate owner poisoned")?;
+            let id = object.get_id();
+            if !self
+                .objects
+                .get(&id)
+                .is_some_and(|actual| Arc::ptr_eq(actual, owner))
+            {
+                return Err("LifetimeUpdate object does not belong to this scheduler".into());
+            }
+            let Some((entry, proxy)) =
+                object.find_update_module_with_registration("LifetimeUpdate")
+            else {
+                return Ok(());
+            };
+            let proxy = proxy.ok_or("LifetimeUpdate registration missing")?;
+            (entry, proxy)
+        };
+        self.validate_owned_update_wake(&proxy)?;
+        let now = self.frame;
+        entry
+            .with_module_downcast::<LifetimeUpdateModule, _, _>(|module| {
+                let update = module.behavior_mut();
+                let wake = update.set_lifetime_range_at(now, min, max, |lo, hi| {
+                    if hi < lo {
+                        hi
+                    } else {
+                        random.next_int(lo, hi)
+                    }
+                });
+                if let Some(wake) = changed_registered_wake(&self.sleepy_updates, &proxy, now, wake)
+                {
+                    let phase = update.get_update_phase();
+                    self.sleepy_updates.reschedule(&proxy, wake, Some(phase));
+                    update.record_scheduled_wake(wake, phase);
+                }
+            })
+            .ok_or_else(|| "LifetimeUpdate registration has the wrong module".into())
+    }
+
     /// Deliver one installed AutoHeal onDamage wake through its own entry
     /// borrow: the proxy lock is never reopened (C++ UpdateModule.cpp:61
     /// writes the wake directly). `on_damage_at_owned` still runs when `proxy`

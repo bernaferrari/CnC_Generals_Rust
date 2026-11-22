@@ -595,19 +595,22 @@ impl GenericObjectCreationNugget {
         source_obj: Option<&Object>,
         lifetime_frames: UnsignedInt,
     ) {
+        // C++ ObjectCreationList.cpp:918-934 — explicit lifetime override wins;
+        // the authored range applies only when max > 0. Routed through the
+        // world scheduler before the object read guard is acquired.
+        if lifetime_frames != 0 {
+            ctx.game_logic
+                .set_object_lifetime(obj, lifetime_frames, lifetime_frames);
+        } else if self.max_frames > 0 {
+            ctx.game_logic
+                .set_object_lifetime(obj, self.min_frames, self.max_frames);
+        }
+
         // Lock the object for reading (most operations are reads)
         let mut obj_read = match obj.read() {
             Ok(guard) => guard,
             Err(_) => return, // Failed to lock, skip this object
         };
-
-        // C++ ObjectCreationList.cpp:918-934 — LifetimeUpdate override when the module exists.
-        apply_lifetime_override(
-            &*obj_read,
-            lifetime_frames,
-            self.min_frames,
-            self.max_frames,
-        );
 
         // C++ ObjectCreationList.cpp:936-951 — debris model/anim walk when !m_nameAreObjects.
         if !self.name_are_objects {
@@ -1114,37 +1117,6 @@ fn play_ocl_fade_sound(
     let _ = audio.add_audio_event(&fade_event);
 }
 
-/// C++ ObjectCreationList.cpp:918-934
-fn apply_lifetime_override(
-    obj: &Object,
-    lifetime_frames: UnsignedInt,
-    min_frames: UnsignedInt,
-    max_frames: UnsignedInt,
-) {
-    let apply = |lup: &mut crate::object::behavior::LifetimeUpdate| {
-        if lifetime_frames != 0 {
-            lup.set_lifetime_range(lifetime_frames, lifetime_frames);
-        } else if max_frames > 0 {
-            lup.set_lifetime_range(min_frames, max_frames);
-        }
-    };
-
-    if let Some(handle) = obj.find_update_module("LifetimeUpdate") {
-        if handle
-            .with_module_downcast::<crate::object::behavior::lifetime_update::LifetimeUpdateModule, _, _>(
-                |module| apply(module.behavior_mut()),
-            )
-            .is_some()
-        {
-            return;
-        }
-    }
-    let _ = obj.with_update_behavior_downcast::<crate::object::behavior::LifetimeUpdate, _, _>(
-        "LifetimeUpdate",
-        apply,
-    );
-}
-
 /// C++ ObjectCreationList.cpp:1212-1220
 fn enable_float_update(obj: &Object) {
     if let Some(handle) = obj.find_update_module("FloatUpdate") {
@@ -1404,6 +1376,17 @@ mod tests {
         }
         fn random_value_real(&self, lo: Real, _hi: Real) -> Real {
             lo
+        }
+        fn set_object_lifetime(&self, object: &Arc<RwLock<Object>>, min: u32, max: u32) {
+            let _ = object.read().unwrap().with_update_behavior_downcast::<
+                LifetimeUpdate,
+                _,
+                _,
+            >("LifetimeUpdate", |module| {
+                module.set_lifetime_range_at(self.get_frame(), min, max, |lo, hi| {
+                    self.random_value(lo, hi)
+                });
+            });
         }
     }
 
@@ -2171,19 +2154,36 @@ mod tests {
             ..FactoryOptions::default()
         });
         let ctx = test_ctx(&factory);
-        let nugget = object_nugget("TimedCrate");
+        let mut nugget = object_nugget("TimedCrate");
+        nugget.min_frames = 100;
+        nugget.max_frames = 200;
         let pos = Coord3D::new(0.0, 0.0, 0.0);
         let created = nugget
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 45)
             .expect("created lifetime object");
-        let obj = created.read().unwrap();
-        let die_frame = obj
+        let die_frame = created
+            .read()
+            .unwrap()
             .with_update_behavior_downcast::<LifetimeUpdate, _, _>("LifetimeUpdate", |lup| {
                 lup.get_die_frame()
             })
             .expect("LifetimeUpdate attached");
-        let current = crate::helpers::TheGameLogic::get_frame();
-        assert_eq!(die_frame, current + 45);
+        // Explicit caller lifetime wins over the authored range; TestLogic
+        // frame is 0, so the die frame is exact.
+        assert_eq!(die_frame, 45);
+
+        // With no explicit lifetime the authored min/max range applies.
+        let created = nugget
+            .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
+            .expect("created authored-range object");
+        let die_frame = created
+            .read()
+            .unwrap()
+            .with_update_behavior_downcast::<LifetimeUpdate, _, _>("LifetimeUpdate", |lup| {
+                lup.get_die_frame()
+            })
+            .expect("LifetimeUpdate attached");
+        assert_eq!(die_frame, 100);
     }
 
     #[test]

@@ -19,7 +19,7 @@ use game_engine::common::thing::module::{
     Object as ModuleObject, Thing as ModuleThing,
 };
 use log::warn;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
 
@@ -184,7 +184,6 @@ mod tests {
             shared_data: None,
             next_call_frame_and_phase: 0,
             die_frame: 123,
-            update_proxy: None,
         };
         let mut module =
             LifetimeUpdateModule::new(behavior, &AsciiString::from("LifetimeUpdate"), data);
@@ -204,7 +203,6 @@ mod tests {
             shared_data: None,
             next_call_frame_and_phase: 0,
             die_frame: 0,
-            update_proxy: None,
         };
         let module = LifetimeUpdateModule::new(behavior, &AsciiString::from("LifetimeUpdate"), data.clone());
         data.write().as_any_mut().downcast_mut::<LifetimeUpdateModuleData>().unwrap().min_frames = 42;
@@ -228,26 +226,6 @@ mod tests {
 
         assert_eq!(behavior.get_die_frame(), 130);
         assert_eq!(behavior.initial_wake_frame(), 130);
-    }
-
-    #[test]
-    fn set_lifetime_range_reschedules_initial_wake_like_cpp() {
-        let _guard = crate::test_sync::lock();
-        let _frame = FrameRestore::at(100);
-
-        let object = Arc::new(RwLock::new(Object::new_test(4243, 100.0)));
-        let module_data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData {
-            min_frames: 30,
-            max_frames: 30,
-            ..LifetimeUpdateModuleData::default()
-        });
-        let mut behavior =
-            LifetimeUpdate::new(Arc::clone(&object), module_data).expect("LifetimeUpdate creates");
-
-        behavior.set_lifetime_range(45, 45);
-
-        assert_eq!(behavior.get_die_frame(), 145);
-        assert_eq!(behavior.initial_wake_frame(), 145);
     }
 
     #[test]
@@ -298,7 +276,6 @@ pub struct LifetimeUpdate {
     shared_data: Option<game_engine::common::thing::module::ModuleDataHandle>,
     next_call_frame_and_phase: UnsignedInt,
     die_frame: UnsignedInt,
-    update_proxy: Option<crate::object::UpdateModulePtr>,
 }
 
 impl LifetimeUpdate {
@@ -329,7 +306,7 @@ impl LifetimeUpdate {
             specific_data.max_frames,
         );
         let delay = Self::calc_sleep_delay_static(min_frames, max_frames);
-        let die_frame = current_frame + delay;
+        let die_frame = Self::die_frame_after(current_frame, delay);
         let object_id = object
             .read()
             .ok()
@@ -339,29 +316,40 @@ impl LifetimeUpdate {
         Self {
             object_id,
             shared_data: None,
-            next_call_frame_and_phase: die_frame,
+            // C++ UpdateModule constructor packs the initial wake with the phase.
+            next_call_frame_and_phase: (die_frame.min(0x3fff_ffff) << 2)
+                | crate::modules::SleepyUpdatePhase::Normal as u32,
             die_frame,
-            update_proxy: None,
         }
     }
 
-    pub fn set_lifetime_range(&mut self, min_frames: UnsignedInt, max_frames: UnsignedInt) {
-        // Get current frame from game logic - matches C++ LifetimeUpdate.cpp
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let delay = Self::calc_sleep_delay_static(min_frames, max_frames);
-        self.die_frame = current_frame + delay;
-        self.next_call_frame_and_phase = self.die_frame;
-        if let Some(proxy) = self.update_proxy.clone() {
-            let _ = crate::helpers::TheGameLogic::register_update_module(
-                self.object_id,
-                proxy,
-                self.die_frame,
-            );
-        }
+    /// C++ `LifetimeUpdate::setLifetimeRange` (LifetimeUpdate.cpp:51-64):
+    /// draw the delay through the caller's RNG, derive the die frame, and
+    /// return it so the owning scheduler can adjust the registration
+    /// (GameLogic.cpp:2965-3004) instead of this module re-registering itself.
+    pub(crate) fn set_lifetime_range_at(
+        &mut self,
+        now: u32,
+        min: u32,
+        max: u32,
+        draw: impl FnOnce(i32, i32) -> i32,
+    ) -> u32 {
+        let delay = (draw(min as i32, max as i32) as u32).max(1);
+        self.die_frame = Self::die_frame_after(now, delay);
+        self.die_frame
     }
 
-    pub(crate) fn bind_update_proxy(&mut self, proxy: crate::object::UpdateModulePtr) {
-        self.update_proxy = Some(proxy);
+    /// LifetimeUpdate.cpp:64 adds unsigned frames; the scheduler caps its
+    /// wake separately. `die_frame` and the 30-bit scheduler wake are
+    /// distinct quantities — C++ overflow wraps, it does not saturate.
+    fn die_frame_after(now: u32, delay: u32) -> u32 {
+        now.wrapping_add(delay)
+    }
+
+    /// C++ `UpdateModule::setWakeFrame` (UpdateModule.h:181-188): pack the
+    /// wake frame and phase into the serialized call frame.
+    fn record_wake(&mut self, frame: u32, phase: crate::modules::SleepyUpdatePhase) {
+        self.next_call_frame_and_phase = (frame.min(0x3fff_ffff) << 2) | phase as u32;
     }
 
     pub fn get_die_frame(&self) -> UnsignedInt {
@@ -369,7 +357,7 @@ impl LifetimeUpdate {
     }
 
     pub fn initial_wake_frame(&self) -> UnsignedInt {
-        self.next_call_frame_and_phase
+        self.next_call_frame_and_phase >> 2
     }
 
     /// Calculate random sleep delay between min and max frames
@@ -425,6 +413,10 @@ impl UpdateModuleInterface for LifetimeUpdate {
             }
         }
         UPDATE_SLEEP_FOREVER
+    }
+
+    fn record_scheduled_wake(&mut self, frame: u32, phase: crate::modules::SleepyUpdatePhase) {
+        self.record_wake(frame, phase);
     }
 }
 
@@ -556,6 +548,14 @@ impl Module for LifetimeUpdateModule {
     /// `as_any().downcast_ref::<Self>()` chain in `initial_update_wake_frame`.
     fn get_initial_wake_frame(&mut self) -> Option<u32> {
         Some(self.initial_wake_frame())
+    }
+
+    fn record_scheduled_wake(
+        &mut self,
+        frame: u32,
+        phase: game_engine::common::thing::update_module::SleepyUpdatePhase,
+    ) {
+        self.behavior.record_wake(frame, phase);
     }
 }
 

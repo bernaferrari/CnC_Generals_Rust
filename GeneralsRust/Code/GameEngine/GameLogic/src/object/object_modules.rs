@@ -1308,11 +1308,6 @@ impl Object {
                     >() {
                         slow_death.bind_update_proxy(proxy.clone());
                     }
-                    if let Some(lifetime) = (module as &mut dyn Any).downcast_mut::<
-                        crate::object::behavior::lifetime_update::LifetimeUpdateModule,
-                    >() {
-                        lifetime.behavior_mut().bind_update_proxy(proxy.clone());
-                    }
                     if let Some(deletion) = (module as &mut dyn Any)
                         .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
                         crate::object::behavior::deletion_update::DeletionUpdate,
