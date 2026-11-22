@@ -304,9 +304,13 @@ impl TerrainVisualImpl {
         gpu.vertices.clear();
         gpu.indices.clear();
         gpu.batches.clear();
+        let ground = TerrainReceiverHeight {
+            map,
+            classes: &self.source_tile_classes,
+        };
         for shadow in &gpu.inputs {
             let before = gpu.indices.len() as u32;
-            append_projected_shadow(map, start, end, shadow, &mut gpu.vertices, &mut gpu.indices);
+            append_projected_shadow(&ground, start, end, shadow, &mut gpu.vertices, &mut gpu.indices);
             let after = gpu.indices.len() as u32;
             if before == after {
                 continue;
@@ -381,13 +385,14 @@ impl TerrainVisualImpl {
 /// `W3DProjectedShadowManager::queueDecal`: project UV onto the active
 /// heightfield grid and use its same cell diagonal for receiver depth.
 fn append_projected_shadow(
-    map: &HeightMap,
+    ground: &TerrainReceiverHeight<'_>,
     draw_start: [i32; 2],
     draw_end: [i32; 2],
     shadow: &ProjectedUnitShadow,
     vertices: &mut Vec<ProjectedShadowVertex>,
     indices: &mut Vec<u32>,
 ) {
+    let map = ground.map;
     if !shadow.transform.is_finite()
         || !shadow.offset.is_finite()
         || !shadow.size.is_finite()
@@ -458,7 +463,7 @@ fn append_projected_shadow(
             let i = base + (z - z0) as u32 * stride + (x - x0) as u32;
             let right = i + 1;
             let next = i + stride;
-            if map.flip_state(x, z) {
+            if ground.flip_state(x, z) {
                 indices.extend_from_slice(&[right, next, i, right, next + 1, next]);
             } else {
                 indices.extend_from_slice(&[i, next + 1, next, i, right, next + 1]);
@@ -476,11 +481,19 @@ mod projected_unit_shadow_tests {
         let mut map = HeightMap::new(8, 8, 255.0, 10.0);
         map.border_size = 1;
         map.set_raw_height(3, 2, 80);
-        map.cliff_info.push(crate::terrain::height_map::TCliffInfo {
-            flip: true,
-            ..Default::default()
-        });
-        map.cliff_info_ndxes[2 * 8 + 2] = 1;
+        use crate::terrain::textures::BlendTileInfo;
+        map.blended_tiles = vec![
+            BlendTileInfo::default(),
+            BlendTileInfo {
+                right_diagonal: 1,
+                ..Default::default()
+            },
+        ];
+        map.blend_tile_ndxes[2 * 8 + 2] = 1;
+        let ground = TerrainReceiverHeight {
+            map: &map,
+            classes: &[],
+        };
         let mut decal = ProjectedUnitShadow {
             object_id: 1,
             module_index: None,
@@ -496,7 +509,7 @@ mod projected_unit_shadow_tests {
             layer_height: None,
         };
         let (mut vertices, mut indices) = (Vec::new(), Vec::new());
-        append_projected_shadow(&map, [0, 0], [7, 7], &decal, &mut vertices, &mut indices);
+        append_projected_shadow(&ground, [0, 0], [7, 7], &decal, &mut vertices, &mut indices);
         assert_eq!(vertices.len(), 9);
         assert_eq!(&indices[..6], &[0, 4, 3, 0, 1, 4]);
         assert_eq!(&indices[6..12], &[2, 4, 1, 2, 5, 4]);
@@ -515,7 +528,7 @@ mod projected_unit_shadow_tests {
         decal.layer_height = Some(33.0);
         vertices.clear();
         indices.clear();
-        append_projected_shadow(&map, [0, 0], [7, 7], &decal, &mut vertices, &mut indices);
+        append_projected_shadow(&ground, [0, 0], [7, 7], &decal, &mut vertices, &mut indices);
         assert!((vertices[2].position[1] - 80.0).abs() < 0.0001);
         assert_eq!(vertices[1].position[1], 34.5);
     }

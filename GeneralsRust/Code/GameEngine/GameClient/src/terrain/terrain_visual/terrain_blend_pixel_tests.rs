@@ -1180,6 +1180,110 @@ fn projected_unit_shadow_uses_source_v_axis_and_offsets_in_native_pixels() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "requires a native GPU adapter"]
+fn projected_shadow_conforms_to_native_diagonal_blend_receiver() {
+    use crate::terrain::textures::BlendTileInfo;
+
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("terrain receiver fixture requires a native GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("terrain receiver fixture requires a native GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let classes = [
+        (
+            TerrainSourceTileClass {
+                first_tile: 0,
+                num_tiles: 1,
+                width: 1,
+                name: "PlaneGround".into(),
+            },
+            [200; 3],
+        ),
+        (
+            TerrainSourceTileClass {
+                first_tile: 1,
+                num_tiles: 1,
+                width: 1,
+                name: "PlaneBlend".into(),
+            },
+            [200; 3],
+        ),
+    ];
+
+    let mut map = HeightMap::new(8, 8, 255.0, 10.0);
+    map.adjust_cliff_textures = false;
+    map.set_raw_height(2, 1, 18);
+    // Right diagonal with neither bit set still flips the *geometry*.
+    // C++ WorldHeightMap.cpp:2080–2093 and 2168–2181.
+    map.blended_tiles.push(BlendTileInfo::default());
+    map.blended_tiles.push(BlendTileInfo {
+        blend_ndx: 4,
+        right_diagonal: 1,
+        ..Default::default()
+    });
+    map.blend_tile_ndxes[9] = 1;
+    let mut visual = live_terrain_visual(&device, &queue, &classes, map, 1.0);
+
+    // X=[0,32], Z=[8,24]. Height is retained in the projected depth.
+    let transform = Mat4::from_cols_array_2d(&[
+        [0.0625, 0.0, 0.0, 0.0],
+        [0.0, 0.0, -0.02, 0.0],
+        [0.0, 0.125, 0.0, 0.0],
+        [-1.0, -2.0, 0.5, 1.0],
+    ]);
+    let bare = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(32, 32, image::Rgba([128, 128, 128, 255]))
+        .write_to(&mut encoded, image::ImageFormat::Tga)
+        .unwrap();
+    let caster = ProjectedUnitShadow {
+        object_id: 73,
+        module_index: None,
+        transform: Mat4::from_translation(Vec3::new(17.0, 0.0, 15.0)),
+        size: Vec2::new(24.0, 16.0),
+        offset: Vec2::ZERO,
+        layer_height: None,
+        texture_name: "DiagonalWitness".into(),
+    };
+    assert_eq!(
+        visual.admit_projected_unit_shadows(vec![caster], |path| {
+            (path == "Art/Textures/diagonalwitness.tga").then(|| encoded.get_ref().clone())
+        }),
+        HashSet::from([73]),
+    );
+    visual
+        .update_native(
+            TerrainVisualMotion {
+                frame: 0,
+                paused: false,
+                gravity: 0.0,
+                breeze: Default::default(),
+            },
+            None,
+        )
+        .unwrap();
+    let shaded = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+
+    let gray = |pixels: &[u8], column: usize, row: usize| pixels[row * 256 + column * 4];
+    for (column, row) in [(25, 4), (14, 5), (14, 3)] {
+        // The first probe is in an ordinary adjacent cell; both others are
+        // across the flipped cell. A stale p0–p2 receiver sinks into the ground.
+        assert_eq!(gray(&bare, column, row), 200, "fixture at {column}, {row}");
+        let value = gray(&shaded, column, row);
+        assert!(
+            (99..=101).contains(&value),
+            "receiver at {column}, {row}: {value}"
+        );
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
 fn projected_unit_shadow_multiplies_source_color_on_native_terrain() {
     crate::test_support::ensure_ambient_host();
     let instance = wgpu::Instance::default();

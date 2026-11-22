@@ -967,8 +967,7 @@ impl TerrainVisualImpl {
         classes: &[TerrainSourceTileClass],
         mut read_virtual_file: impl FnMut(&str) -> Option<Vec<u8>>,
     ) -> TerrainResult<usize> {
-        self.source_tile_classes = classes.to_vec();
-        self.ranked_source_tile_classes = None;
+        self.admit_source_tile_classes(classes);
         let mut loaded = 0;
         let mut ids = Vec::new();
         for class in classes {
@@ -992,13 +991,28 @@ impl TerrainVisualImpl {
         Ok(loaded)
     }
 
+    fn admit_source_tile_classes(&mut self, classes: &[TerrainSourceTileClass]) {
+        self.ranked_source_tile_classes = None;
+        if self.source_tile_classes == classes {
+            return;
+        }
+        self.source_tile_classes = classes.to_vec();
+        // A new class mapping can change which cliff controls a cell's
+        // diagonal even when all height samples and caster poses are unchanged.
+        self.chunk_meshes.clear();
+        self.chunk_texture_bindings.clear();
+        self.terrain_material_bind_groups.clear();
+        self.scorches.scorches_in_buffer = 0;
+        self.scorch_meshes.clear();
+        self.invalidate_projected_unit_shadow_meshes();
+    }
+
     fn load_source_tiles_with_image_source(
         &mut self,
         classes: &[TerrainSourceTileClass],
         mut resolve_image: impl FnMut(&mut Self, &TerrainSourceTileClass) -> Option<image::DynamicImage>,
     ) -> TerrainResult<usize> {
-        self.source_tile_classes = classes.to_vec();
-        self.ranked_source_tile_classes = None;
+        self.admit_source_tile_classes(classes);
 
         // Unique class art only. Archive/file reads stay on this thread; CPU
         // TGA decode fans out (C++ loads lazily and caches TextureClass by name).

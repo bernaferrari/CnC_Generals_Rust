@@ -327,7 +327,6 @@ impl TerrainVisualImpl {
                         std::iter::repeat(batch).take(count)
                     }).collect();
                 let mut vertex_weights = Vec::with_capacity(gpu_vertices.len());
-                let mut cell_flips: Vec<bool> = Vec::with_capacity(gpu_vertices.len());
                 for ((vertex, center), batch) in gpu_vertices.iter().zip(&cell_centers).zip(&batch_for_vertex) {
                     let (_, _, stable_texture_ids, shared_slot_map) = &materials[*batch];
                     let position =
@@ -454,27 +453,21 @@ impl TerrainVisualImpl {
                     };
 
                     vertex_weights.push(blended);
-                    // C++ getAlphaUVData needFlip: split this cell along its
-                    // other diagonal so diagonal blends follow the edge.
-                    let flip = self.height_map.as_ref().map_or(false, |hm| {
-                        let (x, y) = height_map_cell_at_world(hm, center[0], center[1]);
-                        let blend = tile_sample.as_ref().and_then(|sample| sample.1);
-                        let tile = blend.map_or_else(
-                            || hm.tile_ndxes.get((y * hm.width as i32 + x) as usize).copied().unwrap_or(0),
-                            |blend| blend.blend_ndx as i16,
-                        );
-                        authored_cell_flip(hm, &self.source_tile_classes, x, y, tile, blend)
-                    });
-                    cell_flips.push(flip);
                 }
                 let mut chunk_indices = chunk_indices;
-                for (cell, quad) in chunk_indices.chunks_exact_mut(6).enumerate() {
-                    if cell_flips.get(cell * 4).copied().unwrap_or(false)
-                        && quad[3] == quad[0]
-                        && quad[4] == quad[2]
+                if let Some(map) = self.height_map.as_ref() {
+                    let ground = TerrainReceiverHeight {
+                        map,
+                        classes: &self.source_tile_classes,
+                    };
+                    for (quad, center) in chunk_indices.chunks_exact_mut(6)
+                        .zip(cell_centers.iter().step_by(4))
                     {
-                        let base = quad[0];
-                        quad.copy_from_slice(&[base, base + 1, base + 3, base + 1, base + 2, base + 3]);
+                        let (x, y) = height_map_cell_at_world(map, center[0], center[1]);
+                        if quad[3] == quad[0] && quad[4] == quad[2] && ground.flip_state(x, y) {
+                            let base = quad[0];
+                            quad.copy_from_slice(&[base, base + 1, base + 3, base + 1, base + 2, base + 3]);
+                        }
                     }
                 }
 
@@ -1139,7 +1132,11 @@ impl TerrainVisualImpl {
             lighting.ambient,
             lighting.scorch_diffuse,
         );
-        let baked = self.scorches.update_scorches(height_map, diffuse);
+        let ground = TerrainReceiverHeight {
+            map: height_map,
+            classes: &self.source_tile_classes,
+        };
+        let baked = self.scorches.update_scorches(&ground, diffuse);
         if baked.vertices.is_empty() || baked.indices.is_empty() {
             self.scorch_meshes.clear();
             return;
@@ -3200,6 +3197,42 @@ fn authored_blend_vertex(
     let alpha = cpp_blend_corner_alpha(blend).0[cell_corner(fx, fy)];
     let uv = class_uv_for_tile(hm, classes, x, y, blend.blend_ndx as i16, fx, fy);
     Some((base_slot, blend_slot, alpha, uv))
+}
+
+/// C++ WorldHeightMap caches primary getAlphaUVData's triangle orientation
+/// for the receiver meshes (WorldHeightMap.cpp:2168–2181). Derive the same
+/// orientation from the admitted map and classes so ground and overlays
+/// agree, including after height edits and texture-class replacement.
+struct TerrainReceiverHeight<'a> {
+    map: &'a HeightMap,
+    classes: &'a [TerrainSourceTileClass],
+}
+
+impl ScorchHeightSource for TerrainReceiverHeight<'_> {
+    fn x_extent(&self) -> i32 {
+        self.map.x_extent()
+    }
+
+    fn y_extent(&self) -> i32 {
+        self.map.y_extent()
+    }
+
+    fn border_size(&self) -> i32 {
+        self.map.border_size()
+    }
+
+    fn clip_height_world(&self, x: i32, y: i32) -> f32 {
+        self.map.clip_height_world(x, y)
+    }
+
+    fn flip_state(&self, x: i32, y: i32) -> bool {
+        let blend_index = self.map.get_blend_tile_index(x, y);
+        let blend = (blend_index > 0)
+            .then(|| self.map.blended_tiles.get(blend_index as usize))
+            .flatten();
+        let tile = blend.map_or_else(|| self.map.get_tile_index(x, y), |info| info.blend_ndx as i16);
+        authored_cell_flip(self.map, self.classes, x, y, tile, blend)
+    }
 }
 
 fn authored_cell_flip(
