@@ -2,9 +2,7 @@
 // Author: Graham Smallwood, April 2002
 // Ported to Rust
 
-use crate::common::types::PartitionManagerInterface;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
-use crate::object::object_thing::ObjectArcExt;
 use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -12,14 +10,17 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     FireSpreadControlInterface, Module, ModuleData, ModuleDataHandle, ModuleDataRead, NameKeyType,
 };
+use std::sync::Arc;
 
 /// Module data for FireSpreadUpdate
 /// Matches C++ FireSpreadUpdate.cpp
 #[derive(Debug, Clone)]
 pub struct FireSpreadUpdateModuleData {
     pub module_tag_name_key: NameKeyType,
-    /// Object creation list for ember effects
-    pub ocl_embers: Option<ObjectCreationListId>,
+    /// Object creation list for ember effects, kept as the authored name —
+    /// the store keys by authored string, which a numeric NameKey cannot
+    /// recover once the catalog moves.
+    pub ocl_embers: Option<Arc<str>>,
     /// Minimum delay between spread attempts (frames)
     pub min_spread_try_delay: u32,
     /// Maximum delay between spread attempts (frames)
@@ -94,7 +95,14 @@ fn parse_ocl_embers(
     data: &mut FireSpreadUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.ocl_embers = Some(name_key_generate(first_value_token(tokens)?) as ObjectCreationListId);
+    let name = first_value_token(tokens)?;
+    data.ocl_embers = if name.eq_ignore_ascii_case("None") {
+        None
+    } else {
+        // Preserve name-key allocation order without storing the local key.
+        let _ = name_key_generate(name);
+        Some(Arc::from(name))
+    };
     Ok(())
 }
 
@@ -179,13 +187,13 @@ impl game_engine::common::thing::update_module::UpdateModuleInterface for FireSp
                 .downcast_ref::<FireSpreadUpdateModuleData>()
                 .expect("invalid FireSpread data");
             (
-                data.ocl_embers,
+                data.ocl_embers.clone(),
                 data.spread_try_range,
                 data.min_spread_try_delay,
                 data.max_spread_try_delay,
             )
         };
-        if let Some(ocl) = ocl {
+        if let Some(ocl) = ocl.as_deref() {
             context.create_fire_spread_embers(self.thing, ocl);
         }
         if range != 0.0 {
@@ -220,79 +228,10 @@ impl FireSpreadUpdate {
         }
     }
 
-    /// Update callback - spreads fire to nearby flammable objects
-    /// Matches C++ FireSpreadUpdate.cpp:93-135
-    pub fn update(&mut self, ctx: &mut UpdateContext<'_>) -> UpdateSleepTime {
-        let Some(me) = ctx.game_logic.find_object(self.thing) else {
-            return UpdateSleepTime::Forever;
-        };
-
-        // Not on fire -- sleep forever (C++ line 98-99)
-        if !me.get_status_bits().test(ObjectStatus::Aflame) {
-            return UpdateSleepTime::Forever;
-        }
-        let (ocl_embers, spread_try_range) = {
-            let guard = self.module_data.read();
-            let data = guard.as_any().downcast_ref::<FireSpreadUpdateModuleData>().expect("invalid FireSpread data");
-            (data.ocl_embers, data.spread_try_range)
-        };
-
-        // Create ember effects if configured (C++ line 101)
-        if let Some(ocl) = ocl_embers {
-            if let Some(ocl_mgr) = ctx.object_creation_list_manager.as_mut() {
-                ocl_mgr.create(
-                    ocl,
-                    Some(me),
-                    me.get_position(),
-                    me.get_position(),
-                    me.get_orientation(),
-                );
-            }
-        }
-
-        // Spread fire explicitly if range is set (C++ line 103-131)
-        if spread_try_range != 0.0 {
-            // Find closest flammable object (C++ line 106-123)
-            let filters = vec![PartitionFilter::Flammable];
-
-            if let Some(object_to_light) = ctx.partition_manager.get_closest_object(
-                me,
-                spread_try_range,
-                PartitionDistanceType::Center3D,
-                &filters,
-            ) {
-                // Try to ignite the found object (C++ line 124-130)
-                if let Some(flammable) = object_to_light.find_flammable_update() {
-                    flammable.try_to_ignite(ctx);
-                }
-            }
-        }
-
-        // Sleep until next spread attempt (C++ line 133)
-        UpdateSleepTime::Frames(self.calc_next_spread_delay())
-    }
-
     /// Scheduling-only `update_simple` has no owning context — the C++ body
     /// cannot run without a source object, partition, or logic-random owner.
     pub fn update_simple(&mut self) -> UpdateSleepTime {
         UpdateSleepTime::Forever
-    }
-
-    /// Start fire spreading behavior
-    /// Matches C++ FireSpreadUpdate.cpp:139-145
-    pub fn start_fire_spreading(&mut self, ctx: &mut UpdateContext<'_>) {
-        let Some(object) = ctx.game_logic.find_object(self.thing) else {
-            return;
-        };
-
-        // Must be on fire (C++ line 141-142)
-        if !object.get_status_bits().test(ObjectStatus::Aflame) {
-            return;
-        }
-
-        // Wake up after calculated delay (C++ line 144)
-        let delay = self.calc_next_spread_delay();
-        ctx.set_wake_frame(object.id(), UpdateSleepTime::Frames(delay));
     }
 
     fn wake_delay_if_aflame(&mut self, is_aflame: bool) -> Option<u32> {
@@ -524,6 +463,92 @@ mod tests {
 
         // Should be at least 1 (C++ line 153-154)
         assert_eq!(delay, 1);
+    }
+
+    struct OrderContext {
+        ember_done: bool,
+        ignited: bool,
+        draws: u32,
+    }
+
+    impl game_engine::common::thing::update_module::UpdateScheduleContext for OrderContext {
+        fn frame(&self) -> u32 {
+            20
+        }
+
+        fn fire_spread_source_is_aflame(&self, owner_id: u32) -> bool {
+            owner_id == 9
+        }
+
+        fn create_fire_spread_embers(&mut self, owner_id: u32, ocl: &str) {
+            assert_eq!(owner_id, 9);
+            assert_eq!(ocl, "CustomEmberList");
+            self.ember_done = true;
+        }
+
+        fn closest_fire_spread_target(&self, owner_id: u32, range: f32) -> Option<u32> {
+            assert!(self.ember_done, "embers are created before target selection");
+            assert_eq!(owner_id, 9);
+            assert_eq!(range, 50.0);
+            Some(10)
+        }
+
+        fn ignite_fire_spread_target(&mut self, object_id: u32) {
+            assert_eq!(object_id, 10);
+            self.ignited = true;
+        }
+
+        fn fire_spread_random_int(&mut self, lo: i32, hi: i32) -> i32 {
+            assert!(self.ignited, "ignition runs before the retry draw");
+            assert_eq!((lo, hi), (0, 0));
+            self.draws += 1;
+            0
+        }
+
+        fn awaken(
+            &mut self,
+            _module: &game_engine::common::thing::update_module::UpdateModulePtr,
+            _wake_frame: u32,
+        ) {
+            panic!("scheduled FireSpread must not awaken");
+        }
+
+        fn unregister(
+            &mut self,
+            _module: &game_engine::common::thing::update_module::UpdateModulePtr,
+        ) {
+            panic!("scheduled FireSpread must not unregister");
+        }
+    }
+
+    #[test]
+    fn scheduled_update_orders_authored_embers_target_ignition_and_retry_draw() {
+        let mut data = FireSpreadUpdateModuleData {
+            module_tag_name_key: 0,
+            min_spread_try_delay: 0,
+            max_spread_try_delay: 0,
+            spread_try_range: 50.0,
+            ocl_embers: None,
+        };
+        let mut ini = INI::new();
+        parse_ocl_embers(&mut ini, &mut data, &["=", "CustomEmberList"]).unwrap();
+        assert_eq!(data.ocl_embers.as_deref(), Some("CustomEmberList"));
+
+        let mut update = FireSpreadUpdate::new(9, data);
+        let mut context = OrderContext {
+            ember_done: false,
+            ignited: false,
+            draws: 0,
+        };
+        let sleep = game_engine::common::thing::update_module::UpdateModuleInterface::update_scheduled(
+            &mut update,
+            &mut context,
+        )
+        .unwrap();
+        assert_eq!(sleep, UpdateSleepTime::Frames(1));
+        assert!(context.ember_done);
+        assert!(context.ignited);
+        assert_eq!(context.draws, 1);
     }
 }
 

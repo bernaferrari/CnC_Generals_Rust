@@ -122,7 +122,7 @@ pub trait UpdateScheduleContext {
 
     /// Execute the authored ember OCL for the source when this context owns a
     /// live creation factory; scheduling-only contexts do nothing.
-    fn create_fire_spread_embers(&mut self, _owner_id: u32, _ocl: u32) {}
+    fn create_fire_spread_embers(&mut self, _owner_id: u32, _ocl: &str) {}
 
     /// Draw the next spread delay from the owning world's logic stream.
     /// Scheduling-only contexts keep the deterministic upper bound.

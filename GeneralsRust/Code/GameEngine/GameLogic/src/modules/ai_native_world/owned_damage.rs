@@ -173,25 +173,15 @@ impl BorrowedAiWorld<'_> {
         }
         if outcome.damaged {
             for (handle, proxy) in auto_heals.into_iter().zip(proxies) {
-                let wake = handle.with_module(|module| {
-                    module
-                        .as_any_mut()
-                        .downcast_mut::<AutoHealBehaviorModule>()
-                        .expect("admitted AutoHeal identity")
-                        .behavior_mut()
-                        .on_damage_at_owned(self.services.frame)
-                });
-                if let Some(wake) = wake {
-                    self.services
-                        .update_scheduler
-                        .awaken_update_module_with_current(
-                            &proxy,
-                            self.services.current_update.as_ref(),
-                            self.services.frame,
-                            wake,
-                        )
-                        .expect("pre-admitted damage callback wake");
-                }
+                self.services
+                    .update_scheduler
+                    .wake_auto_heal_after_damage(
+                        &handle,
+                        &proxy,
+                        self.services.current_update.as_ref(),
+                        self.services.frame,
+                    )
+                    .expect("pre-admitted damage callback wake");
             }
             if outcome.transition.changed_state {
                 let mut sound = match outcome.transition.damage_state {

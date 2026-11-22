@@ -102,7 +102,6 @@ impl<'a> BodyModuleGuardExt for std::sync::MutexGuard<'a, dyn BodyModuleInterfac
 /// Extension trait for Arc<Mutex<dyn BehaviorModuleInterface>> to provide convenient methods
 pub trait BehaviorModuleExt {
     fn set_sd_enabled(&self, enabled: bool);
-    fn start_fire_spreading(&self);
 }
 
 impl BehaviorModuleExt for Arc<Mutex<dyn BehaviorModuleInterface>> {
@@ -110,12 +109,6 @@ impl BehaviorModuleExt for Arc<Mutex<dyn BehaviorModuleInterface>> {
         if let Ok(mut guard) = self.try_lock() {
             guard.set_sd_enabled(enabled);
         }
-    }
-
-    fn start_fire_spreading(&self) {
-        // Fire spreading is triggered through FlammableUpdate → FireSpreadUpdate
-        // with an UpdateContext (see flammable_update.rs:203). This trait method
-        // has no UpdateContext, so the real path handles it.
     }
 }
 
@@ -147,37 +140,11 @@ impl SpecialAbilityUpdateExt for Arc<Mutex<dyn SpecialAbilityUpdate>> {
     }
 }
 
-/// Extension trait for Arc<Mutex<FlammableUpdate>> to provide convenient methods
-pub trait FlammableUpdateExt {
-    fn try_to_ignite(&self, ctx: &mut crate::common::UpdateContext<'_>);
-}
-
-impl FlammableUpdateExt for Arc<Mutex<dyn BehaviorModuleInterface>> {
-    fn try_to_ignite(&self, _ctx: &mut crate::common::UpdateContext<'_>) {
-        if let Ok(mut guard) = self.lock() {
-            guard.try_to_ignite_flammable();
-        }
-    }
-}
-
 impl BehaviorModuleExt for crate::object::BehaviorInterfaceHandle {
     fn set_sd_enabled(&self, enabled: bool) {
         let mut behavior = self.clone();
         if let Ok(mut lease) = behavior.try_access() {
             lease.set_sd_enabled(enabled);
-        }
-    }
-
-    fn start_fire_spreading(&self) {
-        // The real fire-spread operation requires UpdateContext.
-    }
-}
-
-impl FlammableUpdateExt for crate::object::BehaviorInterfaceHandle {
-    fn try_to_ignite(&self, _ctx: &mut crate::common::UpdateContext<'_>) {
-        let mut behavior = self.clone();
-        if let Ok(mut lease) = behavior.access() {
-            lease.try_to_ignite_flammable();
         }
     }
 }

@@ -159,11 +159,6 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     fn behavior_initial_wake_frame(&mut self) -> Option<u32> {
         None
     }
-    /// Optional flammability hook used by fire/ignite systems.
-    /// PARITY_NOTE: C++ default is no-op; subclasses override when flammable.
-    fn try_to_ignite_flammable(&mut self) {
-        // Default: not flammable, nothing to do.
-    }
     fn get_upgrade(&mut self) -> Option<&mut dyn UpgradeModuleInterface> {
         None
     }

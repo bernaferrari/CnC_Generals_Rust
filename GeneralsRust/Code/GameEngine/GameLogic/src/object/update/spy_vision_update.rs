@@ -143,7 +143,10 @@ impl SpyVisionController {
     }
 
     pub fn activate_spy_vision(&mut self, duration: UnsignedInt) {
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
+        self.activate_spy_vision_at(duration, crate::helpers::TheGameLogic::get_frame());
+    }
+
+    fn activate_spy_vision_at(&mut self, duration: UnsignedInt, current_frame: UnsignedInt) {
         if duration == 0 {
             self.deactivate_frame = u32::MAX;
         } else {
@@ -268,7 +271,10 @@ impl SpyVisionController {
     }
 
     pub fn update(&mut self) -> UpdateSleepTime {
-        let now = crate::helpers::TheGameLogic::get_frame();
+        self.update_at(crate::helpers::TheGameLogic::get_frame())
+    }
+
+    fn update_at(&mut self, now: UnsignedInt) -> UpdateSleepTime {
         let (self_powered, interval, duration) = {
             let data = self.data();
             (data.self_powered, data.self_powered_interval, data.self_powered_duration)
@@ -465,7 +471,12 @@ impl SpyVisionUpdate {
         UpgradeMask::from_bits_retain(mask.bits())
     }
 
-    fn maybe_trigger_upgrade(&mut self) {
+    fn update_at(&mut self, now: UnsignedInt) -> UpdateSleepTime {
+        self.maybe_trigger_upgrade_at(now);
+        self.controller.update_at(now)
+    }
+
+    fn maybe_trigger_upgrade_at(&mut self, now: UnsignedInt) {
         // Wave 434: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -487,8 +498,13 @@ impl SpyVisionUpdate {
             }
         });
         if would == Some(true) {
-            // C++ UpgradeMux::giveSelfUpgrade → upgradeImplementation.
-            self.upgrade_implementation();
+            // C++ UpgradeMux::giveSelfUpgrade → upgradeImplementation; the
+            // needs-upgrade/already-upgraded gate above is the same check the
+            // wrapper had. GameLogic.cpp:2965–2969 ignores setWakeFrame on the
+            // current update, so activation uses this update's frame and the
+            // returned sleep establishes the wake — no ambient friend-wake.
+            let duration = self.controller.data().self_powered_duration;
+            self.controller.activate_spy_vision_at(duration, now);
             self.upgrade_mux.set_upgrade_executed(true);
         }
     }
@@ -663,8 +679,14 @@ impl Module for SpyVisionUpdateModule {
 
 impl UpdateModuleInterface for SpyVisionUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        self.maybe_trigger_upgrade();
-        self.controller.update()
+        self.update_at(crate::helpers::TheGameLogic::get_frame())
+    }
+
+    fn update_scheduled(
+        &mut self,
+        context: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.update_at(context.frame()))
     }
 
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
@@ -1004,5 +1026,60 @@ mod tests {
         assert_eq!(controller.update(), UpdateSleepTime::Forever);
         assert!(!controller.currently_active);
         assert!(!controller.reset_timers_next_update);
+    }
+
+    struct FrameOnlyContext(u32);
+
+    impl game_engine::common::thing::update_module::UpdateScheduleContext for FrameOnlyContext {
+        fn frame(&self) -> u32 {
+            self.0
+        }
+
+        fn awaken(
+            &mut self,
+            _module: &game_engine::common::thing::update_module::UpdateModulePtr,
+            _wake_frame: u32,
+        ) {
+            panic!("scheduled SpyVision update must not awaken");
+        }
+
+        fn unregister(
+            &mut self,
+            _module: &game_engine::common::thing::update_module::UpdateModulePtr,
+        ) {
+            panic!("scheduled SpyVision update must not unregister");
+        }
+    }
+
+    #[test]
+    fn scheduled_update_deactivates_at_the_supplied_frame() {
+        // The no-owner activation lookup tries the process registry, so run
+        // the body against fresh world stores: C++'s NULL-player branch is a
+        // no-op, while the deadline comparison and deactivate_frame reset
+        // still run entirely on the supplied frame.
+        let stores = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&stores, || {
+            let mut update = SpyVisionUpdate::new(
+                0,
+                ModuleDataHandle::new(SpyVisionUpdateModuleData::default()),
+                0x5EED,
+            );
+            update.controller.currently_active = true;
+            update.controller.deactivate_frame = 20;
+
+            let mut before = FrameOnlyContext(19);
+            assert_eq!(
+                UpdateModuleInterface::update_scheduled(&mut update, &mut before).unwrap(),
+                UpdateSleepTime::Forever
+            );
+            assert_eq!(update.controller.deactivate_frame, 20);
+
+            let mut at = FrameOnlyContext(20);
+            assert_eq!(
+                UpdateModuleInterface::update_scheduled(&mut update, &mut at).unwrap(),
+                UpdateSleepTime::Forever
+            );
+            assert_eq!(update.controller.deactivate_frame, 0);
+        });
     }
 }

@@ -236,7 +236,7 @@ impl UpdateScheduleContext for UpdateExecutionContext<'_> {
         })
     }
 
-    fn create_fire_spread_embers(&mut self, owner_id: u32, ocl: u32) {
+    fn create_fire_spread_embers(&mut self, owner_id: u32, ocl: &str) {
         // OCL creation runs `ObjectFactory::create_object_inner`, which takes
         // `get_game_logic().lock()` — already held by this dispatcher — so the
         // effect needs a borrowed object-creation owner (not yet ported).
@@ -653,12 +653,49 @@ impl GameLogic {
         Ok(())
     }
 
+    /// Deliver one installed AutoHeal onDamage wake through its own entry
+    /// borrow: the proxy lock is never reopened (C++ UpdateModule.cpp:61
+    /// writes the wake directly). `on_damage_at_owned` still runs when `proxy`
+    /// is the current update — GameLogic.cpp:2965–2969 only ignores its wake.
+    pub(crate) fn wake_auto_heal_after_damage(
+        &mut self,
+        entry: &crate::object::BehaviorModuleHandle,
+        proxy: &UpdateModulePtr,
+        current: Option<&UpdateModulePtr>,
+        now: u32,
+    ) -> Result<(), String> {
+        use crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule;
+        self.validate_owned_update_wake(proxy)?;
+        entry
+            .with_module_downcast::<AutoHealBehaviorModule, _, _>(|module| {
+                let behavior = module.behavior_mut();
+                let Some(wake) = behavior.on_damage_at_owned(now) else {
+                    return;
+                };
+                if current.is_some_and(|current| Arc::ptr_eq(current, proxy)) {
+                    return;
+                }
+                let Some(wake) =
+                    changed_registered_wake(&self.sleepy_updates, proxy, now, wake)
+                else {
+                    return;
+                };
+                // The proxy phase was captured from this installed update and
+                // does not change. Queue first, then stamp the installed
+                // entry, matching the existing awaken sequence.
+                let phase = behavior.get_update_phase();
+                self.sleepy_updates.reschedule(proxy, wake, Some(phase));
+                game_engine::common::thing::module::Module::record_scheduled_wake(
+                    module, wake, phase,
+                );
+            })
+            .ok_or_else(|| "AutoHeal registration has the wrong installed module".into())
+    }
+
     /// Deliver the installed AutoHeal onDamage wake for this actual mine.
     /// The firing operation has released the Actor and Body before lending us
     /// the scheduler. AutoHealBehavior.cpp:136–155 changes the existing registration.
     pub(crate) fn wake_auto_heal_after_disarm(&mut self, owner: &Arc<RwLock<Object>>) {
-        use crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule;
-
         let registrations = {
             let Ok(actor) = owner.read() else {
                 return;
@@ -673,17 +710,7 @@ impl GameLogic {
             actor.auto_heal_update_registrations().collect::<Vec<_>>()
         };
         for (entry, proxy) in registrations {
-            if self.validate_owned_update_wake(&proxy).is_err() {
-                continue;
-            }
-            let wake = entry.with_module_downcast::<AutoHealBehaviorModule, _, _>(|module| {
-                module.behavior_mut().on_damage_at_owned(self.frame)
-            }).flatten();
-            if let Some(wake) = wake {
-                // The damage callback released the installed entry, which the
-                // existing heap proxy needs to record its new packed wake.
-                awaken_registered_update(&mut self.sleepy_updates, &proxy, self.frame, wake);
-            }
+            let _ = self.wake_auto_heal_after_damage(&entry, &proxy, None, self.frame);
         }
     }
 

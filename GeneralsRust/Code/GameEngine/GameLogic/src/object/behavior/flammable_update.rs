@@ -647,10 +647,6 @@ impl BehaviorModuleInterface for FlammableUpdate {
         "FlammableUpdate"
     }
 
-    fn try_to_ignite_flammable(&mut self) {
-        self.try_to_ignite();
-    }
-
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }

@@ -688,7 +688,7 @@ fn fire_spread_scheduled_ignition_uses_the_already_borrowed_scheduler() {
             spread_try_range: 50.0,
             // Deliberately unresolvable list: the scheduled path calls the
             // ember hook and continues without an owned OCL authority.
-            ocl_embers: Some(71),
+            ocl_embers: Some(Arc::from("UnresolvableEmberList")),
             ..Default::default()
         });
         let (mut source_object, source_proxy) = Object::installed_update_proxy_for_test(
