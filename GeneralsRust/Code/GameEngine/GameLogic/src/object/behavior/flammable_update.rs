@@ -4,7 +4,7 @@
 //! Author: EA Pacific (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{AsciiString, Bool, ModuleData, NameKeyType, ObjectID, Real, UnsignedInt, XferVersion};
+use crate::common::{AsciiString, Bool, ModuleData, ObjectID, Real, UnsignedInt, XferVersion};
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::Object as GameObject;
@@ -230,33 +230,44 @@ impl FlammableUpdate {
             let is_aflame = object
                 .get_status_bits()
                 .contains(crate::common::ObjectStatusMaskType::AFLAME);
-            let Some(module) = object.find_update_module("FireSpreadUpdate") else {
+            let Some((module, proxy)) =
+                object.find_update_module_with_registration("FireSpreadUpdate")
+            else {
                 return Ok(None);
             };
-            Ok(module
+            let delay = module
                 .try_with_module(|module| {
                     module
                         .get_fire_spread_control_interface()
                         .and_then(|spread| spread.wake_delay_if_aflame(is_aflame))
                 })
-                .flatten())
+                .flatten();
+            if let (Some(delay), Some(proxy)) = (delay, proxy) {
+                let _ = crate::helpers::TheGameLogic::register_update_module(
+                    object.get_id(),
+                    proxy,
+                    frame.saturating_add(delay),
+                );
+            }
+            Ok(delay)
         };
         // C++ setWakeFrame targets `this`: the own-wake call carries this
-        // instance's module tag; the FireSpread target keeps its class wake.
+        // instance's module tag (FireSpreadUpdate.cpp:139-145 wakes its own
+        // proxy inside the spread closure).
         let self_tag = self.module_data.read().get_module_tag_name_key();
-        let mut wake = |object: &GameObject, name: &str, tag: NameKeyType, sleep: UpdateSleepTime| {
+        let mut wake_self = |object: &GameObject, sleep: UpdateSleepTime| {
             let wake_frame = match sleep {
                 UpdateSleepTime::None => frame.saturating_add(1),
                 UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
                 UpdateSleepTime::Frames(frames) => frame.saturating_add(frames),
             };
-            if tag == 0 || !object.reschedule_tagged_update(tag, wake_frame) {
-                object.reschedule_named_update(name, wake_frame);
+            if self_tag == 0 || !object.reschedule_tagged_update(self_tag, wake_frame) {
+                object.reschedule_named_update("FlammableUpdate", wake_frame);
             }
             Ok(())
         };
         if let Err(error) =
-            self.try_to_ignite_with_services_at(frame, &mut audio, &mut spread, self_tag, &mut wake)
+            self.try_to_ignite_with_services_at(frame, &mut audio, &mut spread, &mut wake_self)
         {
             log::debug!("Flammable ignition unavailable: {error}");
         }
@@ -270,8 +281,7 @@ impl FlammableUpdate {
         frame: UnsignedInt,
         audio: &mut dyn FnMut(&crate::common::audio::AudioEventRts) -> u32,
         spread: &mut dyn FnMut(&GameObject) -> Result<Option<UnsignedInt>, String>,
-        self_tag: NameKeyType,
-        wake: &mut dyn FnMut(&GameObject, &str, NameKeyType, UpdateSleepTime) -> Result<(), String>,
+        wake_self: &mut dyn FnMut(&GameObject, UpdateSleepTime) -> Result<(), String>,
     ) -> Result<(), String> {
         if self.status != FlammabilityStatus::Normal {
             return Ok(());
@@ -302,7 +312,6 @@ impl FlammableUpdate {
         if let Ok(object) = owner.try_read() {
             if let Some(delay) = spread(&object)? {
                 self.last_fire_spread_wake = Some(UpdateSleepTime::Frames(delay));
-                wake(&object, "FireSpreadUpdate", 0, UpdateSleepTime::Frames(delay))?;
             }
         }
         self.status = FlammabilityStatus::Aflame;
@@ -325,7 +334,7 @@ impl FlammableUpdate {
         };
         self.last_wake_sleep = Some(sleep);
         if let Ok(object) = owner.try_read() {
-            wake(&object, "FlammableUpdate", self_tag, sleep)?;
+            wake_self(&object, sleep)?;
         }
         Ok(())
     }
@@ -675,41 +684,37 @@ pub(crate) fn ignite_installed_silent_at(
     random: &mut dyn game_engine::common::common_services::LogicRandom,
     frame: UnsignedInt,
 ) -> Result<(), String> {
-    let (id, module, self_proxy, spread_proxies) = {
+    let (id, module, self_proxy, spread) = {
         let object = owner.read().map_err(|_| "ignition owner poisoned")?;
-        let module = object
-            .find_update_module("FlammableUpdate")
+        let (module, self_proxy) = object
+            .find_update_module_with_registration("FlammableUpdate")
             .ok_or("installed Flammable absent")?;
-        let mut proxies = object.named_update_registrations("FlammableUpdate");
-        if proxies.len() != 1 {
-            return Err("Flammable scheduling identity mismatch".into());
-        }
-        let spread = object.named_update_registrations("FireSpreadUpdate");
-        (object.get_id(), module, proxies.pop().unwrap(), spread)
+        let self_proxy = self_proxy.ok_or("Flammable scheduling identity mismatch")?;
+        let spread = object
+            .find_update_module_with_registration("FireSpreadUpdate")
+            .map(|(control, proxy)| {
+                proxy
+                    .map(|proxy| (control, proxy))
+                    .ok_or("FireSpread scheduling identity mismatch")
+            })
+            .transpose()?;
+        (object.get_id(), module, self_proxy, spread)
     };
-    {
-        let object = owner.read().map_err(|_| "ignition owner poisoned")?;
-        if let Some(spread) = object.find_update_module("FireSpreadUpdate") {
-            if spread_proxies.len() != 1 {
-                return Err("FireSpread scheduling identity mismatch".into());
-            }
-            let supported = spread
-                .try_with_module(|module| {
-                    module
-                        .as_any()
-                        .is::<crate::object::update::fire_spread_update::FireSpreadUpdateModule>()
-                })
-                .ok_or("owned FireSpread callback is busy")?;
-            if !supported {
-                return Err("owned ignition requires canonical FireSpread control".into());
-            }
-        } else if !spread_proxies.is_empty() {
-            return Err("FireSpread proxy has no installed module".into());
+    if let Some((control, _)) = &spread {
+        let supported = control
+            .try_with_module(|module| {
+                module
+                    .as_any()
+                    .is::<crate::object::update::fire_spread_update::FireSpreadUpdateModule>()
+            })
+            .ok_or("owned FireSpread callback is busy")?;
+        if !supported {
+            return Err("owned ignition requires canonical FireSpread control".into());
         }
     }
     scheduler.validate_scheduling_owner(id, owner)?;
     scheduler.validate_owned_update_wake(&self_proxy)?;
-    for proxy in &spread_proxies {
+    if let Some((_, proxy)) = &spread {
         scheduler.validate_owned_update_wake(proxy)?;
     }
     let mut pending = None;
@@ -731,11 +736,11 @@ pub(crate) fn ignite_installed_silent_at(
             return Err("named burning sound requires its supplied stop/delete lifetime".into());
         }
         let mut audio = |_event: &crate::common::audio::AudioEventRts| 0;
-        let mut spread = |object: &GameObject| {
-            let Some(module) = object.find_update_module("FireSpreadUpdate") else {
+        let mut start_spread = |object: &GameObject| {
+            let Some((control, proxy)) = &spread else {
                 return Ok(None);
             };
-            module
+            let delay = control
                 .try_with_module(|module| {
                     module
                         .get_fire_spread_control_interface()
@@ -747,20 +752,27 @@ pub(crate) fn ignite_installed_silent_at(
                             random,
                         )
                 })
-                .ok_or("owned FireSpread callback is busy")?
+                .ok_or("owned FireSpread callback is busy")??;
+            if let Some(delay) = delay {
+                scheduler.awaken_update_module_with_current(
+                    proxy,
+                    None,
+                    frame,
+                    UpdateSleepTime::Frames(delay).to_u32(),
+                )?;
+            }
+            Ok(delay)
         };
-        let mut wake = |_object: &GameObject, name: &str, _tag: NameKeyType, sleep: UpdateSleepTime| {
-            if name == "FlammableUpdate" {
-                pending = Some(sleep);
-                return Ok(());
-            }
-            for proxy in &spread_proxies {
-                scheduler.awaken_update_module_with_current(proxy, None, frame, sleep.to_u32())?;
-            }
+        let mut wake_self = |_object: &GameObject, sleep: UpdateSleepTime| {
+            pending = Some(sleep);
             Ok(())
         };
-        let self_tag = flammable.module_data.read().get_module_tag_name_key();
-        flammable.try_to_ignite_with_services_at(frame, &mut audio, &mut spread, self_tag, &mut wake)
+        flammable.try_to_ignite_with_services_at(
+            frame,
+            &mut audio,
+            &mut start_spread,
+            &mut wake_self,
+        )
     })?;
     if let Some(sleep) = pending {
         scheduler.awaken_update_module_with_current(&self_proxy, None, frame, sleep.to_u32())?;
@@ -781,6 +793,7 @@ impl FlammableUpdateFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::NameKeyType;
 
     #[test]
     fn defaults_match_cpp_constructor() {
@@ -882,7 +895,8 @@ mod tests {
     fn ignition_fixture(
         id: ObjectID,
         data: FlammableUpdateModuleData,
-        spread_delay: Option<u32>,
+        spread_delays: &[u32],
+        register_flammable: bool,
     ) -> (
         Arc<RwLock<GameObject>>,
         crate::system::game_logic::GameLogic,
@@ -921,9 +935,10 @@ mod tests {
             .write()
             .unwrap()
             .install_update_module("FlammableUpdate", module, module_data);
-        if let Some(delay) = spread_delay {
+        for (index, &delay) in spread_delays.iter().enumerate() {
             let data = game_engine::common::thing::module::ModuleDataHandle::new(
                 crate::object::update::fire_spread_update::FireSpreadUpdateModuleData {
+                    module_tag_name_key: 101 + index as NameKeyType,
                     min_spread_try_delay: delay,
                     max_spread_try_delay: delay,
                     ..Default::default()
@@ -948,6 +963,9 @@ mod tests {
         let mut scheduler = crate::system::game_logic::GameLogic::new();
         scheduler.admit_scheduling_owner(id, object.clone());
         for entry in entries {
+            if !register_flammable && entry.name() == "FlammableUpdate" {
+                continue;
+            }
             let proxy: game_engine::common::thing::update_module::UpdateModulePtr = Arc::new(
                 RwLock::new(crate::object::ModuleUpdateProxy::new(entry.clone(), id)),
             );
@@ -1039,7 +1057,7 @@ mod tests {
             ..Default::default()
         };
         for frame in [0, u32::MAX - 10] {
-            let (object, mut scheduler) = ignition_fixture(9201, data.clone(), None);
+            let (object, mut scheduler) = ignition_fixture(9201, data.clone(), &[], true);
             ignite_installed_silent_at(&object, &mut scheduler, &mut game_engine::common::random_value::RandomState::default(), frame)
                 .unwrap();
             observe_flammable(&object, |flammable| {
@@ -1070,16 +1088,27 @@ mod tests {
 
     #[test]
     fn try_to_ignite_arms_fire_spread_update_like_cpp() {
+        // C++ FindUpdateModule resolves the first installed FireSpreadUpdate
+        // (Object.cpp:2847); its own registration is the only proxy woken
+        // (FireSpreadUpdate.cpp:139-145).
         let (object, mut scheduler) =
-            ignition_fixture(9202, FlammableUpdateModuleData::default(), Some(45));
+            ignition_fixture(9202, FlammableUpdateModuleData::default(), &[45, 60], true);
         let (peer, peer_scheduler) =
-            ignition_fixture(9202, FlammableUpdateModuleData::default(), Some(80));
+            ignition_fixture(9202, FlammableUpdateModuleData::default(), &[80], true);
+        let mut spread_proxies = object
+            .read()
+            .unwrap()
+            .named_update_registrations("FireSpreadUpdate");
+        assert_eq!(spread_proxies.len(), 2);
+        let sibling_proxy = spread_proxies.pop().unwrap();
+        let first_proxy = spread_proxies.pop().unwrap();
         let peer_proxy = peer
             .read()
             .unwrap()
             .named_update_registrations("FireSpreadUpdate")
             .pop()
             .unwrap();
+        let sibling_before = scheduler.sleepy_entry_for(&sibling_proxy).unwrap().1;
         let peer_before = peer_scheduler.sleepy_entry_for(&peer_proxy).unwrap().1;
         ignite_installed_silent_at(&object, &mut scheduler, &mut game_engine::common::random_value::RandomState::default(), 0).unwrap();
         observe_flammable(&object, |flammable| {
@@ -1107,19 +1136,59 @@ mod tests {
                 .get_status_bits()
                 .contains(crate::common::ObjectStatusMaskType::AFLAME)
         );
-        let proxy = object
-            .read()
-            .unwrap()
-            .named_update_registrations("FireSpreadUpdate")
-            .pop()
-            .unwrap();
-        assert_eq!(scheduler.sleepy_entry_for(&proxy).unwrap().1, 45);
+        assert_eq!(scheduler.sleepy_entry_for(&first_proxy).unwrap().1, 45);
+        assert_eq!(
+            scheduler.sleepy_entry_for(&sibling_proxy).unwrap().1,
+            sibling_before,
+            "only the first-match FireSpread registration may be woken"
+        );
         assert_eq!(
             peer_scheduler.sleepy_entry_for(&peer_proxy).unwrap().1,
             peer_before
         );
         observe_flammable(&peer, |flammable| {
             assert_eq!(flammable.status, FlammabilityStatus::Normal)
+        });
+    }
+
+    #[test]
+    fn compatibility_ignition_wakes_only_the_first_fire_spread_registration() {
+        let _serial = crate::test_sync::lock();
+        let stores = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&stores, || {
+            let id = 9204;
+            // Isolate the spread callback from the legacy Flammable self-wake.
+            let (object, _) =
+                ignition_fixture(id, FlammableUpdateModuleData::default(), &[45, 60], false);
+            let (flammable, proxies, spread) = {
+                let object = object.read().unwrap();
+                (
+                    object.find_update_module("FlammableUpdate").unwrap(),
+                    object.update_module_registrations().cloned().collect::<Vec<_>>(),
+                    object.named_update_registrations("FireSpreadUpdate"),
+                )
+            };
+            let ambient = crate::system::game_logic::get_game_logic();
+            {
+                let mut scheduler = ambient.lock().unwrap();
+                scheduler.admit_scheduling_owner(id, object.clone());
+                for proxy in proxies {
+                    scheduler.register_sleepy_update_module(id, proxy, 100);
+                }
+            }
+            flammable.with_module(|module| {
+                module
+                    .as_any_mut()
+                    .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
+                        FlammableUpdate,
+                    >>()
+                    .unwrap()
+                    .behavior_mut()
+                    .try_to_ignite();
+            });
+            let scheduler = ambient.lock().unwrap();
+            assert_eq!(scheduler.sleepy_entry_for(&spread[0]).unwrap().1, 45);
+            assert_eq!(scheduler.sleepy_entry_for(&spread[1]).unwrap().1, 100);
         });
     }
 

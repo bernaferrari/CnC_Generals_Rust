@@ -342,17 +342,40 @@ impl Object {
         Some(func(exit_interface.interface_mut()))
     }
 
+    /// First module entry matching the class name with the UPDATE interface
+    /// (C++ Object.cpp:2847 first-match lookup; INTENSE_DEBUG only diagnoses
+    /// duplicate classes).
+    fn find_update_module_entry(&self, module_name: &str) -> Option<(usize, &Arc<ModuleEntry>)> {
+        let name = AsciiString::from(module_name);
+        self.modules.iter().enumerate().find(|(_, entry)| {
+            entry.name() == &name && (entry.mask().0 & ModuleInterfaceType::UPDATE.0) != 0
+        })
+    }
+
     /// Find an update module by name.
     /// Matches C++ Object::FindUpdateModule but routed through module entries.
     pub fn find_update_module(&self, module_name: &str) -> Option<BehaviorModuleHandle> {
-        let name = AsciiString::from(module_name);
-        self.modules
+        self.find_update_module_entry(module_name)
+            .map(|(_, entry)| BehaviorModuleHandle::new(Arc::clone(entry)))
+    }
+
+    /// The first-match module plus the proxy registered for that exact
+    /// installation, so wake scheduling resolves a single authored instance
+    /// (FireSpreadUpdate.cpp:139-145 wakes `this` only).
+    pub(crate) fn find_update_module_with_registration(
+        &self,
+        module_name: &str,
+    ) -> Option<(BehaviorModuleHandle, Option<UpdateModulePtr>)> {
+        let (index, entry) = self.find_update_module_entry(module_name)?;
+        let registration = self
+            .update_module_registrations
             .iter()
-            .find(|entry| {
-                entry.name() == &name && (entry.mask().0 & ModuleInterfaceType::UPDATE.0) != 0
-            })
-            .cloned()
-            .map(BehaviorModuleHandle::new)
+            .find(|registration| registration.module_index == Some(index))
+            .map(|registration| Arc::clone(&registration.module));
+        Some((
+            BehaviorModuleHandle::new(Arc::clone(entry)),
+            registration,
+        ))
     }
 
     /// Install an update module after construction (tests / internal harnesses).
