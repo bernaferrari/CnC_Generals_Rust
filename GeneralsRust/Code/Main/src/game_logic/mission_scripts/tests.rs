@@ -128,24 +128,23 @@ mod tests {
         assert!((final_pitch[0].ease_in - 0.25).abs() < f32::EPSILON);
         assert!((final_pitch[0].ease_out - 0.15).abs() < f32::EPSILON);
 
-        let freeze_time = hooks.drain_camera_mod_freeze_time_requests();
-        assert_eq!(freeze_time.len(), 1);
+        let timing = hooks.take_camera_timing_requests();
+        assert!(timing.freeze_camera_time);
+        assert_eq!(timing.final_speed.unwrap().multiplier, 4);
+        assert_eq!(timing.rolling_average.unwrap().frames, 6);
+        assert_eq!(timing.visual_speed.unwrap().multiplier, 3);
+        assert_eq!(timing.freeze_script_time, Some(false));
+        assert_eq!(timing.fps_limit.unwrap().fps, 120);
         let freeze_angle = hooks.drain_camera_mod_freeze_angle_requests();
         assert_eq!(freeze_angle.len(), 1);
-        let final_speed = hooks.drain_camera_mod_final_speed_multiplier_requests();
-        assert_eq!(final_speed.len(), 1);
-        assert_eq!(final_speed[0].multiplier, 4);
-        let rolling_average = hooks.drain_camera_mod_rolling_average_requests();
-        assert_eq!(rolling_average.len(), 1);
-        assert_eq!(rolling_average[0].frames, 6);
-        let visual_speed = hooks.drain_visual_speed_multiplier_requests();
-        assert_eq!(visual_speed.len(), 1);
-        assert_eq!(visual_speed[0].multiplier, 3);
-        let script_freeze = hooks.drain_script_freeze_time_requests();
-        assert_eq!(script_freeze, vec![true, false]);
-        let fps_limit = hooks.drain_set_fps_limit_requests();
-        assert_eq!(fps_limit.len(), 1);
-        assert_eq!(fps_limit[0].fps, 120);
+
+        let drained = hooks.take_camera_timing_requests();
+        assert!(!drained.freeze_camera_time);
+        assert!(drained.final_speed.is_none());
+        assert!(drained.rolling_average.is_none());
+        assert!(drained.visual_speed.is_none());
+        assert!(drained.freeze_script_time.is_none());
+        assert!(drained.fps_limit.is_none());
     }
 
     #[test]

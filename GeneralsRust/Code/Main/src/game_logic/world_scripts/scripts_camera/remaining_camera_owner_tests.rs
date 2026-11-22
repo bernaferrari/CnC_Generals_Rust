@@ -172,14 +172,11 @@ fn assert_camera_queues_empty(hooks: &MissionScriptHooks) {
     assert!(hooks.drain_camera_rotate_requests().is_empty());
     assert!(hooks.drain_camera_mod_final_zoom_requests().is_empty());
     assert!(hooks.drain_camera_mod_final_pitch_requests().is_empty());
-    assert!(hooks.drain_camera_mod_freeze_time_requests().is_empty());
+    let timing = hooks.take_camera_timing_requests();
+    assert!(!timing.freeze_camera_time);
+    assert!(timing.final_speed.is_none());
+    assert!(timing.rolling_average.is_none());
     assert!(hooks.drain_camera_mod_freeze_angle_requests().is_empty());
-    assert!(
-        hooks
-            .drain_camera_mod_final_speed_multiplier_requests()
-            .is_empty()
-    );
-    assert!(hooks.drain_camera_mod_rolling_average_requests().is_empty());
     assert!(hooks.drain_camera_resets().is_empty());
     assert!(hooks.drain_camera_setup_requests().is_empty());
     assert!(hooks.drain_camera_look_toward_object_requests().is_empty());

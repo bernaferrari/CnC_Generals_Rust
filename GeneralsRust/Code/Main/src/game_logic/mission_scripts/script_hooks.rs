@@ -92,6 +92,16 @@ pub(crate) struct CameraFocusRequests {
     pub(crate) tethers: Vec<CameraTetherRequest>,
 }
 
+/// Effective values for the contiguous camera/script timing part of a flush.
+pub(crate) struct CameraTimingRequests {
+    pub(crate) freeze_camera_time: bool,
+    pub(crate) final_speed: Option<CameraModFinalSpeedMultiplierRequest>,
+    pub(crate) rolling_average: Option<CameraModRollingAverageRequest>,
+    pub(crate) visual_speed: Option<VisualSpeedMultiplierRequest>,
+    pub(crate) freeze_script_time: Option<bool>,
+    pub(crate) fps_limit: Option<SetFpsLimitRequest>,
+}
+
 pub struct MissionScriptHooks {
     /// Every script -> host notification queue behind a single guard.
     ///
@@ -896,12 +906,29 @@ impl MissionScriptHooks {
         q.camera_mod_final_pitch_requests.drain(..).collect()
     }
 
-    pub fn drain_camera_mod_freeze_time_requests(&self) -> Vec<()> {
+    pub(crate) fn take_camera_timing_requests(&self) -> CameraTimingRequests {
         let mut q = self
             .notifications
             .lock()
             .unwrap_or_else(|e| self.recover_notifications(e));
-        q.camera_mod_freeze_time_requests.drain(..).collect()
+        let freeze_camera_time = !q.camera_mod_freeze_time_requests.is_empty();
+        q.camera_mod_freeze_time_requests.clear();
+        let final_speed = q
+            .camera_mod_final_speed_multiplier_requests
+            .drain(..)
+            .next_back();
+        let rolling_average = q.camera_mod_rolling_average_requests.drain(..).next_back();
+        let visual_speed = q.visual_speed_multiplier_requests.drain(..).next_back();
+        let freeze_script_time = q.script_freeze_time_requests.drain(..).next_back();
+        let fps_limit = q.set_fps_limit_requests.drain(..).next_back();
+        CameraTimingRequests {
+            freeze_camera_time,
+            final_speed,
+            rolling_average,
+            visual_speed,
+            freeze_script_time,
+            fps_limit,
+        }
     }
 
     pub fn drain_camera_mod_freeze_angle_requests(&self) -> Vec<()> {
@@ -910,52 +937,6 @@ impl MissionScriptHooks {
             .lock()
             .unwrap_or_else(|e| self.recover_notifications(e));
         q.camera_mod_freeze_angle_requests.drain(..).collect()
-    }
-
-    pub fn drain_camera_mod_final_speed_multiplier_requests(
-        &self,
-    ) -> Vec<CameraModFinalSpeedMultiplierRequest> {
-        let mut q = self
-            .notifications
-            .lock()
-            .unwrap_or_else(|e| self.recover_notifications(e));
-        {
-            q.camera_mod_final_speed_multiplier_requests
-                .drain(..)
-                .collect()
-        }
-    }
-
-    pub fn drain_camera_mod_rolling_average_requests(&self) -> Vec<CameraModRollingAverageRequest> {
-        let mut q = self
-            .notifications
-            .lock()
-            .unwrap_or_else(|e| self.recover_notifications(e));
-        q.camera_mod_rolling_average_requests.drain(..).collect()
-    }
-
-    pub fn drain_visual_speed_multiplier_requests(&self) -> Vec<VisualSpeedMultiplierRequest> {
-        let mut q = self
-            .notifications
-            .lock()
-            .unwrap_or_else(|e| self.recover_notifications(e));
-        q.visual_speed_multiplier_requests.drain(..).collect()
-    }
-
-    pub fn drain_script_freeze_time_requests(&self) -> Vec<bool> {
-        let mut q = self
-            .notifications
-            .lock()
-            .unwrap_or_else(|e| self.recover_notifications(e));
-        q.script_freeze_time_requests.drain(..).collect()
-    }
-
-    pub fn drain_set_fps_limit_requests(&self) -> Vec<SetFpsLimitRequest> {
-        let mut q = self
-            .notifications
-            .lock()
-            .unwrap_or_else(|e| self.recover_notifications(e));
-        q.set_fps_limit_requests.drain(..).collect()
     }
 
     pub fn drain_camera_setup_requests(&self) -> Vec<CameraSetupRequest> {

@@ -57,16 +57,9 @@ fn authored_freeze_speed_weather_follow_receiver_without_or_with_foreign_handler
                     assert_eq!(owner.weather_state().visible, visible);
                     assert!(!peer.is_script_time_frozen());
                     assert_eq!(peer.visual_speed_multiplier(), 1.0);
-                    assert!(
-                        peer.mission_scripts
-                            .drain_script_freeze_time_requests()
-                            .is_empty()
-                    );
-                    assert!(
-                        peer.mission_scripts
-                            .drain_visual_speed_multiplier_requests()
-                            .is_empty()
-                    );
+                    let peer_timing = peer.mission_scripts.take_camera_timing_requests();
+                    assert!(peer_timing.freeze_script_time.is_none());
+                    assert!(peer_timing.visual_speed.is_none());
                     assert!(
                         peer.mission_scripts
                             .drain_weather_visibility_updates()

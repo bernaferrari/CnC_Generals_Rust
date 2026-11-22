@@ -175,56 +175,23 @@ impl GameLogic {
             self.set_camera_tether_object(ObjectId(last.object_id), last.snap_to_unit, last.play);
         }
 
-        if !self
-            .mission_scripts
-            .drain_camera_mod_freeze_time_requests()
-            .is_empty()
-        {
+        let timing = self.mission_scripts.take_camera_timing_requests();
+        if timing.freeze_camera_time {
             self.apply_script_camera_mod_freeze_time();
         }
-
-        if let Some(last) = self
-            .mission_scripts
-            .drain_camera_mod_final_speed_multiplier_requests()
-            .into_iter()
-            .last()
-        {
+        if let Some(last) = timing.final_speed {
             self.apply_script_camera_mod_final_speed_multiplier(&last);
         }
-
-        if let Some(last) = self
-            .mission_scripts
-            .drain_camera_mod_rolling_average_requests()
-            .into_iter()
-            .last()
-        {
+        if let Some(last) = timing.rolling_average {
             self.apply_script_camera_mod_rolling_average(&last);
         }
-
-        if let Some(last) = self
-            .mission_scripts
-            .drain_visual_speed_multiplier_requests()
-            .into_iter()
-            .last()
-        {
+        if let Some(last) = timing.visual_speed {
             self.apply_visual_speed_multiplier(&last);
         }
-
-        if let Some(last) = self
-            .mission_scripts
-            .drain_script_freeze_time_requests()
-            .into_iter()
-            .last()
-        {
+        if let Some(last) = timing.freeze_script_time {
             self.script_time_frozen_by_script = last;
         }
-
-        if let Some(last) = self
-            .mission_scripts
-            .drain_set_fps_limit_requests()
-            .into_iter()
-            .last()
-        {
+        if let Some(last) = timing.fps_limit {
             self.apply_set_fps_limit(&last);
         }
 
