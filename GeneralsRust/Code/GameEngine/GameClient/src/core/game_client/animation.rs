@@ -137,13 +137,13 @@ fn animation_file_candidates(animation_name: &str) -> Vec<PathBuf> {
 
 fn extract_animation_duration_ms(data: &[u8], animation_name: &str) -> Option<Real> {
     let mut reader = W3DReader::new(Cursor::new(data));
-    let chunks = reader.read_all_chunks().ok()?;
+    let chunks = reader.read_animation_source_chunks().ok()?;
     extract_animation_duration_ms_from_chunks(&chunks, animation_name)
 }
 
 fn extract_all_animation_durations_ms(data: &[u8]) -> Vec<(String, Real)> {
     let mut reader = W3DReader::new(Cursor::new(data));
-    let Ok(chunks) = reader.read_all_chunks() else {
+    let Ok(chunks) = reader.read_animation_source_chunks() else {
         return Vec::new();
     };
 

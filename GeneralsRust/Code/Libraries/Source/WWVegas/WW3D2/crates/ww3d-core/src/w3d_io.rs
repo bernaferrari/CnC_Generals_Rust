@@ -170,6 +170,39 @@ impl<R: Read + Seek> W3DReader<R> {
         Ok(chunks)
     }
 
+    /// Read animation source chunks, skipping geometry-only files by header.
+    ///
+    /// A source with animation metadata uses the complete parser so its chunk
+    /// order and validation match `read_all_chunks`.
+    pub fn read_animation_source_chunks(&mut self) -> W3DResult<Vec<W3DChunk>> {
+        let start = self
+            .reader
+            .stream_position()
+            .map_err(|error| W3DError::IoError(error.to_string()))?;
+        while let Ok(header) = self.read_chunk_header() {
+            match header.chunk_type() {
+                Some(
+                    W3DChunkType::Animation
+                    | W3DChunkType::AnimationHeader
+                    | W3DChunkType::CompressedAnimation
+                    | W3DChunkType::CompressedAnimationHeader,
+                )
+                | None => {
+                    self.reader
+                        .seek(SeekFrom::Start(start))
+                        .map_err(|error| W3DError::IoError(error.to_string()))?;
+                    return self.read_all_chunks();
+                }
+                _ => {
+                    self.reader
+                        .seek(SeekFrom::Current(i64::from(header.actual_size())))
+                        .map_err(|error| W3DError::IoError(error.to_string()))?;
+                }
+            }
+        }
+        Ok(Vec::new())
+    }
+
     // Mesh reading functions
     pub fn read_mesh(&mut self, size: u32) -> W3DResult<W3dMesh> {
         let end_pos = self
@@ -1617,6 +1650,78 @@ mod tests {
             }
             _ => panic!("Expected Vertices chunk"),
         }
+    }
+
+    #[test]
+    fn animation_lookup_skips_geometry_payload() {
+        struct CountedReader<'a> {
+            reader: Cursor<&'a [u8]>,
+            bytes_read: usize,
+        }
+
+        impl Read for CountedReader<'_> {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                let bytes = self.reader.read(buffer)?;
+                self.bytes_read += bytes;
+                Ok(bytes)
+            }
+        }
+
+        impl Seek for CountedReader<'_> {
+            fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+                self.reader.seek(position)
+            }
+        }
+
+        let mut buffer = Cursor::new(Vec::new());
+        W3DWriter::new(&mut buffer)
+            .write_chunk(&W3DChunk::Vertices(vec![W3dVectorStruct::default(); 8_192]))
+            .unwrap();
+        let geometry = buffer.into_inner();
+        let reader = || CountedReader {
+            reader: Cursor::new(geometry.as_slice()),
+            bytes_read: 0,
+        };
+
+        let mut full = W3DReader::new(reader());
+        assert!(matches!(
+            full.read_all_chunks().unwrap().as_slice(),
+            [W3DChunk::Vertices(_)]
+        ));
+        assert_eq!(full.reader.bytes_read, geometry.len());
+
+        let mut animation = W3DReader::new(reader());
+        assert!(animation.read_animation_source_chunks().unwrap().is_empty());
+        assert_eq!(
+            animation.reader.bytes_read,
+            std::mem::size_of::<W3dChunkHeader>()
+        );
+    }
+
+    #[test]
+    fn animation_lookup_keeps_geometry_and_animation_chunk_order() {
+        let mut buffer = Cursor::new(Vec::new());
+        let mut writer = W3DWriter::new(&mut buffer);
+        writer
+            .write_chunk(&W3DChunk::Vertices(vec![W3dVectorStruct::default()]))
+            .unwrap();
+        writer
+            .write_chunk(&W3DChunk::AnimationHeader(W3dAnimationStruct {
+                version: 0,
+                name: [0; W3D_NAME_LEN],
+                hiera_name: [0; W3D_NAME_LEN],
+                num_frames: 60,
+                frame_rate: 30,
+            }))
+            .unwrap();
+        buffer.set_position(0);
+
+        let mut reader = W3DReader::new(buffer);
+        assert!(matches!(
+            reader.read_animation_source_chunks().unwrap().as_slice(),
+            [W3DChunk::Vertices(_), W3DChunk::AnimationHeader(header)]
+                if header.num_frames == 60 && header.frame_rate == 30
+        ));
     }
 
     #[test]
