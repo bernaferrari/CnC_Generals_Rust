@@ -1621,6 +1621,28 @@ impl Pathfinder {
     }
 
     pub fn rebuild_from_terrain(&mut self, terrain: &TerrainLogic) {
+        self.rebuild_terrain_cells(terrain);
+        self.inner.new_map_from_classified_cells();
+    }
+
+    /// AIPathfind.cpp:4565-4573 classifies terrain, then loaded objects in
+    /// the GameLogic list order, before publishing a ready map.
+    pub(crate) fn rebuild_from_terrain_after_load<'a>(
+        &mut self,
+        terrain: &TerrainLogic,
+        objects: impl Iterator<Item = &'a Arc<RwLock<Object>>>,
+    ) -> Result<(), String> {
+        self.rebuild_terrain_cells(terrain);
+        for object in objects {
+            let mut object = object.write().map_err(|error| format!("loaded pathfinding object: {error}"))?;
+            self.add_object_to_pathfind_map(&object)?;
+            object.mark_classified_pathfinding_footprint();
+        }
+        self.inner.new_map_from_classified_cells();
+        Ok(())
+    }
+
+    fn rebuild_terrain_cells(&mut self, terrain: &TerrainLogic) {
         let extent = terrain.get_maximum_pathfind_extent();
         let cell_size = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
         let width = (extent.hi.x / cell_size).ceil().max(1.0) as usize;
@@ -1681,7 +1703,6 @@ impl Pathfinder {
             }
         }
         self.inner.expand_cliff_cells_like_cpp();
-        self.inner.new_map_from_classified_cells();
     }
 
     fn bridge_layer_from_pathfinder_id(layer_id: u32) -> crate::path::PathfindLayerEnum {

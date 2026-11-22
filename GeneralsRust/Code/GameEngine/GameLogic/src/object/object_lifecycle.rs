@@ -478,7 +478,7 @@ impl Object {
             is_receiving_difficulty_bonus: false,
             lifecycle: ObjectLifecycle::Alive,
             pathfinding_owner: None,
-            uses_classified_construction_footprint: false,
+            uses_classified_pathfinding_footprint: false,
             ambient_lifecycle_admitted: true,
 
             #[cfg(any(debug_assertions, feature = "internal"))]
@@ -694,16 +694,21 @@ impl Object {
         owner: &Arc<crate::system::engine_stores::EngineStores>,
     ) -> Result<(), String> {
         self.bind_pathfinding_owner(owner)?;
-        self.uses_classified_construction_footprint = true;
+        self.mark_classified_pathfinding_footprint();
         Ok(())
     }
 
-    pub(crate) fn scaffold_pathfinding_owner(
+    pub(crate) fn mark_classified_pathfinding_footprint(&mut self) {
+        debug_assert!(self.pathfinding_owner.is_some());
+        self.uses_classified_pathfinding_footprint = true;
+    }
+
+    pub(crate) fn classified_pathfinding_owner(
         &self,
     ) -> Option<&Arc<crate::system::engine_stores::EngineStores>> {
         self.pathfinding_owner
             .as_ref()
-            .filter(|_| self.uses_classified_construction_footprint)
+            .filter(|_| self.uses_classified_pathfinding_footprint)
     }
 
     /// Standalone deletion adapter; a GameLogic owner uses the bound world
@@ -829,10 +834,10 @@ impl Object {
     }
 
     fn remove_destructor_footprint(&self) {
-        if let Some(owner) = self.scaffold_pathfinding_owner() {
+        if let Some(owner) = self.classified_pathfinding_owner() {
             // Object.cpp:584 removes the old cells by their owning ObjectID.
-            if let Err(error) = owner.classify_placed_scaffold_footprint(self, false) {
-                log::error!("cannot remove construction footprint {}: {error}", self.id);
+            if let Err(error) = owner.classify_owned_object_footprint(self, false) {
+                log::error!("cannot remove owned footprint {}: {error}", self.id);
             }
             return;
         }

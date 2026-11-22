@@ -106,8 +106,8 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
         // DozerAIUpdate.cpp:1699 and WorkerAIUpdate.cpp:411 classify the
         // footprint from the snapped pose before the builder receives the task.
         let placed = new_object.read().ok()?;
-        if let Some(owner) = placed.scaffold_pathfinding_owner()
-            && let Err(error) = owner.classify_placed_scaffold_footprint(&placed, true)
+        if let Some(owner) = placed.classified_pathfinding_owner()
+            && let Err(error) = owner.classify_owned_object_footprint(&placed, true)
         {
             let id = placed.get_id();
             let world = Arc::clone(owner.services());
@@ -347,7 +347,7 @@ mod tests {
             let ordinary = logic.find_object_by_id(700).unwrap();
             let ordinary = ordinary.read().unwrap();
             assert!(ordinary.owning_pathfinding_runtime().is_some());
-            assert!(ordinary.scaffold_pathfinding_owner().is_none());
+            assert!(ordinary.classified_pathfinding_owner().is_none());
             let structure = logic.find_object_by_id(id).unwrap();
             let structure = structure.read().unwrap();
             assert_eq!(*structure.get_position(), LogicCoord3D::new(placed.x, placed.y, ground_z));

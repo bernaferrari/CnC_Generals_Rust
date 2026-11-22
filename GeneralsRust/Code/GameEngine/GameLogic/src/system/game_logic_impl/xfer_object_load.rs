@@ -104,29 +104,30 @@ fn add_loaded_wall_piece(logic: &GameLogic, object_id: ObjectID) {
     }
 }
 
-fn pathfinder_new_map_after_polygon_load(logic: &GameLogic) {
-    // C++ GameLogic.cpp:4880 `TheAI->pathfinder()->newMap()` after trigger restore.
-    let owner_terrain = logic.pathfinding_owner.as_ref().map(|owner| {
-        (
-            Arc::clone(owner.ai()),
-            Arc::clone(owner.services().terrain()),
-        )
-    });
-    let ai_store = owner_terrain
-        .as_ref()
-        .map(|(ai, _)| Arc::clone(ai))
-        .unwrap_or_else(the_ai);
-    if let Ok(ai) = ai_store.read() {
-        if let Some(pathfinder) = ai.pathfinder() {
-            if let Ok(mut pf) = pathfinder.write() {
-                let terrain = owner_terrain
-                    .as_ref()
-                    .map(|(_, terrain)| Arc::clone(terrain))
-                    .unwrap_or_else(get_terrain_logic);
-                if let Ok(terrain) = terrain.read() {
-                    pf.rebuild_from_terrain(&terrain);
-                }
-            }
+fn pathfinder_new_map_after_polygon_load(logic: &GameLogic) -> Result<(), XferStatus> {
+    // C++ GameLogic.cpp:4880 runs newMap after trigger restore.
+    let Some(owner) = logic.pathfinding_owner.as_ref() else {
+        // The standalone compatibility object registration is still paired
+        // with its legacy footprint retirement.
+        if let Ok(ai) = the_ai().read()
+            && let Some(pathfinder) = ai.pathfinder()
+            && let Ok(mut pathfinder) = pathfinder.write()
+            && let Ok(terrain) = get_terrain_logic().read()
+        {
+            pathfinder.rebuild_from_terrain(&terrain);
         }
-    }
+        return Ok(());
+    };
+
+    let pathfinder = owner.ai().read().map_err(|_| XferStatus::InvalidData)?
+        .pathfinder().ok_or(XferStatus::InvalidData)?;
+    let mut pathfinder = pathfinder.write().map_err(|_| XferStatus::InvalidData)?;
+    let terrain = owner.services().terrain().read().map_err(|_| XferStatus::InvalidData)?;
+    pathfinder.rebuild_from_terrain_after_load(
+        &terrain,
+        logic.get_all_object_ids().iter().map(|id| &logic.objects[id]),
+    ).map_err(|error| {
+        log::error!("cannot rebuild the loaded pathfinding map: {error}");
+        XferStatus::InvalidData
+    })
 }

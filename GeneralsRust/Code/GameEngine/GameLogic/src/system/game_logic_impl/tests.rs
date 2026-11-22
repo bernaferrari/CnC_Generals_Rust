@@ -2571,7 +2571,7 @@ mod tests {
         install_map_bounds(&driving_owner, 4);
         install_map_bounds(&foreign_owner, 8);
         crate::system::engine_stores::with_active_stores(&foreign_owner, || {
-            pathfinder_new_map_after_polygon_load(&driving);
+            pathfinder_new_map_after_polygon_load(&driving).unwrap();
         });
         assert!(driving_pathfinder
             .read()
@@ -2584,7 +2584,7 @@ mod tests {
             .get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::Ground, 3, 3)
             .is_none());
         crate::system::engine_stores::with_active_stores(&driving_owner, || {
-            pathfinder_new_map_after_polygon_load(&foreign);
+            pathfinder_new_map_after_polygon_load(&foreign).unwrap();
         });
         assert!(foreign_pathfinder
             .read()
@@ -2597,6 +2597,101 @@ mod tests {
             .get_cell_type_at_cell(crate::ai::pathfind_astar::PathfindLayerEnum::Ground, 7, 7)
             .is_none());
 
+    }
+
+    #[test]
+    fn polygon_load_reclassifies_restored_scaffold_and_neighbor_in_receiving_order() {
+        use crate::ai::pathfind_astar::PathfindCellType;
+        use game_engine::common::system::geometry::GeometryType;
+
+        let _fixture = test_state_lock();
+        const SCAFFOLD: ObjectID = 0xD1F4;
+        const BUILDING: ObjectID = 0xD1F5;
+        const MOBILE: ObjectID = 0xD1F6;
+        let first = crate::system::engine_stores::new_for_world();
+        let peer = crate::system::engine_stores::new_for_world();
+        let mut driving = GameLogic::new_with_engine_stores(Arc::clone(&first));
+        let mut other = GameLogic::new_with_engine_stores(Arc::clone(&peer));
+        let driving_path = first.ai().read().unwrap().pathfinder().unwrap();
+        let other_path = peer.ai().read().unwrap().pathfinder().unwrap();
+
+        for (owner, logic, offset) in [(&first, &mut driving, 0.0), (&peer, &mut other, 100.0)] {
+            let mut map = crate::system::map_loader::MapData::new();
+            map.width = 24;
+            map.height = 24;
+            map.heightmap = vec![0; 24 * 24];
+            map.boundaries = vec![crate::common::ICoord2D::new(24, 24)];
+            owner.services().terrain().write().unwrap().load_map_data(map);
+
+            // Snapshot objects have their serialized pose and construction
+            // status before this GameLogic's polygon/newMap phase.
+            for (id, name, x, y, radius, structure) in [
+                (SCAFFOLD, "RestoredScaffold", 55.0, 55.0, 14.0, true),
+                (BUILDING, "OrdinaryCompletedBuilding", 65.0, 55.0, 4.0, true),
+                (MOBILE, "OrdinaryMobile", 55.0, 95.0, 4.0, false),
+            ] {
+                let mut template = crate::common::DefaultThingTemplate::new(name.into());
+                if structure {
+                    template.add_kind_of(KindOf::Structure);
+                    template.add_kind_of(KindOf::Immobile);
+                } else {
+                    template.add_kind_of(KindOf::Vehicle);
+                }
+                let mut object = Object::new_test_from_template(id, 100.0, Arc::new(template));
+                let position = Coord3D::new(x + offset, y + offset, 0.0);
+                object.set_position(&position).unwrap();
+                let mut geometry = *object.get_geometry_info();
+                geometry.shape.set(GeometryType::Sphere, false, 0.0, radius, radius);
+                object.set_geometry_info(geometry);
+                if id == SCAFFOLD {
+                    object.set_status(crate::common::ObjectStatusTypes::UnderConstruction.into(), true);
+                    object.set_construction_percent(50.0);
+                }
+                crate::system::engine_stores::with_active_stores(owner, || {
+                    logic.register_object(Arc::new(RwLock::new(object))).unwrap();
+                });
+            }
+        }
+
+        let has_owner = |pathfinder: &crate::ai::Pathfinder, x, y, owner| {
+            let pos = Coord3D::new(x, y, 0.0);
+            let ground = crate::ai::pathfind_complete::SURFACE_GROUND;
+            pathfinder.get_cell_type_at(&pos) == Some(PathfindCellType::Obstacle)
+                && pathfinder.valid_movement_position_for_surfaces(ground, false, &pos, Some(owner))
+        };
+        crate::system::engine_stores::with_active_stores(&first, || {
+            let _ = pathfinder_new_map_after_polygon_load(&other);
+        });
+        crate::system::engine_stores::with_active_stores(&peer, || {
+            let _ = pathfinder_new_map_after_polygon_load(&driving);
+        });
+        {
+            let map = driving_path.read().unwrap();
+            assert!(has_owner(&map, 55.0, 55.0, SCAFFOLD));
+            // GameLogic prepends registrations. The newer ordinary
+            // structure claims the overlap before the scaffold can.
+            assert!(has_owner(&map, 65.0, 55.0, BUILDING));
+            assert_eq!(map.get_cell_type_at(&Coord3D::new(155.0, 155.0, 0.0)), Some(PathfindCellType::Clear));
+            assert_eq!(
+                map.get_cell_type_at(&Coord3D::new(55.0, 95.0, 0.0)),
+                Some(PathfindCellType::Clear),
+            );
+        }
+        assert!(has_owner(&other_path.read().unwrap(), 155.0, 155.0, SCAFFOLD));
+        assert!(has_owner(&other_path.read().unwrap(), 165.0, 155.0, BUILDING));
+        let object = driving.find_object_by_id(SCAFFOLD).unwrap();
+        assert!(object.read().unwrap().is_under_construction());
+        assert_eq!(object.read().unwrap().get_construction_percent(), 50.0);
+
+        crate::system::engine_stores::with_active_stores(&peer, || {
+            driving.destroy_object(SCAFFOLD);
+            driving.cleanup_dead_objects().unwrap();
+        });
+        let map = driving_path.read().unwrap();
+        assert_eq!(map.get_cell_type_at(&Coord3D::new(55.0, 55.0, 0.0)), Some(PathfindCellType::Clear));
+        assert!(has_owner(&map, 65.0, 55.0, BUILDING));
+        assert!(has_owner(&other_path.read().unwrap(), 155.0, 155.0, SCAFFOLD));
+        assert!(has_owner(&other_path.read().unwrap(), 165.0, 155.0, BUILDING));
     }
 
     #[test]

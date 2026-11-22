@@ -420,7 +420,7 @@ fn xfer_polygon_triggers(logic: &GameLogic, xfer: &mut dyn Xfer) -> Result<(), X
         }
     }
     if is_load {
-        pathfinder_new_map_after_polygon_load(logic);
+        pathfinder_new_map_after_polygon_load(logic)?;
     }
     Ok(())
 }
