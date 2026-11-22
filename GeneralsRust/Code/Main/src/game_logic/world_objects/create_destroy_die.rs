@@ -1004,6 +1004,7 @@ impl GameLogic {
             producer_id,
             &mut Default::default(),
         )
+        .expect("instant line build completion must finish")
     }
 
     pub(crate) fn create_instant_line_build_object_for_player_with_effects(
@@ -1014,30 +1015,34 @@ impl GameLogic {
         orientation: f32,
         producer_id: ObjectId,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<ObjectId> {
-        let team = self.players.get(&owner_player_id)?.team;
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        let Some(team) = self.players.get(&owner_player_id).map(|player| player.team) else {
+            return Ok(None);
+        };
         if team == Team::Neutral {
-            return None;
+            return Ok(None);
         }
-        let producer = self.objects.get(&producer_id)?;
+        let Some(producer) = self.objects.get(&producer_id) else {
+            return Ok(None);
+        };
         if !producer.is_alive()
             || self.player_owner_for_host_object(producer) != Some(owner_player_id)
         {
-            return None;
+            return Ok(None);
         }
         // This structure seam does not pretend to implement the original
         // non-structure arm's Player::onUnitCreated / VoiceCreated policy.
         if !self.ensure_host_spawn_template(template_name)
             || !self
                 .templates
-                .get(template_name)?
-                .is_kind_of(KindOf::Structure)
+                .get(template_name)
+                .is_some_and(|template| template.is_kind_of(KindOf::Structure))
         {
-            return None;
+            return Ok(None);
         }
         // CPP newObject invokes onCreate before BuildAssistant installs the
         // producer and requested terrain pose. Keep the factory's initial pose.
-        let id = self.create_object_with_initial_team_and_ui(
+        let Some(id) = self.create_object_with_initial_team_and_ui_checked(
             template_name,
             team,
             Some(owner_player_id),
@@ -1046,15 +1051,22 @@ impl GameLogic {
             None,
             None,
             ui,
-        )?;
+        )? else {
+            return Ok(None);
+        };
         let mut ground_position = position;
         ground_position.y = self.terrain_height_at(position).unwrap_or(position.y);
-        self.objects.get_mut(&id)?.producer_id = Some(producer_id);
+        let Some(object) = self.objects.get_mut(&id) else {
+            return Ok(None);
+        };
+        object.producer_id = Some(producer_id);
         if !self.set_owned_object_position_with_effects(id, ground_position, self.frame, ui) {
-            return None;
+            return Ok(None);
         }
         {
-            let object = self.objects.get_mut(&id)?;
+            let Some(object) = self.objects.get_mut(&id) else {
+                return Ok(None);
+            };
             object.set_orientation_with_partition_owner(orientation, &mut self.partition_manager);
         }
         self.movement_events.record(
@@ -1072,13 +1084,13 @@ impl GameLogic {
         }
         // Player's completion policy precedes CreateModule::onBuildComplete.
         // Neither operation is the ordinary Dozer completion notification.
-        self.complete_instant_line_build_player_with_effects(producer_id, id, owner_player_id, ui);
+        self.complete_instant_line_build_player_with_effects(producer_id, id, owner_player_id, ui)?;
         self.apply_create_modules_on_build_complete_with_effects(id, None, ui);
         if let Some(object) = self.objects.get_mut(&id) {
             object.stamp_partition_value_threat_with_partition_owner(&mut self.partition_manager);
         }
         self.apply_cash_bounty_on_object_created(id);
-        Some(id)
+        Ok(Some(id))
     }
 
     /// Create through a player-aware path when a caller has exact provenance,

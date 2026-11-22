@@ -94,7 +94,7 @@ impl CommandExecutor<'_> {
                     orientation,
                     builder,
                     &mut self.ui,
-                )
+                )?
                 .is_some();
         }
         // GameLogicDispatch emits this once after the whole line attempt,

@@ -1071,14 +1071,6 @@ impl PathfindingGrid {
         true
     }
 
-    /// C++ classifyObjectFootprint remove: `isPointOnWall(&curID, 1, pos)`.
-    pub fn is_point_on_wall_piece(&self, piece_id: u32, pos: Vec3) -> bool {
-        self.wall_pieces
-            .iter()
-            .find(|p| p.id == piece_id)
-            .is_some_and(|p| Self::wall_piece_contains(p, pos.x, pos.z))
-    }
-
     /// C++ `m_map[i][j].getConnectLayer()` (0 = LAYER_INVALID).
     pub fn ground_connect_layer(&self, pos: GridPos) -> u8 {
         self.bit_index(pos)

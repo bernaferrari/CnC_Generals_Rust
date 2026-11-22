@@ -396,7 +396,7 @@ fn structure_player_completion_replaces_only_its_owned_footprint() {
     );
     object.set_status_under_construction(false);
     object.construction_percent = 1.0;
-    world.complete_owned_structure_player(id, 0, false);
+    world.complete_owned_structure_player(id, 0, false).unwrap();
     // Player.cpp:1644-1645 removes then re-adds at the live position
     // (AIPathfind.cpp:4175-4230 rasterizes obj->getPosition()); a raw
     // setPosition never touches the obstacle map, so the old cells stay.
@@ -759,4 +759,59 @@ fn retiring_wall_drops_the_deck_without_splatting_its_occupant() {
             Some(100.0),
         );
     }
+}
+
+#[test]
+fn last_dozer_frame_splats_the_live_wall_layer_before_leaving_the_site() {
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+
+    let (mut world, builder) = construction_world(1000, 0);
+    let wall_template = world.templates.get_mut("OwnedScaffold").unwrap();
+    wall_template
+        .add_kind_of(KindOf::Immobile)
+        .add_kind_of(KindOf::WalkOnTopOfWall);
+    wall_template.geometry_info.authored = true;
+    wall_template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Box;
+    wall_template.geometry_info.major_radius = 30.0;
+    wall_template.geometry_info.minor_radius = 30.0;
+    wall_template.build_time = 1.0;
+
+    let site_position = Vec3::new(105.0, 0.0, 105.0);
+    let site = world.create_dozer_scaffold(
+        "OwnedScaffold", 0, builder, site_position, 0.0,
+        Resources { supplies: 0, power: 0 },
+    ).unwrap().expect("wall scaffold");
+    world.host_object_mut(site).unwrap().construction_percent = 0.9999;
+
+    let mut infantry = ThingTemplate::new("WallBuildOccupant");
+    infantry.add_kind_of(KindOf::Infantry).set_health(100.0);
+    world.templates.insert("WallBuildOccupant".into(), infantry);
+    // C++ checks the actual layer, independently of height above the terrain.
+    let wall_position = Vec3::new(site_position.x, 4.0, site_position.z);
+    let ground_position = Vec3::new(site_position.x, 12.0, site_position.z);
+    let victim = world.create_object_for_player("WallBuildOccupant", 0, wall_position).unwrap();
+    let ground = world.create_object_for_player("WallBuildOccupant", 0, ground_position).unwrap();
+    world.host_object_mut(victim).unwrap().pathfind_layer = PathfindLayerEnum::Wall as u8;
+    world.host_object_mut(ground).unwrap().pathfind_layer = PathfindLayerEnum::Ground as u8;
+    world.pathfinding_system.sync_wall_pieces_from_objects(world.objects.read(), 12.0);
+    assert!(world.pathfinding_system.is_point_on_wall(site_position));
+
+    let mut observed_completion = false;
+    let completed = world.fixture_dozer_build_frame_with_completion_observer(
+        builder, site, &mut Default::default(),
+        |live, seen_builder, seen_site| {
+            observed_completion = true;
+            assert_eq!((seen_builder, seen_site), (builder, site));
+            assert!(!live.host_object(site).unwrap().status.under_construction);
+            let affected = live.host_object(victim).unwrap();
+            assert_eq!(affected.health.current, 0.0);
+            assert_eq!(affected.status.death_type, HostDeathType::Splatted);
+            assert_eq!(affected.last_damage_source, Some(victim));
+            assert_eq!(live.host_object(ground).unwrap().health.current, 100.0);
+            assert!(!live.pathfinding_system.is_point_on_wall(site_position));
+        },
+    ).expect("last dozer contribution");
+    assert!(completed);
+    assert!(observed_completion);
 }

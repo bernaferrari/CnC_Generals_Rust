@@ -637,7 +637,7 @@ impl GameLogic {
             ));
         }
 
-        self.release_replaced_mobile_path_claims(object_id);
+        self.release_mobile_path_footprint(object_id);
         if !legacy_fallback {
             self.unclassify_object_path(object_id);
         }
@@ -684,7 +684,7 @@ impl GameLogic {
                 {
                     world.complete_owned_structure_player_with_effects(
                         new_id, controller, false, interpreter, effects,
-                    );
+                    )?;
                 }
                 Ok(())
             })?;
@@ -693,7 +693,7 @@ impl GameLogic {
         Ok(())
     }
 
-    fn release_replaced_mobile_path_claims(&mut self, id: ObjectId) {
+    pub(in crate::game_logic) fn release_mobile_path_footprint(&mut self, id: ObjectId) {
         let Some(object) = self.objects.get_mut(&id) else {
             return;
         };

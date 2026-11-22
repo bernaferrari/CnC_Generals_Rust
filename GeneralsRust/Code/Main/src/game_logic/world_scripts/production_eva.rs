@@ -1939,7 +1939,7 @@ impl GameLogic {
                 rebuilding,
                 interpreter,
                 ui,
-            );
+            )?;
             stable(self)?;
         }
         // DozerAIUpdate: owning Academy observes completed Player/AI effects

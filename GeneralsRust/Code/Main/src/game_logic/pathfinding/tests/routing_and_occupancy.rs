@@ -1036,33 +1036,6 @@ fn wall_reclassification_resets_only_the_classified_layer_claims() {
     assert!(grid.occupant_slots.contains_key(&4));
 }
 
-#[test]
-fn destroy_wall_piece_splats_units_on_deck() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut sys = PathfindingSystem::new(160.0, 160.0);
-    sys.set_wall_height(12.0);
-    sys.grid
-        .add_wall_piece(1, Vec3::new(80.0, 0.0, 50.0), 0.0, 20.0, 8.0);
-    sys.grid.allocate_and_classify_wall_layer();
-    let mut objects = HostObjectStore::new();
-    let mut inf_t = ThingTemplate::new("RedGuard");
-    inf_t.add_kind_of(KindOf::Infantry);
-    let mut on_deck = Object::new(inf_t, ObjectId(10), Team::China);
-    on_deck.set_position(Vec3::new(80.0, 12.0, 50.0));
-    objects.admit(on_deck.id, on_deck);
-    let mut ground_t = ThingTemplate::new("Battlemaster");
-    ground_t.add_kind_of(KindOf::Vehicle);
-    let mut on_ground = Object::new(ground_t, ObjectId(11), Team::China);
-    on_ground.set_position(Vec3::new(80.0, 0.0, 50.0));
-    objects.admit(on_ground.id, on_ground);
-    let splat = sys.splat_units_on_wall_piece(ObjectId(1), objects.read());
-    assert!(splat.contains(&ObjectId(10)), "deck unit must splat");
-    assert!(
-        !splat.contains(&ObjectId(11)),
-        "ground unit on the footprint must live"
-    );
-}
-
 /// hq-1bkmw: infantry occupancy is getRadiusAndCenter (1 cell), not 3×3.
 #[test]
 fn infantry_occupancy_is_single_cell() {

@@ -1,36 +1,6 @@
 use super::*;
 
 impl PathfindingSystem {
-    /// C++ classifyObjectFootprint wall remove: DAMAGE_FALLING / DEATH_SPLATTED.
-    pub fn splat_units_on_wall_piece(
-        &self,
-        piece_id: ObjectId,
-        objects: HostObjectRead<'_>,
-    ) -> Vec<ObjectId> {
-        let wall_h = self.grid.wall_height;
-        objects
-            .registered_values()
-            .filter(|obj| {
-                if obj.id == piece_id || !obj.is_alive() {
-                    return false;
-                }
-                if obj.is_kind_of(KindOf::Structure) {
-                    return false;
-                }
-                if !self
-                    .grid
-                    .is_point_on_wall_piece(piece_id.0, obj.get_position())
-                {
-                    return false;
-                }
-                // Stand-in for C++ `obj->getLayer() == LAYER_WALL`: unit Y
-                // must sit on the wall deck, not the ground footprint.
-                (obj.get_position().y - wall_h).abs() <= LAYER_Z_CLOSE_ENOUGH_F && wall_h > 0.0
-            })
-            .map(|obj| obj.id)
-            .collect()
-    }
-
     /// C++ `Pathfinder::findAttackPath` (AIPathfind.cpp:10530+).
     ///
     /// Quick steps toward the victim, then A* whose goal is any in-range

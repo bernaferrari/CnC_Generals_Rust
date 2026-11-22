@@ -1355,7 +1355,23 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::addWallPiece` from a live host object.
     pub fn add_wall_piece_from_object(&mut self, obj: &Object, wall_height: f32) {
-        let geom = &(*obj.geometry_info());
+        // CPP wall elevation is the admitted AIData value, including zero;
+        // the object's geometry controls its footprint, not this layer height.
+        if self.grid.wall_height <= 0.0 {
+            self.grid.wall_height = wall_height;
+        }
+        let piece = Self::live_wall_piece(obj);
+        self.grid.add_wall_piece(
+            piece.id,
+            obj.get_position(),
+            piece.orientation,
+            piece.major,
+            piece.minor,
+        );
+    }
+
+    fn live_wall_piece(obj: &Object) -> HostWallPiece {
+        let geom = obj.geometry_info();
         let major = if geom.authored && geom.major_radius > 0.0 {
             geom.major_radius
         } else {
@@ -1370,18 +1386,15 @@ impl PathfindingSystem {
         } else {
             major
         };
-        // CPP wall elevation is the admitted AIData value, including zero;
-        // the object's geometry controls its footprint, not this layer height.
-        if self.grid.wall_height <= 0.0 {
-            self.grid.wall_height = wall_height;
-        }
-        self.grid.add_wall_piece(
-            obj.id.0,
-            obj.get_position(),
-            obj.get_orientation(),
+        let position = obj.get_position();
+        HostWallPiece {
+            id: obj.id.0,
+            pos_x: position.x,
+            pos_z: position.z,
+            orientation: obj.get_orientation(),
             major,
             minor,
-        );
+        }
     }
 
     pub fn remove_wall_piece(&mut self, id: ObjectId) {
@@ -1399,19 +1412,38 @@ impl PathfindingSystem {
         // The destructor cannot look up this ID. Ignore all remaining
         // registrations for the retired ID, even in older queued saves.
         self.grid.wall_pieces.retain(|piece| piece.id != object.id.0);
+        if Self::participates_in_wall_footprint_removal(object) && self.grid.wall_bounds.is_some() {
+            self.reclassify_wall_after_footprint_removal();
+        }
+    }
+
+    fn participates_in_wall_footprint_removal(object: &Object) -> bool {
         let fence = object.thing().template.fence_width > 0.0
             && !object.is_kind_of(KindOf::DefensiveWall);
-        if fence
-            || object.is_kind_of(KindOf::Mine)
-            || object.is_kind_of(KindOf::Projectile)
-            || object.is_kind_of(KindOf::BridgeTower)
-            || object.is_kind_of(KindOf::BlastCrater)
-        {
-            return;
+        object.is_kind_of(KindOf::WalkOnTopOfWall)
+            && !fence
+            && !object.is_kind_of(KindOf::Mine)
+            && !object.is_kind_of(KindOf::Projectile)
+            && !object.is_kind_of(KindOf::BridgeTower)
+            && !object.is_kind_of(KindOf::BlastCrater)
+    }
+
+    /// C++ AIPathfind.cpp:4126 removes membership before falling damage.
+    /// The live object remains addressable until the Player callback returns.
+    pub(crate) fn begin_live_wall_footprint_removal(&mut self, wall: &Object) -> bool {
+        if self.grid.wall_bounds.is_none() || !Self::participates_in_wall_footprint_removal(wall) {
+            return false;
         }
-        if self.grid.wall_bounds.is_some() {
-            self.grid.classify_wall_layer();
-        }
+        self.grid.wall_pieces.retain(|piece| piece.id != wall.id.0);
+        true
+    }
+
+    pub(crate) fn live_wall_footprint_contains(wall: &Object, position: Vec3) -> bool {
+        PathfindingGrid::wall_piece_contains(&Self::live_wall_piece(wall), position.x, position.z)
+    }
+
+    pub(crate) fn reclassify_wall_after_footprint_removal(&mut self) {
+        self.grid.classify_wall_layer();
     }
 
     pub fn is_point_on_wall(&self, pos: Vec3) -> bool {

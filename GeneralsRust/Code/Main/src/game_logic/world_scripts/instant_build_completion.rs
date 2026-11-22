@@ -64,13 +64,13 @@ impl GameLogic {
         _producer: ObjectId,
         structure: ObjectId,
         owner: u32,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.complete_instant_line_build_player_with_effects(
             _producer,
             structure,
             owner,
             &mut Default::default(),
-        );
+        )
     }
 
     pub(crate) fn complete_instant_line_build_player_with_effects(
@@ -79,8 +79,8 @@ impl GameLogic {
         structure: ObjectId,
         owner: u32,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.complete_owned_structure_player_with_effects(structure, owner, false, None, ui);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.complete_owned_structure_player_with_effects(structure, owner, false, None, ui)
     }
 
     pub(crate) fn complete_owned_structure_player(
@@ -88,8 +88,8 @@ impl GameLogic {
         structure: ObjectId,
         owner: u32,
         rebuilding: bool,
-    ) {
-        self.complete_owned_structure_player_with_engine(structure, owner, rebuilding, None);
+    ) -> gamelogic::GameLogicResult<()> {
+        self.complete_owned_structure_player_with_engine(structure, owner, rebuilding, None)
     }
 
     pub(crate) fn complete_owned_structure_player_with_engine(
@@ -98,14 +98,14 @@ impl GameLogic {
         owner: u32,
         rebuilding: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         self.complete_owned_structure_player_with_effects(
             structure,
             owner,
             rebuilding,
             interpreter,
             &mut Default::default(),
-        );
+        )
     }
 
     pub(crate) fn complete_owned_structure_player_with_effects(
@@ -115,12 +115,12 @@ impl GameLogic {
         rebuilding: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(object) = self.host_object(structure) else {
-            return;
+            return Ok(());
         };
         if object.owner_player_id != Some(owner) || object.construction_power_admitted {
-            return;
+            return Ok(());
         }
         let counts_as_building = Self::live_score_counts_as_building_create(object);
         let template_name = object.template_name.clone();
@@ -130,6 +130,8 @@ impl GameLogic {
         // Player.cpp1639: invalidate this session's script census before
         // footprint, scoring, power, AI and CreateModule observations.
         self.script_object_count_changed_frame = self.frame;
+        self.release_mobile_path_footprint(structure);
+        self.apply_live_wall_footprint_removal(structure, interpreter, ui)?;
         if let Some(object) = self.objects.get(&structure) {
             ({
                 let ground_owner = self.world_services.terrain();
@@ -167,5 +169,63 @@ impl GameLogic {
         // invoked by BuildAssistant only after this entire Player callback.
         self.notify_owned_ai_structure_produced_with_effects(structure, interpreter, ui);
         self.try_eva_superweapon_detected_for_source(structure);
+        Ok(())
+    }
+
+    fn apply_live_wall_footprint_removal(
+        &mut self,
+        structure: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        use crate::game_logic::pathfinding::PathfindingSystem;
+        use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+
+        let Some(wall) = self.objects.lookup(&structure) else {
+            return Ok(());
+        };
+        if !self.pathfinding_system.begin_live_wall_footprint_removal(wall) {
+            return Ok(());
+        }
+        let wall_birth = std::sync::Arc::downgrade(&wall.visual_draw_identity_token);
+        let epoch = self.visual_world_epoch;
+        let mut effects = effects.reborrow();
+        if let Some(interpreter) = interpreter {
+            effects.script_events = Some(crate::game_logic::ScriptEventRecipient::new(interpreter));
+        }
+        // C++ visits the linked object list. New births prepend and damage
+        // can change a later victim's position or layer before it is visited.
+        let roster: Vec<_> = self.objects.registered_values()
+            .map(|object| (object.id, object.visual_object_generation))
+            .collect();
+        for (id, generation) in roster {
+            let Some(wall) = self.objects.lookup(&structure) else {
+                break;
+            };
+            if !wall_birth.ptr_eq(&std::sync::Arc::downgrade(&wall.visual_draw_identity_token)) {
+                break;
+            }
+            let splats = self.objects.get_registered(&id).is_some_and(|object| {
+                object.visual_object_generation == generation
+                    && object.pathfind_layer == PathfindLayerEnum::Wall as u8
+                    && PathfindingSystem::live_wall_footprint_contains(wall, object.get_position())
+            });
+            if splats {
+                self.apply_residual_damage_owned_with_effects(
+                    id,
+                    gamelogic::damage::HUGE_DAMAGE_AMOUNT,
+                    Some(id), // AIPathfind.cpp:4146 uses the falling occupant's ID.
+                    crate::game_logic::combat::DamageType::Falling,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
+                    None,
+                    &mut effects,
+                )?;
+                if self.visual_world_epoch != epoch {
+                    return Err(gamelogic::GameLogicError::InvalidObject(structure.0));
+                }
+            }
+        }
+        self.pathfinding_system.reclassify_wall_after_footprint_removal();
+        Ok(())
     }
 }
