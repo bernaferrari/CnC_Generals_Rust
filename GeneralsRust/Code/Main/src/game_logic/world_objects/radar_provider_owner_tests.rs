@@ -40,6 +40,29 @@ fn radar_world() -> (GameLogic, ObjectId) {
 }
 
 #[test]
+fn settled_radar_update_keeps_object_observations_valid() {
+    let (mut world, provider) = radar_world();
+    let assert_settled = |world: &mut GameLogic, expected: i32| {
+        let before = world.host_objects().observation_revision().unwrap().1;
+        world.update_player_radar();
+        assert_eq!(world.players[&1].radar_count, expected);
+        assert_eq!(
+            world.host_objects().observation_revision().unwrap().1,
+            before,
+            "observing unchanged radar must not invalidate cached Object facts"
+        );
+    };
+
+    assert_settled(&mut world, 1);
+    world.host_object_mut(provider).unwrap().set_status_disabled_held(true);
+    world.update_player_radar();
+    assert_settled(&mut world, 0);
+    world.host_object_mut(provider).unwrap().set_status_disabled_held(false);
+    world.update_player_radar();
+    assert_settled(&mut world, 1);
+}
+
+#[test]
 fn same_id_sessions_keep_provider_capture_deletion_and_snapshots_local() {
     let mut _ownership_output = crate::game_logic::host_owner_log::OwnershipEvents::default();
 

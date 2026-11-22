@@ -2,27 +2,49 @@
 use super::super::*;
 
 impl GameLogic {
-    /// C++ RadarUpgrade contributions: only authored RadarUpgrade modules
-    /// (RadarUpgrade.cpp:72-96) add radar; templates without one provide none.
-    fn host_radar_providers(&self, id: ObjectId) -> Vec<Vec<(u32, bool)>> {
-        let Some(obj) = self.objects.get(&id) else {
-            return Vec::new();
-        };
-        let Some(rules) = &obj.thing().template.radar_upgrade_rules else {
-            return Vec::new();
-        };
-        rules
+    /// C++ RadarUpgrade contributions in authored module order.
+    fn host_radar_provider_slots(object: &Object) -> impl ExactSizeIterator<Item = (bool, &[u32])> {
+        object
+            .thing()
+            .template
+            .radar_upgrade_rules
+            .as_deref()
+            .unwrap_or_default()
             .iter()
             .enumerate()
             .map(|(index, rule)| {
-                obj.radar_upgrade_contributors
+                let contributors = object
+                    .radar_upgrade_contributors
                     .get(index)
-                    .into_iter()
-                    .flatten()
-                    .map(|&contributor| (contributor, rule.disable_proof))
-                    .collect()
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                (rule.disable_proof, contributors)
             })
+    }
+
+    fn host_radar_providers(&self, id: ObjectId) -> Vec<Vec<(u32, bool)>> {
+        let Some(object) = self.objects.get(&id) else {
+            return Vec::new();
+        };
+        Self::host_radar_provider_slots(object)
+            .map(|(proof, owners)| owners.iter().map(|&owner| (owner, proof)).collect())
             .collect()
+    }
+
+    fn host_radar_providers_are_current(&self, id: ObjectId) -> bool {
+        let admitted = self.host_radar.providers.get(&id);
+        let Some(object) = self.objects.get(&id) else {
+            return admitted.is_none();
+        };
+        let slots = Self::host_radar_provider_slots(object);
+        let Some(admitted) = admitted else {
+            return slots.len() == 0;
+        };
+        !admitted.is_empty()
+            && slots.len() == admitted.len()
+            && slots.zip(admitted).all(|((proof, owners), recorded)| {
+                owners.iter().map(|&owner| (owner, proof)).eq(recorded.iter().copied())
+            })
     }
 
     /// The combined player/object upgrade mask is observed once per module.
@@ -45,17 +67,24 @@ impl GameLogic {
         let Some(owner) = self.player_owner_for_host_object(object) else {
             return;
         };
-        let Some(rules) = object.thing().template.radar_upgrade_rules.clone() else {
+        let Some(rules) = &object.thing().template.radar_upgrade_rules else {
             return;
         };
-        {
+        let resize = object.radar_upgrade_executed.len() != rules.len()
+            || object.radar_upgrade_contributors.len() != rules.len();
+        if !resize && object.radar_upgrade_executed.iter().all(|&executed| executed) {
+            return;
+        }
+        let rules = rules.clone();
+        if resize {
             let object = self.objects.get_mut(&id).unwrap();
             object.radar_upgrade_executed.resize(rules.len(), false);
-            object
-                .radar_upgrade_contributors
-                .resize(rules.len(), Vec::new());
+            object.radar_upgrade_contributors.resize(rules.len(), Vec::new());
         }
         for (index, rule) in rules.iter().enumerate() {
+            if self.objects[&id].radar_upgrade_executed[index] {
+                continue;
+            }
             // Resolve effective definitions through this session's admitted
             // immutable catalog, before borrowing the mutable object.
             if rule
@@ -68,9 +97,6 @@ impl GameLogic {
                 continue;
             }
             let object = &self.objects[&id];
-            if object.radar_upgrade_executed[index] {
-                continue;
-            }
             let player = &self.players[&owner];
             let matches = rule.would_upgrade(|name| {
                 object.has_upgrade_tag(name)
@@ -172,8 +198,27 @@ impl GameLogic {
         id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        let has_radar_work = self.objects.get(&id).is_some_and(|object| {
+            !object.pending_radar_disabled_edges.is_empty()
+                || object
+                    .thing()
+                    .template
+                    .radar_upgrade_rules
+                    .as_ref()
+                    .is_some_and(|rules| {
+                        !rules.is_empty()
+                            || !object.radar_upgrade_executed.is_empty()
+                            || !object.radar_upgrade_contributors.is_empty()
+                    })
+        });
+        if !has_radar_work && !self.host_radar.providers.contains_key(&id) {
+            return;
+        }
         self.admit_host_radar_disabled_edges(id);
         self.attempt_authored_radar_upgrades_with_effects(id, effects);
+        if self.host_radar_providers_are_current(id) {
+            return;
+        }
         let next = self.host_radar_providers(id);
         let previous = if next.is_empty() {
             self.host_radar.providers.remove(&id)
@@ -230,11 +275,14 @@ impl GameLogic {
 
     /// Consume original callback order, including disable→enable in one operation.
     pub(in super::super) fn admit_host_radar_disabled_edges(&mut self, id: ObjectId) {
-        let edges = self
+        if self
             .objects
-            .get_mut(&id)
-            .map(Object::take_radar_disabled_edges)
-            .unwrap_or_default();
+            .get(&id)
+            .is_none_or(|object| object.pending_radar_disabled_edges.is_empty())
+        {
+            return;
+        }
+        let edges = self.objects.get_mut(&id).unwrap().take_radar_disabled_edges();
         for edge in edges {
             let Some(owner) = edge.player_id else {
                 continue;
