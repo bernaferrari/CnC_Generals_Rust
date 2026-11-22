@@ -306,6 +306,9 @@ mod tests {
         use crate::system::engine_stores::{new_for_world, with_active_stores};
         use crate::system::game_logic::get_game_logic;
         use crate::weapon::{WeaponStore, WeaponTemplate};
+        use game_engine::common::rts::player_template::{
+            PlayerTemplate as CommonPlayerTemplate, get_player_template_store_mut,
+        };
         use game_engine::common::thing::thing_factory::{
             ensure_thing_factory_exists, get_thing_factory,
         };
@@ -404,12 +407,15 @@ End
                 crate::object_creation_list::store::load_object_creation_lists_from_str(text)
                     .unwrap(), 1
             );
-            let mut template = PlayerTemplate::new("OclPlayer".into());
-            template.playable = true;
+            // This fixture authors its own player row in each receiving world.
+            let mut authored_player = CommonPlayerTemplate::new("OclPlayer".into());
+            authored_player.playable = true;
+            let player_template = PlayerTemplate::from_common(&authored_player);
+            get_player_template_store_mut().add_template(authored_player);
             let player = Arc::new(RwLock::new(Player::new(0)));
             {
                 let mut player = player.write().unwrap();
-                player.init(Arc::new(template));
+                player.init(Arc::new(player_template));
                 player.set_player_type(PlayerType::Human, false);
             }
             crate::player::player_list().write().unwrap().add_player(Arc::clone(&player));

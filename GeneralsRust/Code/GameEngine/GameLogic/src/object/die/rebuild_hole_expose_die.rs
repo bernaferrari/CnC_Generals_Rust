@@ -393,6 +393,9 @@ mod tests {
         use crate::scripting::engine::get_named_object_tracker;
         use crate::system::engine_stores::{new_for_world, with_active_stores};
         use crate::weapon::{WeaponStore, WeaponTemplate};
+        use game_engine::common::rts::player_template::{
+            PlayerTemplate as CommonPlayerTemplate, get_player_template_store_mut,
+        };
         use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
         use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
 
@@ -466,12 +469,15 @@ End
                 get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(&fixture_ini),
                 3
             );
-            let mut playable = PlayerTemplate::new("RebuildPlayer".into());
-            playable.playable = true;
+            // This fixture authors its own player row in each receiving world.
+            let mut authored_player = CommonPlayerTemplate::new("RebuildPlayer".into());
+            authored_player.playable = true;
+            let player_template = PlayerTemplate::from_common(&authored_player);
+            get_player_template_store_mut().add_template(authored_player);
             let player = Arc::new(RwLock::new(Player::new(0)));
             {
                 let mut player = player.write().unwrap();
-                player.init(Arc::new(playable));
+                player.init(Arc::new(player_template));
                 player.set_player_type(PlayerType::Human, false);
                 assert!(player.is_player_active());
             }
