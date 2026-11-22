@@ -1020,6 +1020,14 @@ impl Default for BigFileSystem {
     }
 }
 
+#[derive(Default)]
+struct StartupArchiveDirectory {
+    subdirectories: Vec<PathBuf>,
+    matches: Vec<(String, PathBuf)>,
+}
+
+type StartupArchiveDirectories = HashMap<std::ffi::OsString, StartupArchiveDirectory>;
+
 impl BigFileSystem {
     /// Create a new BIG file system
     pub fn new() -> Self {
@@ -1048,9 +1056,38 @@ impl BigFileSystem {
         file_mask: &str,
         overwrite: bool,
     ) -> io::Result<bool> {
+        self.load_big_files_from_directory_inner(dir, file_mask, overwrite, None)
+    }
+
+    pub(super) fn load_startup_big_files(&mut self, paths: &[PathBuf]) {
+        let overlapping_roots = paths.iter().enumerate().any(|(index, root)| {
+            paths[..index]
+                .iter()
+                .any(|earlier| root.starts_with(earlier) || earlier.starts_with(root))
+        });
+        let mut listings = StartupArchiveDirectories::new();
+        for path in paths {
+            let _ = self.load_big_files_from_directory_inner(
+                path.to_string_lossy().as_ref(),
+                "*.big",
+                false,
+                overlapping_roots.then_some(&mut listings),
+            );
+        }
+    }
+
+    fn load_big_files_from_directory_inner(
+        &mut self,
+        dir: &str,
+        file_mask: &str,
+        overwrite: bool,
+        mut listings: Option<&mut StartupArchiveDirectories>,
+    ) -> io::Result<bool> {
         use std::collections::VecDeque;
         use std::fs;
 
+        // Only the startup batch shares a cache, with a basename-only mask.
+        debug_assert!(listings.is_none() || file_mask == "*.big");
         let dir_path = Path::new(dir);
         if !dir_path.exists() {
             return Ok(false);
@@ -1094,6 +1131,19 @@ impl BigFileSystem {
         let mut candidates: BTreeMap<String, PathBuf> = BTreeMap::new();
         let mut pending_dirs = VecDeque::from([dir_path.to_path_buf()]);
         while let Some(current_dir) = pending_dirs.pop_front() {
+            // Archive identity preserves spelling, including aliases. OsStr
+            // equality also distinguishes separators or `.` in the spelling.
+            if let Some(listing) = listings
+                .as_deref()
+                .and_then(|cache| cache.get(current_dir.as_os_str()))
+            {
+                pending_dirs.extend(listing.subdirectories.iter().cloned());
+                for (key, path) in &listing.matches {
+                    candidates.entry(key.clone()).or_insert_with(|| path.clone());
+                }
+                continue;
+            }
+
             let entries = match fs::read_dir(&current_dir) {
                 Ok(entries) => entries,
                 Err(err) => {
@@ -1106,6 +1156,7 @@ impl BigFileSystem {
                 }
             };
 
+            let mut listing = listings.as_ref().map(|_| StartupArchiveDirectory::default());
             for entry in entries.flatten() {
                 let Ok(mut file_type) = entry.file_type() else {
                     continue;
@@ -1120,13 +1171,22 @@ impl BigFileSystem {
                     file_type = target.file_type();
                 }
                 if file_type.is_dir() {
+                    if let Some(listing) = &mut listing {
+                        listing.subdirectories.push(entry_path.clone());
+                    }
                     pending_dirs.push_back(entry_path);
                     continue;
                 }
                 if file_type.is_file() && matches_mask(&entry_path) {
                     let key = normalize_archive_path_key(&entry_path);
+                    if let Some(listing) = &mut listing {
+                        listing.matches.push((key.clone(), entry_path.clone()));
+                    }
                     candidates.entry(key).or_insert(entry_path);
                 }
+            }
+            if let (Some(cache), Some(listing)) = (listings.as_deref_mut(), listing) {
+                cache.insert(current_dir.into_os_string(), listing);
             }
         }
 
@@ -1813,6 +1873,118 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert!(loaded.iter().any(|path| path.as_str().ends_with("/Linked.big")));
         assert!(loaded.iter().any(|path| path.as_str().ends_with("/Data/Content.big")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_directory_reuse_preserves_mount_order_aliases_and_later_mods() {
+        use std::os::unix::fs::symlink;
+
+        let install = tempfile::tempdir().unwrap();
+        let root = install.path();
+        let data = root.join("Data");
+        let nested = data.join("Nested");
+        fs::create_dir_all(&nested).unwrap();
+        let nested_big = nested.join("Content.BIG");
+        create_test_big_file(nested_big.to_str().unwrap()).unwrap();
+        let mut nested_file = fs::OpenOptions::new()
+            .write(true)
+            .open(&nested_big)
+            .unwrap();
+        nested_file.seek(SeekFrom::Start(50)).unwrap();
+        nested_file.write_all(b"Nested Data").unwrap();
+        drop(nested_file);
+        create_test_big_file(root.join("a-root.big").to_str().unwrap()).unwrap();
+        create_test_big_file(root.join("ignored.mix").to_str().unwrap()).unwrap();
+        fs::write(nested.join("invalid.big"), b"invalid archive").unwrap();
+        symlink(&nested_big, root.join("Linked.big")).unwrap();
+        symlink(&data, root.join("LinkedData")).unwrap();
+        symlink(root.join("missing"), root.join("Broken.big")).unwrap();
+
+        // An invalid path at the parent can claim the same normalized spelling
+        // as a valid descendant during its first enumeration. The explicit
+        // descendant root must still get its own subsequent mount attempt.
+        let collision = root.join("Collision");
+        fs::create_dir(&collision).unwrap();
+        fs::write(root.join(r"Collision\Retry.big"), b"invalid archive").unwrap();
+        create_test_big_file(collision.join("Retry.big").to_str().unwrap()).unwrap();
+
+        let roots = [
+            data,
+            root.to_path_buf(),
+            root.join("LinkedData"),
+            root.join("Data/./Nested"),
+            collision.clone(),
+        ];
+        let mut direct = BigFileSystem::new();
+        for path in &roots {
+            direct
+                .load_big_files_from_directory(path.to_str().unwrap(), "*.big", false)
+                .unwrap();
+        }
+        let mut startup = BigFileSystem::new();
+        startup.load_startup_big_files(&roots);
+        let archive_order = |system: &BigFileSystem| {
+            system
+                .archives
+                .iter()
+                .map(|archive| archive.path.as_os_str().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(archive_order(&startup), archive_order(&direct));
+        assert!(
+            startup
+                .archives
+                .iter()
+                .any(|archive| archive.path == collision.join("Retry.big"))
+        );
+        let known_virtual_paths = |system: &BigFileSystem| {
+            let mut paths = system.virtual_paths();
+            paths.sort_unstable();
+            paths
+        };
+        assert_eq!(known_virtual_paths(&startup), known_virtual_paths(&direct));
+        let read_member = |files: &mut BigFileSystem| {
+            let mut content = String::new();
+            files
+                .open_file("test.txt", 0)
+                .unwrap()
+                .read_to_string(&mut content)
+                .unwrap();
+            content
+        };
+        assert_eq!(read_member(&mut startup), "Nested Data");
+        assert_eq!(read_member(&mut direct), "Nested Data");
+        assert_eq!(
+            startup.resolve_archive_filename(&AsciiString::from("test.txt")),
+            direct.resolve_archive_filename(&AsciiString::from("test.txt")),
+        );
+
+        // A root-relative mod mask still discovers a file created after startup
+        // and intentionally overrides the original declared winner.
+        let mod_path = nested.join("mod.big");
+        create_test_big_file(mod_path.to_str().unwrap()).unwrap();
+        let mut mod_file = fs::OpenOptions::new().write(true).open(&mod_path).unwrap();
+        mod_file.seek(SeekFrom::Start(50)).unwrap();
+        mod_file.write_all(b"Modded Data").unwrap();
+        drop(mod_file);
+        assert!(
+            startup
+                .load_big_files_from_directory(
+                    root.to_str().unwrap(),
+                    " Data\\Nested\\Mod.BIG ; absent.big ",
+                    true,
+                )
+                .unwrap()
+        );
+        assert_eq!(read_member(&mut startup), "Modded Data");
+        assert!(
+            startup
+                .resolve_archive_filename(&AsciiString::from("test.txt"))
+                .unwrap()
+                .as_str()
+                .ends_with("/Data/Nested/mod.big")
+        );
     }
 
     #[test]

@@ -53,13 +53,7 @@ impl ArchiveFileSystem {
     /// Initialize the archive system, loading any configured search paths.
     pub fn init(&mut self) -> io::Result<()> {
         self.big_system.init()?;
-        for path in self.search_paths.clone() {
-            let _ = self.big_system.load_big_files_from_directory(
-                path.to_string_lossy().as_ref(),
-                "*.big",
-                false,
-            );
-        }
+        self.big_system.load_startup_big_files(&self.search_paths);
         Ok(())
     }
 
