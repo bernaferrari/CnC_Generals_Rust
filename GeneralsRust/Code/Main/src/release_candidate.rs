@@ -9,7 +9,8 @@ use crate::effects::particle_system::{ParticleSystem, ParticleSystemTemplate};
 use crate::game_logic::GameLogic;
 use crate::game_logic::{KindOf, Resources, Team, ThingTemplate};
 use crate::golden_campaign::run_golden_campaign;
-use crate::golden_skirmish::{boot_definitions_world, run_golden_skirmish};
+use crate::golden_skirmish::{boot_definitions_world, run_golden_skirmish_with_definitions};
+use crate::parallel_harness::RetailWorldDefinitions;
 use crate::save_load::SaveLoadManager;
 use crate::save_load::campaign::{
     CampaignId, CampaignManager, MissionCompletionData, MissionDifficulty, MissionInfo,
@@ -410,10 +411,12 @@ pub fn run_release_candidate_package(
 ) -> gamelogic::GameLogicResult<ReleaseCandidateReport> {
     let mut soak_ok = true;
     let mut start_hashes = Vec::new();
+    // Every run gets a fresh simulation from the same mounted inputs.
+    let definitions = RetailWorldDefinitions::load().ok();
 
     for i in 0..soak_runs.max(1) {
         let cfg = golden_skirmish_config(&format!("RCSoak{i}"));
-        let mut logic = boot_definitions_world();
+        let mut logic = boot_definitions_world(definitions.as_ref());
         if apply_skirmish_config(&mut logic, &cfg).is_err() {
             soak_ok = false;
             continue;
@@ -437,8 +440,8 @@ pub fn run_release_candidate_package(
 
     // Dual-run: identical config + identical frame advances → equal end hashes.
     let cfg = golden_skirmish_config("RCDual");
-    let mut la = boot_definitions_world();
-    let mut lb = boot_definitions_world();
+    let mut la = boot_definitions_world(definitions.as_ref());
+    let mut lb = boot_definitions_world(definitions.as_ref());
     let _ = apply_skirmish_config(&mut la, &cfg);
     let _ = apply_skirmish_config(&mut lb, &cfg);
     let pa = advance_authority_frames(&mut la, 0, frames.max(1));
@@ -451,8 +454,8 @@ pub fn run_release_candidate_package(
 
     // Without a retail map both runs report status=no_map from identical
     // boots, so the cash compare stays a determinism check either way.
-    let g1 = run_golden_skirmish(None, 4)?;
-    let g2 = run_golden_skirmish(None, 4)?;
+    let g1 = run_golden_skirmish_with_definitions(None, 4, definitions.as_ref())?;
+    let g2 = run_golden_skirmish_with_definitions(None, 4, definitions.as_ref())?;
     let golden_cash_match = g1.human_cash == g2.human_cash && g1.ai_cash == g2.ai_cash;
 
     // Real asset path: known-missing file must diagnose; verification fails closed.
@@ -483,7 +486,7 @@ pub fn run_release_candidate_package(
 
     // Deterministic trace production path.
     {
-        let mut logic = boot_definitions_world();
+        let mut logic = boot_definitions_world(definitions.as_ref());
         let cfg = golden_skirmish_config("RCTrace");
         let _ = apply_skirmish_config(&mut logic, &cfg);
         let scenario = TraceScenario::new([1, 2, 3, 4, 5, 6], 3);

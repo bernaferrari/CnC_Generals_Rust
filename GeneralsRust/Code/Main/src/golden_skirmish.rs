@@ -25,6 +25,7 @@
 use crate::authoritative_world::AuthorityProbe;
 use crate::command_system::{CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::{AIState, GameLogic, KindOf, ObjectId, Team, VictoryCondition};
+use crate::parallel_harness::RetailWorldDefinitions;
 use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 use glam::Vec3;
@@ -635,12 +636,16 @@ fn existing_or_dozer_built(
     Ok(built.then(|| (name, site_id)))
 }
 
-fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
+fn mid_match_save_load_ok(
+    logic: &GameLogic,
+    map_identity: &str,
+    definitions: Option<&RetailWorldDefinitions>,
+) -> bool {
     // C++ GameState::loadGame runs in an engine that booted its INI
     // definitions (GameEngine::init) and loads the saved map before the
     // snapshot xfers, so the restore target boots exactly like the source.
     let booted_target = || {
-        let mut dest = boot_golden_world(true);
+        let mut dest = boot_golden_world_with_definitions(true, definitions);
         let _ = apply_skirmish_config(&mut dest, &golden_skirmish_config(map_identity));
         dest
     };
@@ -1563,6 +1568,7 @@ fn run_map_world_skirmish(
     logic: &mut GameLogic,
     map_identity: &str,
     frames: u32,
+    definitions: Option<&RetailWorldDefinitions>,
 ) -> gamelogic::GameLogicResult<VerticalSliceOutcome> {
     // The report counts every logic frame this slice simulated, not only the
     // caller's trailing `frames` budget.
@@ -2014,7 +2020,7 @@ fn run_map_world_skirmish(
     tally.observe_pending(logic);
     let ai_end = AiProbe::capture(logic);
 
-    let save_load_ok = mid_match_save_load_ok(logic, map_identity);
+    let save_load_ok = mid_match_save_load_ok(logic, map_identity, definitions);
 
     Ok(VerticalSliceOutcome {
         frames_advanced,
@@ -2047,47 +2053,54 @@ fn run_map_world_skirmish(
 /// has already loaded GameData, PlayerTemplate and Object INI
 /// (GameEngine.cpp:428-458) before NewGame; without them the slice reports
 /// `no_map`.
+#[cfg(test)]
 fn boot_golden_world(map_exists: bool) -> GameLogic {
+    let definitions = RetailWorldDefinitions::load().ok();
+    boot_golden_world_with_definitions(map_exists, definitions.as_ref())
+}
+
+fn boot_golden_world_with_definitions(
+    map_exists: bool,
+    definitions: Option<&RetailWorldDefinitions>,
+) -> GameLogic {
     let mut logic = GameLogic::new();
     if map_exists {
         // GameEngine::init brings up TheFileSystem (local + BIG) before INI
-        // and GameLogic (GameEngine.cpp:281-329, 481). SidesList::prepareForMP_or_Skirmish
-        // opens Data\\Scripts\\SkirmishScripts.scb through it (SidesList.cpp:487).
+        // and GameLogic (GameEngine.cpp:281-329, 481). Skirmish map admission
+        // still resolves its scripts through its receiving filesystem.
         let _ = crate::subsystem_manager::SubsystemInterface::init(
             &mut crate::subsystem_manager::FileSystemSubsystem::new(),
         );
     }
-    admit_boot_definitions(&mut logic);
-    logic
-}
-
-/// Admit the retail startup definitions into a fresh world in application
-/// boot order (C++ GameEngine::init, GameEngine.cpp:428-458). NewGame on a
-/// never-admitted world fails closed, so harness worlds that run a game
-/// without loading a map must take this step too.
-fn admit_boot_definitions(logic: &mut GameLogic) {
-    if let Ok(definitions) = crate::parallel_harness::RetailWorldDefinitions::load() {
+    if let Some(definitions) = definitions {
         let _ = logic.with_own_services_mut(|logic| definitions.admit(logic));
     }
+    logic
 }
 
-/// Fresh world with the retail startup definitions admitted, for harness
-/// phases that run NewGame/skirmish apply without loading a map.
-pub(crate) fn boot_definitions_world() -> GameLogic {
-    let mut logic = GameLogic::new();
-    admit_boot_definitions(&mut logic);
-    logic
+/// A separate mutable world from the verification run's immutable definitions.
+pub(crate) fn boot_definitions_world(definitions: Option<&RetailWorldDefinitions>) -> GameLogic {
+    boot_golden_world_with_definitions(false, definitions)
 }
 
 pub fn run_golden_skirmish(
     map_override: Option<&str>,
     frames: u32,
 ) -> gamelogic::GameLogicResult<GoldenSkirmishResult> {
+    let definitions = RetailWorldDefinitions::load().ok();
+    run_golden_skirmish_with_definitions(map_override, frames, definitions.as_ref())
+}
+
+pub(crate) fn run_golden_skirmish_with_definitions(
+    map_override: Option<&str>,
+    frames: u32,
+    definitions: Option<&RetailWorldDefinitions>,
+) -> gamelogic::GameLogicResult<GoldenSkirmishResult> {
     let (map_identity, map_exists) = resolve_map(map_override);
     let config = golden_skirmish_config(&map_identity);
     let slots_active = config.slots.iter().filter(|s| s.is_active).count();
 
-    let mut logic = boot_golden_world(map_exists);
+    let mut logic = boot_golden_world_with_definitions(map_exists, definitions);
     let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
     logic.ensure_ai_faction_templates(Team::USA);
     logic.ensure_ai_faction_templates(Team::GLA);
@@ -2139,7 +2152,7 @@ pub fn run_golden_skirmish(
         .and_then(|s| s.ai_difficulty.clone())
         .unwrap_or_else(|| "unknown".into());
     let outcome = if map_loaded {
-        run_map_world_skirmish(&mut logic, &map_identity, frames)?
+        run_map_world_skirmish(&mut logic, &map_identity, frames, definitions)?
     } else {
         // C++ GameLogic::startNewGame always loads a map; there is no
         // map-less skirmish to simulate.
@@ -2147,8 +2160,8 @@ pub fn run_golden_skirmish(
     };
 
     // Deterministic config apply checkpoints (two fresh worlds, same config).
-    let mut a = boot_golden_world(map_exists);
-    let mut b = boot_golden_world(map_exists);
+    let mut a = boot_golden_world_with_definitions(map_exists, definitions);
+    let mut b = boot_golden_world_with_definitions(map_exists, definitions);
     let _ = apply_skirmish_config(&mut a, &config);
     let _ = apply_skirmish_config(&mut b, &config);
     let ha = AuthorityProbe::capture(&a, 0).checkpoint_hash();
