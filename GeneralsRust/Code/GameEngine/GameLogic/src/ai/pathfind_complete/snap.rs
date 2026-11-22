@@ -826,6 +826,52 @@ impl PathfindingSystem {
         }
     }
 
+    /// Publish one committed Object movement through its installed AI cursor,
+    /// matching C++ Pathfinder::updatePos after Object's integer XY gate.
+    pub(crate) fn update_unit_position_after_movement(
+        &mut self,
+        object: &crate::object::Object,
+        previous: &Coord3D,
+        current_cell: &mut ICoord2D,
+        ground_movement: bool,
+        interacts_with_bridge_end: bool,
+    ) -> Result<(), String> {
+        if object.is_kind_of(KindOf::Projectile)
+            || object.is_kind_of(KindOf::Inert)
+            || object.is_kind_of(KindOf::Immobile)
+        {
+            return Ok(());
+        }
+        let position = object.get_position();
+        if previous.x as i32 == position.x as i32 && previous.y as i32 == position.y as i32 {
+            return Ok(());
+        }
+        if !self.is_map_ready() {
+            return Ok(());
+        }
+        let (radius, centered) = Self::compute_radius_and_center(
+            object.get_geometry_info().get_bounding_circle_radius(),
+        );
+        let layer = PathfindLayerEnum::from_u32(object.get_layer() as u32);
+        let id = object.get_id();
+        if !ground_movement {
+            self.remove_pos(id, radius, centered, layer);
+            *current_cell = ICoord2D::new(-1, -1);
+            return Ok(());
+        }
+        let cell = Self::cell_for_unit_position(position, centered);
+        self.update_pos(
+            cell,
+            id,
+            layer,
+            radius,
+            centered,
+            interacts_with_bridge_end,
+        );
+        *current_cell = ICoord2D::new(cell.x, cell.y);
+        Ok(())
+    }
+
     /// C++ PathfindLayer::classifyMapCell bridge clearance (AIPathfind.cpp:3711+).
     ///
     /// For each cell in bridge bounds: if ground height + LAYER_Z_CLOSE_ENOUGH_F

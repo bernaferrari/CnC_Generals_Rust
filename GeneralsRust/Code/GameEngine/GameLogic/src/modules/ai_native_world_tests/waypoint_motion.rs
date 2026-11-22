@@ -394,6 +394,7 @@ pub(crate) fn other_path_moves_its_real_owner_and_continues_after_canonical_ai_x
     use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
     use std::io::Cursor;
     let mut first = new_game("OwnedPathXfer");
+    install_waypoints(&mut first);
     let second = new_game("OwnedPathPeer");
     let first_id = first.source.read().unwrap().get_id();
     assert_eq!(first_id, second.source.read().unwrap().get_id());
@@ -401,6 +402,35 @@ pub(crate) fn other_path_moves_its_real_owner_and_continues_after_canonical_ai_x
     let peer_before = *second.source.read().unwrap().get_position();
     let peer_ai_before = ai_snapshot(&second, "OwnedPathPeerLoco");
     let interface = ai(&first.source);
+    // Exercise the actual installed AI cursor and Pathfinder occupancy before
+    // native locomotion crosses both C++'s integer XY guard and a path cell.
+    let first_owner = Arc::clone(&first.source);
+    first.operate(0, |world| {
+        world
+            .set_object_position_handle(&first_owner, &Coord3D::new(39.999, 30.0, 0.0))
+            .unwrap();
+        let mut interface = interface.lock().unwrap();
+        interface
+            .execute_command_with_world(
+                &AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromPlayer),
+                world,
+            )
+            .unwrap();
+        interface.load_post_process_with_world(world).unwrap();
+        interface
+            .execute_command_with_world(
+                &AiCommandParams::new(AiCommandType::Busy, CommandSourceType::FromPlayer),
+                world,
+            )
+            .unwrap();
+    });
+    let actor_id = first.source.read().unwrap().get_id();
+    let old_cell = crate::common::ICoord2D::new(3, 3);
+    assert_eq!(
+        interface.lock().unwrap().unit_ai_for_test().unwrap()
+            .native_waypoint_observation_for_test().pathfind_cur_cell,
+        old_cell,
+    );
     let points = [
         Coord3D::new(90.0, 30.0, 0.0),
         Coord3D::new(150.0, 30.0, 0.0),
@@ -449,6 +479,34 @@ pub(crate) fn other_path_moves_its_real_owner_and_continues_after_canonical_ai_x
     assert!(
         first_tick.x > before.x,
         "actual Physics must advance its factory owner"
+    );
+    let new_cell = crate::common::ICoord2D::new(4, 3);
+    assert!(
+        first_tick.x as i32 != before.x as i32,
+        "movement crossed the C++ integer XY threshold"
+    );
+    assert_eq!(
+        interface.lock().unwrap().unit_ai_for_test().unwrap()
+            .native_waypoint_observation_for_test().pathfind_cur_cell,
+        new_cell,
+        "the borrowed driving UnitAI cursor must follow native locomotion",
+    );
+    let pathfinding = first.pathfinder.pathfinding_system_mut();
+    assert_eq!(
+        pathfinding.pos_unit_at(
+            crate::ai::pathfind_astar::GridCoord::new(old_cell.x, old_cell.y),
+            crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+        ),
+        crate::common::INVALID_ID,
+        "C++ updatePos removes the previous footprint",
+    );
+    assert_eq!(
+        pathfinding.pos_unit_at(
+            crate::ai::pathfind_astar::GridCoord::new(new_cell.x, new_cell.y),
+            crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+        ),
+        actor_id,
+        "native movement stamps the actual owner's live footprint",
     );
     let mut bytes = Cursor::new(Vec::new());
     let locomotor = crate::system::engine_stores::active_services().locomotor_store().get_template("OwnedPathXferLoco").unwrap();

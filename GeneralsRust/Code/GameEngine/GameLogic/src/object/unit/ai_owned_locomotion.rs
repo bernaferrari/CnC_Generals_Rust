@@ -198,8 +198,17 @@ impl UnitAIUpdate {
             .locomotor_set
             .get_active_mut()
             .ok_or("native locomotion member disappeared")?;
+        let pathfind_cur_cell = &mut self.runtime.data.pathfind_cur_cell;
         world.move_owned_locomotor_step(
-            &owner, active, goal, distance, speed, blocked, condition, penalty,
+            &owner,
+            active,
+            pathfind_cur_cell,
+            goal,
+            distance,
+            speed,
+            blocked,
+            condition,
+            penalty,
         )?;
         self.runtime.data.do_final_position = false;
         Ok(UpdateSleepTime::None)
@@ -219,6 +228,7 @@ pub(crate) struct NativeWaypointObservation {
     pub(crate) queue_for_path_frame: u32,
     pub(crate) path_points: Vec<Coord3D>,
     pub(crate) pathfind_goal_cell: ICoord2D,
+    pub(crate) pathfind_cur_cell: ICoord2D,
     pub(crate) locomotor_goal_type: u32,
     pub(crate) locomotor_goal_data: Coord3D,
     pub(crate) movement_complete: bool,
@@ -262,6 +272,7 @@ impl UnitAIUpdate {
                 .as_ref()
                 .map_or_else(Vec::new, |path| path.positions_for_test()),
             pathfind_goal_cell: self.runtime.data.pathfind_goal_cell,
+            pathfind_cur_cell: self.runtime.data.pathfind_cur_cell,
             locomotor_goal_type: self.runtime.data.locomotor_goal_type,
             locomotor_goal_data: self.runtime.data.locomotor_goal_data,
             movement_complete: self.runtime.data.movement_complete,

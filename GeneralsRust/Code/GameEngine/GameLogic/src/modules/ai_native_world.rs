@@ -1489,6 +1489,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
         &mut self,
         owner: &Arc<RwLock<Object>>,
         locomotor: &mut crate::locomotor::Locomotor,
+        pathfind_cur_cell: &mut crate::common::ICoord2D,
         target: Coord3D,
         on_path_distance: Real,
         desired_speed: Real,
@@ -1499,6 +1500,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
         self.move_ground_step(
             owner,
             locomotor,
+            pathfind_cur_cell,
             target,
             on_path_distance,
             desired_speed,

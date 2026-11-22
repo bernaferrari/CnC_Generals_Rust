@@ -299,6 +299,7 @@ pub trait AiWorld {
         &mut self,
         _owner: &Arc<RwLock<Object>>,
         _locomotor: &mut crate::locomotor::Locomotor,
+        _pathfind_cur_cell: &mut crate::common::ICoord2D,
         _target: Coord3D,
         _on_path_distance: Real,
         _desired_speed: Real,

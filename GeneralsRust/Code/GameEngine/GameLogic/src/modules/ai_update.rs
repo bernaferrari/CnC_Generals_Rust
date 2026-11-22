@@ -28,6 +28,27 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         Err("installed AI does not admit pathfind occupancy removal".into())
     }
 
+    /// Publish a committed native owner movement through this AI's live
+    /// Pathfinder cursor. Callers provide the pre-move pose so the C++ integer
+    /// XY threshold remains centralized with the owning cursor update.
+    fn publish_pathfind_position_after_movement(
+        &mut self,
+        _object: &crate::object::Object,
+        _previous: &Coord3D,
+        _pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        _ground_movement: bool,
+        _interacts_with_bridge_end: bool,
+    ) -> Result<(), String> {
+        Err("installed AI does not admit native position publication".into())
+    }
+    fn is_doing_ground_movement_with_world(
+        &self,
+        _object: &crate::object::Object,
+        _world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<bool, String> {
+        Ok(self.is_doing_ground_movement())
+    }
+
     /// C++ AIUpdate.h setFinalPosition writes existing AI state, not Object pose.
     fn set_final_position(&mut self, _position: &Coord3D) {}
     /// Inspect the exact scheduled callback domain without changing wake metadata.

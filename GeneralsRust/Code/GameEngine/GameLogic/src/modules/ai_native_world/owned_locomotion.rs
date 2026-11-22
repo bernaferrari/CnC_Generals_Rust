@@ -118,6 +118,7 @@ impl BorrowedAiWorld<'_> {
         &mut self,
         owner: &Arc<RwLock<Object>>,
         locomotor: &mut Locomotor,
+        pathfind_cur_cell: &mut crate::common::ICoord2D,
         target: Coord3D,
         on_path_distance: f32,
         desired_speed: f32,
@@ -164,11 +165,11 @@ impl BorrowedAiWorld<'_> {
             self
                 .update_scheduler
                 .awaken_update_module_with_current(
-                    &proxy,
-                    Some(&current_update),
-                    frame,
-                    frame.wrapping_add(1),
-                )
+                &proxy,
+                Some(&current_update),
+                frame,
+                frame.wrapping_add(1),
+            )
         };
         let mut access = crate::locomotor::LocomotorPhysicsAccess::Installed {
             handle: &physics,
@@ -228,6 +229,19 @@ impl BorrowedAiWorld<'_> {
             Some(&mut object),
             Some(&mut observations),
         )?;
+        // C++ Object::setTriggerAreaFlagsForChangeInPosition calls
+        // Pathfinder::updatePos only after integer XY changes. The driving
+        // UnitAI already owns this cursor, so update it without relocking AI.
+        self.services
+            .pathfinder
+            .pathfinding_system_mut()
+            .update_unit_position_after_movement(
+                &object,
+                &current,
+                pathfind_cur_cell,
+                true,
+                false,
+            )?;
         object.set_status(
             crate::common::ObjectStatusMaskType::from_status(
                 crate::common::ObjectStatusTypes::Braking,

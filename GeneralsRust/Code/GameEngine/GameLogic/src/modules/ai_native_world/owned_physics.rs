@@ -131,7 +131,7 @@ impl BorrowedAiWorld<'_> {
             }
         }
         let pose_result = match step.transform {
-            Some(transform) => self.set_physics_transform_owned(owner, &transform),
+            Some(transform) => self.physics_pose_owned(owner, &transform),
             None => Ok(()),
         };
         if let Some(height) = step.height_above_terrain {
@@ -308,7 +308,53 @@ impl BorrowedAiWorld<'_> {
         owner: &Arc<RwLock<Object>>,
         matrix: &glam::Mat4,
     ) -> Result<(), String> {
-        self.set_physics_transform_owned(owner, matrix)
+        let (previous, ai) = {
+            let object = owner
+                .read()
+                .map_err(|_| "physics path position owner poisoned")?;
+            (*object.get_position(), object.get_ai_update_interface())
+        };
+        self.set_physics_transform_owned(owner, matrix)?;
+        let position_changed_integer_xy = {
+            let object = owner
+                .read()
+                .map_err(|_| "physics path position owner poisoned")?;
+            previous.x as i32 != object.get_position().x as i32
+                || previous.y as i32 != object.get_position().y as i32
+        };
+        if !position_changed_integer_xy {
+            return Ok(());
+        }
+        let Some(ai) = ai else {
+            return Ok(());
+        };
+        let mut ai = ai
+            .try_lock()
+            .map_err(|_| "physics movement AI is already borrowed")?;
+        let object = owner
+            .read()
+            .map_err(|_| "physics path position owner poisoned")?;
+        let ground_movement = ai.is_doing_ground_movement_with_world(&object, self)?;
+        let layer = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(
+            object.get_layer() as u32,
+        );
+        let interacts_with_bridge_end = if ground_movement
+            && layer != crate::ai::pathfind_astar::PathfindLayerEnum::Ground
+        {
+            self.services.terrain.object_interacts_with_bridge_end(
+                &object,
+                crate::path::PathfindLayerEnum::from_u32(object.get_layer() as u32),
+            )
+        } else {
+            false
+        };
+        ai.publish_pathfind_position_after_movement(
+            &object,
+            &previous,
+            self.services.pathfinder.pathfinding_system_mut(),
+            ground_movement,
+            interacts_with_bridge_end,
+        )
     }
 
     fn physics_bounce_stun_should_kill(

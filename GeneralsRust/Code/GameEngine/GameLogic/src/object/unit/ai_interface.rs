@@ -9,6 +9,32 @@ use super::registry::get_unit_arc;
 use crate::modules::UpdateSleepTime;
 
 impl AIUpdateInterface for UnitAIUpdate {
+    fn publish_pathfind_position_after_movement(
+        &mut self,
+        object: &Object,
+        previous: &Coord3D,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        ground_movement: bool,
+        interacts_with_bridge_end: bool,
+    ) -> Result<(), String> {
+        pathfinder.update_unit_position_after_movement(
+            object,
+            previous,
+            &mut self.runtime.data.pathfind_cur_cell,
+            ground_movement,
+            interacts_with_bridge_end,
+        )
+    }
+
+    fn is_doing_ground_movement_with_world(
+        &self,
+        object: &Object,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<bool, String> {
+        self.runtime
+            .is_doing_ground_movement_for_owner_with_world(object, Some(world))
+    }
+
     fn remove_pathfind_occupancy(
         &mut self,
         object: &Object,
