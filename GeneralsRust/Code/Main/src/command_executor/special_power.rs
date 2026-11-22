@@ -19,25 +19,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-/// Translate the public command slot into the host object's indexed weapon set.
-///
-/// Keep the conversion explicit so an unrepresented `AntiAir` request, or an
-/// arbitrary slot value, can never silently fall through to PRIMARY.  The host
-/// carries three concrete WeaponSet slots; their presence is validated by
-/// `unit_command_select_weapon_slot` before an attack is issued.
-fn host_weapon_slot_index(weapon_slot: &WeaponSlot) -> Option<u8> {
-    match weapon_slot {
-        WeaponSlot::Primary => Some(0),
-        WeaponSlot::Secondary => Some(1),
-        // Preserve the C++ ordinal; the target unit must actually carry a
-        // tertiary weapon before the command is accepted.
-        WeaponSlot::Tertiary => Some(2),
-        // This is a target capability, not an Object weapon-set ordinal.
-        WeaponSlot::AntiAir => None,
-        // Do not truncate an arbitrary command value into a different slot.
-        WeaponSlot::Slot(slot) => u8::try_from(*slot).ok(),
-    }
-}
 fn special_power_has_overridable_destination(
     power_type: &crate::command_system::SpecialPowerType,
 ) -> bool {
@@ -1125,7 +1106,7 @@ impl<'a> CommandExecutor<'a> {
         target: &WeaponTarget,
     ) -> CommandResult {
         let _bind = self.bind_services();
-        let Some(slot) = host_weapon_slot_index(weapon_slot) else {
+        let Some(slot) = weapon_slot.concrete() else {
             warn!(
                 "Rejecting unindexed weapon command {:?}: it has no host weapon-set slot",
                 weapon_slot

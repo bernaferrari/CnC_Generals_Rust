@@ -1719,10 +1719,11 @@ impl GameLogic {
     pub fn weapon_cursor_radii(
         &self,
         id: ObjectId,
-        slot: u8,
+        slot: gamelogic::common::WeaponSlotType,
     ) -> Option<crate::game_logic::weapon_bootstrap::WeaponCursorRadii> {
         use crate::game_logic::weapon_bootstrap::{ReceivingWeaponRadii, WeaponCursorRadii};
         let object = self.host_object(id)?;
+        let slot = slot as u8;
         let weapon = object.weapon_slot(slot)?;
         let name = object
             .selected_weapon_name(slot)

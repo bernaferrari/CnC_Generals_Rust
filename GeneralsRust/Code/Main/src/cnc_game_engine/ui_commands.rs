@@ -680,16 +680,8 @@ impl CnCGameEngine {
             return self.radius_cursor_guard_range(seed);
         }
         let slot = match self.pending_map_command.as_ref() {
-            Some(PendingMapCommand::Weapon(weapon)) => match &weapon.weapon_slot {
-                crate::command_system::WeaponSlot::Primary => Some(0),
-                crate::command_system::WeaponSlot::Secondary => Some(1),
-                crate::command_system::WeaponSlot::Tertiary => Some(2),
-                crate::command_system::WeaponSlot::Slot(slot) => {
-                    u8::try_from(*slot).ok().filter(|slot| *slot < 3)
-                }
-                crate::command_system::WeaponSlot::AntiAir => None,
-            },
-            _ => Some(0),
+            Some(PendingMapCommand::Weapon(weapon)) => weapon.weapon_slot.concrete(),
+            _ => Some(gamelogic::common::WeaponSlotType::Primary),
         };
         let radii = seed
             .zip(slot)

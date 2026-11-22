@@ -1,6 +1,7 @@
 //! Unit command tests.
 
 use super::*;
+use gamelogic::common::WeaponSlotType;
 
 fn three_slot_logic() -> (GameLogic, ObjectId) {
     let mut logic = GameLogic::new();
@@ -31,7 +32,7 @@ fn three_slot_logic() -> (GameLogic, ObjectId) {
 #[test]
 fn select_tertiary_slot_is_concrete_and_temporary_locked() {
     let (mut logic, id) = three_slot_logic();
-    assert!(logic.unit_command_select_weapon_slot(id, 2));
+    assert!(logic.unit_command_select_weapon_slot(id, WeaponSlotType::Tertiary));
     let object = logic.host_object(id).expect("selected object");
     assert_eq!(object.active_weapon_slot, 2);
     assert_eq!(object.weapon_lock_slot, 2);
@@ -41,11 +42,10 @@ fn select_tertiary_slot_is_concrete_and_temporary_locked() {
 }
 
 #[test]
-fn absent_or_unknown_tertiary_selection_cannot_fall_back_to_primary() {
+fn absent_tertiary_selection_cannot_fall_back_to_primary() {
     let (mut logic, id) = three_slot_logic();
     logic.host_object_mut(id).expect("object").tertiary_weapon = None;
-    assert!(!logic.unit_command_select_weapon_slot(id, 2));
-    assert!(!logic.unit_command_select_weapon_slot(id, 7));
+    assert!(!logic.unit_command_select_weapon_slot(id, WeaponSlotType::Tertiary));
     let object = logic.host_object(id).expect("object");
     assert_eq!(object.weapon_slot(0).map(|weapon| weapon.damage), Some(1.0));
     assert!(object.weapon_slot(2).is_none());
@@ -64,7 +64,7 @@ fn player_tertiary_fire_order_replaces_an_existing_nested_attack() {
         object.set_attack_substate(AttackSubState::FireWeapon);
     }
 
-    assert!(logic.unit_command_select_weapon_slot(id, 2));
+    assert!(logic.unit_command_select_weapon_slot(id, WeaponSlotType::Tertiary));
     assert!(logic.unit_command_fire_weapon(id, Some(target_id), None, -1));
 
     let object = logic.host_object(id).expect("object");

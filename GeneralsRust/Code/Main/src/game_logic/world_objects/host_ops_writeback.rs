@@ -1454,7 +1454,7 @@ impl GameLogic {
         target_id: Option<ObjectId>,
         specialty_weapon: bool,
         at_location: bool,
-        forced_slot: Option<u8>,
+        forced_slot: Option<gamelogic::common::WeaponSlotType>,
     ) -> crate::game_logic::audio_dispatch_impl::UnitVoiceSlot {
         self.with_own_services(|| {
         use crate::game_logic::audio_dispatch_impl::{
@@ -1482,10 +1482,10 @@ impl GameLogic {
                 if obj.is_kind_of(KindOf::IgnoredInGui) {
                     return None;
                 }
-                let slot = forced_slot
-                    .or_else(|| obj.selected_weapon_slot())
-                    .unwrap_or(obj.active_weapon_slot);
-                let slot = gamelogic::common::WeaponSlotType::from_u32(u32::from(slot))?;
+                let slot = forced_slot.or_else(|| {
+                    let ordinal = obj.selected_weapon_slot().unwrap_or(obj.active_weapon_slot);
+                    gamelogic::common::WeaponSlotType::from_u32(u32::from(ordinal))
+                })?;
                 let weapon = obj.selected_native_weapon_rule(slot as u8)?;
                 Some(AttackVoiceWeapon {
                     name: weapon.name.clone(),

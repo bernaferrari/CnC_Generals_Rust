@@ -1,6 +1,7 @@
 //! Order target, capture, supply, contain, weapon-set and upgrade-queue orders.
 
 use super::*;
+use gamelogic::common::WeaponSlotType;
 
 impl GameLogic {
     /// Wave 233: set order target (records host attack/order log residual).
@@ -781,19 +782,15 @@ impl GameLogic {
     }
 
     /// Select a concrete weapon slot for a player-issued `FIRE_WEAPON` command.
-    ///
-    /// Every accepted ordinal must map to a real concrete WeaponSet slot.
-    /// Unknown slots fail closed; in particular, TERTIARY never falls through
-    /// to PRIMARY.
-    pub fn unit_command_select_weapon_slot(&mut self, id: ObjectId, slot: u8) -> bool {
+    pub fn unit_command_select_weapon_slot(&mut self, id: ObjectId, slot: WeaponSlotType) -> bool {
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
         if !unit.is_alive() {
             return false;
         }
-        let has_requested_slot = matches!(slot, 0..=2) && unit.weapon_slot(slot).is_some();
-        if !has_requested_slot {
+        let slot = slot as u8;
+        if unit.weapon_slot(slot).is_none() {
             return false;
         }
 

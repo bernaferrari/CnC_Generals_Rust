@@ -508,7 +508,7 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
     let target = ObjectId(999);
     let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
         &[unit_id],
-        &WeaponSlot::Tertiary,
+        &WeaponSlot::Slot(gamelogic::common::WeaponSlotType::Tertiary as u32),
         -1,
         &WeaponTarget::Object(target),
     );
@@ -573,16 +573,18 @@ fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
     assert_eq!(unit.weapon_lock_type, WeaponLockType::NotLocked);
     assert_eq!(unit.target_location, None);
 
-    let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
-        &[unit_id],
-        &WeaponSlot::Slot(u32::MAX),
-        -1,
-        &WeaponTarget::Location(Vec3::new(80.0, 0.0, 30.0)),
-    );
-    assert!(result == CommandResult::InvalidCommand);
-    assert_eq!(logic.host_object(unit_id).expect("unit").target_location,
-        None
-    );
+    for invalid in [WeaponSlot::AntiAir, WeaponSlot::Slot(3), WeaponSlot::Slot(u32::MAX)] {
+        let result = CommandExecutor::new(&mut logic, 0).execute_weapon(
+            &[unit_id],
+            &invalid,
+            -1,
+            &WeaponTarget::Location(Vec3::new(80.0, 0.0, 30.0)),
+        );
+        assert!(result == CommandResult::InvalidCommand, "{invalid:?}");
+        let unit = logic.host_object(unit_id).expect("unit");
+        assert_eq!(unit.target_location, None);
+        assert_eq!(unit.weapon_lock_type, WeaponLockType::NotLocked);
+    }
 }
 
 #[test]

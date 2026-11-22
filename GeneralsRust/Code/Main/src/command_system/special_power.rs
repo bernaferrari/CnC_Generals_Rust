@@ -362,3 +362,18 @@ pub enum WeaponSlot {
     AntiAir,
     Slot(u32),
 }
+
+impl WeaponSlot {
+    /// Resolve a command slot to one of the original Object weapon-set slots.
+    pub(crate) fn concrete(&self) -> Option<gamelogic::common::WeaponSlotType> {
+        use gamelogic::common::WeaponSlotType;
+
+        match *self {
+            Self::Primary => Some(WeaponSlotType::Primary),
+            Self::Secondary => Some(WeaponSlotType::Secondary),
+            Self::Tertiary => Some(WeaponSlotType::Tertiary),
+            Self::AntiAir => None,
+            Self::Slot(ordinal) => WeaponSlotType::from_u32(ordinal),
+        }
+    }
+}
