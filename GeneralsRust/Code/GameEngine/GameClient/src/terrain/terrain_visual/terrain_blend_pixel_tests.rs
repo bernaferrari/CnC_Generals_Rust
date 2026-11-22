@@ -462,6 +462,95 @@ fn live_terrain_quarters_sample_the_authored_pixels_at_a_chunk_seam() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
+#[ignore = "requires a native GPU"]
+fn shoreline_uses_authored_water_areas_and_leaves_dry_ground_unchanged() {
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let (device, queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+
+    let mut map = HeightMap::new(8, 5, 10.0, 1.0);
+    map.heights.fill(0.625);
+    let classes = [(TerrainSourceTileClass {
+        first_tile: 0, num_tiles: 1, width: 1, name: "DryShoreControl".into(),
+    }, [0, 0, 255])];
+    let mut visual = live_terrain_visual(&device, &queue, &classes, map, 1.0);
+    visual.create_water_pipeline(&device).unwrap();
+    let mut water = visual.water_presentation().clone();
+    water.transparent_water_depth = 3.0;
+    water.min_water_opacity = 1.0;
+    visual.admit_water_presentation(&water).unwrap();
+
+
+    let texture = TerrainVisualImpl::create_solid_rgba_texture(
+        &device, &queue, [255, 0, 0, 255], "shoreline contamination control",
+    );
+    let view = texture.create_view(&Default::default());
+    let sampler = device.create_sampler(&Default::default());
+    visual.water_texture_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: visual.water_texture_bind_group_layout.as_ref().unwrap(),
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+        ],
+    }));
+
+    // A flat bank at 6.25. The stock sea plane is at 7, but without a
+    // PolygonTrigger the source shoreline pass must leave every pixel alone.
+    let mut rules = visual.water_rules();
+    rules.position = [0.0, 0.0, 7.0];
+    rules.show_soft_water_edge = false;
+    visual.admit_water_rules(rules);
+    let transform = Mat4::from_cols_array_2d(&[
+        [2.0 / 7.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.5, 0.0, 0.0], [-1.0, -1.0, 0.5, 1.0],
+    ]);
+    let capture = |visual: &mut TerrainVisualImpl| {
+        render_live_terrain_visual_with_transform(&device, &queue, visual, transform)
+    };
+    let base = capture(&mut visual);
+    let dry_pixel = 4 * 256 + 25 * 4;
+    assert_eq!(&base[dry_pixel..dry_pixel + 3], &[255, 0, 0]);
+
+    rules.show_soft_water_edge = true;
+    visual.admit_water_rules(rules);
+    let dry = capture(&mut visual);
+    assert_eq!(
+        &dry[dry_pixel..dry_pixel + 3], &base[dry_pixel..dry_pixel + 3],
+        "without a water polygon the global sea height feathered dry ground",
+    );
+    assert!(visual.overlay.shoreline_tiles.is_empty());
+
+    let area = |elevation| TerrainWaterArea {
+        points: vec![
+            [0.0, elevation, 0.0], [4.0, elevation, 0.0],
+            [4.0, elevation, 4.0], [0.0, elevation, 4.0],
+        ],
+        is_river: false,
+        river_start: 0,
+    };
+    visual.set_map_water_areas(vec![area(7.0), area(6.0)]);
+    // PolygonTrigger admits the samples x/z=1..4. All four corners of
+    // cells 1..3 must be inside; the highest covering polygon is above ground.
+    let expected: Vec<_> = (1..=3)
+        .flat_map(|z| (1..=3).map(move |x| x | (z << 16)))
+        .collect();
+    let actual: Vec<_> = visual.overlay.shoreline_tiles.iter().map(|tile| tile.packed_xy).collect();
+    assert_eq!(actual, expected);
+    assert!(visual.overlay.shoreline_tiles.iter().all(|tile| tile.t == [0.25; 4]));
+    let partial = capture(&mut visual);
+    assert_eq!(&partial[dry_pixel..dry_pixel + 3], &base[dry_pixel..dry_pixel + 3]);
+
+    visual.set_map_water_areas(Vec::new());
+    assert!(visual.overlay.shoreline_tiles.is_empty());
+    assert!(visual.shoreline_meshes.is_empty());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
 fn live_terrain_classes_blend_across_chunk_seam() {
     use crate::terrain::textures::BlendTileInfo;
     crate::test_support::ensure_ambient_host();

@@ -1049,7 +1049,7 @@ impl HeightMap {
         transparent_depth: f32,
         show_soft_edge: bool,
     ) -> Vec<ShoreLineTile> {
-        if !show_soft_edge || transparent_depth <= f32::EPSILON {
+        if !show_soft_edge || transparent_depth <= f32::EPSILON || self.width < 2 || self.height < 2 {
             return Vec::new();
         }
         let depth_scale = 1.0 / transparent_depth;
@@ -1061,24 +1061,33 @@ impl HeightMap {
         };
         let max_x = self.width.saturating_sub(1) as i32;
         let max_y = self.height.saturating_sub(1) as i32;
+        let sample_row = |row, samples: &mut [f32]| {
+            let y = (row - border) as f32 * scale;
+            for (col, water) in samples.iter_mut().enumerate() {
+                let x = (col as i32 - border) as f32 * scale;
+                *water = water_height(x, y);
+            }
+        };
+        let mut top = vec![0.0; self.width as usize];
+        let mut bottom = vec![0.0; self.width as usize];
+        sample_row(0, &mut top);
         let mut tiles = Vec::new();
         for j in 0..max_y {
+            sample_row(j + 1, &mut bottom);
             for i in 0..max_x {
                 let x0 = (i - border) as f32 * scale;
                 let y0 = (j - border) as f32 * scale;
                 let x1 = (i - border + 1) as f32 * scale;
                 let y1 = (j - border + 1) as f32 * scale;
+                let col = i as usize;
+                let [w0, w1, w2, w3] = [top[col], top[col + 1], bottom[col + 1], bottom[col]];
+                if w0 <= 0.0 || w1 <= 0.0 || w2 <= 0.0 || w3 <= 0.0 {
+                    continue;
+                }
                 let t0 = self.world_height_at_index(i as u32, j as u32);
                 let t1 = self.world_height_at_index((i + 1) as u32, j as u32);
                 let t2 = self.world_height_at_index((i + 1) as u32, (j + 1) as u32);
                 let t3 = self.world_height_at_index(i as u32, (j + 1) as u32);
-                let w0 = water_height(x0, y0);
-                let w1 = water_height(x1, y0);
-                let w2 = water_height(x1, y1);
-                let w3 = water_height(x0, y1);
-                if w0 <= 0.0 || w1 <= 0.0 || w2 <= 0.0 || w3 <= 0.0 {
-                    continue;
-                }
                 let mut water_side = 0u8;
                 if w0 > t0 {
                     water_side |= 1;
@@ -1114,6 +1123,7 @@ impl HeightMap {
                     ],
                 });
             }
+            std::mem::swap(&mut top, &mut bottom);
         }
         tiles
     }
@@ -1801,6 +1811,19 @@ pub fn collect_extra_blend_tile_positions(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shoreline_water_is_sampled_once_per_height_vertex() {
+        let map = HeightMap::new(9, 5, 0.0, 10.0);
+        let calls = std::cell::Cell::new(0);
+        let tiles = map.rebuild_shoreline_tiles(|_, _| {
+            calls.set(calls.get() + 1);
+            1.0
+        }, 2.0, true);
+        assert_eq!(calls.get(), 9 * 5);
+        assert_eq!(tiles.len(), 8 * 4);
+        assert!(tiles.iter().all(|tile| tile.t == [0.5; 4]));
+    }
+
     use super::*;
 
     #[test]

@@ -378,7 +378,8 @@ pub struct TerrainSmudge {
 #[derive(Debug, Default)]
 pub struct OverlayGpuState {
     pub shoreline_tiles: Vec<crate::terrain::ShoreLineTile>,
-    pub water_areas: Vec<TerrainWaterArea>,
+    water_areas: Vec<TerrainWaterArea>,
+    shoreline_water_areas: Vec<gamelogic::polygon_trigger::PolygonTrigger>,
     pub smudges: Vec<TerrainSmudge>,
     pub shroud_cells: Arc<[u8]>,
     pub shroud_width: i32,

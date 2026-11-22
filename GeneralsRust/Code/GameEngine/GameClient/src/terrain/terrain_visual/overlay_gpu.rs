@@ -32,9 +32,25 @@ impl TerrainVisualImpl {
         let show_soft = self.water_rules.show_soft_water_edge;
         let transparent = self.water_presentation.transparent_water_depth.max(0.0)
             * self.water_presentation.min_water_opacity.max(0.01);
-        let water_y = self.water_rules.position[2];
+        if !show_soft || transparent <= f32::EPSILON || self.overlay.shoreline_water_areas.is_empty() {
+            self.overlay.shoreline_tiles.clear();
+            self.shoreline_meshes.clear();
+            return;
+        }
+
+        // W3DWater::getWaterHeight rounds world coordinates and chooses the
+        // highest admitted PolygonTrigger elevation at each corner.
+        use game_engine::base_type::real_to_int_floor;
+        use gamelogic::common::ICoord3D;
+        let areas = &self.overlay.shoreline_water_areas;
         let tiles = height_map.rebuild_shoreline_tiles(
-            |x, z| self.sample_water_height(x, z).unwrap_or(water_y),
+            |x, z| {
+                let query = ICoord3D::new(real_to_int_floor(x + 0.5), real_to_int_floor(z + 0.5), 0);
+                areas.iter()
+                    .filter(|area| area.point_in_trigger_int(&query))
+                    .filter_map(|area| area.get_point(0).map(|point| point.z as f32))
+                    .fold(0.0, f32::max)
+            },
             transparent,
             show_soft,
         );
@@ -244,7 +260,22 @@ impl TerrainVisualImpl {
     }
 
     pub fn set_map_water_areas(&mut self, areas: Vec<TerrainWaterArea>) {
-        self.overlay.water_areas = areas;
+        if self.overlay.water_areas != areas {
+            use gamelogic::common::ICoord3D;
+            use gamelogic::polygon_trigger::PolygonTrigger;
+            // Both forms belong to this map. The integer query reuses the
+            // original PolygonTrigger containment and precomputed bounds.
+            self.overlay.shoreline_water_areas = areas.iter().map(|area| {
+                let points = area.points.iter()
+                    .map(|[x, height, z]| ICoord3D::new(*x as i32, *z as i32, *height as i32))
+                    .collect();
+                PolygonTrigger::new(0, AsciiString::new(), points)
+            }).collect();
+            self.overlay.water_areas = areas;
+            if self.height_map.is_some() {
+                self.rebuild_shoreline();
+            }
+        }
         self.overlay.polygon_water_mesh_stamp = None;
         self.overlay.polygon_water_indices.clear();
         self.overlay.overlays_dirty = true;
@@ -266,13 +297,6 @@ impl TerrainVisualImpl {
     pub fn clear_heat_smudges(&mut self) {
         self.overlay.smudges.clear();
         self.smudge_mesh = None;
-    }
-
-    fn sample_water_height(&self, world_x: f32, world_z: f32) -> Option<f32> {
-        if let Some(h) = self.get_water_grid_height(world_x, world_z) {
-            return Some(h);
-        }
-        Some(self.water_rules.position[2])
     }
 
     fn load_water_tracks_from_map(&mut self) {
