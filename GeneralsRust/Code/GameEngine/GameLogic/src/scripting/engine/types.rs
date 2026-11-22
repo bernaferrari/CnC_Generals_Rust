@@ -578,7 +578,7 @@ pub trait ScriptExecutionDriver {
     /// Resolve authored Player tokens before Core's PlayerList adapter runs.
     /// The interpreter's current Player is supplied by the exact driving walk.
     fn script_player_name_token(
-        &self,
+        &mut self,
         _raw: &str,
         _current_player: Option<&str>,
     ) -> ScriptOwnerQuery<Option<String>> {

@@ -467,7 +467,7 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
             return Ok(ScriptActionResult::Success);
@@ -495,7 +495,7 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
             return Ok(ScriptActionResult::Success);
@@ -524,7 +524,7 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
             return Ok(ScriptActionResult::Success);
@@ -657,7 +657,7 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
             return Ok(ScriptActionResult::Success);

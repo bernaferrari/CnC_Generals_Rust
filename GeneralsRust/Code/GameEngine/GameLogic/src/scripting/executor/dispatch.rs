@@ -9,7 +9,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn resolve_player_name_token_with_driver(
         &self,
         raw: &str,
-        driver: &dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Option<String> {
         let current_player = self
             .context

@@ -113,6 +113,83 @@ fn script_frame_without_supply_conditions_does_not_assess_enemies() {
 }
 
 #[test]
+fn enemy_player_token_queries_the_receiving_ai_during_the_action() {
+    use gamelogic::common::Relationship;
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Script, ScriptList, THIS_PLAYER_ENEMY,
+    };
+    use gamelogic::scripting::executor::ScriptContext;
+
+    fn fixture() -> GameLogic {
+        let (mut world, _) = owner_world();
+        world.game_mode = GameMode::Skirmish;
+        world.add_player(
+            Player::new(2, Team::GLA, "Script enemy", false).with_script_identity("ScriptEnemy"),
+        );
+        let current = world.get_player_mut(1).unwrap();
+        current.map_side.is_skirmish_ai = true;
+        current.set_map_relationship(2, Relationship::Enemies);
+        world
+            .ai_manager
+            .add_ai_player(2, Team::GLA, crate::ai::AIDifficulty::Medium);
+        world
+            .create_object_for_player("ScriptAiStructure", 2, Vec3::new(100.0, 0.0, 100.0))
+            .expect("live enemy structure");
+        world
+    }
+
+    let mut first = fixture();
+    let peer = fixture();
+    first.frame = 149;
+    let original_delay = peer.ai_manager.ai_players[&2]
+        .capture_queue_persist()
+        .team_seconds;
+    assert_ne!(original_delay, 7.0);
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "SetEnemyTeamDelay".into();
+    script.condition = Some(Box::new(branch));
+    script.action = Some(Box::new(player_action(
+        ScriptActionType::SetBaseConstructionSpeed,
+        THIS_PLAYER_ENEMY,
+        7,
+    )));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    first
+        .with_owned_script_engine(|engine, world| {
+            engine
+                .set_script_list_for_player(1, Some(Box::new(list)))
+                .unwrap();
+            let context = ScriptContext::at_frame(world.frame);
+            engine
+                .update_with_driver(
+                    context,
+                    &mut HostScriptExecutionDriver::with_interpreter(world, engine),
+                )
+                .unwrap();
+        })
+        .unwrap();
+
+    assert_eq!(first.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 299);
+    assert_eq!(
+        first.ai_manager.ai_players[&2]
+            .capture_queue_persist()
+            .team_seconds,
+        7.0
+    );
+    assert_eq!(peer.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+    assert_eq!(
+        peer.ai_manager.ai_players[&2]
+            .capture_queue_persist()
+            .team_seconds,
+        original_delay
+    );
+}
+
+#[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn authored_player_ai_actions_ignore_foreign_same_id_controller_and_preserve_core_fallback() {
     super::sequential_actor_tests::isolated(

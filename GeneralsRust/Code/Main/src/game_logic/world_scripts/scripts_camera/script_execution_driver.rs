@@ -168,6 +168,20 @@ impl<'a> HostScriptExecutionDriver<'a> {
         }
     }
 
+    fn query_script_player_id(
+        &mut self,
+        token: &str,
+        current_player: Option<&str>,
+    ) -> Option<u32> {
+        if token == gamelogic::scripting::core::THIS_PLAYER_ENEMY
+            && let Some(current) =
+                current_player.and_then(|name| self.world.authored_script_player_id(name))
+        {
+            self.world.query_owned_ai_enemy(current);
+        }
+        self.script_player_id(token, current_player)
+    }
+
     fn script_science_source(
         &self,
         player: &str,
@@ -283,11 +297,11 @@ impl HostScriptExecutionDriver<'_> {
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn script_player_name_token(
-        &self,
+        &mut self,
         raw: &str,
         current_player: Option<&str>,
     ) -> ScriptOwnerQuery<Option<String>> {
-        match self.script_player_id(raw, current_player) {
+        match self.query_script_player_id(raw, current_player) {
             Some(id) => ScriptOwnerQuery::Present(
                 self.world
                     .players
@@ -3009,12 +3023,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         query: ScriptSupplyQuery,
     ) -> ScriptOwnerQuery<(u32, bool)> {
         let player = if player_mask == 0 {
-            if token == gamelogic::scripting::core::THIS_PLAYER_ENEMY {
-                if let Some(current) = current_player.and_then(|name| self.world.authored_script_player_id(name)) {
-                    self.world.query_owned_ai_enemy(current);
-                }
-            }
-            self.script_player_id(token, current_player)
+            self.query_script_player_id(token, current_player)
         } else if player_mask.is_power_of_two() {
             Some(player_mask.trailing_zeros())
         } else {

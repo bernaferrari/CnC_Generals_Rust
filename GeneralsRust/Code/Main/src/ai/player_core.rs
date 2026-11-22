@@ -1314,14 +1314,16 @@ impl AIPlayer {
         if let Some((_, target)) = active.iter().find(|(id, _)| *id == player_id) {
             return *target;
         }
-        let mut peer = game_logic.ai_manager.ai_players.remove(&player_id)?;
         let frame = game_logic.get_frame();
-        if frame >= peer.frame_to_check_enemy {
-            peer.frame_to_check_enemy = frame.wrapping_add(5 * LOGIC_FRAMES_PER_SECOND as u32);
-            active.push((player_id, peer.enemy_player_id));
-            peer.acquire_enemy_recursive(game_logic, active);
-            active.pop();
+        let cached = game_logic.ai_manager.ai_players.get(&player_id)?;
+        if frame < cached.frame_to_check_enemy {
+            return cached.enemy_player_id;
         }
+        let mut peer = game_logic.ai_manager.ai_players.remove(&player_id)?;
+        peer.frame_to_check_enemy = frame.wrapping_add(5 * LOGIC_FRAMES_PER_SECOND as u32);
+        active.push((player_id, peer.enemy_player_id));
+        peer.acquire_enemy_recursive(game_logic, active);
+        active.pop();
         let target = peer.enemy_player_id;
         game_logic.ai_manager.ai_players.insert(player_id, peer);
         target
