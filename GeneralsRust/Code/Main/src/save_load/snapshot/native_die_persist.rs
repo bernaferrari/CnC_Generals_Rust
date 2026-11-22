@@ -242,15 +242,16 @@ pub(super) fn validate(
     snapshot: &WorldSnapshot,
     world: &GameLogic,
     body_kinds: &HashMap<ObjectId, crate::game_logic::thing::BodyKind>,
+    object_continuations: Option<&super::object_xfer_persist::ObjectXferPersistWire>,
 ) -> SaveLoadResult<Validated> {
     let death_states =
         super::object_module_xfer_persist::saved_death_states(&snapshot.lifecycle_tail)?;
+    let consumed_xp =
+        super::object_xfer_persist::saved_kill_experience_receipts(object_continuations);
     // A v1 receipt never recorded Player score completion. A dead/started
     // import or XP-consumed live import cannot recover the original source
     // player's identity after disappearance/transfer, so reject before mutation.
     if decoded.version != Some(VERSION) {
-        let consumed_xp =
-            super::object_xfer_persist::saved_kill_experience_receipts(&snapshot.lifecycle_tail)?;
         for (id, object) in &snapshot.objects {
             if object.status.destroyed
                 || death_states.get(id).is_some_and(|state| state.started)
@@ -309,8 +310,6 @@ pub(super) fn validate(
     if records.len() != snapshot.objects.len() {
         return Err(corrupted("incomplete owner roster"));
     }
-    let consumed_xp =
-        super::object_xfer_persist::saved_kill_experience_receipts(&snapshot.lifecycle_tail)?;
     let mut runtimes = HashMap::new();
     for record in records {
         if record.score_completed && !consumed_xp.contains(&ObjectId(record.id)) {

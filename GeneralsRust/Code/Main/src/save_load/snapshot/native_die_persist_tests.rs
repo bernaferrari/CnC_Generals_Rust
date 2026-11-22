@@ -3,6 +3,16 @@ use crate::assets::ini_parser::BehaviorModuleDefinition;
 use crate::game_logic::{Team, ThingTemplate};
 use crate::save_load::snapshot::SnapshotBuilder;
 
+fn validate_fixture(
+    decoded: &Decoded<'_>,
+    snapshot: &WorldSnapshot,
+    receiving: &GameLogic,
+) -> SaveLoadResult<Validated> {
+    let continuations =
+        super::super::object_xfer_persist::decode_lifecycle_tail(&snapshot.lifecycle_tail)?;
+    validate(decoded, snapshot, receiving, &HashMap::new(), continuations.as_ref())
+}
+
 fn owner(tag: &str) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     let mut template = ThingTemplate::new("NativeReceiptOwner");
@@ -146,7 +156,7 @@ fn native_die_legacy_zero_health_live_is_allowed_but_saved_started_is_rejected()
         legacy_tail: Cow::Borrowed(&[]),
     };
     assert!(
-        validate(&absent, &snapshot, &source, &HashMap::new()).is_ok(),
+        validate_fixture(&absent, &snapshot, &source).is_ok(),
         "inactive zero HP is not proof of death"
     );
     source
@@ -162,7 +172,7 @@ fn native_die_legacy_zero_health_live_is_allowed_but_saved_started_is_rejected()
         .unwrap();
     assert!(source.host_object(id).unwrap().status.on_die_started);
     let started = builder.create_world_snapshot(&source).unwrap();
-    let error = validate(&absent, &started, &source, &HashMap::new()).unwrap_err();
+    let error = validate_fixture(&absent, &started, &source).unwrap_err();
     assert!(
         error
             .to_string()
@@ -248,7 +258,7 @@ fn native_die_capsule_forged_completed_or_ai_receipt_rejects_detached_candidate(
             legacy_tail: Cow::Borrowed(&[]),
         };
         assert!(
-            validate(&decoded, &snapshot, &receiving, &HashMap::new())
+            validate_fixture(&decoded, &snapshot, &receiving)
                 .unwrap_err()
                 .to_string()
                 .contains("invalid completed slot or AI receipt")
@@ -444,7 +454,7 @@ fn native_die_capsule_ai_receipt_requires_world_latch_despite_receiving_interfac
         legacy_tail: Cow::Borrowed(&[]),
     };
     assert!(
-        validate(&forged, &snapshot, &source, &HashMap::new())
+        validate_fixture(&forged, &snapshot, &source)
             .unwrap_err()
             .to_string()
             .contains("AI-dead receipt requires world onDie admission")

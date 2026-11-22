@@ -618,6 +618,43 @@ fn obsolete_oxob_versions_leave_the_receiving_world_untouched() {
 }
 
 #[test]
+fn rejected_oxob_trailing_bytes_leave_the_receiving_world_untouched() {
+    use generals_main::save_load::{SaveLoadError, SnapshotBuilder};
+
+    let (source, _, _) = contained_weapon_world_with_fire(true, false, Some(false));
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+    let offset = snapshot
+        .lifecycle_tail
+        .windows(4)
+        .rposition(|tag| tag == b"OXOB")
+        .unwrap();
+    let length_field = offset + 8..offset + 12;
+    let length = u32::from_le_bytes(
+        snapshot.lifecycle_tail[length_field.clone()]
+            .try_into()
+            .unwrap(),
+    );
+    snapshot.lifecycle_tail[length_field].copy_from_slice(&(length + 1).to_le_bytes());
+    snapshot
+        .lifecycle_tail
+        .insert(offset + 12 + length as usize, 0);
+
+    let (mut receiving, receiver, _) = contained_weapon_world_with_fire(true, false, Some(false));
+    let target = glam::Vec3::new(70.0, 0.0, 30.0);
+    receiving.host_object_mut(receiver).unwrap().target_location = Some(target);
+    let result = builder.restore_from_snapshot(&snapshot, &mut receiving);
+    assert!(
+        matches!(&result, Err(SaveLoadError::Corrupted(message)) if message == "OXOB trailing payload"),
+        "unexpected restore result: {result:?}"
+    );
+    assert_eq!(
+        receiving.host_object(receiver).unwrap().target_location,
+        Some(target)
+    );
+}
+
+#[test]
 fn rejected_nonfinite_target_position_leaves_session_unchanged() {
     let (source, _, _) = contained_weapon_world_with_fire(true, false, Some(false));
     let builder = generals_main::save_load::SnapshotBuilder::new();

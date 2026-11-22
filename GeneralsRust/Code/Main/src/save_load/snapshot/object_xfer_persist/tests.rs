@@ -22,12 +22,19 @@ fn malformed_body_history_owner_preserves_receiving_history_and_pose() {
         object_id: id.0,
         last_damage_type: None,
     });
-    let encoded = bincode_legacy::serialize(&payload).unwrap();
+    let wire = ObjectXferPersistWire {
+        prior: payload,
+        morale: vec![(id.0, false, false)],
+    };
+    let encoded = bincode_legacy::serialize(&wire).unwrap();
     let mut bytes = OXOB_MAGIC.to_vec();
     append_u32(&mut bytes, OXOB_VERSION);
     append_u32(&mut bytes, encoded.len() as u32);
     bytes.extend_from_slice(&encoded);
-    assert!(apply_from_lifecycle_tail(&bytes, &mut receiving).is_err());
+    assert!(matches!(
+        apply_from_lifecycle_tail(&bytes, &mut receiving),
+        Err(SaveLoadError::Corrupted(message)) if message == "invalid saved body damage-info owner"
+    ));
     assert_eq!(
         receiving.host_object(id).unwrap().last_damage_info_type,
         Some(crate::game_logic::combat::DamageType::Flame)
@@ -67,12 +74,19 @@ fn malformed_structure_matrix_rejects_before_receiving_state_changes() {
     let mut payload = capture(&receiving);
     assert_eq!(payload.structures.len(), 1);
     payload.structures[0].matrix[0] = f32::NAN;
-    let encoded = bincode_legacy::serialize(&payload).unwrap();
+    let wire = ObjectXferPersistWire {
+        prior: payload,
+        morale: vec![(id.0, false, false)],
+    };
+    let encoded = bincode_legacy::serialize(&wire).unwrap();
     let mut bytes = OXOB_MAGIC.to_vec();
     append_u32(&mut bytes, OXOB_VERSION);
     append_u32(&mut bytes, encoded.len() as u32);
     bytes.extend_from_slice(&encoded);
-    assert!(apply_from_lifecycle_tail(&bytes, &mut receiving).is_err());
+    assert!(matches!(
+        apply_from_lifecycle_tail(&bytes, &mut receiving),
+        Err(SaveLoadError::Corrupted(message)) if message == "invalid saved StructureTopple state or receiving module"
+    ));
     let object = receiving.host_object(id).unwrap();
     assert!(object.script_targetable);
     assert!(object.structure_topple_data.is_some());
@@ -394,7 +408,7 @@ fn oxob_round_trips_indicator_vision_single_use_preattack() {
     }
 
     let mut bytes = Vec::new();
-    append_to_lifecycle_tail(&mut bytes, &source);
+    append_to_lifecycle_tail(&mut bytes, &source).expect("encode OXOB");
     assert!(
         find_oxob_suffix(&bytes).is_some(),
         "OXOB suffix must encode indicator/vision/single-use/pre-attack"
@@ -454,7 +468,7 @@ fn oxob_round_trips_cheer_scatter_horde_bonus() {
     }
 
     let mut bytes = Vec::new();
-    append_to_lifecycle_tail(&mut bytes, &source);
+    append_to_lifecycle_tail(&mut bytes, &source).expect("encode OXOB");
     assert!(find_oxob_suffix(&bytes).is_some());
 
     let mut dest = GameLogic::new();
@@ -496,7 +510,7 @@ fn oxob_round_trips_safe_occlusion_frame() {
     }
 
     let mut bytes = Vec::new();
-    append_to_lifecycle_tail(&mut bytes, &source);
+    append_to_lifecycle_tail(&mut bytes, &source).expect("encode OXOB");
     assert!(find_oxob_suffix(&bytes).is_some());
 
     let mut dest = GameLogic::new();
@@ -584,7 +598,7 @@ fn oxob_round_trips_health_box_last_fire_recruit_ignore() {
     // not in the OXOB record; snapshot_round_trips_object_xfer_clocks covers them.
 
     let mut bytes = Vec::new();
-    append_to_lifecycle_tail(&mut bytes, &source);
+    append_to_lifecycle_tail(&mut bytes, &source).expect("encode OXOB");
     assert!(find_oxob_suffix(&bytes).is_some());
 
     let mut dest = GameLogic::new();

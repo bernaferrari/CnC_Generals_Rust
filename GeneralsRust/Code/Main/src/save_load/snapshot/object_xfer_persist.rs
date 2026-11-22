@@ -64,7 +64,7 @@ struct ObjectXferPersistPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ObjectXferPersistWire {
+pub(super) struct ObjectXferPersistWire {
     prior: ObjectXferPersistPayload,
     morale: Vec<(u32, bool, bool)>,
 }
@@ -192,70 +192,86 @@ struct ObjectXferPersist {
     downhill_only: bool,
 }
 
-pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
+pub(super) fn append_to_lifecycle_tail(
+    bytes: &mut Vec<u8>,
+    game_logic: &GameLogic,
+) -> SaveLoadResult<()> {
     let prior = capture(game_logic);
     if prior.objects.is_empty() {
-        return;
-    }
-    let morale = game_logic.host_objects().registered()
-        .map(|(id, object)| (id.0, object.weapon_bonus_nationalism, object.weapon_bonus_fanaticism))
-        .collect();
-    let payload = ObjectXferPersistWire { prior, morale };
-    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
-        return;
-    };
-    bytes.extend_from_slice(OXOB_MAGIC);
-    append_u32(bytes, OXOB_VERSION);
-    append_u32(bytes, encoded.len() as u32);
-    bytes.extend_from_slice(&encoded);
-}
-
-fn decode_wire(version: u32, bytes: &[u8]) -> SaveLoadResult<ObjectXferPersistWire> {
-    if version != OXOB_VERSION {
-        return Err(SaveLoadError::Corrupted(format!(
-            "unsupported OXOB projection version {version}"
-        )));
-    }
-    bincode_legacy::deserialize(bytes)
-        .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))
-}
-
-fn decode_current_payload(version: u32, bytes: &[u8]) -> SaveLoadResult<ObjectXferPersistPayload> {
-    decode_wire(version, bytes).map(|wire| wire.prior)
-}
-
-/// Validate owned object continuations before replacing the receiving session.
-pub(super) fn validate_owned_object_continuations_before_restore(
-    bytes: &[u8],
-    snapshot: &super::WorldSnapshot,
-) -> SaveLoadResult<()> {
-    if snapshot.objects.is_empty() {
         return Ok(());
     }
+    let morale = game_logic
+        .host_objects()
+        .registered()
+        .map(|(id, object)| {
+            (
+                id.0,
+                object.weapon_bonus_nationalism,
+                object.weapon_bonus_fanaticism,
+            )
+        })
+        .collect();
+    let payload = ObjectXferPersistWire { prior, morale };
+    let encoded = bincode_legacy::serialize(&payload)
+        .map_err(|error| SaveLoadError::Serialization(format!("OXOB payload encode: {error}")))?;
+    let length = u32::try_from(encoded.len())
+        .map_err(|error| SaveLoadError::Serialization(format!("OXOB payload length: {error}")))?;
+    bytes.extend_from_slice(OXOB_MAGIC);
+    append_u32(bytes, OXOB_VERSION);
+    append_u32(bytes, length);
+    bytes.extend_from_slice(&encoded);
+    Ok(())
+}
+
+pub(super) fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<Option<ObjectXferPersistWire>> {
     let Some(mut rest) = find_oxob_suffix(bytes) else {
-        return Err(SaveLoadError::Corrupted(
-            "missing passenger-fire continuation".into(),
-        ));
+        return Ok(None);
     };
     let version = take_u32(&mut rest)?;
     let length = take_u32(&mut rest)? as usize;
     let encoded = rest
         .get(..length)
-        .ok_or_else(|| SaveLoadError::Corrupted("truncated passenger-fire continuation".into()))?;
-    let wire = decode_wire(version, encoded)?;
+        .ok_or_else(|| SaveLoadError::Corrupted("OXOB payload truncated".into()))?;
+    if version != OXOB_VERSION {
+        return Err(SaveLoadError::Corrupted(format!(
+            "unsupported OXOB projection version {version}"
+        )));
+    }
+    let (wire, consumed) = bincode::serde::decode_from_slice(encoded, bincode::config::legacy())
+        .map_err(|error| SaveLoadError::Corrupted(format!("OXOB payload decode: {error}")))?;
+    if consumed != encoded.len() {
+        return Err(SaveLoadError::Corrupted("OXOB trailing payload".into()));
+    }
+    Ok(Some(wire))
+}
+
+/// Validate owned object continuations before replacing the receiving session.
+pub(super) fn validate_owned_object_continuations_before_restore(
+    wire: Option<&ObjectXferPersistWire>,
+    snapshot: &super::WorldSnapshot,
+) -> SaveLoadResult<()> {
+    if snapshot.objects.is_empty() {
+        return Ok(());
+    }
+    let wire =
+        wire.ok_or_else(|| SaveLoadError::Corrupted("missing passenger-fire continuation".into()))?;
     let mut ids = std::collections::HashSet::new();
     for (id, _, _) in &wire.morale {
         if !ids.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
-            return Err(SaveLoadError::Corrupted("invalid morale continuation owner".into()));
+            return Err(SaveLoadError::Corrupted(
+                "invalid morale continuation owner".into(),
+            ));
         }
     }
     if ids.len() != snapshot.objects.len() {
-        return Err(SaveLoadError::Corrupted("incomplete morale continuation owners".into()));
+        return Err(SaveLoadError::Corrupted(
+            "incomplete morale continuation owners".into(),
+        ));
     }
-    let payload = wire.prior;
+    let payload = &wire.prior;
     let mut ids = std::collections::HashSet::new();
-    for (id, _) in payload.passenger_fire_permissions {
-        if !ids.insert(id) || !snapshot.objects.contains_key(&ObjectId(id)) {
+    for (id, _) in &payload.passenger_fire_permissions {
+        if !ids.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
             return Err(SaveLoadError::Corrupted(
                 "invalid passenger-fire continuation owner".into(),
             ));
@@ -321,47 +337,53 @@ pub(super) fn validate_owned_object_continuations_before_restore(
 
 /// Inspect the historical XP-only receipt before any receiving-world mutation.
 pub(super) fn saved_kill_experience_receipts(
-    bytes: &[u8],
-) -> SaveLoadResult<std::collections::HashSet<ObjectId>> {
-    let Some(mut rest) = find_oxob_suffix(bytes) else {
-        return Ok(Default::default());
-    };
-    let version = take_u32(&mut rest)?;
-    let length = take_u32(&mut rest)? as usize;
-    let bytes = rest
-        .get(..length)
-        .ok_or_else(|| SaveLoadError::Corrupted("OXOB payload truncated".into()))?;
-    let body_history = decode_current_payload(version, bytes)?.body_history;
-    Ok(body_history
-        .into_iter()
+    wire: Option<&ObjectXferPersistWire>,
+) -> std::collections::HashSet<ObjectId> {
+    wire.into_iter()
+        .flat_map(|wire| &wire.prior.body_history)
         .filter(|record| record.kill_experience_awarded)
         .map(|record| ObjectId(record.object_id))
-        .collect())
+        .collect()
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    let Some(suffix) = find_oxob_suffix(bytes) else {
-        reset_object_xfer(game_logic);
-        return Ok(());
-    };
-    let mut rest = suffix;
-    let version = take_u32(&mut rest)?;
-    let payload_len = take_u32(&mut rest)? as usize;
-    if rest.len() < payload_len {
-        return Err(SaveLoadError::Corrupted(
-            "OXOB payload truncated".to_string(),
-        ));
+#[cfg(test)]
+fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    apply(decode_lifecycle_tail(bytes)?, game_logic).map(|_| ())
+}
+
+pub(super) struct AppliedTransportProjection(Vec<TransportMovementPersist>);
+
+impl AppliedTransportProjection {
+    /// Check the projection after native14 and the physical data have been restored.
+    pub(super) fn validate(&self, game_logic: &GameLogic) -> SaveLoadResult<()> {
+        transport_movement_persist::validate_base_ai_projection_after_restore(game_logic, &self.0)
     }
-    let encoded = &rest[..payload_len];
-    let ObjectXferPersistWire { prior: payload, morale } = decode_wire(version, encoded)?;
+}
+
+pub(super) fn apply(
+    wire: Option<ObjectXferPersistWire>,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<AppliedTransportProjection> {
+    let Some(ObjectXferPersistWire {
+        prior: payload,
+        morale,
+    }) = wire
+    else {
+        reset_object_xfer(game_logic);
+        return Ok(AppliedTransportProjection(Vec::new()));
+    };
     let mut morale_ids = std::collections::HashSet::new();
     for (id, _, _) in &morale {
         if !morale_ids.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
-            return Err(SaveLoadError::Corrupted("invalid saved morale owner".into()));
+            return Err(SaveLoadError::Corrupted(
+                "invalid saved morale owner".into(),
+            ));
         }
     }
     if morale_ids.len() != game_logic.host_objects().registered_len() {
-        return Err(SaveLoadError::Corrupted("incomplete saved morale owners".into()));
+        return Err(SaveLoadError::Corrupted(
+            "incomplete saved morale owners".into(),
+        ));
     }
     body_damage_history_persist::validate(game_logic, &payload.body_history)?;
     let mut cleared = std::collections::HashSet::new();
@@ -467,16 +489,17 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             }
         }
     }
-    // Decode the complete suffix before changing the receiving objects. A bad
-    // record must not reset their existing clocks or script state.
+    // Only reset receiving clocks and script state after validation succeeds.
     reset_object_xfer(game_logic);
-    apply_payload(game_logic, payload);
+    let transport = apply_payload(game_logic, payload);
     for (id, nationalism, fanaticism) in morale {
-        let object = game_logic.host_object_mut(ObjectId(id)).expect("validated morale owner");
+        let object = game_logic
+            .host_object_mut(ObjectId(id))
+            .expect("validated morale owner");
         object.weapon_bonus_nationalism = nationalism;
         object.weapon_bonus_fanaticism = fanaticism;
     }
-    Ok(())
+    Ok(AppliedTransportProjection(transport))
 }
 
 fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
@@ -810,7 +833,10 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
     }
 }
 
-fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) {
+fn apply_payload(
+    game_logic: &mut GameLogic,
+    payload: ObjectXferPersistPayload,
+) -> Vec<TransportMovementPersist> {
     for (id, deadline, damage_type) in payload.body_fx_throttles {
         if let Some(object) = game_logic.host_objects_mut().get_mut(&ObjectId(id)) {
             object.next_damage_fx_time = deadline;
@@ -833,7 +859,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
             object.passengers_allowed_to_fire = allowed;
         }
     }
-    transport_movement_persist::apply(game_logic, payload.transport);
+    transport_movement_persist::apply(game_logic, &payload.transport);
     body_damage_history_persist::apply(game_logic, payload.body_history);
     for id in payload.cleared_last_attackers {
         game_logic
@@ -977,6 +1003,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
             object.downhill_only = entry.downhill_only;
         }
     }
+    payload.transport
 }
 
 fn pack_loco_flags(object: &crate::game_logic::Object) -> u32 {
@@ -1059,42 +1086,15 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[path = "locomotor_restore_tests.rs"]
 mod locomotor_restore_tests;
 
-/// Current OO deadline fields are immutable projections. Validate only after
-/// native14 has been installed and all physical/definition tails have finished.
-pub(super) fn validate_base_ai_projection_after_restore(
-    bytes: &[u8],
-    game_logic: &GameLogic,
-) -> SaveLoadResult<()> {
-    let Some(mut rest) = find_oxob_suffix(bytes) else {
-        return Ok(());
-    };
-    let version = take_u32(&mut rest)?;
-    let length = take_u32(&mut rest)? as usize;
-    let encoded = rest
-        .get(..length)
-        .ok_or_else(|| SaveLoadError::Corrupted("truncated OO projection".into()))?;
-    let payload = decode_current_payload(version, encoded)?;
-    transport_movement_persist::validate_base_ai_projection_after_restore(
-        game_logic,
-        &payload.transport,
-    )
-}
-
 pub(super) fn validate_base_ai_projection_before_restore(
-    bytes: &[u8],
+    wire: Option<&ObjectXferPersistWire>,
     snapshot: &super::WorldSnapshot,
 ) -> SaveLoadResult<()> {
-    let Some(mut rest) = find_oxob_suffix(bytes) else {
+    let Some(wire) = wire else {
         return Ok(());
     };
-    let version = take_u32(&mut rest)?;
-    let length = take_u32(&mut rest)? as usize;
-    let encoded = rest
-        .get(..length)
-        .ok_or_else(|| SaveLoadError::Corrupted("truncated OO projection".into()))?;
-    let payload = decode_current_payload(version, encoded)?;
     transport_movement_persist::validate_base_ai_projection_before_restore(
-        &payload.transport,
+        &wire.prior.transport,
         snapshot,
     )
 }

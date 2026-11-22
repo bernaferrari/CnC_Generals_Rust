@@ -280,7 +280,7 @@ impl SnapshotBuilder {
                 super::super::bridge_behavior_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
-                super::super::object_xfer_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::super::object_xfer_persist::append_to_lifecycle_tail(&mut bytes, game_logic)?;
                 super::super::inferno_fire_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -681,19 +681,22 @@ impl SnapshotBuilder {
         )?;
         let native_die =
             super::super::native_die_persist::decode(object_layers.legacy_tail.as_ref())?;
+        let lifecycle_tail = native_die.legacy_tail.as_ref();
+        let object_continuations =
+            super::super::object_xfer_persist::decode_lifecycle_tail(lifecycle_tail)?;
         let native_die_runtimes = super::super::native_die_persist::validate(
             &native_die,
             snapshot,
             game_logic,
             &body_kinds,
+            object_continuations.as_ref(),
         )?;
-        let lifecycle_tail = native_die.legacy_tail.as_ref();
         super::super::object_xfer_persist::validate_owned_object_continuations_before_restore(
-            lifecycle_tail,
+            object_continuations.as_ref(),
             snapshot,
         )?;
         super::super::object_xfer_persist::validate_base_ai_projection_before_restore(
-            lifecycle_tail,
+            object_continuations.as_ref(),
             snapshot,
         )?;
         super::super::subdual_persist::preflight_from_lifecycle_tail(lifecycle_tail, snapshot)?;
@@ -1150,7 +1153,8 @@ impl SnapshotBuilder {
             lifecycle_tail,
             game_logic,
         )?;
-        super::super::object_xfer_persist::apply_from_lifecycle_tail(lifecycle_tail, game_logic)?;
+        let transport_projection =
+            super::super::object_xfer_persist::apply(object_continuations, game_logic)?;
         // OXOB's active Guard deadline must agree with the immutable nested
         // continuation; neither record may silently repair a conflicting save.
         super::super::named_unit_history_persist::apply_from_lifecycle_tail(
@@ -1257,10 +1261,7 @@ impl SnapshotBuilder {
                 }
             }
         }
-        super::super::object_xfer_persist::validate_base_ai_projection_after_restore(
-            lifecycle_tail,
-            game_logic,
-        )?;
+        transport_projection.validate(game_logic)?;
 
         // Recreating objects may consume random values; install the saved
         // continuation only after every restore operation succeeds. This is

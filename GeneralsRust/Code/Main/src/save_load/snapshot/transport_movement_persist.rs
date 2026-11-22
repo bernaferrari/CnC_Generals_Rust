@@ -19,15 +19,19 @@ pub(super) fn capture(game_logic: &GameLogic) -> Vec<TransportMovementPersist> {
     game_logic
         .host_objects()
         .registered()
-        .map(|(id, object)| TransportMovementPersist {
-            object_id: id.0,
-            state: object.transport_return_state,
-            temporary_move_frames: temporary_projection(object, game_logic.get_frame()).0,
-            temporary_move_saved_dest: temporary_projection(object, game_logic.get_frame()).1,
-            temporary_move_saved_path_goal: temporary_projection(object, game_logic.get_frame()).2,
-            pending_evacuate: object.pending_evacuate_on_stop,
-            pending_exit: object.pending_exit_after_evacuate,
-            pending_stream: object.pending_stream_exit,
+        .map(|(id, object)| {
+            let (temporary_move_frames, temporary_move_saved_dest, temporary_move_saved_path_goal) =
+                temporary_projection(object, game_logic.get_frame());
+            TransportMovementPersist {
+                object_id: id.0,
+                state: object.transport_return_state,
+                temporary_move_frames,
+                temporary_move_saved_dest,
+                temporary_move_saved_path_goal,
+                pending_evacuate: object.pending_evacuate_on_stop,
+                pending_exit: object.pending_exit_after_evacuate,
+                pending_stream: object.pending_stream_exit,
+            }
         })
         .collect()
 }
@@ -88,7 +92,7 @@ pub(super) fn reset(game_logic: &mut GameLogic) {
     }
 }
 
-pub(super) fn apply(game_logic: &mut GameLogic, records: Vec<TransportMovementPersist>) {
+pub(super) fn apply(game_logic: &mut GameLogic, records: &[TransportMovementPersist]) {
     for entry in records {
         if let Some(object) = game_logic
             .host_objects_mut()
