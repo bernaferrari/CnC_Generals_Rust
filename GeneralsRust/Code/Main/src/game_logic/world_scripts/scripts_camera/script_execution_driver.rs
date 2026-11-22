@@ -2995,11 +2995,18 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         player: &str,
         player_mask: u32,
         current_player: Option<&str>,
+        scope: gamelogic::scripting::engine::ScriptPlayerCensusScope,
     ) -> ScriptOwnerQuery<(i32, gamelogic::scripting::HostScriptPlayerCensus)> {
+        use gamelogic::scripting::engine::ScriptPlayerCensusScope;
+
         let Some(id) = self.query_condition_player_id(player, player_mask, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
-        match self.world.owned_host_player_census_for(id) {
+        let census = match scope {
+            ScriptPlayerCensusScope::MoneyAndPower => self.world.owned_host_player_economy_for(id),
+            ScriptPlayerCensusScope::ObjectCounts => self.world.owned_host_player_census_for(id),
+        };
+        match census {
             Some(census) => ScriptOwnerQuery::Present((id as i32, census)),
             None => ScriptOwnerQuery::Missing,
         }

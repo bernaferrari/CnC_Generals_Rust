@@ -50,6 +50,13 @@ pub enum ScriptSupplyQuery {
     Attacked,
 }
 
+/// Data needed by the current authored player-census condition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptPlayerCensusScope {
+    MoneyAndPower,
+    ObjectCounts,
+}
+
 #[derive(Clone, Copy)]
 pub enum ScriptSkirmishCensus {
     NeutralUnmanned,
@@ -1504,6 +1511,7 @@ pub trait ScriptExecutionDriver {
         _player: &str,
         _player_mask: u32,
         _current_player: Option<&str>,
+        _scope: ScriptPlayerCensusScope,
     ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
         ScriptOwnerQuery::Unavailable
     }

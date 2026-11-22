@@ -1104,6 +1104,7 @@ impl ScriptExecutionDriver for PlayerCensusOwner {
         name: &str,
         _: u32,
         _current: Option<&str>,
+        _: crate::scripting::engine::ScriptPlayerCensusScope,
     ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
         self.rows
             .get(name)

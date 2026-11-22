@@ -1,6 +1,8 @@
 //! CPP ScriptConditions player queries use the driving player's completed census.
 use super::*;
-use crate::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
+use crate::scripting::engine::{
+    ScriptExecutionDriver, ScriptOwnerQuery, ScriptPlayerCensusScope,
+};
 
 impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_owned_player_census(
@@ -9,15 +11,16 @@ impl ScriptConditionEvaluator<'_> {
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         let kind = condition.get_condition_type();
-        let player_index = match kind {
-            ConditionType::PlayerHasCredits => 2,
-            ConditionType::BuiltByPlayer => 1,
-            ConditionType::PlayerHasPower
-            | ConditionType::PlayerHasNoPower
-            | ConditionType::PlayerAllBuildfacilitiesDestroyed
+        use ScriptPlayerCensusScope::{MoneyAndPower, ObjectCounts};
+
+        let (player_index, scope) = match kind {
+            ConditionType::PlayerHasCredits => (2, MoneyAndPower),
+            ConditionType::BuiltByPlayer => (1, ObjectCounts),
+            ConditionType::PlayerHasPower | ConditionType::PlayerHasNoPower => (0, MoneyAndPower),
+            ConditionType::PlayerAllBuildfacilitiesDestroyed
             | ConditionType::PlayerHasNOrFewerBuildings
             | ConditionType::PlayerHasObjectComparison
-            | ConditionType::PlayerLostObjectType => 0,
+            | ConditionType::PlayerLostObjectType => (0, ObjectCounts),
             _ => return Ok(None),
         };
         let count_frame = if kind == ConditionType::BuiltByPlayer {
@@ -43,6 +46,7 @@ impl ScriptConditionEvaluator<'_> {
             player.get_string(),
             player.get_int() as u32,
             current_player.as_deref(),
+            scope,
         ) {
             ScriptOwnerQuery::Unavailable => return Ok(None),
             ScriptOwnerQuery::Missing => {
@@ -134,7 +138,9 @@ mod tests {
             _: &str,
             _: u32,
             _: Option<&str>,
+            scope: ScriptPlayerCensusScope,
         ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
+            assert_eq!(scope, ScriptPlayerCensusScope::ObjectCounts);
             let mut census = crate::scripting::HostScriptPlayerCensus::default();
             census.template_counts.insert("ranger".into(), self.count);
             ScriptOwnerQuery::Present((0, census))

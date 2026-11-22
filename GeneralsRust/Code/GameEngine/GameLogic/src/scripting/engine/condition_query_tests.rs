@@ -46,6 +46,7 @@ impl ScriptExecutionDriver for Owner<'_> {
         name: &str,
         _: u32,
         current: Option<&str>,
+        _: crate::scripting::engine::ScriptPlayerCensusScope,
     ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
         self.seen.borrow_mut().push((
             name.into(),

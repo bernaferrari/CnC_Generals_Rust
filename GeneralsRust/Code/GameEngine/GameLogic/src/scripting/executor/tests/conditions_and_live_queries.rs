@@ -696,6 +696,7 @@ fn built_by_player_rejects_object_type_lists() {
             _: &str,
             _: u32,
             _: Option<&str>,
+            _: crate::scripting::engine::ScriptPlayerCensusScope,
         ) -> crate::scripting::engine::ScriptOwnerQuery<(
             i32,
             crate::scripting::HostScriptPlayerCensus,

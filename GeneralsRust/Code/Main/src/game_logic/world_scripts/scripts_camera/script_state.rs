@@ -607,6 +607,31 @@ impl GameLogic {
             .remove(name)
     }
 
+    pub(super) fn owned_host_player_economy_for(
+        &self,
+        player_id: u32,
+    ) -> Option<gamelogic::scripting::HostScriptPlayerCensus> {
+        let player = self.players.get(&player_id)?;
+        if player.map_side.map_player_name.is_empty() {
+            return None;
+        }
+        Some(self.script_census_money_and_power(player))
+    }
+
+    fn script_census_money_and_power(
+        &self,
+        player: &Player,
+    ) -> gamelogic::scripting::HostScriptPlayerCensus {
+        gamelogic::scripting::HostScriptPlayerCensus {
+            money: player.effective_supplies() as i32,
+            energy_production: player.energy_production_at(self.frame),
+            energy_consumption: player.power_consumed,
+            power_sabotaged: player.power_sabotaged_till_frame != 0
+                && self.frame < player.power_sabotaged_till_frame,
+            ..Default::default()
+        }
+    }
+
     fn owned_host_player_census_filtered(
         &self,
         only_player: Option<u32>,
@@ -627,16 +652,11 @@ impl GameLogic {
             by_player_id.insert(
                 player.id,
                 HostScriptPlayerCensus {
-                    money: player.effective_supplies() as i32,
-                    energy_production: player.energy_production_at(self.frame),
-                    energy_consumption: player.power_consumed,
-                    power_sabotaged: player.power_sabotaged_till_frame != 0
-                        && self.frame < player.power_sabotaged_till_frame,
                     science_purchase_points: player.science_purchase_points,
                     unlocked_sciences: player.unlocked_sciences.iter().cloned().collect(),
                     supply_box_value:
                         crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX,
-                    ..Default::default()
+                    ..self.script_census_money_and_power(player)
                 },
             );
         }
