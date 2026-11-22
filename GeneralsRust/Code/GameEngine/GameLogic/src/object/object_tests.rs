@@ -3079,4 +3079,93 @@ mod visibility_tests {
             assert!(obj_guard.has_died_already, "on_die must have executed");
         }
     }
+
+    #[test]
+    fn notify_firing_tracker_wakes_only_the_first_installed_wrapper() {
+        // The compatibility wrapper must wake only the selected registration,
+        // just as FiringTracker::shotFired calls setWakeFrame on itself.
+        let _serial = crate::test_sync::lock();
+        let stores = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&stores, || {
+            let id = 0xF601;
+            let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+            {
+                let mut guard = object.write().unwrap();
+                for tag in [0xF601_0001u32, 0xF601_0002u32] {
+                    let mut entry_data =
+                        crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModuleData::default();
+                    entry_data.set_module_tag_name_key(tag);
+                    let module_data = Arc::new(
+                        crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModuleData::default(),
+                    );
+                    guard.install_update_module(
+                        "FiringTracker",
+                        Box::new(
+                            crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule::new(
+                                crate::object::behavior::firing_tracker_behavior::FiringTrackerBehavior::new(id),
+                                &String::from("FiringTracker"),
+                                module_data,
+                            ),
+                        ),
+                        ModuleDataHandle::new(entry_data),
+                    );
+                }
+                guard.attach_installed_update_proxies_for_test();
+            }
+            let proxies: Vec<_> = {
+                let guard = object.read().unwrap();
+                guard.update_module_registrations().cloned().collect()
+            };
+            assert_eq!(proxies.len(), 2);
+
+            let ambient = crate::system::game_logic::get_game_logic();
+            {
+                let mut scheduler = ambient.lock().unwrap();
+                scheduler.admit_scheduling_owner(id, object.clone());
+                for proxy in &proxies {
+                    scheduler.register_sleepy_update_module(id, proxy.clone(), 100);
+                }
+            }
+
+            let mut template = crate::weapon::WeaponTemplate::new("TestGun".into());
+            template.auto_reload_when_idle_frames = 18;
+            let weapon = crate::weapon::Weapon::new_at(
+                Arc::new(template),
+                crate::weapon::WeaponSlotType::Primary,
+                0,
+            );
+            // The shooter is its own victim: `shot_fired_at` must read the
+            // already-borrowed owner rather than re-entering ambient object
+            // lookup while `self` is write-locked here.
+            object
+                .write()
+                .unwrap()
+                .notify_firing_tracker_shot_fired(&weapon, id);
+
+            let scheduler = ambient.lock().unwrap();
+            assert_eq!(scheduler.sleepy_entry_for(&proxies[0]).unwrap().1, 18);
+            assert_eq!(scheduler.sleepy_entry_for(&proxies[1]).unwrap().1, 100);
+            drop(scheduler);
+
+            let shot_counts: Vec<i32> = {
+                let guard = object.read().unwrap();
+                guard
+                    .update_module_handles
+                    .iter()
+                    .map(|&index| {
+                        guard.modules[index]
+                            .clone()
+                            .with_module(|module| {
+                                module_behavior_utility_kind(module)
+                                    .and_then(BehaviorUtilityModuleKindMut::into_firing_tracker)
+                                    .unwrap()
+                                    .behavior()
+                                    .get_num_consecutive_shots_at_victim(id)
+                            })
+                    })
+                    .collect()
+            };
+            assert_eq!(shot_counts, vec![1, 0]);
+        });
+    }
 }

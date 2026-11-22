@@ -22,4 +22,31 @@ impl super::Object {
         );
         (object, proxy)
     }
+
+    /// Build a proxy for every installed update entry (install order) and
+    /// attach the matching installed registration through the actual
+    /// `ModuleUpdateProxy` boundary — the same indices `loadPostProcess`
+    /// re-registers.
+    pub(crate) fn attach_installed_update_proxies_for_test(
+        &mut self,
+    ) -> Vec<game_engine::common::thing::update_module::UpdateModulePtr> {
+        let object_id = self.get_id();
+        let handles = self.update_module_handles.clone();
+        handles
+            .iter()
+            .map(|&index| {
+                let entry = std::sync::Arc::clone(&self.modules[index]);
+                let proxy: game_engine::common::thing::update_module::UpdateModulePtr =
+                    std::sync::Arc::new(std::sync::RwLock::new(
+                        super::ModuleUpdateProxy::new(std::sync::Arc::clone(&entry), object_id),
+                    ));
+                self.attach_update_module_registration(
+                    std::sync::Arc::clone(&proxy),
+                    Some(&entry),
+                )
+                .expect("installed registration in install order");
+                proxy
+            })
+            .collect()
+    }
 }

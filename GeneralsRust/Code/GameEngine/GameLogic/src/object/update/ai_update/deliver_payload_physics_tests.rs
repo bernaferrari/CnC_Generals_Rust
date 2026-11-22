@@ -6,7 +6,7 @@ use crate::modules::ContainModuleInterface;
 use crate::object::behavior::physics_update::{PhysicsBehaviorModuleData, PhysicsBehaviorUpdate};
 use crate::object::{Object, PhysicsInterfaceHandle};
 use crate::weapon::{WeaponSlotType, WeaponStatus, WeaponTemplate, WeaponTemplateSet};
-use game_engine::common::thing::module::{BaseModuleData, ModuleDataHandle, ModuleDataRead};
+use game_engine::common::thing::module::ModuleDataHandle;
 use std::borrow::Cow;
 use std::sync::{Mutex, RwLock};
 
@@ -104,42 +104,6 @@ impl Drop for RegisteredAircraft {
     }
 }
 
-/// This entry is visited by Object's actual UPDATE-module notification scan.
-/// It does not dispatch or skip physics: a failed nonblocking borrow diagnoses
-/// the old retained lease before that scan would block on the next entry.
-struct FiringScanProbe {
-    physics: PhysicsInterfaceHandle,
-    visits: Arc<Mutex<usize>>,
-    data: ModuleDataHandle,
-}
-
-impl Snapshotable for FiringScanProbe {
-    fn crc(&self, _: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
-    }
-    fn xfer(&mut self, _: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
-    }
-    fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-impl Module for FiringScanProbe {
-    fn as_any(&self) -> &dyn Any {
-        assert!(
-            self.physics.try_access().is_ok(),
-            "delivery firing must release canonical physics before the UPDATE scan"
-        );
-        *self.visits.lock().unwrap() += 1;
-        self
-    }
-
-    fn get_module_data(&self) -> ModuleDataRead<'_> {
-        ModuleDataRead::shared(&self.data)
-    }
-}
-
 #[derive(Debug)]
 struct IdleAi;
 
@@ -158,11 +122,10 @@ impl AIUpdateInterface for IdleAi {
     }
 }
 
-/// Invoked by the actual authored FireOCL dispatch before the firing scan.
+/// Invoked by the actual authored FireOCL dispatch before the firing notification.
 /// The default nugget object overload forwards the real borrowed primary.
 struct FiringOclProbe {
     physics: PhysicsInterfaceHandle,
-    visits: Arc<Mutex<usize>>,
     creations: Arc<Mutex<usize>>,
 }
 
@@ -185,9 +148,9 @@ impl crate::object_creation_list::ObjectCreationNugget for FiringOclProbe {
             "FireOCL must release canonical physics"
         );
         assert_eq!(
-            *self.visits.lock().unwrap(),
+            owner.firing_tracker.as_ref().unwrap().xfer_test_state().0,
             0,
-            "CPP FireOCL precedes firing tracker dispatch"
+            "CPP FireOCL precedes firing tracker notification"
         );
         *self.creations.lock().unwrap() += 1;
         None
@@ -199,7 +162,7 @@ impl crate::object_creation_list::ObjectCreationNugget for FiringOclProbe {
 }
 
 #[test]
-fn delivery_strafe_releases_physics_before_real_firing_tracker_scan() {
+fn delivery_strafe_releases_physics_before_firing_tracker_notify() {
     let _lock = crate::test_sync::lock();
     let aircraft = RegisteredAircraft::new(93_541);
     aircraft
@@ -207,24 +170,9 @@ fn delivery_strafe_releases_physics_before_real_firing_tracker_scan() {
         .access()
         .unwrap()
         .set_velocity(&Coord3D::new(10.0, 0.0, 0.0));
-    let visits = Arc::new(Mutex::new(0));
     let creations = Arc::new(Mutex::new(0));
     {
         let mut object = aircraft.owner.write().unwrap();
-        let data = ModuleDataHandle::new(BaseModuleData::new());
-        object.install_update_module(
-            "FiringScanProbe",
-            Box::new(FiringScanProbe {
-                physics: aircraft.physics.clone(),
-                visits: visits.clone(),
-                data: data.clone(),
-            }),
-            data,
-        );
-        // Authored ordering is probe then actual PhysicsBehavior. The scan
-        // continues through both before reaching the owned ctor tracker.
-        let last = object.update_module_handles.len() - 1;
-        object.update_module_handles.swap(0, last);
         let mut template = WeaponTemplate::new("DeliveryStrafingWeapon".into());
         template.clip_size = 2;
         template.reload_type = crate::weapon::WeaponReloadType::NoReload;
@@ -232,7 +180,6 @@ fn delivery_strafe_releases_physics_before_real_firing_tracker_scan() {
         let mut fire_ocl = crate::object_creation_list::ObjectCreationList::new();
         fire_ocl.add_nugget(Arc::new(FiringOclProbe {
             physics: aircraft.physics.clone(),
-            visits: visits.clone(),
             creations: creations.clone(),
         }));
         template.fire_ocl[0] = Some(Arc::new(fire_ocl));
@@ -262,15 +209,8 @@ fn delivery_strafe_releases_physics_before_real_firing_tracker_scan() {
     delivery.data.dive_start_distance = 100.0;
     delivery.data.dive_end_distance = 10.0;
     delivery.data.strafing_weapon_slot = Some(crate::common::WeaponSlotType::Primary);
-    // Earlier setup legitimately probes modules through `as_any`; count only
-    // the actual firing dispatch triggered by this update.
-    *visits.lock().unwrap() = 0;
     delivery.update(&mut IdleAi).unwrap();
 
-    assert!(
-        *visits.lock().unwrap() > 0,
-        "real UPDATE notification scan ran"
-    );
     assert_eq!(
         *creations.lock().unwrap(),
         1,
@@ -282,7 +222,7 @@ fn delivery_strafe_releases_physics_before_real_firing_tracker_scan() {
     assert_eq!(
         object.firing_tracker.as_ref().unwrap().xfer_test_state().0,
         1,
-        "the scan completed and notified the actual owned firing tracker"
+        "the notification reached the actual owned firing tracker"
     );
     assert!(object.is_cur_weapon_locked());
     assert_eq!(delivery.dive_state, DiveState::Diving);

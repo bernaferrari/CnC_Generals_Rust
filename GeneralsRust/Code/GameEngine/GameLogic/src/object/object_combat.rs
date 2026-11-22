@@ -1235,30 +1235,51 @@ impl Object {
         weapon: &crate::weapon::Weapon,
         victim_id: ObjectID,
     ) {
-        let mut handled = false;
-        for entry in self.interface_entry_snapshots(&self.update_module_handles) {
-            let mut used = false;
+        // C++ Object::notifyFiringTrackerShotFired calls the ctor-owned
+        // `m_firingTracker` pointer directly (Object.cpp:1496-1500) — no module
+        // scan exists upstream. Rust additionally routes the optional installed
+        // wrapper selected by immutable `has_firing_tracker` metadata, waking
+        // that exact registration's borrowed runtime (FiringTracker.cpp:60-160).
+        let selected = self
+            .update_module_handles
+            .iter()
+            .copied()
+            .find_map(|index| {
+                let entry = self.modules.get(index)?;
+                entry
+                    .has_firing_tracker
+                    .then(|| (index, Arc::clone(entry)))
+            });
+        if let Some((index, entry)) = selected {
+            let proxy = self
+                .update_module_registrations
+                .iter()
+                .find(|registration| registration.module_index == Some(index))
+                .map(|registration| Arc::clone(&registration.module));
+            let now = TheGameLogic::get_frame();
             entry.with_module(|module| {
-                if let Some(tracker_module) = module_behavior_utility_kind(module)
+                let tracker = module_behavior_utility_kind(module)
                     .and_then(BehaviorUtilityModuleKindMut::into_firing_tracker)
-                {
-                    tracker_module
-                        .behavior_mut()
-                        .shot_fired_with_owner(self, weapon, victim_id);
-                    used = true;
+                    .expect("installed FiringTracker type changed")
+                    .behavior_mut();
+                let wake = tracker.shot_fired_at(self, weapon, victim_id, now);
+                if let Some(proxy) = proxy {
+                    if !crate::system::game_logic::is_cur_update_module(&proxy) {
+                        if let Ok(mut scheduler) =
+                            crate::system::game_logic::get_game_logic().lock()
+                        {
+                            if let Err(error) =
+                                scheduler.awaken_borrowed_update(&proxy, now, wake, tracker)
+                            {
+                                log::debug!("FiringTracker wake unavailable: {error}");
+                            }
+                        }
+                    }
                 }
             });
-            if used {
-                handled = true;
-                break;
-            }
-        }
-
-        if !handled {
-            if let Some(mut tracker) = self.firing_tracker.take() {
-                tracker.shot_fired_with_owner(self, weapon, victim_id);
-                self.firing_tracker = Some(tracker);
-            }
+        } else if let Some(mut tracker) = self.firing_tracker.take() {
+            tracker.shot_fired_with_owner(self, weapon, victim_id);
+            self.firing_tracker = Some(tracker);
         }
     }
 

@@ -931,7 +931,7 @@ fn partition_filter_allows(
 
     for filter in filters {
         let allowed = match *filter {
-            PartitionFilter::Flammable => candidate.find_flammable_update_module().is_some(),
+            PartitionFilter::Flammable => candidate.can_ignite_from_fire_spread(),
             PartitionFilter::Enemy => {
                 matches!(from.relationship_to(candidate), Relationship::Enemies)
             }

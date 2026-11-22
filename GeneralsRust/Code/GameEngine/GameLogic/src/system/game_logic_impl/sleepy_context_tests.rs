@@ -616,3 +616,155 @@ fn normal_unregister_is_visible_before_next_callback_without_skipping_survivor()
         vec![ModuleIdentity::of(&survivor)]
     );
 }
+
+#[test]
+fn fire_spread_scheduled_ignition_uses_the_already_borrowed_scheduler() {
+    // C++ FireSpreadUpdate.cpp:124-130 + FlammableUpdate.cpp:180-195: the
+    // scheduled spreader ignites its target through the driving world's own
+    // scheduler — no ambient lookup, no second borrow of the target entry.
+    // Driving the actual compatibility shell while its mutex is held would
+    // deadlock the old ambient route outright.
+    use crate::common::AsciiString;
+    use crate::contain_module_overrides::ActiveBehaviorModule;
+    use crate::object::behavior::flammable_update::{
+        FlammableUpdate, FlammableUpdateModuleData,
+    };
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::object::update::fire_spread_update::{
+        FireSpreadUpdate, FireSpreadUpdateModule, FireSpreadUpdateModuleData,
+    };
+    use game_engine::common::thing::module::ModuleDataHandle;
+
+    let stores = crate::system::engine_stores::new_for_world();
+    crate::system::engine_stores::with_active_stores(&stores, || {
+        // Source: aflame spreader with a fixed 45-frame retry and 50-unit reach.
+        let source_data = ModuleDataHandle::new(FireSpreadUpdateModuleData {
+            min_spread_try_delay: 45,
+            max_spread_try_delay: 45,
+            spread_try_range: 50.0,
+            ..Default::default()
+        });
+        let (mut source_object, source_proxy) = Object::installed_update_proxy_for_test(
+            0xF501,
+            "FireSpreadUpdate",
+            Box::new(FireSpreadUpdateModule::new(
+                FireSpreadUpdate::with_module_data(0xF501, source_data.clone()),
+                &AsciiString::from("FireSpreadUpdate"),
+                source_data.clone(),
+            )),
+            source_data,
+        );
+        source_object.set_status(crate::common::ObjectStatusMaskType::AFLAME, true);
+        let source = Arc::new(RwLock::new(source_object));
+
+        // Target: canonical installed FlammableUpdate plus its own fixed-60
+        // FireSpread registration — the Flammable partition filter now reads
+        // the installed entry, so no fixture-only module stands in.
+        let target = Arc::new(RwLock::new(Object::new_test(0xF502, 100.0)));
+        let flammable_data = ModuleDataHandle::new(FlammableUpdateModuleData {
+            aflame_duration: 90,
+            aflame_damage_delay: 30,
+            ..Default::default()
+        });
+        let flammable =
+            FlammableUpdate::new_with_module_data(target.clone(), flammable_data.clone())
+                .expect("target flammable");
+        {
+            let mut guard = target.write().unwrap();
+            guard
+                .set_position(&crate::common::Coord3D {
+                    x: 5.0,
+                    y: 0.0,
+                    z: 0.0,
+                })
+                .expect("target position");
+            guard.install_update_module(
+                "FlammableUpdate",
+                Box::new(ActiveBehaviorModule::<FlammableUpdate>::new(
+                    "FlammableUpdate",
+                    flammable_data.clone(),
+                    flammable,
+                )),
+                flammable_data,
+            );
+            let spread_data = ModuleDataHandle::new(FireSpreadUpdateModuleData {
+                min_spread_try_delay: 60,
+                max_spread_try_delay: 60,
+                spread_try_range: 0.0,
+                ..Default::default()
+            });
+            guard.install_update_module(
+                "FireSpreadUpdate",
+                Box::new(FireSpreadUpdateModule::new(
+                    FireSpreadUpdate::with_module_data(0xF502, spread_data.clone()),
+                    &AsciiString::from("FireSpreadUpdate"),
+                    spread_data.clone(),
+                )),
+                spread_data,
+            );
+            guard.attach_installed_update_proxies_for_test();
+        }
+        let (target_flammable_proxy, target_spread_proxy) = {
+            let guard = target.read().unwrap();
+            (
+                guard
+                    .named_update_registrations("FlammableUpdate")
+                    .pop()
+                    .unwrap(),
+                guard
+                    .named_update_registrations("FireSpreadUpdate")
+                    .pop()
+                    .unwrap(),
+            )
+        };
+
+        OBJECT_REGISTRY.register_object(0xF501, &source);
+        OBJECT_REGISTRY.register_object(0xF502, &target);
+
+        // All ambient-frame reads (position setters, AreaTracker) are done;
+        // only now hold the compatibility scheduler through processing.
+        let mut world = crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap();
+        world.frame = 20;
+        world.admit_scheduling_owner(0xF501, source.clone());
+        world.admit_scheduling_owner(0xF502, target.clone());
+        world.register_sleepy_update_module(0xF501, source_proxy.clone(), 20);
+        world.register_sleepy_update_module(0xF502, target_flammable_proxy.clone(), 100);
+        world.register_sleepy_update_module(0xF502, target_spread_proxy.clone(), 100);
+
+        let _in_update_frame = crate::system::game_logic::enter_update_frame(20);
+        world.process_sleepy_updates(20);
+
+        // The ignition ran inside the frame callback with this scheduler's
+        // mutex already held: Flammable self-wake 20+30, target spread 20+60,
+        // source retry 20+45 — all through `context.awaken`, never a second
+        // ambient acquisition.
+        assert_eq!(
+            world.sleepy_entry_for(&target_flammable_proxy),
+            Some((0xF502, 50))
+        );
+        assert_eq!(
+            world.sleepy_entry_for(&target_spread_proxy),
+            Some((0xF502, 80))
+        );
+        assert_eq!(
+            world.sleepy_entry_for(&source_proxy),
+            Some((0xF501, 65))
+        );
+        assert_eq!(count_registration(&world, &target_flammable_proxy), 1);
+        assert_eq!(count_registration(&world, &target_spread_proxy), 1);
+        assert!(target
+            .read()
+            .unwrap()
+            .get_status_bits()
+            .contains(crate::common::ObjectStatusMaskType::AFLAME));
+        // The borrowed-wake stamp survives on the installed FireSpread runtime.
+        let restored_wake = source.read().unwrap().find_update_module("FireSpreadUpdate").map(
+            |mut module| {
+                module.with_module(|module| module.get_initial_wake_frame())
+            },
+        );
+        assert_eq!(restored_wake, Some(Some(65)));
+    });
+}

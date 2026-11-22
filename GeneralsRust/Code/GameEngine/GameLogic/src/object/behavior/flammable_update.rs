@@ -222,41 +222,16 @@ impl FlammableUpdate {
 
     pub fn try_to_ignite(&mut self) {
         let frame = crate::helpers::TheGameLogic::get_frame();
-        let owner_audio = self.audio.clone();
-        let mut audio = |event: &crate::common::audio::AudioEventRts| {
-            owner_audio.as_ref().map_or(0, |audio| audio.add_audio_event(event))
-        };
-        let mut spread = |object: &GameObject| -> Result<Option<UnsignedInt>, String> {
-            let is_aflame = object
-                .get_status_bits()
-                .contains(crate::common::ObjectStatusMaskType::AFLAME);
-            let Some((module, proxy)) =
-                object.find_update_module_with_registration("FireSpreadUpdate")
-            else {
-                return Ok(None);
-            };
-            let delay = module
-                .try_with_module(|module| {
-                    module
-                        .get_fire_spread_control_interface()
-                        .and_then(|spread| spread.wake_delay_if_aflame(is_aflame))
-                })
-                .flatten();
-            if let (Some(delay), Some(proxy)) = (delay, proxy) {
-                let _ = crate::helpers::TheGameLogic::register_update_module(
-                    object.get_id(),
-                    proxy,
-                    frame.saturating_add(delay),
-                );
-            }
-            Ok(delay)
-        };
         // C++ setWakeFrame targets `this`: the self proxy is resolved by the
         // authored module-data handle, the GameLogic.cpp:2965-3004 current-
         // callback exclusion is checked before the scheduler is acquired, and
         // the borrowed runtime stamps the wake so no entry lock is re-opened.
         let result = self
-            .try_to_ignite_with_services_at(frame, &mut audio, &mut spread)
+            .try_to_ignite_at_with_spread_wake(frame, |id, proxy, deadline| {
+                let _ = crate::helpers::TheGameLogic::register_update_module(
+                    id, proxy, deadline,
+                );
+            })
             .and_then(|sleep| {
                 let Some(sleep) = sleep else {
                     return Ok(());
@@ -281,6 +256,50 @@ impl FlammableUpdate {
         if let Err(error) = result {
             log::debug!("Flammable ignition unavailable: {error}");
         }
+    }
+
+    /// Compatibility and scheduled-target ignition share the audio and spread
+    /// wiring; only the spread-wake delivery differs (ambient registry write
+    /// vs the driving world's scheduler).
+    fn try_to_ignite_at_with_spread_wake(
+        &mut self,
+        frame: UnsignedInt,
+        mut wake: impl FnMut(
+            ObjectID,
+            game_engine::common::thing::update_module::UpdateModulePtr,
+            UnsignedInt,
+        ),
+    ) -> Result<Option<UpdateSleepTime>, String> {
+        let owner_audio = self.audio.clone();
+        let mut audio = |event: &crate::common::audio::AudioEventRts| {
+            owner_audio.as_ref().map_or(0, |audio| audio.add_audio_event(event))
+        };
+        let mut spread = |object: &GameObject| -> Result<Option<UnsignedInt>, String> {
+            let is_aflame = object
+                .get_status_bits()
+                .contains(crate::common::ObjectStatusMaskType::AFLAME);
+            let Some((module, proxy)) =
+                object.find_update_module_with_registration("FireSpreadUpdate")
+            else {
+                return Ok(None);
+            };
+            let delay = module
+                .try_with_module(|module| {
+                    module
+                        .get_fire_spread_control_interface()
+                        .and_then(|spread| spread.wake_delay_if_aflame(is_aflame))
+                })
+                .flatten();
+            if let (Some(delay), Some(proxy)) = (delay, proxy) {
+                wake(
+                    object.get_id(),
+                    proxy,
+                    ignition_wake_frame(frame, UpdateSleepTime::Frames(delay)),
+                );
+            }
+            Ok(delay)
+        };
+        self.try_to_ignite_with_services_at(frame, &mut audio, &mut spread)
     }
 
     /// CPP status/body/model → sound → FireSpread → timers → own wake.
@@ -698,6 +717,39 @@ impl Snapshotable for FlammableUpdate {
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
     }
+}
+
+/// Ignite the exact installed Flammable module on the supplied owner through
+/// the driving world's schedule context. C++ `FlammableUpdate::tryToIgnite`
+/// runs synchronously inside the fire-spread callback (FireSpreadUpdate.cpp:
+/// 124-130); the spread and self wakes are delivered through `context` so no
+/// ambient scheduler is re-entered while module borrows are held.
+pub(crate) fn ignite_fire_spread_target(
+    owner: &Arc<RwLock<GameObject>>,
+    context: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
+) -> Result<(), String> {
+    let Some((module, proxy)) = owner
+        .read()
+        .map_err(|_| "ignition owner poisoned")?
+        .find_update_module_with_registration("FlammableUpdate")
+    else {
+        return Ok(());
+    };
+    let frame = context.frame();
+    let sleep = module.with_module(|module| -> Result<Option<UpdateSleepTime>, String> {
+        let flammable = module
+            .as_any_mut()
+            .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<FlammableUpdate>>()
+            .ok_or("canonical Flammable module mismatch")?
+            .behavior_mut();
+        flammable.try_to_ignite_at_with_spread_wake(frame, |_, proxy, deadline| {
+            context.awaken(&proxy, deadline);
+        })
+    })?;
+    if let (Some(sleep), Some(proxy)) = (sleep, proxy) {
+        context.awaken(&proxy, ignition_wake_frame(frame, sleep));
+    }
+    Ok(())
 }
 
 /// Convert the delay passed to C++ setWakeFrame into the deadline expected

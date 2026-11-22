@@ -9,7 +9,7 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData};
 
 use crate::common::{DisabledMaskType, INVALID_ID, NameKeyType, ObjectID};
-use crate::helpers::{FiringTracker, TheGameLogic};
+use crate::helpers::FiringTracker;
 use crate::modules::{
     BehaviorModuleInterface, SleepyUpdatePhase, UpdateModuleInterface, UpdateSleepTime,
 };
@@ -47,7 +47,6 @@ impl Snapshotable for FiringTrackerBehaviorModuleData {
 
 #[derive(Debug)]
 pub struct FiringTrackerBehavior {
-    object_id: ObjectID,
     tracker: FiringTracker,
     next_call_frame_and_phase: u32,
 }
@@ -55,9 +54,8 @@ pub struct FiringTrackerBehavior {
 impl FiringTrackerBehavior {
     pub fn new(object_id: ObjectID) -> Self {
         Self {
-            object_id,
             tracker: FiringTracker::new(object_id),
-            next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
+            next_call_frame_and_phase: (0x3fff_ffff << 2) | SleepyUpdatePhase::Final as u32,
         }
     }
 
@@ -73,6 +71,16 @@ impl FiringTrackerBehavior {
 
     pub fn shot_fired(&mut self, weapon: &crate::weapon::Weapon, victim_id: ObjectID) {
         self.tracker.shot_fired(weapon, victim_id);
+    }
+
+    pub(crate) fn shot_fired_at(
+        &mut self,
+        owner: &mut crate::object::Object,
+        weapon: &crate::weapon::Weapon,
+        victim_id: ObjectID,
+        now: u32,
+    ) -> u32 {
+        self.tracker.shot_fired_at(owner, weapon, victim_id, now)
     }
 
     pub fn last_shot_frame(&self) -> u32 {
@@ -96,6 +104,10 @@ impl UpdateModuleInterface for FiringTrackerBehavior {
     fn get_update_phase(&self) -> SleepyUpdatePhase {
         SleepyUpdatePhase::Final
     }
+
+    fn record_scheduled_wake(&mut self, frame: u32, phase: SleepyUpdatePhase) {
+        self.next_call_frame_and_phase = (frame.min(0x3fff_ffff) << 2) | phase as u32;
+    }
 }
 
 impl BehaviorModuleInterface for FiringTrackerBehavior {
@@ -105,6 +117,10 @@ impl BehaviorModuleInterface for FiringTrackerBehavior {
 
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
+    }
+
+    fn behavior_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(self.next_call_frame_and_phase >> 2)
     }
 }
 
@@ -139,7 +155,7 @@ pub struct FiringTrackerBehaviorModule {
 
 impl FiringTrackerBehaviorModule {
     pub fn initial_wake_frame(&self) -> u32 {
-        self.behavior.next_call_frame_and_phase
+        self.behavior.next_call_frame_and_phase >> 2
     }
 
     pub fn new(
@@ -191,24 +207,6 @@ impl Module for FiringTrackerBehaviorModule {
             game_engine::common::thing::module::ModuleDataRead::borrowed(self.module_data.as_ref())
         }
 
-    fn on_object_created(&mut self) {
-        self.behavior.next_call_frame_and_phase = UpdateSleepTime::Forever.to_u32();
-        if self.object_id() != 0 {
-            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id())
-                .or_else(|| {
-                    crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id())
-                })
-            {
-                if let Ok(guard) = obj.read() {
-                    let module_tag = self.module_data.get_module_tag_name_key();
-                    if !guard.reschedule_tagged_update(module_tag, self.behavior.next_call_frame_and_phase) {
-                        guard.reschedule_named_update("FiringTracker", self.behavior.next_call_frame_and_phase);
-                    }
-                }
-            }
-        }
-    }
-
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
     /// to the wrapped behavior's per-frame hooks. Replaces the former
@@ -234,11 +232,10 @@ impl Module for FiringTrackerBehaviorModule {
     fn get_initial_wake_frame(&mut self) -> Option<u32> {
         Some(self.initial_wake_frame())
     }
-}
 
-impl FiringTrackerBehaviorModule {
-    fn object_id(&self) -> ObjectID {
-        self.behavior.object_id
+    /// Record the canonical scheduler deadline in the serialized base state.
+    fn record_scheduled_wake(&mut self, frame: u32, phase: SleepyUpdatePhase) {
+        self.behavior.record_scheduled_wake(frame, phase);
     }
 }
 

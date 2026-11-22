@@ -139,24 +139,43 @@ impl FiringTracker {
 
     pub fn shot_fired_with_owner(
         &mut self,
-        mut owner_guard: &mut crate::object::Object,
+        owner_guard: &mut crate::object::Object,
         weapon: &crate::weapon::Weapon,
         victim_id: ObjectID,
     ) {
         let now = TheGameLogic::get_frame();
+        self.shot_fired_at(owner_guard, weapon, victim_id, now);
+    }
+
+    /// C++ FiringTracker::shotFired (FiringTracker.cpp:60-160): bonuses and
+    /// audio side effects, then returns the wake deadline its own update needs.
+    /// The caller owns scheduling; the ctor helper is driven by Object::update.
+    pub(crate) fn shot_fired_at(
+        &mut self,
+        owner_guard: &mut crate::object::Object,
+        weapon: &crate::weapon::Weapon,
+        victim_id: ObjectID,
+        now: UnsignedInt,
+    ) -> UnsignedInt {
         self.last_shot_frame = now;
 
-        let victim_has_faerie_fire = TheGameLogic::find_object_by_id(victim_id)
-            .map(|victim| {
-                victim
-                    .read()
-                    .ok()
-                    .map(|victim_guard| {
-                        victim_guard.test_status(crate::common::ObjectStatusTypes::FaerieFire)
-                    })
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
+        let victim_has_faerie_fire = if victim_id == INVALID_ID {
+            false
+        } else if victim_id == owner_guard.get_id() {
+            owner_guard.test_status(crate::common::ObjectStatusTypes::FaerieFire)
+        } else {
+            TheGameLogic::find_object_by_id(victim_id)
+                .map(|victim| {
+                    victim
+                        .read()
+                        .ok()
+                        .map(|victim_guard| {
+                            victim_guard.test_status(crate::common::ObjectStatusTypes::FaerieFire)
+                        })
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false)
+        };
 
         if victim_has_faerie_fire {
             if !owner_guard
@@ -207,18 +226,18 @@ impl FiringTracker {
             .contains(crate::common::types::WeaponBonusConditionFlags::CONTINUOUS_FIRE_MEAN)
         {
             if self.consecutive_shots < shots_needed_one {
-                self.cool_down(&mut owner_guard);
+                self.cool_down(owner_guard);
             } else if self.consecutive_shots > shots_needed_two {
-                self.speed_up(&mut owner_guard);
+                self.speed_up(owner_guard);
             }
         } else if bonus_flags
             .contains(crate::common::types::WeaponBonusConditionFlags::CONTINUOUS_FIRE_FAST)
         {
             if self.consecutive_shots < shots_needed_two {
-                self.cool_down(&mut owner_guard);
+                self.cool_down(owner_guard);
             }
         } else if self.consecutive_shots > shots_needed_one {
-            self.speed_up(&mut owner_guard);
+            self.speed_up(owner_guard);
         }
 
         let fire_sound_loop_time = template.fire_sound_loop_time;
@@ -256,14 +275,13 @@ impl FiringTracker {
         }
 
         let sleep_time = self.calc_time_to_sleep(now);
-        let wake_frame = match sleep_time {
+        match sleep_time {
             crate::modules::UpdateSleepTime::None => now.saturating_add(1),
             crate::modules::UpdateSleepTime::Forever => {
                 crate::modules::UpdateSleepTime::Forever.to_u32()
             }
             crate::modules::UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
-        };
-        owner_guard.reschedule_named_update("FiringTracker", wake_frame);
+        }
     }
 
     pub fn update(&mut self) -> crate::modules::UpdateSleepTime {

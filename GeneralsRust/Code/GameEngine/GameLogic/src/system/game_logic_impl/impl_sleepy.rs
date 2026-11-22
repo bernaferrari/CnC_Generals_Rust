@@ -153,6 +153,17 @@ impl UpdateScheduleContext for UpdateExecutionContext<'_> {
         true
     }
 
+    fn ignite_fire_spread_target(&mut self, object_id: u32) -> bool {
+        if let Some(owner) = self.objects.get(&object_id).cloned() {
+            if let Err(error) =
+                crate::object::behavior::flammable_update::ignite_fire_spread_target(&owner, self)
+            {
+                log::debug!("Fire-spread ignition unavailable: {error}");
+            }
+        }
+        true
+    }
+
     fn frame(&self) -> u32 {
         self.now
     }

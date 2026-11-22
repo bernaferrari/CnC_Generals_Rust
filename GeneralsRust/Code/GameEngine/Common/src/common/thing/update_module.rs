@@ -104,6 +104,14 @@ pub trait UpdateScheduleContext {
         false
     }
 
+    /// Ignite a fire-spread target through the driving world's own scheduler
+    /// and object table. Returns true when the context owns ignition, even for
+    /// retired or nonflammable targets; compatibility contexts return false so
+    /// the caller falls back to the legacy ambient route.
+    fn ignite_fire_spread_target(&mut self, _object_id: u32) -> bool {
+        false
+    }
+
     fn awaken(&mut self, module: &UpdateModulePtr, wake_frame: u32);
     fn unregister(&mut self, module: &UpdateModulePtr);
 }

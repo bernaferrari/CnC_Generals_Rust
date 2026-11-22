@@ -3,8 +3,10 @@
 // Ported to Rust
 
 use crate::common::types::PartitionManagerInterface;
+use crate::contain_module_overrides::ActiveBehaviorModule;
 use crate::modules::FlammableUpdateExt;
 use crate::object::ObjectArcExt;
+use crate::object::behavior::flammable_update::FlammableUpdate;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -162,6 +164,54 @@ impl game_engine::common::thing::update_module::UpdateModuleInterface for FireSp
     fn update_simple(&mut self) -> game_engine::common::thing::update_module::UpdateSleepTime {
         FireSpreadUpdate::update_simple(self)
     }
+
+    /// Scheduled dispatch ignites the chosen target through the driving
+    /// world's own scheduler (C++ FireSpreadUpdate.cpp:124-130 happens inside
+    /// the update). Contexts that cannot own ignition take the legacy route.
+    fn update_scheduled(
+        &mut self,
+        context: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.update_with_ignition(|id| {
+            if !context.ignite_fire_spread_target(id) {
+                ignite_legacy_target(id);
+            }
+        }))
+    }
+
+    fn record_scheduled_wake(&mut self, frame: u32, phase: crate::modules::SleepyUpdatePhase) {
+        self.next_call_frame_and_phase = (frame.min(0x3fff_ffff) << 2) | phase as u32;
+    }
+}
+
+/// Legacy compatibility ignition: the ambient registry supplies the target
+/// and the compatibility `try_to_ignite` owns scheduling. The first installed
+/// `FlammableUpdate` entry wins (C++ `Object::findUpdateModule` first-match);
+/// injected-handle harnesses keep the behavior-view fallback.
+fn ignite_legacy_target(id: ObjectID) {
+    if let Some(owner) = crate::object::OBJECT_REGISTRY.get_object(id) {
+        let installed = owner
+            .read()
+            .ok()
+            .and_then(|object| object.find_update_module("FlammableUpdate"));
+        if let Some(module) = installed {
+            module.with_module(|module| {
+                if let Some(wrapper) = module
+                    .as_any_mut()
+                    .downcast_mut::<ActiveBehaviorModule<FlammableUpdate>>()
+                {
+                    wrapper.behavior_mut().try_to_ignite();
+                }
+            });
+            return;
+        }
+    }
+    if let Some(flammable) = crate::object::OBJECT_REGISTRY
+        .with_object(id, |obj| obj.find_flammable_update_module())
+        .flatten()
+    {
+        flammable.try_to_ignite_without_context();
+    }
 }
 
 impl FireSpreadUpdate {
@@ -175,7 +225,9 @@ impl FireSpreadUpdate {
         Self {
             thing,
             module_data,
-            next_call_frame_and_phase: 0,
+            // The C++ FireSpreadUpdate constructor sets UPDATE_SLEEP_FOREVER.
+            next_call_frame_and_phase: (0x3fff_ffff << 2)
+                | crate::modules::SleepyUpdatePhase::Normal as u32,
         }
     }
 
@@ -232,6 +284,13 @@ impl FireSpreadUpdate {
     }
 
     pub fn update_simple(&mut self) -> UpdateSleepTime {
+        self.update_with_ignition(ignite_legacy_target)
+    }
+
+    /// C++ FireSpreadUpdate.cpp:93-135 ordered body. OCL embers, closest-
+    /// flammable selection, and the spread delay are unchanged; only the final
+    /// target-ignition effect is supplied by the caller.
+    fn update_with_ignition(&mut self, mut ignite: impl FnMut(ObjectID)) -> UpdateSleepTime {
         // A cleared owner cannot represent a live flammable object. Match
         // the typed missing-owner adapter without inspecting a peer registry.
         if self.thing == crate::common::INVALID_ID {
@@ -292,12 +351,7 @@ impl FireSpreadUpdate {
         };
 
         if let Some(object_to_light_id) = object_to_light {
-            if let Some(flammable) = crate::object::OBJECT_REGISTRY
-                .with_object(object_to_light_id, |obj| obj.find_flammable_update_module())
-                .flatten()
-            {
-                flammable.try_to_ignite_without_context();
-            }
+            ignite(object_to_light_id);
         }
 
         UpdateSleepTime::Frames(self.calc_next_spread_delay())
@@ -473,6 +527,17 @@ impl Module for FireSpreadUpdateModule {
         &mut self,
     ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
         Some(&mut self.behavior)
+    }
+
+    /// C++ `UpdateModule` initial wake, decoded from the serialized packed
+    /// base state (frame << 2 | phase).
+    fn get_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(self.behavior.next_call_frame_and_phase >> 2)
+    }
+
+    /// Record the canonical scheduler deadline in the serialized base state.
+    fn record_scheduled_wake(&mut self, frame: u32, phase: crate::modules::SleepyUpdatePhase) {
+        self.behavior.record_scheduled_wake(frame, phase);
     }
 }
 
