@@ -455,6 +455,20 @@ impl HostFireSpreadData {
         self.spread_enabled && self.is_aflame() && current_frame >= self.next_spread_frame
     }
 
+    /// C++ FlammableUpdate work this frame still owes the clock: pending DOT,
+    /// a smoldering transition, or the aflame-end transition. Authored
+    /// ignition queues the burning sound synchronously
+    /// (`Object::complete_flammable_ignition`), so a sleeping sound is not
+    /// part of the predicate.
+    pub(in crate::game_logic) fn flammable_due(&self, frame: u32) -> bool {
+        self.is_aflame()
+            && ((self.damage_end_frame != 0 && frame >= self.damage_end_frame)
+                || (!self.smoldering
+                    && self.burned_end_frame != 0
+                    && frame >= self.burned_end_frame)
+                || (self.aflame_end_frame != 0 && frame >= self.aflame_end_frame))
+    }
+
     fn finish_spread_tick(&mut self, current_frame: u32, delay: u32) -> SpreadTickResult {
         let mut r = SpreadTickResult::default();
         r.try_spread = true;

@@ -191,10 +191,16 @@ impl GameLogic {
         let frame = self.frame as u32;
         // C++ GameLogic::update runs due Flammable/FireSpread updates without
         // an isEffectivelyDead check; only physically destroyed objects stop.
+        // Objects whose clocks are all sleeping take no mutable loan at all.
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
-            .filter(|(_, o)| !o.status.destroyed && o.has_fire_spread())
+            .filter(|(_, o)| {
+                !o.status.destroyed
+                    && o.fire_spread.as_ref().is_some_and(|fire| {
+                        fire.flammable_due(frame) || fire.spread_due(frame)
+                    })
+            })
             .map(|(id, _)| *id)
             .collect();
         if ids.is_empty() {
@@ -206,7 +212,18 @@ impl GameLogic {
             if ignited_this_update.contains(&id) {
                 continue;
             }
-            let (position, begin, burning_sound, incarnation) = {
+            // Earlier callbacks may have retired, destroyed, or re-timed this
+            // object; recheck the due predicate before taking a mutable loan.
+            let due = self.objects.get(&id).is_some_and(|object| {
+                !object.status.destroyed
+                    && object.fire_spread.as_ref().is_some_and(|fire| {
+                        fire.flammable_due(frame) || fire.spread_due(frame)
+                    })
+            });
+            if !due {
+                continue;
+            }
+            let (position, begin, start_sound, incarnation, flammable_due) = {
                 let Some(object) = self.objects.get_mut(&id) else {
                     continue;
                 };
@@ -214,11 +231,21 @@ impl GameLogic {
                 let Some(fire) = object.fire_spread.as_mut() else {
                     continue;
                 };
+                let flammable_due = fire.flammable_due(frame);
+                let begin = if flammable_due {
+                    fire.begin_tick_flammable(frame)
+                } else {
+                    crate::game_logic::host_fire_spread::FlammableTickResult::default()
+                };
+                let start_sound = begin
+                    .start_burning_sound
+                    .then(|| fire.burning_sound_name.clone());
                 (
                     position,
-                    fire.begin_tick_flammable(frame),
-                    fire.burning_sound_name.clone(),
+                    begin,
+                    start_sound,
                     std::sync::Arc::clone(&object.visual_draw_identity_token),
+                    flammable_due,
                 )
             };
             // C++ FlammableUpdate::update calls doAflameDamage before the
@@ -244,30 +271,27 @@ impl GameLogic {
             }) {
                 continue;
             }
-            if begin.start_burning_sound {
-                self.start_fire_spread_burning_sound(id, position, &burning_sound);
+            if let Some(sound) = start_sound {
+                self.start_fire_spread_burning_sound(id, position, &sound);
             }
-            let Some((tail, spread_due, position, smoldering, burning_sound, ember_ocl, range)) =
-                ({
-                    let Some(object) = self.objects.get_mut(&id) else {
-                        continue;
-                    };
-                    let position = object.get_position();
-                    let Some(fire) = object.fire_spread.as_mut() else {
-                        continue;
-                    };
-                    Some((
-                        fire.finish_tick_flammable(frame),
-                        fire.spread_due(frame),
-                        position,
-                        fire.smoldering,
-                        fire.burning_sound_name.clone(),
-                        fire.ocl_embers.clone(),
-                        fire.spread_try_range,
-                    ))
-                })
-            else {
-                continue;
+            let (tail, stop_sound) = {
+                let Some(object) = self.objects.get_mut(&id).filter(|object| {
+                    std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &incarnation)
+                }) else {
+                    continue;
+                };
+                let Some(fire) = object.fire_spread.as_mut() else {
+                    continue;
+                };
+                let tail = if flammable_due {
+                    fire.finish_tick_flammable(frame)
+                } else {
+                    crate::game_logic::host_fire_spread::FlammableTickResult::default()
+                };
+                let stop_sound = tail
+                    .stop_burning_sound
+                    .then(|| fire.burning_sound_name.clone());
+                (tail, stop_sound)
             };
 
             if tail.became_smoldering {
@@ -281,8 +305,8 @@ impl GameLogic {
             }
             // FlammableUpdate::update handles the burned timer first, then
             // stops audio before clearing AFLAME and invoking Body::setAflame.
-            if tail.stop_burning_sound {
-                self.stop_fire_spread_burning_sound(id, position, &burning_sound);
+            if let Some(sound) = stop_sound {
+                self.stop_fire_spread_burning_sound(id, position, &sound);
             }
             if tail.became_burned {
                 self.fire_spread_reg.record_burned();
@@ -301,15 +325,30 @@ impl GameLogic {
                     false,
                     presentation_effects,
                 );
-            } else if tail.aflame && !tail.became_smoldering {
-                let _ = self.apply_flammable_visuals_with_receiving_particles(
-                    id,
-                    true,
-                    smoldering || tail.smoldering,
-                    false,
-                    presentation_effects,
-                );
             }
+            // After the flammable callbacks the slot may hold a new
+            // incarnation; only the exact owner still owes its spread clock.
+            let (spread_due, position, ember_ocl, range) = {
+                let Some(object) = self.objects.get(&id).filter(|object| {
+                    std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &incarnation)
+                }) else {
+                    continue;
+                };
+                let Some(fire) = object.fire_spread.as_ref() else {
+                    continue;
+                };
+                let spread_due = fire.spread_due(frame);
+                (
+                    spread_due,
+                    object.get_position(),
+                    if spread_due {
+                        fire.ocl_embers.clone()
+                    } else {
+                        String::new()
+                    },
+                    fire.spread_try_range,
+                )
+            };
             if spread_due && !ember_ocl.is_empty() {
                 self.fire_spread_reg.record_embers();
                 let _ = self.spawn_fire_spread_embers_with_effects(
@@ -367,5 +406,75 @@ impl GameLogic {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Objects whose Flammable/FireSpread clocks are all asleep must not take
+    /// a mutable object loan: `object_revision` only moves when a deadline
+    /// actually fires.
+    #[test]
+    fn sleeping_fire_clocks_take_no_mutable_object_loan() {
+        let mut logic = GameLogic::new();
+        crate::game_logic::host_fire_spread::admit_fire_fixture(
+            &mut logic,
+            &["DogwoodTreeA"],
+            &[],
+        );
+        let a = logic
+            .create_object(
+                "DogwoodTreeA",
+                crate::game_logic::Team::Neutral,
+                glam::Vec3::ZERO,
+            )
+            .expect("a");
+        assert!(logic.ignite_object_fire_spread(
+            a,
+            &mut crate::game_logic::ScriptPresentationEffects::default()
+        ));
+
+        // Every clock ignition armed sleeps in the future at the same frame.
+        let health_before = logic.host_object(a).unwrap().health.current;
+        let (_, before) = logic
+            .objects
+            .read()
+            .observation_revision()
+            .expect("observation revision");
+        logic.update_fire_spread().unwrap();
+        let (_, after_sleep) = logic
+            .objects
+            .read()
+            .observation_revision()
+            .expect("observation revision");
+        assert_eq!(
+            before, after_sleep,
+            "sleeping clocks must not take a mutable object loan"
+        );
+        assert_eq!(logic.host_object(a).unwrap().health.current, health_before);
+
+        // Crossing the armed damage deadline takes the loan and applies DOT.
+        let damage_frame = logic
+            .host_object(a)
+            .unwrap()
+            .fire_spread
+            .as_ref()
+            .map(|fire| fire.damage_end_frame)
+            .expect("ignition arms a damage clock");
+        assert!(damage_frame > 0);
+        logic.set_current_frame(damage_frame as u64);
+        logic.update_fire_spread().unwrap();
+        let (_, after_dot) = logic
+            .objects
+            .read()
+            .observation_revision()
+            .expect("observation revision");
+        assert_ne!(after_sleep, after_dot, "a due clock must take the loan");
+        assert!(
+            logic.host_object(a).unwrap().health.current < health_before,
+            "a due damage clock applies aflame damage"
+        );
     }
 }
