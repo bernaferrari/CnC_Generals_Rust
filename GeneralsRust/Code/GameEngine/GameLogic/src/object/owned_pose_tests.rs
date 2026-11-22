@@ -78,6 +78,84 @@ fn owned_pose_off_map_uses_receiving_terrain_and_cpp_movement_threshold() {
 }
 
 #[test]
+fn compatibility_position_rejects_owned_terrain_contention_before_mutating_pose() {
+    let stores = crate::system::engine_stores::new_for_world();
+    let terrain = Arc::clone(stores.services().terrain());
+    {
+        let mut terrain = terrain.write().unwrap();
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 10;
+        map.height = 10;
+        map.heightmap = vec![0; 100];
+        map.boundaries = vec![crate::common::ICoord2D::new(10, 10)];
+        terrain.load_map_data(map);
+    }
+
+    let mut object = inert_object();
+    object.bind_owner_world_for_test(stores.services());
+    object
+        .set_position(&Coord3D::new(99.98, 25.0, 0.0))
+        .unwrap();
+    assert!(!object.is_off_map());
+
+    let terrain_write = terrain.write().unwrap();
+    let result = object.set_position(&Coord3D::new(100.02, 25.0, 0.0));
+    assert!(
+        result.is_err(),
+        "owned terrain contention must reject the move"
+    );
+    assert_eq!(*object.get_position(), Coord3D::new(99.98, 25.0, 0.0));
+    assert!(!object.is_off_map());
+    drop(terrain_write);
+
+    object
+        .set_position(&Coord3D::new(100.02, 25.0, 0.0))
+        .unwrap();
+    assert_eq!(*object.get_position(), Coord3D::new(100.02, 25.0, 0.0));
+    assert!(object.is_off_map());
+}
+
+#[test]
+fn slope_position_rejects_owned_terrain_contention_without_reentering_terrain() {
+    let stores = crate::system::engine_stores::new_for_world();
+    let terrain = Arc::clone(stores.services().terrain());
+    {
+        let mut terrain = terrain.write().unwrap();
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 10;
+        map.height = 10;
+        map.heightmap = vec![0; 100];
+        map.boundaries = vec![crate::common::ICoord2D::new(10, 10)];
+        terrain.load_map_data(map);
+    }
+
+    let mut template = DefaultThingTemplate::new("OwnedSlopePose".into());
+    template.add_kind_of(KindOf::StickToTerrainSlope);
+    let mut object = Object::new_raw(Arc::new(template), 8, ObjectStatusMaskType::none(), None);
+    object.ambient_lifecycle_admitted = false;
+    object.bind_owner_world_for_test(stores.services());
+    object
+        .set_position(&Coord3D::new(99.98, 25.0, 0.0))
+        .unwrap();
+    assert!(!object.is_off_map());
+
+    let terrain_write = terrain.write().unwrap();
+    let result = object.set_position(&Coord3D::new(100.02, 25.0, 0.0));
+    assert!(
+        result.is_err(),
+        "slope alignment must reject terrain contention"
+    );
+    assert!((object.get_position().x - 99.98).abs() <= 0.01);
+    assert!(!object.is_off_map());
+    drop(terrain_write);
+
+    object
+        .set_position(&Coord3D::new(100.02, 25.0, 0.0))
+        .unwrap();
+    assert!(object.is_off_map());
+}
+
+#[test]
 fn actual_object_retains_finite_singular_and_sheared_cpp_matrix_rows() {
     let mut object = inert_object();
     // C++ copies the 3x4 rows even if a rotation/scale decomposition is absent.

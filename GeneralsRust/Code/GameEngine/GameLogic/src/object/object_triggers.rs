@@ -39,22 +39,43 @@ fn receiving_terrain_extent(object: &Object) -> Option<crate::common::Region3D> 
         .owning_world_services()
         .or_else(crate::system::engine_stores::try_active_services)?;
     let terrain = services.terrain().read().ok()?;
+    Some(active_compatibility_extent(&terrain))
+}
+
+fn active_compatibility_extent(terrain: &crate::terrain::TerrainLogic) -> crate::common::Region3D {
     let extent = terrain.get_extent();
     if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
-        return Some(extent);
+        return extent;
     }
     let extent = terrain.get_maximum_pathfind_extent();
     if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
-        return Some(extent);
+        return extent;
     }
-    // No map is loaded — a state C++ never reaches during play. Mirror the
-    // unloaded-terrain 50000-unit fallback helpers::TheTerrainLogic uses,
-    // expanded by one unit so the strict isInRegionNoZ bounds match the
-    // inclusive edges the legacy derived reader used.
-    Some(crate::common::Region3D::new(
+    crate::common::Region3D::new(
         crate::common::Coord3D::new(-1.0, -1.0, 0.0),
         crate::common::Coord3D::new(50001.0, 50001.0, 0.0),
-    ))
+    )
+}
+
+/// Resolve the active extent before a compatibility pose mutation. Unlike the
+/// older best-effort refresh, this path reports an owned terrain borrow failure
+/// so the caller can leave the pose and OFF_MAP bit untouched.
+fn checked_receiving_terrain_extent(
+    object: &Object,
+) -> Result<Option<crate::common::Region3D>, String> {
+    let Some(services) = object
+        .owning_world_services()
+        .or_else(crate::system::engine_stores::try_active_services)
+    else {
+        return Ok(None);
+    };
+    let terrain = services
+        .terrain()
+        .try_read()
+        .map_err(|_| "Object position terrain is already borrowed")?;
+    // Keep the existing maximum-boundary/unloaded fallback when no active map
+    // extent is installed, but never use it in place of a valid active extent.
+    Ok(Some(active_compatibility_extent(&terrain)))
 }
 
 impl Object {
@@ -116,6 +137,23 @@ impl Object {
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
     ) {
+        self.set_transform_matrix_with_pose_and_extent(
+            matrix,
+            cached_pose,
+            frame,
+            changed,
+            receiving_terrain_extent,
+        );
+    }
+
+    fn set_transform_matrix_with_pose_and_extent(
+        &mut self,
+        matrix: &Matrix3D,
+        cached_pose: Option<(Coord3D, Real)>,
+        frame: Option<UnsignedInt>,
+        changed: &mut dyn FnMut(ObjectID),
+        extent_for_refresh: impl FnOnce(&Object) -> Option<crate::common::Region3D>,
+    ) {
         let (pos_diff, ang_diff) = self.apply_transform_local(matrix, cached_pose, &mut |object| {
             object.calculate_height_above_terrain()
         });
@@ -145,7 +183,7 @@ impl Object {
         if pos_diff {
             self.set_trigger_area_flags_with_context(frame, changed);
             // C++ reactToTransformChange refreshes OFF_MAP from active bounds.
-            if let Some(extent) = receiving_terrain_extent(self) {
+            if let Some(extent) = extent_for_refresh(self) {
                 self.refresh_off_map_status(&extent);
             }
         }
@@ -745,20 +783,43 @@ impl Object {
 
     /// Set object position
     pub fn set_position(&mut self, position: &Coord3D) -> Result<(), String> {
-        if self.is_kind_of(KindOf::StickToTerrainSlope) {
-            let terrain = crate::terrain::get_terrain_logic();
-            if let Ok(terrain) = terrain.try_read() {
-                let mut mtx = Matrix3D::IDENTITY;
-                terrain.align_on_terrain(self.geometry_info.angle, position, true, &mut mtx);
-                drop(terrain);
-                self.set_transform_matrix(&mtx);
-                return Ok(());
-            }
-        }
         let old = self.geometry_info.position;
         let moved = (old.x - position.x).abs() > 0.01
             || (old.y - position.y).abs() > 0.01
             || (old.z - position.z).abs() > 0.01;
+
+        if self.is_kind_of(KindOf::StickToTerrainSlope) {
+            let services = self
+                .owning_world_services()
+                .or_else(crate::system::engine_stores::try_active_services);
+            let terrain_handle = services
+                .as_ref()
+                .map(|services| Arc::clone(services.terrain()))
+                .unwrap_or_else(crate::terrain::get_terrain_logic);
+            let terrain = terrain_handle
+                .try_read()
+                .map_err(|_| "Object position terrain is already borrowed")?;
+            let mut matrix = Matrix3D::IDENTITY;
+            terrain.align_on_terrain(self.geometry_info.angle, position, true, &mut matrix);
+            let extent = active_compatibility_extent(&terrain);
+            drop(terrain);
+            self.set_transform_matrix_with_pose_and_extent(
+                &matrix,
+                None,
+                None,
+                &mut |id| crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id),
+                move |_| Some(extent),
+            );
+            return Ok(());
+        }
+        // C++ only refreshes OFF_MAP when isPosDifferent crosses its 0.01
+        // threshold. Resolve the owning terrain first so contention cannot
+        // leave a committed pose paired with a stale status bit.
+        let extent = if moved {
+            checked_receiving_terrain_extent(self)?
+        } else {
+            None
+        };
         self.transform_matrix.w_axis = glam::Vec4::new(position.x, position.y, position.z, 1.0);
         self.geometry_info.position = position.clone();
         self.geometry_info.height_above_terrain = self.calculate_height_above_terrain();
@@ -801,8 +862,8 @@ impl Object {
             self.set_trigger_area_flags_for_change_in_position();
             self.react_contain_to_transform();
             // Object.cpp:1764-1771 — same OFF_MAP refresh as the transform path.
-            if let Some(extent) = receiving_terrain_extent(self) {
-                self.refresh_off_map_status(&extent);
+            if let Some(extent) = extent.as_ref() {
+                self.refresh_off_map_status(extent);
             }
         }
 
