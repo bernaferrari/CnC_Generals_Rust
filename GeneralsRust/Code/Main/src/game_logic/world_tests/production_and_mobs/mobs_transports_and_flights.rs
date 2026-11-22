@@ -2586,8 +2586,10 @@ fn fire_spread_skips_destroyed_and_aflame_neighbours_and_isolates_peer_world() {
 #[test]
 fn flammable_buildings_ignite_and_play_burning_loop() {
     use crate::game_logic::combat::DamageType;
+    use crate::game_logic::{DamageHitContext, ScriptPresentationEffects};
     use crate::game_logic::host_enum_table_residual::aflame_model_bit;
-    use crate::game_logic::host_fire_spread::{admit_fire_fixture, TREE_BURNING_SOUND};
+    use crate::game_logic::host_fire_spread::{TREE_BURNING_SOUND, admit_fire_fixture};
+    use crate::game_logic::host_usa_pilot::HostDeathType;
 
     let mut logic = GameLogic::new();
     admit_fire_fixture(&mut logic, &[], &["TechOilDerrick"]);
@@ -2605,25 +2607,38 @@ fn flammable_buildings_ignite_and_play_burning_loop() {
             .spread_enabled
     );
 
-    {
-        let (o, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
-        let _ = o.take_damage_from_typed(50.0, None, DamageType::Flame, 10, health_events);
-    }
+    logic.set_current_frame(10);
+    assert!(
+        logic
+            .apply_owned_damage_with_effects(
+                id,
+                50.0,
+                None,
+                DamageType::Flame,
+                HostDeathType::Burned,
+                None,
+                &DamageHitContext::default(),
+                &mut ScriptPresentationEffects::default(),
+            )
+            .expect("receiving flame damage")
+            .is_some()
+    );
     {
         let o = logic.host_object(id).unwrap();
         assert!(o.fire_spread.as_ref().unwrap().is_aflame());
         assert!(o.has_object_status_bit("AFLAME"));
         assert!(o.model_condition_bits & (1u128 << aflame_model_bit()) != 0);
     }
-    logic.set_current_frame(10);
-    logic.update_fire_spread().unwrap();
-    assert!(
-        logic
-            .queued_audio_events
+    let burning_loops = |world: &GameLogic| {
+        world.queued_audio_events
             .iter()
-            .any(|e| e.event_type == TREE_BURNING_SOUND && e.is_looping),
-        "GenericFireMediumLoop must start on ignite"
-    );
+            .filter(|event| event.event_type == TREE_BURNING_SOUND && event.is_looping)
+            .count()
+    };
+    assert_eq!(burning_loops(&logic), 1, "ignition starts the loop inline");
+    logic.set_current_frame(11);
+    logic.update_fire_spread().unwrap();
+    assert_eq!(burning_loops(&logic), 1, "the next update keeps the loop");
 }
 
 #[test]
