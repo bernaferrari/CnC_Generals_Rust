@@ -22,6 +22,35 @@ use tokio::io::{AsyncRead, ReadBuf};
 use tokio::task::JoinHandle;
 use ww3d_renderer_3d::rendering::texture_system::ArchiveFileReader;
 
+/// Paths used by the loose-INI bootstrap when no receiving catalog is installed.
+pub(crate) fn loose_bootstrap_ini_paths(file: &str, loose_dirs: &[&str]) -> Vec<PathBuf> {
+    let extracted = [
+        "extracted_big_files/INIZH/Data/INI",
+        "extracted_big_files_v2/INIZH/Data/INI",
+    ]
+    .map(|dir| Path::new(dir).join(file));
+    let mut paths = Vec::new();
+    if let Some(root) = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT").map(PathBuf::from) {
+        paths.extend(extracted.iter().map(|file| root.join(file)));
+    }
+
+    let relative: Vec<_> = extracted
+        .iter()
+        .map(|file| Path::new("windows_game").join(file))
+        .chain(loose_dirs.iter().map(|dir| Path::new(dir).join(file)))
+        .collect();
+    paths.extend(relative.iter().cloned());
+    if let Some(manifest) = std::env::var_os("CARGO_MANIFEST_DIR") {
+        for dir in Path::new(&manifest).ancestors().take(6) {
+            paths.extend(relative.iter().map(|file| dir.join(file)));
+        }
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    paths.retain(|path| seen.insert(path.clone()));
+    paths
+}
+
 /// Unity wrapper around the core archive system.
 pub struct ArchiveFileSystem {
     core: core::ArchiveFileSystem,

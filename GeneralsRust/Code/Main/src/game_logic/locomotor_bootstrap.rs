@@ -25,7 +25,6 @@ use game_engine::common::ini::ini_locomotor::{
     parse_locomotor_template_definition,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 /// Retail SET_NORMAL locomotor names used by host golden / skirmish unit templates.
 pub const BASIC_HUMAN_LOCOMOTOR: &str = "BasicHumanLocomotor";
@@ -1167,7 +1166,10 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
 
 fn try_load_locomotor_ini_from_disk(store: &mut LocomotorStore) -> usize {
     let mut total = 0usize;
-    for path in locomotor_ini_candidate_paths() {
+    for path in crate::assets::archive::loose_bootstrap_ini_paths(
+        "Locomotor.ini",
+        &["Data/INI", "Data/INI/Default", "INIZH/Data/INI"],
+    ) {
         if !path.is_file() {
             continue;
         }
@@ -1197,37 +1199,6 @@ fn try_load_locomotor_ini_from_disk(store: &mut LocomotorStore) -> usize {
         }
     }
     total
-}
-
-fn locomotor_ini_candidate_paths() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-
-    let relative = [
-        "windows_game/extracted_big_files/INIZH/Data/INI/Locomotor.ini",
-        "windows_game/extracted_big_files_v2/INIZH/Data/INI/Locomotor.ini",
-        "Data/INI/Locomotor.ini",
-        "Data/INI/Default/Locomotor.ini",
-        "INIZH/Data/INI/Locomotor.ini",
-    ];
-    for r in relative {
-        paths.push(PathBuf::from(r));
-    }
-
-    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
-        let mut dir = PathBuf::from(manifest);
-        for _ in 0..6 {
-            for r in relative {
-                paths.push(dir.join(r));
-            }
-            if !dir.pop() {
-                break;
-            }
-        }
-    }
-
-    let mut seen = std::collections::HashSet::new();
-    paths.retain(|p| seen.insert(p.clone()));
-    paths
 }
 
 /// Seed minimal retail-ish stats for host golden units when INI is unavailable.

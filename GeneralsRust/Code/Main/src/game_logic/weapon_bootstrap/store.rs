@@ -57,7 +57,10 @@ pub(super) fn store_has(name: &str) -> bool {
 
 pub(super) fn try_load_weapon_ini_from_disk() -> usize {
     let mut total = 0usize;
-    for path in weapon_ini_candidate_paths() {
+    for path in crate::assets::archive::loose_bootstrap_ini_paths(
+        "Weapon.ini",
+        &["Data/INI", "INIZH/Data/INI"],
+    ) {
         if !path.is_file() {
             continue;
         }
@@ -82,39 +85,6 @@ pub(super) fn try_load_weapon_ini_from_disk() -> usize {
         }
     }
     total
-}
-
-pub(super) fn weapon_ini_candidate_paths() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-
-    // CWD-relative (repo root when tests run from GeneralsRust or workspace).
-    let relative = [
-        "windows_game/extracted_big_files/INIZH/Data/INI/Weapon.ini",
-        "windows_game/extracted_big_files_v2/INIZH/Data/INI/Weapon.ini",
-        "Data/INI/Weapon.ini",
-        "INIZH/Data/INI/Weapon.ini",
-    ];
-    for r in relative {
-        paths.push(PathBuf::from(r));
-    }
-
-    // Walk up from CARGO_MANIFEST_DIR (Main crate) toward repo root.
-    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
-        let mut dir = PathBuf::from(manifest);
-        for _ in 0..6 {
-            for r in relative {
-                paths.push(dir.join(r));
-            }
-            if !dir.pop() {
-                break;
-            }
-        }
-    }
-
-    // Dedup while preserving order.
-    let mut seen = std::collections::HashSet::new();
-    paths.retain(|p| seen.insert(p.clone()));
-    paths
 }
 
 /// Seed minimal real-ish stats for host golden units when INI is unavailable.

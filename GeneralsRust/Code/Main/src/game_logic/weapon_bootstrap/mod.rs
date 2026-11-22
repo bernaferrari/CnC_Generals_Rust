@@ -34,7 +34,6 @@ pub(in crate::game_logic::weapon_bootstrap) use gamelogic::weapon::{
     WeaponAntiMask, WeaponTemplate, with_weapon_store, with_weapon_store_mut,
 };
 use glam::Vec3;
-pub(in crate::game_logic::weapon_bootstrap) use std::path::{Path, PathBuf};
 
 mod names;
 pub use names::*;
