@@ -276,18 +276,11 @@ impl CombatSystem {
                 }
             }
 
-            // Intervening structure residual: ballistic shells impact the first
-            // constructed building whose footprint contains the projectile.
-            // Gated by Weapon.ini ProjectileCollidesWith leftover mask.
-            // C++ Weapon.cpp:716-721 — same-controller structures only if
-            // CONTROLLED_STRUCTURES; STRUCTURES is everyone else.
-            // Skip intended target (handled below) and shooter.
-            let mut hit_structure: Option<ObjectId> = None;
-            let collides_structures =
-                crate::game_logic::weapon_bootstrap::projectile_collides_structures(
-                    projectile.projectile_collides,
-                );
-            if collides_structures {
+            // The intended target has its own hit check below.
+            let mut incidental_hit = None;
+            if crate::game_logic::weapon_bootstrap::projectile_collides_structures_or_fences(
+                projectile.projectile_collides,
+            ) {
                 let shooter = projectile.shooter_id;
                 let intended = projectile.target_id;
                 let pos = projectile.position;
@@ -319,10 +312,9 @@ impl CombatSystem {
                     if obj.get_sneaky_targeting_offset(sneak_now).is_some() {
                         continue;
                     }
-                    if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
-                        continue;
-                    }
-                    if obj.status.under_construction {
+                    let is_structure = obj.is_kind_of(KindOf::Structure);
+                    let is_fence = obj.get_template().fence_width > 0.0;
+                    if !(is_structure || is_fence) || !obj.is_alive() || obj.status.under_construction {
                         continue;
                     }
                     let same_controller =
@@ -331,8 +323,10 @@ impl CombatSystem {
                             obj.owner_player_id,
                             obj.team == proj_team,
                         );
-                    if !crate::game_logic::weapon_bootstrap::projectile_collides_with_structure(
+                    if !crate::game_logic::weapon_bootstrap::projectile_collides_with_structure_or_fence(
                         projectile.projectile_collides,
+                        is_structure,
+                        is_fence,
                         same_controller,
                     ) {
                         continue;
@@ -374,12 +368,12 @@ impl CombatSystem {
                     let dx = pos.x - op.x;
                     let dz = pos.z - op.z;
                     if (dx * dx + dz * dz).sqrt() <= radius {
-                        hit_structure = Some(oid);
+                        incidental_hit = Some(oid);
                         break;
                     }
                 }
             }
-            if let Some(sid) = hit_structure {
+            if let Some(sid) = incidental_hit {
                 if let Some(flight) = projectile.flight.as_ref() {
                     if crate::game_logic::weapon_bootstrap::apply_garrison_hit_kill(
                         objects,

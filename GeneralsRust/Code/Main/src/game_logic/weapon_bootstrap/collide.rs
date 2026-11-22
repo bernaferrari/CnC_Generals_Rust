@@ -69,11 +69,8 @@ pub(super) fn seed_projectile_collides_for(name: &str) -> u32 {
     PROJECTILE_COLLIDE_DEFAULT
 }
 
-/// Whether intervening structure intercept should scan at all.
-///
-/// C++ Weapon.cpp:716-721: STRUCTURES (other controllers), WALLS (fences),
-/// or CONTROLLED_STRUCTURES (same controller) can all require a scan.
-pub fn projectile_collides_structures(mask: u32) -> bool {
+/// Whether a structure or a fence can intercept the shot.
+pub fn projectile_collides_structures_or_fences(mask: u32) -> bool {
     (mask
         & (PROJECTILE_COLLIDE_STRUCTURES
             | PROJECTILE_COLLIDE_WALLS
@@ -97,15 +94,20 @@ pub fn projectile_structure_same_controller(
     }
 }
 
-/// C++ Weapon.cpp:716-721 leftover `should_projectile_collide_with`.
-/// Same-controller structures collide only with CONTROLLED_STRUCTURES.
-/// Other structures use STRUCTURES (live residual also accepts WALLS).
-pub fn projectile_collides_with_structure(mask: u32, same_controller: bool) -> bool {
-    if same_controller {
-        (mask & PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES) != 0
+/// C++ Weapon.cpp:716-730 classifies walls by FenceWidth independently
+/// of the structure kind and the controlling player.
+pub fn projectile_collides_with_structure_or_fence(
+    mask: u32,
+    is_structure: bool,
+    is_fence: bool,
+    same_controller: bool,
+) -> bool {
+    let structure_bit = if same_controller {
+        PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES
     } else {
-        (mask & (PROJECTILE_COLLIDE_STRUCTURES | PROJECTILE_COLLIDE_WALLS)) != 0
-    }
+        PROJECTILE_COLLIDE_STRUCTURES
+    };
+    (is_structure && mask & structure_bit != 0) || (is_fence && mask & PROJECTILE_COLLIDE_WALLS != 0)
 }
 
 /// C++ Weapon.cpp:271 default `m_affectsMask` when RadiusDamageAffects is omitted.

@@ -234,3 +234,103 @@ fn authored_projectile_vertical_extent_controls_intervening_structure_collision_
     assert_eq!(above.host_object(above_blocker).unwrap().health.current, 100.0);
     assert!(touching.host_object(touching_blocker).unwrap().health.current < 100.0);
 }
+
+#[test]
+fn walls_bit_hits_authored_fences_independently_of_structure_and_controller() {
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+
+    // CrusaderTankGun has this mask in the mounted Zero Hour Weapon.ini.
+    let mut weapons = std::collections::HashMap::new();
+    parse_weapon_definitions_ini_into(
+        &mut weapons,
+        "Weapon CrusaderTankGun\n  ProjectileCollidesWith = STRUCTURES WALLS\nEnd\n\
+         Weapon WallsOnly\n  ProjectileCollidesWith = WALLS\nEnd\n",
+        WeaponDefinitionLoadType::Normal,
+    );
+
+    let blockers = r#"
+Object CollisionSource
+    KindOf = INFANTRY
+    Body = ActiveBody BodyTag
+        MaxHealth = 100
+        InitialHealth = 100
+    End
+End
+Object AmericaWall
+    KindOf = IMMOBILE STRUCTURE DEFENSIVE_WALL
+    FenceWidth = 19
+    Body = StructureBody BodyTag
+        MaxHealth = 1000
+        InitialHealth = 1000
+    End
+    Geometry = BOX
+    GeometryMajorRadius = 10
+    GeometryMinorRadius = 2
+    GeometryHeight = 10
+End
+Object ChainLinkFence01
+    KindOf = IMMOBILE FORCEATTACKABLE
+    FenceWidth = 27.35
+    Body = ActiveBody BodyTag
+        MaxHealth = 1
+        InitialHealth = 1
+    End
+    Geometry = BOX
+    GeometryMajorRadius = 14
+    GeometryMinorRadius = 1
+    GeometryHeight = 10
+End
+Object PlainBuilding
+    KindOf = IMMOBILE STRUCTURE
+    Body = StructureBody BodyTag
+        MaxHealth = 1000
+        InitialHealth = 1000
+    End
+    Geometry = BOX
+    GeometryMajorRadius = 10
+    GeometryMinorRadius = 2
+    GeometryHeight = 10
+End
+"#;
+
+    for (weapon, template, blocker_owner, expected_hit) in [
+        ("crusadertankgun", "AmericaWall", 1, true),
+        ("crusadertankgun", "ChainLinkFence01", 1, true),
+        ("wallsonly", "PlainBuilding", 2, false),
+    ] {
+        let mut owner = GameLogic::new();
+        owner
+            .admit_object_ini_sources([("collision-blockers.ini".into(), blockers.into())])
+            .unwrap();
+        owner.frame = 100;
+        let mut neutral = Player::new(0, Team::Neutral, "Neutral", false);
+        neutral.map_side.role = PlayerSideRole::Neutral;
+        neutral.map_side.map_player_name.clear();
+        owner.add_player(neutral);
+        owner.add_player(Player::new(1, Team::USA, "Owner", true));
+        owner.add_player(Player::new(2, Team::GLA, "Other", true));
+        let source = owner
+            .create_object_for_player("CollisionSource", 1, Vec3::new(-50.0, 0.0, 0.0))
+            .unwrap();
+        let blocker = owner
+            .create_object_for_player(template, blocker_owner, Vec3::ZERO)
+            .unwrap();
+        let actual_width = owner.host_object(blocker).unwrap().get_template().fence_width;
+        assert_eq!(actual_width > 0.0, template != "PlainBuilding");
+
+        let id = ObjectId(9001);
+        let mut projectile = shell(id, source);
+        projectile.position = Vec3::new(-1.0, 1.0, 0.0);
+        projectile.target_position = Vec3::new(1000.0, 1.0, 0.0);
+        projectile.projectile_collides = weapons[weapon].collide_mask.bits();
+        // This fixture observes the collision itself. Body damage is covered
+        // by the intended-victim and STRUCTURES callback tests above.
+        projectile.no_damage = true;
+        owner.combat_system.projectiles.insert(id, projectile);
+
+        let retired = owner.update_owned_projectile_impacts(1.0 / 30.0).unwrap();
+        assert_eq!(retired.contains(&id), expected_hit, "{weapon} crossing {template}");
+    }
+}
