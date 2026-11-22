@@ -1301,6 +1301,15 @@ impl PathfindingSystem {
         object: &Object,
         ground_source: &PathfindingGround<'_>,
     ) {
+        self.unclassify_and_pinch_object(object, ground_source);
+        self.classify_and_pinch_object(object, ground_source);
+    }
+
+    pub(in crate::game_logic) fn unclassify_and_pinch_object(
+        &mut self,
+        object: &Object,
+        ground_source: &PathfindingGround<'_>,
+    ) {
         if let Some((lo, hi)) = self.grid.classify_object_footprint_change(
             object,
             false,
@@ -1310,7 +1319,6 @@ impl PathfindingSystem {
             self.grid.refresh_pinched_bounds(lo, hi);
             self.mark_zones_dirty();
         }
-        self.classify_and_pinch_object(object, ground_source);
     }
 
     /// Incremental leftover classify + pinch for one live structure (dozer place).

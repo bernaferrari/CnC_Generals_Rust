@@ -1255,6 +1255,14 @@ if let Ok(mut list) = __arc_bind.write() {
 
     /// C++ Pathfinder::addObjectToPathfindMap also admits authored fences.
     pub(in crate::game_logic) fn classify_object_path(&mut self, object_id: ObjectId) {
+        self.change_object_path_footprint(object_id, true);
+    }
+
+    pub(in crate::game_logic) fn unclassify_object_path(&mut self, object_id: ObjectId) {
+        self.change_object_path_footprint(object_id, false);
+    }
+
+    fn change_object_path_footprint(&mut self, object_id: ObjectId, insert: bool) {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
@@ -1270,8 +1278,11 @@ if let Ok(mut list) = __arc_bind.write() {
                 self.pathfinding_height_samples.as_ref(),
                 &self.pathfinding_system.grid,
             );
-            self.pathfinding_system
-                .classify_and_pinch_object(obj, &ground_source)
+            if insert {
+                self.pathfinding_system.classify_and_pinch_object(obj, &ground_source);
+            } else {
+                self.pathfinding_system.unclassify_and_pinch_object(obj, &ground_source);
+            }
         });
     }
 

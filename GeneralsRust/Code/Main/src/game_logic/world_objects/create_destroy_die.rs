@@ -2,6 +2,7 @@
 //! create/destroy, mark_object_for_destruction, die, dam. Child of `world_objects` (itself a child of `game_logic.rs`).
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+use glam::Mat4;
 
 pub(crate) struct CheckedFactoryError {
     pub(crate) error: gamelogic::GameLogicError,
@@ -29,10 +30,11 @@ mod spawn_scheduler;
 mod spawn_scheduler_open_contain;
 mod spawn_scheduler_garrison;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq)]
 enum FactoryCreationPurpose {
     AtCreation,
     MapPlacement,
+    Replacement(Mat4),
     SpawnBehavior,
     ProductionExit,
     InstantLineBuild,
@@ -1564,6 +1566,27 @@ impl GameLogic {
         )
     }
 
+    pub(in crate::game_logic) fn create_replacement_on_exact_team_with_effects_checked(
+        &mut self,
+        template: &str,
+        controller: u32,
+        team_name: &str,
+        team_id: u32,
+        transform: Mat4,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        self.create_object_on_exact_team_with_purpose_checked(
+            template,
+            controller,
+            transform.w_axis.truncate(),
+            (team_name, team_id, false),
+            FactoryCreationPurpose::Replacement(transform),
+            interpreter,
+            effects,
+        )
+    }
+
     fn create_object_on_exact_team_with_purpose_checked(
         &mut self,
         template: &str,
@@ -2706,7 +2729,13 @@ impl GameLogic {
                     "Object {id} disappeared during factory initialization"
                 )));
             }
-            if !self.set_owned_object_position_with_effects(id, position, self.frame, ui) {
+            let placed = match creation_purpose {
+                FactoryCreationPurpose::Replacement(transform) => {
+                    self.set_owned_object_transform_with_effects(id, transform, self.frame, ui)
+                }
+                _ => self.set_owned_object_position_with_effects(id, position, self.frame, ui),
+            };
+            if !placed {
                 return Err(gamelogic::GameLogicError::Configuration(format!(
                     "Object {id} disappeared during factory placement"
                 )));
@@ -2747,16 +2776,20 @@ impl GameLogic {
                 verify_factory_birth!();
             }
 
-            if counts_as_unit {
-                if creation_purpose != FactoryCreationPurpose::SpawnBehavior {
-                    self.record_unit_production(id);
-                }
-            } else if is_structure && !starts_under_construction {
-                if creation_purpose != FactoryCreationPurpose::SpawnBehavior {
-                    self.record_structure_completion(id);
-                }
-                if creation_purpose != FactoryCreationPurpose::MapPlacement {
-                    self.block_structure_object_path(id);
+            // ReplaceObjectUpgrade admits the completed footprint and the
+            // Player's score after the factory returns (ReplaceObjectUpgrade.cpp:70–86).
+            if !matches!(creation_purpose, FactoryCreationPurpose::Replacement(_)) {
+                if counts_as_unit {
+                    if creation_purpose != FactoryCreationPurpose::SpawnBehavior {
+                        self.record_unit_production(id);
+                    }
+                } else if is_structure && !starts_under_construction {
+                    if creation_purpose != FactoryCreationPurpose::SpawnBehavior {
+                        self.record_structure_completion(id);
+                    }
+                    if creation_purpose != FactoryCreationPurpose::MapPlacement {
+                        self.block_structure_object_path(id);
+                    }
                 }
             }
             if !matches!(
@@ -2764,6 +2797,7 @@ impl GameLogic {
                 FactoryCreationPurpose::InstantLineBuild
                     | FactoryCreationPurpose::OrdinaryConstruction
                     | FactoryCreationPurpose::Reconstruction
+                    | FactoryCreationPurpose::Replacement(_)
             ) {
                 if let Some(obj) = self.objects.get(&id) {
                     if obj.is_kind_of(KindOf::WalkOnTopOfWall) {

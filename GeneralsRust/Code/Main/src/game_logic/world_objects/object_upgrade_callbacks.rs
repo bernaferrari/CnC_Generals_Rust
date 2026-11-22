@@ -604,7 +604,7 @@ impl GameLogic {
         object_id: ObjectId,
         object_birth: &std::sync::Weak<()>,
         target: &str,
-        activate_team: bool,
+        legacy_fallback: bool,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
@@ -630,26 +630,66 @@ impl GameLogic {
             return Ok(());
         }
 
+        let exact_team = owner.zip(team_id);
+        if !legacy_fallback && exact_team.is_none() {
+            return Err(gamelogic::GameLogicError::Configuration(
+                format!("ReplaceObjectUpgrade on '{source}' has no exact receiving Team"),
+            ));
+        }
+
         self.release_replaced_mobile_path_claims(object_id);
+        if !legacy_fallback {
+            self.unclassify_object_path(object_id);
+        }
         self.destroy_object_with_effects(object_id, effects)?;
         // A queued object is still the original. A reentrant teardown must
         // not use a replacement that merely reused the old numeric ID.
         if !self.object_birth_matches(object_id, object_birth) {
             return Ok(());
         }
-        let created = if let (Some(controller), Some(team_id)) = (owner, team_id) {
-            self.create_object_on_exact_script_team_with_effects_checked(
-                target, controller, &team_name, team_id, position, activate_team, interpreter, effects,
-            )?
-        } else {
-            self.create_object_for_owner_or_team_with_effects_checked(
+        let created = match (exact_team, legacy_fallback) {
+            (Some((controller, team_id)), false) => {
+                self.create_replacement_on_exact_team_with_effects_checked(
+                    target, controller, &team_name, team_id, transform, interpreter, effects,
+                )?
+            }
+            (Some((controller, team_id)), true) => {
+                self.create_object_on_exact_script_team_with_effects_checked(
+                    target, controller, &team_name, team_id, position, true, interpreter, effects,
+                )?
+            }
+            (None, _) => self.create_object_for_owner_or_team_with_effects_checked(
                 target, team, owner, position, interpreter, effects,
-            )?
+            )?,
         };
-        if let Some(new_id) = created {
+        let Some(new_id) = created else {
+            return Ok(());
+        };
+        if legacy_fallback {
             self.set_owned_object_transform_with_effects(new_id, transform, self.frame, effects);
-            self.replace_grant_command_upgrades.record_replace(&source, target);
+        } else {
+            let replacement_birth = self.host_object(new_id).map(|replacement| {
+                std::sync::Arc::downgrade(&replacement.visual_draw_identity_token)
+            }).ok_or(gamelogic::GameLogicError::InvalidObject(new_id.0))?;
+            self.classify_object_path(new_id);
+            self.with_own_services_mut(|world| {
+                world.apply_create_modules_on_build_complete_with_effects_checked(
+                    new_id, interpreter, effects,
+                )?;
+                if !world.object_birth_matches(new_id, &replacement_birth) {
+                    return Err(gamelogic::GameLogicError::InvalidObject(new_id.0));
+                }
+                if let Some(controller) = world.host_object(new_id)
+                    .and_then(|replacement| world.player_owner_for_host_object(replacement))
+                {
+                    world.complete_owned_structure_player_with_effects(
+                        new_id, controller, false, interpreter, effects,
+                    );
+                }
+                Ok(())
+            })?;
         }
+        self.replace_grant_command_upgrades.record_replace(&source, target);
         Ok(())
     }
 
@@ -2279,6 +2319,89 @@ mod replace_position_owner_tests {
             .host_objects()
             .registered_values()
             .any(|actor| actor.template_name == REPLACEMENT && actor.is_alive()));
+    }
+
+    #[test]
+    fn replacement_transfers_rotated_static_footprint_before_build_complete_and_player_callback() {
+        const SOURCE: &str = "StaticReplacementSource";
+        const TARGET: &str = "StaticReplacementTarget";
+        const CHILD: &str = "StaticReplacementCompletionWitness";
+        const REPLACE: &str = "Upgrade_ReplaceStaticFootprint";
+        const COMPLETE: &str = "Upgrade_ObserveStaticReplacementComplete";
+
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::GLA, "Replacement owner", false));
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, REPLACE, "OBJECT", 0, 1,
+        );
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, COMPLETE, "OBJECT", 0, 1,
+        );
+        admit_fixture_objects(
+            &mut world,
+            &[
+                FixtureObject::new(SOURCE)
+                    .kind_of("STRUCTURE IMMOBILE")
+                    .health(120.0)
+                    .field("Geometry = CYLINDER")
+                    .field("GeometryIsSmall = No")
+                    .field("GeometryMajorRadius = 38")
+                    .field("GeometryHeight = 12")
+                    .module(format!(
+                        "Behavior = ReplaceObjectUpgrade ReplaceStatic\n TriggeredBy = {REPLACE}\n ReplaceObject = {TARGET}\nEnd"
+                    )),
+                FixtureObject::new(TARGET)
+                    .kind_of("STRUCTURE IMMOBILE")
+                    .health(250.0)
+                    .build_cost(317)
+                    .field("Geometry = BOX")
+                    .field("GeometryIsSmall = No")
+                    .field("GeometryMajorRadius = 26")
+                    .field("GeometryMinorRadius = 3")
+                    .field("GeometryHeight = 12")
+                    .module(format!(
+                        "Behavior = GrantUpgradeCreate CompletionGrant\n UpgradeToGrant = {COMPLETE}\nEnd"
+                    ))
+                    .module(format!(
+                        "Behavior = ObjectCreationUpgrade CompletionWitness\n TriggeredBy = {COMPLETE}\n UpgradeObject = OCL_StaticReplacementWitness\nEnd"
+                    )),
+                FixtureObject::new(CHILD).kind_of("INFANTRY").health(50.0),
+            ],
+        );
+        world.admit_object_creation_list_sources([format!(
+            "ObjectCreationList OCL_StaticReplacementWitness\n CreateObject\n ObjectNames = {CHILD}\n Count = 1\n Offset = 40 0 0\n End\nEnd\n"
+        )]).unwrap();
+
+        let position = Vec3::new(105.0, 0.0, 105.0);
+        let transform = Mat4::from_rotation_translation(
+            Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+            position,
+        );
+        let source = world.create_object_for_player(SOURCE, 1, position).unwrap();
+        assert!(world.set_registered_object_transform(source, transform));
+        let side = world.pathfinding_system.grid.world_to_grid(position + Vec3::X * 20.0);
+        let end = world.pathfinding_system.grid.world_to_grid(position - Vec3::Z * 20.0);
+        assert!(world.is_pathfinding_static_blocked(side.x, side.y));
+        assert!(world.is_pathfinding_static_blocked(end.x, end.y));
+        let before_spent = world.get_player(1).unwrap().statistics.resources_spent();
+
+        world.apply_upgrade_to_object(source, REPLACE);
+        let child = world.host_objects().registered_values()
+            .find(|object| object.template_name == CHILD).expect("BuildComplete OCL witness");
+        let expected = transform.transform_point3(Vec3::X * 40.0);
+        assert!(child.get_position().abs_diff_eq(expected, 0.001));
+        assert!(!world.is_pathfinding_static_blocked(side.x, side.y));
+        assert!(world.is_pathfinding_static_blocked(end.x, end.y));
+        assert!(world.host_object(source).unwrap().status.destroyed);
+        assert_eq!(
+            world.get_player(1).unwrap().statistics.resources_spent() - before_spent,
+            317,
+        );
+
+        world.process_destroy_list();
+        assert!(world.host_object(source).is_none());
+        assert!(!world.is_pathfinding_static_blocked(side.x, side.y));
+        assert!(world.is_pathfinding_static_blocked(end.x, end.y));
     }
 
     #[test]
