@@ -2462,11 +2462,25 @@ mod replace_position_owner_tests {
         assert_eq!(replacement_actor.owner_player_id, Some(1));
         assert_eq!(replacement_actor.team_instance_id, team);
         assert_eq!(replacement_actor.health.maximum, 175.0);
-        assert_eq!(world.pathfinding_ground_position(cell), Some(replacement));
+        // ReplaceObjectUpgrade.cpp:83 invokes Player's completion callback
+        // after the constructor's transform has already registered a pose.
+        // Its remove footprint step calls removePos/removeGoal; adding the
+        // footprint back only classifies structures (AIPathfind.cpp:4125–4172).
+        assert_eq!(replacement_actor.pathfind_cur_cell, (-1, -1));
+        assert_eq!(world.pathfinding_ground_position(cell), None);
         assert_ne!(world.pathfinding_ground_goal(cell), Some(source));
 
         world.process_destroy_list();
         assert!(world.host_object(source).is_none());
-        assert_eq!(world.pathfinding_ground_position(cell), Some(replacement));
+        assert_eq!(world.pathfinding_ground_position(cell), None);
+        let new_position = position + Vec3::new(20.0, 0.0, 0.0);
+        assert!(world.set_registered_object_transform(
+            replacement,
+            Mat4::from_rotation_translation(Quat::from_rotation_y(0.6), new_position),
+        ));
+        let (x, y) = world.host_object(replacement).unwrap().pathfind_cur_cell;
+        let new_cell = GridPos::new(x, y);
+        assert_ne!(new_cell, cell);
+        assert_eq!(world.pathfinding_ground_position(new_cell), Some(replacement));
     }
 }
