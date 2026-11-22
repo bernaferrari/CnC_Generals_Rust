@@ -23,14 +23,13 @@ impl GameLogic {
         &mut self,
         source: ObjectId,
     ) -> bool {
-        let (object_name, condition_bits) = match self.objects.get(&source) {
-            Some(object) if !object.template_name.trim().is_empty() => {
-                (object.template_name.clone(), object.model_condition_bits)
-            }
-            _ => return false,
+        let Some(object) = self.objects.get(&source) else {
+            return false;
         };
-
-        let Some(manager_arc) = crate::assets::get_asset_manager() else {
+        if object.template_name.trim().is_empty() {
+            return false;
+        }
+        let Some(manager_arc) = self.application_assets() else {
             return false;
         };
         // The model catalogue is shared with WGPU preparation. A fixed-step
@@ -41,7 +40,10 @@ impl GameLogic {
             return false;
         };
         let Some(counts) =
-            manager.cached_weapon_barrel_counts_for_object_conditions(&object_name, condition_bits)
+            manager.cached_weapon_barrel_counts_for_object_conditions(
+                &object.template_name,
+                object.model_condition_bits,
+            )
         else {
             return false;
         };
@@ -50,15 +52,22 @@ impl GameLogic {
         let Some(object) = self.objects.get_mut(&source) else {
             return false;
         };
-        for slot in 0..3u8 {
+        for (slot, count) in [
+            WeaponSlotType::Primary,
+            WeaponSlotType::Secondary,
+            WeaponSlotType::Tertiary,
+        ]
+        .into_iter()
+        .zip(counts)
+        {
+            let slot = slot as u8;
             if object.weapon_slot(slot).is_some() {
                 // A successful cache lookup with no first nonzero Draw-module
                 // answer is C++ `Drawable::getBarrelCount(slot) == 0`. Keep
                 // that distinct from the outer unavailable-cache case above:
                 // `Weapon::privateFireWeapon` resets its cursor/cadence before
                 // every zero-topology shot.
-                let _ = object
-                    .set_weapon_barrel_count_for_slot(slot, counts[slot as usize].unwrap_or(0));
+                let _ = object.set_weapon_barrel_count_for_slot(slot, count.unwrap_or(0));
             }
         }
         true
@@ -91,7 +100,7 @@ impl GameLogic {
             return None;
         }
 
-        let manager_arc = crate::assets::get_asset_manager()?;
+        let manager_arc = self.application_assets()?;
         // The model catalogue is shared with WGPU preparation. A fixed-step
         // combat path must not wait for it: a busy cache is a fallback to the
         // source position, never evidence about barrels.
@@ -166,6 +175,51 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_barrel_topology_uses_the_receiving_world_with_a_published_peer() {
+        const TEMPLATE: &str = "SameBarrelTemplate";
+        let primary = WeaponSlotType::Primary as u8;
+        let world_with_barrels = |count| {
+            let mut world = GameLogic::new();
+            world
+                .templates
+                .insert(TEMPLATE.into(), ThingTemplate::new(TEMPLATE));
+            let id = world.create_object(TEMPLATE, Team::USA, Vec3::ZERO).unwrap();
+            let object = world.host_object_mut(id).unwrap();
+            object.weapon = Some(Weapon {
+                damage: 1.0,
+                range: 100.0,
+                ..Weapon::default()
+            });
+            let mut assets = crate::assets::AssetManager::new().unwrap();
+            assets.seed_weapon_barrel_counts_for_test(
+                TEMPLATE,
+                object.model_condition_bits,
+                [Some(count), None, None],
+            );
+            world.bind_application_assets(std::sync::Arc::new(std::sync::Mutex::new(assets)));
+            (world, id)
+        };
+        let (mut first, first_id) = world_with_barrels(2);
+        let (mut second, second_id) = world_with_barrels(3);
+        assert_eq!(first_id, second_id);
+
+        second.with_own_services(|| {
+            assert!(first.configure_cached_weapon_barrel_topology_for_object(first_id));
+        });
+        first.with_own_services(|| {
+            assert!(second.configure_cached_weapon_barrel_topology_for_object(second_id));
+        });
+        for (world, id, expected) in [(&first, first_id, 2), (&second, second_id, 3)] {
+            let state = world
+                .host_object(id)
+                .unwrap()
+                .weapon_barrel_state_for_slot(primary)
+                .unwrap();
+            assert_eq!(state.barrel_count, expected);
+        }
+    }
 
     #[test]
     fn known_zero_barrel_topology_resets_cxx_prefire_cadence_on_every_shot() {

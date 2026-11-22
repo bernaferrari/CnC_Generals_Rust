@@ -163,39 +163,8 @@ impl PristineBoneAssets for crate::assets::AssetManager {
             if out.len() >= limit {
                 break;
             }
-            if selected.model_key.is_empty() {
-                continue;
-            }
-            let prototype = self
-                .cached_w3d_render_object_prototype(&selected.model_key)
-                .ok_or_else(|| {
-                    format!(
-                        "pristine authored prototype unavailable: {}",
-                        selected.model_key
-                    )
-                })?;
-            if matches!(prototype.kind(), W3dRenderObjectPrototypeKind::Null { .. }) {
-                continue;
-            }
-            // Content admission/prewarm belongs to the receiving session's
-            // setup. This immutable query never creates a GPU resource or
-            // selects another manager when source content is unavailable.
-            let model = self
-                .cached_w3d_render_object_source_model(&prototype)
-                .ok_or_else(|| "pristine prototype lost its receiving decoded model".to_owned())?;
-            let binding = match selected.animations.first() {
-                Some(animation) => Some(
-                    self.cached_w3d_draw_animation_binding(model, &animation.name)
-                        .ok_or_else(|| {
-                            "pristine authored animation binding unavailable".to_owned()
-                        })?,
-                ),
-                None => None,
-            };
-            out.extend(model_pristine_bone_transforms(
-                model,
+            out.extend(self.pristine_bones_for_selected_draw(
                 &selected,
-                binding.as_ref(),
                 source.mesh_scale,
                 prefix,
                 start,
@@ -204,6 +173,34 @@ impl PristineBoneAssets for crate::assets::AssetManager {
         }
         Ok(out)
     }
+}
+
+fn load_pristine_draw(
+    assets: &mut crate::assets::AssetManager,
+    draw: &AuthoredDrawModel,
+    scale: f32,
+    prefix: &str,
+    start: i32,
+    limit: usize,
+) -> Result<Vec<glam::Mat4>, String> {
+    if draw.model_key.is_empty() || prefix.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let prototype = assets
+        .resolve_w3d_render_object_prototype_blocking(&draw.model_key)
+        .ok_or_else(|| format!("pristine authored prototype unavailable: {}", draw.model_key))?;
+    if matches!(prototype.kind(), W3dRenderObjectPrototypeKind::Null { .. }) {
+        return Ok(Vec::new());
+    }
+    if let Some(animation) = draw.animations.first() {
+        if !assets.prewarm_w3d_prototype_animation_binding(&prototype, &animation.name) {
+            return Err(format!(
+                "pristine authored animation unavailable: {}",
+                animation.name
+            ));
+        }
+    }
+    assets.pristine_bones_for_selected_draw(draw, scale, prefix, start, limit)
 }
 
 /// Borrow the application's actual archive/decoded-content service for one
@@ -217,19 +214,7 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
             return Err("invalid pristine pose source".into());
         }
         let mut assets = self.lock().map_err(|_| "receiving pristine asset service poisoned".to_owned())?;
-        if !draw.model_key.is_empty() && !prefix.is_empty() && limit != 0 {
-            let prototype = assets.resolve_w3d_render_object_prototype_blocking(&draw.model_key)
-                .ok_or_else(|| format!("pristine authored prototype unavailable: {}", draw.model_key))?;
-            if matches!(prototype.kind(), W3dRenderObjectPrototypeKind::Null { .. }) {
-                return Ok(Vec::new());
-            }
-            if let Some(animation) = draw.animations.first() {
-                if !assets.prewarm_w3d_prototype_animation_binding(&prototype, &animation.name) {
-                    return Err(format!("pristine authored animation unavailable: {}", animation.name));
-                }
-            }
-        }
-        PristineBoneAssets::pristine_bones_for_selected_draw(&*assets, draw, scale, prefix, start, limit)
+        load_pristine_draw(&mut assets, draw, scale, prefix, start, limit)
     }
 
     fn pristine_bones_for_draws(
@@ -250,32 +235,23 @@ impl PristineBoneAssets for std::sync::Mutex<crate::assets::AssetManager> {
             .map_err(|_| "receiving pristine asset service poisoned".to_owned())?;
         let models = source.drawings.object_draws(source.condition_bits)
             .map_err(|_| "unsupported receiving pristine Draw state".to_owned())?;
+        let mut out = Vec::new();
+        // Drawable.cpp:750–769 visits draws in order until the requested
+        // number of bones is filled. Only those draws need assets loaded.
         for selected in models {
-            if selected.model_key.is_empty() {
-                continue;
+            if out.len() >= limit {
+                break;
             }
-            let prototype = assets
-                .resolve_w3d_render_object_prototype_blocking(&selected.model_key)
-                .ok_or_else(|| {
-                    format!(
-                        "pristine authored prototype unavailable: {}",
-                        selected.model_key
-                    )
-                })?;
-            if matches!(prototype.kind(), W3dRenderObjectPrototypeKind::Null { .. }) {
-                continue;
-            }
-            if let Some(animation) = selected.animations.first() {
-                if !assets.prewarm_w3d_prototype_animation_binding(&prototype, &animation.name)
-                {
-                    return Err(format!(
-                        "pristine authored animation unavailable: {}",
-                        animation.name
-                    ));
-                }
-            }
+            out.extend(load_pristine_draw(
+                &mut assets,
+                &selected,
+                source.mesh_scale,
+                prefix,
+                start,
+                limit - out.len(),
+            )?);
         }
-        PristineBoneAssets::pristine_bones_for_draws(&*assets, source, prefix, start, limit)
+        Ok(out)
     }
 }
 
@@ -452,5 +428,42 @@ mod tests {
         assert_eq!(series.len(), 2, "stop at the missing MUZZLE03");
         assert_eq!(series[0].w_axis.truncate(), glam::Vec3::new(34.0, 0.0, 0.0));
         assert_eq!(series[1].w_axis.truncate(), glam::Vec3::new(34.0, 6.0, 0.0));
+
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object MultipleDraws
+  Draw = W3DModelDraw First
+    DefaultConditionState
+      Model = MISSILE_TEST
+    End
+  End
+  Draw = W3DModelDraw Second
+    DefaultConditionState
+      Model = MissingLaterModel
+    End
+  End
+End
+"#,
+                "MultipleDraws.ini",
+            )
+            .unwrap();
+        let definition = parser.get_definition("MultipleDraws").unwrap();
+        let mut template = crate::game_logic::ThingTemplate::new("MultipleDraws");
+        template.set_authored_draw_models(None, &definition.draw_modules);
+        let source = PristineBoneSource {
+            drawings: template.receiving_draw_models_ref().unwrap(),
+            condition_bits: 0,
+            mesh_scale: 1.0,
+        };
+        let first = assets
+            .pristine_bones_for_draws(&source, "muzzle", 1, 1)
+            .expect("the first Draw satisfies the requested limit");
+        assert_eq!(first.len(), 1);
+        let error = assets
+            .pristine_bones_for_draws(&source, "muzzle", 1, 3)
+            .unwrap_err();
+        assert!(error.contains("MissingLaterModel"), "{error}");
     }
 }

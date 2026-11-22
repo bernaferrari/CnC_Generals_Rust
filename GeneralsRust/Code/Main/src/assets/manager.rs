@@ -1563,6 +1563,17 @@ impl AssetManager {
         Some(counts)
     }
 
+    #[cfg(test)]
+    pub(crate) fn seed_weapon_barrel_counts_for_test(
+        &mut self,
+        object_name: &str,
+        condition_bits: u128,
+        counts: [Option<u8>; 3],
+    ) {
+        let key = WeaponBarrelCountCacheKey::new(object_name, condition_bits).unwrap();
+        self.weapon_barrel_count_cache.insert(key, counts);
+    }
+
     /// Warm exact W3D models named by selected Draw states, without routing a
     /// source model key through the Object-template lookup.  This is the safe
     /// map/startup boundary counterpart to the cache-only combat lookup: it
