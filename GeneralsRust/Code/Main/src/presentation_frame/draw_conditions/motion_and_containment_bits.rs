@@ -180,17 +180,18 @@ impl DrawConditionFacts {
             for b in [d_b, d_beg, d_act, d_end] {
                 bits &= !(1u128 << b);
             }
-            // host_ai_state_ordinal: Docked=12, Docking=18, Entering=17
-            match self.ai_state_ordinal {
-                12 => {
+            use crate::game_logic::AIState;
+
+            match self.ai_state {
+                AIState::Docked => {
                     bits |= 1u128 << d_act;
                     bits |= 1u128 << d_b;
                 }
-                18 => {
+                AIState::Docking => {
                     bits |= 1u128 << d_beg;
                     bits |= 1u128 << d_b;
                 }
-                17 => {
+                AIState::Entering => {
                     bits |= 1u128 << d_end;
                     bits |= 1u128 << d_b;
                 }

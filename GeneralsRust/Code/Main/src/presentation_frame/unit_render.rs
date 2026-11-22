@@ -881,7 +881,9 @@ impl UnitRenderInput {
         super::draw_conditions::DrawConditionFacts {
             active_weapon_slot: WeaponSlotType::from_u32(u32::from(self.active_weapon_slot))
                 .unwrap_or(WeaponSlotType::Primary),
-            ai_state_ordinal: self.ai_state_ordinal,
+            ai_state: crate::gameworld_shadow::GameWorldShadow::ai_state_from_ordinal(
+                self.ai_state_ordinal,
+            ),
             airborne_target: self.airborne_target,
             anim_steer_turn: HostAnimSteerTurnAnim::from_ordinal(self.anim_steer_turn),
             armed: self.armed,

@@ -6,7 +6,7 @@ use gamelogic::common::WeaponSlotType;
 
 pub(super) struct DrawConditionFacts {
     pub active_weapon_slot: WeaponSlotType,
-    pub ai_state_ordinal: u8,
+    pub ai_state: crate::game_logic::AIState,
     pub airborne_target: bool,
     pub anim_steer_turn: HostAnimSteerTurnAnim,
     pub armed: bool,

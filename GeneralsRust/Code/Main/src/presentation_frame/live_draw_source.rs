@@ -134,9 +134,7 @@ pub(super) fn object_condition_facts(
     super::draw_conditions::DrawConditionFacts {
         active_weapon_slot: WeaponSlotType::from_u32(u32::from(obj.active_weapon_slot))
             .unwrap_or(WeaponSlotType::Primary),
-        ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-            &obj.ai_state(),
-        ),
+        ai_state: obj.ai_state(),
         airborne_target: obj.status.airborne_target,
         anim_steer_turn: obj
             .animation_steering
