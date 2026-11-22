@@ -277,9 +277,9 @@ fn actual_main_completion_continues_through_script_engine_chunk_restore() {
                 let mut xfer = XferSave::new(&mut cursor, 1);
                 persist_v18::write_script_engine_block(&mut xfer, &persist).unwrap();
             }
-            let (_, _, _, _, _, tail) =
+            let continuation =
                 persist_v18::parse_script_engine_block(&cursor.into_inner()).unwrap();
-            let tail = tail.unwrap();
+            let tail = continuation.tail.unwrap();
             assert_eq!(tail.testing_speech, [(NAME.into(), 20)]);
             assert_eq!(tail.testing_audio, [(NAME.into(), 30)]);
             let restored_persist = persist_v18::WorldPersistV18 {

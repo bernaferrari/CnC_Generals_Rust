@@ -83,6 +83,7 @@ impl SnapshotBuilder {
         }
         // WSFL framing and contents are validated before any receiving-world
         // mutation, just like the other detached lifecycle candidates.
+        super::super::player_team_chunks::validate_lifecycle_capsule(&snapshot.lifecycle_tail)?;
         super::super::weapon_set_persist::validate_lifecycle_tail(&snapshot.lifecycle_tail)?;
         // Native input owns squads; validate its detached wire before world mutation.
         let _ = super::super::hotkey_squad_persist::read_control_groups(&snapshot.lifecycle_tail)?;
@@ -465,33 +466,23 @@ impl SnapshotBuilder {
             &snapshot.special_power_strikes,
             game_logic,
         )?;
-        // Validate the original ScriptEngine continuation before mutating the
-        // receiving world, including callers that deserialize the typed body directly.
-        let mut receiving_persist = snapshot.persist_v18.clone();
-        let encoded_script_tail =
-            super::super::player_team_chunks::script_engine_tail_from_world(snapshot)?;
-        if let (Some(embedded), Some(original)) =
-            (&receiving_persist.script_engine_tail, &encoded_script_tail)
-        {
-            if embedded.named_objects != original.named_objects
-                || embedded.first_update != original.first_update
-            {
-                return Err(SaveLoadError::Corrupted(
-                    "conflicting original named cache continuations".into(),
-                ));
-            }
-        }
-        if receiving_persist.script_engine_tail.is_none() {
-            receiving_persist.script_engine_tail = encoded_script_tail;
-        }
+        // The same validated capsule supplies Team ownership and the original
+        // ScriptEngine continuation, including raw WorldSnapshot callers.
+        let (player_team_chunks, encoded_script_tail) =
+            super::super::player_team_chunks::decode_world_capsule(snapshot)?;
+        let direct_script_tail = snapshot.persist_v18.script_engine_tail.as_ref();
+        super::super::persist_v18::check_named_script_continuation(
+            direct_script_tail,
+            encoded_script_tail.as_ref(),
+        )?;
+        let script_tail = direct_script_tail.or(encoded_script_tail.as_ref());
         let legacy_names =
             super::super::named_unit_history_persist::read_projection(&snapshot.lifecycle_tail)?;
-        match &receiving_persist.script_engine_tail {
-            Some(tail) if !tail.first_update => {
-                if legacy_names
-                    .iter()
-                    .any(|name| !tail.named_objects.iter().any(|(known, _)| known == name))
-                {
+        match script_tail {
+            Some(tail) if !tail.first_update && !legacy_names.is_empty() => {
+                let names: std::collections::HashSet<_> =
+                    tail.named_objects.iter().map(|(name, _)| name.as_str()).collect();
+                if legacy_names.iter().any(|name| !names.contains(name.as_str())) {
                     return Err(SaveLoadError::Corrupted("unsupported old Rust named history: name-only projection has no exact ordered cache row".into()));
                 }
             }
@@ -506,11 +497,12 @@ impl SnapshotBuilder {
             }
             None => {}
         }
-        if let Some(tail) = &receiving_persist.script_engine_tail {
+        if let Some(tail) = script_tail {
             if tail.named_objects.len() > u16::MAX as usize
                 || tail.named_objects.iter().any(|(name, id)| {
                     name.contains('\0')
-                        || (*id != 0 && !snapshot.objects.values().any(|object| object.id.0 == *id))
+                        || (*id != 0 && !snapshot.objects.get(&ObjectId(*id))
+                            .is_some_and(|object| object.id.0 == *id))
                 })
             {
                 return Err(SaveLoadError::Corrupted(
@@ -595,7 +587,7 @@ impl SnapshotBuilder {
         game_logic
             .validate_saved_partition_geometry(
                 &snapshot.shroud,
-                receiving_persist.terrain_active_boundary,
+                snapshot.persist_v18.terrain_active_boundary,
             )
             .map_err(SaveLoadError::Corrupted)?;
         self.validate_receiving_object_templates(&snapshot.objects, game_logic)?;
@@ -775,7 +767,6 @@ impl SnapshotBuilder {
             .map(decode_w3d_ghost_xfer_bytes)
             .transpose()?
             .unwrap_or_default();
-        let player_team_chunks = super::super::player_team_chunks::chunks_from_world(snapshot)?;
         if snapshot.version >= super::super::types::WORLD_SNAPSHOT_GARRISON_TEAM_VERSION
             && !super::super::garrison_team_identity_persist::has_lifecycle_capsule(
                 &snapshot.lifecycle_tail,
@@ -1023,7 +1014,7 @@ impl SnapshotBuilder {
             || !snapshot.shroud.pending_permanent_reveal_players.is_empty()
         {
             game_logic
-                .prepare_saved_partition_boundary(receiving_persist.terrain_active_boundary)
+                .prepare_saved_partition_boundary(snapshot.persist_v18.terrain_active_boundary)
                 .map_err(SaveLoadError::Corrupted)?;
             game_logic
                 .restore_receiving_partition_grid(&snapshot.shroud, snapshot.frame_number as u32)
@@ -1183,7 +1174,8 @@ impl SnapshotBuilder {
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
         super::super::persist_v18::restore_persist_v18_with_scale_encoding(
-            &receiving_persist,
+            &snapshot.persist_v18,
+            script_tail,
             game_logic,
             snapshot.version < 30,
         )?;

@@ -68,6 +68,7 @@ pub fn write_control_groups(bytes: &mut Vec<u8>, owned: &ControlGroupSave) -> Sa
     owned.validate()?;
     // Players/teams is an outer terminal capsule. Edit only its validated
     // lifecycle prefix and carry its original bytes through unchanged.
+    super::player_team_chunks::validate_lifecycle_capsule(bytes)?;
     let prefix_len = super::player_team_chunks::lifecycle_prefix(bytes)?.len();
     let mut prefix = bytes[..prefix_len].to_vec();
     write_control_groups_prefix(&mut prefix, owned)?;

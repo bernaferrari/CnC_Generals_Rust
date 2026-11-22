@@ -67,7 +67,7 @@ fn historical_multiplier_and_absolute_drawable_capsules_admit_once() {
     // multiplier admission only at the outer world restore boundary.
     let encoded = bincode_legacy::serialize(&historical).unwrap();
     let decoded = bincode_legacy::deserialize(&encoded).unwrap();
-    restore_persist_v18_with_scale_encoding(&decoded, &mut world, true).unwrap();
+    restore_persist_v18_with_scale_encoding(&decoded, decoded.script_engine_tail.as_ref(), &mut world, true).unwrap();
     assert_eq!(world.host_object(id).unwrap().drawable_instance_scale, 2.0);
     let absolute = capture_persist_v18(&world);
     let encoded = bincode_legacy::serialize(&absolute).unwrap();

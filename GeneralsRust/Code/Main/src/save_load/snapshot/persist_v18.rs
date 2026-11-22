@@ -746,19 +746,23 @@ pub fn restore_persist_v18(
     persist: &WorldPersistV18,
     game_logic: &mut GameLogic,
 ) -> SaveLoadResult<()> {
-    restore_persist_v18_with_scale_encoding(persist, game_logic, false)
+    restore_persist_v18_with_scale_encoding(
+        persist,
+        persist.script_engine_tail.as_ref(),
+        game_logic,
+        false,
+    )
 }
 
 /// Historical Rust world envelopes stored a multiplier; new/native Drawable
 /// payloads store the absolute C++ instance scale. This is admission metadata.
 pub(super) fn restore_persist_v18_with_scale_encoding(
     persist: &WorldPersistV18,
+    script_tail: Option<&gamelogic::scripting::engine::ScriptEngineXferTail>,
     game_logic: &mut GameLogic,
     legacy_multiplier: bool,
 ) -> SaveLoadResult<()> {
-    let restored_named_cache = persist
-        .script_engine_tail
-        .as_ref()
+    let restored_named_cache = script_tail
         .map(|tail| {
             crate::game_logic::game_logic::named_script_cache::NamedScriptCache::from_wire(
                 &tail.named_objects,
@@ -879,21 +883,14 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
             )
         })
         .collect();
-    game_logic.admit_session_difficulty(
-        persist
-            .script_engine_tail
-            .as_ref()
-            .map_or(1, |tail| tail.game_difficulty),
-    );
-    game_logic.objects_receive_difficulty_bonus = persist
-        .script_engine_tail
-        .as_ref()
-        .map_or(true, |tail| tail.objects_should_receive_difficulty_bonus);
+    game_logic.admit_session_difficulty(script_tail.map_or(1, |tail| tail.game_difficulty));
+    game_logic.objects_receive_difficulty_bonus =
+        script_tail.is_none_or(|tail| tail.objects_should_receive_difficulty_bonus);
     if let Some(engine) = &game_logic.owned_script_engine {
         let _ = engine.restore_named_trackers(&counters, &flags);
         engine.restore_sequential_scripts(&sequential);
         engine.restore_named_reveals(&named_reveals);
-        if let Some(tail) = &persist.script_engine_tail {
+        if let Some(tail) = script_tail {
             engine.restore_receiving_xfer_tail(tail);
         } else {
             engine.reset_receiving_named_state_for_legacy_load();
@@ -1526,16 +1523,61 @@ fn write_script_engine_xfer_tail<W: Write + Seek>(
     Ok(())
 }
 
-pub fn parse_script_engine_block(
+pub(crate) struct ScriptEngineContinuation {
+    sequential: Vec<SequentialScriptPersist>,
+    counters: Vec<ScriptCounterPersist>,
+    flags: Vec<ScriptFlagPersist>,
+    actives: Vec<ScriptActivePersist>,
+    named_reveals: Vec<NamedRevealPersist>,
+    pub(crate) tail: Option<gamelogic::scripting::engine::ScriptEngineXferTail>,
+}
+
+pub(super) fn check_named_script_continuation(
+    first: Option<&gamelogic::scripting::engine::ScriptEngineXferTail>,
+    second: Option<&gamelogic::scripting::engine::ScriptEngineXferTail>,
+) -> SaveLoadResult<()> {
+    if let (Some(first), Some(second)) = (first, second) {
+        if first.named_objects != second.named_objects || first.first_update != second.first_update {
+            return Err(SaveLoadError::Corrupted(
+                "conflicting original ScriptEngine named cache continuations".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn admit_script_engine_block(
+    persist: &mut WorldPersistV18,
     payload: &[u8],
-) -> SaveLoadResult<(
-    Vec<SequentialScriptPersist>,
-    Vec<ScriptCounterPersist>,
-    Vec<ScriptFlagPersist>,
-    Vec<ScriptActivePersist>,
-    Vec<NamedRevealPersist>,
-    Option<gamelogic::scripting::engine::ScriptEngineXferTail>,
-)> {
+) -> SaveLoadResult<()> {
+    let continuation = parse_script_engine_block(payload).map_err(|error| {
+        SaveLoadError::Corrupted(format!("CHUNK_ScriptEngine: {error}"))
+    })?;
+    check_named_script_continuation(persist.script_engine_tail.as_ref(), continuation.tail.as_ref())?;
+    // Earlier archives can supply only part of the continuation. Preserve
+    // the legacy fallback to fields already carried by the Rust world body.
+    if !continuation.sequential.is_empty() {
+        persist.script_sequential = continuation.sequential;
+    }
+    if !continuation.counters.is_empty() {
+        persist.script_counters = continuation.counters;
+    }
+    if !continuation.flags.is_empty() {
+        persist.script_flags = continuation.flags;
+    }
+    if !continuation.actives.is_empty() {
+        persist.script_actives = continuation.actives;
+    }
+    if !continuation.named_reveals.is_empty() {
+        persist.script_named_reveals = continuation.named_reveals;
+    }
+    if continuation.tail.is_some() {
+        persist.script_engine_tail = continuation.tail;
+    }
+    Ok(())
+}
+
+pub(crate) fn parse_script_engine_block(payload: &[u8]) -> SaveLoadResult<ScriptEngineContinuation> {
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), 1);
     let mut version = 0u8;
     map_xfer(xfer.xfer_version(&mut version, 8))?;
@@ -1658,7 +1700,10 @@ pub fn parse_script_engine_block(
     } else {
         None
     };
-    Ok((sequential, counters, flags, actives, named_reveals, tail))
+    if xfer.bytes_read() != payload.len() as u64 {
+        return Err(SaveLoadError::Corrupted("trailing ScriptEngine bytes".into()));
+    }
+    Ok(ScriptEngineContinuation { sequential, counters, flags, actives, named_reveals, tail })
 }
 
 fn parse_ascii_list(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<Vec<String>> {
@@ -2281,7 +2326,7 @@ mod tests {
             let mut xfer = CommonXferSave::new(&mut cursor, 1);
             write_script_engine_block(&mut xfer, &persist).expect("write");
         }
-        let (sequential, counters, _flags, _actives, named_reveals, tail) =
+        let ScriptEngineContinuation { sequential, counters, named_reveals, tail, .. } =
             parse_script_engine_block(&cursor.into_inner()).expect("parse");
         assert_eq!(
             sequential.len(),
@@ -2319,7 +2364,7 @@ mod tests {
             let mut xfer = CommonXferSave::new(&mut cursor, 1);
             write_script_engine_block(&mut xfer, &persist).expect("write");
         }
-        let (_sequential, counters, _flags, _actives, named_reveals, tail) =
+        let ScriptEngineContinuation { counters, named_reveals, tail, .. } =
             parse_script_engine_block(&cursor.into_inner()).expect("parse");
         assert_eq!(named_reveals.len(), 1);
         assert_eq!(named_reveals[0].reveal_name, "BaseLook");
@@ -2363,9 +2408,8 @@ mod tests {
             let mut xfer = CommonXferSave::new(&mut cursor, 1);
             write_script_engine_block(&mut xfer, &persist).expect("write");
         }
-        let (_sequential, _counters, _flags, _actives, _reveals, tail) =
-            parse_script_engine_block(&cursor.into_inner()).expect("parse");
-        let tail = tail.expect("v8 tail");
+        let decoded = parse_script_engine_block(&cursor.into_inner()).expect("parse");
+        let tail = decoded.tail.expect("v8 tail");
         assert_eq!(tail.attack_priorities[0].0, "Heroes");
         assert_eq!(tail.object_attack_priority_sets[0], (42, "Heroes".into()));
         assert_eq!(tail.end_game_timer, 30);

@@ -152,30 +152,27 @@ fn footer_start(bytes: &[u8]) -> SaveLoadResult<Option<usize>> {
 }
 
 pub(crate) fn chunks_from_world(world: &WorldSnapshot) -> SaveLoadResult<PlayerTeamChunks> {
-    chunks_from_lifecycle_tail(&world.lifecycle_tail)
+    Ok(decode_world_capsule(world)?.0)
 }
 
-/// The outer Players/teams capsule is appended after every owner continuation.
-/// Validate it before exposing the inner EOF framing to an owner decoder.
+/// Locate the inner lifecycle records by framing. Archive decode and world
+/// restore validate the capsule's contents once at their admission boundary.
 pub(super) fn lifecycle_prefix(bytes: &[u8]) -> SaveLoadResult<&[u8]> {
     let (bytes, _) = super::initial_skirmish::split(bytes)?;
-    let Some(start) = footer_start(bytes)? else {
-        return Ok(bytes);
-    };
-    chunks_from_lifecycle_tail(bytes)?;
-    Ok(&bytes[..start])
+    Ok(&bytes[..footer_start(bytes)?.unwrap_or(bytes.len())])
 }
 
-fn chunks_from_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<PlayerTeamChunks> {
-    Ok(chunks_and_script_from_lifecycle_tail(bytes)?.0)
+pub(super) fn validate_lifecycle_capsule(bytes: &[u8]) -> SaveLoadResult<()> {
+    chunks_and_script_from_lifecycle_tail(bytes).map(|_| ())
 }
 
-/// Original ScriptEngine bytes share the existing original-chunk envelope;
-/// no policy field or alternative interpreter state is serialized.
-pub(crate) fn script_engine_tail_from_world(
+pub(super) fn decode_world_capsule(
     world: &WorldSnapshot,
-) -> SaveLoadResult<Option<gamelogic::scripting::engine::ScriptEngineXferTail>> {
-    Ok(chunks_and_script_from_lifecycle_tail(&world.lifecycle_tail)?.1)
+) -> SaveLoadResult<(
+    PlayerTeamChunks,
+    Option<gamelogic::scripting::engine::ScriptEngineXferTail>,
+)> {
+    chunks_and_script_from_lifecycle_tail(&world.lifecycle_tail)
 }
 
 fn chunks_and_script_from_lifecycle_tail(
@@ -230,7 +227,7 @@ fn chunks_and_script_from_lifecycle_tail(
     let tail = script
         .map(super::persist_v18::parse_script_engine_block)
         .transpose()?
-        .and_then(|(_, _, _, _, _, tail)| tail);
+        .and_then(|continuation| continuation.tail);
     if !remaining.is_empty() {
         return Err(SaveLoadError::Corrupted(
             "Trailing Players/teams capsule bytes".into(),

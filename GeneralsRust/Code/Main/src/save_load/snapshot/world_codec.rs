@@ -28,7 +28,7 @@ pub(crate) fn decode_bincode_world_snapshot(payload: &[u8]) -> SaveLoadResult<Wo
         .map_err(SaveLoadError::Serialization)?;
     validate_world_path_links(&snapshot)?;
     snapshot.persist_v18.script_engine_tail =
-        super::player_team_chunks::script_engine_tail_from_world(&snapshot)?;
+        super::player_team_chunks::decode_world_capsule(&snapshot)?.1;
     Ok(snapshot)
 }
 

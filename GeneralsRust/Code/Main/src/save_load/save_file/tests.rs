@@ -7,6 +7,7 @@ mod client_candidate;
 mod control_group_ownership;
 mod particle_candidate;
 mod particle_capture_failure;
+mod script_candidate;
 mod stealth_continuation;
 mod terrain_candidate;
 

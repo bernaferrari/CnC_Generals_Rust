@@ -505,7 +505,6 @@ fn apply_persist_chunks(
     snapshot: &mut WorldSnapshot,
     ingame_ui: Option<&[u8]>,
     tactical_view: Option<&[u8]>,
-    script_engine: Option<&[u8]>,
     terrain_logic: Option<&[u8]>,
     radar: Option<&[u8]>,
 ) {
@@ -524,30 +523,6 @@ fn apply_persist_chunks(
                 // Keep both decoded values detached; the receiving host selects
                 // its complete native record when present.
                 snapshot.persist_v18.tactical_view_camera = Some(camera);
-            }
-        }
-    }
-    if let Some(payload) = script_engine {
-        if payload.len() > 1 {
-            if let Ok((sequential, counters, flags, actives, named_reveals, tail)) =
-                persist_v18::parse_script_engine_block(payload)
-            {
-                if !sequential.is_empty() {
-                    snapshot.persist_v18.script_sequential = sequential;
-                }
-                if !counters.is_empty() {
-                    snapshot.persist_v18.script_counters = counters;
-                }
-                if !flags.is_empty() {
-                    snapshot.persist_v18.script_flags = flags;
-                }
-                if !actives.is_empty() {
-                    snapshot.persist_v18.script_actives = actives;
-                }
-                if !named_reveals.is_empty() {
-                    snapshot.persist_v18.script_named_reveals = named_reveals;
-                }
-                snapshot.persist_v18.script_engine_tail = tail;
             }
         }
     }
@@ -1794,7 +1769,9 @@ impl SaveFileManager {
             } else if token.eq_ignore_ascii_case(CHUNK_TACTICAL_VIEW) {
                 tactical_view_payload = Some(payload);
             } else if token.eq_ignore_ascii_case(CHUNK_SCRIPT_ENGINE) {
-                script_engine_payload = Some(payload);
+                if script_engine_payload.replace(payload).is_some() {
+                    return Err(SaveLoadError::Corrupted("duplicate CHUNK_ScriptEngine".into()));
+                }
             } else if token.eq_ignore_ascii_case(CHUNK_TERRAIN_LOGIC) {
                 terrain_logic_payload = Some(payload);
             } else if token.eq_ignore_ascii_case(CHUNK_RADAR) {
@@ -1831,6 +1808,12 @@ impl SaveFileManager {
         if has_game_logic {
             validate_host_alliances(&world_snapshot, &player_team_chunks)?;
         }
+        if let Some(payload) = script_engine_payload.as_deref().filter(|bytes| *bytes != [1]) {
+            crate::save_load::snapshot::persist_v18::admit_script_engine_block(
+                &mut world_snapshot.persist_v18,
+                payload,
+            )?;
+        }
         bind_player_team_chunks(&mut world_snapshot, &player_team_chunks)?;
         // Reuse the existing map-root observation for both the original
         // GameInfo field and embedded-map extraction; no receiving definitions
@@ -1865,7 +1848,6 @@ impl SaveFileManager {
             &mut world_snapshot,
             ingame_ui_payload.as_deref(),
             tactical_view_payload.as_deref(),
-            script_engine_payload.as_deref(),
             terrain_logic_payload.as_deref(),
             radar_payload.as_deref(),
         );
