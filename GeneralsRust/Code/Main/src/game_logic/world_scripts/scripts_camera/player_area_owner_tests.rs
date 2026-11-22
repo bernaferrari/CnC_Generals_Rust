@@ -126,6 +126,13 @@ fn team_inside_area_condition_reads_the_receiving_same_id_objects() {
         ConditionType::TeamOutsideAreaEntirely,
         "AreaTeam"
     )));
+    let mut air_only = condition(ConditionType::TeamInsideAreaPartially, "AreaTeam");
+    air_only.parameters[2].as_mut().unwrap().int_value =
+        gamelogic::scripting::ScriptSurfacesAllowed::AIR.bits() as i32;
+    owner.host_object_mut(id).unwrap().locomotor_surfaces = gamelogic::locomotor::SURFACE_WATER;
+    assert!(!owner.owned_script_condition_for_test(air_only.clone()));
+    owner.host_object_mut(id).unwrap().locomotor_surfaces = gamelogic::locomotor::SURFACE_AIR;
+    assert!(owner.owned_script_condition_for_test(air_only));
     owner.host_object_mut(id).unwrap().locomotor_surfaces = authored_surfaces;
     assert!(
         !peer.owned_script_condition_for_test(condition(

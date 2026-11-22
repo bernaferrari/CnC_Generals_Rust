@@ -88,11 +88,8 @@ impl Team {
         ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
         which_to_consider: LocomotorSurfaceTypeMask,
     ) -> bool {
-        // C++ parity (Team.cpp static locoSetMatches):
-        // script condition bits are remapped before comparing against locomotor surface bits.
-        let mut surface_bits = which_to_consider as UnsignedInt;
-        surface_bits = (surface_bits & 0x01) | ((surface_bits & 0x02) << 2);
-        let considered = surface_bits as LocomotorSurfaceTypeMask;
+        let considered = crate::scripting::ScriptSurfacesAllowed::from_bits_truncate(which_to_consider)
+            .locomotor_mask();
 
         if let Some(ai_arc) = ai {
             if let Ok(ai_guard) = ai_arc.lock() {

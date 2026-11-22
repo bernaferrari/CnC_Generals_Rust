@@ -1751,11 +1751,29 @@ pub fn host_object_did_exit(
     world.did_exit(object_id, trigger, now)
 }
 
-/// C++ Team.cpp:142-145 `locoSetMatches`.
-/// Script bit0 stays GROUND; bit1 remaps to locomotor AIR (`<< 2`).
-pub fn host_script_loco_set_matches(lstm: u32, which_to_consider: u32) -> bool {
-    let remapped = (which_to_consider & 0x01) | ((which_to_consider & 0x02) << 2);
-    (remapped & lstm) != 0
+bitflags::bitflags! {
+    /// Ground and air bits authored by World Builder in a SurfacesAllowed parameter.
+    #[derive(Clone, Copy)]
+    pub struct ScriptSurfacesAllowed: u32 {
+        const GROUND = 0x01;
+        const AIR = 0x02;
+    }
+}
+
+impl ScriptSurfacesAllowed {
+    /// Convert the authored bits to the locomotor mask (Team.cpp:142–145).
+    pub const fn locomotor_mask(self) -> crate::locomotor::LocomotorSurfaceTypeMask {
+        use crate::locomotor::{SURFACE_AIR, SURFACE_GROUND};
+
+        let mut mask = 0;
+        if self.contains(Self::GROUND) {
+            mask |= SURFACE_GROUND;
+        }
+        if self.contains(Self::AIR) {
+            mask |= SURFACE_AIR;
+        }
+        mask
+    }
 }
 
 fn leftover_template_is_inert(template_name: &str) -> bool {
@@ -1780,7 +1798,8 @@ fn host_object_counts_for_team_area(obj: &HostScriptQueryObject, which_to_consid
     } else {
         crate::path::SURFACE_GROUND
     };
-    if !host_script_loco_set_matches(surfaces, which_to_consider) {
+    let considered = ScriptSurfacesAllowed::from_bits_truncate(which_to_consider).locomotor_mask();
+    if surfaces & considered == 0 {
         return false;
     }
     if obj.effectively_dead || !obj.alive {

@@ -4,12 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
-
-/// C++ Team.cpp:142-145 locoSetMatches — WB bit1 (air) shifts to locomotor AIR.
-fn loco_set_matches(lstm: u32, surface_bit_flags: u32) -> bool {
-    let remapped = (surface_bit_flags & 0x01) | ((surface_bit_flags & 0x02) << 2);
-    (remapped & lstm) != 0
-}
+use crate::scripting::ScriptSurfacesAllowed;
 
 fn bool_result(value: bool) -> ScriptConditionResult {
     if value {
@@ -2519,7 +2514,8 @@ fn member_counts_for_team_area(obj: &crate::object::Object, which_to_consider: u
     } else {
         crate::path::SURFACE_GROUND
     };
-    if !loco_set_matches(surfaces, which_to_consider) {
+    let considered = ScriptSurfacesAllowed::from_bits_truncate(which_to_consider).locomotor_mask();
+    if surfaces & considered == 0 {
         return false;
     }
     if obj.is_effectively_dead() {

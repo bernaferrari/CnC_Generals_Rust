@@ -2,6 +2,7 @@
 use super::*;
 use game_engine::common::rts::science::{ScienceNameFacts, ScienceType};
 use gamelogic::common::Relationship;
+use gamelogic::scripting::ScriptSurfacesAllowed;
 use gamelogic::scripting::engine::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
     ScriptExecutionDriver, ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery,
@@ -1403,7 +1404,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         };
 
         let mut membership = ScriptTeamAreaMembership::default();
-        let remapped = (which_to_consider & 0x01) | ((which_to_consider & 0x02) << 2);
+        let considered = ScriptSurfacesAllowed::from_bits_truncate(which_to_consider).locomotor_mask();
         for member_id in members {
             let Some(object) = self.world.host_object(ObjectId(member_id)) else {
                 continue;
@@ -1413,7 +1414,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             } else {
                 gamelogic::path::SURFACE_GROUND
             };
-            if (surfaces & remapped) == 0
+            if (surfaces & considered) == 0
                 || Self::status(object).effectively_dead
                 || object.is_kind_of(KindOf::Inert)
             {
@@ -3386,7 +3387,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         let Some(trigger) = trigger_world.trigger_area_by_canonical_name(&area_name) else {
             return ScriptOwnerQuery::Missing;
         };
-        let surfaces = (surfaces_allowed & 0x01) | ((surfaces_allowed & 0x02) << 2);
+        let surfaces = ScriptSurfacesAllowed::from_bits_truncate(surfaces_allowed).locomotor_mask();
         let (mut any_considered, mut any_entered, mut any_outside) = (false, false, false);
         let (mut any_exited, mut any_inside) = (false, false);
         for id in members {
