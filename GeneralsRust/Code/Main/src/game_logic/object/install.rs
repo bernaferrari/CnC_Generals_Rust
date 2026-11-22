@@ -1,5 +1,18 @@
 use super::*;
 
+#[derive(Clone, Copy)]
+pub(in crate::game_logic) enum TimedDisable {
+    Emp,
+    Hacked,
+    Paralyzed,
+}
+
+impl TimedDisable {
+    pub(in crate::game_logic) fn is_power_style(self) -> bool {
+        matches!(self, Self::Emp | Self::Hacked)
+    }
+}
+
 impl Object {
     pub(crate) fn is_power_style_disabled(&self) -> bool {
         self.status.disabled_underpowered
@@ -869,60 +882,56 @@ impl Object {
         health_events: &mut crate::game_logic::HostHealthEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        self.apply_disabled_hacked_with_spawn_residual(
-            until_frame,
-            health_events,
-            audio,
-            true,
-        );
-    }
-
-    /// Main's receiving GameLogic applies the C++ SpawnBehavior child callback
-    /// through its own ordered roster immediately after this Object phase.
-    /// Keep the old direct-Object adapter for standalone callers only.
-    pub(crate) fn apply_disabled_hacked_owned(
-        &mut self,
-        until_frame: u32,
-        health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
-    ) {
-        self.apply_disabled_hacked_with_spawn_residual(
-            until_frame,
-            health_events,
-            audio,
-            false,
-        );
-    }
-
-    fn apply_disabled_hacked_with_spawn_residual(
-        &mut self,
-        until_frame: u32,
-        health_events: &mut crate::game_logic::HostHealthEvents,
-        audio: &mut crate::game_logic::ObjectAudio<'_>,
-        use_spawn_residual: bool,
-    ) {
-        let becoming = !self.is_disabled();
-        let already_power = self.is_power_style_disabled();
-        if !already_power {
+        let was_disabled = self.has_disabled_type();
+        if !self.is_power_style_disabled() {
             self.queue_power_disable_misc_audio(true, health_events);
         }
-        self.set_status_disabled_hacked(true);
-        self.status.disabled_hacked_until_frame = until_frame;
-        self.status.attacking = false;
+        let changed = self.begin_timed_disable(TimedDisable::Hacked, until_frame, audio);
+        // Standalone compatibility callers still own their local hive.
+        if changed && self.is_spawns_are_the_weapons() {
+            let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_go_idle(
+                &mut self.hive_slaves,
+            );
+        }
+        if changed && !was_disabled {
+            self.on_disabled_edge(true);
+        }
+    }
+
+    /// Apply the local part of Object::setDisabledUntil. The caller delivers
+    /// the aggregate disabled edge after dispatching any child disables.
+    pub(in crate::game_logic) fn begin_timed_disable(
+        &mut self,
+        effect: TimedDisable,
+        until_frame: u32,
+        audio: &mut crate::game_logic::ObjectAudio<'_>,
+    ) -> bool {
+        let (active, deadline) = match effect {
+            TimedDisable::Emp => (
+                &mut self.status.disabled_emp,
+                &mut self.status.disabled_emp_until_frame,
+            ),
+            TimedDisable::Hacked => (
+                &mut self.status.disabled_hacked,
+                &mut self.status.disabled_hacked_until_frame,
+            ),
+            TimedDisable::Paralyzed => (
+                &mut self.status.disabled_paralyzed,
+                &mut self.status.disabled_paralyzed_until_frame,
+            ),
+        };
+        if *deadline == until_frame {
+            return false;
+        }
+        *active = true;
+        *deadline = until_frame;
+        self.set_status_attacking(false);
         self.set_status_moving(false);
         self.stop_moving(audio);
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        // C++ setDisabledUntil: KINDOF_SPAWNS_ARE_THE_WEAPONS orderSlavesDisabledUntil.
-        if use_spawn_residual && self.is_spawns_are_the_weapons() {
-            let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_go_idle(
-                &mut self.hive_slaves,
-            );
-        }
-        if becoming {
-            self.on_disabled_edge(true);
-        }
+        true
     }
 
     pub fn tick_disabled_hacked(
@@ -957,20 +966,11 @@ impl Object {
         health_events: &mut crate::game_logic::HostHealthEvents,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        let becoming = !self.is_disabled();
-        let already_power = self.is_power_style_disabled();
-        if !already_power {
+        let was_disabled = self.has_disabled_type();
+        if !self.is_power_style_disabled() {
             self.queue_power_disable_misc_audio(true, health_events);
         }
-        self.set_status_disabled_emp(true);
-        self.status.disabled_emp_until_frame = until_frame;
-        self.set_status_attacking(false);
-        self.set_status_moving(false);
-        self.stop_moving(audio);
-        self.target = None;
-        self.target_location = None;
-        self.set_status_force_attack(false);
-        if becoming {
+        if self.begin_timed_disable(TimedDisable::Emp, until_frame, audio) && !was_disabled {
             self.on_disabled_edge(true);
         }
     }
@@ -998,26 +998,14 @@ impl Object {
         }
     }
 
-    /// Apply DISABLED_PARALYZED residual until `until_frame` (absolute host logic frame).
-    /// C++ BattlePlanUpdate::paralyzeTroop: setDisabledUntil(DISABLED_PARALYZED, now + frames).
-    /// Refresh extends the timer if a later expiry is provided.
+    /// C++ BattlePlanUpdate::paralyzeTroop sets an absolute deadline.
     pub fn apply_disabled_paralyzed(
         &mut self,
         until_frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        let becoming = !self.is_disabled();
-        self.set_status_disabled_paralyzed(true);
-        if until_frame > self.status.disabled_paralyzed_until_frame {
-            self.status.disabled_paralyzed_until_frame = until_frame;
-        }
-        self.status.attacking = false;
-        self.set_status_moving(false);
-        self.stop_moving(audio);
-        self.target = None;
-        self.target_location = None;
-        self.set_status_force_attack(false);
-        if becoming {
+        let was_disabled = self.has_disabled_type();
+        if self.begin_timed_disable(TimedDisable::Paralyzed, until_frame, audio) && !was_disabled {
             self.on_disabled_edge(true);
         }
     }

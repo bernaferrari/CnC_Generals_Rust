@@ -1,12 +1,7 @@
 //! Immediate receiving Energy entry and synchronous brownout callbacks.
 use super::super::*;
 
-#[derive(Clone, Copy)]
-enum InitialDisabledEffect {
-    Emp,
-    Hacked,
-    Paralyzed,
-}
+use crate::game_logic::object::TimedDisable;
 
 impl GameLogic {
     /// EMPUpdate calls Object::setDisabledUntil on the installed target.
@@ -15,7 +10,7 @@ impl GameLogic {
         id: ObjectId,
         until: u32,
     ) -> bool {
-        self.apply_owned_initial_disabled(id, until, InitialDisabledEffect::Emp)
+        self.apply_owned_initial_disabled(id, until, TimedDisable::Emp)
     }
 
     /// SpecialAbilityUpdate calls Object::setDisabledUntil on its target.
@@ -24,7 +19,7 @@ impl GameLogic {
         id: ObjectId,
         until: u32,
     ) -> bool {
-        self.apply_owned_initial_disabled(id, until, InitialDisabledEffect::Hacked)
+        self.apply_owned_initial_disabled(id, until, TimedDisable::Hacked)
     }
 
     /// BattlePlanUpdate calls Object::setDisabledUntil on the affected unit.
@@ -33,57 +28,55 @@ impl GameLogic {
         id: ObjectId,
         until: u32,
     ) -> bool {
-        self.apply_owned_initial_disabled(id, until, InitialDisabledEffect::Paralyzed)
+        self.apply_owned_initial_disabled(id, until, TimedDisable::Paralyzed)
     }
 
     fn apply_owned_initial_disabled(
         &mut self,
         id: ObjectId,
         until: u32,
-        effect: InitialDisabledEffect,
+        effect: TimedDisable,
     ) -> bool {
-        let (producer, disabled_deadline_changed) = {
+        let epoch = self.visual_world_epoch;
+        let (birth, became_disabled, children) = {
             let Some(object) = self.objects.get_mut(&id) else {
                 return false;
             };
-            let prior_until = match effect {
-                InitialDisabledEffect::Emp => object.status.disabled_emp_until_frame,
-                InitialDisabledEffect::Hacked => object.status.disabled_hacked_until_frame,
-                InitialDisabledEffect::Paralyzed => {
-                    object.status.disabled_paralyzed_until_frame
-                }
-            };
             let was_disabled = object.has_disabled_type();
-            let mut audio = crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
-            match effect {
-                InitialDisabledEffect::Emp => {
-                    object.apply_disabled_emp(until, &mut self.health_events, &mut audio);
-                }
-                InitialDisabledEffect::Hacked => {
-                    object.apply_disabled_hacked_owned(
-                        until,
-                        &mut self.health_events,
-                        &mut audio,
-                    );
-                }
-                InitialDisabledEffect::Paralyzed => {
-                    object.apply_disabled_paralyzed(until, &mut audio);
-                }
+            if effect.is_power_style() && !object.is_power_style_disabled() {
+                object.queue_power_disable_misc_audio(true, &mut self.health_events);
             }
+            let mut audio = crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
+            let deadline_changed = object.begin_timed_disable(effect, until, &mut audio);
+            let children = if deadline_changed && object.is_spawns_are_the_weapons() {
+                object.spawn_behavior_children()
+            } else {
+                Vec::new()
+            };
             (
-                (!was_disabled
-                    && object.has_disabled_type()
-                    && object.thing().template.energy_production.unwrap_or(0) > 0)
-                    .then_some((object.owner_player_id, object.power_provided)),
-                prior_until != until,
+                object.visual_object_generation,
+                !was_disabled && object.has_disabled_type(),
+                children,
             )
         };
-        if disabled_deadline_changed {
-            self.apply_owned_spawn_children_disabled_until(id, until, effect);
+        if !children.is_empty() {
+            self.apply_owned_spawn_children_disabled_until(id, birth, epoch, children, until, effect);
+            if !self.spawn_identity_matches(id, birth, epoch) {
+                return true;
+            }
         }
 
-        // C++ Object::onDisabledEdge delivers the radar callback before
-        // adjusting positive production. Release the Object loan first.
+        // Object::setDisabledUntil calls onDisabledEdge after the children.
+        // An earlier queued edge could be drained by a child's brownout.
+        let producer = if became_disabled {
+            let object = self.objects.get_mut(&id).unwrap();
+            object.on_disabled_edge(true);
+            (object.thing().template.energy_production.unwrap_or(0) > 0)
+                .then_some((object.owner_player_id, object.power_provided))
+        } else {
+            None
+        };
+
         self.admit_host_radar_disabled_edges(id);
         if let Some((Some(owner), power)) = producer {
             let brownout = self
@@ -103,74 +96,41 @@ impl GameLogic {
     fn apply_owned_spawn_children_disabled_until(
         &mut self,
         parent_id: ObjectId,
+        parent_birth: u64,
+        epoch: u64,
+        children: Vec<(ObjectId, u64)>,
         until: u32,
-        effect: InitialDisabledEffect,
+        effect: TimedDisable,
     ) {
-        let Some(parent) = self.host_object(parent_id) else {
-            return;
-        };
-        if !parent.is_spawns_are_the_weapons() {
-            return;
-        }
-        let parent_birth = parent.visual_object_generation;
-        let epoch = self.visual_world_epoch;
-        let children = parent.spawn_behavior_children();
-        for (child_id, birth) in children {
-            if !self.spawn_identity_matches(parent_id, parent_birth, epoch) { return; }
-            let still_member = self.host_object(parent_id).is_some_and(|parent| {
-                parent.contains_spawn_behavior_child(child_id, &birth)
-            });
-            let exact_child = self.host_object(child_id).is_some_and(|child| {
-                still_member
-                    && self.host_object(parent_id).is_some_and(|parent| {
-                        parent.spawn_behavior_child_birth_matches(child_id, &birth, child)
+        for (child_id, child_birth) in children {
+            if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
+                return;
+            }
+            let still_exact_child = |world: &Self| {
+                world.spawn_identity_matches(child_id, child_birth, epoch)
+                    && world.host_object(parent_id).is_some_and(|parent| {
+                        parent.contains_spawn_behavior_child(child_id, &child_birth)
                     })
-            });
-            if !exact_child {
+            };
+            if !still_exact_child(self) {
                 continue;
             }
 
-            // `aiIdle(CMD_FROM_AI)` can re-enter Main; do not retain a borrow
-            // or let an ID-reused child receive the subsequent setDisabled.
-            let has_ai = self
-                .host_object(child_id)
-                .is_some_and(|child| child.has_ai_update_interface());
-            if has_ai {
+            // aiIdle can reenter Main before setDisabledUntil.
+            if self.host_object(child_id).is_some_and(Object::has_ai_update_interface) {
                 let _ = self.set_ai_state_decision_aware_with_effects(
                     child_id,
                     crate::game_logic::AIState::Idle,
                     &mut crate::game_logic::ScriptPresentationEffects::default(),
                 );
-            }
-            if !self.spawn_identity_matches(parent_id, parent_birth, epoch) { return; }
-            let still_exact = self.host_object(parent_id).is_some_and(|parent| {
-                parent.contains_spawn_behavior_child(child_id, &birth)
-                    && self.host_object(child_id).is_some_and(|child| {
-                        parent.spawn_behavior_child_birth_matches(child_id, &birth, child)
-                    })
-            });
-            if !still_exact {
-                continue;
-            }
-            if let Some(child) = self.objects.get_mut(&child_id) {
-                let mut child_audio =
-                    crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
-                match effect {
-                    InitialDisabledEffect::Emp => child.apply_disabled_emp(
-                        until,
-                        &mut self.health_events,
-                        &mut child_audio,
-                    ),
-                    InitialDisabledEffect::Hacked => child.apply_disabled_hacked_owned(
-                        until,
-                        &mut self.health_events,
-                        &mut child_audio,
-                    ),
-                    InitialDisabledEffect::Paralyzed => {
-                        child.apply_disabled_paralyzed(until, &mut child_audio)
-                    }
+                if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
+                    return;
+                }
+                if !still_exact_child(self) {
+                    continue;
                 }
             }
+            self.apply_owned_initial_disabled(child_id, until, effect);
         }
     }
 
@@ -287,6 +247,136 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn spawned_radar_world() -> (GameLogic, [ObjectId; 3]) {
+        let source = r#"
+Object DisableNest
+ KindOf = STRUCTURE SPAWNS_ARE_THE_WEAPONS
+ Behavior = DefaultProductionExitUpdate Exit
+ End
+ Behavior = SpawnBehavior Spawn
+  SpawnNumber = 1
+  SpawnTemplateName = DisableRadarChild
+  OneShot = Yes
+ End
+End
+Object DisableRadarChild
+ KindOf = STRUCTURE SPAWNS_ARE_THE_WEAPONS
+ EnergyProduction = 20
+ Behavior = RadarUpgrade Radar
+  TriggeredBy = Upgrade_TestSpawnRadar
+  DisableProof = Yes
+ End
+ Behavior = GrantUpgradeCreate Grant
+  UpgradeToGrant = Upgrade_TestSpawnRadar
+ End
+ Behavior = DefaultProductionExitUpdate Exit
+ End
+ Behavior = SpawnBehavior Spawn
+  SpawnNumber = 1
+  SpawnTemplateName = DisableGrandchild
+  OneShot = Yes
+ End
+End
+Object DisableGrandchild
+ KindOf = INFANTRY
+End
+"#;
+        let mut world = GameLogic::new();
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, "Upgrade_TestSpawnRadar", "OBJECT", 0, 1,
+        );
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "spawned-radar.ini".into(),
+                    source.into(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world.add_player(Player::new(1, Team::GLA, "SpawnOwner", true));
+        let parent = world.create_object_for_player("DisableNest", 1, Vec3::ZERO).unwrap();
+        for frame in 1..=2 {
+            world.set_current_frame(frame);
+            world.update_spawn_behavior_with_effects(&mut Default::default()).unwrap();
+        }
+        let [child] = world.host_object(parent).unwrap().spawn_behavior_children()[..] else {
+            panic!("SpawnBehavior must create the radar child");
+        };
+        let [grandchild] = world.host_object(child.0).unwrap().spawn_behavior_children()[..] else {
+            panic!("the child SpawnBehavior must create the grandchild");
+        };
+        // Only the parent is in range of the EMP. Other actors can only
+        // receive it through the authored SpawnBehavior roster.
+        for id in [child.0, grandchild.0] {
+            assert!(world.set_registered_object_position(id, Vec3::new(2_000.0, 0.0, 0.0)));
+        }
+        assert_eq!(world.players[&1].power_produced, 20);
+        assert_eq!(world.players[&1].radar_count, 1);
+        (world, [parent, child.0, grandchild.0])
+    }
+
+    #[test]
+    fn emp_on_spawn_parent_completes_descendant_radar_and_power_before_returning() {
+        let (mut world, ids) = spawned_radar_world();
+        let (peer, peer_ids) = spawned_radar_world();
+        assert_eq!(ids, peer_ids);
+        assert!(world.apply_emp_pulse_disable_field_at(1, Vec3::ZERO, None));
+        assert!(world.host_object(ids[1]).unwrap().status.disabled_emp);
+        assert_eq!(world.players[&1].radar_count, 0);
+        assert_eq!(world.players[&1].power_produced, 0);
+        let deadline = world.host_object(ids[0]).unwrap().status.disabled_emp_until_frame;
+        assert!(deadline > world.frame);
+        for id in ids {
+            let status = &world.host_object(id).unwrap().status;
+            assert!(status.disabled_emp);
+            assert_eq!(status.disabled_emp_until_frame, deadline);
+            assert!(!peer.host_object(id).unwrap().status.disabled_emp);
+        }
+        world.set_current_frame(u64::from(world.frame) + 1);
+        assert!(world.apply_emp_pulse_disable_field_at(1, Vec3::ZERO, None));
+        assert_eq!(world.players[&1].radar_count, 0);
+        assert_eq!(world.players[&1].power_produced, 0);
+        assert_eq!(peer.players[&1].radar_count, 1);
+        assert_eq!(peer.players[&1].power_produced, 20);
+    }
+
+    #[test]
+    fn spawned_hacked_and_paralyzed_deadlines_can_shorten_and_restore_the_grid() {
+        for (disable, deadline) in [
+            (
+                GameLogic::apply_owned_hacked_disabled as fn(&mut GameLogic, ObjectId, u32) -> bool,
+                (|object: &Object| object.status.disabled_hacked_until_frame) as fn(&Object) -> u32,
+            ),
+            (
+                GameLogic::apply_owned_paralyzed_disabled,
+                |object: &Object| object.status.disabled_paralyzed_until_frame,
+            ),
+        ] {
+            let (mut world, ids) = spawned_radar_world();
+            assert!(disable(&mut world, ids[0], 100));
+            assert!(disable(&mut world, ids[0], 80));
+            assert_eq!(world.players[&1].radar_count, 0);
+            assert_eq!(world.players[&1].power_produced, 0);
+            for id in ids {
+                let object = world.host_object(id).unwrap();
+                assert!(object.has_disabled_type());
+                assert_eq!(deadline(object), 80);
+            }
+            world.set_current_frame(79);
+            world.expire_owned_disabled_statuses();
+            assert_eq!(world.players[&1].power_produced, 0);
+            world.set_current_frame(80);
+            world.expire_owned_disabled_statuses();
+            assert_eq!(world.players[&1].radar_count, 1);
+            assert_eq!(world.players[&1].power_produced, 20);
+            for id in ids {
+                assert!(!world.host_object(id).unwrap().has_disabled_type());
+            }
+        }
+    }
+
     #[test]
     fn periodic_sabotage_expiry_uses_same_callback_and_includes_powered_scaffolds() {
         let mut world = GameLogic::new();

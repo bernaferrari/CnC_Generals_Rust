@@ -2960,6 +2960,7 @@ mod entity_lifecycle_weapon_slots;
 mod fx;
 pub(in crate::game_logic) use fx::{BodyStateFx, BodyStateFxReceiver};
 mod install;
+pub(in crate::game_logic) use install::TimedDisable;
 mod jets;
 #[cfg(test)]
 #[path = "jet_attack_loco_owner_tests.rs"]
