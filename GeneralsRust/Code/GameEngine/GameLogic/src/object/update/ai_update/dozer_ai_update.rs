@@ -489,6 +489,7 @@ pub struct DozerAIUpdate {
     task_owner: DozerTaskOwner<DozerTaskEntry, DozerDockPointInfo>,
     building_sound: Option<AudioEventRts>,
     building_sound_target: ObjectID,
+    pending_owned_completion: Option<crate::modules::OwnedDozerBuildCompletion>,
 }
 
 impl std::fmt::Debug for DozerAIUpdate {
@@ -501,6 +502,7 @@ impl std::fmt::Debug for DozerAIUpdate {
             .field("current_task", &self.task_owner.current)
             .field("build_sub_task", &self.task_owner.build_sub_task)
             .field("is_rebuild", &self.task_owner.construct_is_rebuild)
+            .field("has_owned_completion", &self.pending_owned_completion.is_some())
             .finish()
     }
 }
@@ -521,7 +523,46 @@ impl DozerAIUpdate {
             task_owner: DozerTaskOwner::default(),
             building_sound: None,
             building_sound_target: INVALID_ID,
+            pending_owned_completion: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_owned_build_task_for_test(
+        &mut self,
+        target_id: ObjectID,
+        start: Coord3D,
+        action: Coord3D,
+        end: Coord3D,
+        total_build_frames: u32,
+    ) {
+        let task = DozerTask::Build;
+        self.task_owner.requests[task.as_index()] = DozerTaskEntry {
+            target_id,
+            order_frame: 1,
+        };
+        for (point, position) in [start, action, end].into_iter().enumerate() {
+            self.task_owner.docks[task.as_index()][point] = DozerDockPointInfo {
+                valid: true,
+                location: position,
+            };
+        }
+        self.task_owner.current = task;
+        self.task_owner.primary.state = crate::object::update::ai_update::dozer_ai_update::owned_state::PrimaryState::Idle;
+        self.task_owner.primary.control.initialized = true;
+        self.task_owner.primary.actions[task.as_index()].reset();
+        self.task_owner.build_sub_task = DozerBuildSubTask::SelectBuildDockLocation;
+        self.task_owner.construct_is_rebuild = false;
+        self.dozer_task = Some(DozerActionTask {
+            task_type: task,
+            target_id,
+            dock_point: Some(start),
+            failed_attempts: 0,
+            build_total_frames: total_build_frames.max(1),
+            build_max_health: 0.0,
+            started_construction: false,
+        });
+        self.action_state = DozerActionState::PickActionPos;
     }
 
     pub fn get_repair_health_per_second(&self) -> Real {
@@ -999,11 +1040,39 @@ impl DozerAIUpdate {
         self.building_sound_target = construction_site_id;
     }
 
+    /// Installed Build execution sends audio through its receiving frame
+    /// owner, then retains the exact returned handle for the completion edge.
+    pub(crate) fn start_building_sound_with_world(
+        &mut self,
+        sound: &AudioEventRts,
+        construction_site_id: ObjectID,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) {
+        let mut event = sound.clone();
+        event.set_object_id(construction_site_id);
+        let handle = world.add_audio_event(&event);
+        event.set_playing_handle(handle);
+        self.building_sound = Some(event);
+        self.building_sound_target = construction_site_id;
+    }
+
     pub fn finish_building_sound(&mut self) {
         if let Some(sound) = self.building_sound.take() {
             if let Some(audio) = self.audio.clone() {
                 audio.remove_audio_event(sound.get_playing_handle());
             }
+        }
+        self.building_sound_target = INVALID_ID;
+    }
+
+    /// The owner frame calls this after receiving construction completion,
+    /// outside its broad service loan but with its exact audio sink supplied.
+    pub(crate) fn finish_building_sound_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) {
+        if let Some(sound) = self.building_sound.take() {
+            world.remove_audio_event(sound.get_playing_handle());
         }
         self.building_sound_target = INVALID_ID;
     }

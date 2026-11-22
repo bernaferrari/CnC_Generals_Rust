@@ -893,6 +893,17 @@ impl PathfindingSystem {
         self.get_cell_type_at_cell(layer, c.x, c.y)
     }
 
+    /// Read an allocated pathfinding layer cell without C++ `getCell`'s
+    /// fallback to the ground map. Useful when verifying wall reclassification.
+    pub fn get_stored_cell_type_at_layer(
+        &self,
+        pos: &Coord3D,
+        layer: PathfindLayerEnum,
+    ) -> Option<PathfindCellType> {
+        self.pathfinder
+            .get_cell_type_on_layer(Self::world_to_cell_trunc(pos), layer)
+    }
+
     /// Update a ground or bridge-layer cell without aliasing bridge IDs onto ground.
     pub fn set_cell_type_at_layer(
         &mut self,

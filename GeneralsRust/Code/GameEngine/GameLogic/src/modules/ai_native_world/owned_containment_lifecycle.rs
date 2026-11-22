@@ -306,7 +306,7 @@ impl BorrowedAiWorld<'_> {
                 {
                     self.validate_damage_owned(
                         &rider,
-                        &Self::physics_resting_kill_damage(&rider)?,
+                        &Self::forced_owned_kill_damage(&rider)?,
                     )?;
                 }
             }
@@ -372,7 +372,7 @@ impl BorrowedAiWorld<'_> {
                         .map_err(|_| "contained damage rider poisoned")?
                         .is_effectively_dead()
                 {
-                    let mut kill = Self::physics_resting_kill_damage(&rider)?;
+                    let mut kill = Self::forced_owned_kill_damage(&rider)?;
                     self.attempt_damage_owned(&rider, &mut kill)?;
                 }
             }
@@ -393,7 +393,7 @@ impl BorrowedAiWorld<'_> {
                         .map_err(|_| "blocked death rider poisoned")?
                         .is_effectively_dead()
                     {
-                        let mut kill = Self::physics_resting_kill_damage(&rider)?;
+                        let mut kill = Self::forced_owned_kill_damage(&rider)?;
                         self.attempt_damage_owned(&rider, &mut kill)?;
                     }
                 }

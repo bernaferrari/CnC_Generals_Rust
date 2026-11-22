@@ -106,21 +106,23 @@ impl UnitAIUpdate {
         self.execute_owned_command_impl(command, world, ignored, false)
     }
 
-    pub(super) fn owned_fortify_phase_is_admitted(&self) -> bool {
+    pub(super) fn owned_dozer_phase_is_admitted(&self) -> bool {
         self.runtime
             .components
             .dozer_ai
             .as_ref()
-            .is_some_and(|dozer| dozer.owned_fortify_is_admitted())
+            .is_some_and(|dozer| dozer.owned_primary_is_admitted())
     }
 
     /// Consume the exact owned action continuation while the Dozer component
     /// remains installed. External commands cannot opt into this admission.
     pub(super) fn execute_dozer_action_move_with_world(
         &mut self,
+        task: crate::object::update::ai_update::dozer_ai_update::DozerTask,
         target: ObjectID,
         position: Coord3D,
         ignore_obstacle_count: u8,
+        action_dock: bool,
         world: &mut dyn crate::modules::ai_world::AiWorld,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_world_owner(world)?;
@@ -129,7 +131,7 @@ impl UnitAIUpdate {
             .dozer_ai
             .as_ref()
             .ok_or("Dozer action component absent")?
-            .validate_owned_action_move(target, position, ignore_obstacle_count)?;
+            .validate_owned_action_move(task, target, position, ignore_obstacle_count, action_dock)?;
         let owner = self
             .runtime
             .native_owner()
@@ -214,7 +216,7 @@ impl UnitAIUpdate {
         self.execute_owned_command_impl(&command, world, None, true)
     }
 
-    fn execute_owned_command_impl(
+    pub(super) fn execute_owned_command_impl(
         &mut self,
         command: &crate::ai::AiCommandParams,
         world: &mut dyn crate::modules::ai_world::AiWorld,
@@ -267,7 +269,7 @@ impl UnitAIUpdate {
         self.validate_owned_command_impl(command, world, false)
     }
 
-    fn validate_owned_command_impl(
+    pub(super) fn validate_owned_command_impl(
         &self,
         command: &crate::ai::AiCommandParams,
         world: &dyn crate::modules::ai_world::AiWorld,
@@ -487,7 +489,7 @@ impl UnitAIUpdate {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.validate_owned_components_impl(
             allow_contained,
-            self.owned_fortify_phase_is_admitted(),
+            self.owned_dozer_phase_is_admitted(),
             true,
         )
     }

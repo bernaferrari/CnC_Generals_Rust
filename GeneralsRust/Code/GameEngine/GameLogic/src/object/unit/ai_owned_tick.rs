@@ -22,7 +22,7 @@ impl UnitAIUpdate {
         let path = temporary == Some(AIStateType::FollowExitProductionPath as u32)
             || (temporary.is_none() && state == Some(AIStateType::FollowPath as u32));
         let idle = temporary.is_none() && state == Some(AIStateType::Idle as u32);
-        let dozer = self.owned_fortify_phase_is_admitted();
+        let dozer = self.owned_dozer_phase_is_admitted();
         let move_to = dozer
             && (temporary == Some(AIStateType::MoveTo as u32)
                 || (temporary.is_none() && state == Some(AIStateType::MoveTo as u32)));
@@ -144,7 +144,7 @@ impl UnitAIUpdate {
         } else if matches!(state, Some(id) if id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32)
         {
             <Self as AIUpdateInterface>::update_exit_phase_sleep_with_world(self, world)?
-        } else if self.owned_fortify_phase_is_admitted()
+        } else if self.owned_dozer_phase_is_admitted()
             && (temporary == Some(AIStateType::MoveTo as u32)
                 || state == Some(AIStateType::MoveTo as u32))
         {
@@ -252,7 +252,7 @@ impl UnitAIUpdate {
         }
         // CPP DozerAIUpdate.cpp1545–1600: inherited phases finish first,
         // then the separate primary machine observes their resulting state.
-        if self.owned_fortify_phase_is_admitted() {
+        if self.owned_dozer_phase_is_admitted() {
             let owner = self.runtime.native_owner().ok_or("Dozer actor retired")?;
             if !owner
                 .try_read()

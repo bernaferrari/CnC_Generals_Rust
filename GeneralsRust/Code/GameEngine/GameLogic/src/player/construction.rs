@@ -29,6 +29,29 @@ impl Player {
         Some((self.player_index, brownout))
     }
 
+    pub(crate) fn score_structure_construction(
+        &mut self,
+        structure: &Object,
+        is_rebuild: Bool,
+        scoring_enabled: Option<bool>,
+    ) {
+        if is_rebuild {
+            return;
+        }
+        // Player.cpp:1648–1651 records the build before applying power/AI effects.
+        if let Some(enabled) = scoring_enabled {
+            self.score_keeper
+                .add_object_built_obj_with_policy(structure, enabled);
+        } else {
+            self.score_keeper.add_object_built_obj(structure);
+        }
+        let template = structure.get_template();
+        let cost = template.calc_cost_to_build(Some(self)).max(0) as u32;
+        self.score_keeper.add_money_spent(cost);
+        self.academy_stats
+            .record_building_built(template.get_name().as_str());
+    }
+
     /// Synchronously complete the player's notification phases.
     /// Call with handles after releasing player and object guards.
     /// Matches C++ Player::onStructureConstructionComplete.
@@ -76,30 +99,17 @@ impl Player {
         // C++ Player.cpp:1644-1645: remove then insert the full footprint on
         // the runtime that admitted this structure, before reentrant phases.
         {
-            let structure_guard = structure.read().map_err(|error| format!("construction object: {error}"))?;
+            let structure_guard = structure
+                .read()
+                .map_err(|error| format!("construction object: {error}"))?;
             if let Some(owner) = structure_guard.owning_pathfinding_runtime() {
                 owner.refresh_completed_structure_footprint(&structure_guard)?;
             }
         }
 
         if !is_rebuild {
-            if let (Ok(mut player_guard), Ok(structure_guard)) = (player.write(), structure.read())
-            {
-                // C++ onStructureConstructionComplete → addObjectBuilt + addMoneySpent.
-                if let Some(enabled) = scoring_enabled {
-                    player_guard.score_keeper
-                        .add_object_built_obj_with_policy(&*structure_guard, enabled);
-                } else {
-                    player_guard.score_keeper.add_object_built_obj(&*structure_guard);
-                }
-                let cost = structure_guard
-                    .get_template()
-                    .calc_cost_to_build(Some(&*player_guard))
-                    .max(0) as u32;
-                player_guard.score_keeper.add_money_spent(cost);
-                player_guard
-                    .academy_stats
-                    .record_building_built(structure_guard.get_template().get_name().as_str());
+            if let (Ok(mut player), Ok(structure)) = (player.write(), structure.read()) {
+                player.score_structure_construction(&structure, false, scoring_enabled);
             }
         }
 
@@ -137,111 +147,89 @@ impl Player {
         // C++ TheControlBar/TheEva of the GameEngine that owns the structure.
         crate::control_bar::mark_ui_dirty_from(structure_world.as_ref());
 
-        let local_player = structure_world.as_ref().and_then(|world| {
-            world.players().read().ok()?.get_local_player().cloned()
-        });
-        // C++ queries current ownership and powers after the AI callback.
-        use crate::object::special_power_types::SpecialPowerType as Power;
-        let (
-            team,
-            controlling_player_id,
-            is_superweapon_particle,
-            is_superweapon_nuke,
-            is_superweapon_scud,
-        ) = {
-            let guard = structure.read().map_err(|error| format!("construction object: {error}"))?;
-            (
-                guard.get_team(),
-                guard.get_controlling_player_id(),
-                [
-                    Power::ParticleUplinkCannon,
-                    Power::SupwParticleUplinkCannon,
-                    Power::LazrParticleUplinkCannon,
-                ]
-                .into_iter()
-                .any(|power| guard.has_special_power(power)),
-                [
-                    Power::NeutronMissile,
-                    Power::NukeNeutronMissile,
-                    Power::SupwNeutronMissile,
-                ]
-                .into_iter()
-                .any(|power| guard.has_special_power(power)),
-                guard.has_special_power(Power::ScudStorm),
-            )
-        };
+        let local_player = structure_world
+            .as_ref()
+            .and_then(|world| world.players().read().ok()?.get_local_player().cloned());
         if let Some(local_player) = local_player {
-            let (own, relation) = {
-                let local = local_player.read().map_err(|error| format!("construction local player: {error}"))?;
-                (
-                    Some(local.get_player_index() as u32) == controlling_player_id,
-                    team.as_ref()
-                        .and_then(|team| {
-                            team.read()
-                                .ok()
-                                .map(|team| local.get_relationship_with_team(&team))
-                        })
-                        .unwrap_or(Relationship::Neutral),
-                )
+            let events = {
+                let structure = structure
+                    .read()
+                    .map_err(|error| format!("construction object: {error}"))?;
+                let local = local_player
+                    .read()
+                    .map_err(|error| format!("construction local player: {error}"))?;
+                Self::completed_structure_eva(&structure, &local)
             };
-
-            if is_superweapon_particle {
-                if own {
-                    let _ = crate::helpers::TheEva::set_should_play_from(
-                        structure_world.as_ref(),
-                        crate::helpers::EvaEvent::SuperweaponDetectedOwnParticleCannon,
-                    );
-                } else if relation != Relationship::Enemies {
-                    let _ = crate::helpers::TheEva::set_should_play_from(
-                        structure_world.as_ref(),
-                        crate::helpers::EvaEvent::SuperweaponDetectedAllyParticleCannon,
-                    );
-                } else {
-                    let _ = crate::helpers::TheEva::set_should_play_from(
-                        structure_world.as_ref(),
-                        crate::helpers::EvaEvent::SuperweaponDetectedEnemyParticleCannon,
-                    );
-                }
-            }
-
-            if is_superweapon_nuke {
-                if own {
-                    let _ = crate::helpers::TheEva::set_should_play_from(
-                        structure_world.as_ref(),
-                        crate::helpers::EvaEvent::SuperweaponDetectedOwnNuke,
-                    );
-                } else if relation != Relationship::Enemies {
-                    let _ = crate::helpers::TheEva::set_should_play_from(
-                        structure_world.as_ref(),
-                        crate::helpers::EvaEvent::SuperweaponDetectedAllyNuke,
-                    );
-                } else {
-                    let _ = crate::helpers::TheEva::set_should_play_from(
-                        structure_world.as_ref(),
-                        crate::helpers::EvaEvent::SuperweaponDetectedEnemyNuke,
-                    );
-                }
-            }
-
-            if is_superweapon_scud {
-                if own {
-                    let _ = crate::helpers::TheEva::set_should_play_from(
-                        structure_world.as_ref(),
-                        crate::helpers::EvaEvent::SuperweaponDetectedOwnScudStorm,
-                    );
-                } else if relation != Relationship::Enemies {
-                    let _ = crate::helpers::TheEva::set_should_play_from(
-                        structure_world.as_ref(),
-                        crate::helpers::EvaEvent::SuperweaponDetectedAllyScudStorm,
-                    );
-                } else {
-                    let _ = crate::helpers::TheEva::set_should_play_from(
-                        structure_world.as_ref(),
-                        crate::helpers::EvaEvent::SuperweaponDetectedEnemyScudStorm,
-                    );
-                }
+            for event in events {
+                let _ =
+                    crate::helpers::TheEva::set_should_play_from(structure_world.as_ref(), event);
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn completed_structure_eva(
+        structure: &Object,
+        local: &Player,
+    ) -> impl Iterator<Item = crate::helpers::EvaEvent> + use<> {
+        use crate::helpers::EvaEvent::*;
+        use crate::object::special_power_types::SpecialPowerType as Power;
+        // Player.cpp:1664–1720 treats neutrals as allies for this notification.
+        let own = Some(local.get_player_index() as u32) == structure.get_controlling_player_id();
+        let enemy = !own
+            && structure.get_team().is_some_and(|team| {
+                team.read().ok().is_some_and(|team| {
+                    local.get_relationship_with_team(&team) == Relationship::Enemies
+                })
+            });
+        let select = |owned, allied, hostile| {
+            if own {
+                owned
+            } else if enemy {
+                hostile
+            } else {
+                allied
+            }
+        };
+        let particle = [
+            Power::ParticleUplinkCannon,
+            Power::SupwParticleUplinkCannon,
+            Power::LazrParticleUplinkCannon,
+        ]
+        .into_iter()
+        .any(|power| structure.has_special_power(power));
+        let nuke = [
+            Power::NeutronMissile,
+            Power::NukeNeutronMissile,
+            Power::SupwNeutronMissile,
+        ]
+        .into_iter()
+        .any(|power| structure.has_special_power(power));
+        let scud = structure.has_special_power(Power::ScudStorm);
+        [
+            particle.then(|| {
+                select(
+                    SuperweaponDetectedOwnParticleCannon,
+                    SuperweaponDetectedAllyParticleCannon,
+                    SuperweaponDetectedEnemyParticleCannon,
+                )
+            }),
+            nuke.then(|| {
+                select(
+                    SuperweaponDetectedOwnNuke,
+                    SuperweaponDetectedAllyNuke,
+                    SuperweaponDetectedEnemyNuke,
+                )
+            }),
+            scud.then(|| {
+                select(
+                    SuperweaponDetectedOwnScudStorm,
+                    SuperweaponDetectedAllyScudStorm,
+                    SuperweaponDetectedEnemyScudStorm,
+                )
+            }),
+        ]
+        .into_iter()
+        .flatten()
     }
 }

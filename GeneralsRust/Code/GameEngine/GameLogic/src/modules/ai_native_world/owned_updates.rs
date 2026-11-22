@@ -106,10 +106,19 @@ impl BorrowedAiWorld<'_> {
         }
         let previous = self.current_update.replace(Arc::clone(&update.module));
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match ai.as_ref() {
-            Some(ai) => ai
-                .try_lock()
-                .map_err(|_| "native scheduled AI already borrowed".to_string())?
-                .update_scheduled_tick_with_world(self),
+            Some(ai) => {
+                let (sleep, completion) = {
+                    let mut runtime = ai
+                        .try_lock()
+                        .map_err(|_| "native scheduled AI already borrowed")?;
+                    let sleep = runtime.update_scheduled_tick_with_world(self)?;
+                    (sleep, runtime.pending_owned_dozer_build_completion())
+                };
+                if let Some(completion) = completion {
+                    self.complete_native_dozer_build(ai, &completion)?;
+                }
+                Ok(sleep)
+            }
             None if is_physics => self.update_physics_phase(&owner),
             None => self.update_slow_death_owned(&owner),
         }));

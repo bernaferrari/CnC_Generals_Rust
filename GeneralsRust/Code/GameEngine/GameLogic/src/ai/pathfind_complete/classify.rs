@@ -890,6 +890,15 @@ impl PathfindingSystem {
             || obj.is_kind_of(KindOf::BridgeTower)
     }
 
+    /// Whether the C++ remove pass reaches its WALK_ON_TOP_OF_WALL side
+    /// effects before obstacle removal. Mirrors the early returns in
+    /// AIPathfind.cpp:4099-4118 so construction can preflight fall damage.
+    pub(crate) fn removal_reaches_wall_side_effects(obj: &crate::object::Object) -> bool {
+        !Self::ignores_footprint_object(obj)
+            && !matches!(Self::obstacle_footprint(obj), Some(ObstacleFootprint::Fence(_)))
+            && !obj.is_kind_of(KindOf::BlastCrater)
+    }
+
     fn obstacle_footprint(obj: &crate::object::Object) -> Option<ObstacleFootprint> {
         let fence_width = obj.get_template().get_fence_width();
         if fence_width > 0.0 && !obj.is_kind_of(KindOf::DefensiveWall) {

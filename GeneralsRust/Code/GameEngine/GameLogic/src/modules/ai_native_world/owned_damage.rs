@@ -282,7 +282,7 @@ impl BorrowedAiWorld<'_> {
                             .remove_from_contain_with_world(*rider_id, false, self)?;
                     }
                     if let Some(rider) = riders.first().and_then(|id| self.object(*id)) {
-                        let mut kill = Self::physics_resting_kill_damage(&rider)?;
+                        let mut kill = Self::forced_owned_kill_damage(&rider)?;
                         self.validate_damage_owned(&rider, &kill)?;
                         self.validate_native_kill_score(&rider, damage.input.source_id)?;
                         self.score_native_kill(&rider, damage.input.source_id);
@@ -294,7 +294,7 @@ impl BorrowedAiWorld<'_> {
                     return Ok(0.0);
                 }
                 drop(object);
-                let mut kill = Self::physics_resting_kill_damage(owner)?;
+                let mut kill = Self::forced_owned_kill_damage(owner)?;
                 self.validate_damage_owned(owner, &kill)?;
                 self.validate_native_kill_score(owner, damage.input.source_id)?;
                 self.score_native_kill(owner, damage.input.source_id);

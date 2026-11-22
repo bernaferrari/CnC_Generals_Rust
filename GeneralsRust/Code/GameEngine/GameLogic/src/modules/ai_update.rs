@@ -11,8 +11,54 @@ pub struct AiCommandTarget<'a> {
     pub(crate) base_targeter: Option<crate::object::unit::BaseAimTargeter<'a>>,
 }
 
+/// Ephemeral completion handoff from the installed Dozer tick to its owning
+/// frame driver. Weak handles preserve identity without retaining either
+/// actor if a frame aborts. The handoff never crosses a frame or enters Xfer.
+#[derive(Clone)]
+pub struct OwnedDozerBuildCompletion {
+    pub(crate) builder_id: crate::common::ObjectID,
+    pub(crate) scaffold_id: crate::common::ObjectID,
+    pub(crate) builder: std::sync::Weak<std::sync::RwLock<crate::object::Object>>,
+    pub(crate) scaffold: std::sync::Weak<std::sync::RwLock<crate::object::Object>>,
+    pub(crate) frame: u32,
+    pub(crate) is_rebuild: bool,
+    pub(crate) end_dock: Option<crate::common::Coord3D>,
+}
+
 /// AI update interface (matching C++ AIUpdateInterface)
 pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
+    #[cfg(test)]
+    fn install_owned_dozer_build_for_test(
+        &mut self,
+        _target: crate::common::ObjectID,
+        _start: crate::common::Coord3D,
+        _action: crate::common::Coord3D,
+        _end: crate::common::Coord3D,
+        _frames: u32,
+    ) -> Result<(), String> {
+        Err("AI has no Dozer Build fixture admission".into())
+    }
+    /// Read this frame's completion handoff so the caller can release its AI
+    /// borrow before running the external effects.
+    fn pending_owned_dozer_build_completion(&self) -> Option<OwnedDozerBuildCompletion> {
+        None
+    }
+    /// Resume the exact completed Dozer after external completion callbacks.
+    fn finish_owned_dozer_build_completion(
+        &mut self,
+        _receipt: &OwnedDozerBuildCompletion,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("installed AI has no owned Dozer completion continuation".into())
+    }
+    /// Stop the Dozer's owned construction loop after the receiving frame
+    /// clears the scaffold's under-construction status.
+    fn finish_dozer_building_sound(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// Inspect the actual installed runtime in bounded lifecycle regressions.
     #[cfg(test)]
     fn unit_ai_for_test(&mut self) -> Option<&mut crate::object::unit::UnitAIUpdate> {

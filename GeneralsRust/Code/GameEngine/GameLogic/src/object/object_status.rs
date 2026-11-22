@@ -151,6 +151,13 @@ impl Object {
         self.clear_status(ObjectStatusTypes::Reconstructing.into());
     }
 
+    /// Clear the bit before the driving construction phase visits its mines.
+    pub(crate) fn begin_owned_construction_completion(&mut self) -> bool {
+        let was_under_construction = self.test_status(ObjectStatusTypes::UnderConstruction);
+        self.status.remove(ObjectStatusMaskType::UNDER_CONSTRUCTION);
+        was_under_construction
+    }
+
     fn set_status_with_construction_refresh(
         &mut self,
         object_status: ObjectStatusMaskType,

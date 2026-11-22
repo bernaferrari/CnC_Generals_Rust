@@ -1192,6 +1192,29 @@ impl PathfindingSystem {
         }
     }
 
+    /// C++ `PathfindLayer::isUnused()` for the allocated wall layer.
+    pub(crate) fn wall_layer_is_allocated(&self) -> bool {
+        self.wall_extent.is_some()
+    }
+
+    /// Current wall IDs in their pathfinder storage order.
+    pub(crate) fn wall_piece_ids(&self) -> &[ObjectID] {
+        &self.wall_pieces
+    }
+
+    /// Reclassify the retained wall extent from objects resolved by the
+    /// receiving GameLogic, never through the compatibility object registry.
+    pub(crate) fn reclassify_wall_cells_from_footprints(
+        &mut self,
+        pieces: &[crate::path::pathfind_layer_classify::WallFootprint],
+    ) {
+        if self.wall_extent.is_some() {
+            self.classify_allocated_wall_cells(pieces);
+        } else if !pieces.is_empty() {
+            self.allocate_wall_cells(pieces);
+        }
+    }
+
     pub fn wall_piece_count(&self) -> usize {
         self.wall_pieces.len()
     }

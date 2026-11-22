@@ -52,6 +52,9 @@ impl ThingTemplate for EntryTemplate {
     fn is_kind_of(&self, kind: KindOf) -> bool {
         self.base.is_kind_of(kind)
     }
+    fn get_build_time(&self) -> f32 {
+        self.base.get_build_time()
+    }
     fn get_energy_production(&self) -> crate::common::Int {
         self.base.get_energy_production()
     }
@@ -1834,3 +1837,6 @@ fn native_adjust_uses_bridge_layer_for_quick_path_gate() {
     });
     assert!(!accepted || GridCoord::from_world(&peer_goal) != GridCoord::new(4, 4));
 }
+
+#[path = "ai_native_world_tests/construction_wall.rs"]
+mod construction_wall;

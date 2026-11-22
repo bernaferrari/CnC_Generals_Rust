@@ -64,11 +64,11 @@ impl BorrowedAiWorld<'_> {
         if prepared.bounce_stun_expected
             && self.physics_bounce_stun_should_kill(owner, prepared.bounce_first_transform)?
         {
-            let damage = Self::physics_resting_kill_damage(owner)?;
+            let damage = Self::forced_owned_kill_damage(owner)?;
             self.validate_damage_owned(owner, &damage)?;
         }
         if prepared.resting_kill_expected {
-            let damage = Self::physics_resting_kill_damage(owner)?;
+            let damage = Self::forced_owned_kill_damage(owner)?;
             self.validate_damage_owned(owner, &damage)?;
         }
         let mut step = {
@@ -92,7 +92,7 @@ impl BorrowedAiWorld<'_> {
             if physics.bounce_stun_destruction_active()?
                 && self.physics_bounce_stun_should_kill(owner, None)?
             {
-                let mut damage = Self::physics_resting_kill_damage(owner)?;
+                let mut damage = Self::forced_owned_kill_damage(owner)?;
                 self.attempt_damage_owned(owner, &mut damage)?;
             }
             // Original second setAngles rereads the current yaw after callbacks.
@@ -217,7 +217,7 @@ impl BorrowedAiWorld<'_> {
             && physics.should_kill_resting_owned(&object, airborne_at_end)?;
         drop(object);
         let kill_result = if landing_result.is_ok() && kill_resting {
-            let mut damage = Self::physics_resting_kill_damage(owner)?;
+            let mut damage = Self::forced_owned_kill_damage(owner)?;
             self.attempt_damage_owned(owner, &mut damage).map(|_| ())
         } else {
             Ok(())
@@ -388,17 +388,17 @@ impl BorrowedAiWorld<'_> {
                 && !ai.has_locomotor_for_surface(crate::path::SURFACE_WATER)))
     }
 
-    pub(super) fn physics_resting_kill_damage(
+    pub(super) fn forced_owned_kill_damage(
         owner: &Arc<RwLock<Object>>,
     ) -> Result<crate::damage::DamageInfo, String> {
         let body = owner
             .try_read()
-            .map_err(|_| "resting kill owner borrowed")?
+            .map_err(|_| "kill owner borrowed")?
             .get_body_module()
-            .ok_or("resting kill body absent")?;
+            .ok_or("kill body absent")?;
         let health = body
             .try_lock()
-            .map_err(|_| "resting kill body borrowed")?
+            .map_err(|_| "kill body borrowed")?
             .get_max_health();
         let mut damage = crate::damage::DamageInfo::with_simple(
             health,

@@ -35,6 +35,45 @@ impl AIUpdateInterface for UnitAIUpdate {
             .is_doing_ground_movement_for_owner_with_world(object, Some(world))
     }
 
+    #[cfg(test)]
+    fn install_owned_dozer_build_for_test(
+        &mut self,
+        target: ObjectID,
+        start: Coord3D,
+        action: Coord3D,
+        end: Coord3D,
+        frames: u32,
+    ) -> Result<(), String> {
+        self.runtime.components.dozer_ai.as_mut()
+            .ok_or("Dozer Build fixture has no installed Dozer")?
+            .install_owned_build_task_for_test(target, start, action, end, frames);
+        Ok(())
+    }
+
+    fn pending_owned_dozer_build_completion(
+        &self,
+    ) -> Option<crate::modules::OwnedDozerBuildCompletion> {
+        self.runtime.components.dozer_ai.as_ref()?.pending_owned_completion()
+    }
+
+    fn finish_owned_dozer_build_completion(
+        &mut self,
+        receipt: &crate::modules::OwnedDozerBuildCompletion,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.finish_owned_dozer_build_completion_with_world(receipt, world)
+    }
+
+    fn finish_dozer_building_sound(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.runtime.components.dozer_ai.as_mut()
+            .ok_or("Dozer construction sound has no installed Dozer")?
+            .finish_building_sound_with_world(world);
+        Ok(())
+    }
+
     fn remove_pathfind_occupancy(
         &mut self,
         object: &Object,

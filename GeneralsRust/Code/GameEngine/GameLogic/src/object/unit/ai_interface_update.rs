@@ -387,7 +387,7 @@ impl UnitAIUpdate {
         self.validate_owned_components_with_world(
             world,
             true,
-            self.owned_fortify_phase_is_admitted(),
+            self.owned_dozer_phase_is_admitted(),
         )?;
         if world.pathfinder().is_none() {
             return Err("supplied Idle requires its owner pathfinder".into());
@@ -695,14 +695,18 @@ impl UnitAIUpdate {
             .prepare_primary_step_with_world(idle, world)?;
         match &step {
             crate::object::update::ai_update::dozer_ai_update::owned_state::DozerStep::MoveToPosition {
+                task,
                 target,
                 position,
                 ignore_obstacle_count,
+                action_dock,
             } => {
                 self.execute_dozer_action_move_with_world(
+                    *task,
                     *target,
                     *position,
                     *ignore_obstacle_count,
+                    *action_dock,
                     world,
                 )
                 .map_err(|error| error.to_string())?;
@@ -712,6 +716,7 @@ impl UnitAIUpdate {
                     .map_err(|error| error.to_string())?;
             }
             crate::object::update::ai_update::dozer_ai_update::owned_state::DozerStep::Continue => {}
+            crate::object::update::ai_update::dozer_ai_update::owned_state::DozerStep::BuildComplete => {}
         }
         self.runtime
             .components
@@ -719,6 +724,54 @@ impl UnitAIUpdate {
             .as_mut()
             .ok_or("installed Dozer primary disappeared during command")?
             .finish_primary_step_with_world(&step, world)
+    }
+
+    pub(super) fn finish_owned_dozer_build_completion_with_world(
+        &mut self,
+        receipt: &crate::modules::OwnedDozerBuildCompletion,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world).map_err(|error| error.to_string())?;
+        let dozer = self.runtime.components.dozer_ai.as_ref()
+            .ok_or("Dozer completion component absent")?;
+        dozer.validate_owned_completion(receipt)?;
+        let owner = self.runtime.native_owner().ok_or("Dozer completion owner absent")?;
+        let admitted_owner = world.object(receipt.builder_id).ok_or("Dozer completion owner absent from world")?;
+        let admitted_scaffold = world.object(receipt.scaffold_id).ok_or("Dozer completion scaffold absent from world")?;
+        if receipt.frame != world.frame()
+            || receipt.builder_id != self.runtime.unit_id
+            || !std::ptr::eq(std::sync::Arc::as_ptr(&owner), receipt.builder.as_ptr())
+            || !std::sync::Arc::ptr_eq(&owner, &admitted_owner)
+            || !std::ptr::eq(receipt.scaffold.as_ptr(), std::sync::Arc::as_ptr(&admitted_scaffold))
+        {
+            return Err("Dozer completion participants changed identity".into());
+        }
+        let (mut end_position, aircraft) = {
+            let owner = owner.read().map_err(|_| "Dozer completion owner poisoned")?;
+            (receipt.end_dock.unwrap_or(*owner.get_position()), owner.is_kind_of(KindOf::Aircraft))
+        };
+        let ignored = self.runtime.data.ignore_obstacle_id;
+        let _ = world.adjust_destination(
+            &*owner.read().map_err(|_| "Dozer completion owner poisoned")?,
+            &self.runtime.data.locomotor_set,
+            &mut end_position,
+            ignored,
+            aircraft,
+        )?;
+        owner.write().map_err(|_| "Dozer completion owner borrowed")?
+            .clear_model_condition_state(crate::common::ModelConditionFlags::ACTIVELY_CONSTRUCTING);
+        let mut command = crate::ai::AiCommandParams::new(
+            crate::ai::AiCommandType::MoveToPosition,
+            CommandSourceType::FromAi,
+        );
+        command.pos = end_position;
+        self.validate_owned_command_impl(&command, world, true)
+            .map_err(|error| error.to_string())?;
+        self.execute_owned_command_impl(&command, world, None, true)
+            .map_err(|error| error.to_string())?;
+        self.runtime.components.dozer_ai.as_mut()
+            .ok_or("Dozer completion component disappeared")?
+            .finish_owned_completion_bookkeeping(world)
     }
 
     #[cfg(test)]
@@ -1725,21 +1778,21 @@ impl UnitAIUpdate {
         self.validate_owned_components_with_world(
             world,
             true,
-            self.owned_fortify_phase_is_admitted(),
+            self.owned_dozer_phase_is_admitted(),
         )
         .map_err(|error| error.to_string())?;
         let machine = self
             .ai_state_machine
             .as_ref()
             .ok_or("restored AI machine absent")?;
-        let fortify = self.owned_fortify_phase_is_admitted();
+        let dozer = self.owned_dozer_phase_is_admitted();
         let current = machine.get_current_state_id();
         let current_admitted = matches!(current, Some(id) if id == AIStateType::Idle as u32
             || id == AIStateType::Enter as u32 || id == AIStateType::Exit as u32
             || id == AIStateType::ExitInstantly as u32
-            || (fortify && id == AIStateType::MoveTo as u32));
+            || (dozer && id == AIStateType::MoveTo as u32));
         let temporary_admitted = machine.get_temporary_state().is_none()
-            || (fortify
+            || (dozer
                 && current == Some(AIStateType::Idle as u32)
                 && machine.get_temporary_state() == Some(AIStateType::MoveTo as u32));
         if !current_admitted || !temporary_admitted {

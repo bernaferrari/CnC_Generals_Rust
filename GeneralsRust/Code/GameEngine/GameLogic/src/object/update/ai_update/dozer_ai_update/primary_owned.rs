@@ -82,10 +82,7 @@ impl DozerAIUpdate {
         if self.task_owner.current != DozerTask::Invalid {
             return Err("supplied Dozer action body unavailable".into());
         }
-        if !self.is_task_pending(DozerTask::Fortify)
-            || self.is_task_pending(DozerTask::Build)
-            || self.is_task_pending(DozerTask::Repair)
-        {
+        if self.is_task_pending(DozerTask::Build) || self.is_task_pending(DozerTask::Repair) {
             return Err("supplied Dozer idle scanning/docking services unavailable".into());
         }
         if !self.task_owner.primary.control.initialized {
@@ -101,6 +98,13 @@ impl DozerAIUpdate {
                     .ok_or("Dozer controller absent")? as Int,
             )
         };
+        let frame = world.frame();
+        let bored_time = self.get_bored_time();
+        if regular_idle && !self.is_any_task_pending()
+            && (frame.wrapping_sub(self.task_owner.primary.idle.idle_since) as f32) > bored_time
+        {
+            return Err("supplied Dozer idle requires its repair and mine queries".into());
+        }
         let idle = &mut self.task_owner.primary.idle;
         if regular_idle && !idle.marked && !dead {
             world.idle_worker_event(&owner, player, true)?;

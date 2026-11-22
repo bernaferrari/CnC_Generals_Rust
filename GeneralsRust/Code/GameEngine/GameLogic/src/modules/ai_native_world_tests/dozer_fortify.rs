@@ -24,15 +24,20 @@ fn bind() {
     }
 }
 fn source_template() -> Arc<dyn ThingTemplate> {
+    source_template_with_locomotor(ground())
+}
+fn source_template_with_locomotor(locomotor: crate::locomotor::LocomotorTemplate) -> Arc<dyn ThingTemplate> {
     bind();
     let mut base = DefaultThingTemplate::new("OwnedFortifyDozer".into());
     base.add_kind_of(KindOf::Vehicle);
     base.add_kind_of(KindOf::Dozer);
-    let _ = infantry_template();
+    let locomotor_name = locomotor.name.clone();
+    crate::system::engine_stores::active_services().locomotor_store().register_template(locomotor);
     let mut data = DozerAIUpdateModuleData::default();
+    data.bored_time = 120.0;
     data.base.set_locomotor_set_entries(
         crate::common::LocomotorSetType::Normal,
-        vec!["NativeEnterGround".into()],
+        vec![locomotor_name.into()],
     );
     Arc::new(EntryTemplate {
         base,
@@ -62,9 +67,14 @@ fn source_template() -> Arc<dyn ThingTemplate> {
         ],
     })
 }
-fn target_template() -> Arc<dyn ThingTemplate> {
+fn target_template(is_scaffold: bool) -> Arc<dyn ThingTemplate> {
     let mut base = DefaultThingTemplate::new("OwnedFortifyTarget".into());
     base.add_kind_of(KindOf::Structure);
+    if is_scaffold {
+        base.add_kind_of(KindOf::Score);
+        base.set_build_time(0.1);
+        base.set_energy_production(12);
+    }
     Arc::new(EntryTemplate {
         base,
         modules: vec![TemplateModuleInfo {
@@ -82,7 +92,7 @@ fn target_template() -> Arc<dyn ThingTemplate> {
 fn world() -> NativeMatch {
     bind();
     let mut game =
-        NativeMatch::with_source_template(220.0, target_template(), false, source_template());
+        NativeMatch::with_source_template(220.0, target_template(false), false, source_template());
     register_receiving_geometry(&mut game);
     game
 }
@@ -151,6 +161,88 @@ fn advance(game: &mut NativeMatch, frame: u32) {
     })
     .unwrap();
 }
+
+#[test]
+fn core_frame_completes_the_receiving_dozer_scaffold_once_and_sends_it_to_end_dock() {
+    use crate::common::ObjectStatusTypes;
+    let mut locomotor = ground();
+    locomotor.name = "NativeConstructionGround".into();
+    locomotor.max_turn_rate = 0.2;
+    let mut game = NativeMatch::with_source_template(
+        220.0, target_template(true), false, source_template_with_locomotor(locomotor),
+    );
+    register_receiving_geometry(&mut game);
+    let peer = world();
+    game.players.set_local_player_index(0);
+    idle(&mut game, 0);
+    let builder_id = game.source.read().unwrap().get_id();
+    let scaffold_id = game.target.read().unwrap().get_id();
+    assert_eq!(scaffold_id, peer.target.read().unwrap().get_id());
+    let peer_progress = peer.target.read().unwrap().get_construction_percent();
+    let player = game.players.get_player(0).unwrap().clone();
+    let peer_player = peer.players.get_player(0).unwrap().clone();
+    let initial_power = player.read().unwrap().get_energy().get_power();
+    let initial_score = player.read().unwrap().get_score_keeper().get_total_buildings_built();
+    let peer_power = peer_player.read().unwrap().get_energy().get_power();
+    let peer_score = peer_player.read().unwrap().get_score_keeper().get_total_buildings_built();
+    let position = *game.target.read().unwrap().get_position();
+    let start_dock = position - Coord3D::new(30.0, 0.0, 0.0);
+    // Original newTask uses one location for Start and Action and places
+    // End five path cells outward. Reproduce the actor parked one unit short.
+    let action_dock = start_dock;
+    let end_dock = start_dock - Coord3D::new(50.0, 0.0, 0.0);
+    let builder = Arc::clone(&game.source);
+    game.operate(0, |world| {
+        world.set_object_position_handle(&builder, &(start_dock - Coord3D::X))
+    }).unwrap();
+    {
+        let mut scaffold = game.target.write().unwrap();
+        scaffold.set_builder_id(builder_id);
+        scaffold.set_construction_percent(0.0);
+        scaffold.set_status(ObjectStatusTypes::UnderConstruction.into(), true);
+    }
+    let runtime = ai(&game);
+    runtime.lock().unwrap().install_owned_dozer_build_for_test(
+        scaffold_id, start_dock, action_dock, end_dock, 3,
+    ).unwrap();
+    let frame = |game: &mut NativeMatch, frame| game.with_native_services(frame, |factory, players, services, scheduler| {
+        crate::modules::ai_native_world::update_game_logic_with_native_modules(factory, players, services, scheduler, || None)
+    }).unwrap();
+
+    let mut previous_progress = 0.0;
+    let mut saw_progress = false;
+    let finished_at = (1..=120).find(|&now| {
+        frame(&mut game, now);
+        let progress = game.target.read().unwrap().get_construction_percent();
+        if progress == crate::object::CONSTRUCTION_COMPLETE {
+            return true;
+        }
+        assert!(progress >= previous_progress, "construction regressed at {now}: {previous_progress} -> {progress}");
+        saw_progress |= progress > 0.0;
+        previous_progress = progress;
+        false
+    }).expect("scheduled Dozer did not finish its live scaffold");
+    assert!(saw_progress);
+    assert_eq!(observation(&game).current_task, DozerTask::Invalid);
+    assert!(!game.target.read().unwrap().test_status(ObjectStatusTypes::UnderConstruction));
+    assert_eq!(player.read().unwrap().get_score_keeper().get_total_buildings_built(), initial_score + 1);
+    assert_eq!(player.read().unwrap().get_energy().get_power(), initial_power + 12);
+    let finish_position = *game.source.read().unwrap().get_position();
+    let departure_goal = runtime.lock().unwrap().get_goal_position().expect("completion must issue an inherited MoveTo");
+    assert!(departure_goal.distance(end_dock) <= 10.0, "unexpected departure goal {departure_goal:?} for dock {end_dock:?}");
+    for now in finished_at + 1..=finished_at + 60 {
+        frame(&mut game, now);
+    }
+    let departed = *game.source.read().unwrap().get_position();
+    assert!(departed.distance(departure_goal) < finish_position.distance(departure_goal),
+        "Dozer did not approach its End goal {departure_goal:?}: {finish_position:?} -> {departed:?}");
+    assert_eq!(player.read().unwrap().get_score_keeper().get_total_buildings_built(), initial_score + 1);
+    assert_eq!(game.dirty_ui.iter().filter(|&&id| id == scaffold_id).count(), 1);
+    assert_eq!(peer.target.read().unwrap().get_construction_percent(), peer_progress);
+    assert_eq!(peer_player.read().unwrap().get_energy().get_power(), peer_power);
+    assert_eq!(peer_player.read().unwrap().get_score_keeper().get_total_buildings_built(), peer_score);
+}
+
 fn save(game: &NativeMatch) -> Vec<u8> {
     let handle = game
         .source
@@ -285,6 +377,36 @@ fn actual_fortify_runs_installed_ai_and_physics_without_moving_same_id_peer() {
     );
 }
 #[test]
+fn core_frame_drives_native_dozer_and_pathfinder_to_its_dock() {
+    let mut game = world();
+    let peer = world();
+    request(&mut game, 10);
+
+    let peer_state = observation(&peer);
+    let peer_pose = *peer.source.read().unwrap().get_position();
+    let start = *game.source.read().unwrap().get_position();
+    let mut arrived_at = None;
+    for frame in 11..200 {
+        game.with_native_services(frame, |factory, players, services, scheduler| {
+            super::super::ai_native_world::update_game_logic_with_native_modules(
+                factory, players, services, scheduler, || None,
+            )
+        })
+        .unwrap();
+        if observation(&game).action == 2 {
+            arrived_at = Some(frame);
+            break;
+        }
+    }
+
+    assert!(arrived_at.is_some(), "the game frame never advanced Fortify to its action");
+    assert_eq!(observation(&game).current_task, DozerTask::Fortify);
+    assert!(game.source.read().unwrap().get_position().x > start.x + 20.0);
+    assert_eq!(observation(&peer), peer_state);
+    assert_eq!(*peer.source.read().unwrap().get_position(), peer_pose);
+}
+
+#[test]
 fn real_primary_save_preserves_pending_task_and_original_fresh_action_restart() {
     let mut game = world();
     request(&mut game, 10);
@@ -358,7 +480,7 @@ fn missing_action_target_returns_to_pick_then_cancels_without_peer_task_loss() {
 #[test]
 fn full_object_restore_rebinds_fortify_and_restarts_original_nested_action() {
     use super::object_restore_tests::{Catalog, capture_at, fresh_with_templates};
-    let catalog = Catalog::from_templates(source_template(), target_template(), ground());
+    let catalog = Catalog::from_templates(source_template(), target_template(false), ground());
     let mut game = fresh_with_templates(
         &catalog,
         None,
@@ -450,7 +572,7 @@ fn target_disappearing_during_action_returns_idle_but_retains_original_pending_t
 #[test]
 fn lethal_receiving_body_keeps_dead_dozer_awake_without_advancing_primary() {
     use super::object_restore_tests::{Catalog, fresh_with_templates};
-    let catalog = Catalog::from_templates(source_template(), target_template(), ground());
+    let catalog = Catalog::from_templates(source_template(), target_template(false), ground());
     let mut game = fresh_with_templates(
         &catalog,
         None,
@@ -517,7 +639,7 @@ fn lethal_receiving_body_keeps_dead_dozer_awake_without_advancing_primary() {
 #[test]
 fn receiving_membership_delivers_only_actual_idle_dozer_events() {
     use super::object_restore_tests::{Catalog, fresh_with_templates, transfer};
-    let catalog = Catalog::from_templates(source_template(), target_template(), ground());
+    let catalog = Catalog::from_templates(source_template(), target_template(false), ground());
     let mut game = fresh_with_templates(
         &catalog,
         None,
@@ -562,7 +684,7 @@ fn receiving_membership_delivers_only_actual_idle_dozer_events() {
 #[test]
 fn deleting_active_fortify_cancels_then_defers_storage_release_on_receiving_owner() {
     use super::object_restore_tests::{Catalog, fresh_with_templates};
-    let catalog = Catalog::from_templates(source_template(), target_template(), ground());
+    let catalog = Catalog::from_templates(source_template(), target_template(false), ground());
     let mut game = fresh_with_templates(
         &catalog,
         None,
@@ -847,34 +969,4 @@ fn unmanned_dozer_save_load_retains_frozen_fortify_task_without_peer_change() {
         .read()
         .unwrap()
         .is_disabled_by_type(DisabledType::DisabledUnmanned));
-}
-
-#[test]
-fn core_frame_drives_native_dozer_and_pathfinder_to_its_dock() {
-    let mut game = world();
-    let peer = world();
-    request(&mut game, 10);
-
-    let peer_state = observation(&peer);
-    let peer_pose = *peer.source.read().unwrap().get_position();
-    let start = *game.source.read().unwrap().get_position();
-    let mut arrived_at = None;
-    for frame in 11..200 {
-        game.with_native_services(frame, |factory, players, services, scheduler| {
-            super::super::ai_native_world::update_game_logic_with_native_modules(
-                factory, players, services, scheduler, || None,
-            )
-        })
-        .unwrap();
-        if observation(&game).action == 2 {
-            arrived_at = Some(frame);
-            break;
-        }
-    }
-
-    assert!(arrived_at.is_some(), "the game frame never advanced Fortify to its action");
-    assert_eq!(observation(&game).current_task, DozerTask::Fortify);
-    assert!(game.source.read().unwrap().get_position().x > start.x + 20.0);
-    assert_eq!(observation(&peer), peer_state);
-    assert_eq!(*peer.source.read().unwrap().get_position(), peer_pose);
 }

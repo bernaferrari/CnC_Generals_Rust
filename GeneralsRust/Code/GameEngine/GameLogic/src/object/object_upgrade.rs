@@ -695,6 +695,19 @@ impl Object {
         self.apply_upgrade_modules(combined_bits);
     }
 
+    pub(crate) fn apply_completed_construction_upgrades(
+        &mut self,
+        player_mask: UpgradeMaskType,
+        loading_map: bool,
+        radar_grant: &mut dyn FnMut(&mut Object, bool),
+    ) {
+        if !self.is_destroyed() && !self.test_status(ObjectStatusTypes::UnderConstruction) {
+            self.apply_upgrade_modules_with_loading_state(
+                player_mask | self.object_upgrades_completed, Some(loading_map), radar_grant,
+            );
+        }
+    }
+
     pub fn remove_upgrade(&mut self, upgrade_template: &UpgradeTemplate) {
         let mask = upgrade_template.mask();
         // Convert UpgradeMask to UpgradeMaskType

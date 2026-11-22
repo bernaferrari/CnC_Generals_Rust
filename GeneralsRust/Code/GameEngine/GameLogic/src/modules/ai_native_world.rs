@@ -1854,6 +1854,8 @@ mod owned_destroy;
 
 #[path = "ai_native_world/owned_dozer.rs"]
 mod owned_dozer;
+mod owned_construction;
+mod owned_construction_wall;
 mod owned_updates;
 pub use owned_updates::update_game_logic_with_native_modules;
 
