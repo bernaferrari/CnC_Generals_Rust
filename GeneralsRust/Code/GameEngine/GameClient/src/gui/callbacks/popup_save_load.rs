@@ -1977,34 +1977,27 @@ fn popup_save_load_state_is_bound_to(
         && effects.save_load().listbox_games_window.is_some()
 }
 
-fn hide_popup_save_load_confirmations(
-    layout: &Rc<RefCell<WindowLayout>>,
-    effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
-) {
-    for name in [
-        "PopupSaveLoad.wnd:LoadConfirmParent",
-        "PopupSaveLoad.wnd:OverwriteConfirmParent",
-        "PopupSaveLoad.wnd:SaveDescParent",
-        "PopupSaveLoad.wnd:DeleteConfirmParent",
-    ] {
-        let id = NameKeyGenerator::name_to_key(name) as i32;
-        if let Some(window) = layout_window_by_id(&layout.borrow(), id) {
-            hide_save_load_window(&window, true, effects);
-        }
-    }
-}
-
 /// Show a previously parsed popup while retaining the retail confirmation
-/// windows' hidden state. `WindowLayout::hide(false)` restores every child, so
-/// the confirmation parents must be hidden after that queued layout operation.
+/// windows' hidden state before the next input event.
 pub(crate) fn show_live_popup_save_load_layout(
     layout: Rc<RefCell<WindowLayout>>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    effects.with_manager(|manager, _effects| layout.borrow().hide(manager, false));
-    effects.with_manager(|manager, _effects| layout.borrow_mut().bring_forward(manager));
-    effects.queue_window_operation(move |_manager, effects| {
-        hide_popup_save_load_confirmations(&layout, effects);
+    effects.with_manager(|manager, _effects| {
+        let mut layout = layout.borrow_mut();
+        layout.hide(manager, false);
+        for name in [
+            "PopupSaveLoad.wnd:LoadConfirmParent",
+            "PopupSaveLoad.wnd:OverwriteConfirmParent",
+            "PopupSaveLoad.wnd:SaveDescParent",
+            "PopupSaveLoad.wnd:DeleteConfirmParent",
+        ] {
+            let id = NameKeyGenerator::name_to_key(name) as i32;
+            if let Some(window) = layout_window_by_id(&layout, id) {
+                let _ = manager.hide_window(&window, true);
+            }
+        }
+        layout.bring_forward(manager);
     });
 }
 

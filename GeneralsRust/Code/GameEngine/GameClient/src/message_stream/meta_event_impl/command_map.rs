@@ -615,9 +615,10 @@ mod command_map_parity_tests {
     #[test]
     fn lookup_command_map_name_sees_options_remaps() {
         crate::test_support::ensure_ambient_host();
-        // C++ MetaEventTranslator walks TheMetaMap after Keyboard Options writes.
-        ensure_meta_map_loaded();
+        // An authored debug binding already uses the second chord. Install
+        // an isolated map to exercise remapping without a chord conflict.
         with_meta_map(|map| {
+            map.records.clear();
             map.add_record(MetaMapRec {
                 name: "TOGGLE_LOWER_DETAILS".to_string(),
                 meta: None,
@@ -644,6 +645,7 @@ mod command_map_parity_tests {
             lookup_command_map_name(0x4B, 1).as_deref(),
             Some("TOGGLE_LOWER_DETAILS")
         );
+        assert!(lookup_command_map_name(0x4C, 0).is_none());
         reset_command_map_entries();
     }
 }
