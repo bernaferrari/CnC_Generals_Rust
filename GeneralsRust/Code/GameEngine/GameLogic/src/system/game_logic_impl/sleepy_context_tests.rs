@@ -147,6 +147,8 @@ fn sibling_unregister_of_processed_module_cannot_resurrect_it() {
 struct SelfAwakeningUpdate {
     self_handle: Option<UpdateModulePtr>,
     calls: Arc<AtomicU32>,
+    recorded_wake: u32,
+    unregister_self: bool,
 }
 
 impl UpdateModuleInterface for SelfAwakeningUpdate {
@@ -154,9 +156,17 @@ impl UpdateModuleInterface for SelfAwakeningUpdate {
         self.calls.fetch_add(1, Ordering::Relaxed);
         // Consume the fixture's handle so it retains no self-ownership cycle.
         let own = self.self_handle.take().expect("first scheduled callback");
-        let frame = context.frame();
-        context.awaken(&own, frame);
+        if self.unregister_self {
+            context.unregister(&own);
+        } else {
+            let frame = context.frame();
+            context.awaken(&own, frame);
+        }
         Ok(UpdateSleepTime::Frames(3))
+    }
+
+    fn record_scheduled_wake(&mut self, frame: u32, _phase: SleepyUpdatePhase) {
+        self.recorded_wake = frame;
     }
 }
 
@@ -170,6 +180,8 @@ fn current_callback_awaken_is_ignored_and_returned_sleep_wins() {
     let concrete = Arc::new(RwLock::new(SelfAwakeningUpdate {
         self_handle: None,
         calls: calls.clone(),
+        recorded_wake: u32::MAX,
+        unregister_self: false,
     }));
     let module: UpdateModulePtr = concrete.clone();
     concrete.write().unwrap().self_handle = Some(module.clone());
@@ -185,6 +197,39 @@ fn current_callback_awaken_is_ignored_and_returned_sleep_wins() {
         .find(|entry| Arc::ptr_eq(&entry.module, &module))
         .unwrap();
     assert_eq!(entry.wake_frame, 9);
+    assert_eq!(concrete.read().unwrap().recorded_wake, 9);
+}
+
+#[test]
+fn current_callback_unregister_is_not_resurrected_by_returned_sleep() {
+    // The wake stamp is applied only while the module is still registered:
+    // a callback that unregisters itself keeps its registration stamp and
+    // leaves no queue entry for the returned sleep to land on.
+    let mut world = GameLogic::new();
+    world.frame = 6;
+    insert_owner(&mut world, 86);
+    let calls = Arc::new(AtomicU32::new(0));
+    let concrete = Arc::new(RwLock::new(SelfAwakeningUpdate {
+        self_handle: None,
+        calls: calls.clone(),
+        recorded_wake: u32::MAX,
+        unregister_self: true,
+    }));
+    let module: UpdateModulePtr = concrete.clone();
+    concrete.write().unwrap().self_handle = Some(module.clone());
+    world.register_sleepy_update_module(86, module.clone(), 6);
+
+    world.process_sleepy_updates(6);
+
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    assert_eq!(concrete.read().unwrap().recorded_wake, 6);
+    assert_eq!(count_registration(&world, &module), 0);
+    assert!(
+        world
+            .sleepy_updates
+            .iter()
+            .all(|entry| !Arc::ptr_eq(&entry.module, &module))
+    );
 }
 
 #[test]

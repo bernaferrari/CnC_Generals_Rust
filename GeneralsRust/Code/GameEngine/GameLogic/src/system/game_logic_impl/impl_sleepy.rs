@@ -369,6 +369,33 @@ pub(crate) struct NativeScheduledUpdate {
     pub(crate) should_process: bool,
 }
 
+/// Apply the callback's returned sleep through the already-loaned module
+/// runtime (C++ UpdateModule.cpp:61 writes the wake directly). Skips a
+/// callback that unregistered itself; never resurrects it.
+fn finish_borrowed_scheduled_sleep(
+    queue: &mut SleepyUpdateQueue,
+    module: &UpdateModulePtr,
+    update: &mut dyn UpdateModuleInterface,
+    current_frame: UnsignedInt,
+    sleep: UpdateSleepTime,
+) {
+    if queue.index_of(module).is_none() {
+        return;
+    }
+    let next_wake = match sleep {
+        UpdateSleepTime::Forever => UPDATE_SLEEP_FOREVER_FRAMES,
+        UpdateSleepTime::None => current_frame
+            .saturating_add(1)
+            .min(UPDATE_SLEEP_FOREVER_FRAMES),
+        UpdateSleepTime::Frames(frames) => current_frame
+            .saturating_add(frames.max(1))
+            .min(UPDATE_SLEEP_FOREVER_FRAMES),
+    };
+    let phase = update.get_update_phase();
+    queue.reschedule(module, next_wake, Some(phase));
+    update.record_scheduled_wake(next_wake, phase);
+}
+
 impl GameLogic {
     fn due_sleepy_candidate(
         &self,
@@ -419,33 +446,27 @@ impl GameLogic {
         update: NativeScheduledUpdate,
         sleep: UpdateSleepTime,
     ) {
-        self.finish_scheduled_sleep(&update.module, update.phase, current_frame, sleep);
+        self.finish_scheduled_sleep(&update.module, current_frame, sleep);
     }
 
     fn finish_scheduled_sleep(
         &mut self,
         module: &UpdateModulePtr,
-        _phase: SleepyUpdatePhase,
         current_frame: UnsignedInt,
         sleep: UpdateSleepTime,
     ) {
-        let next_wake = match sleep {
-            UpdateSleepTime::Forever => UPDATE_SLEEP_FOREVER_FRAMES,
-            UpdateSleepTime::None => current_frame
-                .saturating_add(1)
-                .min(UPDATE_SLEEP_FOREVER_FRAMES),
-            UpdateSleepTime::Frames(frames) => current_frame
-                .saturating_add(frames.max(1))
-                .min(UPDATE_SLEEP_FOREVER_FRAMES),
-        };
         // A synchronous callback may unregister itself. Never resurrect it.
-        if self.sleepy_updates.index_of(module).is_some() {
-            let mut update = module.write().expect("scheduled module poisoned");
-            let phase = update.get_update_phase();
-            self.sleepy_updates
-                .reschedule(module, next_wake, Some(phase));
-            update.record_scheduled_wake(next_wake, phase);
+        if self.sleepy_updates.index_of(module).is_none() {
+            return;
         }
+        let mut update = module.write().expect("scheduled module poisoned");
+        finish_borrowed_scheduled_sleep(
+            &mut self.sleepy_updates,
+            module,
+            &mut *update,
+            current_frame,
+            sleep,
+        );
     }
 
     fn process_sleepy_updates(&mut self, current_frame: UnsignedInt) {
@@ -464,16 +485,6 @@ impl GameLogic {
         // C++ GameLogic.cpp:3698–3736 keeps a module registered during update,
         // then rebalances it immediately before executing the next callback.
         while let Some((object_id, module)) = self.due_sleepy_candidate(current_frame) {
-            let (module_disabled_mask, phase) = module
-                .read()
-                .map(|module| {
-                    (
-                        module.get_disabled_types_to_process(),
-                        module.get_update_phase(),
-                    )
-                })
-                .unwrap_or((DisabledMaskType::empty(), SleepyUpdatePhase::Normal));
-
             let object_disabled = match self.objects.get(&object_id) {
                 Some(object) => object.read().ok().map(|object| object.get_disabled_flags()),
                 None => {
@@ -481,9 +492,6 @@ impl GameLogic {
                     continue;
                 }
             };
-            let should_process = object_disabled
-                .map(|mask| disabled_module_should_process(mask, module_disabled_mask))
-                .unwrap_or(true);
             let upgrade_observation = services.as_ref().and_then(|services| {
                 self.objects.get(&object_id).map(|owner| {
                     services.observation(
@@ -492,56 +500,49 @@ impl GameLogic {
                     )
                 })
             });
+            let mut update = module.write().expect("scheduled module poisoned");
+            let should_process = object_disabled.is_none_or(|mask| {
+                disabled_module_should_process(mask, update.get_disabled_types_to_process())
+            });
             let mut completed_upgrade = None;
             let mut minefield_drain = None;
             let sleep = if should_process {
                 // Legacy callers still use this bridge; explicit scheduling
                 // callbacks below do not discover it or lock GameLogic again.
                 let _cur = (services.is_none() && minefield.is_none()).then(|| enter_cur_update_module(&module));
-                match module.write() {
-                    Ok(mut update) => {
-                        let mut context = UpdateExecutionContext {
-                            queue: &mut self.sleepy_updates,
-                            normal: &mut self.normal_updates,
-                            lookup: &mut self.module_lookup,
-                            current: &module,
-                            now: current_frame,
-                            loading_map,
-                            upgrade_observation,
-                            objects: &self.objects,
-                            owner_id: object_id,
-                            partition: self.partition.as_ref(),
-                            world: world.as_deref(),
-                            normal_cursor: None,
-                            minefield_drain: None,
-                            minefield: minefield.as_mut().map(|services| MinefieldWindow {
-                                services: &mut **services,
-                                objects: &self.objects,
-                                next_object_id: &mut self.next_object_id,
-                                effects: &mut minefield_effects,
-                                born: Vec::new(),
-                            }),
-                        };
-                        let result = update.update_scheduled(&mut context);
-                        if result.is_ok() {
-                            minefield_drain = context.minefield_drain;
-                        }
-                        completed_upgrade = update.take_completed_upgrade();
-                        match result {
-                            Ok(sleep) => sleep,
-                            Err(error) => {
-                                warn!(
-                                    "Sleepy update module for object {} failed: {}",
-                                    object_id, error
-                                );
-                                UpdateSleepTime::None
-                            }
-                        }
-                    }
-                    Err(_) => {
+                let mut context = UpdateExecutionContext {
+                    queue: &mut self.sleepy_updates,
+                    normal: &mut self.normal_updates,
+                    lookup: &mut self.module_lookup,
+                    current: &module,
+                    now: current_frame,
+                    loading_map,
+                    upgrade_observation,
+                    objects: &self.objects,
+                    owner_id: object_id,
+                    partition: self.partition.as_ref(),
+                    world: world.as_deref(),
+                    normal_cursor: None,
+                    minefield_drain: None,
+                    minefield: minefield.as_mut().map(|services| MinefieldWindow {
+                        services: &mut **services,
+                        objects: &self.objects,
+                        next_object_id: &mut self.next_object_id,
+                        effects: &mut minefield_effects,
+                        born: Vec::new(),
+                    }),
+                };
+                let result = update.update_scheduled(&mut context);
+                if result.is_ok() {
+                    minefield_drain = context.minefield_drain;
+                }
+                completed_upgrade = update.take_completed_upgrade();
+                match result {
+                    Ok(sleep) => sleep,
+                    Err(error) => {
                         warn!(
-                            "Sleepy update module lock poisoned for object {}",
-                            object_id
+                            "Sleepy update module for object {} failed: {}",
+                            object_id, error
                         );
                         UpdateSleepTime::None
                     }
@@ -549,6 +550,22 @@ impl GameLogic {
             } else {
                 UpdateSleepTime::None
             };
+            if minefield_drain.is_none()
+                && minefield_effects.is_empty()
+                && (completed_upgrade.is_none() || services.is_none())
+            {
+                finish_borrowed_scheduled_sleep(
+                    &mut self.sleepy_updates,
+                    &module,
+                    &mut *update,
+                    current_frame,
+                    sleep,
+                );
+                continue;
+            }
+            // These effects can reach the same module again. Keep the old
+            // wake visible until they finish.
+            drop(update);
             if let Some(amount) = minefield_drain {
                 self.apply_scheduled_minefield_drain(object_id, &module, amount);
             }
@@ -558,7 +575,7 @@ impl GameLogic {
             if let (Some(name), Some(services)) = (completed_upgrade, services.as_mut()) {
                 self.finish_scheduled_upgrade(&module, object_id, &name, &mut **services);
             }
-            self.finish_scheduled_sleep(&module, phase, current_frame, sleep);
+            self.finish_scheduled_sleep(&module, current_frame, sleep);
         }
     }
 
