@@ -1,6 +1,5 @@
 //! Immediate receiving Energy entry and synchronous brownout callbacks.
 use super::super::*;
-
 use crate::game_logic::object::TimedDisable;
 
 impl GameLogic {
@@ -38,7 +37,7 @@ impl GameLogic {
         effect: TimedDisable,
     ) -> bool {
         let epoch = self.visual_world_epoch;
-        let (birth, became_disabled, children) = {
+        let (birth, became_disabled, deadline_changed) = {
             let Some(object) = self.objects.get_mut(&id) else {
                 return false;
             };
@@ -47,22 +46,31 @@ impl GameLogic {
                 object.queue_power_disable_misc_audio(true, &mut self.health_events);
             }
             let mut audio = crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
-            let deadline_changed = object.begin_timed_disable(effect, until, &mut audio);
-            let children = if deadline_changed && object.is_spawns_are_the_weapons() {
-                object.spawn_behavior_children()
-            } else {
-                Vec::new()
-            };
+            let changed = object.begin_timed_disable(effect, until, &mut audio);
             (
                 object.visual_object_generation,
                 !was_disabled && object.has_disabled_type(),
-                children,
+                changed,
             )
         };
-        if !children.is_empty() {
-            self.apply_owned_spawn_children_disabled_until(id, birth, epoch, children, until, effect);
-            if !self.spawn_identity_matches(id, birth, epoch) {
-                return true;
+        if deadline_changed {
+            // C++ ContainModuleInterface::friend_getRider precedes SpawnBehavior.
+            if let Some(rider) = self.containment_disable_rider(id) {
+                self.apply_owned_initial_disabled(rider, until, effect);
+                if !self.spawn_identity_matches(id, birth, epoch) {
+                    return true;
+                }
+            }
+            if let Some(children) = self
+                .host_object(id)
+                .filter(|object| object.is_spawns_are_the_weapons())
+                .map(Object::spawn_behavior_children)
+                .filter(|children| !children.is_empty())
+            {
+                self.apply_owned_spawn_children_disabled_until(id, birth, epoch, children, until, effect);
+                if !self.spawn_identity_matches(id, birth, epoch) {
+                    return true;
+                }
             }
         }
 
@@ -88,6 +96,20 @@ impl GameLogic {
             }
         }
         true
+    }
+
+    fn containment_disable_rider(&self, owner: ObjectId) -> Option<ObjectId> {
+        let object = self.host_object(owner)?;
+        if object.get_template().contain_module.kind == crate::game_logic::ContainModuleKind::RiderChange {
+            let &rider = object.contained_unit_ids().first()?;
+            return self.host_object(rider)
+                .filter(|rider| rider.contained_by == Some(owner))
+                .map(|rider| rider.id);
+        }
+        if object.admits_ocl_portable_structure() {
+            return self.overlord_helix_portable_occupant_id(owner);
+        }
+        None
     }
 
     /// C++ `SpawnBehavior::orderSlavesDisabledUntil`: visit the receiving
@@ -374,6 +396,40 @@ End
             for id in ids {
                 assert!(!world.host_object(id).unwrap().has_disabled_type());
             }
+        }
+    }
+
+    #[test]
+    fn spawn_parent_expiry_clears_the_same_effect_before_longer_child_deadline() {
+        let (mut world, [parent, child, grandchild]) = spawned_radar_world();
+        assert!(world.apply_owned_emp_disabled(parent, 100));
+        assert!(world.apply_owned_emp_disabled(child, 150));
+        assert!(world.apply_owned_hacked_disabled(grandchild, 180));
+        assert_eq!(world.players[&1].power_produced, 0);
+        assert_eq!(world.players[&1].radar_count, 0);
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let (mut restored, ids) = spawned_radar_world();
+        assert_eq!(ids, [parent, child, grandchild]);
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+        for receiver in [&mut world, &mut restored] {
+            receiver.set_current_frame(99);
+            receiver.expire_owned_disabled_statuses();
+            assert!(receiver.host_object(child).unwrap().status.disabled_emp);
+            assert_eq!(receiver.players[&1].power_produced, 0);
+
+            receiver.set_current_frame(100);
+            receiver.expire_owned_disabled_statuses();
+            for id in [parent, child, grandchild] {
+                assert!(!receiver.host_object(id).unwrap().status.disabled_emp);
+            }
+            assert!(receiver.host_object(grandchild).unwrap().status.disabled_hacked);
+            assert_eq!(receiver.players[&1].power_produced, 20);
+            assert_eq!(receiver.players[&1].radar_count, 1);
         }
     }
 

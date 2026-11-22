@@ -127,6 +127,52 @@ fn retail_helix_contain_inside_source_ocl_attaches_in_each_receiving_world() {
 }
 
 #[test]
+fn timed_hull_disable_reaches_the_helix_addon_and_leaves_passengers_held() {
+    let admitted_helix = || {
+        let (mut world, hull) = helix_portable_world(Vec3::ZERO);
+        let payloads = world.execute_parsed_weapon_ocl_at(
+            "OCL_HelixGattlingCannon",
+            Some(hull),
+            Team::China,
+            VeterancyLevel::Rookie,
+            0.0,
+            Vec3::ZERO,
+            Vec3::ZERO,
+        ).unwrap();
+        let [addon] = payloads[..] else {
+            panic!("authored Helix OCL must attach one addon");
+        };
+        let mut template = ThingTemplate::new("HelixDisableWitnessPassenger");
+        template.add_kind_of(KindOf::Infantry).set_health(100.0);
+        world.templates.insert(template.name.clone(), template);
+        let passenger = world.create_object("HelixDisableWitnessPassenger", Team::China, Vec3::ZERO).unwrap();
+        assert!(world.host_object_mut(hull).unwrap().add_occupant(passenger));
+        GameLogic::set_owned_containment_in_parts(
+            &mut world.objects, &mut world.partition_manager, &mut world.ai_groups,
+            &mut world.pathfinding_system, passenger, Some(hull), true,
+        );
+        world.apply_helix_contain_on_enter(hull, passenger);
+        assert!(world.host_object(passenger).unwrap().is_held_disabled());
+        assert_eq!(world.overlord_helix_portable_occupant_id(hull), Some(addon));
+        (world, [hull, addon, passenger])
+    };
+    let (mut owner, ids) = admitted_helix();
+    let (peer, peer_ids) = admitted_helix();
+    assert_eq!(ids, peer_ids);
+    let [hull, addon, passenger] = ids;
+    assert!(owner.apply_owned_emp_disabled(hull, 60));
+    assert!(owner.host_object(hull).unwrap().status.disabled_emp);
+    let addon_status = &owner.host_object(addon).unwrap().status;
+    assert!(addon_status.disabled_emp);
+    assert_eq!(addon_status.disabled_emp_until_frame, 60);
+    assert!(!owner.host_object(passenger).unwrap().status.disabled_emp);
+    assert!(owner.host_object(passenger).unwrap().is_held_disabled());
+    for id in [hull, addon, passenger] {
+        assert!(!peer.host_object(id).unwrap().status.disabled_emp);
+    }
+}
+
+#[test]
 fn helix_portable_rider_fires_its_own_weapon_without_passenger_upgrade() {
     let (mut world, helix) = helix_portable_world(Vec3::ZERO);
     let rider = world.execute_parsed_weapon_ocl_at(

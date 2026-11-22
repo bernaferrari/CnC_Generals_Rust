@@ -11,6 +11,20 @@ impl TimedDisable {
     pub(in crate::game_logic) fn is_power_style(self) -> bool {
         matches!(self, Self::Emp | Self::Hacked)
     }
+
+    fn state_mut(self, status: &mut ObjectStatus) -> (&mut bool, &mut u32) {
+        match self {
+            Self::Emp => (&mut status.disabled_emp, &mut status.disabled_emp_until_frame),
+            Self::Hacked => (
+                &mut status.disabled_hacked,
+                &mut status.disabled_hacked_until_frame,
+            ),
+            Self::Paralyzed => (
+                &mut status.disabled_paralyzed,
+                &mut status.disabled_paralyzed_until_frame,
+            ),
+        }
+    }
 }
 
 impl Object {
@@ -906,20 +920,7 @@ impl Object {
         until_frame: u32,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
-        let (active, deadline) = match effect {
-            TimedDisable::Emp => (
-                &mut self.status.disabled_emp,
-                &mut self.status.disabled_emp_until_frame,
-            ),
-            TimedDisable::Hacked => (
-                &mut self.status.disabled_hacked,
-                &mut self.status.disabled_hacked_until_frame,
-            ),
-            TimedDisable::Paralyzed => (
-                &mut self.status.disabled_paralyzed,
-                &mut self.status.disabled_paralyzed_until_frame,
-            ),
-        };
+        let (active, deadline) = effect.state_mut(&mut self.status);
         if *deadline == until_frame {
             return false;
         }
@@ -934,26 +935,65 @@ impl Object {
         true
     }
 
+    pub(in crate::game_logic) fn timed_disable_deadline(&self, effect: TimedDisable) -> Option<u32> {
+        let (active, deadline) = match effect {
+            TimedDisable::Emp => (self.status.disabled_emp, self.status.disabled_emp_until_frame),
+            TimedDisable::Hacked => (
+                self.status.disabled_hacked,
+                self.status.disabled_hacked_until_frame,
+            ),
+            TimedDisable::Paralyzed => (
+                self.status.disabled_paralyzed,
+                self.status.disabled_paralyzed_until_frame,
+            ),
+        };
+        active.then_some(deadline)
+    }
+
+    pub(in crate::game_logic) fn timed_disable_expires_at(
+        &self,
+        effect: TimedDisable,
+        frame: u32,
+    ) -> bool {
+        self.timed_disable_deadline(effect)
+            .is_some_and(|deadline| deadline != 0 && frame >= deadline)
+    }
+
+    pub(in crate::game_logic) fn queue_timed_disable_reenabled_audio(
+        &self,
+        effect: TimedDisable,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
+        let other_power_disable = self.status.disabled_underpowered
+            || self.status.disabled_subdued
+            || (self.status.disabled_emp && !matches!(effect, TimedDisable::Emp))
+            || (self.status.disabled_hacked && !matches!(effect, TimedDisable::Hacked));
+        if effect.is_power_style() && !other_power_disable {
+            self.queue_power_disable_misc_audio(false, health_events);
+        }
+    }
+
+    pub(in crate::game_logic) fn clear_timed_disable(&mut self, effect: TimedDisable) -> bool {
+        let (active, deadline) = effect.state_mut(&mut self.status);
+        if !*active {
+            return false;
+        }
+        *active = false;
+        *deadline = 0;
+        if !self.has_disabled_type() {
+            self.on_disabled_edge(false);
+        }
+        true
+    }
+
     pub fn tick_disabled_hacked(
         &mut self,
         current_frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
-        if self.status.disabled_hacked
-            && self.status.disabled_hacked_until_frame > 0
-            && current_frame >= self.status.disabled_hacked_until_frame
-        {
-            if !(self.status.disabled_underpowered
-                || self.status.disabled_emp
-                || self.status.disabled_subdued)
-            {
-                self.queue_power_disable_misc_audio(false, health_events);
-            }
-            self.set_status_disabled_hacked(false);
-            self.status.disabled_hacked_until_frame = 0;
-            if !self.is_disabled() {
-                self.on_disabled_edge(false);
-            }
+        if self.timed_disable_expires_at(TimedDisable::Hacked, current_frame) {
+            self.queue_timed_disable_reenabled_audio(TimedDisable::Hacked, health_events);
+            self.clear_timed_disable(TimedDisable::Hacked);
         }
     }
 
@@ -980,21 +1020,9 @@ impl Object {
         current_frame: u32,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
-        if self.status.disabled_emp
-            && self.status.disabled_emp_until_frame > 0
-            && current_frame >= self.status.disabled_emp_until_frame
-        {
-            if !(self.status.disabled_underpowered
-                || self.status.disabled_hacked
-                || self.status.disabled_subdued)
-            {
-                self.queue_power_disable_misc_audio(false, health_events);
-            }
-            self.set_status_disabled_emp(false);
-            self.status.disabled_emp_until_frame = 0;
-            if !self.is_disabled() {
-                self.on_disabled_edge(false);
-            }
+        if self.timed_disable_expires_at(TimedDisable::Emp, current_frame) {
+            self.queue_timed_disable_reenabled_audio(TimedDisable::Emp, health_events);
+            self.clear_timed_disable(TimedDisable::Emp);
         }
     }
 
@@ -1011,15 +1039,8 @@ impl Object {
     }
 
     pub fn tick_disabled_paralyzed(&mut self, current_frame: u32) {
-        if self.status.disabled_paralyzed
-            && self.status.disabled_paralyzed_until_frame > 0
-            && current_frame >= self.status.disabled_paralyzed_until_frame
-        {
-            self.set_status_disabled_paralyzed(false);
-            self.status.disabled_paralyzed_until_frame = 0;
-            if !self.is_disabled() {
-                self.on_disabled_edge(false);
-            }
+        if self.timed_disable_expires_at(TimedDisable::Paralyzed, current_frame) {
+            self.clear_timed_disable(TimedDisable::Paralyzed);
         }
     }
 

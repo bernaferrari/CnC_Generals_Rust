@@ -1,5 +1,6 @@
 //! Original end-of-frame disabled expiry and its synchronous owner effects.
 use super::super::*;
+use crate::game_logic::object::TimedDisable;
 
 impl GameLogic {
     pub(in super::super) fn expire_owned_disabled_statuses(&mut self) {
@@ -16,34 +17,109 @@ impl GameLogic {
         // destruction and victory. Release each Object borrow before admitting
         // its Player callbacks; no object is temporarily removed from its store.
         let ids: Vec<_> = self.objects.registered_keys().copied().collect();
-        for id in ids {
+        let epoch = self.visual_world_epoch;
+        let mut ancestors = Vec::new();
+        'actor: for id in ids {
+            if self.visual_world_epoch != epoch {
+                return;
+            }
+            let Some(object) = self.objects.get(&id).filter(|object| object.is_disabled()) else {
+                continue;
+            };
+            let birth = object.visual_object_generation;
+            for effect in [TimedDisable::Hacked, TimedDisable::Emp, TimedDisable::Paralyzed] {
+                let due = self.objects.get(&id).is_some_and(|object| {
+                    object.timed_disable_expires_at(effect, self.frame)
+                });
+                if due {
+                    self.clear_owned_timed_disable(id, effect, &mut ancestors, effects);
+                    if self.visual_world_epoch != epoch {
+                        return;
+                    }
+                    if !self
+                        .objects
+                        .get(&id)
+                        .is_some_and(|object| object.visual_object_generation == birth)
+                    {
+                        continue 'actor;
+                    }
+                }
+            }
+
             let Some(object) = self.objects.get(&id) else {
                 continue;
             };
             let was_disabled = object.is_disabled();
-            if !was_disabled {
-                continue;
-            }
-            let owner = self.player_owner_for_host_object(object);
-            let restores_generation = object.power_provided > 0;
+            let producer = object.owner_player_id.filter(|_| object.power_provided > 0);
             let object = self.objects.get_mut(&id).unwrap();
-            object.tick_disabled_hacked(self.frame, &mut self.health_events);
-            object.tick_disabled_emp(self.frame, &mut self.health_events);
-            object.tick_disabled_paralyzed(self.frame);
             object.tick_remaining_disabled(self.frame);
-            let reenabled = !object.is_disabled();
-
-            // Admit this driving world's Object-local callbacks before the
-            // frame ends. Foreign worlds retain their own pending edges.
+            let reenabled = was_disabled && !object.is_disabled();
             self.admit_disabled_expiry_radar_edges_with_effects(id, effects);
-            // C++ Object.cpp:3826-3855 adjusts only positive producers. A
-            // disabled consumer keeps its consumption to prevent oscillation.
-            if reenabled && restores_generation {
-                if let Some(player_id) = owner {
-                    self.refresh_power_after_disabled_expiry(player_id);
-                    self.admit_expiry_power_state_with_effects(player_id, effects);
+            if let (true, Some(owner)) = (reenabled, producer) {
+                self.refresh_power_after_disabled_expiry(owner);
+                self.admit_expiry_power_state_with_effects(owner, effects);
+            }
+        }
+    }
+
+    /// Object::clearDisabled visits the live SpawnBehavior roster before
+    /// clearing its own mask. Slaves clear this type even when their own
+    /// deadline is later.
+    fn clear_owned_timed_disable(
+        &mut self,
+        id: ObjectId,
+        effect: TimedDisable,
+        ancestors: &mut Vec<ObjectId>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        if ancestors.contains(&id) {
+            return;
+        }
+        let epoch = self.visual_world_epoch;
+        let (birth, children) = {
+            let Some(object) = self.objects.get(&id) else {
+                return;
+            };
+            if object.timed_disable_deadline(effect).is_none() {
+                return;
+            }
+            object.queue_timed_disable_reenabled_audio(effect, &mut self.health_events);
+            let children = if object.is_spawns_are_the_weapons() {
+                object.spawn_behavior_children()
+            } else {
+                Vec::new()
+            };
+            (object.visual_object_generation, children)
+        };
+        if !children.is_empty() {
+            ancestors.push(id);
+            for (child, child_birth) in children {
+                if !self.spawn_identity_matches(id, birth, epoch) {
+                    break;
+                }
+                let still_child = self.host_object(id).is_some_and(|parent| {
+                    parent.contains_spawn_behavior_child(child, &child_birth)
+                });
+                if still_child && self.spawn_identity_matches(child, child_birth, epoch) {
+                    self.clear_owned_timed_disable(child, effect, ancestors, effects);
                 }
             }
+            ancestors.pop();
+            if !self.spawn_identity_matches(id, birth, epoch) {
+                return;
+            }
+        }
+        let producer = {
+            let object = self.objects.get_mut(&id).unwrap();
+            if !object.clear_timed_disable(effect) {
+                return;
+            }
+            object.owner_player_id.filter(|_| !object.is_disabled() && object.power_provided > 0)
+        };
+        self.admit_host_radar_disabled_edges(id);
+        if let Some(owner) = producer {
+            self.refresh_power_after_disabled_expiry(owner);
+            self.admit_expiry_power_state_with_effects(owner, effects);
         }
     }
 
