@@ -759,6 +759,7 @@ fn collect_remaining_blob_shadows(
         .unit_render_inputs_shared()
         .iter()
         .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
+        .filter(|u| !u.template_decal_disabled)
         // W3DModelDraw::allocateShadows skips SHADOW_NONE. W3DShadowManager
         // routes volumes exclusively to the stencil manager.
         .filter(|u| {
@@ -1476,6 +1477,62 @@ mod presentation_selection_tests {
             collect_blob_shadows_from_presentation(&snap).is_empty(),
             "FOW-alpha fog without direct shroud facts must still hide the disc"
         );
+    }
+
+    #[test]
+    fn tree_draw_with_shadows_disabled_emits_no_shadow_disc() {
+        use crate::fixture_content::FixtureObject;
+
+        fn decal_object(name: &str) -> FixtureObject {
+            FixtureObject::new(name)
+                .field("Shadow = SHADOW_DECAL")
+                .health(100.0)
+        }
+
+        let mut logic = GameLogic::new();
+        crate::fixture_content::admit_fixture_objects(
+            &mut logic,
+            &[
+                decal_object("DefaultShadowlessTree")
+                    .module("Draw = W3DTreeDraw Tree\n ModelName = TestTree\nEnd"),
+                decal_object("EnabledShadowTree")
+                    .module("Draw = W3DTreeDraw Tree\n ModelName = TestTree\n DoShadow = Yes\nEnd"),
+                decal_object("ModelDecalTree").model("TestTree"),
+            ],
+        );
+        let cfg = golden_skirmish_config("TreeShadowMap");
+        crate::skirmish_config::lobby_definition_tests::start_slot_skirmish(&mut logic, &cfg)
+            .expect("config");
+
+        let default = logic
+            .create_object("DefaultShadowlessTree", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+            .expect("default shadowless tree");
+        let enabled = logic
+            .create_object("EnabledShadowTree", Team::USA, Vec3::new(30.0, 0.0, 10.0))
+            .expect("enabled shadow tree");
+        let model = logic
+            .create_object("ModelDecalTree", Team::USA, Vec3::new(50.0, 0.0, 10.0))
+            .expect("model draw");
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+        let inputs = frame.unit_render_inputs();
+        for id in [default, enabled, model] {
+            let input = inputs.iter().find(|input| input.id == id).expect("render input");
+            assert!(input.shadows_enabled && blob_shadow_visible_through_shroud(input));
+            assert_eq!(
+                input.shadow_type_bits,
+                crate::game_logic::host_enum_table_residual::SHADOW_DECAL
+            );
+        }
+
+        let circles = collect_blob_shadows_from_presentation(&frame);
+        let disc_at = |x: f32| {
+            circles
+                .iter()
+                .any(|disc| (disc.position.x - x).abs() < 0.01 && (disc.position.z - 10.0).abs() < 0.01)
+        };
+        assert!(!disc_at(10.0), "W3DTreeDraw defaults DoShadow to No");
+        assert!(disc_at(30.0), "trees with DoShadow enabled still cast a shadow");
+        assert!(disc_at(50.0), "W3DModelDraw has separate decal admission");
     }
 
     #[test]

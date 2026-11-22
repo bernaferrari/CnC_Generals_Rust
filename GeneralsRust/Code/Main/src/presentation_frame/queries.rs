@@ -407,6 +407,22 @@ impl PresentationFrame {
             }
         };
 
+        let apply_direct = |input: &mut UnitRenderInput, direct: &PresentationDirectHostDrawable| {
+            apply_visual_template(
+                input,
+                &direct.visual_template_name,
+                direct.visual_mesh_scale,
+                &direct.receiving_visual_draw_models,
+            );
+            input.apply_debris_model_override(direct.debris_model_override.as_deref());
+            input.template_decal_disabled = direct.object.shadow_type_bits
+                == crate::game_logic::host_enum_table_residual::SHADOW_DECAL
+                && direct
+                    .receiving_client_template
+                    .as_ref()
+                    .is_some_and(|template| template.has_only_shadowless_tree_draws());
+        };
+
         // C++ StealthUpdate::changeVisualDisguise destroys/recreates the
         // Drawable with `m_disguiseAsTemplate` before it decides only the
         // viewer-relative indicator color. A GameWorld-primary row may still
@@ -433,13 +449,7 @@ impl PresentationFrame {
             }
             let mut input = make_input(object);
             if let Some(direct) = direct_visual_templates.get(&object.id) {
-                apply_visual_template(
-                    &mut input,
-                    &direct.visual_template_name,
-                    direct.visual_mesh_scale,
-                    &direct.receiving_visual_draw_models,
-                );
-                input.apply_debris_model_override(direct.debris_model_override.as_deref());
+                apply_direct(&mut input, direct);
             }
             owned_mesh_ids.insert(input.id);
             inputs.push(input);
@@ -456,13 +466,7 @@ impl PresentationFrame {
             let mut input = make_input(&direct.object);
             // Direct visual identity is frozen from immutable ThingTemplate /
             // committed disguise state, never mutable Object template bookkeeping.
-            apply_visual_template(
-                &mut input,
-                &direct.visual_template_name,
-                direct.visual_mesh_scale,
-                &direct.receiving_visual_draw_models,
-            );
-            input.apply_debris_model_override(direct.debris_model_override.as_deref());
+            apply_direct(&mut input, direct);
             owned_mesh_ids.insert(input.id);
             inputs.push(input);
         }

@@ -342,6 +342,21 @@ impl ReceivingClientTemplate {
             .any(|entry| entry.name.as_str().eq_ignore_ascii_case(name))
     }
 
+    /// W3DTreeDraw registers with the terrain tree buffer and leaves decal
+    /// admission to its typed DoShadow field (W3DTreeBuffer.cpp:1565-1584).
+    pub(crate) fn has_only_shadowless_tree_draws(&self) -> bool {
+        let mut draws = self.0.draw_modules().iter().peekable();
+        draws.peek().is_some()
+            && draws.all(|entry| {
+                entry.name.as_str().eq_ignore_ascii_case("W3DTreeDraw")
+                    && entry
+                        .data
+                        .read()
+                        .downcast_ref::<gamelogic::object::draw::W3DTreeDrawModuleData>()
+                        .is_some_and(|data| !data.do_shadow)
+            })
+    }
+
     pub(crate) fn uses_overlord_rider_draw(&self) -> bool {
         self.0.draw_modules().iter().any(|entry| {
             [

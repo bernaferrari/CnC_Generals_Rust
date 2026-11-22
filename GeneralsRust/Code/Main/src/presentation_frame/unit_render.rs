@@ -162,6 +162,8 @@ pub struct UnitRenderInput {
     pub shadows_enabled: bool,
     /// Template `Shadow` bits (C++ `ObjectShadowType`).
     pub shadow_type_bits: u32,
+    /// The receiving draw modules leave this template decal disabled.
+    pub(crate) template_decal_disabled: bool,
     /// C++ `Drawable::m_terrainDecalType` residual.
     pub terrain_decal_type: u8,
     /// C++ `Drawable::setTerrainDecalSize` residual (major axis).
@@ -455,6 +457,7 @@ impl UnitRenderInput {
             topple_dir_y: ro.topple_dir_y,
             shadows_enabled: ro.shadows_enabled,
             shadow_type_bits: ro.shadow_type_bits,
+            template_decal_disabled: false,
             terrain_decal_type: ro.terrain_decal_type,
             terrain_decal_size: ro.terrain_decal_size,
             terrain_decal_opacity: ro.terrain_decal_opacity,
