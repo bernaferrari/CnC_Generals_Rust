@@ -2,6 +2,7 @@
 //! Extracted from object_queries; one receiving implementation per callback.
 use super::super::*;
 use game_engine::common::thing::module::{ModuleData, ModuleDataHandle, ModuleDataView};
+use gamelogic::object::upgrade::ReplaceObjectUpgradeModuleData;
 
 fn upgrade_data_view<T: ModuleData + 'static>(handle: &ModuleDataHandle) -> Option<ModuleDataView<T>> {
     if !handle.is::<T>() {
@@ -74,8 +75,20 @@ impl AuthoredWeaponUpgrade {
     }
 }
 
+struct AuthoredReplaceObjectUpgrade {
+    source_index: usize,
+    data: ModuleDataView<ReplaceObjectUpgradeModuleData>,
+}
+
+impl AuthoredReplaceObjectUpgrade {
+    fn executed_key(&self) -> String {
+        format!("ReplaceObjectUpgrade#{}", self.source_index)
+    }
+}
+
 enum AuthoredOrderedUpgrade {
     ObjectCreation(AuthoredObjectCreationUpgrade),
+    ReplaceObject(AuthoredReplaceObjectUpgrade),
     StatusBits(AuthoredStatusBitsUpgrade),
     CostModifier(AuthoredCostModifierUpgrade),
     PassengersFire(AuthoredPassengersFireUpgrade),
@@ -94,6 +107,7 @@ impl AuthoredOrderedUpgrade {
     fn source_index(&self) -> usize {
         match self {
             Self::ObjectCreation(module) => module.source_index,
+            Self::ReplaceObject(module) => module.source_index,
             Self::StatusBits(module) => module.source_index,
             Self::CostModifier(module) => module.source_index,
             Self::PassengersFire(module) => module.source_index,
@@ -105,6 +119,7 @@ impl AuthoredOrderedUpgrade {
     fn with_mux<R>(&self, f: impl FnOnce(&gamelogic::upgrade::modules::upgrade_mux::UpgradeMuxData) -> R) -> R {
         match self {
             Self::ObjectCreation(module) => f(&module.data.read().upgrade_mux_data),
+            Self::ReplaceObject(module) => f(&module.data.read().upgrade_mux_data),
             Self::StatusBits(module) => f(&module.data.read().upgrade_mux_data),
             Self::CostModifier(module) => f(&module.data.read().upgrade_mux_data),
             Self::PassengersFire(module) => f(&module.data.read().upgrade_mux_data),
@@ -551,12 +566,50 @@ impl GameLogic {
             }
         }
 
-        // ReplaceObjectUpgrade.cpp65 queues destruction; the old Object and
-        // Drawable remain installed until processDestroyList's physical phase.
+        // Compatibility for manually constructed templates without admitted
+        // behavior data. An admitted template is governed by its mux alone.
         if status_upgrade_first_give
             && crate::game_logic::host_replace_object_upgrade::is_replace_object_upgrade(upgrade)
         {
-            let info = self.objects.get(&object_id).map(|object| {
+            let legacy_replacement = self.objects.get(&object_id).and_then(|object| {
+                let source = object.get_template();
+                if source.receiving_client_template.is_some() {
+                    return None;
+                }
+                let target =
+                    crate::game_logic::host_replace_object_upgrade::replacement_template_for_fake(
+                        &object.template_name,
+                    )?;
+                Some((object.template_name.clone(), target))
+            });
+            if let Some((source, target)) = legacy_replacement {
+                if !self.templates.contains_key(&target) {
+                    if let Some(source) = self.templates.get(&source).cloned() {
+                        let mut legacy_target = source;
+                        legacy_target.name = target.clone();
+                        self.templates.insert(target.clone(), legacy_target);
+                    }
+                }
+                return self.replace_object_with_effects(
+                    object_id, &object_birth, &target, true, interpreter, presentation_effects,
+                );
+            }
+        }
+        self.admit_host_radar_provider_with_effects(object_id, presentation_effects);
+        Ok(())
+    }
+
+    fn replace_object_with_effects(
+        &mut self,
+        object_id: ObjectId,
+        object_birth: &std::sync::Weak<()>,
+        target: &str,
+        activate_team: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((source, team, owner, team_name, team_id, transform, position)) =
+            self.host_object(object_id).map(|object| {
                 (
                     object.template_name.clone(),
                     object.team,
@@ -566,62 +619,37 @@ impl GameLogic {
                     object.get_transform_matrix(),
                     object.get_position(),
                 )
-            });
-            if let Some((template_name, team, owner, team_name, team_id, transform, position)) =
-                info
-            {
-                if let Some(replacement) =
-                    crate::game_logic::host_replace_object_upgrade::replacement_template_for_fake(
-                        &template_name,
-                    )
-                {
-                    if !self.templates.contains_key(&replacement) {
-                        if let Some(source) = self.templates.get(&template_name).cloned() {
-                            let mut target = source;
-                            target.name = replacement.clone();
-                            self.templates.insert(replacement.clone(), target);
-                        }
-                    }
-                    // ReplaceObjectUpgrade.cpp:62–65 removes mobile path
-                    // claims while the old actor is still installed.
-                    self.release_replaced_mobile_path_claims(object_id);
-                    self.destroy_object_with_effects(object_id, presentation_effects)?;
-                    let created = if let (Some(controller), Some(team_id)) = (owner, team_id) {
-                        self.create_object_on_exact_script_team_with_effects_checked(
-                            &replacement,
-                            controller,
-                            &team_name,
-                            team_id,
-                            position,
-                            true,
-                            interpreter,
-                            presentation_effects,
-                        )?
-                    } else {
-                        self.create_object_for_owner_or_team_with_effects_checked(
-                            &replacement,
-                            team,
-                            owner,
-                            position,
-                            interpreter,
-                            presentation_effects,
-                        )?
-                    };
-                    if let Some(new_id) = created {
-                        if self.set_owned_object_transform_with_effects(
-                            new_id, transform, self.frame, presentation_effects,
-                        ) {
-                            let Some(object) = self.objects.get_mut(&new_id) else { return Ok(()) };
-                            object.status.under_construction = false;
-                        }
-                        self.replace_grant_command_upgrades
-                            .record_replace(&template_name, &replacement);
-                    }
-                    return Ok(());
-                }
-            }
+            })
+        else {
+            return Ok(());
+        };
+        // ReplaceObjectUpgrade.cpp:55–62 must resolve the exact target
+        // before touching the old object's pose claims or life state.
+        if !self.ensure_host_spawn_template(target) {
+            log::error!("ReplaceObjectUpgrade on '{source}' has no target template '{target}'");
+            return Ok(());
         }
-        self.admit_host_radar_provider_with_effects(object_id, presentation_effects);
+
+        self.release_replaced_mobile_path_claims(object_id);
+        self.destroy_object_with_effects(object_id, effects)?;
+        // A queued object is still the original. A reentrant teardown must
+        // not use a replacement that merely reused the old numeric ID.
+        if !self.object_birth_matches(object_id, object_birth) {
+            return Ok(());
+        }
+        let created = if let (Some(controller), Some(team_id)) = (owner, team_id) {
+            self.create_object_on_exact_script_team_with_effects_checked(
+                target, controller, &team_name, team_id, position, activate_team, interpreter, effects,
+            )?
+        } else {
+            self.create_object_for_owner_or_team_with_effects_checked(
+                target, team, owner, position, interpreter, effects,
+            )?
+        };
+        if let Some(new_id) = created {
+            self.set_owned_object_transform_with_effects(new_id, transform, self.frame, effects);
+            self.replace_grant_command_upgrades.record_replace(&source, target);
+        }
         Ok(())
     }
 
@@ -686,6 +714,12 @@ impl GameLogic {
                     object_creation_index += 1;
                     return Some(AuthoredOrderedUpgrade::ObjectCreation(
                         AuthoredObjectCreationUpgrade { source_index, state_index, data }
+                    ));
+                }
+                if module.name.as_str().eq_ignore_ascii_case("ReplaceObjectUpgrade") {
+                    let data = upgrade_data_view::<ReplaceObjectUpgradeModuleData>(&module.data)?;
+                    return Some(AuthoredOrderedUpgrade::ReplaceObject(
+                        AuthoredReplaceObjectUpgrade { source_index, data },
                     ));
                 }
                 if module.name.as_str().eq_ignore_ascii_case("StatusBitsUpgrade") {
@@ -793,6 +827,8 @@ impl GameLogic {
                 AuthoredOrderedUpgrade::CostModifier(module) => self.objects.get(&object_id)
                     .and_then(|object| object.cost_modifier_upgrade_executed.get(module.state_index))
                     .copied().unwrap_or(false),
+                AuthoredOrderedUpgrade::ReplaceObject(module) => self.objects.get(&object_id)
+                    .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
                 AuthoredOrderedUpgrade::PassengersFire(module) => self.objects.get(&object_id)
                     .is_some_and(|object| object.applied_upgrades.contains(&module.executed_key())),
                 AuthoredOrderedUpgrade::MaxHealth(module) => self.objects.get(&object_id)
@@ -823,6 +859,12 @@ impl GameLogic {
                 self.remove_object_upgrade_with_receiving_rules(object_id, removed.as_str());
             }
             let result = match &module {
+                AuthoredOrderedUpgrade::ReplaceObject(module) => {
+                    let target = module.data.read().replace_object_name().as_str().to_owned();
+                    self.replace_object_with_effects(
+                        object_id, object_birth, &target, false, interpreter, presentation_effects,
+                    )
+                }
                 AuthoredOrderedUpgrade::StatusBits(module) => {
                     let names =
                         crate::game_logic::host_enum_table_residual::OBJECT_STATUS_BIT_NAME_LIST;
@@ -980,6 +1022,11 @@ impl GameLogic {
                             {
                                 *executed = true;
                             }
+                        }
+                        AuthoredOrderedUpgrade::ReplaceObject(module) => {
+                            // UpgradeMux persists this per-module latch even
+                            // when the authored replacement template is absent.
+                            object.applied_upgrades.insert(module.executed_key());
                         }
                         AuthoredOrderedUpgrade::PassengersFire(module) => {
                             object.applied_upgrades.insert(module.executed_key());
@@ -1169,6 +1216,9 @@ impl GameLogic {
                             {
                                 *executed = false;
                             }
+                        }
+                        Some(AuthoredOrderedUpgrade::ReplaceObject(module)) => {
+                            object.applied_upgrades.remove(&module.executed_key());
                         }
                         Some(AuthoredOrderedUpgrade::PassengersFire(module)) => {
                             object.applied_upgrades.remove(&module.executed_key());
@@ -2137,13 +2187,105 @@ mod replace_position_owner_tests {
     use super::*;
     use crate::fixture_content::{FixtureObject, admit_fixture_objects};
     use crate::game_logic::pathfinding::GridPos;
-    use glam::Vec3;
+    use glam::{Mat4, Quat, Vec3};
 
     #[test]
-    fn replacement_takes_the_original_fixed_position_before_retirement() {
-        const SOURCE: &str = "FakeGLAPositionFixture";
-        const REPLACEMENT: &str = "GLAPositionFixture";
-        const UPGRADE: &str = "Upgrade_BecomeRealPositionFixture";
+    fn replace_object_mux_requires_both_authored_triggers_even_for_become_real_names() {
+        const SOURCE: &str = "FakeGLAReplacementMuxSource";
+        const REPLACEMENT: &str = "ReplacementMuxTarget";
+        const FIRST: &str = "Upgrade_BecomeRealReplacementMuxSource";
+        const SECOND: &str = "Upgrade_UnlockReplacementMuxSource";
+
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::GLA, "Replacement owner", false));
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, FIRST, "OBJECT", 0, 1,
+        );
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, SECOND, "OBJECT", 0, 2,
+        );
+        admit_fixture_objects(
+            &mut world,
+            &[
+                FixtureObject::new(SOURCE)
+                    .kind_of("STRUCTURE")
+                    .health(120.0)
+                    .module(format!(
+                        "Behavior = ReplaceObjectUpgrade ReplaceMux\n TriggeredBy = {FIRST} {SECOND}\n RequiresAllTriggers = Yes\n ReplaceObject = {REPLACEMENT}\nEnd"
+                    )),
+                FixtureObject::new(REPLACEMENT)
+                    .kind_of("STRUCTURE")
+                    .health(250.0),
+            ],
+        );
+        let source = world.create_object_for_player(SOURCE, 1, Vec3::ZERO).unwrap();
+        world.apply_upgrade_to_object(source, FIRST);
+        assert!(world.host_object(source).unwrap().is_alive());
+        assert_eq!(world.host_objects().registered_len(), 1);
+
+        world.apply_upgrade_to_object(source, SECOND);
+        assert!(world.host_object(source).unwrap().status.destroyed);
+        assert!(world
+            .host_objects()
+            .registered_values()
+            .any(|actor| actor.template_name == REPLACEMENT && actor.is_alive()));
+    }
+
+    #[test]
+    fn saved_replace_object_latch_does_not_replay_a_previously_missing_target() {
+        const SOURCE: &str = "ReplacementLatchSource";
+        const REPLACEMENT: &str = "ReplacementLatchTarget";
+        const UPGRADE: &str = "Upgrade_ActivateReplacementLatch";
+
+        let world = |has_target| {
+            let mut world = GameLogic::new();
+            world.add_player(Player::new(1, Team::GLA, "Replacement owner", false));
+            crate::game_logic::host_upgrade_rules::register_test_upgrade(
+                &mut world, UPGRADE, "OBJECT", 0, 1,
+            );
+            let mut objects = vec![
+                FixtureObject::new(SOURCE)
+                    .kind_of("STRUCTURE")
+                    .health(120.0)
+                    .module(format!(
+                        "Behavior = ReplaceObjectUpgrade ReplaceLatch\n TriggeredBy = {UPGRADE}\n ReplaceObject = {REPLACEMENT}\nEnd"
+                    )),
+            ];
+            if has_target {
+                objects.push(FixtureObject::new(REPLACEMENT).kind_of("STRUCTURE").health(250.0));
+            }
+            admit_fixture_objects(&mut world, &objects);
+            world
+        };
+        let mut source = world(false);
+        let id = source.create_object_for_player(SOURCE, 1, Vec3::ZERO).unwrap();
+        source.apply_upgrade_to_object(id, UPGRADE);
+        assert!(source.host_object(id).unwrap().is_alive());
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let mut receiving = world(true);
+        builder.restore_from_snapshot(&decoded, &mut receiving).unwrap();
+
+        receiving.apply_upgrade_to_object(id, UPGRADE);
+        assert!(receiving.host_object(id).unwrap().is_alive());
+        assert_eq!(receiving.host_objects().registered_len(), 1);
+        assert!(receiving.remove_object_upgrade_with_receiving_rules(id, UPGRADE));
+        receiving.apply_upgrade_to_object(id, UPGRADE);
+        assert!(receiving.host_object(id).unwrap().status.destroyed);
+        assert!(receiving
+            .host_objects()
+            .registered_values()
+            .any(|actor| actor.template_name == REPLACEMENT && actor.is_alive()));
+    }
+
+    #[test]
+    fn authored_replacement_takes_the_exact_target_pose_and_team_before_retirement() {
+        const SOURCE: &str = "ReplacementPositionSource";
+        const REPLACEMENT: &str = "ReplacementPositionTarget";
+        const UPGRADE: &str = "Upgrade_ActivatePositionReplacement";
 
         let mut world = GameLogic::new();
         world.add_player(Player::new(1, Team::GLA, "Replacement owner", false));
@@ -2162,14 +2304,21 @@ mod replace_position_owner_tests {
                     )),
                 FixtureObject::new(REPLACEMENT)
                     .kind_of("VEHICLE SELECTABLE")
-                    .health(100.0)
+                    .health(175.0)
                     .walker(),
             ],
         );
         world.pathfinding_system.map_ready = true;
         let position = Vec3::new(100.0, 0.0, 100.0);
         let source = world.create_object_for_player(SOURCE, 1, position).unwrap();
-        let (x, y) = world.host_object(source).unwrap().pathfind_cur_cell;
+        assert!(world.set_registered_object_transform(
+            source,
+            Mat4::from_rotation_translation(Quat::from_rotation_y(0.6), position),
+        ));
+        let original = world.host_object(source).unwrap();
+        let transform = original.get_transform_matrix();
+        let team = original.team_instance_id;
+        let (x, y) = original.pathfind_cur_cell;
         let cell = GridPos::new(x, y);
         assert_eq!(world.pathfinding_ground_position(cell), Some(source));
         world.register_path_goal(source, position);
@@ -2185,6 +2334,11 @@ mod replace_position_owner_tests {
             .unwrap()
             .id;
         assert!(world.host_object(source).unwrap().status.destroyed);
+        let replacement_actor = world.host_object(replacement).unwrap();
+        assert_eq!(replacement_actor.get_transform_matrix(), transform);
+        assert_eq!(replacement_actor.owner_player_id, Some(1));
+        assert_eq!(replacement_actor.team_instance_id, team);
+        assert_eq!(replacement_actor.health.maximum, 175.0);
         assert_eq!(world.pathfinding_ground_position(cell), Some(replacement));
         assert_ne!(world.pathfinding_ground_goal(cell), Some(source));
 
