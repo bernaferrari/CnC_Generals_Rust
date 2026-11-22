@@ -1297,6 +1297,20 @@ impl Parameter {
         self.param_type
     }
 
+    /// C++ `ScriptConditions::playerFromParam` stores a single player mask
+    /// or the failed lookup marker in the original SIDE parameter.
+    pub(crate) fn cache_condition_player_mask(&mut self, resolved_mask: Option<u32>) {
+        const MISSING_PLAYER_MASK: u32 = 0xFFFF_0000;
+
+        if self.int_value == 0 {
+            self.int_value = match resolved_mask {
+                None => MISSING_PLAYER_MASK,
+                Some(_) if self.string_value == THIS_PLAYER_ENEMY => 0,
+                Some(mask) => mask,
+            } as i32;
+        }
+    }
+
     pub fn qualify(&mut self, qualifier: &str, player_template_name: &str, new_player_name: &str) {
         match self.param_type {
             ParameterType::Side => {

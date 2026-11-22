@@ -1691,8 +1691,6 @@ impl ScriptConditionEvaluator<'_> {
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         use crate::scripting::engine::{ScriptOwnerQuery, ScriptSupplyQuery};
 
-        // ScriptConditions.cpp:170 caches unsuccessful side lookups.
-        const MISSING_PLAYER_MASK: u32 = 0xFFFF_0000;
         let frame = self.context.with_state(|state| state.current_frame);
         let query = match condition.get_condition_type() {
             ConditionType::SupplySourceSafe => {
@@ -1709,26 +1707,27 @@ impl ScriptConditionEvaluator<'_> {
             _ => return Ok(None),
         };
         let player = condition
-            .get_parameter(0)
+            .parameters
+            .first_mut()
+            .and_then(Option::as_mut)
             .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?;
-        let token = player.get_string();
-        let cached_mask = player.get_int() as u32;
         let current_player = self.context.borrowed_engine().get_current_player_name();
-        let (value, mask) = match driver.player_supply_source(
-            token,
-            cached_mask,
+        let value = match driver.player_supply_source(
+            player.get_string(),
+            player.get_int() as u32,
             current_player.as_deref(),
             query,
         ) {
             ScriptOwnerQuery::Present((mask, value)) => {
-                (Some(value), if token == THIS_PLAYER_ENEMY { 0 } else { mask })
+                player.cache_condition_player_mask(Some(mask));
+                Some(value)
             }
-            ScriptOwnerQuery::Missing => (None, MISSING_PLAYER_MASK),
+            ScriptOwnerQuery::Missing => {
+                player.cache_condition_player_mask(None);
+                None
+            }
             ScriptOwnerQuery::Unavailable => return Ok(None),
         };
-        if cached_mask == 0 && let Some(player) = condition.parameters[0].as_mut() {
-            player.int_value = mask as i32;
-        }
         if let ScriptSupplyQuery::Safe { .. } = query {
             condition.custom_frame = frame.wrapping_add(2 * LOGICFRAMES_PER_SECOND as u32);
             if let Some(safe) = value {

@@ -1497,11 +1497,12 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
-    /// CPP Player1874/Team1751: this player's owned non-inert living members.
-    /// Completed read of the driving player's live census; absence is final.
+    /// Resolve the SIDE parameter at the condition and read the driving Player's
+    /// live census. A cached mask takes precedence over the authored name.
     fn player_census(
-        &self,
+        &mut self,
         _player: &str,
+        _player_mask: u32,
         _current_player: Option<&str>,
     ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
         ScriptOwnerQuery::Unavailable

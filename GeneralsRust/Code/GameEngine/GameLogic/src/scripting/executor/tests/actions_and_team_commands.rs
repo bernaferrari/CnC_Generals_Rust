@@ -1100,8 +1100,9 @@ impl ScriptExecutionDriver for PlayerCensusOwner {
         Ok(())
     }
     fn player_census(
-        &self,
+        &mut self,
         name: &str,
+        _: u32,
         _current: Option<&str>,
     ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
         self.rows

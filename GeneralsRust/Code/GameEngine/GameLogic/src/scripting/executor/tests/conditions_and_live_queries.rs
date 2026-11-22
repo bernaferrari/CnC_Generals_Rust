@@ -692,8 +692,9 @@ fn built_by_player_rejects_object_type_lists() {
             crate::scripting::engine::ScriptOwnerQuery::Present(name == "AmericaRanger")
         }
         fn player_census(
-            &self,
+            &mut self,
             _: &str,
+            _: u32,
             _: Option<&str>,
         ) -> crate::scripting::engine::ScriptOwnerQuery<(
             i32,

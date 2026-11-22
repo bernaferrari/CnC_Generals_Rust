@@ -6,7 +6,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_owned_player_census(
         &self,
         condition: &mut Condition,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         let kind = condition.get_condition_type();
         let player_index = match kind {
@@ -31,21 +31,31 @@ impl ScriptConditionEvaluator<'_> {
         if condition.custom_data != 0 && count_frame == Some(condition.custom_frame) {
             return Ok(Some(Self::bool_result(condition.custom_data == 1)));
         }
-        let name = condition
-            .get_parameter(player_index)
+        let player = condition
+            .parameters
+            .get_mut(player_index)
+            .and_then(Option::as_mut)
             .ok_or_else(|| {
                 ScriptError::ParameterNotFound(format!("Parameter {player_index} not found"))
-            })?
-            .get_string();
+            })?;
         let current_player = self.context.borrowed_engine().get_current_player_name();
-        let (id, census) = match driver.player_census(name, current_player.as_deref()) {
+        let (id, census) = match driver.player_census(
+            player.get_string(),
+            player.get_int() as u32,
+            current_player.as_deref(),
+        ) {
             ScriptOwnerQuery::Unavailable => return Ok(None),
             ScriptOwnerQuery::Missing => {
+                player.cache_condition_player_mask(None);
                 return Ok(Some(Self::bool_result(
                     kind == ConditionType::PlayerAllBuildfacilitiesDestroyed,
                 )));
             }
-            ScriptOwnerQuery::Present(census) => census,
+            ScriptOwnerQuery::Present((id, census)) => {
+                let mask = 1u32.checked_shl(id as u32).unwrap_or(0);
+                player.cache_condition_player_mask(Some(mask));
+                (id, census)
+            }
         };
         if kind == ConditionType::BuiltByPlayer {
             let template = self.get_condition_string_param(condition, 0)?;
@@ -120,8 +130,9 @@ mod tests {
             ScriptOwnerQuery::Present(self.frame)
         }
         fn player_census(
-            &self,
+            &mut self,
             _: &str,
+            _: u32,
             _: Option<&str>,
         ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
             let mut census = crate::scripting::HostScriptPlayerCensus::default();

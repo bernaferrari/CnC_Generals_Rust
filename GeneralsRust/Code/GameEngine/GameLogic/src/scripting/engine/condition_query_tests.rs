@@ -42,8 +42,9 @@ impl ScriptExecutionDriver for Owner<'_> {
         }
     }
     fn player_census(
-        &self,
+        &mut self,
         name: &str,
+        _: u32,
         current: Option<&str>,
     ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
         self.seen.borrow_mut().push((

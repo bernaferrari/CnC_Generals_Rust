@@ -182,6 +182,21 @@ impl<'a> HostScriptExecutionDriver<'a> {
         self.script_player_id(token, current_player)
     }
 
+    fn query_condition_player_id(
+        &mut self,
+        token: &str,
+        player_mask: u32,
+        current_player: Option<&str>,
+    ) -> Option<u32> {
+        if player_mask == 0 {
+            self.query_script_player_id(token, current_player)
+        } else if player_mask.is_power_of_two() {
+            Some(player_mask.trailing_zeros())
+        } else {
+            None
+        }
+    }
+
     fn script_science_source(
         &self,
         player: &str,
@@ -2976,17 +2991,15 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn player_census(
-        &self,
+        &mut self,
         player: &str,
+        player_mask: u32,
         current_player: Option<&str>,
     ) -> ScriptOwnerQuery<(i32, gamelogic::scripting::HostScriptPlayerCensus)> {
-        let Some(id) = self.script_player_id(player, current_player) else {
+        let Some(id) = self.query_condition_player_id(player, player_mask, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
-        let Some(player) = self.world.players.get(&id) else {
-            return ScriptOwnerQuery::Missing;
-        };
-        match self.world.owned_host_player_census_for(player.id) {
+        match self.world.owned_host_player_census_for(id) {
             Some(census) => ScriptOwnerQuery::Present((id as i32, census)),
             None => ScriptOwnerQuery::Missing,
         }
@@ -3022,14 +3035,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         current_player: Option<&str>,
         query: ScriptSupplyQuery,
     ) -> ScriptOwnerQuery<(u32, bool)> {
-        let player = if player_mask == 0 {
-            self.query_script_player_id(token, current_player)
-        } else if player_mask.is_power_of_two() {
-            Some(player_mask.trailing_zeros())
-        } else {
-            None
-        };
-        let Some(player) = player.filter(|id| self.world.players.contains_key(id)) else {
+        let Some(player) = self
+            .query_condition_player_id(token, player_mask, current_player)
+            .filter(|id| self.world.players.contains_key(id))
+        else {
             return ScriptOwnerQuery::Missing;
         };
         let player_mask = 1u32.checked_shl(player).unwrap_or(0);

@@ -112,34 +112,35 @@ fn script_frame_without_supply_conditions_does_not_assess_enemies() {
     assert_eq!(world.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
 }
 
+fn enemy_alias_world() -> GameLogic {
+    use gamelogic::common::Relationship;
+
+    let (mut world, _) = owner_world();
+    world.game_mode = GameMode::Skirmish;
+    world.add_player(
+        Player::new(2, Team::GLA, "Script enemy", false).with_script_identity("ScriptEnemy"),
+    );
+    let current = world.get_player_mut(1).unwrap();
+    current.map_side.is_skirmish_ai = true;
+    current.set_map_relationship(2, Relationship::Enemies);
+    world
+        .ai_manager
+        .add_ai_player(2, Team::GLA, crate::ai::AIDifficulty::Medium);
+    world
+        .create_object_for_player("ScriptAiStructure", 2, Vec3::new(100.0, 0.0, 100.0))
+        .expect("live enemy structure");
+    world
+}
+
 #[test]
 fn enemy_player_token_queries_the_receiving_ai_during_the_action() {
-    use gamelogic::common::Relationship;
     use gamelogic::scripting::core::{
         Condition, ConditionType, OrCondition, Script, ScriptList, THIS_PLAYER_ENEMY,
     };
     use gamelogic::scripting::executor::ScriptContext;
 
-    fn fixture() -> GameLogic {
-        let (mut world, _) = owner_world();
-        world.game_mode = GameMode::Skirmish;
-        world.add_player(
-            Player::new(2, Team::GLA, "Script enemy", false).with_script_identity("ScriptEnemy"),
-        );
-        let current = world.get_player_mut(1).unwrap();
-        current.map_side.is_skirmish_ai = true;
-        current.set_map_relationship(2, Relationship::Enemies);
-        world
-            .ai_manager
-            .add_ai_player(2, Team::GLA, crate::ai::AIDifficulty::Medium);
-        world
-            .create_object_for_player("ScriptAiStructure", 2, Vec3::new(100.0, 0.0, 100.0))
-            .expect("live enemy structure");
-        world
-    }
-
-    let mut first = fixture();
-    let peer = fixture();
+    let mut first = enemy_alias_world();
+    let peer = enemy_alias_world();
     first.frame = 149;
     let original_delay = peer.ai_manager.ai_players[&2]
         .capture_queue_persist()
@@ -187,6 +188,66 @@ fn enemy_player_token_queries_the_receiving_ai_during_the_action() {
             .team_seconds,
         original_delay
     );
+}
+
+#[test]
+fn enemy_player_census_assesses_on_the_receiving_condition() {
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Script, THIS_PLAYER_ENEMY,
+    };
+    use gamelogic::scripting::executor::ScriptContext;
+
+    fn run_condition(world: &mut GameLogic) -> bool {
+        let mut condition = Condition::new(ConditionType::PlayerHasNOrFewerBuildings);
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                THIS_PLAYER_ENEMY.into(),
+            ))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+            .unwrap();
+        let mut branch = OrCondition::new();
+        branch.set_first_and_condition(Some(Box::new(condition)));
+        let mut script = Script::new();
+        script.condition = Some(Box::new(branch));
+        let passes = world
+            .with_owned_script_engine(|engine, world| {
+                engine.evaluate_conditions_with_driver(
+                    &mut script,
+                    None,
+                    Some("ScriptAiOwner"),
+                    ScriptContext::at_frame(world.frame),
+                    &mut HostScriptExecutionDriver::with_interpreter(world, engine),
+                )
+            })
+            .unwrap();
+        let condition = script
+            .condition
+            .as_ref()
+            .unwrap()
+            .get_first_and_condition()
+            .unwrap();
+        assert_eq!(condition.get_parameter(0).unwrap().get_int(), 0);
+        passes
+    }
+
+    let mut first = enemy_alias_world();
+    first.frame = 149;
+    let mut peer = enemy_alias_world();
+    peer.frame = 50;
+    peer.create_object_for_player("ScriptAiStructure", 2, Vec3::new(150.0, 0.0, 150.0))
+        .expect("second peer building");
+
+    assert!(run_condition(&mut first));
+    assert_eq!(first.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 299);
+    assert_eq!(peer.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+    assert!(!run_condition(&mut peer));
+    assert_eq!(peer.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+    assert_eq!(peer.ai_manager.ai_players[&1].frame_to_check_enemy, 200);
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 299);
 }
 
 #[test]
