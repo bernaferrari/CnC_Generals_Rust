@@ -1,4 +1,5 @@
 //! Device-independent original logical-condition pristine pose queries.
+use crate::assets::ini_parser::ACBIT_PRISTINE_BONE_POS_IN_FINAL_FRAME;
 use crate::assets::{AuthoredDrawModel, W3DModel, W3dAnimationBinding, W3dRenderObjectPrototypeKind};
 
 /// The same immutable decoded-model kernel serves native and headless owners.
@@ -18,7 +19,7 @@ pub(crate) fn model_pristine_bone_transforms(
     if prefix.is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
-    let frame = if selected.flags & (1 << 4) != 0 {
+    let frame = if selected.flags & (1 << ACBIT_PRISTINE_BONE_POS_IN_FINAL_FRAME) != 0 {
         match binding {
             Some(binding) => model
                 .animation_binding_metadata(binding)
@@ -31,6 +32,9 @@ pub(crate) fn model_pristine_bone_transforms(
         0.
     };
     let mut out = Vec::new();
+    let mut globals = None;
+    let scale = glam::Mat4::from_scale(glam::Vec3::splat(scale));
+    let unavailable = |error| format!("pristine source hierarchy unavailable: {error:?}");
     let end = if start == 0 { 0 } else { 99 };
     for index in start..=end {
         if out.len() >= limit.min(64) {
@@ -41,13 +45,25 @@ pub(crate) fn model_pristine_bone_transforms(
         } else {
             format!("{prefix}{index:02}")
         };
-        let Some(local) = model
-            .source_named_bone_transform(&name, binding, frame, 1.0, &[])
-            .map_err(|error| format!("pristine source hierarchy unavailable: {error:?}"))?
+        let Some(bone_index) = model
+            .source_named_bone_index(&name)
+            .map_err(unavailable)?
         else {
             break;
         };
-        out.push(glam::Mat4::from_scale(glam::Vec3::splat(scale)) * local);
+        // Sample the exact source pose once, after the first successful name
+        // lookup. A mesh with no matching bone needs no hierarchy evaluation.
+        let transforms = match globals {
+            Some(ref transforms) => transforms,
+            None => globals.insert(
+                model
+                    .source_controlled_hierarchy_transforms(binding, frame, 1.0, &[])
+                    .map_err(unavailable)?,
+            ),
+        };
+        let local =
+            W3DModel::checked_source_bone_transform(transforms, bone_index).map_err(unavailable)?;
+        out.push(scale * local);
     }
     Ok(out)
 }
@@ -394,6 +410,8 @@ mod tests {
             pivots: vec![
                 pivot("ROOT", u32::MAX, [0.0; 3]),
                 pivot("MUZZLE01", 0, [0.0; 3]),
+                pivot("MUZZLE02", 1, [0.0, 3.0, 0.0]),
+                pivot("MUZZLE04", 0, [30.0, 0.0, 0.0]),
             ],
             pivot_fixups: Vec::new(),
         });
@@ -422,11 +440,17 @@ mod tests {
                 is_idle: false,
                 distance_covered_token: None,
             }],
-            flags: 1 << 4,
+            flags: 1 << ACBIT_PRISTINE_BONE_POS_IN_FINAL_FRAME,
             ..Default::default()
         };
         let bones = assets.pristine_bones_for_selected_draw(&draw, 1.0, "MUZZLE", 1, 1).unwrap();
         assert_eq!(bones.len(), 1);
         assert!((bones[0].w_axis.x - 17.0).abs() < 0.001);
+        let series = assets
+            .pristine_bones_for_selected_draw(&draw, 2.0, "muzzle", 1, 4)
+            .unwrap();
+        assert_eq!(series.len(), 2, "stop at the missing MUZZLE03");
+        assert_eq!(series[0].w_axis.truncate(), glam::Vec3::new(34.0, 0.0, 0.0));
+        assert_eq!(series[1].w_axis.truncate(), glam::Vec3::new(34.0, 6.0, 0.0));
     }
 }

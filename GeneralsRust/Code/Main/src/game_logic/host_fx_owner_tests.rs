@@ -484,27 +484,24 @@ impl crate::game_logic::NativeViewEffects for BoneView {
     ) -> Result<Vec<Matrix3D>, String> {
         assert_eq!(source.identity.object_id(), self.object_id);
         assert_eq!(source.template_name, "FxOwnerUnit");
-        assert_eq!(
-            source
-                .receiving_draw_models
-                .first_object_draw(source.condition_bits)
-                .unwrap()
-                .unwrap()
-                .model_key,
-            "BoneOwnerModel"
-        );
+        let draw = source
+            .receiving_draw_models
+            .first_object_draw(source.condition_bits)
+            .unwrap()
+            .unwrap();
+        assert_eq!(draw.model_key, "BoneOwnerModel");
         assert_eq!(name, "Muzzle");
         assert_eq!(limit, 40);
         self.visits.push(start);
-        let name = if start == 0 {
-            name.to_string()
-        } else {
-            format!("{name}{start:02}")
-        };
-        self.model
-            .source_named_bone_transform(&name, None, 0., 1., &[])
-            .map(|pose| pose.into_iter().collect())
-            .map_err(|error| format!("{error:?}"))
+        crate::assets::pristine_bones::model_pristine_bone_transforms(
+            &self.model,
+            &draw,
+            None,
+            1.0,
+            name,
+            start,
+            limit,
+        )
     }
     fn local_player_id(&self) -> u32 {
         0

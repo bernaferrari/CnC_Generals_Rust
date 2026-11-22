@@ -57,6 +57,8 @@ impl W3DModel {
         Some(capture_controls)
     }
 
+    /// `Ok(None)` is the original Get_Bone_Index zero sentinel, including for
+    /// a valid non-animatable mesh. The caller can still commit source identity.
     pub(crate) fn source_named_bone_index(
         &self,
         bone_name: &str,
@@ -97,34 +99,7 @@ impl W3DModel {
         };
         Ok(Some(index))
     }
-    /// `Ok(None)` is C++ Get_Bone_Index's zero sentinel, including a valid
-    /// non-animatable mesh. It is NOT an unavailable render object. The caller
-    /// must commit SOURCE identity for this result, independently of the
-    /// installed object's world transform.
-    ///
-    /// `Ok(Some)` stays source-local W3D basis. Compose the receiving installed
-    /// render-world transform with `S * local` for a CAMERA, rather than the
-    /// usual mesh `S * local * S`: camera-local axes are not mesh-local axes.
-    pub(crate) fn source_named_bone_transform(
-        &self,
-        bone_name: &str,
-        animation_binding: Option<&W3dAnimationBinding>,
-        animation_frame: f32,
-        asset_scale: f32,
-        capture_controls: &[(i32, Mat4)],
-    ) -> Result<Option<Mat4>, BonePoseUnavailable> {
-        let Some(index) = self.source_named_bone_index(bone_name)? else {
-            return Ok(None);
-        };
-        let globals = self.source_controlled_hierarchy_transforms(
-            animation_binding,
-            animation_frame,
-            asset_scale,
-            capture_controls,
-        )?;
-        Self::checked_source_bone_transform(&globals, index).map(Some)
-    }
-
+    /// Source-local W3D basis. Camera axes compose with `S * local`.
     pub(crate) fn checked_source_bone_transform(
         globals: &[[f32; 16]],
         index: usize,

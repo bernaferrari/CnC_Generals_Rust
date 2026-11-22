@@ -774,6 +774,8 @@ pub struct AuthoredDrawModel {
 
 /// C++ `ACBits::ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT` bit index.
 pub const ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT: u32 = 3;
+/// C++ `ACBits::PRISTINE_BONE_POS_IN_FINAL_FRAME` bit index.
+pub(crate) const ACBIT_PRISTINE_BONE_POS_IN_FINAL_FRAME: u32 = 4;
 
 const AC_BITS_NAMES: &[&str] = &[
     "RANDOMSTART",
