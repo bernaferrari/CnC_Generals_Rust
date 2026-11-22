@@ -193,33 +193,12 @@ impl HostFireSpreadData {
 
     /// Authored-module install: the first authored `FlammableUpdate` supplies
     /// the FlammableUpdate fields (C++ FlammableUpdateModuleData), and an
-    /// authored `FireSpreadUpdate` supplies spread timers/range. The raw OCL
-    /// token is read from the same admitted definition because the typed data
-    /// keeps only the hashed `ObjectCreationListId` (no ambient reverse
-    /// NameKey lookup).
+    /// authored `FireSpreadUpdate` supplies spread timers, range, and ember list.
     pub(crate) fn from_authored(template: &crate::game_logic::ThingTemplate) -> Option<Self> {
         use gamelogic::object::behavior::flammable_update::FlammableUpdateModuleData;
         use gamelogic::object::update::fire_spread_update::FireSpreadUpdateModuleData;
         let flame = template.authored_module_data::<FlammableUpdateModuleData>("FlammableUpdate")?;
         let spread = template.authored_module_data::<FireSpreadUpdateModuleData>("FireSpreadUpdate");
-        let ocl_embers = if spread.is_some() {
-            template
-                .receiving_object_definition
-                .as_ref()
-                .and_then(|definition| {
-                    definition
-                        .behavior_modules
-                        .iter()
-                        .find(|module| module.class_name.eq_ignore_ascii_case("FireSpreadUpdate"))
-                })
-                .and_then(|module| module.attribute("OCLEmbers"))
-                .map(|name| name.trim().trim_matches('"'))
-                .filter(|name| !name.eq_ignore_ascii_case("None"))
-                .unwrap_or_default()
-                .to_owned()
-        } else {
-            String::new()
-        };
         Some(Self {
             flame_damage_limit: flame.flame_damage_limit,
             flame_damage_limit_data: flame.flame_damage_limit,
@@ -233,7 +212,11 @@ impl HostFireSpreadData {
             min_spread_delay: spread.as_ref().map_or(0, |s| s.min_spread_try_delay),
             max_spread_delay: spread.as_ref().map_or(0, |s| s.max_spread_try_delay),
             spread_try_range: spread.as_ref().map_or(0.0, |s| s.spread_try_range),
-            ocl_embers,
+            ocl_embers: spread
+                .as_ref()
+                .and_then(|data| data.ocl_embers.as_deref())
+                .unwrap_or_default()
+                .to_owned(),
             ..Self::tree_default()
         })
     }

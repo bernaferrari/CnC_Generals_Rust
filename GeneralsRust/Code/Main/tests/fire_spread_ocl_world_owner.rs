@@ -34,8 +34,10 @@ fn authored_ocl_embers_and_partition_tie_drive_world_spread() {
     // Arbitrary names: nothing in this fixture keys off "tree" naming. The
     // decoy keeps a DogwoodTree-shaped name with no fire modules to prove the
     // old heuristic installs nothing.
+    // C++ INI reads only the first name token for OCLEmbers; a trailing token must not corrupt it.
+    let spreader = SPREADER_INI.replace("OCLEmbers = CustomEmberList", "OCLEmbers = CustomEmberList ignored_token");
     let ini = format!(
-        "{SPREADER_INI}Object KindlingWest{KINDLING_INI}Object KindlingEast{KINDLING_INI}Object DogwoodTreeHeuristic\n Body = ActiveBody BodyTag\n MaxHealth = 50\n InitialHealth = 50\n End\nEnd\n{EMBER_OBJECT_INI}"
+        "{spreader}Object KindlingWest{KINDLING_INI}Object KindlingEast{KINDLING_INI}Object DogwoodTreeHeuristic\n Body = ActiveBody BodyTag\n MaxHealth = 50\n InitialHealth = 50\n End\nEnd\n{EMBER_OBJECT_INI}"
     );
     world
         .admit_object_ini_sources([("FireSpreadOwner.ini".into(), ini)])
