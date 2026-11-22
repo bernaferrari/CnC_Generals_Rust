@@ -1097,8 +1097,6 @@ pub struct PathfindingSystem {
     pub(crate) map_ready: bool,
     /// Active host logic frame (set via note_logic_frame).
     logic_frame: u64,
-    /// Frame stamp of last dynamic obstacle rebuild.
-    dynamic_obstacle_frame: u64,
     /// C++ `PathfindZoneManager::m_nextFrameToCalculateZones`: footprint
     /// changes only mark zones dirty; processPathfindQueue recalculates them
     /// once this frame arrives (AIPathfind.cpp:2245-2256, 5881-5884).

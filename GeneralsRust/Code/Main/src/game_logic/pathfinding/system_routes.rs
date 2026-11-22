@@ -127,7 +127,6 @@ impl PathfindingSystem {
         if mover.is_some_and(|id| objects.lookup(&id).is_none()) {
             return None;
         }
-        self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, mover);
         self.apply_seeker_human_flag(objects);
         // Live seeker CrusherLevel wins so find_path / find_path_ex still crush.
@@ -417,15 +416,6 @@ impl PathfindingSystem {
         mover: Option<ObjectId>,
         ground_source: &PathfindingGround<'_>,
     ) -> Option<PathRoute> {
-        if self.ignore_obstacle_id.is_some() {
-            self.grid.update_dynamic_obstacles_ignoring(
-                objects,
-                self.ignore_obstacle_id,
-                ground_source,
-            );
-        } else {
-            self.grid.update_dynamic_obstacles(objects, ground_source);
-        }
         self.bind_seeker_from_mover(objects, mover);
         let original_blocked = original.blocked_by_ally;
         let original_flags: Vec<_> = original.nodes.iter().map(|node| node.can_optimize).collect();
@@ -620,7 +610,6 @@ impl PathfindingSystem {
                 )
             })
             .unwrap_or((0, true));
-        self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, Some(mover));
         self.apply_seeker_human_flag(objects);
         self.grid.query_seeker_id = mover.0;
@@ -902,7 +891,7 @@ impl PathfindingSystem {
     /// Single-repulsor wrapper — both radii share `repulsor`.
     pub fn find_safe_path(
         &mut self,
-        from: Vec3,
+        _from: Vec3,
         repulsor: Vec3,
         repulsor_radius: f32,
         surfaces: u32,
@@ -911,18 +900,13 @@ impl PathfindingSystem {
         objects: HostObjectRead<'_>,
         mover: ObjectId,
     ) -> Option<PathRoute> {
-        objects.lookup(&mover)?;
-        self.bind_seeker_from_mover(objects, Some(mover));
-        self.apply_seeker_human_flag(objects);
-        let is_human = self.seeker_is_human;
-        self.find_safe_path_from(
-            from,
+        self.find_safe_path_with_policy(
             repulsor,
             repulsor,
             repulsor_radius,
             surfaces,
             is_crusher,
-            is_human,
+            None,
             ground_source,
             objects,
             mover,
@@ -944,12 +928,42 @@ impl PathfindingSystem {
         objects: HostObjectRead<'_>,
         mover: ObjectId,
     ) -> Option<PathRoute> {
+        self.find_safe_path_with_policy(
+            repulsor1,
+            repulsor2,
+            repulsor_radius,
+            surfaces,
+            is_crusher,
+            Some(is_human),
+            ground_source,
+            objects,
+            mover,
+        )
+    }
+
+    fn find_safe_path_with_policy(
+        &mut self,
+        repulsor1: Vec3,
+        repulsor2: Vec3,
+        repulsor_radius: f32,
+        surfaces: u32,
+        is_crusher: bool,
+        is_human: Option<bool>,
+        ground_source: &PathfindingGround<'_>,
+        objects: HostObjectRead<'_>,
+        mover: ObjectId,
+    ) -> Option<PathRoute> {
         let unit = objects.lookup(&mover)?;
         let from = unit.get_position();
-        self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, Some(mover));
         self.grid.query_seeker_id = mover.0;
-        self.grid.set_query_is_human(is_human);
+        let is_human = if let Some(is_human) = is_human {
+            self.grid.set_query_is_human(is_human);
+            is_human
+        } else {
+            self.apply_seeker_human_flag(objects);
+            self.seeker_is_human
+        };
         self.grid
             .set_query_footprint(self.seeker_path_diameter, is_crusher);
         let start = self.grid.clamp_pos(self.grid.world_to_grid(from));
@@ -1153,7 +1167,6 @@ impl PathfindingSystem {
             return None;
         }
         let unit = objects.lookup(&mover)?;
-        self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, Some(mover));
         self.seeker_is_human = is_human;
         self.grid.set_query_is_human(is_human);

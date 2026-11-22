@@ -14,7 +14,6 @@ impl PathfindingSystem {
             grid: PathfindingGrid::new_with_origin(origin, world_width, world_height, GRID_SIZE),
             map_ready: false,
             logic_frame: 0,
-            dynamic_obstacle_frame: u64::MAX,
             next_frame_to_calculate_zones: u64::MAX,
             crate_astar: None,
             pending_paths: VecDeque::new(),
@@ -208,8 +207,7 @@ impl PathfindingSystem {
         self.crate_astar = None;
     }
 
-    /// Mark the active host logic frame so dynamic obstacle rebuilds run once
-    /// per frame across many find_path_ex calls.
+    /// Mark the active host logic frame for scheduled zone recalculations.
     #[inline]
     pub fn note_logic_frame(&mut self, frame: u64) {
         self.logic_frame = frame;
@@ -240,42 +238,10 @@ impl PathfindingSystem {
         true
     }
 
-    /// Rebuild vehicle/structure dynamic blocks at most once per logic frame.
-    #[inline]
-    pub(super) fn ensure_dynamic_obstacles(
-        &mut self,
-        objects: HostObjectRead<'_>,
-        ground_source: &PathfindingGround<'_>,
-    ) {
-        if self.ignore_obstacle_id.is_some() {
-            self.grid.update_dynamic_obstacles_ignoring(
-                objects,
-                self.ignore_obstacle_id,
-                ground_source,
-            );
-            // Until movement owns position cells, ignored searches still need
-            // a fresh roster observation rather than a stale frame cache.
-            self.dynamic_obstacle_frame = u64::MAX;
-            return;
-        }
-        if self.dynamic_obstacle_frame != self.logic_frame {
-            self.grid.update_dynamic_obstacles(objects, ground_source);
-            self.dynamic_obstacle_frame = self.logic_frame;
-        } else {
-            // Object ownership can change between searches in one logic frame;
-            // occupants are resolved again for this search.
-            let seeker = ObjectId(self.grid.query_seeker_id);
-            self.grid.bind_query_occupants(objects, Some(seeker));
-        }
-    }
-
     /// C++ `AIUpdateInterface::ignoreObstacle` for the next `find_path_ex_*`.
     pub fn set_ignore_obstacle(&mut self, id: Option<ObjectId>) {
         self.ignore_obstacle_id = id;
         self.grid.query_ignore_unit_id = id.map_or(0, |id| id.0);
-        if id.is_some() {
-            self.dynamic_obstacle_frame = u64::MAX;
-        }
     }
 
     pub fn ignore_obstacle(&self) -> Option<ObjectId> {
@@ -953,7 +919,6 @@ impl PathfindingSystem {
         self.map_ready = false;
         self.pending_paths.clear();
         self.ignore_obstacle_id = None;
-        self.dynamic_obstacle_frame = u64::MAX;
         self.grid.clear_dynamic_blocks();
     }
 

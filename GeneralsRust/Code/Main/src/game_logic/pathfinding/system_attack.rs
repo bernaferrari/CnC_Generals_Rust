@@ -46,7 +46,6 @@ impl PathfindingSystem {
         mover: Option<ObjectId>,
         ground_source: &PathfindingGround<'_>,
     ) -> Option<PathRoute> {
-        self.ensure_dynamic_obstacles(objects, ground_source);
         // Leftover find_attack_path(obj_id, surfaces, is_human): bind seeker from the attacker.
         self.bind_seeker_from_mover(objects, mover);
         self.apply_seeker_human_flag(objects);

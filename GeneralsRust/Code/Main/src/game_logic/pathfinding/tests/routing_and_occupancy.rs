@@ -46,6 +46,75 @@ fn stamp_position(grid: &mut PathfindingGrid, actor: &crate::game_logic::Object)
 }
 
 #[test]
+fn ground_route_rechecks_live_occupant_relationship_in_the_same_frame() {
+    use crate::game_logic::host_defection_helper::HostDefectionHelperData;
+    use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
+
+    let start = Vec3::new(15.0, 0.0, 55.0);
+    let goal = Vec3::new(105.0, 0.0, 55.0);
+    let occupied = Vec3::new(55.0, 0.0, 55.0);
+    let ground = PathfindingGround::Flat(0.0);
+    let make_session = || {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Mover", false));
+        world.add_player(Player::new(1, Team::GLA, "Occupant", false));
+        let mut mover_template = ThingTemplate::new("CorridorMover");
+        mover_template.add_kind_of(KindOf::Infantry).set_health(100.0);
+        sphere(&mut mover_template, 2.0);
+        world.templates.insert("CorridorMover".into(), mover_template);
+        let mut blocker_template = ThingTemplate::new("CorridorBlocker");
+        blocker_template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        sphere(&mut blocker_template, 2.0);
+        world.templates.insert("CorridorBlocker".into(), blocker_template);
+        let mover = world.create_object_for_player("CorridorMover", 0, start).unwrap();
+        world.host_object_mut(mover).unwrap().downhill_only = true;
+        let blocker = world.create_object_for_player("CorridorBlocker", 1, occupied).unwrap();
+        let mut finder = PathfindingSystem::new(120.0, 110.0);
+        for y in (0..11).filter(|y| *y != 5) {
+            for x in 0..12 {
+                finder.grid.set_cell_type(GridPos::new(x, y), PathfindCellType::Impassable);
+            }
+        }
+        finder.grid.rebuild_path_zones();
+        stamp_position(&mut finder.grid, world.host_object(blocker).unwrap());
+        finder.set_adjust_goal(false);
+        finder.note_logic_frame(17);
+        (finder, world, mover, blocker)
+    };
+    let (mut finder, mut world, mover, blocker) = make_session();
+    let (mut peer_finder, peer_world, peer_mover, peer_blocker) = make_session();
+    assert_eq!((mover, blocker), (peer_mover, peer_blocker));
+    let query = |finder: &mut PathfindingSystem, world: &GameLogic| {
+        finder.find_path_ex_surfaces(
+            start,
+            goal,
+            world.host_objects(),
+            false,
+            SURFACE_GROUND,
+            false,
+            Some(mover),
+            &ground,
+        )
+    };
+    let reaches_goal = |route: Option<PathRoute>| {
+        route.is_some_and(|route| route.nodes().last().is_some_and(|node| node.position == goal))
+    };
+
+    assert!(!reaches_goal(query(&mut finder, &world)));
+    let mut defector = HostDefectionHelperData::default();
+    defector.set_undetected_defector(true);
+    world.host_object_mut(blocker).unwrap().defection_helper = Some(defector);
+
+    let allied_route = query(&mut finder, &world).expect("the mover can plan past a fixed ally");
+    assert!(allied_route.blocked_by_ally);
+    assert!(reaches_goal(Some(allied_route)));
+    assert!(!reaches_goal(query(&mut peer_finder, &peer_world)));
+
+    world.host_object_mut(blocker).unwrap().defection_helper = None;
+    assert!(!reaches_goal(query(&mut finder, &world)));
+}
+
+#[test]
 fn optimizer_line_stops_successfully_at_map_edge_but_checks_intermediate_cells() {
     let mut grid = open_grid(2, 2);
     let line_clear = |grid: &PathfindingGrid| grid.line_passable_on_layer(

@@ -12,7 +12,6 @@ impl PathfindingSystem {
         // A group query has no individual ignored obstacle or seeker. Admit
         // actual receiving occupancy rather than inherit another request's mask.
         self.grid.update_dynamic_obstacles(objects, ground_source);
-        self.dynamic_obstacle_frame = self.logic_frame;
         self.sync_crate_astar();
         let jumps = self.hierarchical_bridge_jumps();
         let finder = &mut self.crate_astar.as_mut()?.finder;
