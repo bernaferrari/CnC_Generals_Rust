@@ -6,11 +6,12 @@
 
 use super::super::*;
 use crate::presentation_frame::FrozenWeaponVisualSourceGate;
+use gamelogic::common::WeaponSlotType;
 
 /// Object-local facts sampled before ammo / stealth mutation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingWeaponVisualDispatchCapture {
-    pub weapon_slot: u8,
+    pub weapon_slot: WeaponSlotType,
     pub fired_barrel: u8,
     pub source_has_drawable: bool,
     pub source_is_stealthed: bool,
@@ -168,6 +169,10 @@ impl Object {
         target_pos: Option<Vec3>,
         is_projectile_detonation: bool,
     ) -> bool {
+        let Some(weapon_slot) = WeaponSlotType::from_u32(u32::from(slot)) else {
+            self.pending_weapon_visual_capture = None;
+            return false;
+        };
         let Some(fired_barrel) = self.fired_barrel_for_slot(slot) else {
             self.pending_weapon_visual_capture = None;
             return false;
@@ -204,7 +209,7 @@ impl Object {
             .unwrap_or((0, None, 0.0));
         let source_pos = self.get_position();
         let capture = PendingWeaponVisualDispatchCapture {
-            weapon_slot: slot,
+            weapon_slot,
             fired_barrel,
             source_has_drawable: self.has_drawable,
             source_is_stealthed: self.status.stealthed,
@@ -251,7 +256,7 @@ impl Object {
             selected_fx_name_for_weapon(Some(weapon_template_name), self.experience.level, false);
         let source_pos = self.get_position();
         self.pending_weapon_visual_capture = Some(PendingWeaponVisualDispatchCapture {
-            weapon_slot: 0,
+            weapon_slot: WeaponSlotType::Primary,
             fired_barrel,
             source_has_drawable: self.has_drawable,
             source_is_stealthed: self.status.stealthed,

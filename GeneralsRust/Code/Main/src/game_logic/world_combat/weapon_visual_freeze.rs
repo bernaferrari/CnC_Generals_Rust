@@ -72,7 +72,7 @@ impl GameLogic {
             world_epoch: self.visual_world_epoch,
             source,
             source_object_generation,
-            weapon_slot: capture.weapon_slot,
+            weapon_slot: capture.weapon_slot as u8,
             fired_barrel: capture.fired_barrel,
             sequence,
             logic_frame: capture.logic_frame,
@@ -215,7 +215,7 @@ fn probe_one_draw_model(
     if !draw_model.weapon_bone_bindings.source_fields_valid {
         return unknown();
     }
-    let Some(slot) = draw_model.weapon_bone_bindings.slot(capture.weapon_slot) else {
+    let Some(slot) = draw_model.weapon_bone_bindings.slot(capture.weapon_slot as u8) else {
         return unknown();
     };
     let named = |bone: &Option<String>| bone.as_deref().is_some_and(|name| !name.trim().is_empty());

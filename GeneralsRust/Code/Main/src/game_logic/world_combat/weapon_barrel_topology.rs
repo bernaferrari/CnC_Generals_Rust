@@ -8,6 +8,7 @@
 //! or guesses from a template/model suffix.
 
 use super::super::*;
+use gamelogic::common::WeaponSlotType;
 
 impl GameLogic {
     /// Apply cache-resident C++ `Drawable::getBarrelCount` answers to one
@@ -77,12 +78,9 @@ impl GameLogic {
     pub(in super::super) fn weapon_fire_fx_bone_world(
         &self,
         source: ObjectId,
-        weapon_slot: u8,
+        weapon_slot: WeaponSlotType,
         fired_barrel: u8,
     ) -> Option<(Vec3, f32)> {
-        if usize::from(weapon_slot) >= 3 {
-            return None;
-        }
         let object = self.objects.get(&source)?;
         if object.template_name.trim().is_empty()
             || object
@@ -103,7 +101,7 @@ impl GameLogic {
                 &object.template_name,
                 object.model_condition_bits,
             )?
-            .get(usize::from(weapon_slot))
+            .get(weapon_slot as usize)
             .copied()
             .flatten()?;
         let fx_base = manager
@@ -118,7 +116,7 @@ impl GameLogic {
                 }
                 model
                     .weapon_bone_bindings
-                    .slot(weapon_slot)
+                    .slot(weapon_slot as u8)
                     .and_then(|slot| slot.fire_fx_bone_base.clone())
                     .filter(|base| !base.trim().is_empty())
             })?;

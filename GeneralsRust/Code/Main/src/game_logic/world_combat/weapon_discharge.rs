@@ -6,6 +6,7 @@
 //! `Weapon::fireWeaponTemplate` equivalent.
 
 use super::super::*;
+use gamelogic::common::WeaponSlotType;
 
 /// Owned continuation across fire effects and damage callbacks. The captured
 /// barrel and source generation survive without retaining a mutable object loan.
@@ -84,9 +85,7 @@ impl GameLogic {
         >,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<AcceptedWeaponDischarge> {
-        if weapon_slot >= 3 {
-            return None;
-        }
+        WeaponSlotType::from_u32(u32::from(weapon_slot))?;
 
         // C++ `Weapon::privateFireWeapon` queries the current Drawable's
         // exact barrel count immediately before it captures/advances the
@@ -405,10 +404,14 @@ impl GameLogic {
 }
 
 /// C++ `Weapon::getWeaponSpeed()` for FireFX / TracerFXNugget primarySpeed.
-pub(in super::super) fn fire_fx_weapon_speed(object: Option<&Object>, slot: u8) -> f32 {
+pub(in super::super) fn fire_fx_weapon_speed(
+    object: Option<&Object>,
+    slot: WeaponSlotType,
+) -> f32 {
     let Some(object) = object else {
         return 0.0;
     };
+    let slot = slot as u8;
     if let Some(rule) = object.selected_native_weapon_rule(slot) {
         return if rule.weapon_speed > 0.0 && rule.weapon_speed < 999_000.0 {
             rule.weapon_speed
@@ -433,7 +436,11 @@ pub(in super::super) fn fire_fx_weapon_speed(object: Option<&Object>, slot: u8) 
 }
 
 /// C++ `Weapon::getPrimaryDamageRadius(bonus)` for FireFX `overrideRadius`.
-pub(in super::super) fn fire_fx_primary_damage_radius(object: Option<&Object>, slot: u8) -> f32 {
+pub(in super::super) fn fire_fx_primary_damage_radius(
+    object: Option<&Object>,
+    slot: WeaponSlotType,
+) -> f32 {
+    let slot = slot as u8;
     if let Some(rule) = object.and_then(|object| object.selected_native_weapon_rule(slot)) {
         return rule.primary_damage_radius;
     }
@@ -472,14 +479,9 @@ fn leftover_handle_weapon_fire_fx_at_fx_bone(
     let Ok(mut draw_guard) = drawable.write() else {
         return false;
     };
-    let slot = match capture.weapon_slot {
-        0 => gamelogic::common::WeaponSlotType::Primary,
-        1 => gamelogic::common::WeaponSlotType::Secondary,
-        _ => gamelogic::common::WeaponSlotType::Tertiary,
-    };
     let victim = leftover_fire_fx_victim_coord(capture);
     draw_guard.handle_weapon_fire_fx(
-        slot,
+        capture.weapon_slot,
         i32::from(capture.fired_barrel),
         None,
         &victim,
@@ -725,10 +727,10 @@ mod tests {
         tpl.set_primary_weapon_name("HowitzerBogus");
         let object = Object::new(tpl, ObjectId(703), Team::USA);
         assert!(
-            (fire_fx_primary_damage_radius(Some(&object), 0) - 25.0).abs() < f32::EPSILON,
+            (fire_fx_primary_damage_radius(Some(&object), WeaponSlotType::Primary) - 25.0).abs() < f32::EPSILON,
             "seeded howitzer PrimaryDamageRadius residual"
         );
-        assert_eq!(fire_fx_primary_damage_radius(None, 0), 0.0);
+        assert_eq!(fire_fx_primary_damage_radius(None, WeaponSlotType::Primary), 0.0);
     }
 }
 
@@ -738,20 +740,20 @@ mod tests {
     fn fire_fx_broadcast_passes_secondary_speed_and_radius() {
         // C++ Weapon.cpp923–940: doFXPos gets speed, radius, and secondary targetPos.
         // Capture retains secondary; helpers supply speed/radius to broadcast path.
-        assert_eq!(fire_fx_weapon_speed(None, 0), 0.0);
-        assert_eq!(fire_fx_primary_damage_radius(None, 0), 0.0);
+        assert_eq!(fire_fx_weapon_speed(None, WeaponSlotType::Primary), 0.0);
+        assert_eq!(fire_fx_primary_damage_radius(None, WeaponSlotType::Primary), 0.0);
         let mut object = Object::new(ThingTemplate::new("FxRadius"), ObjectId(2), Team::USA);
         object.weapon = Some(crate::game_logic::Weapon {
             projectile_speed: 150.0,
             splash_radius: 25.0,
             ..crate::game_logic::Weapon::default()
         });
-        let speed = fire_fx_weapon_speed(Some(&object), 0);
-        let radius = fire_fx_primary_damage_radius(Some(&object), 0);
+        let speed = fire_fx_weapon_speed(Some(&object), WeaponSlotType::Primary);
+        let radius = fire_fx_primary_damage_radius(Some(&object), WeaponSlotType::Primary);
         assert!(speed >= 0.0);
         assert!(radius >= 0.0);
         let capture = super::weapon_visual_capture::PendingWeaponVisualDispatchCapture {
-            weapon_slot: 0,
+            weapon_slot: WeaponSlotType::Primary,
             fired_barrel: 0,
             source_has_drawable: true,
             source_is_stealthed: false,

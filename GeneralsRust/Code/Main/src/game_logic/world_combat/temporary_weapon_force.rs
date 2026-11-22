@@ -256,19 +256,25 @@ impl GameLogic {
                 die_on_detonate: rule.die_on_detonate,
             };
             let Some(object) = self.objects.get_mut(&source) else { return Ok(None); };
-            let _ = object.capture_pending_temporary_weapon_visual_dispatch(
-                &spec.weapon_template_name,
-                state.map_or(0, |weapon| weapon.0),
-                state.map_or(0, |weapon| weapon.1),
-                state.map(|weapon| weapon.2),
-                self.frame, target_position,
-            );
-            let mut capture = object.take_pending_weapon_visual_capture();
-            if let Some(capture) = capture.as_mut() {
-                capture.weapon_slot = spec.weapon_slot as u8;
-                capture.target_id = target;
-            }
-            self.deliver_owned_weapon_shot_with_rule_and_effects(spec.weapon_slot as u8, shot, capture, Some(rule), effects)?;
+            let slot = spec.weapon_slot as u8;
+            let capture = gamelogic::common::WeaponSlotType::from_u32(u32::from(slot))
+                .and_then(|weapon_slot| {
+                    object.capture_pending_temporary_weapon_visual_dispatch(
+                        &spec.weapon_template_name,
+                        state.map_or(0, |weapon| weapon.0),
+                        state.map_or(0, |weapon| weapon.1),
+                        state.map(|weapon| weapon.2),
+                        self.frame,
+                        target_position,
+                    );
+                    let mut capture = object.take_pending_weapon_visual_capture()?;
+                    capture.weapon_slot = weapon_slot;
+                    capture.target_id = target;
+                    Some(capture)
+                });
+            self.deliver_owned_weapon_shot_with_rule_and_effects(
+                slot, shot, capture, Some(rule), effects,
+            )?;
             return Ok(Some(0));
         }
         let Some(fields) = self.temporary_weapon_fields(&spec.weapon_template_name) else { return Ok(None); };

@@ -7,6 +7,7 @@ use crate::presentation_frame::{
     FrozenWeaponVisualFxRoute, FrozenWeaponVisualModuleProbe,
     build_frozen_weapon_visual_dispatch_plan,
 };
+use gamelogic::common::WeaponSlotType;
 
 fn test_object(id: u32) -> Object {
     let mut object = Object::new(
@@ -72,6 +73,29 @@ fn capture_reads_ammo_and_stealth_before_mutation() {
     assert!(capture.stealthed_at_capture);
     assert_ne!(object.weapon.as_ref().expect("weapon").ammo, Some(3));
     assert!(!object.status.stealthed);
+}
+
+#[test]
+fn accepted_tertiary_visual_capture_preserves_the_game_data_slot() {
+    let mut logic = GameLogic::new();
+    let mut object = test_object(43);
+    let source = object.id;
+    object.tertiary_weapon = Some(Weapon {
+        ammo: Some(2),
+        clip_size: 2,
+        ..Weapon::default()
+    });
+
+    let slot = WeaponSlotType::Tertiary as u8;
+    assert!(object.capture_pending_weapon_visual_dispatch(slot, 10, None, None));
+    let capture = object.pending_weapon_visual_capture.as_ref().unwrap();
+    assert_eq!(capture.weapon_slot, WeaponSlotType::Tertiary);
+    assert_eq!(capture.ammo_at_capture, Some(2));
+
+    logic.objects.insert(source, object);
+    let event = logic.record_accepted_weapon_discharge(source, slot).unwrap();
+    assert_eq!(event.weapon_slot, 2);
+    assert!(logic.objects[&source].pending_weapon_visual_capture.is_none());
 }
 
 #[test]
