@@ -713,7 +713,13 @@ impl Object {
             let secondary_ready = self.selected_weapon_ready_at_frame(1, current_time, logic_frame, rof(1));
             let tertiary_ready = self.selected_weapon_ready_at_frame(2, current_time, logic_frame, rof(2));
 
-            if self.weapon_lock_type != WeaponLockType::NotLocked {
+            if self.selected_authored_weapon_row().is_some() {
+                // AIStates.cpp fires the selected weapon. The chooser may keep
+                // a preferred weapon while it reloads, so wait for that slot.
+                let slot = self.selected_weapon_slot()?;
+                [primary_ready, secondary_ready, tertiary_ready][usize::from(slot)]
+                    .then_some(slot)?
+            } else if self.weapon_lock_type != WeaponLockType::NotLocked {
                 // The lock owns its own concrete slot identity.  Do not use
                 // `active_weapon_slot` here: an asynchronous UI/writeback
                 // update can change the displayed slot while a permanent

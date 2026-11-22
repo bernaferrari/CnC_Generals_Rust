@@ -799,14 +799,17 @@ fn parse_shot_delay_msec(value: &str) -> Option<(i32, i32)> {
 
 /// C++ `INI::parseBitString32`: `NONE`, bare tokens, or `+/-` (not mixed).
 fn parse_bit_string_32(value: &str, names: &[&str]) -> Option<u32> {
-    let tokens: Vec<&str> = value.split_whitespace().collect();
-    if tokens.is_empty() {
-        return Some(0);
-    }
-    let mut bits = 0u32;
+    parse_bit_string_32_with_initial(value, names, 0)
+}
+
+pub(crate) fn parse_bit_string_32_with_initial(
+    value: &str,
+    names: &[&str],
+    mut bits: u32,
+) -> Option<u32> {
     let mut found_normal = false;
     let mut found_add_or_sub = false;
-    for token in tokens {
+    for token in value.split_whitespace() {
         if token.eq_ignore_ascii_case("NONE") {
             if found_normal || found_add_or_sub {
                 return None;

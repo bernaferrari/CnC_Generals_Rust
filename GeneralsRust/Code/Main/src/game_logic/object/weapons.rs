@@ -894,7 +894,9 @@ impl Object {
     /// ready suppression, zero-damage (DAMAGE_UNRESISTABLE exception),
     /// and unready-but-valid backup.
     pub fn select_combat_weapon_slot(&self, target: &Object, current_time: f32) -> Option<u8> {
-        self.select_combat_weapon_slot_with_optional_solo_set(target, current_time, None)
+        self.select_combat_weapon_slot_for_source(
+            target, current_time, None, self.last_command_source,
+        )
     }
 
     pub(crate) fn select_combat_weapon_slot_with_solo_set(
@@ -903,14 +905,17 @@ impl Object {
         current_time: f32,
         solo_set: &gamelogic::weapon::WeaponBonusSet,
     ) -> Option<u8> {
-        self.select_combat_weapon_slot_with_optional_solo_set(target, current_time, Some(solo_set))
+        self.select_combat_weapon_slot_for_source(
+            target, current_time, Some(solo_set), self.last_command_source,
+        )
     }
 
-    fn select_combat_weapon_slot_with_optional_solo_set(
+    pub(in crate::game_logic) fn select_combat_weapon_slot_for_source(
         &self,
         target: &Object,
         current_time: f32,
         solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+        command_source: u32,
     ) -> Option<u8> {
         // C++ WeaponSet.cpp:782-783 / leftover weapon_set.rs:683-685 —
         // locked current slot stays until someone unlocks. A reloading
@@ -921,6 +926,12 @@ impl Object {
         ) {
             return Some(slot);
         }
+        if let Some(row) = self.selected_authored_weapon_row() {
+            return self.select_authored_combat_weapon_slot(row, target, current_time, command_source);
+        }
+
+        // Hand-built and mapless objects without an authored WeaponSet retain
+        // their existing explicit-slot and two-slot eligibility rules.
         let target_faerie = target.is_faerie_fire();
         let primary_valid = self.leftover_choose_best_slot_valid(0, target);
         let secondary_valid = self.leftover_choose_best_slot_valid(1, target);
@@ -1092,6 +1103,62 @@ impl Object {
         } else {
             None
         }
+    }
+
+    /// WeaponSet.cpp:793-943. PreferMostDamage considers every legal slot,
+    /// keeps a backup for approach/reload, and gives PRIMARY the damage tie.
+    fn select_authored_combat_weapon_slot(
+        &self,
+        row: &super::selected_weapon_set::WeaponRow,
+        target: &Object,
+        current_time: f32,
+        command_source: u32,
+    ) -> Option<u8> {
+        let policy = row.choice.as_ref()?;
+        let frame = (current_time * 30.0).round() as u32;
+        let anti_mask = target.weapon_target_anti_mask();
+        let victim_kinds = target.kind_of_cpp_mask();
+        let mut ready = None;
+        let mut backup = None;
+        use gamelogic::world::{WEAPON_SLOT_PRIMARY, WEAPON_SLOT_TERTIARY};
+        for slot in (WEAPON_SLOT_PRIMARY..=WEAPON_SLOT_TERTIARY).rev() {
+            if !policy.allows_automatic_choice(slot, command_source) {
+                continue;
+            }
+            let (Some(weapon), Some(rule)) = (self.weapon_slot(slot), row.native_rule(slot)) else {
+                continue;
+            };
+            let status = if self.active_weapon_slot == slot
+                && self.pre_attack_ready_at > current_time
+            {
+                WeaponFireStatus::PreAttack
+            } else {
+                weapon.frame_status_at(frame)
+            };
+            if (status == WeaponFireStatus::OutOfAmmo && !rule.get_auto_reloads_clip())
+                || rule.get_anti_mask() & anti_mask == 0
+                || !self.is_slot_within_target_pitch(slot, target)
+            {
+                continue;
+            }
+            let damage = Self::estimate_native_weapon_damage(rule, target);
+            if gamelogic::weapon::choose_best_eliminates_zero_damage(damage, rule.damage_type) {
+                continue;
+            }
+            let preferred = policy.prefers(slot, victim_kinds);
+            let score = if preferred { 1e10 } else { damage };
+            let is_ready = if preferred {
+                status != WeaponFireStatus::OutOfAmmo
+            } else {
+                status == WeaponFireStatus::ReadyToFire
+                    && !self.is_weapon_slot_on_turret_and_aiming_at_target(slot, target)
+            };
+            let best = if is_ready { &mut ready } else { &mut backup };
+            if score >= best.map_or(0.0, |(_, best_score)| best_score) {
+                *best = Some((slot, score));
+            }
+        }
+        ready.or(backup).map(|(slot, _)| slot)
     }
 
     /// Leftover chooseBest fitness: AutoChoose + OUT_OF_AMMO+!autoReload
@@ -1373,30 +1440,7 @@ impl Object {
         }
         let name = self.weapon_name_for_slot(slot).unwrap_or("");
         if let Some(rule) = self.selected_native_weapon_rule(slot) {
-            use gamelogic::damage::{DamageType, DeathType};
-            let est = crate::game_logic::weapon_bootstrap::HostEstimateWeapon {
-                damage_type_sniper: rule.damage_type == DamageType::Sniper,
-                damage_type_surrender: rule.damage_type == DamageType::Surrender,
-                damage_type_disarm: rule.damage_type == DamageType::Disarm,
-                damage_type_deploy: rule.damage_type == DamageType::Deploy,
-                damage_type_kill_garrisoned: rule.damage_type == DamageType::KillGarrisoned,
-                death_type_burned: rule.death_type == DeathType::Burned,
-                allow_attack_garrisoned_bldgs: rule.allow_attack_garrisoned_bldgs,
-                primary_damage: rule.primary_damage,
-            };
-            let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
-                target,
-                target.garrison_count() as u32,
-                crate::game_logic::host_armor_residual::apply_residual_armor(
-                    target,
-                    crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type),
-                    1.0,
-                ),
-            );
-            return crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(
-                &est,
-                Some(&victim),
-            );
+            return Self::estimate_native_weapon_damage(&rule, target);
         }
         let est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(name);
         let Some(dt) = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name) else {
@@ -1408,6 +1452,36 @@ impl Object {
             crate::game_logic::host_armor_residual::apply_residual_armor(target, dt, 1.0),
         );
         crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(&est, Some(&victim))
+    }
+
+    fn estimate_native_weapon_damage(
+        rule: &gamelogic::weapon::WeaponTemplate,
+        target: &Object,
+    ) -> f32 {
+        use gamelogic::damage::{DamageType, DeathType};
+        let est = crate::game_logic::weapon_bootstrap::HostEstimateWeapon {
+            damage_type_sniper: rule.damage_type == DamageType::Sniper,
+            damage_type_surrender: rule.damage_type == DamageType::Surrender,
+            damage_type_disarm: rule.damage_type == DamageType::Disarm,
+            damage_type_deploy: rule.damage_type == DamageType::Deploy,
+            damage_type_kill_garrisoned: rule.damage_type == DamageType::KillGarrisoned,
+            death_type_burned: rule.death_type == DeathType::Burned,
+            allow_attack_garrisoned_bldgs: rule.allow_attack_garrisoned_bldgs,
+            primary_damage: rule.primary_damage,
+        };
+        let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
+            target,
+            target.garrison_count() as u32,
+            crate::game_logic::host_armor_residual::apply_residual_armor(
+                target,
+                crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type),
+                1.0,
+            ),
+        );
+        crate::game_logic::weapon_bootstrap::estimate_weapon_template_damage(
+            &est,
+            Some(&victim),
+        )
     }
 
     /// Residual seconds-only adapter for ShareWeaponReloadTime. Authored

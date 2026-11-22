@@ -1117,7 +1117,12 @@ impl GameLogic {
         };
         // Leftover: choose_best_weapon_for_target PreferMostDamage FromAi, then
         // set idle-mood turret target. AIM/FIRE read selected_weapon_slot.
-        let _ = self.choose_best_weapon_for_target(unit_id, Some(enemy), current_time);
+        let _ = self.choose_best_weapon_for_target_with_source(
+            unit_id,
+            Some(enemy),
+            current_time,
+            Some(crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI),
+        );
         self.set_turret_target_object(unit_id, Some(enemy), false);
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.turret_ai.turret_mood_target = true;

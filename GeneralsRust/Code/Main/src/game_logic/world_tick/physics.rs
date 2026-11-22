@@ -1258,6 +1258,16 @@ impl GameLogic {
         victim_id: Option<ObjectId>,
         current_time: f32,
     ) -> bool {
+        self.choose_best_weapon_for_target_with_source(unit_id, victim_id, current_time, None)
+    }
+
+    pub(super) fn choose_best_weapon_for_target_with_source(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        current_time: f32,
+        command_source: Option<u32>,
+    ) -> bool {
         self.with_own_services_mut(|this| {
         let Some(u) = this.objects.get(&unit_id) else {
             return false;
@@ -1287,8 +1297,12 @@ impl GameLogic {
             return false;
         };
         // Snapshot selection without holding mut borrow across get_mut.
-        let slot =
-            u.select_combat_weapon_slot_with_solo_set(v, current_time, &this.solo_weapon_bonus_set);
+        let slot = u.select_combat_weapon_slot_for_source(
+            v,
+            current_time,
+            Some(&this.solo_weapon_bonus_set),
+            command_source.unwrap_or(u.last_command_source),
+        );
         let Some(slot) = slot else {
             // Leftover chooseBest: no valid weapon → reset PRIMARY, return FALSE.
             if let Some(uu) = this.objects.get_mut(&unit_id) {

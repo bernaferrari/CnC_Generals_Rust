@@ -395,3 +395,179 @@ Weapon IdleDeadlineSecondary\n PrimaryDamage = 2\n DamageType = UNRESISTABLE\n A
     assert_eq!(game.host_object(a).unwrap().secondary_weapon.as_ref().unwrap().ammo, Some(4));
     assert_eq!(game.host_object(b).unwrap().secondary_weapon.as_ref().unwrap().ammo, Some(3));
 }
+
+/// Stock WeaponSet policies from INIZH Object/AmericaVehicle.ini and AmericaAir.ini.
+/// Only the fields used by weapon choice are needed to exercise the native decision.
+fn stock_weapon_choice_world() -> GameLogic {
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+
+    let mut world = GameLogic::new();
+    let objects = r#"
+Object AmericaVehicleHumvee
+    KindOf = VEHICLE CAN_ATTACK
+    Body = ActiveBody BodyTag
+        MaxHealth = 240
+        InitialHealth = 240
+    End
+    WeaponSet
+        Conditions = None
+        Weapon = PRIMARY HumveeGun
+        Weapon = SECONDARY HumveeMissileWeaponAirDummy
+    End
+    WeaponSet
+        Conditions = PLAYER_UPGRADE
+        Weapon = PRIMARY HumveeGun
+        Weapon = SECONDARY HumveeMissileWeapon
+        Weapon = TERTIARY HumveeMissileWeaponAir
+        PreferredAgainst = TERTIARY AIRCRAFT
+    End
+End
+Object AmericaVehicleComanche
+    KindOf = VEHICLE AIRCRAFT CAN_ATTACK
+    Body = ActiveBody BodyTag
+        MaxHealth = 220
+        InitialHealth = 220
+    End
+    WeaponSet
+        Conditions = None
+        Weapon = PRIMARY Comanche20mmCannonWeapon
+        PreferredAgainst = PRIMARY INFANTRY
+        AutoChooseSources = PRIMARY FROM_PLAYER FROM_SCRIPT FROM_AI
+        Weapon = SECONDARY ComancheAntiTankMissileWeapon
+        PreferredAgainst = SECONDARY VEHICLE STRUCTURE
+        AutoChooseSources = SECONDARY FROM_PLAYER FROM_SCRIPT FROM_AI
+        Weapon = TERTIARY NONE
+    End
+    WeaponSet
+        Conditions = PLAYER_UPGRADE
+        Weapon = PRIMARY Comanche20mmCannonWeapon
+        PreferredAgainst = PRIMARY INFANTRY
+        AutoChooseSources = PRIMARY FROM_PLAYER FROM_SCRIPT FROM_AI
+        Weapon = SECONDARY ComancheAntiTankMissileWeapon
+        PreferredAgainst = SECONDARY VEHICLE STRUCTURE
+        AutoChooseSources = SECONDARY FROM_PLAYER FROM_SCRIPT FROM_AI
+        Weapon = TERTIARY ComancheRocketPodWeapon
+        AutoChooseSources = TERTIARY NONE
+    End
+End
+Object WeaponChoiceAircraft
+    KindOf = VEHICLE AIRCRAFT
+    Body = ActiveBody BodyTag
+        MaxHealth = 100
+        InitialHealth = 100
+    End
+End
+Object WeaponChoiceGround
+    KindOf = SELECTABLE
+    Body = ActiveBody BodyTag
+        MaxHealth = 100
+        InitialHealth = 100
+    End
+End
+"#;
+    world
+        .admit_object_ini_sources([("stock-weapon-choice.ini".into(), objects.into())])
+        .unwrap();
+    let mut weapons_ini = String::new();
+    for (name, damage, range, damage_type, clip, projectile, anti_vehicle, anti_ground) in [
+        ("HumveeGun", 10.0, 150, "COMANCHE_VULCAN", 0, "NONE", "No", "Yes"),
+        ("HumveeMissileWeaponAirDummy", 0.0001, 320, "EXPLOSION", 0, "NONE", "Yes", "No"),
+        ("HumveeMissileWeapon", 30.0, 150, "EXPLOSION", 1, "HumveeMissile", "No", "Yes"),
+        ("HumveeMissileWeaponAir", 50.0, 320, "EXPLOSION", 1, "PatriotMissile", "Yes", "No"),
+        ("Comanche20mmCannonWeapon", 6.0, 200, "COMANCHE_VULCAN", 0, "NONE", "No", "Yes"),
+        ("ComancheAntiTankMissileWeapon", 50.0, 200, "JET_MISSILES", 4, "ComancheAntiTankMissile", "No", "Yes"),
+        ("ComancheRocketPodWeapon", 30.0, 200, "EXPLOSION", 20, "ComancheRocketPodRocket", "No", "Yes"),
+    ] {
+        weapons_ini.push_str(&format!(
+            "Weapon {name}\nPrimaryDamage = {damage}\nAttackRange = {range}\n\
+             DamageType = {damage_type}\nClipSize = {clip}\nProjectileObject = {projectile}\n\
+             AntiAirborneVehicle = {anti_vehicle}\nAntiGround = {anti_ground}\nEnd\n"
+        ));
+    }
+    let mut weapons = HashMap::new();
+    assert_eq!(
+        parse_weapon_definitions_ini_into(
+            &mut weapons,
+            &weapons_ini,
+            WeaponDefinitionLoadType::Normal,
+        ),
+        7
+    );
+    world
+        .admit_weapon_content_snapshot(
+            weapons
+                .into_values()
+                .map(|weapon| (weapon.name.clone(), weapon))
+                .collect(),
+            &[],
+        )
+        .unwrap();
+    world.frame = 100;
+    world
+}
+
+#[test]
+fn stock_upgraded_humvee_auto_selects_air_tow() {
+    let mut world = stock_weapon_choice_world();
+    let humvee = world
+        .create_object("AmericaVehicleHumvee", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let aircraft = world
+        .create_object("WeaponChoiceAircraft", Team::China, Vec3::new(100.0, 10.0, 0.0))
+        .unwrap();
+    world.host_object_mut(aircraft).unwrap().status.airborne_target = true;
+    let frame = world.frame;
+    let current_time = frame as f32 * LOGIC_FRAME_TIMESTEP;
+
+    assert!(world.choose_best_weapon_for_target(humvee, Some(aircraft), current_time));
+    assert_eq!(world.host_object(humvee).unwrap().selected_weapon_slot(), Some(1));
+
+    let object = world.host_object_mut(humvee).unwrap();
+    object.set_weapon_condition_at_frame(3, true, frame); // PLAYER_UPGRADE
+    assert!(!object.is_weapon_locked());
+    assert_eq!(object.selected_weapon_slot(), Some(0));
+    assert_eq!(object.selected_weapon_name(2), Some("HumveeMissileWeaponAir"));
+    assert_eq!(object.selected_projectile_name(2), Some("PatriotMissile"));
+    assert_eq!(object.weapon_slot(2).unwrap().ammo, Some(1));
+
+    assert!(world.choose_best_weapon_for_target(humvee, Some(aircraft), current_time));
+    assert_eq!(world.host_object(humvee).unwrap().selected_weapon_slot(), Some(2));
+}
+
+#[test]
+fn stock_upgraded_comanche_keeps_rocket_pods_button_only() {
+    use crate::game_logic::object::{WeaponFireStatus, WeaponLockType};
+
+    let mut world = stock_weapon_choice_world();
+    let comanche = world
+        .create_object("AmericaVehicleComanche", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let ground = world
+        .create_object("WeaponChoiceGround", Team::China, Vec3::new(100.0, 0.0, 0.0))
+        .unwrap();
+    let frame = world.frame;
+    let current_time = frame as f32 * LOGIC_FRAME_TIMESTEP;
+    let object = world.host_object_mut(comanche).unwrap();
+    object.set_weapon_condition_at_frame(3, true, frame); // PLAYER_UPGRADE
+    assert_eq!(object.selected_weapon_name(2), Some("ComancheRocketPodWeapon"));
+    assert_eq!(object.weapon_slot(2).unwrap().frame_status_at(frame), WeaponFireStatus::ReadyToFire);
+    // Neither ordinary weapon is ready, so an eligible tertiary would win.
+    // The target has no KindOf preferred by the primary or secondary.
+    for slot in [0, 1] {
+        let weapon = object.weapon_slot_mut(slot).unwrap();
+        weapon.next_fire_frame = frame + 10;
+        weapon.frame_clock_status = WeaponFireStatus::BetweenFiringShots;
+    }
+
+    assert!(world.choose_best_weapon_for_target(comanche, Some(ground), current_time));
+    assert_eq!(world.host_object(comanche).unwrap().selected_weapon_slot(), Some(1));
+
+    assert!(world.host_object_mut(comanche).unwrap().set_weapon_lock(
+        2,
+        WeaponLockType::LockedPermanently,
+    ));
+    assert!(world.choose_best_weapon_for_target(comanche, Some(ground), current_time));
+    assert_eq!(world.host_object(comanche).unwrap().selected_weapon_slot(), Some(2));
+}

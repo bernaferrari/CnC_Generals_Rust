@@ -140,9 +140,84 @@ pub struct WeaponSetDefinition {
     pub tertiary_weapon: Option<String>,
     /// Non-slot rows such as `AutoChooseSources`, retained per nested block.
     pub attributes: HashMap<String, String>,
+    pub(crate) choice: WeaponChoicePolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WeaponChoicePolicy {
+    auto_choose_masks: [u32; 3],
+    preferred_against_masks: [u128; 3],
+}
+
+impl Default for WeaponChoicePolicy {
+    fn default() -> Self {
+        // WeaponTemplateSet::clear (WeaponSet.cpp:78-87).
+        Self {
+            auto_choose_masks: [u32::MAX; 3],
+            preferred_against_masks: [0; 3],
+        }
+    }
+}
+
+impl WeaponChoicePolicy {
+    pub(crate) fn allows_automatic_choice(&self, slot: u8, command_source: u32) -> bool {
+        // WeaponSet.cpp:815-823. DEFAULT_SWITCH_WEAPON admits every source.
+        use game_engine::common::game_common::CommandSourceType;
+
+        let source = 1u32.checked_shl(command_source).unwrap_or(0);
+        let default_switch = 1 << CommandSourceType::DefaultSwitchWeapon as u32;
+        self.auto_choose_masks
+            .get(usize::from(slot))
+            .is_some_and(|mask| mask & (source | default_switch) != 0)
+    }
+
+    pub(crate) fn prefers(&self, slot: u8, victim_kinds: u128) -> bool {
+        // WeaponSet.cpp:870 and BitFlags.h:223-237 require every bit.
+        self.preferred_against_masks
+            .get(usize::from(slot))
+            .is_some_and(|&required| required != 0 && victim_kinds & required == required)
+    }
 }
 
 impl WeaponSetDefinition {
+    pub(super) fn record_attribute(&mut self, key: &str, value: &str) {
+        let value = value.trim();
+        self.attributes.insert(key.to_owned(), value.to_owned());
+        let auto_choose = key.eq_ignore_ascii_case("AutoChooseSources");
+        if !auto_choose && !key.eq_ignore_ascii_case("PreferredAgainst") {
+            return;
+        }
+        let Some((slot_name, flags)) = value.split_once(char::is_whitespace) else {
+            return;
+        };
+        let slot_name = slot_name.to_ascii_uppercase();
+        let slot = match slot_name.as_str() {
+            "PRIMARY" => usize::from(gamelogic::world::WEAPON_SLOT_PRIMARY),
+            "SECONDARY" => usize::from(gamelogic::world::WEAPON_SLOT_SECONDARY),
+            "TERTIARY" => usize::from(gamelogic::world::WEAPON_SLOT_TERTIARY),
+            _ => return,
+        };
+        let field = if auto_choose { "AutoChooseSources" } else { "PreferredAgainst" };
+        self.attributes.insert(format!("{field} {slot_name}"), value.to_owned());
+
+        // Each declaration updates this slot in source order, including +/-.
+        if auto_choose {
+            const SOURCE_NAMES: &[&str] = &[
+                "FROM_PLAYER", "FROM_SCRIPT", "FROM_AI", "FROM_DOZER", "DEFAULT_SWITCH_WEAPON",
+            ];
+            let mask = &mut self.choice.auto_choose_masks[slot];
+            *mask = crate::assets::ini_template_loader::parse_bit_string_32_with_initial(
+                flags, SOURCE_NAMES, *mask,
+            ).unwrap_or(0);
+        } else {
+            use game_engine::common::system::kind_of::KindOfMask;
+            let mask = &mut self.choice.preferred_against_masks[slot];
+            *mask = KindOfMask::parse_ini(KindOfMask::from_bits_truncate(*mask), flags)
+                .map(|kind| kind.bits())
+                .unwrap_or(0);
+        }
+    }
+
     fn active_conditions(&self) -> impl Iterator<Item = &str> {
         self.conditions
             .iter()
@@ -723,16 +798,7 @@ impl ObjectDefinition {
                         } else if key.eq_ignore_ascii_case("Weapon") {
                             set.record_weapon(value);
                         } else {
-                            set.attributes
-                                .insert(key.to_owned(), value.trim().to_owned());
-                            if key.eq_ignore_ascii_case("AutoChooseSources") {
-                                if let Some(slot) = value.split_whitespace().next() {
-                                    set.attributes.insert(
-                                        format!("AutoChooseSources {slot}"),
-                                        value.trim().to_owned(),
-                                    );
-                                }
-                            }
+                            set.record_attribute(key, value);
                         }
                     }
                     self.weapon_sets.push(set);

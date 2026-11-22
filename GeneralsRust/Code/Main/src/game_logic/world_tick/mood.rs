@@ -1256,11 +1256,9 @@ impl GameLogic {
         let Some(source) = self.objects.get(&unit_id) else {
             return CanAttackResult::NotPossible;
         };
-        // A C++ WeaponSet lock constrains *all* target validation to that
-        // concrete slot.  In particular, a permanently selected PRIMARY must
-        // not borrow SECONDARY's AntiMask merely because the latter could hit
-        // the candidate.  TERTIARY remains manual-only when it is explicitly
-        // selected, while normal automatic acquisition considers A/B only.
+        // WeaponSet.cpp:681-712 considers all authored object-target slots
+        // for legality when unlocked. The subsequent choice filters sources.
+        // Compatibility objects retain their existing manual-slot fallback.
         let candidate_slots: &[u8] = if source.is_weapon_locked() {
             match source.weapon_lock_slot {
                 0 => &[0],
@@ -1268,6 +1266,8 @@ impl GameLogic {
                 2 => &[2],
                 _ => &[],
             }
+        } else if victim_id.is_some() && source.selected_authored_weapon_row().is_some() {
+            &[0, 1, 2]
         } else if source.selected_weapon_slot() == Some(2) {
             &[2]
         } else {

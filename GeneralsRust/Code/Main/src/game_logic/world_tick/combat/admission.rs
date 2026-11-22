@@ -222,37 +222,35 @@ impl GameLogic {
                 .map(|t| t.is_faerie_fire())
                 .unwrap_or(false);
 
-            // Any auto-legal slot ready on reload timer? Button-only
-            // AutoChooseSources=NONE secondaries (Jarmen snipe / MD laser)
-            // must not keep the cycle alive or the chooser will either
-            // auto-fire them or fall through to chase.
-            let secondary_explicit = attacker.active_weapon_slot == 1
-                || (attacker.weapon_lock_type != WeaponLockType::NotLocked
-                    && attacker.weapon_lock_slot == 1);
-            let tertiary_explicit = attacker.active_weapon_slot == 2
-                || (attacker.weapon_lock_type != WeaponLockType::NotLocked
-                    && attacker.weapon_lock_slot == 2);
             let rates = self.receiving_weapon_rates_of_fire(attacker);
-            let any_ready = attacker.weapon_ready_vs_target_with_owned_rof(
-                0,
-                self.frame,
-                target_has_faerie,
-                rates[0],
-            ) || ((secondary_explicit
-                || attacker.thing().template.slot_allows_auto_choose(1))
-                && attacker.weapon_ready_vs_target_with_owned_rof(
-                    1,
-                    self.frame,
-                    target_has_faerie,
-                    rates[1],
-                ))
-                || (tertiary_explicit
-                    && attacker.weapon_ready_vs_target_with_owned_rof(
-                        2,
-                        self.frame,
-                        target_has_faerie,
-                        rates[2],
-                    ));
+            let ready = |slot: u8| {
+                attacker.weapon_ready_vs_target_with_owned_rof(
+                    slot, self.frame, target_has_faerie, rates[usize::from(slot)],
+                )
+            };
+            let any_ready = if let Some(policy) = attacker.selected_weapon_choice() {
+                if attacker.is_weapon_locked() {
+                    attacker.selected_weapon_slot().is_some_and(ready)
+                } else if attacker.target_location.is_some() && attacker.target.is_none() {
+                    // WeaponSet.cpp:785-790 picks PRIMARY for an unlocked position shot.
+                    ready(0)
+                } else {
+                    use gamelogic::world::{WEAPON_SLOT_PRIMARY, WEAPON_SLOT_TERTIARY};
+                    (WEAPON_SLOT_PRIMARY..=WEAPON_SLOT_TERTIARY).any(|slot| {
+                        policy.allows_automatic_choice(slot, attacker.last_command_source)
+                            && ready(slot)
+                    })
+                }
+            } else {
+                let secondary_explicit = attacker.active_weapon_slot == 1
+                    || (attacker.is_weapon_locked() && attacker.weapon_lock_slot == 1);
+                let tertiary_explicit = attacker.active_weapon_slot == 2
+                    || (attacker.is_weapon_locked() && attacker.weapon_lock_slot == 2);
+                ready(0)
+                    || ((secondary_explicit || attacker.thing().template.slot_allows_auto_choose(1))
+                        && ready(1))
+                    || (tertiary_explicit && ready(2))
+            };
             if !any_ready {
                 return Ok(None);
             }

@@ -1,5 +1,6 @@
 //! CPP WeaponSet::updateWeaponSet: immutable receiving rows, exactly three live slots.
 use super::Object;
+use crate::assets::WeaponChoicePolicy;
 use crate::game_logic::{ThingTemplate, Weapon, WeaponLockType};
 
 #[derive(Debug, Clone)]
@@ -32,7 +33,15 @@ pub(crate) struct WeaponRow {
     pub(crate) names: [Option<String>; 3],
     shared: bool,
     condition_alternatives: Vec<u32>,
+    pub(super) choice: Option<WeaponChoicePolicy>,
 }
+
+impl WeaponRow {
+    pub(super) fn native_rule(&self, slot: u8) -> Option<&gamelogic::weapon::WeaponTemplate> {
+        self.slots.get(usize::from(slot))?.as_ref()?.native.as_deref()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct BoundWeaponSets {
     base: WeaponRow,
@@ -85,6 +94,7 @@ impl ThingTemplate {
                 names,
                 shared: self.weapon_lock_shared_across_sets,
                 condition_alternatives: Vec::new(),
+                choice: None,
             },
             mine,
             conditional: Vec::new(),
@@ -103,6 +113,7 @@ impl ThingTemplate {
             names: [Option<String>; 3],
             shared: bool,
             condition_alternatives: Vec<u32>,
+            choice: Option<WeaponChoicePolicy>,
             catalog: &std::collections::HashMap<
                 String,
                 std::sync::Arc<gamelogic::weapon::WeaponTemplate>,
@@ -124,6 +135,7 @@ impl ThingTemplate {
                 names,
                 shared,
                 condition_alternatives,
+                choice,
             }
         }
         let names = [
@@ -139,7 +151,7 @@ impl ThingTemplate {
                     .as_ref()
                     .map(|name| [Some(name.clone()), None, None])
             })
-            .map(|names| row(names, self.mine_weapon_set_shared, Vec::new(), catalog));
+            .map(|names| row(names, self.mine_weapon_set_shared, Vec::new(), None, catalog));
         let conditional = self
             .receiving_object_definition
             .as_ref()
@@ -181,6 +193,7 @@ impl ThingTemplate {
                             ],
                             weapon_lock_shared(&set.attributes),
                             alternatives,
+                            Some(set.choice),
                             catalog,
                         )
                     })
@@ -192,6 +205,7 @@ impl ThingTemplate {
                 names,
                 self.weapon_lock_shared_across_sets,
                 Vec::new(),
+                None,
                 catalog,
             ),
             mine,
@@ -248,6 +262,7 @@ impl ThingTemplate {
             names,
             shared: self.mine_weapon_set_shared,
             condition_alternatives: Vec::new(),
+            choice: None,
         });
         self.selected_weapon_sets = Some(BoundWeaponSets {
             base: WeaponRow {
@@ -255,6 +270,7 @@ impl ThingTemplate {
                 names: base_names,
                 shared: self.weapon_lock_shared_across_sets,
                 condition_alternatives: Vec::new(),
+                choice: None,
             },
             mine,
             conditional: Vec::new(),
@@ -438,6 +454,14 @@ impl Object {
         self.selected_weapon_row_binding().map(|(_, row)| row)
     }
 
+    pub(in crate::game_logic) fn selected_authored_weapon_row(&self) -> Option<&WeaponRow> {
+        self.selected_weapon_row().filter(|row| row.choice.is_some())
+    }
+
+    pub(in crate::game_logic) fn selected_weapon_choice(&self) -> Option<&WeaponChoicePolicy> {
+        self.selected_authored_weapon_row()?.choice.as_ref()
+    }
+
     pub(crate) fn selected_weapon_row_identity(&self) -> Option<WeaponRowIdentity> {
         self.selected_weapon_row_binding()
             .map(|(identity, _)| identity)
@@ -573,6 +597,7 @@ mod tests {
             names: [Some(name.into()), None, None],
             shared: false,
             condition_alternatives: conditions,
+            choice: None,
         }
     }
 

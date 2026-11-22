@@ -84,7 +84,9 @@ fn switching_slot_and_victim_uses_old_deadline_then_fired_slot_coast() {
     shot(&mut game, shooter, 101);
     {
         let actor = game.host_object_mut(shooter).unwrap();
-        actor.set_active_weapon_slot(1);
+        assert!(actor.set_weapon_lock(
+            1, crate::game_logic::object::WeaponLockType::LockedPermanently,
+        ));
         actor.target = Some(other);
     }
     shot(&mut game, shooter, 102);
@@ -145,7 +147,9 @@ fn saved_tracker_continues_with_the_receiving_fired_slot() {
     let actor = restored.host_object_mut(shooter).unwrap();
     actor.restore_ai_state(AIState::Attacking);
     actor.target = Some(victim);
-    actor.set_active_weapon_slot(1);
+    assert!(actor.set_weapon_lock(
+        1, crate::game_logic::object::WeaponLockType::LockedPermanently,
+    ));
     shot(&mut restored, shooter, 102);
     let actor = restored.host_object(shooter).unwrap();
     assert_eq!(actor.consecutive_shots_at_target, 3);
