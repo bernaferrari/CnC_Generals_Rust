@@ -313,7 +313,7 @@ fn terrain_shroud_draw_uses_frozen_border_levels_and_tint() {
     let paint = |render: &mut RenderPipeline, frame: Option<PresentationFrame>| {
         render.set_presentation_frame(frame.map(Rc::new));
         render.update_minimap_fow_texture().unwrap();
-        terrain_shroud_pixels(render.native_terrain_mut().unwrap(), &device, &queue)
+        terrain_shroud_pixels(render.native_terrain_mut().unwrap(), &device, &queue, false)
     };
     let baseline = paint(&mut render, None);
 
@@ -479,6 +479,7 @@ fn terrain_shroud_pixels(
     visual: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
+    projected_decals: bool,
 ) -> Vec<[u8; 4]> {
     use game_client::{
         snow::{SnowManager, SnowRenderState, WeatherSetting},
@@ -566,6 +567,9 @@ fn terrain_shroud_pixels(
             ..Default::default()
         });
         visual.record_chunk_draws(&mut pass);
+        if projected_decals {
+            visual.record_projected_unit_shadows(&mut pass);
+        }
     }
     encoder.copy_texture_to_buffer(
         color.as_image_copy(),
@@ -603,4 +607,222 @@ fn terrain_shroud_pixels(
         .collect();
     readback.unmap();
     pixels
+}
+
+#[test]
+#[ignore = "requires a native WGPU device for the receiving terrain decal pass"]
+fn authored_model_decal_uses_exact_module_and_box_axis_in_native_pixels() {
+    use crate::assets::models::tests::rigid_hlod_fixture;
+    use crate::assets::{W3DLoader, W3dBoxProto, W3dHlodSubObject};
+    use crate::game_logic::{GameLogic, Object, ObjectId, Team};
+    use crate::presentation_frame::{PresentationFrame, PresentationObjectShroudStatus};
+
+    const ID: ObjectId = ObjectId(909);
+    const SOURCE: &str = r#"
+Object AuthoredBoxDecal
+ Shadow = SHADOW_DECAL
+ ShadowSizeX = 18
+ Geometry = BOX
+ Scale = 2.0
+ Draw = W3DModelDraw InvisibleDraw
+  DefaultConditionState
+   Model = None
+  End
+ End
+ Draw = W3DModelDraw BoxDraw
+  DefaultConditionState
+   Model = HLODROOT
+  End
+ End
+End
+"#;
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 64,
+        height: 64,
+        ..Default::default()
+    })
+    .unwrap();
+    let mut graphics = {
+        let engine = engine.lock();
+        GraphicsSystem::new(
+            engine.device(),
+            engine.queue(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+        .unwrap()
+    };
+    let mut model = W3DLoader::new()
+        .load_model_from_bytes(&rigid_hlod_fixture(2, &[], &[]), "HLODROOT")
+        .unwrap();
+    let quarter_turn = std::f32::consts::FRAC_1_SQRT_2;
+    model.hierarchies[0].pivots[1].rotation = [0.0, 0.0, quarter_turn, quarter_turn];
+    model.boxes.push(W3dBoxProto {
+        name: "HLODROOT.BOUNDINGBOX".into(),
+        attributes: 1,
+        center: [21.0, -9.0, 3.0],
+        extent: [4.0, 12.0, 3.0],
+    });
+    model.hlods[0].lods[1].subobjects.push(W3dHlodSubObject {
+        name: "HLODROOT.BOUNDINGBOX".into(),
+        bone_index: 1,
+    });
+    graphics.cache_model("HLODROOT".into(), model);
+    let mut render = RenderPipeline::initialize(engine, &graphics).unwrap();
+    let mut terrain = visual(0);
+    terrain.set_skybox_enabled(false);
+    let mut water = terrain.water_rules();
+    water.water_type = 0;
+    terrain.admit_water_rules(water);
+    render.install_native_terrain_cpu(Some(terrain));
+    let device = graphics.device_arc();
+    let queue = graphics.queue_arc();
+    render.hydrate_native_terrain_gpu(&device, &queue).unwrap();
+
+    let mut world = GameLogic::new();
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "projected-box.ini".into(),
+                SOURCE.into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    let template = world.templates["AuthoredBoxDecal"].clone();
+    world.add_object(Object::new(template, ID, Team::USA));
+    world.set_fixture_object_position(ID, Vec3::new(32.0, 0.0, 32.0));
+
+    let mut frame = PresentationFrame::build_from_logic(&mut world, 0);
+    for object in frame.objects.iter_mut().chain(
+        frame
+            .direct_host_drawables
+            .iter_mut()
+            .map(|direct| &mut direct.object),
+    ) {
+        if object.id == ID {
+            object.fow_visibility = ObjectVisibility::FULLY_VISIBLE;
+            object.drawable_shroud.raw_status = PresentationObjectShroudStatus::Clear;
+        }
+    }
+    let source = frame
+        .direct_host_drawables
+        .iter()
+        .find(|direct| direct.object.id == ID)
+        .unwrap();
+    assert_eq!(source.visual_mesh_scale, 2.0);
+    let draws = source
+        .receiving_visual_draw_models
+        .as_ref()
+        .unwrap()
+        .native_render_draws(0)
+        .unwrap();
+    assert_eq!(draws.len(), 2);
+    assert_eq!(draws[0].module_index, 0);
+    assert!(draws[0].model_key.is_empty());
+    assert_eq!(draws[1].module_index, 1);
+
+    render
+        .native_draw_world
+        .drawable_visual_states
+        .entry((NativeDrawOwnerId::Actor(ID.0), 1))
+        .or_default()
+        .native_instance_scale = Some(source.visual_mesh_scale);
+    render.admit_native_no_render_object(ID, 0);
+    let world_matrix = Mat4::from_translation(Vec3::new(32.0, 0.0, 32.0));
+    render.admit_native_render_object_creation(
+        ID,
+        1,
+        graphics.get_model("HLODROOT").unwrap().clone(),
+        &draws[1],
+        world_matrix,
+        None,
+    );
+    render.set_presentation_frame(Some(Rc::new(frame)));
+
+    // The original rasterizer covers whole terrain cells and clamps the
+    // texture. A white border leaves pixels outside the decal unchanged.
+    let bounds_color = image::RgbaImage::from_fn(64, 64, |x, y| {
+        let value = if x == 0 || x == 63 || y == 0 || y == 63 {
+            255
+        } else {
+            128
+        };
+        image::Rgba([value, value, value, 255])
+    });
+    let mut tga = std::io::Cursor::new(Vec::new());
+    bounds_color
+        .write_to(&mut tga, image::ImageFormat::Tga)
+        .unwrap();
+    let admit = |render: &mut RenderPipeline| {
+        assert_eq!(
+            render.admit_native_projected_shadows(&world, |path| {
+                (path == "Art/Textures/shadows.tga").then(|| tga.get_ref().clone())
+            }),
+            HashSet::from([ID.0]),
+        );
+    };
+    let pixels = |render: &mut RenderPipeline| {
+        terrain_shroud_pixels(render.native_terrain_mut().unwrap(), &device, &queue, true)
+    };
+    let bare = pixels(&mut render);
+    admit(&mut render);
+
+    let eye = Vec3::new(32.0, 100.0, 32.0);
+    let view = glam::camera::rh::view::look_at_mat4(eye, Vec3::new(32.0, 0.0, 32.0), Vec3::NEG_Z);
+    let projection =
+        glam::camera::rh::proj::directx::orthographic(-32.0, 32.0, -32.0, 32.0, 1.0, 200.0);
+    let mut budget = usize::MAX;
+    render
+        .collect_render_items(
+            &mut graphics,
+            &view,
+            &projection,
+            eye,
+            true,
+            &mut budget,
+            1.0 / 30.0,
+            &mut Vec::new(),
+            super::super::native_frame_receiver::NativeCollectSource::FrozenPreview,
+        )
+        .unwrap();
+    assert!(
+        render
+            .render_items
+            .iter()
+            .any(|item| item.owner == RenderItemOwner::Object(ID)
+                && item.native_projected_shadow_module_index == Some(1))
+    );
+    assert!(
+        !render
+            .render_items
+            .iter()
+            .any(|item| item.owner == RenderItemOwner::Object(ID)
+                && item.native_projected_shadow_module_index == Some(0))
+    );
+    render.synchronize_native_projected_shadow_casters();
+    let shaded = pixels(&mut render);
+    let at = |x: usize, z: usize| z * 64 + x;
+    for (x, z) in [(32, 32), (40, 32), (32, 35)] {
+        let unlit = u16::from(bare[at(x, z)][0]);
+        let lit = u16::from(shaded[at(x, z)][0]);
+        assert!(unlit > 0);
+        assert!(
+            (unlit * 40..=unlit * 60).contains(&(lit * 100)),
+            "expected one multiplicative decal at ({x}, {z}), bare {unlit}, shaded {lit}",
+        );
+    }
+    assert_eq!(shaded[at(42, 32)], bare[at(42, 32)], "authored X stays 18");
+    assert_eq!(
+        shaded[at(32, 37)],
+        bare[at(32, 37)],
+        "rotated default Y stays 8"
+    );
+
+    // Retire the exact owning model while keeping the earlier item in the
+    // roster. That stale item still cannot stand in for Model=None.
+    render.admit_native_no_render_object(ID, 1);
+    admit(&mut render);
+    render.synchronize_native_projected_shadow_casters();
+    assert_eq!(pixels(&mut render), bare);
 }

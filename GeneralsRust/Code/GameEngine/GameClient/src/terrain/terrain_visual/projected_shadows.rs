@@ -4,6 +4,8 @@ use crate::terrain::scorch_mesh::ScorchHeightSource;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectedUnitShadow {
     pub object_id: u32,
+    /// Exact receiving Draw module. Earlier callers may retain object-only identity.
+    pub module_index: Option<u32>,
     pub transform: Mat4,
     pub size: Vec2,
     pub offset: Vec2,
@@ -235,17 +237,27 @@ impl TerrainVisualImpl {
         &mut self,
         mut transform: impl FnMut(u32) -> Option<Mat4>,
     ) {
+        self.resolve_projected_unit_shadow_casters(|shadow| {
+            Some((transform(shadow.object_id)?, shadow.size))
+        });
+    }
+
+    pub fn resolve_projected_unit_shadow_casters(
+        &mut self,
+        mut resolve: impl FnMut(&ProjectedUnitShadow) -> Option<(Mat4, Vec2)>,
+    ) {
         if let Some(gpu) = self.projected_shadow_gpu.as_mut() {
             let pending = gpu.pending_inputs.is_some();
             let inputs = gpu.pending_inputs.as_mut().unwrap_or(&mut gpu.inputs);
             let mut changed = false;
             inputs.retain_mut(|shadow| {
-                let Some(current) = transform(shadow.object_id) else {
+                let Some((transform, size)) = resolve(shadow) else {
                     changed = true;
                     return false;
                 };
-                if shadow.transform != current {
-                    shadow.transform = current;
+                if shadow.transform != transform || shadow.size != size {
+                    shadow.transform = transform;
+                    shadow.size = size;
                     changed = true;
                 }
                 true
@@ -471,6 +483,7 @@ mod projected_unit_shadow_tests {
         map.cliff_info_ndxes[2 * 8 + 2] = 1;
         let mut decal = ProjectedUnitShadow {
             object_id: 1,
+            module_index: None,
             transform: Mat4::from_cols_array_2d(&[
                 [0.0, 0.0, -1.0, 0.0],
                 [0.0, 1.0, 0.0, 0.0],

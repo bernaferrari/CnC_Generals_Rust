@@ -1019,6 +1019,11 @@ impl RenderPipeline {
                             // reaches renderOneObject only if it actually
                             // submitted an eligible source render item.
                             if self.render_items.len() > render_item_count_before_model {
+                                #[cfg(feature = "game_client")]
+                                {
+                                    self.render_items[render_item_count_before_model]
+                                        .native_projected_shadow_module_index = Some(draw_module_index);
+                                }
                                 if let Some(candidate) = frozen_direct_scene_candidate(
                                     &self.presentation_direct_shroud_states,
                                     self.presentation_direct_shroud_host_epoch,

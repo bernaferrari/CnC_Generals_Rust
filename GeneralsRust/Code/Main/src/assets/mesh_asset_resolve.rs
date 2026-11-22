@@ -1162,6 +1162,7 @@ pub fn create_placeholder_mesh_model() -> W3DModel {
         material,
         transform: Mat4::IDENTITY,
         header: None,
+        source_object_bounds: None,
         stage_texcoords: Vec::new(),
         passes: Vec::new(),
         per_pass_stage_texture_ids: Vec::new(),

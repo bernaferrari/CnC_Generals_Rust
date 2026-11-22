@@ -106,6 +106,15 @@ impl PartialEq for SelectCache {
 
 impl ReceivingDrawModels {
     #[cfg(feature = "game_client")]
+    pub(crate) fn model_draw_shadow_module_indices(&self) -> impl Iterator<Item = u32> + '_ {
+        self.modules
+            .iter()
+            .enumerate()
+            .filter(|(_, module)| module.has_object_draw_interface())
+            .map(|(index, _)| index as u32)
+    }
+
+    #[cfg(feature = "game_client")]
     pub(crate) fn draw_module_tags(&self) -> impl Iterator<Item = (u32, &str)> {
         self.modules.iter().enumerate().filter_map(|(index, module)| {
             Some((index as u32, module.declaration.split_whitespace().nth(1)?))
@@ -233,6 +242,30 @@ impl PartialEq for ReceivingClientTemplate {
 }
 
 impl ReceivingClientTemplate {
+    #[cfg(feature = "game_client")]
+    pub(crate) fn projected_model_decal(&self) -> Option<(&str, glam::Vec2, glam::Vec2)> {
+        use game_engine::common::system::geometry::GeometryType;
+        use game_engine::common::thing::thing_template::ShadowType;
+
+        let template = self.0.template();
+        if template.get_shadow_type() != ShadowType::Decal {
+            return None;
+        }
+        let texture_name = match template.get_shadow_texture_name().as_str() {
+            "" => match template.get_template_geometry_info().geometry_type {
+                GeometryType::Sphere | GeometryType::Cylinder => "shadow",
+                GeometryType::Box => "shadows",
+            },
+            name if name.len() <= 1 => "shadow",
+            name => name,
+        };
+        Some((
+            texture_name,
+            glam::Vec2::new(template.get_shadow_size_x(), template.get_shadow_size_y()),
+            glam::Vec2::new(template.get_shadow_offset_x(), template.get_shadow_offset_y()),
+        ))
+    }
+
     /// Compare against another definition admitted by this receiving session.
     pub(crate) fn is_equivalent_to_admitted(
         &self,

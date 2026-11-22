@@ -247,6 +247,13 @@ impl Default for TextureStageMapping {
     }
 }
 
+/// Exact object-space bounds authored in the full W3D mesh header.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SourceMeshBounds {
+    pub(crate) min: Vec3,
+    pub(crate) max: Vec3,
+}
+
 /// W3D mesh data
 #[derive(Debug, Clone)]
 pub struct W3DMesh {
@@ -259,6 +266,7 @@ pub struct W3DMesh {
     pub material: W3DMaterial,
     pub transform: Mat4,
     pub header: Option<W3dMeshHeader3Struct>,
+    pub(crate) source_object_bounds: Option<SourceMeshBounds>,
     pub stage_texcoords: Vec<Vec<[f32; 2]>>,
     pub passes: Vec<MaterialPassInfo>,
     pub per_pass_stage_texture_ids: Vec<Vec<Vec<u32>>>,
@@ -289,6 +297,7 @@ impl W3DMesh {
             material: W3DMaterial::default(),
             transform: Mat4::IDENTITY,
             header: None,
+            source_object_bounds: None,
             stage_texcoords: Vec::new(),
             passes: Vec::new(),
             per_pass_stage_texture_ids: Vec::new(),

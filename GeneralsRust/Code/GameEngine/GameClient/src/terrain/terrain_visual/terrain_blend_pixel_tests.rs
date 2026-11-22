@@ -1137,6 +1137,7 @@ fn projected_unit_shadow_uses_source_v_axis_and_offsets_in_native_pixels() {
     .unwrap();
     let caster = ProjectedUnitShadow {
         object_id: 7,
+        module_index: None,
         transform: Mat4::from_translation(Vec3::new(14.0, 0.0, 18.0)),
         size: Vec2::new(16.0, 12.0),
         offset: Vec2::new(4.0, 2.0),
@@ -1221,6 +1222,7 @@ fn projected_unit_shadow_multiplies_source_color_on_native_terrain() {
         .unwrap();
     let caster = ProjectedUnitShadow {
         object_id: 42,
+        module_index: None,
         transform: Mat4::from_translation(Vec3::new(30.5, 0.0, 1.5)),
         size: Vec2::splat(14.0),
         offset: Vec2::ZERO,

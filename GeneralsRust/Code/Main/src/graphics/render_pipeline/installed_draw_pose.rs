@@ -51,6 +51,9 @@ pub(super) enum InstalledDrawObject {
 pub(super) struct InstalledDrawPose {
     pub(super) model: Arc<crate::assets::W3DModel>,
     asset_scale: f32,
+    /// The inner option caches unsupported constructor bounds as well as sizes.
+    #[cfg(feature = "game_client")]
+    projected_decal_size: Option<Option<glam::Vec2>>,
     pub(super) world: Mat4,
     pub(super) animation_binding: Option<crate::assets::W3dAnimationBinding>,
     pub(super) controls: Vec<(i32, Mat4)>,
@@ -122,6 +125,8 @@ impl InstalledDrawPose {
         Self {
             model,
             asset_scale: 1.0,
+            #[cfg(feature = "game_client")]
+            projected_decal_size: None,
             world,
             animation_binding,
             controls: Vec::new(),
@@ -137,7 +142,18 @@ impl InstalledDrawPose {
         self.asset_scale = instance_scale
             .filter(|scale| (scale - 1.0).abs() > 0.01)
             .unwrap_or(1.0);
+        #[cfg(feature = "game_client")]
+        {
+            self.projected_decal_size = None;
+        }
         self
+    }
+    #[cfg(feature = "game_client")]
+    pub(super) fn constructor_projected_decal_size(&mut self) -> Option<glam::Vec2> {
+        *self.projected_decal_size.get_or_insert_with(|| {
+            self.model
+                .constructor_projected_decal_size_xy(&self.model.name, self.asset_scale)
+        })
     }
     pub(super) fn can_reuse_for(
         &self,

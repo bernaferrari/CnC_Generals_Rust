@@ -8,6 +8,8 @@ use super::w3d_mesh::*;
 use super::w3d_mesh_build::*;
 use super::w3d_model::*;
 use super::*;
+use std::io::Cursor;
+use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 
 impl W3DLoader {
     /// Resolve texture indices to actual texture names - matches C++ behavior
@@ -623,6 +625,16 @@ impl W3DLoader {
                     has_valid_mesh_header = true;
                     mesh.name = header.mesh_name;
                     mesh.container_name = header.container_name;
+                    // Preserve the existing short-header path and renderer flags.
+                    let source_chunk = &data[offset..offset + 8 + chunk_size];
+                    mesh.source_object_bounds =
+                        match W3DReader::new(Cursor::new(source_chunk)).read_chunk() {
+                            Ok(W3DChunk::MeshHeader(source)) => Some(SourceMeshBounds {
+                                min: source.bbox_min.into(),
+                                max: source.bbox_max.into(),
+                            }),
+                            _ => None,
+                        };
                     expected_vertex_count = Some(header.num_vertices);
                     mesh_header_version = Some(header.version);
                     prelit_chunk_id = selected_prelit_chunk_id(header.flags);

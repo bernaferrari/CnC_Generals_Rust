@@ -128,7 +128,7 @@ fn hlod_attachment_array(chunk_type: u32, entries: &[(&str, u32)]) -> Vec<u8> {
     chunk(chunk_type, payload, true)
 }
 
-fn rigid_hlod_fixture(
+pub(crate) fn rigid_hlod_fixture(
     lod_count: usize,
     aggregate_entries: &[(&str, u32)],
     proxy_entries: &[(&str, u32)],
@@ -693,6 +693,49 @@ fn load_model_from_bytes_rejects_empty() {
             .load_model_from_bytes(&[], "AmericaCommandCenter")
             .is_err()
     );
+}
+
+#[test]
+fn mesh_header_retains_authored_object_bounds_without_affecting_culling() {
+    let mut bytes = mesh_with_vertex_influence_chunks(0x0004_0002, &[]);
+    let loader = W3DLoader::new();
+    let baseline = loader.load_model_from_bytes(&bytes, "baseline").unwrap();
+    let header_payload = 16;
+    bytes[header_payload + 4..header_payload + 8]
+        .copy_from_slice(&W3D_MESH_FLAG_GEOMETRY_TYPE_CAMERA_ALIGNED.to_le_bytes());
+    let min = Vec3::new(-7.0, -2.0, 3.0);
+    let max = Vec3::new(5.0, 15.0, 29.0);
+    for (field, value) in bytes[header_payload + 76..header_payload + 100]
+        .chunks_exact_mut(4)
+        .zip(min.to_array().into_iter().chain(max.to_array()))
+    {
+        field.copy_from_slice(&value.to_le_bytes());
+    }
+
+    let model = loader
+        .load_model_from_bytes(&bytes, "authored_bounds")
+        .unwrap();
+    let mesh = &model.meshes[0];
+    assert_eq!(
+        mesh.source_object_bounds,
+        Some(SourceMeshBounds { min, max })
+    );
+    assert_eq!(model.bounding_box_min, baseline.bounding_box_min);
+    assert_eq!(model.bounding_box_max, baseline.bounding_box_max);
+    assert!(!W3DModel::mesh_declares_camera_aligned(mesh));
+    assert!(mesh.header.is_none());
+
+    // The shorter compatibility header still loads without invented bounds.
+    bytes.drain(header_payload + 76..header_payload + 116);
+    bytes[12..16].copy_from_slice(&76u32.to_le_bytes());
+    let mesh_payload_size = (bytes.len() - 8) as u32 | 0x8000_0000;
+    bytes[4..8].copy_from_slice(&mesh_payload_size.to_le_bytes());
+    let model = loader
+        .load_model_from_bytes(&bytes, "short_header")
+        .unwrap();
+    assert!(model.meshes[0].source_object_bounds.is_none());
+    assert_eq!(model.bounding_box_min, baseline.bounding_box_min);
+    assert_eq!(model.bounding_box_max, baseline.bounding_box_max);
 }
 
 #[test]
@@ -2901,5 +2944,98 @@ fn prelit_wrapper_selected_like_cpp_lightmap_multi_pass_mode() {
     assert!(
         loaded_pass_shaders(&prelit_mesh(0, wrappers)).is_empty(),
         "a mesh without prelit flags reads no wrapper"
+    );
+}
+
+#[test]
+fn constructor_projected_decal_mesh_size_scales_source_xy() {
+    let mut model = W3DLoader::new()
+        .load_model_from_bytes(
+            &mesh_with_vertex_influence_chunks(0x0004_0002, &[]),
+            "plain",
+        )
+        .unwrap();
+    model.meshes[0].source_object_bounds = Some(SourceMeshBounds {
+        min: Vec3::new(-3.0, -7.0, 100.0),
+        max: Vec3::new(2.0, 6.0, 180.0),
+    });
+
+    assert_eq!(
+        model.constructor_projected_decal_size_xy("skin", 2.0),
+        Some(glam::Vec2::new(10.0, 26.0))
+    );
+    assert_eq!(
+        model.constructor_projected_decal_size_xy("plain", 2.0),
+        None
+    );
+    model.meshes[0].source_object_bounds = None;
+    assert_eq!(model.constructor_projected_decal_size_xy("skin", 2.0), None);
+}
+
+#[test]
+fn constructor_projected_decal_single_hlod_mesh_uses_exact_posed_source_bounds() {
+    let mut model = W3DLoader::new()
+        .load_model_from_bytes(&rigid_hlod_fixture(1, &[], &[]), "single_hlod")
+        .unwrap();
+    model.meshes[0].source_object_bounds = Some(SourceMeshBounds {
+        min: Vec3::new(-3.0, -7.0, 100.0),
+        max: Vec3::new(2.0, 6.0, 180.0),
+    });
+    let quarter_turn = std::f32::consts::FRAC_1_SQRT_2;
+    model.hierarchies[0].pivots[1].rotation = [0.0, 0.0, quarter_turn, quarter_turn];
+
+    let size = model
+        .constructor_projected_decal_size_xy("hlodroot", 2.0)
+        .unwrap();
+    assert!(size.abs_diff_eq(glam::Vec2::new(26.0, 10.0), 0.0001));
+
+    // A same-leaf mesh from another authored container cannot supply the box.
+    model.meshes[0].container_name = "OTHER".to_string();
+    assert_eq!(
+        model.constructor_projected_decal_size_xy("hlodroot", 2.0),
+        None
+    );
+}
+
+#[test]
+fn constructor_projected_decal_named_obbox_uses_highest_lod_and_unscaled_extents() {
+    let mut model = W3DLoader::new()
+        .load_model_from_bytes(&rigid_hlod_fixture(2, &[], &[]), "two_lods")
+        .unwrap();
+    let quarter_turn = std::f32::consts::FRAC_1_SQRT_2;
+    model.hierarchies[0].pivots[1].rotation = [0.0, 0.0, quarter_turn, quarter_turn];
+    let name = "HLODROOT.BOUNDINGBOX";
+    model.hlods[0].lods[1].subobjects.push(W3dHlodSubObject {
+        name: name.to_string(),
+        bone_index: 1,
+    });
+    model.boxes.extend([
+        W3dBoxProto {
+            name: "OTHER.BOUNDINGBOX".to_string(),
+            attributes: super::w3d_primitive_protos::W3D_BOX_ATTRIBUTE_ORIENTED,
+            center: [0.0; 3],
+            extent: [99.0; 3],
+        },
+        W3dBoxProto {
+            name: name.to_string(),
+            attributes: super::w3d_primitive_protos::W3D_BOX_ATTRIBUTE_ORIENTED,
+            center: [15.0, -6.0, 80.0],
+            extent: [4.0, 12.0, 3.0],
+        },
+    ]);
+    assert_eq!(
+        W3DModel::cxx_constructor_selected_hlod_lod_index(&model.hlods[0]),
+        Some(0)
+    );
+    for scale in [1.0, 2.0] {
+        let size = model
+            .constructor_projected_decal_size_xy("hlodroot", scale)
+            .unwrap();
+        assert!(size.abs_diff_eq(glam::Vec2::new(24.0, 8.0), 0.0001));
+    }
+    model.boxes.pop();
+    assert_eq!(
+        model.constructor_projected_decal_size_xy("hlodroot", 2.0),
+        None
     );
 }

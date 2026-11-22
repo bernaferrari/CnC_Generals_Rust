@@ -520,6 +520,9 @@ pub struct RenderItem {
     /// Exact ownership domain for this item.
     pub owner: RenderItemOwner,
 
+    /// One retained source item per Main Draw model, consumed after scene culling.
+    pub(super) native_projected_shadow_module_index: Option<u32>,
+
     /// Exact ghost-only state, present only for `RenderItemOwner::W3dGhost`.
     /// Ordinary collection and FOW modifiers must leave this unset.
     pub ghost_render_state: Option<GhostRenderState>,
@@ -668,6 +671,7 @@ impl RenderItem {
         Self {
             object_id,
             owner: RenderItemOwner::Object(object_id),
+            native_projected_shadow_module_index: None,
             ghost_render_state: None,
             legacy_model_draw_source: None,
             legacy_weapon_bone_bindings: None,
