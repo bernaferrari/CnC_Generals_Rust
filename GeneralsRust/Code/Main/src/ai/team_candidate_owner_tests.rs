@@ -163,9 +163,72 @@ fn actual_native_selection_filters_controller_and_preserves_admission_order() {
 }
 
 #[test]
+fn owned_new_team_selection_draws_once_from_the_receiving_logic_rng() {
+    use game_engine::common::random_value::with_session_random;
+
+    let (mut world, unit, instance) = fixture(0);
+    let (mut peer, peer_unit, peer_instance) = fixture(10);
+    assert_eq!(unit, peer_unit);
+    assert_eq!(instance, peer_instance);
+    {
+        let mut factory = peer.team_factory.lock().unwrap();
+        let mut prototype = (*factory.find_team_prototype("OwnedZulu").unwrap()).clone();
+        prototype.set_production_condition("AlwaysBuild".into());
+        factory.replace_team_prototype(prototype);
+    }
+
+    world.logic_random.seed_random(1234);
+    peer.logic_random.seed_random(9876);
+    let mut expected_world = world.logic_random.snapshot();
+    expected_world.next_u32();
+    let mut expected_peer = peer.logic_random.snapshot();
+
+    let data = world_view::AiDataView::from_world(&world);
+    with_session_random(&peer.logic_random, || {
+        world.update_owned_ai_military(1, 1.0, &data);
+    });
+    let queued = world.ai_manager.ai_players[&1].team_queue.front().unwrap();
+    assert_eq!(queued.name, "OwnedAlpha");
+    assert!(!queued.reinforcement);
+    assert_eq!(world.logic_random.seed_words(), expected_world.seed_words());
+    assert_eq!(peer.logic_random.seed_words(), expected_peer.seed_words());
+    assert!(peer.ai_manager.ai_players[&1].team_queue.is_empty());
+
+    let expected_name = ["OwnedZulu", "OwnedAlpha"][expected_peer.next_int(0, 1) as usize];
+    let data = world_view::AiDataView::from_world(&peer);
+    with_session_random(&world.logic_random, || {
+        peer.update_owned_ai_military(1, 1.0, &data);
+    });
+    let queued = peer.ai_manager.ai_players[&1].team_queue.front().unwrap();
+    assert_eq!(queued.name, expected_name);
+    assert!(!queued.reinforcement);
+    assert_eq!(peer.logic_random.seed_words(), expected_peer.seed_words());
+    assert_eq!(world.logic_random.seed_words(), expected_world.seed_words());
+}
+
+#[test]
+fn owned_selection_without_eligible_teams_leaves_logic_rng_untouched() {
+    let (mut world, _, _) = fixture_with_new_team_condition(50, ConditionType::ConditionFalse);
+    {
+        let mut factory = world.team_factory.lock().unwrap();
+        let mut prototype = (*factory.find_team_prototype("OwnedZulu").unwrap()).clone();
+        prototype.set_automatically_reinforce(false);
+        factory.replace_team_prototype(prototype);
+    }
+    let seed = world.logic_random.seed_words();
+    let data = world_view::AiDataView::from_world(&world);
+
+    world.update_owned_ai_military(1, 1.0, &data);
+
+    assert!(world.ai_manager.ai_players[&1].team_queue.is_empty());
+    assert_eq!(world.logic_random.seed_words(), seed);
+}
+
+#[test]
 fn owned_selection_reinforces_when_no_new_team_is_eligible() {
     let (mut world, _, instance) = fixture_with_new_team_condition(50, ConditionType::ConditionFalse);
     let first_decision = 2.0;
+    let seed = world.logic_random.seed_words();
     let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
     ai.next_team_time = first_decision;
     ai.next_team_queue_time = first_decision;
@@ -182,6 +245,7 @@ fn owned_selection_reinforces_when_no_new_team_is_eligible() {
     let queued = ai.team_queue.front().unwrap();
     assert!(queued.reinforcement);
     assert_eq!(queued.team_id, Some(instance));
+    assert_eq!(world.logic_random.seed_words(), seed);
     assert_eq!(queued.work_orders.len(), 1);
     let order = &queued.work_orders[0];
     assert_eq!(order.num_required, 1);

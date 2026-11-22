@@ -1536,12 +1536,9 @@ impl AIPlayer {
         if hi.is_empty() {
             return OwnedTeamSelection::None;
         }
-        let which = if hi.len() == 1 {
-            0
-        } else {
-            self.placement_rng.next_int(0, (hi.len() as i32) - 1) as usize
-        };
-        OwnedTeamSelection::New(hi[which.min(hi.len() - 1)].clone())
+        // C++ consumes a game-logic draw even when only one prototype qualifies.
+        let which = game_logic.logic_random.next_int(0, (hi.len() as i32) - 1) as usize;
+        OwnedTeamSelection::New(hi[which].clone())
     }
 
     /// C++ `selectTeamToBuild` new-pick arm: ready=false, teamTimer =
