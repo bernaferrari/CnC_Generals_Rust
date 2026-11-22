@@ -378,6 +378,27 @@ impl Object {
         ))
     }
 
+    /// Exact registration whose installed entry carries this module-data
+    /// handle. No class fallback or data lock: the authored handle is unique
+    /// per module/tag on one object, and an ambiguous match must not wake an
+    /// arbitrary sibling (UpdateModule.cpp:61 wakes `this`).
+    pub(crate) fn find_update_registration_by_data(
+        &self,
+        data: &ModuleDataHandle,
+    ) -> Option<UpdateModulePtr> {
+        let mut registrations = self.update_module_registrations.iter().filter(|registration| {
+            registration
+                .module_index
+                .and_then(|index| self.modules.get(index))
+                .is_some_and(|entry| ModuleDataHandle::ptr_eq(entry.data(), data))
+        });
+        let registration = registrations.next()?;
+        if registrations.next().is_some() {
+            return None;
+        }
+        Some(Arc::clone(&registration.module))
+    }
+
     /// Install an update module after construction (tests / internal harnesses).
     #[cfg(any(test, feature = "internal"))]
     pub fn install_update_module(

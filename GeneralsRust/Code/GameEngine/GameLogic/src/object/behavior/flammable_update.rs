@@ -185,13 +185,13 @@ impl FlammableUpdate {
             .downcast_ref::<FlammableUpdateModuleData>()
             .ok_or("Invalid module data")?.flame_damage_limit;
 
+        let (audio, object_id) = object.read().ok().map_or(
+            (None, crate::common::INVALID_ID),
+            |owner| (crate::helpers::TheAudio::of_object(&owner), owner.get_id()),
+        );
         Ok(Self {
-            audio: object.read().ok().and_then(|o| crate::helpers::TheAudio::of_object(&o)),
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            audio,
+            object_id,
             owner: Arc::downgrade(&object),
             module_data,
             next_call_frame_and_phase: 0,
@@ -251,24 +251,34 @@ impl FlammableUpdate {
             }
             Ok(delay)
         };
-        // C++ setWakeFrame targets `this`: the own-wake call carries this
-        // instance's module tag (FireSpreadUpdate.cpp:139-145 wakes its own
-        // proxy inside the spread closure).
-        let self_tag = self.module_data.read().get_module_tag_name_key();
-        let mut wake_self = |object: &GameObject, sleep: UpdateSleepTime| {
-            let wake_frame = match sleep {
-                UpdateSleepTime::None => frame.saturating_add(1),
-                UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
-                UpdateSleepTime::Frames(frames) => frame.saturating_add(frames),
-            };
-            if self_tag == 0 || !object.reschedule_tagged_update(self_tag, wake_frame) {
-                object.reschedule_named_update("FlammableUpdate", wake_frame);
-            }
-            Ok(())
-        };
-        if let Err(error) =
-            self.try_to_ignite_with_services_at(frame, &mut audio, &mut spread, &mut wake_self)
-        {
+        // C++ setWakeFrame targets `this`: the self proxy is resolved by the
+        // authored module-data handle, the GameLogic.cpp:2965-3004 current-
+        // callback exclusion is checked before the scheduler is acquired, and
+        // the borrowed runtime stamps the wake so no entry lock is re-opened.
+        let result = self
+            .try_to_ignite_with_services_at(frame, &mut audio, &mut spread)
+            .and_then(|sleep| {
+                let Some(sleep) = sleep else {
+                    return Ok(());
+                };
+                let Some(proxy) = self.object_arc().and_then(|owner| {
+                    owner
+                        .try_read()
+                        .ok()?
+                        .find_update_registration_by_data(&self.module_data)
+                }) else {
+                    return Ok(());
+                };
+                if crate::system::game_logic::is_cur_update_module(&proxy) {
+                    return Ok(());
+                }
+                let wake = ignition_wake_frame(frame, sleep);
+                let mut scheduler = crate::system::game_logic::get_game_logic()
+                    .lock()
+                    .map_err(|_| "Flammable scheduler poisoned")?;
+                scheduler.awaken_borrowed_update(&proxy, frame, wake, self)
+            });
+        if let Err(error) = result {
             log::debug!("Flammable ignition unavailable: {error}");
         }
     }
@@ -281,10 +291,9 @@ impl FlammableUpdate {
         frame: UnsignedInt,
         audio: &mut dyn FnMut(&crate::common::audio::AudioEventRts) -> u32,
         spread: &mut dyn FnMut(&GameObject) -> Result<Option<UnsignedInt>, String>,
-        wake_self: &mut dyn FnMut(&GameObject, UpdateSleepTime) -> Result<(), String>,
-    ) -> Result<(), String> {
+    ) -> Result<Option<UpdateSleepTime>, String> {
         if self.status != FlammabilityStatus::Normal {
-            return Ok(());
+            return Ok(None);
         }
         let owner = self
             .object_arc()
@@ -302,11 +311,20 @@ impl FlammableUpdate {
         } else {
             self.needs_aflame_side_effects = true;
         }
-        let handle = self.module_data.clone();
-        let guard = handle.read();
-        let data = guard.downcast_ref::<FlammableUpdateModuleData>().expect("Invalid module data");
+        let (burning_sound_name, aflame_duration, burned_delay, aflame_damage_delay) = {
+            let guard = self.module_data.read();
+            let data = guard
+                .downcast_ref::<FlammableUpdateModuleData>()
+                .expect("Invalid module data");
+            (
+                data.burning_sound_name.clone(),
+                data.aflame_duration,
+                data.burned_delay,
+                data.aflame_damage_delay,
+            )
+        };
         let mut event =
-            crate::common::audio::AudioEventRts::new(data.burning_sound_name.as_str());
+            crate::common::audio::AudioEventRts::new(burning_sound_name.as_str());
         event.set_object_id(self.object_id);
         self.audio_handle = audio(&event);
         if let Ok(object) = owner.try_read() {
@@ -315,28 +333,24 @@ impl FlammableUpdate {
             }
         }
         self.status = FlammabilityStatus::Aflame;
-        self.aflame_end_frame = frame.wrapping_add(data.aflame_duration);
-        self.burned_end_frame = if data.burned_delay > 0 {
-            frame.wrapping_add(data.burned_delay)
+        self.aflame_end_frame = frame.wrapping_add(aflame_duration);
+        self.burned_end_frame = if burned_delay > 0 {
+            frame.wrapping_add(burned_delay)
         } else {
             0
         };
-        self.damage_end_frame = if data.aflame_damage_delay > 0 {
-            frame.wrapping_add(data.aflame_damage_delay)
+        self.damage_end_frame = if aflame_damage_delay > 0 {
+            frame.wrapping_add(aflame_damage_delay)
         } else {
             0
         };
-        drop(guard);
         let sleep = if self.needs_aflame_side_effects {
             UpdateSleepTime::None
         } else {
             self.calc_sleep_time_at(frame)
         };
         self.last_wake_sleep = Some(sleep);
-        if let Ok(object) = owner.try_read() {
-            wake_self(&object, sleep)?;
-        }
-        Ok(())
+        Ok(Some(sleep))
     }
 
     fn stop_burning_sound(&mut self) {
@@ -586,6 +600,14 @@ impl UpdateModuleInterface for FlammableUpdate {
 
         self.calc_sleep_time()
     }
+
+    fn record_scheduled_wake(
+        &mut self,
+        frame: u32,
+        phase: crate::modules::SleepyUpdatePhase,
+    ) {
+        self.next_call_frame_and_phase = (frame.min(0x3fff_ffff) << 2) | phase as u32;
+    }
 }
 impl Drop for FlammableUpdate {
     fn drop(&mut self) {
@@ -608,6 +630,10 @@ impl BehaviorModuleInterface for FlammableUpdate {
     /// Sleepy-update table participant (see `ActiveBehaviorModule`).
     fn get_sleepy_update_interface(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
+    }
+
+    fn behavior_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(self.next_call_frame_and_phase >> 2)
     }
 
     fn get_damage(&mut self) -> Option<&mut dyn crate::modules::DamageModuleInterface> {
@@ -674,6 +700,16 @@ impl Snapshotable for FlammableUpdate {
     }
 }
 
+/// Convert the delay passed to C++ setWakeFrame into the deadline expected
+/// by the scheduler.
+fn ignition_wake_frame(frame: UnsignedInt, sleep: UpdateSleepTime) -> UnsignedInt {
+    match sleep {
+        UpdateSleepTime::None => frame.saturating_add(1),
+        UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
+        UpdateSleepTime::Frames(frames) => frame.saturating_add(frames),
+    }
+}
+
 /// Complete silent ignition on the installed canonical module. The original
 /// FireSpread wake is immediate; this module's final wake executes immediately
 /// after its own loan ends, allowing the real proxy to stamp its saved state.
@@ -717,8 +753,7 @@ pub(crate) fn ignite_installed_silent_at(
     if let Some((_, proxy)) = &spread {
         scheduler.validate_owned_update_wake(proxy)?;
     }
-    let mut pending = None;
-    module.with_module(|module| -> Result<(), String> {
+    let pending = module.with_module(|module| -> Result<Option<UpdateSleepTime>, String> {
         let flammable = module
             .as_any_mut()
             .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<FlammableUpdate>>(
@@ -758,24 +793,20 @@ pub(crate) fn ignite_installed_silent_at(
                     proxy,
                     None,
                     frame,
-                    UpdateSleepTime::Frames(delay).to_u32(),
+                    ignition_wake_frame(frame, UpdateSleepTime::Frames(delay)),
                 )?;
             }
             Ok(delay)
         };
-        let mut wake_self = |_object: &GameObject, sleep: UpdateSleepTime| {
-            pending = Some(sleep);
-            Ok(())
-        };
-        flammable.try_to_ignite_with_services_at(
-            frame,
-            &mut audio,
-            &mut start_spread,
-            &mut wake_self,
-        )
+        flammable.try_to_ignite_with_services_at(frame, &mut audio, &mut start_spread)
     })?;
     if let Some(sleep) = pending {
-        scheduler.awaken_update_module_with_current(&self_proxy, None, frame, sleep.to_u32())?;
+        scheduler.awaken_update_module_with_current(
+            &self_proxy,
+            None,
+            frame,
+            ignition_wake_frame(frame, sleep),
+        )?;
     }
     Ok(())
 }
@@ -896,7 +927,6 @@ mod tests {
         id: ObjectID,
         data: FlammableUpdateModuleData,
         spread_delays: &[u32],
-        register_flammable: bool,
     ) -> (
         Arc<RwLock<GameObject>>,
         crate::system::game_logic::GameLogic,
@@ -963,9 +993,6 @@ mod tests {
         let mut scheduler = crate::system::game_logic::GameLogic::new();
         scheduler.admit_scheduling_owner(id, object.clone());
         for entry in entries {
-            if !register_flammable && entry.name() == "FlammableUpdate" {
-                continue;
-            }
             let proxy: game_engine::common::thing::update_module::UpdateModulePtr = Arc::new(
                 RwLock::new(crate::object::ModuleUpdateProxy::new(entry.clone(), id)),
             );
@@ -1057,7 +1084,7 @@ mod tests {
             ..Default::default()
         };
         for frame in [0, u32::MAX - 10] {
-            let (object, mut scheduler) = ignition_fixture(9201, data.clone(), &[], true);
+            let (object, mut scheduler) = ignition_fixture(9201, data.clone(), &[]);
             ignite_installed_silent_at(&object, &mut scheduler, &mut game_engine::common::random_value::RandomState::default(), frame)
                 .unwrap();
             observe_flammable(&object, |flammable| {
@@ -1092,9 +1119,9 @@ mod tests {
         // (Object.cpp:2847); its own registration is the only proxy woken
         // (FireSpreadUpdate.cpp:139-145).
         let (object, mut scheduler) =
-            ignition_fixture(9202, FlammableUpdateModuleData::default(), &[45, 60], true);
+            ignition_fixture(9202, FlammableUpdateModuleData::default(), &[45, 60]);
         let (peer, peer_scheduler) =
-            ignition_fixture(9202, FlammableUpdateModuleData::default(), &[80], true);
+            ignition_fixture(9202, FlammableUpdateModuleData::default(), &[80]);
         let mut spread_proxies = object
             .read()
             .unwrap()
@@ -1110,7 +1137,7 @@ mod tests {
             .unwrap();
         let sibling_before = scheduler.sleepy_entry_for(&sibling_proxy).unwrap().1;
         let peer_before = peer_scheduler.sleepy_entry_for(&peer_proxy).unwrap().1;
-        ignite_installed_silent_at(&object, &mut scheduler, &mut game_engine::common::random_value::RandomState::default(), 0).unwrap();
+        ignite_installed_silent_at(&object, &mut scheduler, &mut game_engine::common::random_value::RandomState::default(), 20).unwrap();
         observe_flammable(&object, |flammable| {
             assert_eq!(
                 flammable.last_fire_spread_wake(),
@@ -1136,7 +1163,7 @@ mod tests {
                 .get_status_bits()
                 .contains(crate::common::ObjectStatusMaskType::AFLAME)
         );
-        assert_eq!(scheduler.sleepy_entry_for(&first_proxy).unwrap().1, 45);
+        assert_eq!(scheduler.sleepy_entry_for(&first_proxy).unwrap().1, 65);
         assert_eq!(
             scheduler.sleepy_entry_for(&sibling_proxy).unwrap().1,
             sibling_before,
@@ -1152,20 +1179,24 @@ mod tests {
     }
 
     #[test]
-    fn compatibility_ignition_wakes_only_the_first_fire_spread_registration() {
+    fn compatibility_ignition_records_installed_self_wake_and_only_first_spread() {
         let _serial = crate::test_sync::lock();
         let stores = crate::system::engine_stores::new_for_world();
         crate::system::engine_stores::with_active_stores(&stores, || {
             let id = 9204;
-            // Isolate the spread callback from the legacy Flammable self-wake.
-            let (object, _) =
-                ignition_fixture(id, FlammableUpdateModuleData::default(), &[45, 60], false);
-            let (flammable, proxies, spread) = {
+            let data = FlammableUpdateModuleData {
+                aflame_duration: 90,
+                aflame_damage_delay: 30,
+                ..Default::default()
+            };
+            let (object, _) = ignition_fixture(id, data, &[45, 60]);
+            let (flammable, proxies, spread, self_proxy) = {
                 let object = object.read().unwrap();
                 (
                     object.find_update_module("FlammableUpdate").unwrap(),
                     object.update_module_registrations().cloned().collect::<Vec<_>>(),
                     object.named_update_registrations("FireSpreadUpdate"),
+                    object.named_update_registrations("FlammableUpdate").pop().unwrap(),
                 )
             };
             let ambient = crate::system::game_logic::get_game_logic();
@@ -1189,6 +1220,41 @@ mod tests {
             let scheduler = ambient.lock().unwrap();
             assert_eq!(scheduler.sleepy_entry_for(&spread[0]).unwrap().1, 45);
             assert_eq!(scheduler.sleepy_entry_for(&spread[1]).unwrap().1, 100);
+            // aflame_damage_delay 30 is the nearest timer; the borrowed runtime
+            // stamps its own saved wake instead of re-entering the entry lock.
+            assert_eq!(scheduler.sleepy_entry_for(&self_proxy).unwrap().1, 30);
+            drop(scheduler);
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            flammable.with_module(|module| {
+                let flammable = module
+                    .as_any_mut()
+                    .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
+                        FlammableUpdate,
+                    >>()
+                    .unwrap()
+                    .behavior_mut();
+                flammable
+                    .xfer(&mut game_engine::common::system::xfer_save::XferSave::new(
+                        &mut bytes, 1,
+                    ))
+                    .unwrap();
+                let mut restored = FlammableUpdate::new_with_module_data(
+                    Arc::clone(&object),
+                    flammable.module_data.clone(),
+                )
+                .unwrap();
+                bytes.set_position(0);
+                restored
+                    .xfer(&mut game_engine::common::system::xfer_load::XferLoad::new(
+                        &mut bytes, 1,
+                    ))
+                    .unwrap();
+                assert_eq!(
+                    restored.next_call_frame_and_phase,
+                    (30 << 2) | crate::modules::SleepyUpdatePhase::Normal as u32
+                );
+                assert_eq!(restored.behavior_initial_wake_frame(), Some(30));
+            });
         });
     }
 

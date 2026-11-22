@@ -66,29 +66,39 @@ struct UpdateExecutionContext<'a> {
     minefield: Option<MinefieldWindow<'a>>,
 }
 
+/// C++ GameLogic.cpp:2971–2982 deadline filter: the already-awake ASAP entry
+/// and the identical-clock entry are left untouched. Returns the clamped wake
+/// only when the heap entry must actually change.
+fn changed_registered_wake(
+    queue: &SleepyUpdateQueue,
+    module: &UpdateModulePtr,
+    now: UnsignedInt,
+    wake: UnsignedInt,
+) -> Option<UnsignedInt> {
+    let wake = wake.min(UPDATE_SLEEP_FOREVER_FRAMES);
+    let entry = queue.entry_for(module)?;
+    if entry.wake_frame == wake
+        || (now > 0 && entry.wake_frame == now && wake == now.saturating_add(1))
+    {
+        return None;
+    }
+    Some(wake)
+}
+
 fn awaken_registered_update(
     queue: &mut SleepyUpdateQueue,
     module: &UpdateModulePtr,
     now: UnsignedInt,
     wake: UnsignedInt,
 ) {
-    let wake = wake.min(UPDATE_SLEEP_FOREVER_FRAMES);
-    let Some(entry) = queue.entry_for(module) else {
+    let Some(wake) = changed_registered_wake(queue, module, now, wake) else {
         return;
     };
-    // C++ GameLogic.cpp:2971–2982: already awake must still run this frame.
-    if entry.wake_frame == wake
-        || (now > 0 && entry.wake_frame == now && wake == now.saturating_add(1))
-    {
-        return;
-    }
-    let phase = module.read().ok().map(|update| update.get_update_phase());
+    let mut update = module.write().ok();
+    let phase = update.as_ref().map(|update| update.get_update_phase());
     queue.reschedule(module, wake, phase);
-    if let Some(phase) = phase {
-        module
-            .write()
-            .expect("scheduled module poisoned")
-            .record_scheduled_wake(wake, phase);
+    if let (Some(update), Some(phase)) = (&mut update, phase) {
+        update.record_scheduled_wake(wake, phase);
     }
 }
 
@@ -218,14 +228,12 @@ fn insert_sleepy_registration(
         .entry(object_id)
         .or_default()
         .push(ModuleIdentity::of(&module));
-    let phase = module
-        .read()
-        .map(|module| module.get_update_phase())
-        .unwrap_or(SleepyUpdatePhase::Normal);
-    module
-        .write()
-        .expect("scheduled module poisoned")
-        .record_scheduled_wake(wake, phase);
+    let phase = {
+        let mut update = module.write().expect("scheduled module poisoned");
+        let phase = update.get_update_phase();
+        update.record_scheduled_wake(wake, phase);
+        phase
+    };
     queue.push(SleepyUpdateEntry {
         wake_frame: wake,
         phase,
@@ -320,7 +328,7 @@ impl GameLogic {
     fn finish_scheduled_sleep(
         &mut self,
         module: &UpdateModulePtr,
-        phase: SleepyUpdatePhase,
+        _phase: SleepyUpdatePhase,
         current_frame: UnsignedInt,
         sleep: UpdateSleepTime,
     ) {
@@ -335,16 +343,11 @@ impl GameLogic {
         };
         // A synchronous callback may unregister itself. Never resurrect it.
         if self.sleepy_updates.index_of(module).is_some() {
-            let phase = module
-                .read()
-                .map(|update| update.get_update_phase())
-                .unwrap_or(phase);
+            let mut update = module.write().expect("scheduled module poisoned");
+            let phase = update.get_update_phase();
             self.sleepy_updates
                 .reschedule(module, next_wake, Some(phase));
-            module
-                .write()
-                .expect("scheduled module poisoned")
-                .record_scheduled_wake(next_wake, phase);
+            update.record_scheduled_wake(next_wake, phase);
         }
     }
 
@@ -509,6 +512,27 @@ impl GameLogic {
             return Ok(());
         }
         awaken_registered_update(&mut self.sleepy_updates, module, now, wake);
+        Ok(())
+    }
+
+    /// Wake a registered module through `update`, the already-loaned runtime
+    /// for this proxy. The caller holds the module borrow, so this method
+    /// never opens the proxy/entry lock (C++ UpdateModule.cpp:61 writes the
+    /// wake directly); the compat caller excludes the current callback before
+    /// acquiring this scheduler (GameLogic.cpp:2965–3004).
+    pub(crate) fn awaken_borrowed_update(
+        &mut self,
+        module: &UpdateModulePtr,
+        now: UnsignedInt,
+        wake: UnsignedInt,
+        update: &mut dyn UpdateModuleInterface,
+    ) -> Result<(), String> {
+        self.validate_owned_update_wake(module)?;
+        if let Some(wake) = changed_registered_wake(&self.sleepy_updates, module, now, wake) {
+            let phase = update.get_update_phase();
+            update.record_scheduled_wake(wake, phase);
+            self.sleepy_updates.reschedule(module, wake, Some(phase));
+        }
         Ok(())
     }
 

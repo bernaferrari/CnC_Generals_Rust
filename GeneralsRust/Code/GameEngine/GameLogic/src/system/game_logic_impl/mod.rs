@@ -91,7 +91,9 @@ use crate::common::{
     ObjectStatusMaskType, ObjectStatusTypes, PlayerMaskType, Real, UnsignedInt, UnsignedShort,
 };
 use crate::helpers::TheGameClient;
-use crate::modules::{SleepyUpdatePhase, UpdateModulePtr, UpdateSleepTime};
+use crate::modules::{
+    SleepyUpdatePhase, UpdateModuleInterface, UpdateModulePtr, UpdateSleepTime,
+};
 use crate::object::collide::collision_geometry::GeometryInfo as CollisionGeometryInfo;
 use crate::object::collide::collision_response::{CollisionResponseConfig, CollisionResponseType};
 use crate::object::collide::collision_system::with_collision_system_mut;
