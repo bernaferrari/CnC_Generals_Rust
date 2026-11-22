@@ -509,6 +509,99 @@ End
 }
 
 #[test]
+fn authored_weapon_selection_does_not_rebootstrap_receiving_common() {
+    let mut receiving = stock_weapon_choice_world();
+    let mut peer = stock_weapon_choice_world();
+    let spawn = |world: &mut GameLogic| {
+        let humvee = world
+            .create_object("AmericaVehicleHumvee", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let aircraft = world
+            .create_object(
+                "WeaponChoiceAircraft",
+                Team::China,
+                Vec3::new(100.0, 10.0, 0.0),
+            )
+            .unwrap();
+        world
+            .host_object_mut(aircraft)
+            .unwrap()
+            .status
+            .airborne_target = true;
+        (humvee, aircraft)
+    };
+    let (humvee, aircraft) = spawn(&mut receiving);
+    assert_eq!((humvee, aircraft), spawn(&mut peer));
+    let frame = receiving.frame;
+    let current_time = frame as f32 * LOGIC_FRAME_TIMESTEP;
+    receiving
+        .host_object_mut(humvee)
+        .unwrap()
+        .set_weapon_condition_at_frame(3, true, frame);
+    assert!(peer.choose_best_weapon_for_target(humvee, Some(aircraft), current_time));
+    assert_eq!(
+        peer.host_object(humvee).unwrap().selected_weapon_slot(),
+        Some(1)
+    );
+
+    let upgrade_center = std::sync::Arc::clone(
+        &receiving
+            .world_services
+            .common()
+            .system
+            .upgrade_center_lifetime,
+    );
+    peer.with_own_services(|| {
+        // An empty center witnesses reentry into Common bootstrapping without
+        // holding a guard across the operation or intentionally stalling it.
+        let previous = std::mem::take(&mut *upgrade_center.write().unwrap());
+        let chose = receiving.choose_best_weapon_for_target(humvee, Some(aircraft), current_time);
+        let selected = receiving
+            .host_object(humvee)
+            .unwrap()
+            .selected_weapon_slot();
+        let locked = receiving.host_object_mut(humvee).unwrap().set_weapon_lock(
+            2,
+            crate::game_logic::object::WeaponLockType::LockedPermanently,
+        );
+        let chose_locked = receiving.choose_best_weapon_for_target(humvee, None, current_time);
+        let selected_locked = receiving
+            .host_object(humvee)
+            .unwrap()
+            .selected_weapon_slot();
+        receiving
+            .host_object_mut(humvee)
+            .unwrap()
+            .release_weapon_lock(crate::game_logic::object::WeaponLockType::LockedPermanently);
+        let chose_ground = receiving.choose_best_weapon_for_target(humvee, None, current_time);
+        let selected_ground = receiving
+            .host_object(humvee)
+            .unwrap()
+            .selected_weapon_slot();
+        let untouched = {
+            let mut center = upgrade_center.write().unwrap();
+            let untouched = center.get_all_upgrades().is_empty();
+            *center = previous;
+            untouched
+        };
+        assert!(chose);
+        assert_eq!(selected, Some(2));
+        assert!(locked && chose_locked);
+        assert_eq!(selected_locked, Some(2));
+        assert!(chose_ground);
+        assert_eq!(selected_ground, Some(0));
+        assert_eq!(
+            peer.host_object(humvee).unwrap().selected_weapon_slot(),
+            Some(1)
+        );
+        assert!(
+            untouched,
+            "authored selection should not initialize Common upgrades"
+        );
+    });
+}
+
+#[test]
 fn stock_upgraded_humvee_auto_selects_air_tow() {
     let mut world = stock_weapon_choice_world();
     let humvee = world
@@ -570,4 +663,167 @@ fn stock_upgraded_comanche_keeps_rocket_pods_button_only() {
     ));
     assert!(world.choose_best_weapon_for_target(comanche, Some(ground), current_time));
     assert_eq!(world.host_object(comanche).unwrap().selected_weapon_slot(), Some(2));
+}
+
+#[test]
+fn stock_bender_weapon_readiness_follows_the_controlling_turret() {
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+    use crate::game_logic::object::{TurretSubState, WeaponFireStatus};
+
+    let mut world = GameLogic::new();
+    // INIZH.big Data/INI/Object/AmericaMiscUnit.ini and Data/INI/Weapon.ini.
+    let objects = r#"
+Object AmericaVehicleBattleShipUSSBender
+    KindOf = PRELOAD CAN_CAST_REFLECTIONS VEHICLE SCORE SELECTABLE
+    Geometry = BOX
+    GeometryMajorRadius = 200.0
+    GeometryMinorRadius = 20.0
+    GeometryHeight = 40
+    GeometryIsSmall = No
+    WeaponSet
+        Conditions = None
+        Weapon = PRIMARY BattleshipUSSBenderGun
+        Weapon = SECONDARY BattleshipUSSBenderGun
+        AutoChooseSources = PRIMARY FROM_SCRIPT FROM_PLAYER FROM_AI
+        AutoChooseSources = SECONDARY FROM_SCRIPT FROM_PLAYER FROM_AI
+    End
+    Body = ActiveBody ModuleTag_02
+        MaxHealth = 10000.0
+        InitialHealth = 10000.0
+    End
+    Behavior = AIUpdateInterface ModuleTag_03
+        Turret
+            TurretTurnRate = 80
+            TurretPitchRate = 80
+            FirePitch = 20
+            AllowsPitch = Yes
+            RecenterTime = 5000
+            ControlledWeaponSlots = PRIMARY
+            NaturalTurretAngle = 180
+        End
+        AltTurret
+            TurretTurnRate = 80
+            TurretPitchRate = 80
+            FirePitch = 20
+            AllowsPitch = Yes
+            RecenterTime = 5000
+            ControlledWeaponSlots = SECONDARY
+        End
+        TurretsLinked = Yes
+    End
+End
+Object BenderChoiceTarget
+    KindOf = VEHICLE SELECTABLE
+    Body = ActiveBody BodyTag
+        MaxHealth = 1000
+        InitialHealth = 1000
+    End
+End
+"#;
+    world
+        .admit_object_ini_sources([("stock-bender-choice.ini".into(), objects.into())])
+        .unwrap();
+    let weapon = r#"
+Weapon BattleshipUSSBenderGun
+    PrimaryDamage = 300
+    PrimaryDamageRadius = 15
+    AttackRange = 99999
+    DamageType = EXPLOSION
+    DeathType = EXPLODED
+    WeaponSpeed = 400
+    ProjectileObject = USSBenderGunShell
+    DelayBetweenShots = 750
+    ClipSize = 3
+    AutoReloadsClip = No
+End
+"#;
+    let mut definitions = HashMap::new();
+    assert_eq!(
+        parse_weapon_definitions_ini_into(
+            &mut definitions,
+            weapon,
+            WeaponDefinitionLoadType::Normal
+        ),
+        1
+    );
+    world
+        .admit_weapon_content_snapshot(
+            definitions
+                .into_values()
+                .map(|rule| (rule.name.clone(), rule))
+                .collect(),
+            &[],
+        )
+        .unwrap();
+    world.frame = 100;
+    let ship = world
+        .create_object("AmericaVehicleBattleShipUSSBender", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let victim = world
+        .create_object(
+            "BenderChoiceTarget",
+            Team::China,
+            Vec3::new(300.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let current_time = world.frame as f32 * LOGIC_FRAME_TIMESTEP;
+    let ship_object = world.host_object(ship).unwrap();
+    use gamelogic::common::TurretType;
+    assert_eq!(ship_object.which_turret_for_weapon_slot(0), TurretType::Primary);
+    assert_eq!(ship_object.which_turret_for_weapon_slot(1), TurretType::Secondary);
+    for slot in [0, 1] {
+        assert_eq!(
+            ship_object.selected_weapon_name(slot),
+            Some("BattleshipUSSBenderGun")
+        );
+        assert_eq!(
+            ship_object
+                .weapon_slot(slot)
+                .unwrap()
+                .frame_status_at(world.frame),
+            WeaponFireStatus::ReadyToFire
+        );
+    }
+    assert!(world.choose_best_weapon_for_target(ship, Some(victim), current_time));
+    assert_eq!(
+        world.host_object(ship).unwrap().selected_weapon_slot(),
+        Some(0)
+    );
+
+    // The linked turrets have the same victim. The forward turret has reached
+    // FIRE while the aft turret is still turning from its natural angle.
+    world.set_turret_target_object(ship, Some(victim), false);
+    world
+        .host_object_mut(ship)
+        .unwrap()
+        .set_active_weapon_slot(1);
+    world.set_turret_target_object(ship, Some(victim), false);
+    {
+        let ship_object = world.host_object_mut(ship).unwrap();
+        assert_eq!(ship_object.turret_ai.turret_substate, TurretSubState::Aim);
+        let alt = ship_object.alt_turret_ai.as_mut().unwrap();
+        assert_eq!(alt.turret_target_id, Some(victim));
+        alt.turret_substate = TurretSubState::Fire;
+        ship_object.set_active_weapon_slot(0);
+    }
+    assert!(world.choose_best_weapon_for_target(ship, Some(victim), current_time));
+    assert_eq!(
+        world.host_object(ship).unwrap().selected_weapon_slot(),
+        Some(1)
+    );
+
+    let ship_object = world.host_object_mut(ship).unwrap();
+    ship_object.turret_ai.turret_substate = TurretSubState::Fire;
+    ship_object.alt_turret_ai.as_mut().unwrap().turret_substate = TurretSubState::Aim;
+    let ship_object = world.host_object(ship).unwrap();
+    let target = world.host_object(victim).unwrap();
+    assert!(ship_object.is_weapon_slot_on_turret_and_aiming_at_target(1, target));
+    assert!(!ship_object.is_weapon_slot_on_turret_and_aiming_at_target(0, target));
+    assert!(world.choose_best_weapon_for_target(ship, Some(victim), current_time));
+    assert_eq!(
+        world.host_object(ship).unwrap().selected_weapon_slot(),
+        Some(0)
+    );
 }

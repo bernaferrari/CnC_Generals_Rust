@@ -662,23 +662,23 @@ fn weapon_slot_picks_controlling_turret_primary_then_alt() {
     let mut obj = Object::new(ThingTemplate::new("DualTurret"), ObjectId(1), Team::USA);
     obj.turret_runtime.has_authored_turret = true;
     obj.turret_runtime.controlled_weapon_slots = 0b001; // PRIMARY
-    assert_eq!(obj.which_turret_for_weapon_slot(0), Some(0));
-    assert_eq!(obj.which_turret_for_weapon_slot(1), None);
+    assert_eq!(obj.which_turret_for_weapon_slot(0), TurretType::Primary);
+    assert_eq!(obj.which_turret_for_weapon_slot(1), TurretType::Invalid);
     assert!(!obj.is_weapon_slot_on_turret(1));
 
     let mut alt = HostTurretExtra::default();
     alt.has_authored_turret = true;
     alt.controlled_weapon_slots = 0b110; // SECONDARY | TERTIARY
     obj.alt_turret_runtime = Some(alt);
-    assert_eq!(obj.which_turret_for_weapon_slot(0), Some(0));
-    assert_eq!(obj.which_turret_for_weapon_slot(1), Some(1));
-    assert_eq!(obj.which_turret_for_weapon_slot(2), Some(1));
+    assert_eq!(obj.which_turret_for_weapon_slot(0), TurretType::Primary);
+    assert_eq!(obj.which_turret_for_weapon_slot(1), TurretType::Secondary);
+    assert_eq!(obj.which_turret_for_weapon_slot(2), TurretType::Secondary);
     assert!(obj.is_weapon_slot_on_turret(1), "alt turret controls slot 1");
 
     // Overlap: MAIN wins (loop order i=0 first).
     obj.turret_runtime.controlled_weapon_slots = 0b011;
-    assert_eq!(obj.which_turret_for_weapon_slot(1), Some(0));
-    assert_eq!(obj.which_turret_for_weapon_slot(7), None);
+    assert_eq!(obj.which_turret_for_weapon_slot(1), TurretType::Primary);
+    assert_eq!(obj.which_turret_for_weapon_slot(7), TurretType::Invalid);
 }
 
 #[test]

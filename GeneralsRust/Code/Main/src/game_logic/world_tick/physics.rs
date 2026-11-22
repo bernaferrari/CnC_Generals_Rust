@@ -1268,8 +1268,7 @@ impl GameLogic {
         current_time: f32,
         command_source: Option<u32>,
     ) -> bool {
-        self.with_own_services_mut(|this| {
-        let Some(u) = this.objects.get(&unit_id) else {
+        let Some(u) = self.objects.get(&unit_id) else {
             return false;
         };
         if !u.is_alive() {
@@ -1287,34 +1286,37 @@ impl GameLogic {
             let has =
                 u.weapon.is_some() || u.secondary_weapon.is_some() || u.tertiary_weapon.is_some();
             if has {
-                if let Some(uu) = this.objects.get_mut(&unit_id) {
+                if let Some(uu) = self.objects.get_mut(&unit_id) {
                     uu.leftover_choose_best_reset_primary_for_ground();
                 }
             }
             return has;
         };
-        let Some(v) = this.objects.get(&vid) else {
+        let Some(v) = self.objects.get(&vid) else {
             return false;
         };
-        // Snapshot selection without holding mut borrow across get_mut.
-        let slot = u.select_combat_weapon_slot_for_source(
-            v,
-            current_time,
-            Some(&this.solo_weapon_bonus_set),
-            command_source.unwrap_or(u.last_command_source),
-        );
+        // The admitted WeaponSet already borrows its rules and target from
+        // this owner. Hand-built rows can still consult the legacy store.
+        let slot = if let Some(row) = u.selected_authored_weapon_row() {
+            u.select_authored_combat_weapon_slot(
+                row, v, current_time, command_source.unwrap_or(u.last_command_source),
+            )
+        } else {
+            self.with_own_services(|| {
+                u.select_legacy_combat_weapon_slot(v, current_time, Some(&self.solo_weapon_bonus_set))
+            })
+        };
         let Some(slot) = slot else {
             // Leftover chooseBest: no valid weapon → reset PRIMARY, return FALSE.
-            if let Some(uu) = this.objects.get_mut(&unit_id) {
+            if let Some(uu) = self.objects.get_mut(&unit_id) {
                 uu.set_active_weapon_slot(0);
             }
             return false;
         };
-        if let Some(uu) = this.objects.get_mut(&unit_id) {
+        if let Some(uu) = self.objects.get_mut(&unit_id) {
             uu.set_active_weapon_slot(slot);
         }
         true
-        })
     }
 
     /// C++ cannotPossiblyAttackObject state condition residual.

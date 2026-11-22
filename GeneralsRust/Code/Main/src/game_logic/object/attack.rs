@@ -1,4 +1,5 @@
 use super::*;
+use gamelogic::common::TurretType;
 
 #[derive(Clone, Copy)]
 enum WeaponShotRoute {
@@ -54,18 +55,17 @@ impl Object {
         let turret = self.which_turret_for_weapon_slot(slot);
         let identity_attachment = || {
             let local = match turret {
-                Some(0) => {
+                TurretType::Primary => {
                     let ai = &self.turret_ai;
                     glam::Mat4::from_rotation_z(ai.turret_angle_deg.to_radians())
                         * glam::Mat4::from_rotation_y(-ai.turret_pitch_deg.to_radians())
                 }
-                Some(1) => {
+                TurretType::Secondary => {
                     let ai = self.alt_turret_ai.as_ref()?;
                     glam::Mat4::from_rotation_z(ai.turret_angle_deg.to_radians())
                         * glam::Mat4::from_rotation_y(-ai.turret_pitch_deg.to_radians())
                 }
-                Some(_) => return None,
-                None => glam::Mat4::IDENTITY,
+                TurretType::Invalid => glam::Mat4::IDENTITY,
             };
             Some(self.get_transform_matrix()
                 * crate::game_logic::host_fx_list_dispatch::host_to_leftover_mat4(local))
@@ -125,15 +125,15 @@ impl Object {
             }
             let Some(launch) = selected.or(first) else { continue };
             let mut local = launch.unwrap_or(glam::Mat4::IDENTITY);
-            if let Some(turret) = turret {
+            if turret != TurretType::Invalid {
                 let info = &draw.primary_turret;
                 let (yaw_name, pitch_name, art_yaw, art_pitch, ai) = match turret {
-                    0 if info.primary_fields_valid => (
+                    TurretType::Primary if info.primary_fields_valid => (
                         info.yaw_bone.as_deref(), info.pitch_bone.as_deref(),
                         info.yaw_art_angle_radians(), info.pitch_art_angle_radians(),
                         &self.turret_ai,
                     ),
-                    1 if info.alternate_fields_valid => (
+                    TurretType::Secondary if info.alternate_fields_valid => (
                         info.alternate_yaw_bone.as_deref(), info.alternate_pitch_bone.as_deref(),
                         info.alternate_yaw_art_angle_radians(), info.alternate_pitch_art_angle_radians(),
                         self.alt_turret_ai.as_ref()?,

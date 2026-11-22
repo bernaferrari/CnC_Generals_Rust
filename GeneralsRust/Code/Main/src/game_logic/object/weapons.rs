@@ -1,4 +1,5 @@
 use super::*;
+use gamelogic::common::TurretType;
 
 impl Object {
     /// Loan each same-owner damaged module's live state and immutable rules
@@ -929,9 +930,16 @@ impl Object {
         if let Some(row) = self.selected_authored_weapon_row() {
             return self.select_authored_combat_weapon_slot(row, target, current_time, command_source);
         }
+        self.select_legacy_combat_weapon_slot(target, current_time, solo_set)
+    }
 
-        // Hand-built and mapless objects without an authored WeaponSet retain
-        // their existing explicit-slot and two-slot eligibility rules.
+    /// Hand-built and mapless actors keep their original compatibility rules.
+    pub(in crate::game_logic) fn select_legacy_combat_weapon_slot(
+        &self,
+        target: &Object,
+        current_time: f32,
+        solo_set: Option<&gamelogic::weapon::WeaponBonusSet>,
+    ) -> Option<u8> {
         let target_faerie = target.is_faerie_fire();
         let primary_valid = self.leftover_choose_best_slot_valid(0, target);
         let secondary_valid = self.leftover_choose_best_slot_valid(1, target);
@@ -1107,7 +1115,7 @@ impl Object {
 
     /// WeaponSet.cpp:793-943. PreferMostDamage considers every legal slot,
     /// keeps a backup for approach/reload, and gives PRIMARY the damage tie.
-    fn select_authored_combat_weapon_slot(
+    pub(in crate::game_logic) fn select_authored_combat_weapon_slot(
         &self,
         row: &super::selected_weapon_set::WeaponRow,
         target: &Object,
@@ -1137,7 +1145,7 @@ impl Object {
             };
             if (status == WeaponFireStatus::OutOfAmmo && !rule.get_auto_reloads_clip())
                 || rule.get_anti_mask() & anti_mask == 0
-                || !self.is_slot_within_target_pitch(slot, target)
+                || !self.is_native_weapon_within_target_pitch(rule, target)
             {
                 continue;
             }
@@ -1337,66 +1345,86 @@ impl Object {
 
     /// Leftover `Weapon::isWithinTargetPitch` via leftover-backed loft limits.
     fn is_slot_within_target_pitch(&self, slot: u8, victim: &Object) -> bool {
-        use crate::game_logic::weapon_bootstrap::{
-            host_target_pitch_limits_for_weapon_name, is_pitch_within_limits_geom,
-        };
-        // Weapon.cpp:2757: isContactWeapon() || !isPitchLimited() → true.
+        if let Some(rule) = self.selected_native_weapon_rule(slot) {
+            return self.is_native_weapon_within_target_pitch(&rule, victim);
+        }
         if self.is_slot_contact_weapon(slot) {
             return true;
         }
         // Pitch belongs to this concrete WeaponSet entry. The legacy
         // secondary-name fallback is not an authored SECONDARY declaration.
         let name = self.authored_weapon_name_for_slot(slot).unwrap_or("");
-        let selected = self.selected_native_weapon_rule(slot);
-        let limits = selected
-            .as_ref()
-            .map(
-                |rule| crate::game_logic::weapon_bootstrap::HostTargetPitchLimits {
-                    min_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(
-                        rule.min_target_pitch,
-                    ),
-                    max_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(
-                        rule.max_target_pitch,
-                    ),
+        let limits = crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name(name);
+        self.is_within_target_pitch_limits(victim, limits)
+    }
+
+    fn is_native_weapon_within_target_pitch(
+        &self,
+        rule: &gamelogic::weapon::WeaponTemplate,
+        victim: &Object,
+    ) -> bool {
+        use crate::game_logic::weapon_bootstrap::{HostTargetPitchLimits, normalize_pitch_radians};
+
+        // Weapon.cpp:2757: contact weapons do not apply pitch limits.
+        rule.is_contact_weapon()
+            || self.is_within_target_pitch_limits(
+                victim,
+                HostTargetPitchLimits {
+                    min_pitch: normalize_pitch_radians(rule.min_target_pitch),
+                    max_pitch: normalize_pitch_radians(rule.max_target_pitch),
                 },
             )
-            .unwrap_or_else(|| host_target_pitch_limits_for_weapon_name(name));
+    }
+
+    fn is_within_target_pitch_limits(
+        &self,
+        victim: &Object,
+        limits: crate::game_logic::weapon_bootstrap::HostTargetPitchLimits,
+    ) -> bool {
         let src = self.get_position();
         let tgt = victim.get_position();
         let src_half = (*self.geometry_info()).height.max(0.0) * 0.5;
         let tgt_above = (*victim.geometry_info()).max_height_above_position();
         let tgt_below = (*victim.geometry_info()).height.max(0.0) * 0.5;
-        is_pitch_within_limits_geom(src, tgt, &limits, src_half, tgt_above, tgt_below)
+        crate::game_logic::weapon_bootstrap::is_pitch_within_limits_geom(
+            src, tgt, &limits, src_half, tgt_above, tgt_below,
+        )
     }
 
-    /// Leftover `AIUpdateInterface::isWeaponSlotOnTurretAndAimingAtTarget`.
+    /// C++ AIUpdateInterface checks the first turret controlling this weapon.
     pub fn is_weapon_slot_on_turret_and_aiming_at_target(&self, slot: u8, victim: &Object) -> bool {
-        self.is_weapon_slot_on_turret(slot) && self.is_trying_to_aim_at_target(victim.id)
+        let turret = match self.which_turret_for_weapon_slot(slot) {
+            TurretType::Primary => Some(&self.turret_ai),
+            TurretType::Secondary => self.alt_turret_ai.as_ref(),
+            TurretType::Invalid => None,
+        };
+        turret.is_some_and(|turret| {
+            turret.turret_substate == TurretSubState::Aim
+                && turret.turret_target_id == Some(victim.id)
+        })
     }
 
     /// C++ `AIUpdateInterface::isWeaponSlotOnTurret*` loops every TurretAI
     /// (AIUpdate.cpp:711-720); true when any turret controls `slot`.
     pub fn is_weapon_slot_on_turret(&self, slot: u8) -> bool {
-        self.which_turret_for_weapon_slot(slot).is_some()
+        self.which_turret_for_weapon_slot(slot) != TurretType::Invalid
     }
 
     /// C++ `AIUpdateInterface::getWhichTurretForWeaponSlot` (AIUpdate.cpp:756-770):
-    /// first of `m_turretAI[MAX_TURRETS]` whose `TurretAI::isWeaponSlotOnTurret`
-    /// holds. `Some(0)` = TURRET_MAIN (`turret_runtime`), `Some(1)` = TURRET_ALT
-    /// (`alt_turret_runtime`), `None` = TURRET_INVALID.
-    pub fn which_turret_for_weapon_slot(&self, slot: u8) -> Option<usize> {
+    /// First authored turret whose controlled weapon slots include this slot.
+    pub fn which_turret_for_weapon_slot(&self, slot: u8) -> TurretType {
         fn controls(mask: u32, slot: u8) -> bool {
             slot < 3 && (mask & (1u32 << slot)) != 0
         }
         if (self.turret_runtime.has_authored_turret || self.turret_ai.turret_enabled)
             && controls(self.turret_runtime.controlled_weapon_slots, slot)
         {
-            return Some(0);
+            return TurretType::Primary;
         }
         self.alt_turret_runtime
             .as_ref()
             .filter(|alt| alt.has_authored_turret && controls(alt.controlled_weapon_slots, slot))
-            .map(|_| 1)
+            .map_or(TurretType::Invalid, |_| TurretType::Secondary)
     }
 
     /// C++ WeaponSet.cpp:869-877 — PreferredAgainst KindOf match, ready unless

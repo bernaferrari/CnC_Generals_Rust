@@ -859,7 +859,10 @@ impl GameLogic {
     fn cur_weapon_on_alt_turret(&self, unit_id: ObjectId) -> bool {
         self.objects
             .get(&unit_id)
-            .is_some_and(|u| u.which_turret_for_weapon_slot(u.active_weapon_slot) == Some(1))
+            .is_some_and(|unit| {
+                unit.which_turret_for_weapon_slot(unit.active_weapon_slot)
+                    == gamelogic::common::TurretType::Secondary
+            })
     }
 
     /// C++ AIUpdateInterface::setTurretTargetObject(getWhichTurretForCurWeapon(), ..):
