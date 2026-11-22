@@ -109,12 +109,7 @@ impl DrawConditionFacts {
                 HostBodyDamageType, disguised_model_bit, host_apply_body_damage_model_bits,
                 stunned_model_bit,
             };
-            let body = match self.body_damage_state {
-                1 => HostBodyDamageType::Damaged,
-                2 => HostBodyDamageType::ReallyDamaged,
-                3 => HostBodyDamageType::Rubble,
-                _ => HostBodyDamageType::Pristine,
-            };
+            let body = HostBodyDamageType::from_ordinal(self.body_damage_state);
             bits = host_apply_body_damage_model_bits(bits, body);
             let dis_b = disguised_model_bit();
             if self.disguised {
@@ -152,11 +147,14 @@ impl DrawConditionFacts {
                     bits &=
                         !(1u128 << crate::game_logic::host_enum_table_residual::rubble_model_bit());
                 }
-            } else if self.is_structure && self.destroyed && self.body_damage_state >= 3 {
+            } else if self.is_structure
+                && self.destroyed
+                && self.body_damage_state >= HostBodyDamageType::Rubble.ordinal()
+            {
                 bits |= 1u128 << post_b;
             }
             // Special damaged: really-damaged structures still standing.
-            if self.is_structure && self.body_damage_state == 2 && !self.destroyed {
+            if self.is_structure && body == HostBodyDamageType::ReallyDamaged && !self.destroyed {
                 bits |= 1u128 << spec_b;
             }
         }

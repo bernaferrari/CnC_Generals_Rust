@@ -116,8 +116,18 @@ pub(super) fn load_garrison_condition_bone_sets(
     let base = template.get_model_name();
     let pristine =
         load_prefix_bones_for_model(container, base, "FIREPOINT", MAX_GARRISON_FIRE_POINTS);
-    let dmg_key = crate::assets::mesh_asset_resolve::model_key_with_body_damage(base, 1, false);
-    let rd_key = crate::assets::mesh_asset_resolve::model_key_with_body_damage(base, 2, false);
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+
+    let dmg_key = crate::assets::mesh_asset_resolve::model_key_with_body_damage(
+        base,
+        HostBodyDamageType::Damaged.ordinal(),
+        false,
+    );
+    let rd_key = crate::assets::mesh_asset_resolve::model_key_with_body_damage(
+        base,
+        HostBodyDamageType::ReallyDamaged.ordinal(),
+        false,
+    );
     let damaged = if dmg_key != base {
         load_prefix_bones_for_model(container, &dmg_key, "FIREPOINT", MAX_GARRISON_FIRE_POINTS)
     } else {
