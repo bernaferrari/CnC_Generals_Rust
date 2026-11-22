@@ -164,17 +164,15 @@ impl FiringTracker {
         } else if victim_id == owner_guard.get_id() {
             owner_guard.test_status(crate::common::ObjectStatusTypes::FaerieFire)
         } else {
-            TheGameLogic::find_object_by_id(victim_id)
-                .map(|victim| {
-                    victim
-                        .read()
-                        .ok()
-                        .map(|victim_guard| {
-                            victim_guard.test_status(crate::common::ObjectStatusTypes::FaerieFire)
-                        })
-                        .unwrap_or(false)
+            let victim = match owner_guard.owning_world_services() {
+                Some(world) => world.object_registry().get_object(victim_id),
+                None => TheGameLogic::find_object_by_id(victim_id),
+            };
+            victim.is_some_and(|victim| {
+                victim.read().is_ok_and(|victim| {
+                    victim.test_status(crate::common::ObjectStatusTypes::FaerieFire)
                 })
-                .unwrap_or(false)
+            })
         };
 
         if victim_has_faerie_fire {
@@ -287,7 +285,7 @@ impl FiringTracker {
     pub fn update(&mut self) -> crate::modules::UpdateSleepTime {
         if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(mut guard) = owner.write() {
-                return self.update_for_owner(&mut guard);
+                return self.update_for_owner(&mut guard, TheGameLogic::get_frame());
             }
         }
         self.calc_time_to_sleep(TheGameLogic::get_frame())
@@ -297,9 +295,8 @@ impl FiringTracker {
     pub(crate) fn update_for_owner(
         &mut self,
         owner: &mut Object,
+        now: UnsignedInt,
     ) -> crate::modules::UpdateSleepTime {
-        let now = TheGameLogic::get_frame();
-
         if self.frame_to_force_reload != 0 && now >= self.frame_to_force_reload {
             let _ = owner.reload_all_ammo(true);
             self.frame_to_force_reload = 0;

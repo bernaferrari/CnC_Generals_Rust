@@ -101,7 +101,7 @@ impl Object {
     pub fn update(&mut self, _delta_time: f32) -> Result<(), String> {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         self.check_disabled_status();
-        self.update_firing_tracker();
+        self.update_firing_tracker(current_frame);
 
         if let Some(contain) = &self.contain {
             if let Ok(mut contain_guard) = contain.lock() {

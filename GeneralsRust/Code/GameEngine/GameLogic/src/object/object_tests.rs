@@ -3119,4 +3119,53 @@ mod visibility_tests {
             assert_eq!(guard.get_num_consecutive_shots_fired_at_target(id), 1);
         });
     }
+
+    #[test]
+    fn firing_tracker_takes_faerie_fire_from_its_own_victim() {
+        use crate::common::types::WeaponBonusConditionFlags;
+        use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+
+        const SHOOTER: ObjectID = 0xF620;
+        const VICTIM: ObjectID = 0xF621;
+        let _serial = crate::test_sync::lock();
+        let make_objects = |world: &Arc<EngineStores>, marked| {
+            with_active_stores(world, || {
+                let mut shooter = Object::new_test(SHOOTER, 100.0);
+                shooter.bind_owner_world_for_test(world.services());
+                shooter.firing_tracker = Some(Box::new(FiringTracker::new(SHOOTER)));
+                let mut victim = Object::new_test(VICTIM, 100.0);
+                victim.set_status(crate::common::types::ObjectStatusTypes::FaerieFire.into(), marked);
+                let victim = Arc::new(RwLock::new(victim));
+                world.services().object_registry().register_object(VICTIM, &victim);
+                (shooter, victim)
+            })
+        };
+        let first = new_for_world();
+        let second = new_for_world();
+        let (mut first_shooter, _first_victim) = make_objects(&first, true);
+        let (mut second_shooter, second_victim) = make_objects(&second, false);
+        let weapon = crate::weapon::Weapon::new_at(
+            Arc::new(crate::weapon::WeaponTemplate::new("TestGun".into())),
+            crate::weapon::WeaponSlotType::Primary,
+            0,
+        );
+        let bonus = WeaponBonusConditionFlags::TARGET_FAERIE_FIRE;
+        with_active_stores(&second, || {
+            first_shooter.notify_firing_tracker_shot_fired(&weapon, VICTIM);
+            assert!(first_shooter.get_weapon_bonus_condition().contains(bonus));
+        });
+        with_active_stores(&first, || {
+            second_shooter.notify_firing_tracker_shot_fired(&weapon, VICTIM);
+            assert!(!second_shooter.get_weapon_bonus_condition().contains(bonus));
+        });
+        first.services().object_registry().unregister_object(VICTIM);
+        with_active_stores(&second, || {
+            second_victim.write().unwrap().set_status(
+                crate::common::types::ObjectStatusTypes::FaerieFire.into(),
+                true,
+            );
+            first_shooter.notify_firing_tracker_shot_fired(&weapon, VICTIM);
+            assert!(!first_shooter.get_weapon_bonus_condition().contains(bonus));
+        });
+    }
 }

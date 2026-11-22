@@ -8,11 +8,11 @@ use super::*;
 
 impl Object {
     /// Drive the object-owned FiringTracker UpdateModule (C++ ctor helper on `m_behaviors`).
-    pub(super) fn update_firing_tracker(&mut self) {
+    pub(super) fn update_firing_tracker(&mut self, frame: u32) {
         let Some(mut tracker) = self.firing_tracker.take() else {
             return;
         };
-        let _ = tracker.update_for_owner(self);
+        let _ = tracker.update_for_owner(self, frame);
         self.firing_tracker = Some(tracker);
     }
 
