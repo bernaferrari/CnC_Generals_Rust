@@ -89,3 +89,35 @@ fn owned_counter_keeps_previous_atomic_wrapping_arithmetic() {
     owner.clean_open_and_closed_lists();
     assert_eq!(owner.cumulative_cells_allocated(), i32::MIN);
 }
+
+#[test]
+fn path_queue_stops_at_original_cell_budget_and_resumes_next_frame() {
+    // AIPathfind.cpp:5903 applies the cell budget between FIFO callbacks.
+    let mut pathfinder = PathfindingSystem::new(16, 16);
+    pathfinder.is_map_ready = true;
+    pathfinder.zones.zones_dirty = false;
+    let requests = [11, 12, 13, 14];
+    for id in requests {
+        assert!(pathfinder.queue_for_path(id));
+    }
+    let mut processed = Vec::new();
+    pathfinder
+        .process_queue_with_owner(PATHFIND_CELLS_PER_FRAME, None, |id, owner| {
+            processed.push(id);
+            owner.note_open_closed_cells(2_500, 0);
+            owner.clean_open_and_closed_lists();
+            Ok(true)
+        })
+        .unwrap();
+    assert_eq!(processed, requests[..2]);
+    assert_eq!(pathfinder.cumulative_cells_allocated(), 5_000);
+
+    pathfinder
+        .process_queue_with_owner(PATHFIND_CELLS_PER_FRAME, None, |id, _| {
+            processed.push(id);
+            Ok(true)
+        })
+        .unwrap();
+    assert_eq!(processed, requests);
+    assert_eq!(pathfinder.cumulative_cells_allocated(), 0);
+}

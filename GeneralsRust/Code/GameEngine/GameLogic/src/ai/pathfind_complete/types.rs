@@ -7,10 +7,10 @@ use super::*;
 /// Matches C++ PATHFIND_QUEUE_LEN at AIPathfind.h:418
 pub const PATHFIND_QUEUE_LEN: usize = 512;
 
-/// C++ PATHFIND_CELLS_PER_FRAME — max cells examined per processPathfindQueue call.
 /// C++ LAYER_Z_CLOSE_ENOUGH_F (AIPathfind.h).
 pub const LAYER_Z_CLOSE_ENOUGH_F: f32 = 10.0;
-pub const PATHFIND_CELLS_PER_FRAME: usize = 500;
+/// C++ AIPathfind.cpp:1079 limits allocated search cells per frame.
+pub const PATHFIND_CELLS_PER_FRAME: usize = 5000;
 /// C++ MAX_WALL_PIECES (AIPathfind.h).
 pub const MAX_WALL_PIECES: usize = 128;
 /// C++ PathfindZoneManager::ZONE_BLOCK_SIZE (AIPathfind.h:479).

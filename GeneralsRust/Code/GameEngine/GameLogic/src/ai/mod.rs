@@ -14,7 +14,7 @@ use std::vec::Vec;
 
 use self::pathfind_astar::PathfindCellType;
 use self::pathfind_complete::{
-    PATHFIND_QUEUE_LEN, PathRequest as ClassicPathRequest, PathResult as ClassicPathResult,
+    PATHFIND_CELLS_PER_FRAME, PathRequest as ClassicPathRequest, PathResult as ClassicPathResult,
     PathfindingSystem as ClassicPathfindingSystem,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
@@ -1766,7 +1766,7 @@ impl Pathfinder {
 
     pub fn process_pathfind_queue(&mut self) -> Result<(), AiError> {
         self.inner
-            .process_queue_with_ai(PATHFIND_QUEUE_LEN, |ai, pathfinder| {
+            .process_queue_with_ai(PATHFIND_CELLS_PER_FRAME, |ai, pathfinder| {
                 ai.do_pathfind_with_pathfinder(pathfinder);
             });
         Ok(())
