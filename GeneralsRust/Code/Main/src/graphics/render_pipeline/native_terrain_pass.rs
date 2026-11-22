@@ -7,6 +7,7 @@ pub(super) fn record(
     frame: &mut ww3d_engine::RenderFrame,
     viewport: (f32, f32, f32, f32),
     clear_color: wgpu::Color,
+    draw_waypoints: Option<&mut dyn FnMut(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>,
 ) -> RendererResult<()> {
     let terrain_visual = terrain_visual.ok_or_else(|| {
         ww3d_renderer_3d::Error::InvalidOperation("native terrain pass has no receiving map".into())
@@ -27,7 +28,18 @@ pub(super) fn record(
             render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
             render_pass.set_scissor_rect(vp_x as u32, vp_y as u32, vp_w as u32, vp_h as u32);
 
-            terrain_visual.record_chunk_draws(render_pass);
+            if let Some(draw_waypoints) = draw_waypoints {
+                terrain_visual.record_chunk_draws_before_bibs(render_pass);
+                // HeightMap.cpp:2151–2154. The marker batch may end the pass.
+                // Reopen with Load before painting the bibs.
+                draw_waypoints(frame)?;
+                let render_pass = frame.scene_pass();
+                render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
+                render_pass.set_scissor_rect(vp_x as u32, vp_y as u32, vp_w as u32, vp_h as u32);
+                terrain_visual.record_bib_draws(render_pass);
+            } else {
+                terrain_visual.record_chunk_draws(render_pass);
+            }
 
             let terrain_draw_elapsed = terrain_draw_started.elapsed();
             if terrain_draw_elapsed >= PROFILE_STEP_LOG_THRESHOLD {

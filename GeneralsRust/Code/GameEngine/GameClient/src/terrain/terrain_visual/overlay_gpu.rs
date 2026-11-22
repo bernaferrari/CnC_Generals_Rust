@@ -1119,7 +1119,7 @@ impl TerrainVisualImpl {
             .collect();
     }
 
-    fn record_overlay_draws(&self, pass: &mut RenderPass<'_>) {
+    fn record_overlay_draws(&self, pass: &mut RenderPass<'_>, inline_bibs: bool) {
         let (Some(road_pipeline), Some(camera_bg)) = (
             self.road_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -1144,31 +1144,8 @@ impl TerrainVisualImpl {
                 }
             }
         }
-        // C++ W3DBibBuffer::renderBibs (W3DBibBuffer.cpp:404-412): normal
-        // bibs draw under TBBib.tga, then highlight bibs under TBRedBib.tga.
-        // Without resolved bib art the meshes fall back to the road bind
-        // group and the baked stand-in tint/alpha.
-        if !self.bib_meshes.is_empty() {
-            pass.set_pipeline(road_pipeline);
-            pass.set_bind_group(0, camera_bg, &[]);
-            for mesh in &self.bib_meshes {
-                let bib_bg = if mesh.bib_highlight {
-                    self.water_named_bind_groups
-                        .get("bib_highlight")
-                        .or_else(|| self.water_named_bind_groups.get("bib_normal"))
-                } else {
-                    self.water_named_bind_groups.get("bib_normal")
-                }
-                .map(|named| &named.bind_group)
-                .or(self.road_texture_bind_group.as_ref());
-                let Some(bg) = bib_bg else {
-                    continue;
-                };
-                pass.set_bind_group(1, bg, &[]);
-                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-            }
+        if inline_bibs {
+            self.record_bib_draws(pass);
         }
         if let (Some(snow), Some(snow_bg), Some(snow_pipeline)) = (
             self.snow_mesh.as_ref(),
@@ -1181,6 +1158,42 @@ impl TerrainVisualImpl {
             pass.set_vertex_buffer(0, snow.vertex_buffer.slice(..));
             pass.set_index_buffer(snow.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..snow.index_count, 0, 0..1);
+        }
+    }
+
+    pub fn record_bib_draws(&self, pass: &mut RenderPass<'_>) {
+        if !self.enabled || self.bib_meshes.is_empty() {
+            return;
+        }
+        let (Some(road_pipeline), Some(camera_bg)) = (
+            self.road_pipeline.as_ref(),
+            self.terrain_camera_bind_group.as_ref(),
+        ) else {
+            return;
+        };
+        // C++ W3DBibBuffer::renderBibs (W3DBibBuffer.cpp:404-412): normal
+        // bibs draw under TBBib.tga, then highlight bibs under TBRedBib.tga.
+        // Without resolved bib art the meshes fall back to the road bind
+        // group and the baked stand-in tint/alpha.
+        pass.set_pipeline(road_pipeline);
+        pass.set_bind_group(0, camera_bg, &[]);
+        for mesh in &self.bib_meshes {
+            let bib_bg = if mesh.bib_highlight {
+                self.water_named_bind_groups
+                    .get("bib_highlight")
+                    .or_else(|| self.water_named_bind_groups.get("bib_normal"))
+            } else {
+                self.water_named_bind_groups.get("bib_normal")
+            }
+            .map(|named| &named.bind_group)
+            .or(self.road_texture_bind_group.as_ref());
+            let Some(bg) = bib_bg else {
+                continue;
+            };
+            pass.set_bind_group(1, bg, &[]);
+            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
     }
     fn rebuild_all_overlays(&mut self) {

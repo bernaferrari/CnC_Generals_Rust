@@ -2016,6 +2016,31 @@ impl CnCGameEngine {
         );
         let allow_sync_model_loads = deferred_startup_model_load_budget == 0;
         let skip_world_scene = self.should_skip_world_scene_for_shell_menu();
+        #[cfg(feature = "game_client")]
+        {
+            let waypoints = self.game_client.in_game_ui_subsystem()
+                .filter(|_| !skip_world_scene)
+                .map(|ui| {
+                    let in_waypoint_mode = self.sticky_waypoint_mode
+                        || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
+                    // Main's receiving hover catalog stores a host ObjectId.
+                    let hovered = ui.get_moused_over_drawable_id();
+                    let hovered = (!in_waypoint_mode && hovered != 0)
+                        .then(|| self.game_client.get_drawable_for_object(hovered))
+                        .flatten()
+                        .map(|_| ObjectId(hovered));
+                    crate::presentation_frame::waypoint_overlay::capture(
+                        &self.game_logic,
+                        in_waypoint_mode,
+                        hovered,
+                    )
+                })
+                .unwrap_or_default();
+            self.render_pipeline.stage_native_waypoint_overlay(
+                &mut self.graphics_system,
+                waypoints,
+            );
+        }
 
         #[cfg(feature = "game_client")]
         {

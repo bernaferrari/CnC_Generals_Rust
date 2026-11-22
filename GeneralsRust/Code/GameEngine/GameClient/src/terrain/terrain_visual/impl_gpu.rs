@@ -1239,6 +1239,15 @@ impl TerrainVisualImpl {
     }
 
     pub fn record_chunk_draws(&self, pass: &mut RenderPass<'_>) {
+        self.record_chunk_draws_impl(pass, true);
+    }
+
+    /// Main completes the waypoint overlay after shroud and before the bibs.
+    pub fn record_chunk_draws_before_bibs(&self, pass: &mut RenderPass<'_>) {
+        self.record_chunk_draws_impl(pass, false);
+    }
+
+    fn record_chunk_draws_impl(&self, pass: &mut RenderPass<'_>, inline_bibs: bool) {
         if !self.enabled {
             return;
         }
@@ -1269,7 +1278,7 @@ impl TerrainVisualImpl {
         self.record_shoreline_draws(pass);
         self.record_extra_blend_pass(pass);
         self.record_road_draws(pass);
-        self.record_overlay_draws(pass);
+        self.record_overlay_draws(pass, inline_bibs);
         self.record_tank_track_draws(pass);
         // C++ HeightMap.cpp:2138-2144 replays terrain after roads and tracks
         // with W3DShroud's projected destination texture. Keep the base mesh

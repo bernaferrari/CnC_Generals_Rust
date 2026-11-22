@@ -39,6 +39,8 @@ mod ghosts;
 mod honesty;
 mod kind_facts;
 mod lasers;
+#[cfg(feature = "game_client")]
+pub(crate) mod waypoint_overlay;
 mod live_draw_source;
 pub(crate) use live_draw_source::{
     ObjectNativeDrawObservation, current_object_visual_template, object_native_draw_observation,

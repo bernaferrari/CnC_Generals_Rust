@@ -37,6 +37,8 @@ impl ForwardPass {
         self.renderer.discard_queued_frame_callbacks();
         #[cfg(feature = "game_client")]
         self.pending_client_effects.clear();
+        #[cfg(feature = "game_client")]
+        self.pending_waypoint_overlay.clear();
     }
 
     /// Produce the GPU palette from the exact binding frozen on the render
@@ -189,6 +191,10 @@ impl ForwardPass {
             laser_vertex_capacity: 0,
             laser_vertices_uploaded: 0,
             laser_draw_gpu: None,
+            #[cfg(feature = "game_client")]
+            pending_waypoint_overlay: Vec::new(),
+            #[cfg(feature = "game_client")]
+            waypoint_ribbon_gpu: None,
             #[cfg(feature = "game_client")]
             particle_renderer,
             #[cfg(feature = "game_client")]
@@ -526,6 +532,8 @@ impl ForwardPass {
     ) -> Result<()> {
         #[cfg(feature = "game_client")]
         let mut pending_effects = std::mem::take(&mut self.pending_client_effects);
+        #[cfg(feature = "game_client")]
+        let waypoint_overlay = std::mem::take(&mut self.pending_waypoint_overlay);
 
         let native_radar_frame = self.native_radar_frame.clone();
         // Check if renderer is ready before attempting to render
@@ -742,6 +750,18 @@ impl ForwardPass {
             queue_error_total = error_count;
         } // Mutex lock released here
 
+        #[cfg(feature = "game_client")]
+        let prepared_waypoints = if !skip_scene && native_terrain.is_some() {
+            self.prepare_native_waypoint_overlay(
+                graphics_system,
+                waypoint_overlay,
+                camera_position,
+                *projection_matrix * *view_matrix,
+            )
+        } else {
+            None
+        };
+
         // C++ W3DInGameUI::draw paints the GUI exactly once post-scene
         // (winRepaint at the end of the frame). A pre-scene flush here
         // double-paints the UI, double-applies alpha, and consumes button
@@ -791,6 +811,13 @@ impl ForwardPass {
         #[cfg(feature = "game_client")]
         {
             let particle_renderer = &mut self.particle_renderer;
+            let waypoint_gpu = self.waypoint_ribbon_gpu.as_ref();
+            let mut draw_waypoints = |frame: &mut ww3d_engine::RenderFrame| {
+                if let Some(waypoints) = prepared_waypoints.as_ref() {
+                    waypoints.record(frame, &renderer_handle, waypoint_gpu, terrain_viewport)?;
+                }
+                Ok(())
+            };
             let mut native_pass = |kind, frame: &mut ww3d_engine::RenderFrame| {
                 if kind == ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::ClientEffects {
                     return match (particle_renderer.as_mut(), pending_effects.pop_front()) {
@@ -804,6 +831,7 @@ impl ForwardPass {
                     frame,
                     terrain_viewport,
                     terrain_clear_color,
+                    prepared_waypoints.as_ref().map(|_| &mut draw_waypoints as &mut _),
                 )
             };
             self.renderer

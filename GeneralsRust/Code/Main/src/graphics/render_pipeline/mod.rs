@@ -680,6 +680,8 @@ pub use native_terrain_owner::append_terrain_prop_model_items;
 #[cfg(feature = "game_client")]
 mod native_terrain_pass;
 #[cfg(feature = "game_client")]
+mod native_waypoint_overlay;
+#[cfg(feature = "game_client")]
 mod native_projected_shadows;
 
 /// Main render pipeline - equivalent to C++ SAGE RenderPipeline
@@ -938,6 +940,10 @@ pub struct ForwardPass {
     laser_vertex_capacity: usize,
     laser_vertices_uploaded: u32,
     laser_draw_gpu: Option<crate::graphics::laser_draw::LaserDrawGpu>,
+    #[cfg(feature = "game_client")]
+    pending_waypoint_overlay: Vec<crate::presentation_frame::waypoint_overlay::WaypointOverlayPath>,
+    #[cfg(feature = "game_client")]
+    waypoint_ribbon_gpu: Option<native_waypoint_overlay::WaypointRibbonGpu>,
     /// The active Main WGPU frame owns particle presentation.  Keeping this
     /// renderer with the ForwardPass avoids GameClient::Display creating or
     /// presenting a second surface.
