@@ -1,4 +1,5 @@
 use super::*;
+use game_engine::base_type::real_to_int_ceil;
 
 #[derive(Clone, Copy)]
 struct FootprintObstacle {
@@ -966,8 +967,8 @@ impl PathfindingSystem {
         let ydy = -c * STEP_SIZE;
         let xdx = c * STEP_SIZE;
         let xdy = s * STEP_SIZE;
-        let num_steps_x = (2.0 * halfsize_x / STEP_SIZE).ceil() as i32;
-        let num_steps_y = (2.0 * halfsize_y / STEP_SIZE).ceil() as i32;
+        let num_steps_x = real_to_int_ceil(2.0 * halfsize_x / STEP_SIZE);
+        let num_steps_y = real_to_int_ceil(2.0 * halfsize_y / STEP_SIZE);
         let mut tl_x = pos.x - fence_offset * c - halfsize_y * s;
         let mut tl_y = pos.y + halfsize_y * c - fence_offset * s;
         let mut lo_x = i32::MAX;
@@ -1037,8 +1038,8 @@ impl PathfindingSystem {
                 let ydy = -c * STEP_SIZE;
                 let xdx = c * STEP_SIZE;
                 let xdy = s * STEP_SIZE;
-                let num_steps_x = (2.0 * halfsize_x / STEP_SIZE).ceil() as i32;
-                let num_steps_y = (2.0 * halfsize_y / STEP_SIZE).ceil() as i32;
+                let num_steps_x = real_to_int_ceil(2.0 * halfsize_x / STEP_SIZE);
+                let num_steps_y = real_to_int_ceil(2.0 * halfsize_y / STEP_SIZE);
                 let mut tl_x = pos.x - halfsize_x * c - halfsize_y * s;
                 let mut tl_y = pos.y + halfsize_y * c - halfsize_x * s;
                 for _iy in 0..num_steps_y {

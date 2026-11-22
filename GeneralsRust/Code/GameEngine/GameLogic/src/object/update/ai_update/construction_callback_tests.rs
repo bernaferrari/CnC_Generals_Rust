@@ -714,6 +714,57 @@ fn construction_complete_reclassifies_footprint_on_receiving_pathfinder_only() {
 }
 
 #[test]
+fn construction_complete_refreshes_the_original_integral_box_edge() {
+    use crate::ai::pathfind_complete::{PathfindCellType, SURFACE_GROUND};
+    use crate::common::{AABox, Coord3D, GeometryInfo};
+
+    let _isolation = crate::object::registry::test_isolation_lock()
+        .lock()
+        .unwrap();
+    let fixture = CompletionFixture::new(0);
+    let owner = crate::system::engine_stores::new_for_world();
+    let id = {
+        let mut structure = fixture.structure.write().unwrap();
+        structure.set_position(&Coord3D::new(100.0, 100.0, 0.0)).unwrap();
+        let mut geometry = GeometryInfo::default();
+        geometry.set_bounds(AABox {
+            min: Coord3D::new(-10.0, -5.0, 0.0),
+            max: Coord3D::new(10.0, 5.0, 10.0),
+        });
+        structure.set_geometry_info(geometry);
+        structure.bind_pathfinding_owner(&owner).unwrap();
+        structure.get_id()
+    };
+    let pathfinder = owner.ai().read().unwrap().pathfinder().unwrap();
+    // The C++ integral step counts are 5 and 3, so the final row/column
+    // intersection is stamped at (110, 95), in ground cell (11, 9).
+    let edge = Coord3D::new(115.0, 95.0, 0.0);
+    let outside = Coord3D::new(125.0, 95.0, 0.0);
+    {
+        let mut pathfinder = pathfinder.write().unwrap();
+        pathfinder.reset_with_size(40, 40);
+        pathfinder.set_cell_type_for_test(&edge, PathfindCellType::Rubble);
+    }
+
+    Player::on_structure_construction_complete(
+        &fixture.player,
+        None,
+        &fixture.structure,
+        true,
+    ).unwrap();
+
+    let pathfinder = pathfinder.read().unwrap();
+    assert_eq!(pathfinder.get_cell_type_at(&edge), Some(PathfindCellType::Obstacle));
+    assert!(pathfinder.valid_movement_position_for_surfaces(
+        SURFACE_GROUND, false, &edge, Some(id),
+    ));
+    assert!(!pathfinder.valid_movement_position_for_surfaces(
+        SURFACE_GROUND, false, &edge, Some(id + 1),
+    ));
+    assert_eq!(pathfinder.get_cell_type_at(&outside), Some(PathfindCellType::Clear));
+}
+
+#[test]
 fn dozer_completion_callback_keeps_same_id_peer_structure_and_footprint_untouched() {
     use crate::ai::pathfind_complete::PathfindCellType;
 
