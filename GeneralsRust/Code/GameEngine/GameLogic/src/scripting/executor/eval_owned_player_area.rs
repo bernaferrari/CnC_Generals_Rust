@@ -5,7 +5,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_owned_player_area(
         &self,
         condition: &mut Condition,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         let kind = condition.get_condition_type();
         if !matches!(
@@ -126,7 +126,7 @@ mod tests {
             Ok(())
         }
         fn player_area_value(
-            &self,
+            &mut self,
             _: &str,
             _: &str,
             _: Option<&str>,
@@ -187,7 +187,7 @@ mod tests {
             };
             assert_eq!(
                 evaluator
-                    .eval_owned_player_area(&mut condition, &owner)
+                    .eval_owned_player_area(&mut condition, &mut owner)
                     .unwrap(),
                 Some(ScriptConditionResult::True)
             );
@@ -200,14 +200,14 @@ mod tests {
             };
             assert_eq!(
                 evaluator
-                    .eval_owned_player_area(&mut condition, &owner)
+                    .eval_owned_player_area(&mut condition, &mut owner)
                     .unwrap(),
                 Some(expected)
             );
             owner.changed = true;
             assert_eq!(
                 evaluator
-                    .eval_owned_player_area(&mut condition, &owner)
+                    .eval_owned_player_area(&mut condition, &mut owner)
                     .unwrap(),
                 Some(ScriptConditionResult::False)
             );
@@ -215,7 +215,7 @@ mod tests {
             owner.count = 1;
             assert_eq!(
                 evaluator
-                    .eval_owned_player_area(&mut condition, &owner)
+                    .eval_owned_player_area(&mut condition, &mut owner)
                     .unwrap(),
                 Some(ScriptConditionResult::False)
             );
@@ -227,7 +227,7 @@ mod tests {
         let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let evaluator = ScriptConditionEvaluator::new(&engine, &context);
         let mut condition = condition(ConditionType::PlayerHasComparisonUnitKindInTriggerArea);
-        let owner = Owner {
+        let mut owner = Owner {
             frame: 18,
             count: 1,
             changed: false,
@@ -235,7 +235,7 @@ mod tests {
         };
         assert_eq!(
             evaluator
-                .eval_owned_player_area(&mut condition, &owner)
+                .eval_owned_player_area(&mut condition, &mut owner)
                 .unwrap(),
             Some(ScriptConditionResult::True)
         );

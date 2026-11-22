@@ -2473,24 +2473,18 @@ impl GameLogic {
         area: &str,
         this_object: Option<ObjectId>,
     ) -> gamelogic::GameLogicResult<()> {
-        self.apply_owned_named_attack_area_with_effects(
-            unit,
-            area,
-            this_object,
-            &mut Default::default(),
-        )
+        let Some(id) = self.owned_named_script_object(unit, this_object) else {
+            return Ok(());
+        };
+        self.apply_owned_named_attack_area_with_effects(id, area, &mut Default::default())
     }
 
     pub(super) fn apply_owned_named_attack_area_with_effects(
         &mut self,
-        unit: &str,
+        id: ObjectId,
         area: &str,
-        this_object: Option<ObjectId>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let Some(id) = self.owned_named_script_object(unit, this_object) else {
-            return Ok(());
-        };
         if self.host_named_guard_area_polygon(area).is_none()
             || !self
                 .host_object(id)

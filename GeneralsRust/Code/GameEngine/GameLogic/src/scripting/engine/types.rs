@@ -776,7 +776,7 @@ pub trait ScriptExecutionDriver {
     /// an absent trigger/query and must not latch. After player selection,
     /// neither Missing nor Unavailable permits a foreign-owner fallback.
     fn tech_building_within_distance(
-        &self,
+        &mut self,
         _player: &str,
         _distance: f32,
         _area: &str,
@@ -1311,7 +1311,7 @@ pub trait ScriptExecutionDriver {
     /// CPP ScriptConditions397: integer current position in this qualified polygon.
     /// Missing is authoritative; Unavailable retains standalone Core discovery.
     fn named_inside_area(
-        &self,
+        &mut self,
         _unit: &str,
         _area: &str,
         _current_player: Option<&str>,
@@ -1322,7 +1322,7 @@ pub trait ScriptExecutionDriver {
 
     /// CPP ScriptConditions1614: non-inert unit's current/previous-frame entry edge.
     fn named_entered_area(
-        &self,
+        &mut self,
         _unit: &str,
         _area: &str,
         _current_player: Option<&str>,
@@ -1333,7 +1333,7 @@ pub trait ScriptExecutionDriver {
 
     /// CPP ScriptConditions1637: exit includes inert objects, unlike entry.
     fn named_exited_area(
-        &self,
+        &mut self,
         _unit: &str,
         _area: &str,
         _current_player: Option<&str>,
@@ -1459,7 +1459,7 @@ pub trait ScriptExecutionDriver {
     /// Receiving-team membership at one trigger polygon observation point.
     /// Missing means the owner lacks the named team or trigger area.
     fn team_area_membership(
-        &self,
+        &mut self,
         _team: &str,
         _area: &str,
         _current_player: Option<&str>,
@@ -1488,7 +1488,7 @@ pub trait ScriptExecutionDriver {
     }
 
     fn player_area_value(
-        &self,
+        &mut self,
         _player: &str,
         _area: &str,
         _current_player: Option<&str>,
@@ -1699,7 +1699,7 @@ pub trait ScriptExecutionDriver {
     /// C++ Team::didAllEnter/didPartialEnter/didAllExit/didPartialExit. The
     /// receiving world owns team membership and trigger edge slots.
     fn team_area_transition(
-        &self,
+        &mut self,
         _transition: ScriptTeamAreaTransition,
         _team: &str,
         _area: &str,

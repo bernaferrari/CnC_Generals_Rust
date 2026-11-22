@@ -1532,7 +1532,7 @@ mod tech_building_latch_tests {
         }
 
         fn tech_building_within_distance(
-            &self,
+            &mut self,
             player: &str,
             distance: f32,
             area: &str,
@@ -1667,7 +1667,7 @@ mod tech_building_latch_tests {
                 ScriptOwnerQuery::Present(())
             }
             fn tech_building_within_distance(
-                &self,
+                &mut self,
                 _: &str,
                 _: f32,
                 area: &str,

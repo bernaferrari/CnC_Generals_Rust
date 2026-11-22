@@ -192,7 +192,7 @@ impl crate::scripting::engine::ScriptExecutionDriver for OwnedAreaCensus {
         crate::scripting::engine::ScriptOwnerQuery::Present(0)
     }
     fn player_area_value(
-        &self,
+        &mut self,
         player: &str,
         area: &str,
         _: Option<&str>,

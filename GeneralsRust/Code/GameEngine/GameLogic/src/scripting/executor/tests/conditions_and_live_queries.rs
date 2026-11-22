@@ -1857,7 +1857,7 @@ fn live_named_entered_uses_host_trigger_flags() {
             Ok(())
         }
         fn named_entered_area(
-            &self,
+            &mut self,
             unit: &str,
             area: &str,
             _: Option<&str>,
@@ -2232,7 +2232,7 @@ fn live_skirmish_leftover_conditions_read_host_snapshot() {
             ScriptOwnerQuery::Present(0)
         }
         fn player_area_value(
-            &self,
+            &mut self,
             player: &str,
             area: &str,
             _: Option<&str>,

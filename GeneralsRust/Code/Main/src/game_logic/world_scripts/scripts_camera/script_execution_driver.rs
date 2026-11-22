@@ -115,19 +115,6 @@ impl<'a> HostScriptExecutionDriver<'a> {
         &player.map_side.map_player_name
     }
 
-    fn named_player_id(&self, name: &str) -> Option<u32> {
-        // CPP Player::initFromDict stores displayName and playerName
-        // separately; PlayerList::findPlayerWithNameKey selects the latter.
-        if name.is_empty() {
-            return None;
-        }
-        self.world
-            .players
-            .values()
-            .find(|player| player.map_side.map_player_name == name)
-            .map(|player| player.id)
-    }
-
     fn requires_prepared_player_bindings(&self) -> bool {
         // These paths still consume PlayerList side ordinals. The tech query
         // uses exact admitted Main Player names instead and does not infer IDs
@@ -151,10 +138,10 @@ impl<'a> HostScriptExecutionDriver<'a> {
             LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
         };
         match token {
-            THIS_PLAYER => self.named_player_id(current_player?),
+            THIS_PLAYER => self.world.authored_script_player_id(current_player?),
             LOCAL_PLAYER => self.world.local_player_id(),
             THIS_PLAYER_ENEMY => {
-                let current = self.named_player_id(current_player?)?;
+                let current = self.world.authored_script_player_id(current_player?)?;
                 self.world
                     .ai_manager
                     .ai_players
@@ -177,7 +164,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
             // Retain the existing Challenge classification. Campaign metadata
             // ownership is separate from this query's player/geometry owner.
             THE_PLAYER if self.world.is_challenge_session() => self.world.local_player_id(),
-            _ => self.named_player_id(token),
+            _ => self.world.authored_script_player_id(token),
         }
     }
 
@@ -204,28 +191,6 @@ impl<'a> HostScriptExecutionDriver<'a> {
             .as_ref()?
             .science_facts_ref();
         Some((player, facts, facts.science(science)?))
-    }
-
-    fn qualified_area(&self, area: &str, current_player: Option<&str>) -> Option<String> {
-        let (enemy, perimeter) = match area {
-            "[Skirmish]MyInnerPerimeter" => (false, "InnerPerimeter"),
-            "[Skirmish]MyOuterPerimeter" => (false, "OuterPerimeter"),
-            "[Skirmish]EnemyInnerPerimeter" => (true, "InnerPerimeter"),
-            "[Skirmish]EnemyOuterPerimeter" => (true, "OuterPerimeter"),
-            _ => return Some(area.into()),
-        };
-        let current = current_player.and_then(|name| self.named_player_id(name));
-        let player = if enemy {
-            current
-                .and_then(|id| self.world.ai_manager.ai_players.get(&id))
-                .and_then(|ai| ai.enemy_player_id)
-        } else {
-            Some(current?)
-        };
-        let index = player
-            .and_then(|id| self.world.players.get(&id))
-            .map(|p| p.start_position + 1);
-        Some(format!("{perimeter}{}", index.unwrap_or(-1)))
     }
 
     fn status(object: &crate::game_logic::object::Object) -> ScriptObjectStatus {
@@ -960,7 +925,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        let Some(area) = self.qualified_area(area, current_player) else {
+        let Some(area) = self.world.qualified_script_area(area, current_player) else {
             return Some(Ok(()));
         };
         Some(
@@ -1226,13 +1191,16 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         current_player: Option<&str>,
         this_object: Option<gamelogic::common::ObjectID>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        let Some(area) = self.qualified_area(area, current_player) else {
+        let Some(source) = self.world.owned_named_script_object(unit, this_object.map(ObjectId))
+        else {
+            return Some(Ok(()));
+        };
+        let Some(area) = self.world.qualified_script_area(area, current_player) else {
             return Some(Ok(()));
         };
         Some(self.world.apply_owned_named_attack_area_with_effects(
-            unit,
+            source,
             &area,
-            this_object.map(ObjectId),
             &mut self.ui,
         ))
     }
@@ -1374,7 +1342,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn team_area_membership(
-        &self,
+        &mut self,
         team: &str,
         area: &str,
         current_player: Option<&str>,
@@ -1384,14 +1352,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptTeamAreaMembership> {
         use gamelogic::scripting::engine::ScriptTeamAreaMembership;
 
-        let Some((_, members)) = self
+        let team = self
             .world
             .resolve_owned_script_team(team, calling, condition)
-            .expect("owned team area query")
-        else {
+            .expect("owned team area query");
+        let Some(area_name) = self.world.qualified_script_area(area, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
-        let Some(area_name) = self.qualified_area(area, current_player) else {
+        let Some((_, members)) = team else {
             return ScriptOwnerQuery::Missing;
         };
         let trigger_world = self
@@ -1586,16 +1554,24 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn player_area_value(
-        &self,
+        &mut self,
         player: &str,
         area: &str,
         current_player: Option<&str>,
         query: ScriptPlayerAreaQuery<'_>,
     ) -> ScriptOwnerQuery<(i32, bool)> {
-        let Some(owner) = self.script_player_id(player, current_player) else {
+        let value_owner = if matches!(query, ScriptPlayerAreaQuery::Value) {
+            match self.script_player_id(player, current_player) {
+                Some(owner) => Some(owner),
+                None => return ScriptOwnerQuery::Missing,
+            }
+        } else {
+            None
+        };
+        let Some(area) = self.world.qualified_script_area(area, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
-        let Some(area) = self.qualified_area(area, current_player) else {
+        let Some(owner) = value_owner.or_else(|| self.script_player_id(player, current_player)) else {
             return ScriptOwnerQuery::Missing;
         };
         let geometry = self
@@ -1708,20 +1684,21 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn named_inside_area(
-        &self,
+        &mut self,
         unit: &str,
         area: &str,
         current_player: Option<&str>,
         this_object: Option<gamelogic::common::ObjectID>,
     ) -> ScriptOwnerQuery<bool> {
-        let Some(object) = self
+        let Some(pos) = self
             .world
             .owned_named_script_object(unit, this_object.map(ObjectId))
             .and_then(|id| self.world.host_object(id))
+            .map(|object| object.get_position())
         else {
             return ScriptOwnerQuery::Missing;
         };
-        let Some(area) = self.qualified_area(area, current_player) else {
+        let Some(area) = self.world.qualified_script_area(area, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
         let world = self
@@ -1734,13 +1711,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         };
         // CPP current float position truncates to integer; Main is Y-up/XZ.
         // Inside deliberately includes dead/inert objects, unlike Entered.
-        let pos = object.get_position();
         let point = gamelogic::common::ICoord3D::new(pos.x as i32, pos.z as i32, pos.y as i32);
         ScriptOwnerQuery::Present(trigger.point_in_trigger_int(&point))
     }
 
     fn named_entered_area(
-        &self,
+        &mut self,
         unit: &str,
         area: &str,
         current_player: Option<&str>,
@@ -1756,7 +1732,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         if object.is_kind_of(KindOf::Inert) {
             return ScriptOwnerQuery::Present(false);
         }
-        let Some(area) = self.qualified_area(area, current_player) else {
+        let id = object.id;
+        let Some(area) = self.world.qualified_script_area(area, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
         let world = self
@@ -1769,27 +1746,27 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         };
         ScriptOwnerQuery::Present(gamelogic::scripting::host_object_did_enter(
             &world,
-            object.id.0,
+            id.0,
             &trigger,
             self.world.frame,
         ))
     }
 
     fn named_exited_area(
-        &self,
+        &mut self,
         unit: &str,
         area: &str,
         current_player: Option<&str>,
         this_object: Option<gamelogic::common::ObjectID>,
     ) -> ScriptOwnerQuery<bool> {
-        let Some(object) = self
+        let Some(id) = self
             .world
             .owned_named_script_object(unit, this_object.map(ObjectId))
-            .and_then(|id| self.world.host_object(id))
+            .filter(|id| self.world.host_object(*id).is_some())
         else {
             return ScriptOwnerQuery::Missing;
         };
-        let Some(area) = self.qualified_area(area, current_player) else {
+        let Some(area) = self.world.qualified_script_area(area, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
         let world = self
@@ -1802,7 +1779,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         };
         ScriptOwnerQuery::Present(gamelogic::scripting::host_object_did_exit(
             &world,
-            object.id.0,
+            id.0,
             &trigger,
             self.world.frame,
         ))
@@ -2283,13 +2260,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: gamelogic::scripting::engine::ScriptNearestObjectRequest<'_>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
-        let Some(trigger) = self.qualified_area(request.trigger, request.current_player) else {
-            return Some(Ok(()));
-        };
-        Some(
-            self.world
-                .apply_owned_nearest_object_move(request, &trigger),
-        )
+        Some(self.world.apply_owned_nearest_object_move(request))
     }
 
     fn named_attitude(
@@ -2440,22 +2411,23 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn tech_building_within_distance(
-        &self,
+        &mut self,
         player: &str,
         distance: f32,
         area: &str,
         current_player: Option<&str>,
     ) -> ScriptOwnerQuery<bool> {
         use gamelogic::common::Relationship;
-        let Some(player) = self
+        let Some(player_id) = self
             .script_player_id(player, current_player)
-            .and_then(|id| self.world.players.get(&id))
+            .filter(|id| self.world.players.contains_key(id))
         else {
             return ScriptOwnerQuery::Missing;
         };
-        let Some(area) = self.qualified_area(area, current_player) else {
+        let Some(area) = self.world.qualified_script_area(area, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
+        let player = &self.world.players[&player_id];
         let Some(trigger) = self
             .world
             .host_trigger_world
@@ -3038,7 +3010,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     ) -> ScriptOwnerQuery<(u32, bool)> {
         let player = if player_mask == 0 {
             if token == gamelogic::scripting::core::THIS_PLAYER_ENEMY {
-                if let Some(current) = current_player.and_then(|name| self.named_player_id(name)) {
+                if let Some(current) = current_player.and_then(|name| self.world.authored_script_player_id(name)) {
                     self.world.query_owned_ai_enemy(current);
                 }
             }
@@ -3347,7 +3319,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn team_area_transition(
-        &self,
+        &mut self,
         transition: gamelogic::scripting::engine::ScriptTeamAreaTransition,
         team: &str,
         area: &str,
@@ -3364,7 +3336,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         else {
             return ScriptOwnerQuery::Missing;
         };
-        let Some(area_name) = self.qualified_area(area, current_player) else {
+        let Some(area_name) = self.world.qualified_script_area(area, current_player) else {
             return ScriptOwnerQuery::Missing;
         };
         let Some(team_entered_or_exited) = self.world.team_factory.team_entered_or_exited(team_id)
@@ -3870,6 +3842,44 @@ impl GameLogic {
 }
 
 impl GameLogic {
+    fn authored_script_player_id(&self, name: &str) -> Option<u32> {
+        // CPP Player::initFromDict stores displayName and playerName
+        // separately; PlayerList::findPlayerWithNameKey selects the latter.
+        if name.is_empty() {
+            return None;
+        }
+        self.players
+            .values()
+            .find(|player| player.map_side.map_player_name == name)
+            .map(|player| player.id)
+    }
+
+    pub(super) fn qualified_script_area(
+        &mut self,
+        area: &str,
+        current_player: Option<&str>,
+    ) -> Option<String> {
+        let (enemy, perimeter) = match area {
+            "[Skirmish]MyInnerPerimeter" => (false, "InnerPerimeter"),
+            "[Skirmish]MyOuterPerimeter" => (false, "OuterPerimeter"),
+            "[Skirmish]EnemyInnerPerimeter" => (true, "InnerPerimeter"),
+            "[Skirmish]EnemyOuterPerimeter" => (true, "OuterPerimeter"),
+            _ => return Some(area.into()),
+        };
+        let current = current_player.and_then(|name| self.authored_script_player_id(name));
+        let player = if enemy {
+            // ScriptEngine.cpp:5908 uses Player::getCurrentEnemy here.
+            // This query can advance the receiving AI's check deadline.
+            current.and_then(|id| self.query_owned_ai_enemy(id))
+        } else {
+            Some(current?)
+        };
+        let index = player
+            .and_then(|id| self.players.get(&id))
+            .map(|p| p.start_position + 1);
+        Some(format!("{perimeter}{}", index.unwrap_or(-1)))
+    }
+
     pub(crate) fn evaluate_owned_script_conditions(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,

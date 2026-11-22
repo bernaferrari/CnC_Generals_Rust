@@ -6,7 +6,6 @@ impl GameLogic {
     pub(super) fn apply_owned_nearest_object_move(
         &mut self,
         request: ScriptNearestObjectRequest<'_>,
-        trigger_name: &str,
     ) -> gamelogic::GameLogicResult<()> {
         let members = match request.recipient {
             ScriptNearestRecipient::Named(name) => {
@@ -15,6 +14,11 @@ impl GameLogic {
                 else {
                     return Ok(());
                 };
+                // ScriptActions.cpp:5144 requires the named Object's AI
+                // before resolving an authored perimeter.
+                if !self.objects.get(&id).is_some_and(|o| o.has_ai_update_interface()) {
+                    return Ok(());
+                }
                 vec![id]
             }
             ScriptNearestRecipient::Team(name) => {
@@ -29,6 +33,10 @@ impl GameLogic {
                 members.into_iter().map(ObjectId).collect()
             }
         };
+        let Some(trigger_name) = self.qualified_script_area(request.trigger, request.current_player)
+        else {
+            return Ok(());
+        };
         let source = match request.recipient {
             ScriptNearestRecipient::Named(_) => members.first().copied(),
             ScriptNearestRecipient::Team(_) => members.iter().copied().find(|id| {
@@ -37,11 +45,7 @@ impl GameLogic {
                     .is_some_and(|object| object.has_ai_update_interface())
             }),
         };
-        let Some(source) = source.filter(|id| {
-            self.objects
-                .get(id)
-                .is_some_and(|object| object.has_ai_update_interface())
-        }) else {
+        let Some(source) = source else {
             return Ok(());
         };
         // Team::getEstimateTeamPosition returns the first member's position,
@@ -60,7 +64,7 @@ impl GameLogic {
             estimate,
             request.object_type,
             request.object_types,
-            trigger_name,
+            &trigger_name,
         ) else {
             return Ok(());
         };

@@ -164,6 +164,69 @@ fn team_inside_area_condition_reads_the_receiving_same_id_objects() {
 }
 
 #[test]
+fn enemy_perimeter_condition_acquires_only_the_receiving_worlds_enemy() {
+    use gamelogic::common::{ICoord3D, Relationship};
+    use gamelogic::polygon_trigger::PolygonTrigger;
+    use gamelogic::scripting::core::{OrCondition, Script};
+
+    fn fixture(outside: bool) -> (GameLogic, ObjectId) {
+        let (mut world, unit, _) = world();
+        let owner = world.get_player_mut(1).unwrap();
+        owner.map_side.is_skirmish_ai = true;
+        owner.set_map_relationship(2, Relationship::Enemies);
+        world.ai_manager.add_ai_player(1, Team::USA, crate::ai::AIDifficulty::Medium);
+        let enemy_start = if outside { 5 } else { 1 };
+        world.get_player_mut(2).unwrap().start_position = enemy_start;
+        let low = if outside { 200 } else { 0 };
+        let high = low + 100;
+        world.host_trigger_world.lock().unwrap().set_trigger_areas(&[
+            PolygonTrigger::new(
+                1,
+                format!("OuterPerimeter{}", enemy_start + 1).into(),
+                vec![
+                    ICoord3D::new(low, low, 0),
+                    ICoord3D::new(high, low, 0),
+                    ICoord3D::new(high, high, 0),
+                    ICoord3D::new(low, high, 0),
+                ],
+            ),
+        ]);
+        (world, unit)
+    }
+
+    fn inside_enemy_perimeter(world: &mut GameLogic, unit: &str) -> bool {
+        let mut condition = Condition::new(ConditionType::NamedInsideArea);
+        condition.add_parameter(Parameter::with_string(ParameterType::Unit, unit.into())).unwrap();
+        condition.add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea, "[Skirmish]EnemyOuterPerimeter".into(),
+        )).unwrap();
+        let mut branch = OrCondition::new();
+        branch.set_first_and_condition(Some(Box::new(condition)));
+        let mut script = Script::new();
+        script.condition = Some(Box::new(branch));
+        world.with_owned_script_engine(|engine, world| {
+            world.evaluate_owned_script_conditions(engine, &mut script, Some("NamedOwner"))
+        }).unwrap()
+    }
+
+    let (mut first, unit) = fixture(false);
+    let (mut peer, peer_unit) = fixture(true);
+    assert_eq!(unit, peer_unit);
+    first.frame = 149;
+    assert!(!inside_enemy_perimeter(&mut first, "MissingUnit"));
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+    assert!(inside_enemy_perimeter(&mut first, "NamedUnit"));
+    assert_eq!(first.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 299);
+    assert_eq!(peer.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+    peer.frame = 50;
+    assert!(!inside_enemy_perimeter(&mut peer, "NamedUnit"));
+    assert_eq!(peer.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+    assert_eq!(peer.ai_manager.ai_players[&1].frame_to_check_enemy, 200);
+    assert_eq!(first.ai_manager.ai_players[&1].frame_to_check_enemy, 299);
+}
+
+#[test]
 fn team_set_state_action_and_conditions_share_the_receiving_team_owner() {
     use super::condition_cursor_control_tests::admit;
 

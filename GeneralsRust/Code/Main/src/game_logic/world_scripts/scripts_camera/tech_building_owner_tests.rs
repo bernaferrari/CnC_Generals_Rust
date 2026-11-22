@@ -439,6 +439,7 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
             let (mut world, id) = world();
             world.players.get_mut(&1).unwrap().start_position = 2;
             world.players.get_mut(&2).unwrap().start_position = 5;
+            world.players.get_mut(&1).unwrap().map_side.is_skirmish_ai = true;
             world
                 .ai_manager
                 .add_ai_player(1, Team::USA, crate::ai::AIDifficulty::Easy);
@@ -555,7 +556,7 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
                 GameMode::Replay,
             ] {
                 world.game_mode = mode;
-                let driver = HostScriptExecutionDriver::new(&mut world);
+                let mut driver = HostScriptExecutionDriver::new(&mut world);
                 assert_eq!(
                     driver.skirmish_player_exists("AuthoredViewer", Some("AuthoredViewer")),
                     ScriptOwnerQuery::Present(())
