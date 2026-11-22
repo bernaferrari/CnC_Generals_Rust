@@ -582,7 +582,10 @@ impl GameLogic {
                             self.templates.insert(replacement.clone(), target);
                         }
                     }
-                    self.destroy_object_with_effects(object_id, presentation_effects);
+                    // ReplaceObjectUpgrade.cpp:62–65 removes mobile path
+                    // claims while the old actor is still installed.
+                    self.release_replaced_mobile_path_claims(object_id);
+                    self.destroy_object_with_effects(object_id, presentation_effects)?;
                     let created = if let (Some(controller), Some(team_id)) = (owner, team_id) {
                         self.create_object_on_exact_script_team_with_effects_checked(
                             &replacement,
@@ -620,6 +623,34 @@ impl GameLogic {
         }
         self.admit_host_radar_provider_with_effects(object_id, presentation_effects);
         Ok(())
+    }
+
+    fn release_replaced_mobile_path_claims(&mut self, id: ObjectId) {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return;
+        };
+        // AIPathfind.cpp:4093–4125 filters these before removeUnitFromPathfindMap.
+        if object.is_kind_of(KindOf::Mine)
+            || object.is_kind_of(KindOf::Projectile)
+            || object.is_kind_of(KindOf::BridgeTower)
+            || object.is_kind_of(KindOf::BlastCrater)
+            || (object.get_template().fence_width > 0.0
+                && !object.is_kind_of(KindOf::DefensiveWall))
+            || object.is_kind_of(KindOf::Immobile)
+            || !object.has_ai_update_interface()
+        {
+            return;
+        }
+        if self.pathfinding_system.map_ready {
+            self.pathfinding_system.grid.clear_path_position_square(
+                id.0,
+                object.geometry_info().bounding_circle_radius(),
+                object.pathfind_cur_cell,
+                object.pathfind_layer,
+            );
+            object.pathfind_cur_cell = (-1, -1);
+        }
+        self.remove_registered_path_goal(id);
     }
 
     /// Read ObjectCreationUpgrade declarations from this session's exact
@@ -2098,5 +2129,67 @@ End
             b.modified_build_cost_supplies(0, "CostModifierDualKind", 1000),
             1000
         );
+    }
+}
+
+#[cfg(test)]
+mod replace_position_owner_tests {
+    use super::*;
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+    use crate::game_logic::pathfinding::GridPos;
+    use glam::Vec3;
+
+    #[test]
+    fn replacement_takes_the_original_fixed_position_before_retirement() {
+        const SOURCE: &str = "FakeGLAPositionFixture";
+        const REPLACEMENT: &str = "GLAPositionFixture";
+        const UPGRADE: &str = "Upgrade_BecomeRealPositionFixture";
+
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::GLA, "Replacement owner", false));
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, UPGRADE, "OBJECT", 0, 1,
+        );
+        admit_fixture_objects(
+            &mut world,
+            &[
+                FixtureObject::new(SOURCE)
+                    .kind_of("VEHICLE SELECTABLE")
+                    .health(100.0)
+                    .walker()
+                    .module(format!(
+                        "Behavior = ReplaceObjectUpgrade FixtureReplace\n TriggeredBy = {UPGRADE}\n ReplaceObject = {REPLACEMENT}\nEnd"
+                    )),
+                FixtureObject::new(REPLACEMENT)
+                    .kind_of("VEHICLE SELECTABLE")
+                    .health(100.0)
+                    .walker(),
+            ],
+        );
+        world.pathfinding_system.map_ready = true;
+        let position = Vec3::new(100.0, 0.0, 100.0);
+        let source = world.create_object_for_player(SOURCE, 1, position).unwrap();
+        let (x, y) = world.host_object(source).unwrap().pathfind_cur_cell;
+        let cell = GridPos::new(x, y);
+        assert_eq!(world.pathfinding_ground_position(cell), Some(source));
+        world.register_path_goal(source, position);
+        assert_eq!(world.pathfinding_ground_goal(cell), Some(source));
+
+        world
+            .apply_upgrade_to_object_with_effects_checked(source, UPGRADE, &mut Default::default())
+            .unwrap();
+        let replacement = world
+            .host_objects()
+            .registered_values()
+            .find(|object| object.template_name == REPLACEMENT)
+            .unwrap()
+            .id;
+        assert!(world.host_object(source).unwrap().status.destroyed);
+        assert_eq!(world.pathfinding_ground_position(cell), Some(replacement));
+        assert_ne!(world.pathfinding_ground_goal(cell), Some(source));
+
+        world.process_destroy_list();
+        assert!(world.host_object(source).is_none());
+        assert_eq!(world.pathfinding_ground_position(cell), Some(replacement));
     }
 }
