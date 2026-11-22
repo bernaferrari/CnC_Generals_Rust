@@ -796,6 +796,71 @@ impl GameLogic {
                     log::error!("Cannot initialize receiving partition grid: {error}");
                     return Ok(false);
                 }
+                // GameLogic.cpp:1696–1698 initializes Pathfinder before
+                // ordinary map placement can call Object::setPosition.
+                let mut pathfinding = PathfindingSystem::new_with_origin(
+                    self.world_min,
+                    self.world_width,
+                    self.world_height,
+                );
+                pathfinding.grid.inherit_bridge_admission(&mut self.pathfinding_system.grid);
+                pathfinding.grid.inherit_goal_ownership(&self.pathfinding_system.grid);
+                self.pathfinding_system = pathfinding;
+                self.refresh_pathfinding_ai_definitions();
+
+                if bounds_override.is_some() {
+                    #[cfg(not(feature = "game_client"))]
+                    if let Some(hm) = heightmap_data.as_ref() {
+                        self.terrain = super::terrain::TerrainData::from_raw_heightmap(
+                            hm.width.max(1) as u32,
+                            hm.height.max(1) as u32,
+                            &hm.data,
+                            self.world_min,
+                            self.world_max,
+                            hm.border_size.max(0) as u32,
+                        );
+                    }
+
+                    #[cfg(feature = "game_client")]
+                    if let Some(hm) = heightmap_data.as_ref() {
+                        use gamelogic::common::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
+                        let width = hm.width.max(1) as u32;
+                        let height = hm.height.max(1) as u32;
+                        if hm.data.len() == (width * height) as usize {
+                            let max_height = 255.0 * MAP_HEIGHT_SCALE;
+                            // C++ MapObject.h MAP_XY_FACTOR=10; WorldHeightMap
+                            // stores map-authored border (ZH Alpine = 70).
+                            // HeightMap::new defaults scale=1 / border=0; the
+                            // visual freeze copies these fields verbatim.
+                            let mut heightmap = game_client::terrain::height_map::HeightMap::new(
+                                width,
+                                height,
+                                max_height,
+                                MAP_XY_FACTOR,
+                            );
+                            apply_cpp_heightmap_xy_and_border(&mut heightmap, hm.border_size);
+                            heightmap.heights = hm.data.iter().map(|h| *h as f32 / 255.0).collect();
+                            if let Some(blend) = blend_tile_data.as_ref() {
+                                super::terrain::apply_blend_tile_data(&mut heightmap, blend);
+                            }
+
+                            let border = heightmap.border_size.max(0) as u32;
+                            self.terrain = Some(super::terrain::TerrainData::from_heightmap(
+                                heightmap,
+                                self.world_min,
+                                self.world_max,
+                                border,
+                            ));
+                            self.copy_crate_water_into_host_terrain();
+                        }
+                    }
+                }
+                if self.terrain.is_some() {
+                    let terrain_owner = self.world_services.terrain().clone();
+                    let terrain = terrain_owner.read().unwrap_or_else(|error| error.into_inner());
+                    self.reclassify_pathfinding_from_terrain(&terrain);
+                }
+                self.pathfinding_system.map_ready = true;
                 if let Some(meta) = parsed_settings.as_ref() {
                     self.last_map_settings = Some(meta.clone());
                     log::info!(
@@ -1099,146 +1164,44 @@ impl GameLogic {
                     0.84,
                     "Building world bounds",
                 )?;
-                if let Some((min, max)) = bounds_override {
-                    self.world_min = min;
-                    self.world_max = max;
-                    self.world_width = (self.world_max.x - self.world_min.x).max(1.0);
-                    self.world_height = (self.world_max.z - self.world_min.z).max(1.0);
-                    let mut replacement_pathfinding = PathfindingSystem::new_with_origin(
-                        self.world_min,
-                        self.world_width,
-                        self.world_height,
-                    );
-                    replacement_pathfinding
-                        .grid
-                        .inherit_bridge_admission(&mut self.pathfinding_system.grid);
-                    replacement_pathfinding
-                        .grid
-                        .inherit_goal_ownership(&self.pathfinding_system.grid);
-                    self.pathfinding_system = replacement_pathfinding;
-                    self.refresh_pathfinding_ai_definitions();
-                    log::info!(
-                        "Map '{}' bounds set to min({:.1},{:.1},{:.1}) max({:.1},{:.1},{:.1})",
-                        map_name,
-                        self.world_min.x,
-                        self.world_min.y,
-                        self.world_min.z,
-                        self.world_max.x,
-                        self.world_max.y,
-                        self.world_max.z
-                    );
-
-                    #[cfg(not(feature = "game_client"))]
-                    if let Some(hm) = heightmap_data.as_ref() {
-                        self.terrain = super::terrain::TerrainData::from_raw_heightmap(
-                            hm.width.max(1) as u32,
-                            hm.height.max(1) as u32,
-                            &hm.data,
-                            self.world_min,
-                            self.world_max,
-                            hm.border_size.max(0) as u32,
+                #[cfg(feature = "game_client")]
+                if self.terrain.is_some() {
+                    let mut effects = native
+                        .as_mut()
+                        .map(|native| native.effects())
+                        .unwrap_or_default();
+                    if let Some(meta) = self.last_map_settings.clone() {
+                        let spawned_map_object_ids = self.spawned_map_object_ids.clone();
+                        self.ground_loaded_map_objects_to_terrain(
+                            &meta.objects,
+                            &spawned_map_object_ids,
+                            &mut effects,
                         );
                     }
-
-                    #[cfg(feature = "game_client")]
-                    if let Some(hm) = heightmap_data.as_ref() {
-                        use gamelogic::common::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
-                        let width = hm.width.max(1) as u32;
-                        let height = hm.height.max(1) as u32;
-                        if hm.data.len() == (width * height) as usize {
-                            let max_height = 255.0 * MAP_HEIGHT_SCALE;
-                            // C++ MapObject.h MAP_XY_FACTOR=10; WorldHeightMap
-                            // stores map-authored border (ZH Alpine = 70).
-                            // HeightMap::new defaults scale=1 / border=0; the
-                            // visual freeze copies these fields verbatim.
-                            let mut heightmap = game_client::terrain::height_map::HeightMap::new(
-                                width,
-                                height,
-                                max_height,
-                                MAP_XY_FACTOR,
-                            );
-                            apply_cpp_heightmap_xy_and_border(&mut heightmap, hm.border_size);
-                            heightmap.heights = hm.data.iter().map(|h| *h as f32 / 255.0).collect();
-                            if let Some(blend) = blend_tile_data.as_ref() {
-                                super::terrain::apply_blend_tile_data(&mut heightmap, blend);
-                            }
-
-                            let border = heightmap.border_size.max(0) as u32;
-                            self.terrain = Some(super::terrain::TerrainData::from_heightmap(
-                                heightmap,
-                                self.world_min,
-                                self.world_max,
-                                border,
-                            ));
-                            self.copy_crate_water_into_host_terrain();
-                            if let Some(meta) = self.last_map_settings.clone() {
-                                let spawned_map_object_ids = self.spawned_map_object_ids.clone();
-                                self.ground_loaded_map_objects_to_terrain(
-                                    &meta.objects,
-                                    &spawned_map_object_ids,
-                                    &mut native
-                                        .as_mut()
-                                        .map(|native| native.effects())
-                                        .unwrap_or_default(),
-                                );
-                            }
-                            if let Err(error) = self
-                                .seed_pathfinding_from_terrain_with_effects_checked(
-                                    &mut native
-                                        .as_mut()
-                                        .map(|native| native.effects())
-                                        .unwrap_or_default(),
-                                )
-                            {
-                                log::error!("Map native child construction rejected: {error}");
-                                return Ok(false);
-                            }
-                            let wall_height = self.pathfind_ai_rules().wall_height;
-                            ({
-                                let ground_owner = self.world_services.terrain();
-                                let ground_loan = ground_owner
-                                    .read()
-                                    .unwrap_or_else(|error| error.into_inner());
-                                let ground_source = if self.map_loaded
-                                    || ground_loan.has_height_map()
-                                {
-                                    crate::game_logic::pathfinding::PathfindingGround::receiving(
-                                        &ground_loan,
-                                    )
-                                } else {
-                                    crate::game_logic::pathfinding::PathfindingGround::mapless(
-                                        self.terrain.as_ref(),
-                                        self.pathfinding_height_samples.as_ref(),
-                                        &self.pathfinding_system.grid,
-                                    )
-                                };
-                                self.pathfinding_system.apply_structure_static_blocks(
-                                    self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
-                                    wall_height,
-                                    &ground_source,
-                                )
-                            });
-                        }
+                    if let Err(error) = self
+                        .register_landmark_bridges_from_spawned_objects_with_effects_checked(&mut effects)
+                        .and_then(|()| self.ensure_generic_bridge_objects_with_effects_checked(&mut effects))
+                    {
+                        log::error!("Map native child construction rejected: {error}");
+                        return Ok(false);
                     }
-                } else {
-                    // Default symmetrical bounds based on current width/height.
-                    self.world_min =
-                        Vec3::new(-self.world_width * 0.5, 0.0, -self.world_height * 0.5);
-                    self.world_max =
-                        Vec3::new(self.world_width * 0.5, 0.0, self.world_height * 0.5);
-                    let mut replacement_pathfinding = PathfindingSystem::new_with_origin(
-                        self.world_min,
-                        self.world_width,
-                        self.world_height,
+                    let terrain_owner = self.world_services.terrain().clone();
+                    let terrain = terrain_owner.read().unwrap_or_else(|error| error.into_inner());
+                    let ground_source =
+                        crate::game_logic::pathfinding::PathfindingGround::receiving(&terrain);
+                    let mut has_bridges = false;
+                    terrain.for_each_bridge(|_| has_bridges = true);
+                    if has_bridges {
+                        self.refresh_owned_bridge_pathfinder_states_with_ground(&ground_source);
+                        self.pathfinding_system.grid.rebuild_terrain_zones();
+                        self.pathfinding_system.grid.rebuild_path_zones();
+                    }
+                    let wall_height = self.pathfind_ai_rules().wall_height;
+                    self.pathfinding_system.apply_structure_static_blocks(
+                        self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
+                        wall_height,
+                        &ground_source,
                     );
-                    replacement_pathfinding
-                        .grid
-                        .inherit_bridge_admission(&mut self.pathfinding_system.grid);
-                    replacement_pathfinding
-                        .grid
-                        .inherit_goal_ownership(&self.pathfinding_system.grid);
-                    self.pathfinding_system = replacement_pathfinding;
-                    self.refresh_pathfinding_ai_definitions();
                 }
 
                 self.refresh_receiving_object_map_status();

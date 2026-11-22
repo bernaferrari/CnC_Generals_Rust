@@ -422,6 +422,72 @@ mod landmark_bridge_and_new_map_tests {
     }
 
     #[test]
+    fn authored_map_placement_claims_its_position_before_the_first_tick() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "authored_map_placement_claims_its_position_before_the_first_tick",
+            || {
+                use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+                use crate::game_logic::{PathfindingGrid, pathfinding::GridPos};
+                use game_engine::common::system::DataChunkOutput;
+
+                const WALKER: &str = "MapPlacedPositionWalker";
+                let directory = tempfile::tempdir().unwrap();
+                let path = directory.path().join("PositionPlacement.map");
+                let mut map = DataChunkOutput::new();
+                map.open_data_chunk("HeightMapData", 3);
+                for value in [41, 41, 0, 1681] {
+                    map.write_int(value);
+                }
+                for _ in 0..1681 {
+                    map.write_byte(0);
+                }
+                map.close_data_chunk();
+                map.open_data_chunk("ObjectsList", 3);
+                map.open_data_chunk("Object", 3);
+                for value in [110.0, 110.0, 0.0, 0.0] {
+                    map.write_real(value);
+                }
+                map.write_int(0);
+                map.write_ascii_string(WALKER);
+                let mut properties = Dict::new();
+                properties.set_ascii_string(NameKeyGenerator::name_to_key("originalOwner"), "team");
+                map.write_dict(&properties);
+                map.close_data_chunk();
+                map.close_data_chunk();
+                std::fs::write(&path, map.into_ckmp_bytes()).unwrap();
+
+                let mut world = GameLogic::new();
+                admit_fixture_objects(
+                    &mut world,
+                    &[FixtureObject::new(WALKER)
+                        .kind_of("INFANTRY SELECTABLE")
+                        .health(100.0)
+                        .walker()],
+                );
+                world.start_new_game(GameMode::SinglePlayer).unwrap();
+                assert!(world.load_map(path.to_str().unwrap()));
+                let actor = world
+                    .host_objects()
+                    .registered_values()
+                    .find(|object| object.template_name == WALKER)
+                    .expect("the selected CkMp map admitted the authored walker");
+                assert_eq!(world.frame, 0);
+                assert_eq!(actor.get_position(), Vec3::new(110.0, 0.0, 110.0));
+                assert!(actor.has_ai_update_interface());
+                assert!(PathfindingGrid::is_doing_ground_movement(actor));
+                assert!(world.pathfinding_system.map_ready);
+                assert_eq!(
+                    world.pathfinding_ground_position(GridPos::new(11, 11)),
+                    Some(actor.id),
+                    "GameLogic.cpp:1698 initializes the pathfinder before the map's Object::setPosition"
+                );
+                assert_eq!(actor.pathfind_cur_cell, (11, 11));
+            },
+        );
+    }
+
+    #[test]
     fn landmark_bridge_object_registers_leftover_deck() {
         let mut logic = GameLogic::new();
         logic.override_world_size(64.0, 64.0);
