@@ -115,6 +115,50 @@ fn authored_repair_command_records_request_then_enters_action_on_original_phases
 }
 
 #[test]
+fn emp_cancels_the_receiving_authored_dozers_entered_repair() {
+    let (mut owner, id, target) = world();
+    let (mut peer, peer_id, peer_target) = world();
+    assert_eq!((id, target), (peer_id, peer_target));
+    let constructing = 1u128 << crate::game_logic::host_enum_table_residual::actively_constructing_model_bit();
+    for receiver in [&mut owner, &mut peer] {
+        assert_eq!(
+            command(receiver, id, CommandType::Repair { target_id: target }),
+            CommandResult::Success
+        );
+        for frame in 11..=14 {
+            drive(receiver, id, frame);
+        }
+        let dozer = receiver.host_object(id).unwrap();
+        assert_eq!(dozer.dozer_tasks.current, DozerTask::Repair);
+        assert_eq!(dozer.dozer_task_repair_target(), Some(target));
+        assert_ne!(dozer.model_condition_bits & constructing, 0);
+    }
+
+    assert!(owner.apply_emp_pulse_disable_field_at(0, Vec3::ZERO, None));
+    let dozer = owner.host_object(id).unwrap();
+    assert!(dozer.status.disabled_emp);
+    assert_eq!(dozer.dozer_tasks.current, DozerTask::Invalid);
+    assert_eq!(dozer.dozer_task_repair_target(), None);
+    assert_eq!(dozer.model_condition_bits & constructing, 0);
+
+    let peer_dozer = peer.host_object(peer_id).unwrap();
+    assert!(!peer_dozer.status.disabled_emp);
+    assert_eq!(peer_dozer.dozer_tasks.current, DozerTask::Repair);
+    assert_eq!(peer_dozer.dozer_task_repair_target(), Some(peer_target));
+
+    let (mut queued, queued_id, queued_target) = world();
+    assert_eq!(
+        command(&mut queued, queued_id, CommandType::Repair { target_id: queued_target }),
+        CommandResult::Success
+    );
+    assert_eq!(queued.host_object(queued_id).unwrap().dozer_tasks.current, DozerTask::Invalid);
+    assert!(queued.apply_emp_pulse_disable_field_at(0, Vec3::ZERO, None));
+    let queued_dozer = queued.host_object(queued_id).unwrap();
+    assert!(queued_dozer.status.disabled_emp);
+    assert_eq!(queued_dozer.dozer_task_repair_target(), Some(queued_target));
+}
+
+#[test]
 fn repair_action_uses_each_worlds_authored_ai_rate() {
     let (mut first, actor, target) = world_with_repair_rate("7");
     let (mut peer, peer_actor, peer_target) = world_with_repair_rate("2");

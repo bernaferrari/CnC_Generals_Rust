@@ -1,6 +1,7 @@
 //! Receiving phases of the shared native Dozer machine. Each synchronous
 //! self-command runs with the actor and its authoritative owner installed.
 use super::*;
+use game_engine::common::bit_flags::WeaponSetFlags;
 use gamelogic::object::update::ai_update::dozer_ai_update::{
     DozerBuildSubTask,
     owned_state::{ActionState, PrimaryState},
@@ -60,7 +61,7 @@ impl GameLogic {
 
     pub(crate) fn dozer_primary_reset_owned(&mut self, id: ObjectId) {
         if let Some(actor) = self.objects.get_mut(&id) {
-            actor.set_weapon_condition_at_frame(8, true, self.frame);
+            actor.set_weapon_condition_at_frame(WeaponSetFlags::MINE_CLEARING_DETAIL as u8, true, self.frame);
             actor.dozer_tasks.finish_primary_reset(self.frame);
         }
     }
@@ -399,7 +400,7 @@ impl GameLogic {
                 if let Some(actor) = self.objects.get_mut(&id)
                     .filter(|o| std::sync::Arc::ptr_eq(&birth, &o.visual_draw_identity_token))
                 {
-                    actor.set_weapon_condition_at_frame(8, false, self.frame);
+                    actor.set_weapon_condition_at_frame(WeaponSetFlags::MINE_CLEARING_DETAIL as u8, false, self.frame);
                 }
             }
         }

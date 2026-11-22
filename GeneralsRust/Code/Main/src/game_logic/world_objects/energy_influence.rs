@@ -77,6 +77,28 @@ impl GameLogic {
         // Object::setDisabledUntil calls onDisabledEdge after the children.
         // An earlier queued edge could be drained by a child's brownout.
         let producer = if became_disabled {
+            // Object::onDisabledEdge cancels an entered Dozer task before Radar and Energy.
+            use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
+            let dozer_task = self.host_object(id).and_then(|object| {
+                let task = object.dozer_tasks.current;
+                (task != DozerTask::Invalid
+                    && object.get_template().receiving_client_template.as_ref()
+                        .and_then(|template| template.dozer_ai_is_worker())
+                        .is_some())
+                .then_some(task)
+            });
+            if let Some(task) = dozer_task {
+                let cancel = self.dozer_cancel_task_owned(id, task);
+                if !self.spawn_identity_matches(id, birth, epoch) {
+                    return true;
+                }
+                if let Err(error) = cancel {
+                    // The task request is already cleared. Keep the primary
+                    // reset and finish the Object edge if the inherited Idle failed.
+                    self.dozer_primary_reset_owned(id);
+                    log::error!("Dozer {id:?} could not enter idle while disabling: {error}");
+                }
+            }
             let object = self.objects.get_mut(&id).unwrap();
             object.on_disabled_edge(true);
             (object.thing().template.energy_production.unwrap_or(0) > 0)
