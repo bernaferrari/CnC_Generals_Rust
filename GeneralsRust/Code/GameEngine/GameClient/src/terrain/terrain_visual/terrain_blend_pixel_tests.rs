@@ -986,6 +986,88 @@ fn receiving_terrain_owners_render_their_own_live_lights_and_restore_static_colo
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 #[ignore = "requires a native GPU adapter"]
+fn projected_unit_shadow_uses_source_v_axis_and_offsets_in_native_pixels() {
+    crate::test_support::ensure_ambient_host();
+    let instance = wgpu::Instance::default();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("projected shadow test requires a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("projected shadow test requires a GPU device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let classes = [(
+        TerrainSourceTileClass {
+            first_tile: 0,
+            num_tiles: 1,
+            width: 1,
+            name: "ShadowReceiver".to_owned(),
+        },
+        [200; 3],
+    )];
+    let mut visual = live_terrain_visual(
+        &device,
+        &queue,
+        &classes,
+        HeightMap::new(64, 64, 255.0, 1.0),
+        1.0,
+    );
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_fn(64, 64, |x, y| {
+        let gray = match (x, y) {
+            (4..=59, 8..=23) => 64,
+            (4..=59, 40..=55) => 160,
+            _ => 255,
+        };
+        image::Rgba([gray, gray, gray, 255])
+    })
+    .write_to(&mut encoded, image::ImageFormat::Tga)
+    .unwrap();
+    let caster = ProjectedUnitShadow {
+        object_id: 7,
+        transform: Mat4::from_translation(Vec3::new(14.0, 0.0, 18.0)),
+        size: Vec2::new(16.0, 12.0),
+        offset: Vec2::new(4.0, 2.0),
+        layer_height: None,
+        texture_name: "AxisWitness".to_owned(),
+    };
+    assert_eq!(
+        visual.admit_projected_unit_shadows(vec![caster], |path| {
+            (path == "Art/Textures/axiswitness.tga").then(|| encoded.get_ref().clone())
+        }),
+        HashSet::from([7])
+    );
+    visual
+        .update_native(
+            TerrainVisualMotion {
+                frame: 0,
+                paused: false,
+                gravity: 0.0,
+                breeze: Default::default(),
+            },
+            None,
+        )
+        .unwrap();
+    // 32x8 top-down target covers X=[0,32] and Z=[8,24], with Z=23
+    // at the first pixel row. The original midpoint is (18,16).
+    let transform = Mat4::from_cols_array_2d(&[
+        [0.0625, 0.0, 0.0, 0.0],
+        [0.0, 0.0, -0.02, 0.0],
+        [0.0, 0.125, 0.0, 0.0],
+        [-1.0, -2.0, 0.5, 1.0],
+    ]);
+    let pixels = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, transform);
+    let gray = |column: usize, row: usize| pixels[row * 256 + column * 4];
+    assert!((49..=51).contains(&gray(13, 5)), "Z=13 samples V=0.25");
+    assert!((124..=126).contains(&gray(13, 2)), "Z=19 samples V=0.75");
+    assert!((49..=51).contains(&gray(22, 5)), "the X offset shifts the footprint right");
+    assert_eq!(gray(7, 5), 200, "terrain outside the shifted footprint");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
 fn projected_unit_shadow_multiplies_source_color_on_native_terrain() {
     crate::test_support::ensure_ambient_host();
     let instance = wgpu::Instance::default();

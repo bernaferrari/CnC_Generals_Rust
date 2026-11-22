@@ -394,11 +394,11 @@ fn append_projected_shadow(
         let v = if y == Vec2::ZERO { Vec2::NEG_Y } else { y };
         (v.perp(), v)
     };
-    // Authored offsets are added to the UV, moving its midpoint in the
-    // opposite direction along each projected axis.
+    // C++ addShadow stores -offset * inverse_size on each axis. The
+    // midpoint therefore moves along the projected axes by the authored offset.
     let center = Vec2::new(shadow.transform.w_axis.x, shadow.transform.w_axis.z)
-        - u * shadow.offset.x
-        - v * shadow.offset.y;
+        + u * shadow.offset.x
+        + v * shadow.offset.y;
     let half = (u.abs() * shadow.size.x + v.abs() * shadow.size.y) * 0.5;
     let min = ((center - half) / map.scale).floor().as_ivec2();
     let max = ((center + half) / map.scale).ceil().as_ivec2();
@@ -434,7 +434,8 @@ fn append_projected_shadow(
                 position: [planar.x, y, planar.y],
                 uv: [
                     rel.dot(u) / shadow.size.x + 0.5,
-                    rel.dot(v) / shadow.size.y + 0.5,
+                    // queueDecal applies addShadow's negative V scale.
+                    0.5 - rel.dot(v) / shadow.size.y,
                 ],
             });
         }
@@ -467,7 +468,7 @@ mod projected_unit_shadow_tests {
             flip: true,
             ..Default::default()
         });
-        map.cliff_info_ndxes[2 * 8 + 3] = 1;
+        map.cliff_info_ndxes[2 * 8 + 2] = 1;
         let mut decal = ProjectedUnitShadow {
             object_id: 1,
             transform: Mat4::from_cols_array_2d(&[
@@ -483,22 +484,26 @@ mod projected_unit_shadow_tests {
         };
         let (mut vertices, mut indices) = (Vec::new(), Vec::new());
         append_projected_shadow(&map, [0, 0], [7, 7], &decal, &mut vertices, &mut indices);
-        assert_eq!(vertices.len(), 8);
-        assert_eq!(&indices[..6], &[1, 2, 0, 1, 3, 2]);
-        assert_eq!(&indices[6..12], &[2, 5, 4, 2, 3, 5]);
-        assert!((vertices[0].position[1] - 80.1).abs() < 0.0001);
+        assert_eq!(vertices.len(), 9);
+        assert_eq!(&indices[..6], &[0, 4, 3, 0, 1, 4]);
+        assert_eq!(&indices[6..12], &[2, 4, 1, 2, 5, 4]);
+        assert!((vertices[2].position[1] - 80.1).abs() < 0.0001);
         assert_eq!(
-            (vertices[0].position[0], vertices[0].position[2]),
+            (vertices[2].position[0], vertices[2].position[2]),
             (20.0, 10.0)
         );
-        assert_eq!(vertices[0].uv, [15.0 / 14.0 + 0.5, 1.0]);
-        assert_eq!(vertices[1].uv, [15.0 / 14.0 + 0.5, 0.0]);
+        // Original queueDecal projects U=(0,-1), V=(-1,0) in XY and shifts
+        // the midpoint from (19,21) to (13,17). V uses the negative reciprocal.
+        for (vertex, expected_v) in vertices.iter().zip([-0.8, 0.2, 1.2]) {
+            assert!((vertex.uv[0] - 1.0).abs() < 0.0001);
+            assert!((vertex.uv[1] - expected_v).abs() < 0.0001);
+        }
 
         decal.layer_height = Some(33.0);
         vertices.clear();
         indices.clear();
         append_projected_shadow(&map, [0, 0], [7, 7], &decal, &mut vertices, &mut indices);
-        assert!((vertices[0].position[1] - 80.0).abs() < 0.0001);
+        assert!((vertices[2].position[1] - 80.0).abs() < 0.0001);
         assert_eq!(vertices[1].position[1], 34.5);
     }
 }
