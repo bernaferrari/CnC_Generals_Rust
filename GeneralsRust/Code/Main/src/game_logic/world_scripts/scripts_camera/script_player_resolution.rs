@@ -91,7 +91,7 @@ impl HostScriptExecutionDriver<'_> {
     }
 
     pub(super) fn script_science_source(
-        &self,
+        &mut self,
         player: &str,
         player_mask: u32,
         science: &str,
@@ -99,13 +99,7 @@ impl HostScriptExecutionDriver<'_> {
     ) -> Option<(&Player, &ScienceNameFacts, ScienceType)> {
         // CPP playerFromParam resolves an existing single-player mask before
         // consulting the authored side name.
-        let id = if player_mask == 0 {
-            self.script_player_id(player, current_player)?
-        } else if player_mask.is_power_of_two() {
-            player_mask.trailing_zeros()
-        } else {
-            return None;
-        };
+        let id = self.query_condition_player_id(player, player_mask, current_player)?;
         let player = self.world.get_player(id)?;
         let facts = self
             .world

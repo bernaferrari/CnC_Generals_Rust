@@ -1904,7 +1904,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn player_acquired_science_source(
-        &self,
+        &mut self,
         player: &str,
         player_mask: u32,
         science: &str,
@@ -1917,7 +1917,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn player_can_purchase_science(
-        &self,
+        &mut self,
         player: &str,
         player_mask: u32,
         science: &str,

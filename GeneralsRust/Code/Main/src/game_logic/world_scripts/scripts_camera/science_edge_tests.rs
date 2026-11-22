@@ -7,9 +7,6 @@ use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKey
 use game_engine::common::rts::science::{
     SCIENCE_INVALID, ScienceInfo, ScienceNameFacts, ScienceStore, ScienceType, get_science_store,
 };
-use game_engine::common::thing::{
-    module_factory::ModuleFactory, receiving_module_content::ReceivingModuleContent,
-};
 use gamelogic::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
@@ -95,16 +92,55 @@ fn world_with_science(cost: i32) -> (GameLogic, ScienceType) {
     let mut definition = ScienceInfo::new(SCIENCE_INVALID, SCIENCE);
     definition.science_purchase_point_cost = cost;
     store.add_science(definition);
-    let facts = ScienceNameFacts::from_store(&store);
+    let facts = Arc::new(ScienceNameFacts::from_store(&store));
     let science = facts.science(SCIENCE).unwrap();
-    let mut modules = ModuleFactory::new();
-    modules.replace_receiving_science_facts(Arc::new(facts));
+    let object_source = crate::fixture_content::FixtureObject::new("EnemyScienceStructure")
+        .kind_of("STRUCTURE SELECTABLE")
+        .health(100.0)
+        .ini();
+    let content = crate::assets::ReceivingObjectContent::from_sources_with_sciences(
+        [("science-edge-fixture.ini".into(), object_source)],
+        Arc::clone(&facts),
+    )
+    .unwrap();
 
     let mut world = GameLogic::new();
-    world.receiving_module_content = Some(ReceivingModuleContent::new(modules));
+    world.admit_receiving_module_content(content).unwrap();
     let mut player = Player::new(0, Team::USA, SIDE, true).with_script_identity(SIDE);
     player.science_purchase_points = 3;
     world.add_player(player);
+    (world, science)
+}
+
+fn enemy_science_world(cost: i32) -> (GameLogic, ScienceType) {
+    use gamelogic::common::Relationship;
+
+    let (mut world, science) = world_with_science(cost);
+    world.game_mode = GameMode::Skirmish;
+    let owner = world.get_player_mut(0).unwrap();
+    owner.is_human = false;
+    owner.map_side.is_skirmish_ai = true;
+    owner.set_map_relationship(1, Relationship::Enemies);
+    let mut enemy = Player::new(1, Team::GLA, "Enemy", false).with_script_identity("Enemy");
+    enemy.science_purchase_points = 3;
+    world.add_player(enemy);
+    world
+        .ai_manager
+        .add_ai_player(0, Team::USA, crate::ai::AIDifficulty::Medium);
+    world
+        .ai_manager
+        .add_ai_player(1, Team::GLA, crate::ai::AIDifficulty::Medium);
+
+    world
+        .create_object_for_player("EnemyScienceStructure", 1, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    world.frame = 149;
+    world
+        .ai_manager
+        .ai_players
+        .get_mut(&0)
+        .unwrap()
+        .frame_to_check_enemy = 150;
     (world, science)
 }
 
@@ -223,6 +259,90 @@ fn script_purchase_uses_receiving_cost_and_delivers_one_edge() {
             world.evaluate_and_execute_scripts(0.0);
             assert_eq!(world.players[&0].science_purchase_points, 1);
             assert!(!engine_flag(&world, OBSERVER_B));
+        },
+    );
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn this_player_enemy_science_condition_and_action_query_the_receiving_ai_once() {
+    use gamelogic::scripting::core::THIS_PLAYER_ENEMY;
+
+    super::sequential_actor_tests::isolated(
+        module_path!(),
+        "this_player_enemy_science_condition_and_action_query_the_receiving_ai_once",
+        || {
+            let (mut owner, _) = enemy_science_world(2);
+            let (mut peer, _) = enemy_science_world(2);
+            let mut scripts = ScriptList::new();
+            scripts.append_script(script(
+                "purchase_enemy_science",
+                science_condition(
+                    ConditionType::PlayerCanPurchaseScience,
+                    THIS_PLAYER_ENEMY,
+                    0,
+                    SCIENCE,
+                ),
+                science_action(
+                    ScriptActionType::PlayerGrantScience,
+                    THIS_PLAYER_ENEMY,
+                    SCIENCE,
+                ),
+            ));
+            scripts.append_script(script(
+                "observe_enemy_science",
+                science_condition(
+                    ConditionType::PlayerAcquiredScience,
+                    THIS_PLAYER_ENEMY,
+                    0,
+                    SCIENCE,
+                ),
+                flag_action(OBSERVER_A),
+            ));
+            install_scripts(&mut owner, scripts);
+
+            let mut peer_scripts = ScriptList::new();
+            peer_scripts.append_script(script(
+                "grant_enemy_science",
+                truth_condition(),
+                science_action(
+                    ScriptActionType::PlayerGrantScience,
+                    THIS_PLAYER_ENEMY,
+                    SCIENCE,
+                ),
+            ));
+            install_scripts(&mut peer, peer_scripts);
+            assert_eq!(owner.ai_manager.ai_players[&0].enemy_player_id, None);
+            assert_eq!(peer.ai_manager.ai_players[&0].enemy_player_id, None);
+
+            owner.evaluate_and_execute_scripts(0.0);
+            assert_eq!(owner.ai_manager.ai_players[&0].enemy_player_id, None);
+            assert_eq!(owner.ai_manager.ai_players[&0].frame_to_check_enemy, 150);
+            assert!(!owner.players[&1].has_unlocked_science(SCIENCE));
+
+            // The due condition asks the receiving AI for its dynamic enemy;
+            // its following action uses the cached enemy for that same frame.
+            owner.frame = 150;
+            owner.evaluate_and_execute_scripts(0.0);
+            assert_eq!(owner.ai_manager.ai_players[&0].enemy_player_id, Some(1));
+            assert_eq!(owner.ai_manager.ai_players[&0].frame_to_check_enemy, 300);
+            assert!(owner.players[&1].has_unlocked_science(SCIENCE));
+            assert!(!owner.players[&0].has_unlocked_science(SCIENCE));
+            assert!(engine_flag(&owner, OBSERVER_A));
+            assert_eq!(peer.ai_manager.ai_players[&0].enemy_player_id, None);
+            assert_eq!(peer.ai_manager.ai_players[&0].frame_to_check_enemy, 150);
+            assert!(!peer.players[&1].has_unlocked_science(SCIENCE));
+
+            // A separate same-ID world reaches the action without a science
+            // condition having refreshed its dynamic enemy first.
+            peer.frame = 150;
+            peer.evaluate_and_execute_scripts(0.0);
+            assert_eq!(peer.ai_manager.ai_players[&0].enemy_player_id, Some(1));
+            assert_eq!(peer.ai_manager.ai_players[&0].frame_to_check_enemy, 300);
+            assert!(peer.players[&1].has_unlocked_science(SCIENCE));
+            assert!(!owner.players[&0].has_unlocked_science(SCIENCE));
+            assert!(owner.players[&1].has_unlocked_science(SCIENCE));
+            assert_eq!(owner.ai_manager.ai_players[&0].frame_to_check_enemy, 300);
         },
     );
 }

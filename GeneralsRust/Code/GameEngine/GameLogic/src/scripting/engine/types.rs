@@ -1553,7 +1553,7 @@ pub trait ScriptExecutionDriver {
     /// Resolve the receiving Player and ScienceType for the interpreter's
     /// consumable acquisition receipt (ScriptConditions.cpp:1543–1554).
     fn player_acquired_science_source(
-        &self,
+        &mut self,
         _player: &str,
         _player_mask: u32,
         _science: &str,
@@ -1563,7 +1563,7 @@ pub trait ScriptExecutionDriver {
     }
 
     fn player_can_purchase_science(
-        &self,
+        &mut self,
         _player: &str,
         _player_mask: u32,
         _science: &str,
