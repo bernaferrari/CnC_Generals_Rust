@@ -120,9 +120,7 @@ impl PathfindingSystem {
         unit_radius: f32,
         ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
-        let dest_cell = self.grid.world_to_grid(dest);
-        let from_cell = self.grid.world_to_grid(from);
-        if !self.grid.is_valid_pos(dest_cell) && !self.grid.is_valid_pos(from_cell) {
+        if self.leftover_should_force_direct_path_for_off_map_start(from, dest, ground_source) {
             return dest;
         }
         let (radius, center_in_cell) =
@@ -144,9 +142,9 @@ impl PathfindingSystem {
         ) else {
             return dest;
         };
-        let mut world = self.grid.grid_to_world(adj, ground_source);
-        world.y = dest.y;
-        world
+        let (landing_layer, _) = self.grid.path_cell_on_layer(adj, layer);
+        self.grid
+            .adjust_coord_to_cell_on_layer(adj, center_in_cell, landing_layer, ground_source)
     }
 
     /// C++ `Weapon::computeApproachTarget` aircraft branch + leftover
@@ -188,24 +186,21 @@ impl PathfindingSystem {
         dest
     }
 
-    /// Stamp occupancy then unstack landing dest for `seeker` (C++ checkDestination objID).
+    /// Resolve the aircraft's footprint. The landing search reads cell
+    /// reservations without setting a route seeker (C++ checkDestination(NULL)).
     pub fn adjust_landing_destination_for(
-        &mut self,
+        &self,
         seeker: u32,
         objects: HostObjectRead<'_>,
         from: Vec3,
         dest: Vec3,
         ground_source: &PathfindingGround<'_>,
     ) -> Vec3 {
-        self.grid.query_seeker_id = seeker;
-        self.grid.update_dynamic_obstacles(objects, ground_source);
         let unit_radius = objects
             .lookup(&ObjectId(seeker))
             .map(|o| o.geometry_info().bounding_circle_radius())
             .unwrap_or(0.0);
-        let adj = self.adjust_to_landing_destination_radius(from, dest, unit_radius, ground_source);
-        self.grid.query_seeker_id = 0;
-        adj
+        self.adjust_to_landing_destination_radius(from, dest, unit_radius, ground_source)
     }
 
     pub fn clear_static_blocks(&mut self) {

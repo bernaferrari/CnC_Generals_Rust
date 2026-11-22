@@ -1032,6 +1032,40 @@ fn landing_dest_rejects_obstacle_and_uses_radius() {
     );
 }
 
+#[test]
+fn landing_checks_ground_goals_without_the_previous_routes_ignore() {
+    let mut system = PathfindingSystem::new(160.0, 160.0);
+    let requested = GridPos::new(5, 5);
+    let reserved_by = ObjectId(17);
+    system.grid.mark_occupancy(requested, true, reserved_by.0, PathfindLayerEnum::Ground);
+    system.set_ignore_obstacle(Some(reserved_by));
+
+    assert_eq!(
+        system.grid.adjust_to_landing_destination(requested, 400, PathfindLayerEnum::Ground),
+        Some(GridPos::new(6, 5)),
+        "the NULL receiver refuses every ground reservation"
+    );
+}
+
+#[test]
+fn landing_search_can_reenter_the_grid_and_uses_the_selected_cells_height() {
+    let system = PathfindingSystem::new(160.0, 160.0);
+    let ground = PathfindingGround::Flat(7.0);
+    let requested = Vec3::new(-15.0, 80.0, 25.0);
+    let on_map = Vec3::new(15.0, 20.0, 25.0);
+    let just_outside = Vec3::new(-0.25, 20.0, 25.0);
+    assert_eq!(
+        system.adjust_to_landing_destination(on_map, requested, &ground),
+        Vec3::new(5.0, 7.0, 25.0),
+        "the first inward candidate is the center of grid cell (0, 2)"
+    );
+    assert_eq!(
+        system.adjust_to_landing_destination(just_outside, requested, &ground),
+        requested,
+        "only an already off-map aircraft keeps its off-map scripted target"
+    );
+}
+
 /// hq-lhwsl: yield A* walks off the avoided path, not a 20wu shove.
 #[test]
 fn get_move_away_from_path_leaves_avoided_route() {

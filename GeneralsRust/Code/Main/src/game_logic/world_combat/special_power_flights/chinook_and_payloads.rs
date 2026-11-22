@@ -262,11 +262,10 @@ impl GameLogic {
                             self.pathfinding_height_samples.as_ref(),
                             &self.pathfinding_system.grid,
                         );
-                    self.pathfinding_system.adjust_landing_destination_for(
-                        id.0,
-                        self.objects.read().with_players(&self.players).with_team_factory(&self.team_factory),
+                    self.pathfinding_system.adjust_to_landing_destination_radius(
                         landing_from,
                         landing_dest,
+                        bounding_radius,
                         &ground_source,
                     )
                 };

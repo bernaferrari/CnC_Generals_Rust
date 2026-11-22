@@ -448,13 +448,13 @@ fn landing_destination_uses_the_receivers_live_geometry() {
         goal,
         &ground,
     );
-    assert_ne!(
-        wide, goal,
-        "the wide aircraft must avoid an obstacle in its landing footprint"
+    assert_eq!(
+        wide, Vec3::new(40.5, 0.0, 60.5),
+        "the wide aircraft picks the first clear landing footprint from the original spiral"
     );
     assert_eq!(
-        narrow, goal,
-        "another world's narrow aircraft can use the destination"
+        narrow, Vec3::new(55.0, 0.0, 55.0),
+        "another world's narrow aircraft lands at the center of the requested cell"
     );
 }
 

@@ -746,10 +746,8 @@ impl PathfindingGrid {
                     }
                     _ => {}
                 }
-                if self.has_allied_goal_on(p, None, layer) {
-                    return false;
-                }
-                if self.has_blocking_fixed_occupant_on(p, 0, layer) {
+                // The NULL receiver never resolves an actor or ignores a goal.
+                if self.raw_occupancy_bits_with(p, layer, |_| None).goal_unit != 0 {
                     return false;
                 }
             }
@@ -775,9 +773,6 @@ impl PathfindingGrid {
         radius: i32,
         center_in_cell: bool,
     ) -> Option<GridPos> {
-        if !self.is_valid_pos(dest) {
-            return None;
-        }
         if self.check_for_landing(dest, layer, radius, center_in_cell) {
             return Some(dest);
         }
@@ -787,7 +782,7 @@ impl PathfindingGrid {
         let mut limit = max_cells.max(1);
         while limit > 0 {
             for _ in 0..delta {
-                i += 1;
+                i = i.saturating_add(1);
                 limit -= 1;
                 let c = GridPos::new(i, j);
                 if self.check_for_landing(c, layer, radius, center_in_cell) {
@@ -795,7 +790,7 @@ impl PathfindingGrid {
                 }
             }
             for _ in 0..delta {
-                j += 1;
+                j = j.saturating_add(1);
                 limit -= 1;
                 let c = GridPos::new(i, j);
                 if self.check_for_landing(c, layer, radius, center_in_cell) {
@@ -804,7 +799,7 @@ impl PathfindingGrid {
             }
             delta += 1;
             for _ in 0..delta {
-                i -= 1;
+                i = i.saturating_sub(1);
                 limit -= 1;
                 let c = GridPos::new(i, j);
                 if self.check_for_landing(c, layer, radius, center_in_cell) {
@@ -812,7 +807,7 @@ impl PathfindingGrid {
                 }
             }
             for _ in 0..delta {
-                j -= 1;
+                j = j.saturating_sub(1);
                 limit -= 1;
                 let c = GridPos::new(i, j);
                 if self.check_for_landing(c, layer, radius, center_in_cell) {
