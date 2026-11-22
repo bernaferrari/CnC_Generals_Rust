@@ -7,7 +7,7 @@ use crate::gui::campaign_launch_host_bridge::{
 };
 use crate::gui::campaign_manager::{CampaignManager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{ChallengeGenerals, GameDifficulty, NUM_GENERALS};
-use crate::gui::game_window::Image as WindowImage;
+use crate::gui::game_window::{GBM_MOUSE_ENTERING, GBM_MOUSE_LEAVING, Image as WindowImage};
 
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
@@ -27,9 +27,6 @@ use std::rc::Rc;
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
-const GGM_LEFT_DRAG: u32 = 16384;
-const GBM_MOUSE_ENTERING: u32 = GGM_LEFT_DRAG + 6;
-const GBM_MOUSE_LEAVING: u32 = GGM_LEFT_DRAG + 7;
 
 #[derive(Default)]
 pub(crate) struct ChallengeMenuState {

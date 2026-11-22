@@ -305,12 +305,6 @@ pub(crate) fn apply_window_tooltip(window: &mut GameWindow, window_def: &WindowD
 }
 
 pub(crate) fn map_window_message_to_main_menu(msg: WindowMessage) -> u32 {
-    const GGM_LEFT_DRAG: u32 = 16384;
-    const GBM_MOUSE_ENTERING: u32 = GGM_LEFT_DRAG + 6;
-    const GBM_MOUSE_LEAVING: u32 = GGM_LEFT_DRAG + 7;
-    const GBM_SELECTED: u32 = GGM_LEFT_DRAG + 8;
-    const GBM_SELECTED_RIGHT: u32 = GGM_LEFT_DRAG + 9;
-
     match msg {
         WindowMessage::Create => 1,
         WindowMessage::Destroy => 2,

@@ -1885,6 +1885,8 @@ fn gadget_text_entry_system(
 }
 
 fn legacy_main_menu_message(msg: WindowMessage) -> u32 {
+    use crate::gui::game_window::{GBM_MOUSE_ENTERING, GBM_MOUSE_LEAVING, GBM_SELECTED};
+
     match msg {
         WindowMessage::None => 0,
         WindowMessage::Create => 1,
@@ -1913,9 +1915,9 @@ fn legacy_main_menu_message(msg: WindowMessage) -> u32 {
         WindowMessage::MousePos => 24,
         WindowMessage::ImeChar => 25,
         WindowMessage::ImeString => 26,
-        WindowMessage::GadgetSelected => 16392,
-        WindowMessage::GadgetMouseEntering => 16390,
-        WindowMessage::GadgetMouseLeaving => 16391,
+        WindowMessage::GadgetSelected => GBM_SELECTED,
+        WindowMessage::GadgetMouseEntering => GBM_MOUSE_ENTERING,
+        WindowMessage::GadgetMouseLeaving => GBM_MOUSE_LEAVING,
         WindowMessage::GadgetEditDone => 0x0080,
         WindowMessage::GadgetValueChanged => 0x0081,
         WindowMessage::GadgetRightClick => 0x0082,

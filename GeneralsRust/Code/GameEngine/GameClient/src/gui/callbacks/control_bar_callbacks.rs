@@ -14,6 +14,7 @@ use crate::gui::control_bar::{
     host_control_bar_bridge_enabled, publish_host_minimap_interaction,
     publish_host_select_next_idle_worker,
 };
+use crate::gui::game_window::{GBM_SELECTED, GBM_SELECTED_RIGHT};
 use crate::gui::{
     AnimateWindowManager, AnimationType, GameWindow, WindowMessage, WindowMsgData,
     WindowMsgHandled, hide_quit_menu, toggle_diplomacy, toggle_quit_menu,
@@ -806,9 +807,6 @@ impl ControlBarCallbacks {
             return;
         }
 
-        const GGM_LEFT_DRAG: u32 = 16384;
-        const GBM_SELECTED: u32 = GGM_LEFT_DRAG + 8;
-        const GBM_SELECTED_RIGHT: u32 = GGM_LEFT_DRAG + 9;
         let msg = if right_click {
             GBM_SELECTED_RIGHT
         } else {

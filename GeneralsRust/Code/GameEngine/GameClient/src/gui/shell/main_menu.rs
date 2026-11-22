@@ -39,7 +39,9 @@ use crate::gui::campaign_launch_host_bridge::{
     HostCampaignLaunchDescriptor, MenuHostRequest, MenuLaunchSource,
 };
 use crate::gui::campaign_manager::GameDifficulty as CampaignDifficulty;
-use crate::gui::game_window::WindowEventEffects;
+use crate::gui::game_window::{
+    GBM_MOUSE_ENTERING, GBM_MOUSE_LEAVING, GBM_SELECTED, WindowEventEffects,
+};
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::menu_flags::get_dont_show_main_menu;
 use crate::gui::shell::{
@@ -141,11 +143,6 @@ const GWM_DESTROY: u32 = 2;
 const GWM_CHAR: u32 = 21;
 const GWM_INPUT_FOCUS: u32 = 23;
 const GWM_MOUSE_POS: u32 = 24;
-
-const GGM_LEFT_DRAG: u32 = 16384;
-const GBM_MOUSE_ENTERING: u32 = GGM_LEFT_DRAG + 6;
-const GBM_MOUSE_LEAVING: u32 = GGM_LEFT_DRAG + 7;
-const GBM_SELECTED: u32 = GGM_LEFT_DRAG + 8;
 
 // ================================================================================================
 // ENUMERATIONS
