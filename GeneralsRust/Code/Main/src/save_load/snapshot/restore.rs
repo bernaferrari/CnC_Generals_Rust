@@ -47,7 +47,6 @@ fn validate_object_transform(object: &ObjectSnapshot) -> SaveLoadResult<()> {
 fn initial_moving_ground_footprint(
     object: &Object,
     snapshot: &ObjectSnapshot,
-    current_layer: Option<u8>,
     game_logic: &GameLogic,
 ) -> Option<PathPositionFootprint> {
     let ground = PathfindLayerEnum::Ground as u8;
@@ -61,7 +60,6 @@ fn initial_moving_ground_footprint(
         || snapshot.status.disabled_unmanned
         || snapshot.status.airborne_target
         || snapshot.status.destroyed
-        || current_layer.is_some_and(|layer| layer != ground)
         || object.is_kind_of(KindOf::Aircraft)
         || object.is_kind_of(KindOf::Immobile)
         || object.is_kind_of(KindOf::Projectile)
@@ -676,7 +674,7 @@ impl SnapshotBuilder {
         // and AI runtime (Object.cpp:4027,4115,4248,4348). Keep the constructor
         // footprint but publish it only for a successfully admitted Object.
         let initial_path_position = if pathfinder_ready {
-            initial_moving_ground_footprint(&object, snapshot, current_layer, game_logic)
+            initial_moving_ground_footprint(&object, snapshot, game_logic)
                 .map(|footprint| (footprint, object.get_position()))
         } else {
             None

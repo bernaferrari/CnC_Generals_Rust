@@ -272,6 +272,126 @@ fn canonical_body_scaffold_repair_and_delete_ignore_foreign_same_id() {
 }
 
 #[test]
+fn native_saved_moving_bridge_actor_keeps_the_constructor_ground_claim() {
+    isolated(
+        "native_saved_moving_bridge_actor_keeps_the_constructor_ground_claim",
+        || {
+            use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+            use crate::game_logic::{AIState, GameMode, ObjectAudio, pathfinding::PathRoute};
+
+            const WALKER: &str = "BridgeContinuationWalker";
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("MovingBridge.map");
+            std::fs::write(&path, map_bytes(50.0, &[21.0])).unwrap();
+            let load_with_walker = |path: &Path| {
+                let mut world = GameLogic::new();
+                admit_fixture_objects(
+                    &mut world,
+                    &[
+                        FixtureObject::new("GenericBridge")
+                            .kind_of("STRUCTURE BRIDGE IMMOBILE")
+                            .health(300.0),
+                        FixtureObject::new(WALKER)
+                            .kind_of("INFANTRY SELECTABLE")
+                            .health(100.0)
+                            .field("Geometry = CYLINDER")
+                            .field("GeometryMajorRadius = 3")
+                            .field("GeometryHeight = 10")
+                            .walker(),
+                    ],
+                );
+                world.start_new_game(GameMode::SinglePlayer).unwrap();
+                assert!(world.load_map(path.to_str().unwrap()));
+                world
+            };
+            let mut source = load_with_walker(&path);
+            let mut peer = load_with_walker(&path);
+            let bridge = bridges(&source);
+            assert_eq!(bridge.len(), 1);
+            let layer_id = bridge[0].0;
+            let layer = PathfindLayerEnum::from_u32(layer_id as u32);
+            assert_ne!(layer, PathfindLayerEnum::Ground);
+            assert!(source.pathfinding_system.map_ready);
+            let pose = Vec3::new(55.0, 21.0, 50.0);
+            let goal = Vec3::new(65.0, 21.0, 50.0);
+            let peer_pose = Vec3::new(135.0, 0.0, 125.0);
+            let id = source.create_object(WALKER, Team::Neutral, pose).unwrap();
+            let peer_id = peer
+                .create_object(WALKER, Team::Neutral, peer_pose)
+                .unwrap();
+            assert_eq!(id, peer_id);
+            let pose_cell = source.pathfinding_system.grid.world_to_grid(pose);
+            let goal_cell = source.pathfinding_system.grid.world_to_grid(goal);
+            let peer_cell = peer.pathfinding_system.grid.world_to_grid(peer_pose);
+            let grid = &source.pathfinding_system.grid;
+            assert!(grid.layer_cell_type(layer_id, pose_cell).is_some());
+            assert!(grid.layer_cell_type(layer_id, goal_cell).is_some());
+            assert!(!grid.object_interacts_with_bridge_end(pose, 3.0, layer));
+
+            // Use the real layer transition to establish the moving save.
+            source.set_owned_pathfinder_layer(id, layer_id);
+            let frame = source.frame;
+            let mut nodes = PathRoute::from_coords(vec![Vec3::new(45.0, 21.0, 50.0), goal])
+                .nodes()
+                .to_vec();
+            for node in &mut nodes {
+                node.layer = Some(layer_id);
+            }
+            let route = PathRoute::from_nodes(nodes, false).unwrap();
+            let cursor = route.cursor_from_raw(Some(0), Some(1)).unwrap();
+            {
+                let mover = source.host_object_mut(id).unwrap();
+                mover.movement.path = route.clone();
+                mover.movement.path_cursor = cursor;
+                mover.movement.target_position = Some(goal);
+                mover.requested_destination = Some(goal);
+                mover.set_ai_state(
+                    AIState::Moving,
+                    frame,
+                    &mut ObjectAudio::record(&mut Vec::new()),
+                );
+                mover.set_locomotor_goal_position_on_path();
+                mover.set_status_moving(true);
+            }
+            source.register_path_goal_on_layer(id, goal, layer_id);
+            let grid = &source.pathfinding_system.grid;
+            assert_eq!(grid.position_unit_on_layer(pose_cell, layer), id.0);
+            assert_eq!(grid.goal_unit_on_layer(goal_cell, layer), id.0);
+            assert_eq!(source.pathfinding_ground_position(pose_cell), None);
+            assert_eq!(peer.pathfinding_ground_position(peer_cell), Some(peer_id));
+
+            let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
+            saves.init().unwrap();
+            saves.quick_save(&source).unwrap();
+            std::fs::remove_file(&path).unwrap();
+            let decoded = saves.load_game_snapshot("quicksave").unwrap();
+            let mut restored = load_with_walker(Path::new(&decoded.save_info.map_name));
+            saves
+                .restore_game_snapshot(&decoded.snapshot, &mut restored)
+                .unwrap();
+
+            let mover = restored.host_object(id).unwrap();
+            assert!(mover.host_ai_is_moving());
+            assert_eq!(mover.get_position(), pose);
+            assert_eq!(mover.movement.path, route);
+            assert_eq!(mover.movement.path_cursor, cursor);
+            assert_eq!(mover.pathfind_layer, layer_id);
+            assert_eq!(mover.pathfind_cur_cell, (pose_cell.x, pose_cell.y));
+            let grid = &restored.pathfinding_system.grid;
+            assert!(grid.layer_cell_type(layer_id, pose_cell).is_some());
+            assert_eq!(grid.goal_unit_on_layer(goal_cell, layer), id.0);
+            assert_eq!(grid.position_unit_on_layer(pose_cell, layer), 0);
+            // Object::xfer installs the pose while the new object is Ground.
+            // The saved layer is transferred directly, without setLayer.
+            assert_eq!(restored.pathfinding_ground_position(pose_cell), Some(id));
+            assert_eq!(restored.pathfinding_ground_position(peer_cell), None);
+            assert_eq!(peer.pathfinding_ground_position(peer_cell), Some(peer_id));
+            assert_eq!(peer.pathfinding_ground_position(pose_cell), None);
+        },
+    );
+}
+
+#[test]
 fn native_saved_map_reconstructs_layers_and_keeps_scaffold_continuation() {
     isolated(
         "native_saved_map_reconstructs_layers_and_keeps_scaffold_continuation",
