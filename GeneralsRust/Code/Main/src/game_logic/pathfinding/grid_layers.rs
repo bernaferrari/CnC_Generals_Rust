@@ -1464,11 +1464,16 @@ impl PathfindingGrid {
                 .entry(id)
                 .or_insert_with(|| Self::resolve_occupant(objects, mover, id, ally_masks));
         }
-        // Re-stamps append repeats; keep the lists bounded by distinct ids.
-        for ids in [&mut self.occ_pos_ids, &mut self.occ_goal_ids] {
-            if ids.len() > 64 {
+        // Compact after new stamps append IDs. Later queries can reuse the
+        // compacted list, even while resolving live facts for different seekers.
+        for (ids, dirty) in [
+            (&mut self.occ_pos_ids, &mut self.occ_pos_ids_dirty),
+            (&mut self.occ_goal_ids, &mut self.occ_goal_ids_dirty),
+        ] {
+            if *dirty && ids.len() > 64 {
                 ids.sort_unstable();
                 ids.dedup();
+                *dirty = false;
             }
         }
     }
@@ -1677,9 +1682,14 @@ impl PathfindingGrid {
         unit_id: u32,
         layer: PathfindLayerEnum,
     ) {
-        let ids = if goal { &mut self.occ_goal_ids } else { &mut self.occ_pos_ids };
+        let (ids, dirty) = if goal {
+            (&mut self.occ_goal_ids, &mut self.occ_goal_ids_dirty)
+        } else {
+            (&mut self.occ_pos_ids, &mut self.occ_pos_ids_dirty)
+        };
         if unit_id != 0 && ids.last() != Some(&unit_id) {
             ids.push(unit_id);
+            *dirty = true;
         }
         if (layer as u8) > PathfindLayerEnum::Ground as u8
             && self.layer_cell_type(layer as u8, pos).is_some()

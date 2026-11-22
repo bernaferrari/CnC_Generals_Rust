@@ -36,7 +36,10 @@ impl PathfindingGrid {
                 self.occ_goal_aircraft[new] = previous.occ_goal_aircraft[old];
             }
         }
-        self.occ_goal_ids.extend_from_slice(&previous.occ_goal_ids);
+        if !previous.occ_goal_ids.is_empty() {
+            self.occ_goal_ids.extend_from_slice(&previous.occ_goal_ids);
+            self.occ_goal_ids_dirty = true;
+        }
         for (&layer, old) in &previous.layer_occ {
             let current = self.layer_occ.entry(layer).or_default();
             for (&(x, y), &id) in &old.occ_goal_unit {

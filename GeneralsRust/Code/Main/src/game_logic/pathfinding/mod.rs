@@ -685,8 +685,10 @@ pub struct PathfindingGrid {
     /// maps) since the position cells were last cleared, so a query binds
     /// occupants without scanning every cell. Stale entries are harmless.
     occ_pos_ids: Vec<u32>,
+    occ_pos_ids_dirty: bool,
     /// Same for `occ_goal_unit` (and layer goal maps).
     occ_goal_ids: Vec<u32>,
+    occ_goal_ids_dirty: bool,
     /// C++ PathfindCellInfo::m_obstacleIsFence.
     fence_bits: Vec<u64>,
     /// C++ PathfindCellInfo::m_obstacleIsTransparent (KINDOF_CAN_SEE_THROUGH).
