@@ -1,6 +1,7 @@
 //! Additional `impl GameLogic` methods. Child of `game_logic.rs`.
 #![allow(unused_imports, non_snake_case)]
 use super::*;
+use game_engine::common::system::game_type::Weather;
 
 #[cfg(test)]
 #[path = "script_status_owner_tests.rs"]
@@ -41,8 +42,10 @@ impl GameLogic {
         let Some(weather) = weather else {
             return;
         };
-        let snowy = weather == 1;
-        let name = if snowy { "snowy" } else { "normal" };
+        let name = match Weather::from_value(weather as u32).unwrap_or_default() {
+            Weather::Normal => "normal",
+            Weather::Snowy => "snowy",
+        };
         let intensity = self.weather_state.intensity;
         let duration_remaining = self.weather_state.duration_remaining;
         let next_change_time = self.weather_state.next_change_time;

@@ -1,5 +1,7 @@
 // C++ ownership: WorldHeightMap HeightMapData/BlendTileData/WorldInfo chunks and PolygonTrigger data.
 
+use game_engine::common::system::game_type::Weather;
+
 /// Parse the `HeightMapData` chunk into raw 8-bit height samples.
 pub fn parse_heightmap_data(map_name: &str) -> LoaderResult<Option<HeightMapData>> {
     let Some(chunky) = load_chunky_map(map_name)? else {
@@ -306,10 +308,29 @@ pub fn parse_world_weather_value(raw: &str) -> Option<i32> {
     if let Ok(value) = trimmed.parse::<i32>() {
         return Some(value);
     }
-    match trimmed.to_ascii_uppercase().as_str() {
-        "NORMAL" | "CLEAR" => Some(0),
-        "SNOWY" | "SNOW" => Some(1),
-        _ => None,
+    let weather = match trimmed.to_ascii_uppercase().as_str() {
+        "NORMAL" | "CLEAR" => Weather::Normal,
+        "SNOWY" | "SNOW" => Weather::Snowy,
+        _ => return None,
+    };
+    Some(weather.value() as i32)
+}
+
+/// A map object's SNOW override (`Object::updateObjValuesFromMapProperties`).
+#[repr(i32)]
+enum ObjectWeatherOverride {
+    FollowWorld = 0,
+    ForceNormal = 1,
+    ForceSnow = 2,
+}
+
+impl ObjectWeatherOverride {
+    fn from_value(value: i32) -> Self {
+        match value {
+            1 => Self::ForceNormal,
+            2 => Self::ForceSnow,
+            _ => Self::FollowWorld,
+        }
     }
 }
 
@@ -323,20 +344,21 @@ pub fn parse_object_weather_value(raw: &str) -> Option<i32> {
     if let Ok(value) = trimmed.parse::<i32>() {
         return Some(value);
     }
-    match trimmed.to_ascii_uppercase().as_str() {
-        "NORMAL" | "CLEAR" | "FOLLOW" => Some(0),
-        "FORCEDNORMAL" | "FORCE_NORMAL" => Some(1),
-        "SNOWY" | "SNOW" | "FORCEDSNOW" | "FORCE_SNOW" => Some(2),
-        _ => None,
-    }
+    let weather = match trimmed.to_ascii_uppercase().as_str() {
+        "NORMAL" | "CLEAR" | "FOLLOW" => ObjectWeatherOverride::FollowWorld,
+        "FORCEDNORMAL" | "FORCE_NORMAL" => ObjectWeatherOverride::ForceNormal,
+        "SNOWY" | "SNOW" | "FORCEDSNOW" | "FORCE_SNOW" => ObjectWeatherOverride::ForceSnow,
+        _ => return None,
+    };
+    Some(weather as i32)
 }
 
 /// Resolve SNOW after global weather stamp, then per-object override.
 pub fn resolve_object_weather_snow(object_weather: i32, world_is_snow: bool) -> bool {
-    match object_weather {
-        1 => false,
-        2 => true,
-        _ => world_is_snow,
+    match ObjectWeatherOverride::from_value(object_weather) {
+        ObjectWeatherOverride::FollowWorld => world_is_snow,
+        ObjectWeatherOverride::ForceNormal => false,
+        ObjectWeatherOverride::ForceSnow => true,
     }
 }
 

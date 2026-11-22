@@ -224,9 +224,13 @@ End\n";
         assert_eq!(parse_world_weather_value("0"), Some(0));
         assert_eq!(parse_object_weather_value("2"), Some(2));
         assert_eq!(parse_object_weather_value("1"), Some(1));
+        assert_eq!(parse_object_weather_value("FORCE_NORMAL"), Some(1));
+        assert_eq!(parse_object_weather_value("FORCE_SNOW"), Some(2));
         assert!(resolve_object_weather_snow(0, true));
         assert!(!resolve_object_weather_snow(1, true));
         assert!(resolve_object_weather_snow(2, false));
+        assert!(resolve_object_weather_snow(3, true));
+        assert!(!resolve_object_weather_snow(-1, false));
     }
 
     #[test]
