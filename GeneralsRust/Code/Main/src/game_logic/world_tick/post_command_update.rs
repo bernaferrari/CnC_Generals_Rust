@@ -422,7 +422,6 @@ impl GameLogic {
             }
         }
         self.update_tensile_formations_with_effects(&mut ui);
-        // Wave 820: host-sole unless movement authority live: fire-spread owned by GW expire + logs.
         {
             if let Err(error) = self.update_fire_spread_with_effects(&mut ui) {
                 return SimulationStepOutcome::Failed(error);

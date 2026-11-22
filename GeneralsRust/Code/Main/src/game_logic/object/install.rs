@@ -492,13 +492,10 @@ impl Object {
     }
 
     pub fn install_fire_spread_if_needed(&mut self) {
-        if self.fire_spread.is_some() {
-            return;
-        }
-        if let Some(data) = crate::game_logic::host_fire_spread::HostFireSpreadData::for_template(
-            &self.template_name,
-        ) {
-            self.fire_spread = Some(data);
+        if self.fire_spread.is_none() {
+            self.fire_spread = crate::game_logic::host_fire_spread::HostFireSpreadData::from_authored(
+                self.get_template(),
+            );
         }
     }
 

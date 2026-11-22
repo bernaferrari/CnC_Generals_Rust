@@ -43,21 +43,9 @@ impl GameLogic {
         );
     }
 
-    /// C++ FireSpreadUpdate.cpp:101 `ObjectCreationList::create(OCL_BurningEmbers)`.
-    pub(crate) fn spawn_fire_spread_embers(
-        &mut self,
-        source_id: ObjectId,
-        pos: Vec3,
-        ocl_name: &str,
-    ) -> Vec<ObjectId> {
-        self.spawn_fire_spread_embers_with_effects(
-            source_id,
-            pos,
-            ocl_name,
-            &mut Default::default(),
-        )
-    }
-
+    /// C++ FireSpreadUpdate.cpp:101 `ObjectCreationList::create` on the authored
+    /// `OCLEmbers` name. `None`/empty/missing lists are no-ops in the receiving
+    /// executor — the authored OCL is the only source.
     pub(crate) fn spawn_fire_spread_embers_with_effects(
         &mut self,
         source_id: ObjectId,
@@ -65,19 +53,12 @@ impl GameLogic {
         ocl_name: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Vec<ObjectId> {
-        use crate::game_logic::host_fire_spread::TREE_OCL_EMBERS;
-        let ocl = if ocl_name.is_empty() {
-            TREE_OCL_EMBERS
-        } else {
-            ocl_name
+        let Some(source) = self.objects.get(&source_id) else {
+            return Vec::new();
         };
-        let (team, yaw, vel) = self
-            .objects
-            .get(&source_id)
-            .map(|o| (o.team, o.get_orientation(), o.movement.velocity))
-            .unwrap_or((crate::game_logic::Team::Neutral, 0.0, Vec3::ZERO));
+        let (team, yaw, vel) = (source.team, source.get_orientation(), source.movement.velocity);
         let outcome = self.execute_parsed_weapon_ocl_with_births(
-            ocl,
+            ocl_name,
             Some(source_id),
             team,
             crate::game_logic::VeterancyLevel::Rookie,
@@ -93,17 +74,13 @@ impl GameLogic {
         if let Some(error) = outcome.error {
             log::error!("{error}");
         }
-        let created: Vec<_> = outcome
+        outcome
             .created
             .into_iter()
             .filter_map(|(id, (generation, epoch))| {
                 self.spawn_identity_matches(id, generation, epoch).then_some(id)
             })
-            .collect();
-        let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
-            pos, None, self.frame, source_id, None, "", "", ocl, "", 0.0, 0.0,
-        );
-        created
+            .collect()
     }
 
     /// C++ FlammableUpdate::startBurningSound GenericFireMediumLoop.

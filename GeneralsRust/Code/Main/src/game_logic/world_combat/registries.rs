@@ -617,11 +617,6 @@ impl GameLogic {
             )
     }
 
-    pub fn honesty_fire_spread_ok(&self) -> bool {
-        self.fire_spread_reg.honesty_host_path_ok()
-            && crate::game_logic::host_fire_spread::honesty_fire_spread_residual_ok()
-    }
-
     pub fn honesty_base_regenerate_ok(&self) -> bool {
         self.base_regenerate_reg.honesty_host_path_ok()
             && crate::game_logic::host_base_regenerate::honesty_base_regenerate_residual_ok()

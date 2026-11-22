@@ -14,15 +14,10 @@
 //! Buildings with FlammableUpdate (oil derrick / black market / PUC) ignite
 //! but do not carry FireSpreadUpdate unless the template is a tree.
 
-use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 /// Logic FPS residual.
 pub const FIRE_SPREAD_LOGIC_FPS: f32 = 30.0;
-
-pub fn fire_spread_ms_to_frames(ms: u32) -> u32 {
-    ((ms as f32) * FIRE_SPREAD_LOGIC_FPS / 1000.0).round() as u32
-}
 
 /// Retail tree FlammableUpdate peels.
 pub const TREE_FLAME_DAMAGE_LIMIT: f32 = 2.0;
@@ -40,8 +35,6 @@ pub const TREE_AFLAME_DAMAGE_DELAY_MS: u32 = 500;
 /// AflameDamageDelay 500ms → 15 frames @ 30 FPS.
 pub const TREE_AFLAME_DAMAGE_DELAY_FRAMES: u32 = 15;
 pub const TREE_BURNING_SOUND: &str = "GenericFireMediumLoop";
-/// C++ GameData AutoAflameParticleSystem residual name.
-pub const AUTO_AFLAME_PARTICLE: &str = "AutoAflame";
 
 /// Retail FireSpreadUpdate peels.
 pub const TREE_MIN_SPREAD_DELAY_MS: u32 = 1_000;
@@ -198,60 +191,51 @@ impl HostFireSpreadData {
         }
     }
 
-    /// Black market FlammableUpdate residual (no FireSpreadUpdate).
-    pub fn black_market_default() -> Self {
-        use crate::game_logic::host_black_market::{
-            BLACK_MARKET_AFLAME_DAMAGE_AMOUNT, BLACK_MARKET_AFLAME_DAMAGE_DELAY_FRAMES,
-            BLACK_MARKET_AFLAME_DURATION_FRAMES,
-        };
-        Self {
-            flame_damage_limit: 20.0,
-            flame_damage_limit_data: 20.0,
-            flame_damage_expiration: TREE_FLAME_DAMAGE_EXPIRATION_FRAMES,
-            aflame_duration: BLACK_MARKET_AFLAME_DURATION_FRAMES,
-            burned_delay: 0,
-            spread_enabled: false,
-            spread_try_range: 0.0,
-            ocl_embers: String::new(),
-            aflame_damage_amount: BLACK_MARKET_AFLAME_DAMAGE_AMOUNT,
-            aflame_damage_delay: BLACK_MARKET_AFLAME_DAMAGE_DELAY_FRAMES,
-            ..Self::tree_default()
-        }
-    }
-
-    /// Particle Uplink FlammableUpdate residual (no FireSpreadUpdate).
-    pub fn particle_uplink_default() -> Self {
-        use crate::game_logic::special_power_strikes::{
-            PARTICLE_UPLINK_AFLAME_DAMAGE_AMOUNT, PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_FRAMES,
-            PARTICLE_UPLINK_AFLAME_DURATION_FRAMES,
-        };
-        Self {
-            flame_damage_limit: 20.0,
-            flame_damage_limit_data: 20.0,
-            flame_damage_expiration: TREE_FLAME_DAMAGE_EXPIRATION_FRAMES,
-            aflame_duration: PARTICLE_UPLINK_AFLAME_DURATION_FRAMES,
-            burned_delay: 0,
-            spread_enabled: false,
-            spread_try_range: 0.0,
-            ocl_embers: String::new(),
-            aflame_damage_amount: PARTICLE_UPLINK_AFLAME_DAMAGE_AMOUNT,
-            aflame_damage_delay: PARTICLE_UPLINK_AFLAME_DAMAGE_DELAY_FRAMES,
-            ..Self::tree_default()
-        }
-    }
-
-    pub fn for_template(template_name: &str) -> Option<Self> {
-        if crate::game_logic::host_oil_derrick::is_oil_derrick_template(template_name) {
-            Some(Self::oil_derrick_default())
-        } else if crate::game_logic::host_black_market::is_black_market_template(template_name) {
-            Some(Self::black_market_default())
-        } else if is_particle_uplink_flammable_template(template_name) {
-            Some(Self::particle_uplink_default())
-        } else if is_fire_spread_template(template_name) {
-            Some(Self::tree_default())
+    /// Authored-module install: the first authored `FlammableUpdate` supplies
+    /// the FlammableUpdate fields (C++ FlammableUpdateModuleData), and an
+    /// authored `FireSpreadUpdate` supplies spread timers/range. The raw OCL
+    /// token is read from the same admitted definition because the typed data
+    /// keeps only the hashed `ObjectCreationListId` (no ambient reverse
+    /// NameKey lookup).
+    pub(crate) fn from_authored(template: &crate::game_logic::ThingTemplate) -> Option<Self> {
+        use gamelogic::object::behavior::flammable_update::FlammableUpdateModuleData;
+        use gamelogic::object::update::fire_spread_update::FireSpreadUpdateModuleData;
+        let flame = template.authored_module_data::<FlammableUpdateModuleData>("FlammableUpdate")?;
+        let spread = template.authored_module_data::<FireSpreadUpdateModuleData>("FireSpreadUpdate");
+        let ocl_embers = if spread.is_some() {
+            template
+                .receiving_object_definition
+                .as_ref()
+                .and_then(|definition| {
+                    definition
+                        .behavior_modules
+                        .iter()
+                        .find(|module| module.class_name.eq_ignore_ascii_case("FireSpreadUpdate"))
+                })
+                .and_then(|module| module.attribute("OCLEmbers"))
+                .map(|name| name.trim().trim_matches('"'))
+                .filter(|name| !name.eq_ignore_ascii_case("None"))
+                .unwrap_or_default()
+                .to_owned()
         } else {
-            None
-        }
+            String::new()
+        };
+        Some(Self {
+            flame_damage_limit: flame.flame_damage_limit,
+            flame_damage_limit_data: flame.flame_damage_limit,
+            flame_damage_expiration: flame.flame_damage_expiration_delay,
+            aflame_duration: flame.aflame_duration,
+            burned_delay: flame.burned_delay,
+            aflame_damage_amount: flame.aflame_damage_amount,
+            aflame_damage_delay: flame.aflame_damage_delay,
+            burning_sound_name: flame.burning_sound_name.to_string(),
+            spread_enabled: spread.is_some(),
+            min_spread_delay: spread.as_ref().map_or(0, |s| s.min_spread_try_delay),
+            max_spread_delay: spread.as_ref().map_or(0, |s| s.max_spread_try_delay),
+            spread_try_range: spread.as_ref().map_or(0.0, |s| s.spread_try_range),
+            ocl_embers,
+            ..Self::tree_default()
+        })
     }
 
     /// C++ `wouldIgnite`: normal and not already aflame/burned.
@@ -351,13 +335,17 @@ impl HostFireSpreadData {
         (delay.max(1) as u32).max(1)
     }
 
+    /// C++ `GameLogicRandomValue(MinSpreadDelay, MaxSpreadDelay)` — one draw,
+    /// inclusive, unsigned result floored at 1 frame.
     pub fn calc_next_spread_delay_with_random(
         &self,
         random: &game_engine::common::random_value::SessionRandom,
     ) -> u32 {
-        let lo = self.min_spread_delay as i32;
-        let hi = self.max_spread_delay.max(self.min_spread_delay) as i32;
-        (random.next_int(lo, hi).max(1) as u32).max(1)
+        let delay = random.next_int(
+            self.min_spread_delay as i32,
+            self.max_spread_delay as i32,
+        ) as u32;
+        delay.max(1)
     }
 
     pub fn is_aflame(&self) -> bool {
@@ -498,37 +486,6 @@ pub struct SpreadTickResult {
     pub spawn_embers: bool,
 }
 
-/// C++ `FROM_CENTER_3D` distance (host Y-up includes height).
-pub fn fire_spread_center_3d_distance(a: Vec3, b: Vec3) -> f32 {
-    a.distance(b)
-}
-
-/// Nature prop / shrubbery fire-spread templates.
-pub fn is_fire_spread_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("dogwood")
-        || n.contains("tree")
-            && (n.contains("pt") || n.contains("shrub") || n.contains("pine") || n.contains("oak"))
-        || n.contains("shrubbery")
-        || n.ends_with("tree")
-        || n.contains("burnabletree")
-}
-
-/// Particle Uplink building FlammableUpdate residual.
-pub fn is_particle_uplink_flammable_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    (n.contains("particleuplink") || n.contains("particlecannonuplink"))
-        && !n.contains("namedbutnomodule")
-}
-
-/// Any object that should install FlammableUpdate on the live host.
-pub fn is_flammable_template(name: &str) -> bool {
-    is_fire_spread_template(name)
-        || crate::game_logic::host_oil_derrick::is_oil_derrick_template(name)
-        || crate::game_logic::host_black_market::is_black_market_template(name)
-        || is_particle_uplink_flammable_template(name)
-}
-
 /// Host residual registry.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostFireSpreadRegistry {
@@ -561,41 +518,11 @@ impl HostFireSpreadRegistry {
     pub fn record_burned(&mut self) {
         self.burned = self.burned.saturating_add(1);
     }
-    pub fn honesty_host_path_ok(&self) -> bool {
-        self.installed > 0 || self.ignitions > 0 || self.spreads > 0
-    }
-}
-
-pub fn honesty_fire_spread_residual_ok() -> bool {
-    fire_spread_ms_to_frames(TREE_MIN_SPREAD_DELAY_MS) == TREE_MIN_SPREAD_DELAY_FRAMES
-        && fire_spread_ms_to_frames(TREE_MAX_SPREAD_DELAY_MS) == TREE_MAX_SPREAD_DELAY_FRAMES
-        && fire_spread_ms_to_frames(TREE_AFLAME_DURATION_MS) == TREE_AFLAME_DURATION_FRAMES
-        && fire_spread_ms_to_frames(TREE_BURNED_DELAY_MS) == TREE_BURNED_DELAY_FRAMES
-        && fire_spread_ms_to_frames(TREE_FLAME_DAMAGE_EXPIRATION_MS)
-            == TREE_FLAME_DAMAGE_EXPIRATION_FRAMES
-        && TREE_SPREAD_TRY_RANGE == 50.0
-        && TREE_FLAME_DAMAGE_LIMIT == 2.0
-        && TREE_AFLAME_DAMAGE_AMOUNT == 5.0
-        && TREE_AFLAME_DAMAGE_DELAY_FRAMES == 15
-        && TREE_OCL_EMBERS == "OCL_BurningEmbers"
-        && TREE_BURNING_SOUND == "GenericFireMediumLoop"
-        && is_fire_spread_template("DogwoodTree")
-        && is_fire_spread_template("PTDogwood01")
-        && !is_fire_spread_template("AmericaTankCrusader")
-        && HostFireSpreadData::for_template("TechOilDerrick").is_some()
-        && HostFireSpreadData::for_template("GLABlackMarket").is_some()
-        && HostFireSpreadData::for_template("AmericaParticleUplinkCannon").is_some()
-        && !is_flammable_template("AmericaTankCrusader")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn residual_pack() {
-        assert!(honesty_fire_spread_residual_ok());
-    }
 
     #[test]
     fn flame_damage_ignites_and_spreads() {
@@ -707,25 +634,74 @@ mod tests {
     }
 
     #[test]
-    fn center_3d_includes_height() {
-        let a = Vec3::new(0.0, 0.0, 0.0);
-        let b = Vec3::new(30.0, 40.0, 0.0);
-        let d = fire_spread_center_3d_distance(a, b);
-        assert!((d - 50.0).abs() < 0.01);
-        let planar = (30.0_f32 * 30.0).sqrt();
-        assert!(d > planar + 1.0);
-    }
+    fn authored_modules_install_fire_spread_not_the_template_name() {
+        // No name guesswork: a tree-shaped name without modules installs
+        // nothing, a flammable-only building installs without spread, and the
+        // tree's authored values drive the runtime fields.
+        let mut world = crate::game_logic::GameLogic::new();
+        let mut ini = fire_fixture_ini(&["FixtureTreeAlpha"], &["FixtureOilBuilding"]);
+        ini.push_str(
+            "Object DogwoodTreeDecoy\n Body = ActiveBody BodyTag\n MaxHealth = 50\n InitialHealth = 50\n End\nEnd\n",
+        );
+        world
+            .admit_object_ini_sources([("fire-fixture.ini".into(), ini)])
+            .expect("fire fixture INI admitted");
 
-    #[test]
-    fn buildings_install_flammable_without_tree_spread() {
-        let oil = HostFireSpreadData::for_template("TechOilDerrick").expect("oil");
-        assert!((oil.flame_damage_limit_data - 20.0).abs() < 0.01);
-        assert!(!oil.spread_enabled);
-        assert!((oil.aflame_damage_amount - 25.0).abs() < 0.01);
-        let mkt = HostFireSpreadData::for_template("GLABlackMarket").expect("market");
-        assert!(!mkt.spread_enabled);
-        let puc = HostFireSpreadData::for_template("AmericaParticleUplinkCannon").expect("puc");
-        assert!(!puc.spread_enabled);
-        assert!(HostFireSpreadData::for_template("AmericaTankCrusader").is_none());
+        let tree = world.templates.get("FixtureTreeAlpha").unwrap();
+        let tree_data = HostFireSpreadData::from_authored(tree).expect("tree");
+        assert!(tree_data.spread_enabled);
+        assert_eq!(tree_data.min_spread_delay, TREE_MIN_SPREAD_DELAY_FRAMES);
+        assert_eq!(tree_data.max_spread_delay, TREE_MAX_SPREAD_DELAY_FRAMES);
+        assert_eq!(tree_data.spread_try_range, TREE_SPREAD_TRY_RANGE);
+        assert_eq!(tree_data.ocl_embers, TREE_OCL_EMBERS);
+        assert_eq!(tree_data.burned_delay, TREE_BURNED_DELAY_FRAMES);
+        assert!((tree_data.flame_damage_limit - TREE_FLAME_DAMAGE_LIMIT).abs() < 0.01);
+        assert_eq!(tree_data.burning_sound_name, TREE_BURNING_SOUND);
+
+        let building = world.templates.get("FixtureOilBuilding").unwrap();
+        let building_data = HostFireSpreadData::from_authored(building).expect("oil");
+        assert!(!building_data.spread_enabled);
+        assert!((building_data.flame_damage_limit_data - 20.0).abs() < 0.01);
+        assert!((building_data.aflame_damage_amount - 25.0).abs() < 0.01);
+        assert_eq!(building_data.burned_delay, 0);
+        assert_eq!(building_data.min_spread_delay, 0);
+        assert_eq!(building_data.ocl_embers, "");
+
+        let decoy = world.templates.get("DogwoodTreeDecoy").unwrap();
+        assert!(
+            HostFireSpreadData::from_authored(decoy).is_none(),
+            "a tree-shaped name without authored fire modules installs nothing"
+        );
     }
+}
+
+/// Retail-style flammable fixture INI (NatureProp.ini tree timings; the
+/// building block mirrors the oil-derrick residual: no FireSpreadUpdate).
+/// Assembled from the authored module blocks only — no name inference.
+#[cfg(test)]
+pub(crate) fn fire_fixture_ini(trees: &[&str], buildings: &[&str]) -> String {
+    let mut ini = String::new();
+    for name in trees {
+        ini.push_str(&format!(
+            "Object {name}\n Body = ActiveBody BodyTag\n MaxHealth = 50\n InitialHealth = 50\n End\n Behavior = FlammableUpdate BurnTag\n FlameDamageLimit = 2\n FlameDamageExpiration = 2000\n BurnedDelay = 2500\n AflameDuration = 3500\n AflameDamageDelay = 500\n AflameDamageAmount = 5\n BurningSoundName = GenericFireMediumLoop\n End\n Behavior = FireSpreadUpdate SpreadTag\n MinSpreadDelay = 1000\n MaxSpreadDelay = 2000\n SpreadTryRange = 50\n OCLEmbers = OCL_BurningEmbers\n End\nEnd\n"
+        ));
+    }
+    for name in buildings {
+        ini.push_str(&format!(
+            "Object {name}\n KindOf = STRUCTURE\n Body = ActiveBody BodyTag\n MaxHealth = 2000\n InitialHealth = 2000\n End\n Behavior = FlammableUpdate BurnTag\n FlameDamageLimit = 20\n FlameDamageExpiration = 2000\n BurnedDelay = 0\n AflameDuration = 5000\n AflameDamageDelay = 500\n AflameDamageAmount = 25\n BurningSoundName = GenericFireMediumLoop\n End\nEnd\n"
+        ));
+    }
+    ini
+}
+
+/// Admit the fire fixture Objects as this world's ordered startup content.
+#[cfg(test)]
+pub(crate) fn admit_fire_fixture(
+    world: &mut crate::game_logic::GameLogic,
+    trees: &[&str],
+    buildings: &[&str],
+) {
+    world
+        .admit_object_ini_sources([("fire-fixture.ini".into(), fire_fixture_ini(trees, buildings))])
+        .expect("fire fixture INI admitted");
 }

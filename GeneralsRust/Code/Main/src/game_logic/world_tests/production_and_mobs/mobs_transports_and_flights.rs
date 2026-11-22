@@ -2377,17 +2377,10 @@ fn default_auto_heal_trainable_heals_after_start_delay() {
 
 #[test]
 fn fire_spread_tree_ignites_neighbor() {
-    use crate::game_logic::host_fire_spread::{
-        TREE_SPREAD_TRY_RANGE, honesty_fire_spread_residual_ok,
-    };
-    assert!(honesty_fire_spread_residual_ok());
+    use crate::game_logic::host_fire_spread::{admit_fire_fixture, TREE_SPREAD_TRY_RANGE};
 
     let mut logic = GameLogic::new();
-    for name in ["DogwoodTreeA", "DogwoodTreeB"] {
-        let mut tpl = crate::game_logic::ThingTemplate::new(name);
-        tpl.set_health(50.0);
-        logic.templates.insert(name.to_string(), tpl);
-    }
+    admit_fire_fixture(&mut logic, &["DogwoodTreeA", "DogwoodTreeB"], &[]);
     let a = logic
         .create_object("DogwoodTreeA", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
@@ -2403,6 +2396,12 @@ fn fire_spread_tree_ignites_neighbor() {
     assert!(logic.fire_spread_reg.installed >= 2);
 
     assert!(logic.ignite_object_fire_spread(a, &mut crate::game_logic::ScriptPresentationEffects::default()));
+    // Populate partition cells before the spread pass (C++ update phase).
+    logic
+        .update_owned_partition_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+        .unwrap();
     // Force spread due immediately.
     {
         let o = logic.host_object_mut(a).unwrap();
@@ -2424,7 +2423,6 @@ fn fire_spread_tree_ignites_neighbor() {
             || logic.fire_spread_reg.ignitions >= 2,
         "neighbor within range must ignite"
     );
-    assert!(logic.honesty_fire_spread_ok());
 }
 
 #[test]
@@ -2433,14 +2431,10 @@ fn effectively_dead_aflame_object_keeps_spreading_fire_like_cpp() {
     // update without an isEffectivelyDead check, and FireSpreadUpdate::update
     // (FireSpreadUpdate.cpp:93-131) only tests OBJECT_STATUS_AFLAME. A burning
     // object retained after death (e.g. SlowDeath) still spreads fire.
-    use crate::game_logic::host_fire_spread::TREE_SPREAD_TRY_RANGE;
+    use crate::game_logic::host_fire_spread::{admit_fire_fixture, TREE_SPREAD_TRY_RANGE};
 
     let mut logic = GameLogic::new();
-    for name in ["DogwoodTreeA", "DogwoodTreeB"] {
-        let mut tpl = crate::game_logic::ThingTemplate::new(name);
-        tpl.set_health(50.0);
-        logic.templates.insert(name.to_string(), tpl);
-    }
+    admit_fire_fixture(&mut logic, &["DogwoodTreeA", "DogwoodTreeB"], &[]);
     let a = logic
         .create_object("DogwoodTreeA", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
@@ -2462,6 +2456,11 @@ fn effectively_dead_aflame_object_keeps_spreading_fire_like_cpp() {
             fs.next_spread_frame = 0;
         }
     }
+    logic
+        .update_owned_partition_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+        .unwrap();
     logic.set_current_frame(30);
     logic.update_fire_spread().unwrap();
     assert!(
@@ -2479,14 +2478,10 @@ fn fire_spread_lights_effectively_dead_neighbor_like_cpp() {
     // PartitionFilterFlammable (FireSpreadUpdate.cpp:36-48): only "has a
     // FlammableUpdate that wouldIgnite". PartitionManager.cpp:3267-3288 has
     // no death check, so a dead-but-retained flammable neighbour is lit.
-    use crate::game_logic::host_fire_spread::TREE_SPREAD_TRY_RANGE;
+    use crate::game_logic::host_fire_spread::{admit_fire_fixture, TREE_SPREAD_TRY_RANGE};
 
     let mut logic = GameLogic::new();
-    for name in ["DogwoodTreeA", "DogwoodTreeB"] {
-        let mut tpl = crate::game_logic::ThingTemplate::new(name);
-        tpl.set_health(50.0);
-        logic.templates.insert(name.to_string(), tpl);
-    }
+    admit_fire_fixture(&mut logic, &["DogwoodTreeA", "DogwoodTreeB"], &[]);
     let a = logic
         .create_object("DogwoodTreeA", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
@@ -2505,6 +2500,11 @@ fn fire_spread_lights_effectively_dead_neighbor_like_cpp() {
     if let Some(fs) = logic.host_object_mut(a).unwrap().fire_spread.as_mut() {
         fs.next_spread_frame = 0;
     }
+    logic
+        .update_owned_partition_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+        .unwrap();
     logic.set_current_frame(30);
     logic.update_fire_spread().unwrap();
     assert!(
@@ -2523,15 +2523,11 @@ fn fire_spread_skips_destroyed_and_aflame_neighbours_and_isolates_peer_world() {
     // objects whose FlammableUpdate wouldIgnite() (false once AFLAME/BURNED);
     // destroyed objects have left the partition. No isAlive check. Same IDs in
     // a peer world must be untouched.
-    use crate::game_logic::host_fire_spread::TREE_SPREAD_TRY_RANGE;
+    use crate::game_logic::host_fire_spread::{admit_fire_fixture, TREE_SPREAD_TRY_RANGE};
 
     let build = || {
         let mut logic = GameLogic::new();
-        for name in ["DogwoodTreeA", "DogwoodTreeB"] {
-            let mut tpl = crate::game_logic::ThingTemplate::new(name);
-            tpl.set_health(50.0);
-            logic.templates.insert(name.to_string(), tpl);
-        }
+        admit_fire_fixture(&mut logic, &["DogwoodTreeA", "DogwoodTreeB"], &[]);
         let mk = |logic: &mut GameLogic, name: &str, x: f32| {
             logic
                 .create_object(name, Team::Neutral, Vec3::new(x, 0.0, 0.0))
@@ -2568,6 +2564,11 @@ fn fire_spread_skips_destroyed_and_aflame_neighbours_and_isolates_peer_world() {
     if let Some(fs) = logic.host_object_mut(src).unwrap().fire_spread.as_mut() {
         fs.next_spread_frame = 0;
     }
+    logic
+        .update_owned_partition_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+        .unwrap();
     logic.set_current_frame(30);
     logic.update_fire_spread().unwrap();
 
@@ -2586,12 +2587,10 @@ fn fire_spread_skips_destroyed_and_aflame_neighbours_and_isolates_peer_world() {
 fn flammable_buildings_ignite_and_play_burning_loop() {
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_enum_table_residual::aflame_model_bit;
-    use crate::game_logic::host_fire_spread::TREE_BURNING_SOUND;
+    use crate::game_logic::host_fire_spread::{admit_fire_fixture, TREE_BURNING_SOUND};
 
     let mut logic = GameLogic::new();
-    let mut tpl = crate::game_logic::ThingTemplate::new("TechOilDerrick");
-    tpl.add_kind_of(KindOf::Structure).set_health(2000.0);
-    logic.templates.insert("TechOilDerrick".to_string(), tpl);
+    admit_fire_fixture(&mut logic, &[], &["TechOilDerrick"]);
     let id = logic
         .create_object("TechOilDerrick", Team::Neutral, Vec3::ZERO)
         .expect("oil");
@@ -2629,14 +2628,22 @@ fn flammable_buildings_ignite_and_play_burning_loop() {
 
 #[test]
 fn fire_spread_spawns_burning_embers_and_uses_3d_range() {
-    use crate::game_logic::host_fire_spread::{TREE_OCL_EMBERS, TREE_SPREAD_TRY_RANGE};
+    use crate::game_logic::host_fire_spread::{fire_fixture_ini, TREE_SPREAD_TRY_RANGE};
 
     let mut logic = GameLogic::new();
-    for name in ["DogwoodTreeA", "DogwoodTreeCliff"] {
-        let mut tpl = crate::game_logic::ThingTemplate::new(name);
-        tpl.set_health(50.0);
-        logic.templates.insert(name.to_string(), tpl);
-    }
+    let mut ini = fire_fixture_ini(&["DogwoodTreeA", "DogwoodTreeCliff"], &[]);
+    ini.push_str(
+        "Object FireFixtureEmber\n Body = ActiveBody BodyTag\n MaxHealth = 1\n InitialHealth = 1\n End\nEnd\n",
+    );
+    logic
+        .admit_object_ini_sources([("fire-fixture.ini".into(), ini)])
+        .expect("fire fixture INI admitted");
+    logic
+        .admit_object_creation_list_sources([
+            "ObjectCreationList OCL_BurningEmbers\n CreateObject\n ObjectNames = FireFixtureEmber\n Count = 1\n End\nEnd\n"
+                .to_string(),
+        ])
+        .expect("ember OCL admitted");
     let a = logic
         .create_object("DogwoodTreeA", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
@@ -2654,6 +2661,11 @@ fn fire_spread_spawns_burning_embers_and_uses_3d_range() {
             fs.next_spread_frame = 0;
         }
     }
+    logic
+        .update_owned_partition_with_effects(
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
+        .unwrap();
     logic.set_current_frame(30);
     logic.update_fire_spread().unwrap();
     assert!(logic.fire_spread_reg.embers > 0);
@@ -2661,13 +2673,8 @@ fn fire_spread_spawns_burning_embers_and_uses_3d_range() {
         logic
             .objects
             .registered_values()
-            .any(|o| o.template_name.eq_ignore_ascii_case("BurningEmbers")
-                || o.template_name.contains("Ember"))
-            || logic
-                .combat_particles
-                .active_systems()
-                .any(|p| p.ocl_list_name == TREE_OCL_EMBERS || p.template_name == TREE_OCL_EMBERS),
-        "OCL_BurningEmbers must create ember objects or particle entries"
+            .any(|o| o.template_name == "FireFixtureEmber"),
+        "authored OCL_BurningEmbers must birth a real FireFixtureEmber object"
     );
     assert!(
         !logic
@@ -2681,12 +2688,10 @@ fn fire_spread_spawns_burning_embers_and_uses_3d_range() {
 #[test]
 fn tree_smolders_while_still_aflame() {
     use crate::game_logic::host_enum_table_residual::{aflame_model_bit, smoldering_model_bit};
-    use crate::game_logic::host_fire_spread::TREE_BURNED_DELAY_FRAMES;
+    use crate::game_logic::host_fire_spread::{admit_fire_fixture, TREE_BURNED_DELAY_FRAMES};
 
     let mut logic = GameLogic::new();
-    let mut tpl = crate::game_logic::ThingTemplate::new("DogwoodTreeA");
-    tpl.set_health(50.0);
-    logic.templates.insert("DogwoodTreeA".to_string(), tpl);
+    admit_fire_fixture(&mut logic, &["DogwoodTreeA"], &[]);
     let id = logic
         .create_object("DogwoodTreeA", Team::Neutral, Vec3::ZERO)
         .expect("tree");

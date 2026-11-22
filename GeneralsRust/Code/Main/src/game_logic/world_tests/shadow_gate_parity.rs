@@ -107,11 +107,11 @@ fn coupled_shadow_crate_lifetime_expires_on_host() {
 #[test]
 fn coupled_shadow_fire_spread_runs_on_host() {
     let mut logic = GameLogic::new();
-    for name in ["DogwoodTreeA", "DogwoodTreeB"] {
-        let mut tpl = ThingTemplate::new(name);
-        tpl.set_health(50.0);
-        logic.templates.insert(name.to_string(), tpl);
-    }
+    crate::game_logic::host_fire_spread::admit_fire_fixture(
+        &mut logic,
+        &["DogwoodTreeA", "DogwoodTreeB"],
+        &[],
+    );
     let a = logic
         .create_object("DogwoodTreeA", Team::Neutral, glam::Vec3::ZERO)
         .expect("tree a");
@@ -131,10 +131,14 @@ fn coupled_shadow_fire_spread_runs_on_host() {
 
     assert!(logic.ignite_object_fire_spread(a, &mut crate::game_logic::ScriptPresentationEffects::default()));
     {
-        // Force the first spread attempt due immediately.
+        // Force the first spread attempt due immediately. It precedes the
+        // partition phase inside the same tick (cells fill after), so pin a
+        // short fixed reschedule and let the retry find the seeded cells.
         let o = logic.host_object_mut(a).unwrap();
         if let Some(fs) = o.fire_spread.as_mut() {
             fs.next_spread_frame = 0;
+            fs.min_spread_delay = 5;
+            fs.max_spread_delay = 5;
         }
     }
 
