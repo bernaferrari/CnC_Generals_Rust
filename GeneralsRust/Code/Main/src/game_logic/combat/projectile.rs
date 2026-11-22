@@ -593,6 +593,8 @@ impl Projectile {
         world_frame: Option<u32>,
         runtime: &mut dyn ProjectilePresentationRuntime,
     ) -> ProjectileStep {
+        use missile_motion::MissileSteering;
+
         if let Some(actor) = actor.as_deref() {
             self.position = actor.get_position();
             self.velocity = actor.movement.velocity;
@@ -617,7 +619,7 @@ impl Projectile {
         if !ignition_ready {
             if let Some(motion) = &mut self.missile_motion {
                 let actor = actor.as_deref_mut().expect("missile motion requires its world Object");
-                motion.advance(actor, self.target_position, false, false, false, false, physics_frame, terrain, partition.as_deref_mut());
+                motion.advance(actor, self.target_position, false, false, MissileSteering::NoTurn, physics_frame, terrain, partition.as_deref_mut());
                 self.position = actor.get_position();
                 self.velocity = actor.movement.velocity;
             }
@@ -693,7 +695,16 @@ impl Projectile {
                 _ => false,
             };
             let actor = actor.as_deref_mut().expect("missile motion requires its world Object");
-            let ground_contact = motion.advance(actor, goal, true, !expired, missile_was_armed, was_kill, physics_frame, terrain, partition.as_deref_mut());
+            let steering = if was_kill {
+                MissileSteering::Braking
+            } else if entering_kill {
+                MissileSteering::LockTransition
+            } else if missile_was_armed {
+                MissileSteering::Attack
+            } else {
+                MissileSteering::NoTurn
+            };
+            let ground_contact = motion.advance(actor, goal, true, !expired, steering, physics_frame, terrain, partition.as_deref_mut());
             self.position = actor.get_position();
             self.velocity = actor.movement.velocity;
             if ground_contact {

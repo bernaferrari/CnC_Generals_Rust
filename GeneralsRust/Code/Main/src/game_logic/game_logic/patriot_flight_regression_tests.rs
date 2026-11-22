@@ -378,3 +378,66 @@ fn retail_patriot_checks_lock_before_missing_target() {
         );
     }
 }
+
+#[test]
+fn retail_tomahawk_lock_transition_skips_attack_dive() {
+    use crate::game_logic::weapon_bootstrap::{HostMissilePhase, HostProjectileFlight};
+
+    for (distance, expected_phase, precise_z) in [
+        (10.0, HostMissilePhase::Attack, true),
+        (5.0, HostMissilePhase::Kill, false),
+    ] {
+        let (mut world, source, target) = world_for(
+            "TomahawkMissileWeapon",
+            "TomahawkMissile",
+            "TomahawkMissileLocomotor",
+        );
+        world
+            .objects
+            .get_mut(&source)
+            .unwrap()
+            .set_max_shots_to_fire(1);
+        assert_eq!(
+            world.attack_fire_weapon_update(source, target, 10.0),
+            AttackFireResult::Continue
+        );
+        world.frame += 8;
+        assert_eq!(
+            world.attack_fire_weapon_update(source, target, 10.3),
+            AttackFireResult::Success
+        );
+        world.drain_pending_projectiles_into_combat();
+        let _ = world.update_with_dt(1.0 / 30.0);
+        let id = {
+            let shots = world.combat_system.projectiles_snapshot();
+            assert_eq!(shots.len(), 1);
+            let shot = shots[0];
+            let Some(HostProjectileFlight::Missile(rule)) = shot.flight.as_ref() else {
+                panic!("stock Tomahawk must have an admitted MissileAIUpdate");
+            };
+            assert_eq!(rule.lock_distance, 10.0);
+            assert!(shot.flight_runtime.missile_armed && shot.is_homing);
+            assert_eq!(shot.flight_runtime.missile_phase, HostMissilePhase::Attack);
+            shot.id
+        };
+        assert_eq!(world.objects[&id].loco_preferred_height, 120.0);
+        assert!(!world.objects[&id].precise_z_pos);
+        let victim = world.objects[&target].get_position();
+        // Establish the first ATTACK distance before the missile can latch
+        // precise Z. Vertical separation prevents a collision on this frame.
+        world.set_fixture_object_position(
+            id,
+            Vec3::new(victim.x - distance, victim.y + 120.0, victim.z),
+        );
+        let _ = world.update_with_dt(1.0 / 30.0);
+        let shot = world.combat_system.get_projectiles().get(&id).unwrap();
+        assert_eq!(shot.flight_runtime.missile_phase, expected_phase);
+        assert_eq!(world.objects[&target].health.current, 1000.0);
+        // C++ MissileAIUpdate.cpp:520–541 returns from ATTACK after entering
+        // KILL. At exact lock distance it still applies the in-range dive.
+        assert_eq!(
+            world.objects[&id].precise_z_pos, precise_z,
+            "distance {distance}"
+        );
+    }
+}

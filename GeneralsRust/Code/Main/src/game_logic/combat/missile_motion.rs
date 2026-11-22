@@ -1,6 +1,16 @@
 //! Missile-owned use of the same locomotor and physics kernels as live Objects.
 use super::*;
 
+/// Locomotor commands for the update that is about to run. A frame that
+/// enters KILL retains the prior turn cap and skips the remaining ATTACK body.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum MissileSteering {
+    NoTurn,
+    Attack,
+    LockTransition,
+    Braking,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct MissileMotion {
     gravity: f32,
@@ -81,18 +91,23 @@ impl MissileMotion {
     }
 
     pub(super) fn advance(
-        &mut self, actor: &mut Object, goal: Vec3, ignited: bool, powered: bool, attack: bool, braking: bool, frame: u32,
+        &mut self, actor: &mut Object, goal: Vec3, ignited: bool, powered: bool, steering: MissileSteering, frame: u32,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
         partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
     ) -> bool {
-        self.last_controls = Some((ignited, powered,
-            attack && self.attack_turn_enabled && self.no_turn_distance <= 0.0, braking));
+        self.last_controls = Some((
+            ignited,
+            powered,
+            steering != MissileSteering::NoTurn
+                && self.attack_turn_enabled && self.no_turn_distance <= 0.0,
+            steering == MissileSteering::Braking,
+        ));
         let mut base = crate::game_logic::ScriptPresentationEffects::default();
         if let Some(partition) = partition {
             let mut effects = base.reborrow_for_object(partition);
-            self.advance_with_effects(actor, goal, ignited, powered, attack, braking, frame, terrain, &mut effects)
+            self.advance_with_effects(actor, goal, ignited, powered, steering, frame, terrain, &mut effects)
         } else {
-            self.advance_with_effects(actor, goal, ignited, powered, attack, braking, frame, terrain, &mut base)
+            self.advance_with_effects(actor, goal, ignited, powered, steering, frame, terrain, &mut base)
         }
     }
 
@@ -105,14 +120,21 @@ impl MissileMotion {
             .expect("KILL_SELF requires the preceding missile locomotor state");
         let saved_turn = self.attack_turn_enabled;
         self.attack_turn_enabled = turn;
-        let contact = self.advance(actor, goal, ignited, powered, turn, braking, frame, terrain, partition);
+        let steering = if braking {
+            MissileSteering::Braking
+        } else if turn {
+            MissileSteering::Attack
+        } else {
+            MissileSteering::NoTurn
+        };
+        let contact = self.advance(actor, goal, ignited, powered, steering, frame, terrain, partition);
         self.attack_turn_enabled = saved_turn;
         self.last_controls = Some((ignited, powered, turn, braking));
         contact
     }
 
     fn advance_with_effects(
-        &mut self, actor: &mut Object, goal: Vec3, ignited: bool, powered: bool, attack: bool, braking: bool, frame: u32,
+        &mut self, actor: &mut Object, goal: Vec3, ignited: bool, powered: bool, steering: MissileSteering, frame: u32,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
@@ -139,18 +161,21 @@ impl MissileMotion {
             actor.movement.acceleration = 0.0;
             actor.movement.acceleration_damaged = 0.0;
         }
-        if !powered || !(braking || (attack && self.attack_turn_enabled && self.no_turn_distance <= 0.0)) {
+        let braking = steering == MissileSteering::Braking;
+        let turning = steering != MissileSteering::NoTurn
+            && self.attack_turn_enabled && self.no_turn_distance <= 0.0;
+        if !powered || !(braking || turning) {
             actor.movement.turn_rate = 0.0;
             actor.movement.turn_rate_damaged = 0.0;
         }
-        if attack && !braking && actor.loco_preferred_height > 0.0 {
+        if steering == MissileSteering::Attack && actor.loco_preferred_height > 0.0 {
             let horizontal = Vec3::new(goal.x - pos.x, 0.0, goal.z - pos.z);
             if horizontal.length_squared() < self.dive_distance * self.dive_distance {
                 actor.precise_z_pos = true;
             }
         }
         // doAttackState transitions only after using this frame's turn cap.
-        if attack && !braking && self.no_turn_distance <= 0.0 {
+        if steering == MissileSteering::Attack && self.no_turn_distance <= 0.0 {
             self.attack_turn_enabled = true;
         }
         let speed = actor.movement.max_speed;
@@ -220,16 +245,16 @@ mod tests {
         };
         let goal = Vec3::new(0.0, 50.0, 100.0);
         let forward = actor.get_transform_matrix().x_axis;
-        motion.advance(&mut actor, goal, true, true, false, false, 1, None, None);
+        motion.advance(&mut actor, goal, true, true, MissileSteering::NoTurn, 1, None, None);
         assert_eq!(actor.get_transform_matrix().x_axis, forward);
-        motion.advance(&mut actor, goal, true, true, true, false, 2, None, None);
+        motion.advance(&mut actor, goal, true, true, MissileSteering::Attack, 2, None, None);
         assert_eq!(actor.get_transform_matrix().x_axis, forward);
 
         let saved = serde_json::to_vec(&motion).unwrap();
         let mut restored: MissileMotion = serde_json::from_slice(&saved).unwrap();
         let mut restored_actor = actor.clone();
-        motion.advance(&mut actor, goal, true, true, true, false, 3, None, None);
-        restored.advance(&mut restored_actor, goal, true, true, true, false, 3, None, None);
+        motion.advance(&mut actor, goal, true, true, MissileSteering::Attack, 3, None, None);
+        restored.advance(&mut restored_actor, goal, true, true, MissileSteering::Attack, 3, None, None);
         assert_ne!(actor.get_transform_matrix().x_axis, forward);
         assert_eq!(actor.get_transform_matrix(), restored_actor.get_transform_matrix());
         assert_eq!(actor.movement.velocity, restored_actor.movement.velocity);
@@ -253,7 +278,7 @@ mod tests {
             physics_initialized: false,
             last_controls: None,
         };
-        assert!(motion.advance(&mut actor, Vec3::new(10.0, 0.0, 0.0), true, false, true, false, 1, None, None));
+        assert!(motion.advance(&mut actor, Vec3::new(10.0, 0.0, 0.0), true, false, MissileSteering::Attack, 1, None, None));
         assert_eq!(actor.get_position().y, 0.0);
         assert!(actor.movement.velocity.y <= 0.0);
     }
@@ -318,7 +343,7 @@ mod tests {
         let (mut projectile, mut actor) = falling_projectile(Vec3::new(0.0, 0.02, 0.0), Vec3::X * 100.0);
         let motion = projectile.missile_motion.as_mut().unwrap();
         actor.movement.velocity = Vec3::ZERO;
-        assert!(!motion.advance(&mut actor, Vec3::X * 100.0, true, false, true, false, 1, None, None));
+        assert!(!motion.advance(&mut actor, Vec3::X * 100.0, true, false, MissileSteering::Attack, 1, None, None));
         assert_eq!(actor.get_position().y, 0.02);
         assert!(actor.was_airborne_last_frame);
     }
