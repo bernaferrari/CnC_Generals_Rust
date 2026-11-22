@@ -32,11 +32,12 @@ pub(crate) struct OwnedObjectTransform {
     pub(crate) pose_changed: bool,
 }
 
-/// Active map extent of the receiving world, if one is published.
-/// Mirrors C++ `TheTerrainLogic->getExtent` inside `Object::reactToTransformChange`
-/// (Object.cpp:1764-1771); absent services means no terrain exists to compare.
-fn receiving_terrain_extent() -> Option<crate::common::Region3D> {
-    let services = crate::system::engine_stores::try_active_services()?;
+/// Active map extent of the actor's world, as in Object.cpp:1764–1771.
+/// Detached compatibility actors may still use the installed services.
+fn receiving_terrain_extent(object: &Object) -> Option<crate::common::Region3D> {
+    let services = object
+        .owning_world_services()
+        .or_else(crate::system::engine_stores::try_active_services)?;
     let terrain = services.terrain().read().ok()?;
     let extent = terrain.get_extent();
     if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
@@ -143,9 +144,8 @@ impl Object {
         }
         if pos_diff {
             self.set_trigger_area_flags_with_context(frame, changed);
-            // Object.cpp:1764-1771 — reactToTransformChange refreshes OFF_MAP
-            // from TheTerrainLogic->getExtent, the published receiving world.
-            if let Some(extent) = receiving_terrain_extent() {
+            // C++ reactToTransformChange refreshes OFF_MAP from active bounds.
+            if let Some(extent) = receiving_terrain_extent(self) {
                 self.refresh_off_map_status(&extent);
             }
         }
@@ -801,7 +801,7 @@ impl Object {
             self.set_trigger_area_flags_for_change_in_position();
             self.react_contain_to_transform();
             // Object.cpp:1764-1771 — same OFF_MAP refresh as the transform path.
-            if let Some(extent) = receiving_terrain_extent() {
+            if let Some(extent) = receiving_terrain_extent(self) {
                 self.refresh_off_map_status(&extent);
             }
         }
@@ -1399,7 +1399,7 @@ mod trigger_identity_tests {
     /// Object.cpp:1752-1774 — every pose writer refreshes OFF_MAP from the
     /// receiving world's active extent once a component moves past 0.01.
     #[test]
-    fn ambient_pose_writers_refresh_off_map_from_the_published_extent() {
+    fn pose_writers_refresh_off_map_from_the_receiving_extent() {
         let _lock = crate::test_sync::lock();
         fn stores_with_active_cells(size: i32) -> Arc<crate::system::engine_stores::EngineStores> {
             let mut map = crate::system::map_loader::MapData::new();
@@ -1421,7 +1421,7 @@ mod trigger_identity_tests {
 
         // Active extent 50 units; maximum pathfind extent 100 units.
         let small = stores_with_active_cells(5);
-        crate::system::engine_stores::with_active_stores(&small, || {
+        let mut object = crate::system::engine_stores::with_active_stores(&small, || {
             let mut object = Object::new_test(0x00B0_1B21, 100.0);
             object.set_position(&Coord3D::new(25.0, 25.0, 0.0)).unwrap();
             assert!(!object.is_off_map());
@@ -1448,13 +1448,27 @@ mod trigger_identity_tests {
             matrix.w_axis = glam::Vec4::new(75.0, 75.0, 0.0, 1.0);
             object.set_transform_matrix(&matrix);
             assert!(object.is_off_map());
+            object.bind_owner_world_for_test(small.services());
+            object
         });
 
         // A same-ID peer in another world keeps its own bit and boundary.
         let large = stores_with_active_cells(10);
-        crate::system::engine_stores::with_active_stores(&large, || {
+        let mut peer = crate::system::engine_stores::with_active_stores(&large, || {
             let mut peer = Object::new_test(0x00B0_1B21, 100.0);
             peer.set_position(&Coord3D::new(75.0, 75.0, 0.0)).unwrap();
+            assert!(!peer.is_off_map());
+            peer.bind_owner_world_for_test(large.services());
+            peer
+        });
+        crate::system::engine_stores::with_active_stores(&large, || {
+            object.set_position(&Coord3D::new(76.0, 75.0, 0.0)).unwrap();
+            assert!(object.is_off_map());
+        });
+        crate::system::engine_stores::with_active_stores(&small, || {
+            let mut matrix = peer.get_transform_matrix();
+            matrix.w_axis = glam::Vec4::new(76.0, 75.0, 0.0, 1.0);
+            peer.set_transform_matrix(&matrix);
             assert!(!peer.is_off_map());
         });
     }
