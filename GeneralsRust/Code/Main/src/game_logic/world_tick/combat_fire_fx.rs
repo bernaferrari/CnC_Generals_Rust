@@ -43,46 +43,6 @@ impl GameLogic {
         );
     }
 
-    /// C++ FireSpreadUpdate.cpp:101 `ObjectCreationList::create` on the authored
-    /// `OCLEmbers` name. `None`/empty/missing lists are no-ops in the receiving
-    /// executor — the authored OCL is the only source.
-    pub(crate) fn spawn_fire_spread_embers_with_effects(
-        &mut self,
-        source_id: ObjectId,
-        pos: Vec3,
-        ocl_name: &str,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Vec<ObjectId> {
-        let Some(source) = self.objects.get(&source_id) else {
-            return Vec::new();
-        };
-        let (team, yaw, vel) = (source.team, source.get_orientation(), source.movement.velocity);
-        let outcome = self.execute_parsed_weapon_ocl_with_births(
-            ocl_name,
-            Some(source_id),
-            team,
-            crate::game_logic::VeterancyLevel::Rookie,
-            yaw,
-            vel,
-            pos,
-            None,
-            effects,
-        );
-        // C++ ObjectCreationList::create is a no-op when the receiving OCL is
-        // absent or creates no Objects. Do not synthesize a BurningEmbers
-        // Object: that changes gameplay and bypasses the authored OCL.
-        if let Some(error) = outcome.error {
-            log::error!("{error}");
-        }
-        outcome
-            .created
-            .into_iter()
-            .filter_map(|(id, (generation, epoch))| {
-                self.spawn_identity_matches(id, generation, epoch).then_some(id)
-            })
-            .collect()
-    }
-
     /// C++ FlammableUpdate::startBurningSound GenericFireMediumLoop.
     pub(crate) fn start_fire_spread_burning_sound(
         &mut self,

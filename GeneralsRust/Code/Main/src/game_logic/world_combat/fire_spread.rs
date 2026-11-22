@@ -328,7 +328,7 @@ impl GameLogic {
             }
             // After the flammable callbacks the slot may hold a new
             // incarnation; only the exact owner still owes its spread clock.
-            let (spread_due, position, ember_ocl, range) = {
+            let (position, ember_ocl, range, team, veterancy, orientation, velocity) = {
                 let Some(object) = self.objects.get(&id).filter(|object| {
                     std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &incarnation)
                 }) else {
@@ -337,71 +337,81 @@ impl GameLogic {
                 let Some(fire) = object.fire_spread.as_ref() else {
                     continue;
                 };
-                let spread_due = fire.spread_due(frame);
+                if !fire.spread_due(frame) {
+                    continue;
+                }
                 (
-                    spread_due,
                     object.get_position(),
-                    if spread_due {
-                        fire.ocl_embers.clone()
-                    } else {
-                        String::new()
-                    },
+                    fire.ocl_embers.clone(),
                     fire.spread_try_range,
+                    object.team,
+                    object.experience.level,
+                    object.get_orientation(),
+                    object.movement.velocity,
                 )
             };
-            if spread_due && !ember_ocl.is_empty() {
+            // C++ FireSpreadUpdate.cpp:93-135 + ObjectCreationList.cpp:996-1006:
+            // the authored OCLEmbers list births at the source pose carrying
+            // the source's live team, veterancy, orientation and velocity.
+            if !ember_ocl.is_empty() {
                 self.fire_spread_reg.record_embers();
-                let _ = self.spawn_fire_spread_embers_with_effects(
-                    id,
-                    position,
+                let outcome = self.execute_parsed_weapon_ocl_with_births(
                     &ember_ocl,
+                    Some(id),
+                    team,
+                    veterancy,
+                    orientation,
+                    velocity,
+                    position,
+                    None,
                     presentation_effects,
                 );
-            }
-            if spread_due {
-                self.fire_spread_reg.record_spread();
-                // C++ FireSpreadUpdate.cpp:118 getClosestObject +
-                // PartitionFilterFlammable::allow (FireSpreadUpdate.cpp:36-48):
-                // admit only objects whose FlammableUpdate wouldIgnite();
-                // destroyed objects left the partition. The cell walk keeps the
-                // original strict 3-D range and first COI on ties — no
-                // whole-world scan.
-                let nearest = if range != 0.0 {
-                    self.partition_manager.closest_in_radius(
-                        position.x,
-                        position.z,
-                        range,
-                        |raw| {
-                            let candidate = ObjectId(raw);
-                            if candidate == id {
-                                return None;
-                            }
-                            let object = self.objects.lookup(&candidate)?;
-                            (!object.status.destroyed
-                                && object
-                                    .fire_spread
-                                    .as_ref()
-                                    .is_some_and(|fire| fire.would_ignite()))
-                            .then(|| position.distance_squared(object.get_position()))
-                        },
-                    ).map(ObjectId)
-                } else {
-                    None
-                };
-                if let Some(target) = nearest {
-                    if self.ignite_object_fire_spread(target, presentation_effects) {
-                        ignited_this_update.insert(target);
-                    }
+                if let Some(error) = outcome.error {
+                    log::error!("{error}");
                 }
-                // FireSpreadUpdate calculates its next wake only after the
-                // target's ignition has completed, so its draw follows any
-                // draw made by that target's startFireSpreading callback.
-                if let Some(object) = self.objects.get_mut(&id).filter(|object| {
-                    std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &incarnation)
-                }) {
-                    if let Some(fire) = object.fire_spread.as_mut() {
-                        fire.schedule_next_spread_with_random(frame, &self.logic_random);
-                    }
+            }
+            self.fire_spread_reg.record_spread();
+            // C++ FireSpreadUpdate.cpp:118 getClosestObject +
+            // PartitionFilterFlammable::allow (FireSpreadUpdate.cpp:36-48):
+            // admit only objects whose FlammableUpdate wouldIgnite();
+            // destroyed objects left the partition. The cell walk keeps the
+            // original strict 3-D range and first COI on ties — no
+            // whole-world scan.
+            let nearest = if range != 0.0 {
+                self.partition_manager.closest_in_radius(
+                    position.x,
+                    position.z,
+                    range,
+                    |raw| {
+                        let candidate = ObjectId(raw);
+                        if candidate == id {
+                            return None;
+                        }
+                        let object = self.objects.lookup(&candidate)?;
+                        (!object.status.destroyed
+                            && object
+                                .fire_spread
+                                .as_ref()
+                                .is_some_and(|fire| fire.would_ignite()))
+                        .then(|| position.distance_squared(object.get_position()))
+                    },
+                ).map(ObjectId)
+            } else {
+                None
+            };
+            if let Some(target) = nearest {
+                if self.ignite_object_fire_spread(target, presentation_effects) {
+                    ignited_this_update.insert(target);
+                }
+            }
+            // FireSpreadUpdate calculates its next wake only after the
+            // target's ignition has completed, so its draw follows any
+            // draw made by that target's startFireSpreading callback.
+            if let Some(object) = self.objects.get_mut(&id).filter(|object| {
+                std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &incarnation)
+            }) {
+                if let Some(fire) = object.fire_spread.as_mut() {
+                    fire.schedule_next_spread_with_random(frame, &self.logic_random);
                 }
             }
         }

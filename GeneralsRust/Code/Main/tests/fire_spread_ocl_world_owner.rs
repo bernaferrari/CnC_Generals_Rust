@@ -1,5 +1,5 @@
 use generals_main::game_logic::host_fire_spread::HostFlammableState;
-use generals_main::game_logic::{GameLogic, GameMode, Team};
+use generals_main::game_logic::{GameLogic, GameMode, Team, VeterancyLevel};
 use glam::Vec3;
 
 const SPREADER_INI: &str = "Object FlameSpreader\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = FlammableUpdate BurnTag\n FlameDamageLimit = 7\n FlameDamageExpiration = 2000\n BurnedDelay = 4500\n AflameDuration = 3500\n AflameDamageDelay = 500\n AflameDamageAmount = 5\n BurningSoundName = GenericFireMediumLoop\n End\n Behavior = FireSpreadUpdate SpreadTag\n MinSpreadDelay = 500\n MaxSpreadDelay = 500\n SpreadTryRange = 50\n OCLEmbers = CustomEmberList\n End\nEnd\n";
@@ -36,14 +36,21 @@ fn authored_ocl_embers_and_partition_tie_drive_world_spread() {
     // old heuristic installs nothing.
     // C++ INI reads only the first name token for OCLEmbers; a trailing token must not corrupt it.
     let spreader = SPREADER_INI.replace("OCLEmbers = CustomEmberList", "OCLEmbers = CustomEmberList ignored_token");
+    let ember = EMBER_OBJECT_INI.replace(
+        "Object EmberFixtureActor\n",
+        "Object EmberFixtureActor\n IsTrainable = Yes\n ExperienceRequired = 0 10 100 1000\n",
+    );
     let ini = format!(
-        "{spreader}Object KindlingWest{KINDLING_INI}Object KindlingEast{KINDLING_INI}Object DogwoodTreeHeuristic\n Body = ActiveBody BodyTag\n MaxHealth = 50\n InitialHealth = 50\n End\nEnd\n{EMBER_OBJECT_INI}"
+        "{spreader}Object KindlingWest{KINDLING_INI}Object KindlingEast{KINDLING_INI}Object DogwoodTreeHeuristic\n Body = ActiveBody BodyTag\n MaxHealth = 50\n InitialHealth = 50\n End\nEnd\n{ember}"
     );
     world
         .admit_object_ini_sources([("FireSpreadOwner.ini".into(), ini)])
         .unwrap();
     world
-        .admit_object_creation_list_sources([EMBER_OCL_INI.to_string()])
+        .admit_object_creation_list_sources([EMBER_OCL_INI.replace(
+            " Count = 1\n",
+            " Count = 1\n InheritsVeterancy = Yes\n",
+        )])
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer).unwrap();
 
@@ -86,6 +93,7 @@ fn authored_ocl_embers_and_partition_tie_drive_world_spread() {
         "DogwoodTree-shaped name without authored modules installs nothing"
     );
 
+    world.host_object_mut(source).unwrap().experience.level = VeterancyLevel::Elite;
     ignite_now(&mut world, source);
 
     // Fixed-step the world past the first scheduled spread attempt (the
@@ -110,13 +118,12 @@ fn authored_ocl_embers_and_partition_tie_drive_world_spread() {
         "the later-registered equally distant candidate loses the COI tie"
     );
     assert!(!is_lit(&world, decoy), "module-less tree name never ignites");
-    assert!(
-        world
-            .host_objects()
-            .registered_values()
-            .any(|object| object.template_name == "EmberFixtureActor"),
-        "authored CustomEmberList must birth a real EmberFixtureActor"
-    );
+    let ember = world
+        .host_objects()
+        .registered_values()
+        .find(|object| object.template_name == "EmberFixtureActor")
+        .expect("authored CustomEmberList must birth a real EmberFixtureActor");
+    assert_eq!(ember.experience.level, VeterancyLevel::Elite);
 }
 
 #[test]
