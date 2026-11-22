@@ -653,6 +653,7 @@ pub const fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
         KindOf::BoobyTrap => M::BOOBY_TRAP.bits(),
         KindOf::ProducedAtHelipad => 0, // gameplay-only
         KindOf::EmpHardened => M::EMP_HARDENED.bits(),
+        KindOf::RevealsEnemyPaths => M::REVEALS_ENEMY_PATHS.bits(),
 
         KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
     }

@@ -246,6 +246,8 @@ pub enum KindOf {
     ProducedAtHelipad,
     /// C++ KINDOF_EMP_HARDENED (bit 112). Airborne aircraft ignore EMP.
     EmpHardened,
+    /// C++ KINDOF_REVEALS_ENEMY_PATHS (bit 96).
+    RevealsEnemyPaths,
 }
 
 impl KindOf {
@@ -349,6 +351,7 @@ impl KindOf {
         KindOf::BoobyTrap,
         KindOf::ProducedAtHelipad,
         KindOf::EmpHardened,
+        KindOf::RevealsEnemyPaths,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -446,6 +449,7 @@ impl KindOf {
             Self::BoobyTrap => "BoobyTrap",
             Self::ProducedAtHelipad => "ProducedAtHelipad",
             Self::EmpHardened => "EmpHardened",
+            Self::RevealsEnemyPaths => "RevealsEnemyPaths",
         }
     }
 
@@ -489,6 +493,7 @@ impl KindOf {
             "BOOBY_TRAP" | "BOOBYTRAP" => Some(Self::BoobyTrap),
             "PRODUCED_AT_HELIPAD" | "PRODUCEDATHELIPAD" => Some(Self::ProducedAtHelipad),
             "EMP_HARDENED" | "EMPHARDENED" => Some(Self::EmpHardened),
+            "REVEALS_ENEMY_PATHS" | "REVEALSENEMYPATHS" => Some(Self::RevealsEnemyPaths),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -1116,7 +1121,7 @@ mod tests {
             1u128 << 15,
         );
         assert!(KindOf::ALL_KIND_OF.contains(&KindOf::LineBuild));
-        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::EmpHardened)); // append-only: new KindOf is last
+        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::RevealsEnemyPaths));
         // Existing serde discriminants remain stable even where Xfer uses a
         // different established order (CliffJumper precedes CleanupHazard).
         for (kind, ordinal) in [

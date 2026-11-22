@@ -3121,3 +3121,39 @@ impl GameLogic {
 #[cfg(test)]
 #[path = "parachute_metadata_tests.rs"]
 mod parachute_metadata_tests;
+
+#[cfg(test)]
+#[test]
+fn reveals_enemy_paths_comes_from_the_receiving_object_kind_flags() {
+    use crate::game_logic::{Player, Team};
+    use glam::Vec3;
+
+    let setup = |flags: &str| {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::China, "Owner", true));
+        let ini = format!(
+            "Object SameName\n\
+             KindOf = STRUCTURE IMMOBILE SELECTABLE {flags}\n\
+             Body = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+             VisionRange = 240\nGeometry = Sphere\nGeometryMajorRadius = 2\nEnd\n"
+        );
+        world
+            .admit_object_ini_sources([("waypoint-revealer.ini".into(), ini)])
+            .unwrap();
+        let id = world.create_object_for_player("SameName", 0, Vec3::ZERO).unwrap();
+        (world, id)
+    };
+    let (revealing, id) = setup("REVEALS_ENEMY_PATHS");
+    let (peer, peer_id) = setup("");
+    assert_eq!(id, peer_id);
+
+    let revealer = revealing.host_object(id).unwrap();
+    assert!(revealer.is_kind_of(KindOf::RevealsEnemyPaths));
+    assert!(!peer.host_object(peer_id).unwrap().is_kind_of(KindOf::RevealsEnemyPaths));
+    assert_eq!(
+        crate::game_logic::host_radar_stealth_vision_residual::live_kind_of_cpp_mask(
+            KindOf::RevealsEnemyPaths,
+        ),
+        1u128 << 96,
+    );
+}

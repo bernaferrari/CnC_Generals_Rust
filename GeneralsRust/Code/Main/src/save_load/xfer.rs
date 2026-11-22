@@ -277,6 +277,7 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::PortableStructure => 89,
         KindOf::ProducedAtHelipad => 91,
         KindOf::EmpHardened => 92,
+        KindOf::RevealsEnemyPaths => 93,
         KindOf::BoobyTrap => 90,
     }
 }
@@ -376,6 +377,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         90 => Ok(KindOf::BoobyTrap),
         91 => Ok(KindOf::ProducedAtHelipad),
         92 => Ok(KindOf::EmpHardened),
+        93 => Ok(KindOf::RevealsEnemyPaths),
 
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
@@ -657,11 +659,12 @@ mod tests {
             (KindOf::BoobyTrap, 90),
             (KindOf::ProducedAtHelipad, 91),
             (KindOf::EmpHardened, 92),
+            (KindOf::RevealsEnemyPaths, 93),
         ] {
             assert_eq!(write_kind_of_variant(kind), ordinal);
             assert_eq!(read_kind_of_variant(ordinal).unwrap(), kind);
         }
-        assert!(read_kind_of_variant(93).is_err());
+        assert!(read_kind_of_variant(94).is_err());
     }
 
     #[test]
