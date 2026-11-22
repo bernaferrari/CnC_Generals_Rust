@@ -461,7 +461,7 @@ impl Projectile {
         }
     }
 
-    fn lifecycle_step(&mut self, target_is_live: bool) -> ProjectileStep {
+    fn lifecycle_step(&mut self, target_is_live: bool, entering_kill: bool) -> ProjectileStep {
         use crate::game_logic::weapon_bootstrap::HostProjectileLifecycle;
 
         let Some(lifecycle) = self.projectile_lifecycle else {
@@ -514,7 +514,7 @@ impl Projectile {
 
                 // Tracking follows the current AI goal, including a diverted
                 // flare, rather than the original designated victim.
-                if self.is_homing && self.target_id.is_some() && !target_is_live {
+                if self.is_homing && self.target_id.is_some() && !target_is_live && !entering_kill {
                     self.missile_kill_self_started_frame = Some(frame);
                     return ProjectileStep::Hold;
                 }
@@ -624,13 +624,29 @@ impl Projectile {
             return ProjectileStep::Alive;
         }
 
+        let was_kill = self.flight_runtime.missile_phase
+            == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
+        // doAttackState (MissileAIUpdate.cpp:506-553) checks the retained
+        // goal and returns on lock before it handles a vanished target.
+        // Plan the transition here so lifecycle can still resolve fuel first.
+        let entering_kill = self.missile_motion.is_some()
+            && missile_was_armed
+            && !was_kill
+            && matches!(
+                &self.flight,
+                Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(rule))
+                    if crate::game_logic::weapon_bootstrap::missile_inside_lock_distance(
+                        self.position, self.target_position, rule.lock_distance, self.is_homing,
+                    )
+            );
+
         // IGNITION arms the missile but does not run ATTACK until the next
         // update. In particular, a missing target cannot skip ignition.
         if missile_was_armed || !matches!(
             &self.flight,
             Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_))
         ) {
-            let lifecycle_step = self.lifecycle_step(target_is_live);
+            let lifecycle_step = self.lifecycle_step(target_is_live, entering_kill);
             if lifecycle_step != ProjectileStep::Alive {
                 if matches!(lifecycle_step, ProjectileStep::Hold | ProjectileStep::DetonateAndHold) {
                     let impact = self.position;
@@ -656,15 +672,11 @@ impl Projectile {
         }
         if let Some(motion) = &mut self.missile_motion {
             let mut goal = self.target_position;
-            let was_kill = self.flight_runtime.missile_phase
-                == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
+            if entering_kill {
+                self.flight_runtime.missile_phase =
+                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
+            }
             if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) = &self.flight {
-                if missile_was_armed && !was_kill
-                    && crate::game_logic::weapon_bootstrap::missile_inside_lock_distance(
-                        self.position, self.target_position, missile.lock_distance, self.is_homing)
-                {
-                    self.flight_runtime.missile_phase = crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
-                }
                 if !self.is_homing
                     && self.flight_runtime.missile_phase != crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
                     && missile.lock_distance > 0.0 {

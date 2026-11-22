@@ -328,3 +328,53 @@ fn queued_retail_missile_flight_uses_receiving_object_pose() {
     assert_eq!(moved.objects[&id].get_position(), moved.combat_system.projectiles_snapshot()[0].position);
     assert_eq!(peer.objects[&id].get_position(), peer.combat_system.projectiles_snapshot()[0].position);
 }
+
+#[test]
+fn retail_patriot_checks_lock_before_missing_target() {
+    use crate::game_logic::weapon_bootstrap::{HostMissilePhase, HostProjectileFlight};
+
+    for (distance, enters_kill) in [(50.0, true), (100.0, false)] {
+        let (mut world, source, target) = world();
+        let victim_position = world.objects[&source].get_position() + 50.0 * Vec3::X;
+        world.set_fixture_object_position(target, victim_position);
+        world.objects.get_mut(&source).unwrap().set_prev_victim_pos(Some(victim_position));
+        launch(&mut world, source, target);
+
+        // Stock IgnitionDelay=0 arms the missile on this update. ATTACK
+        // dispatches on the next one. Lose the object between those updates.
+        let _ = world.update_with_dt(1.0 / 30.0);
+        let (id, position, goal) = {
+            let shots = world.combat_system.projectiles_snapshot();
+            assert_eq!(shots.len(), 1);
+            let shot = shots[0];
+            assert!(shot.flight_runtime.missile_armed);
+            assert_eq!(shot.flight_runtime.missile_phase, HostMissilePhase::Attack);
+            let Some(HostProjectileFlight::Missile(rule)) = shot.flight.as_ref() else {
+                panic!("stock Patriot must have an admitted MissileAIUpdate");
+            };
+            assert_eq!(rule.lock_distance, 100.0);
+            assert!(shot.is_homing);
+            (shot.id, shot.position, shot.target_position)
+        };
+        // Establish the exact pre-update distance on the receiving actor,
+        // including the equality control for C++'s strict lock comparison.
+        world.set_fixture_object_position(
+            id,
+            Vec3::new(goal.x - distance, position.y, goal.z),
+        );
+        world.destroy_object(target).unwrap();
+        world.process_destroy_list();
+        assert!(world.host_object(target).is_none());
+
+        let _ = world.update_with_dt(1.0 / 30.0);
+        let shot = world.combat_system.get_projectiles().get(&id).unwrap();
+        // MissileAIUpdate.cpp:506-553 checks its retained goal first and
+        // returns from ATTACK as soon as it enters KILL.
+        assert_eq!(
+            (shot.flight_runtime.missile_phase == HostMissilePhase::Kill,
+             shot.is_missile_kill_self_holding()),
+            (enters_kill, !enters_kill),
+            "target removed at {distance} units",
+        );
+    }
+}
