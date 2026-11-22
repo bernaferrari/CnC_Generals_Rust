@@ -603,6 +603,8 @@ mod integration_tests {
     use super::*;
     use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
     use generals_main::game_logic::GameMode;
+    use game_engine::common::ini::ini_locomotor::LocomotorStore;
+    use gamelogic::weapon::WeaponTemplate;
     use glam::Vec3;
 
     fn command(
@@ -620,65 +622,36 @@ mod integration_tests {
         }
     }
 
-    fn template(
-        name: &str,
-        kind_of: &[KindOf],
-        health: f32,
-        supplies: u32,
-        build_time: f32,
-    ) -> ThingTemplate {
-        let mut template = ThingTemplate::new(name);
-        template.set_health(health);
-        template.set_cost(supplies, 0);
-        template.build_time = build_time;
-        for kind in kind_of {
-            template.add_kind_of(*kind);
-        }
-        template
-    }
-
     fn admit_fixture_objects(game_logic: &mut GameLogic) {
-        game_logic.admit_object_ini_sources([(
-            "SaveFixture.ini".into(),
-            "Object SaveTestCommandCenter\n KindOf = STRUCTURE SELECTABLE COMMANDCENTER\n BuildCost = 2000\n BuildTime = 0.1\n Body = ActiveBody Body\n MaxHealth = 2000\n InitialHealth = 2000\n End\nEnd\nObject SaveTestDozer\n KindOf = VEHICLE SELECTABLE\n BuildCost = 1000\n BuildTime = 0.1\n Body = ActiveBody Body\n MaxHealth = 300\n InitialHealth = 300\n End\nEnd\nObject SaveTestBarracks\n KindOf = STRUCTURE SELECTABLE\n BuildCost = 500\n BuildTime = 0.1\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\nObject SaveTestRanger\n KindOf = INFANTRY SELECTABLE\n BuildCost = 100\n BuildTime = 0.05\n Body = ActiveBody Body\n MaxHealth = 120\n InitialHealth = 120\n End\nEnd\n".into(),
-        )]).unwrap();
-    }
+        let mut locomotors = LocomotorStore::new_owned();
+        locomotors
+            .apply_source(
+                "Locomotor SaveFixtureWalk\n  Surfaces = GROUND\n  Speed = 30\n  Acceleration = 60\n  TurnRate = 360\n  Appearance = TWO_LEGS\nEnd\n",
+            )
+            .unwrap();
+        game_logic.admit_locomotor_definitions(locomotors).unwrap();
+        game_logic
+            .admit_object_ini_sources([(
+                "SaveFixture.ini".into(),
+                "Object SaveTestCommandCenter\n KindOf = STRUCTURE SELECTABLE COMMANDCENTER FORCEATTACKABLE\n BuildCost = 2000\n BuildTime = 0.1\n Body = ActiveBody Body\n MaxHealth = 2000\n InitialHealth = 2000\n End\nEnd\nObject SaveTestDozer\n KindOf = VEHICLE DOZER SELECTABLE\n BuildCost = 1000\n BuildTime = 0.1\n Locomotor = SET_NORMAL SaveFixtureWalk\n Body = ActiveBody Body\n MaxHealth = 300\n InitialHealth = 300\n End\n Behavior = AIUpdateInterface SaveFixtureAI\n End\nEnd\nObject SaveTestBarracks\n KindOf = STRUCTURE SELECTABLE\n BuildCost = 500\n BuildTime = 0.1\n Body = ActiveBody Body\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\nObject SaveTestRanger\n KindOf = INFANTRY SELECTABLE CAN_ATTACK\n BuildCost = 100\n BuildTime = 0.05\n Body = ActiveBody Body\n MaxHealth = 120\n InitialHealth = 120\n End\n Behavior = AIUpdateInterface SaveFixtureAI\n End\n WeaponSet\n  Conditions = NONE\n  Weapon = PRIMARY SaveFixtureRangerWeapon\n End\nEnd\n".into(),
+            )])
+            .unwrap();
+        // Attackable is a Main-side query classification rather than an INI
+        // KindOf token; retain it on the admitted target definition for both
+        // the saved and receiving worlds.
+        game_logic
+            .templates
+            .get_mut("SaveTestCommandCenter")
+            .expect("admitted command center template")
+            .add_kind_of(KindOf::Attackable);
 
-    fn install_fixture_templates(game_logic: &mut GameLogic) {
-        let templates = [
-            template(
-                "SaveTestCommandCenter",
-                &[KindOf::Structure, KindOf::Selectable, KindOf::CommandCenter],
-                2000.0,
-                2000,
-                0.1,
-            ),
-            template(
-                "SaveTestDozer",
-                &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
-                300.0,
-                1000,
-                0.1,
-            ),
-            template(
-                "SaveTestBarracks",
-                &[KindOf::Structure, KindOf::Selectable],
-                1000.0,
-                500,
-                0.1,
-            ),
-            template(
-                "SaveTestRanger",
-                &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
-                120.0,
-                100,
-                0.05,
-            ),
-        ];
-
-        for template in templates {
-            game_logic.templates.insert(template.name.clone(), template);
-        }
+        let mut weapon = WeaponTemplate::new("SaveFixtureRangerWeapon".into());
+        weapon.primary_damage = 75.0;
+        weapon.attack_range = 200.0;
+        weapon.projectile_name = "NONE".into();
+        game_logic
+            .admit_receiving_weapon_snapshot(vec![(weapon.name.clone(), weapon)])
+            .unwrap();
     }
 
     fn save_info(filename: &str, save_type: SaveFileType) -> SaveGameInfo {
@@ -698,14 +671,24 @@ mod integration_tests {
         }
     }
 
+    fn initialize_fixture_world(game_logic: &mut GameLogic) {
+        admit_fixture_objects(game_logic);
+        // These mapless save tests exercise object snapshots, not lobby/skirmish
+        // admission. SinglePlayer keeps the save independent of an absent
+        // initial SkirmishGameInfo while still initializing runtime services.
+        game_logic.start_new_game(GameMode::SinglePlayer).unwrap();
+        game_logic.clear_all_players();
+        let mut usa = Player::new(0, Team::USA, "USA", true);
+        let mut china = Player::new(1, Team::China, "China", false);
+        usa.set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+        china.set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+        game_logic.add_player(usa);
+        game_logic.add_player(china);
+    }
+
     fn fixture_game() -> GameLogic {
         let mut game_logic = GameLogic::new();
-        admit_fixture_objects(&mut game_logic);
-        game_logic.start_new_game(GameMode::Skirmish).unwrap();
-        game_logic.clear_all_players();
-        install_fixture_templates(&mut game_logic);
-        game_logic.add_player(Player::new(0, Team::USA, "USA", true));
-        game_logic.add_player(Player::new(1, Team::China, "China", false));
+        initialize_fixture_world(&mut game_logic);
         game_logic
     }
 
@@ -719,8 +702,7 @@ mod integration_tests {
             .expect("fixture should save");
 
         let mut loaded = GameLogic::new();
-        admit_fixture_objects(&mut loaded);
-        install_fixture_templates(&mut loaded);
+        initialize_fixture_world(&mut loaded);
         let loaded_info = manager
             .load_game(filename, &mut loaded)
             .expect("fixture should load");
@@ -731,29 +713,18 @@ mod integration_tests {
     fn test_full_save_load_cycle() {
         let mut game_logic = fixture_game();
         let command_center = game_logic
-            .create_object("SaveTestCommandCenter", Team::USA, Vec3::ZERO)
+            .create_object_for_player("SaveTestCommandCenter", 0, Vec3::ZERO)
             .expect("command center should spawn");
         let enemy_command_center = game_logic
-            .create_object(
+            .create_object_for_player(
                 "SaveTestCommandCenter",
-                Team::China,
+                1,
                 Vec3::new(80.0, 0.0, 0.0),
             )
             .expect("enemy command center should spawn");
         let ranger = game_logic
-            .create_object("SaveTestRanger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .create_object_for_player("SaveTestRanger", 0, Vec3::new(10.0, 0.0, 0.0))
             .expect("ranger should spawn");
-
-        let ranger_object = game_logic
-            .get_object_mut(ranger)
-            .expect("ranger should exist");
-        ranger_object.weapon = Some(Weapon {
-            damage: 60.0,
-            range: 200.0,
-            reload_time: 0.0,
-            projectile_speed: 0.0,
-            ..Weapon::default()
-        });
 
         let (mut loaded, loaded_info) = save_and_load("full_cycle", &game_logic);
         assert_eq!(loaded_info.map_name, "SaveFixtureMap");
@@ -768,7 +739,18 @@ mod integration_tests {
             },
             vec![ranger],
         ));
-        loaded.update();
+        for _ in 0..80 {
+            loaded.tick_logic_frame(1.0 / 30.0, None, Some(0));
+            if loaded
+                .get_object(enemy_command_center)
+                .expect("enemy command center should survive one shot")
+                .health
+                .current
+                < 2000.0
+            {
+                break;
+            }
+        }
         assert!(
             loaded
                 .get_object(enemy_command_center)
@@ -783,27 +765,30 @@ mod integration_tests {
     fn test_save_with_active_units() {
         let mut game_logic = fixture_game();
         let dozer = game_logic
-            .create_object("SaveTestDozer", Team::USA, Vec3::ZERO)
+            .create_object_for_player("SaveTestDozer", 0, Vec3::ZERO)
             .expect("dozer should spawn");
 
         game_logic.queue_command(command(
             2,
             CommandType::MoveTo {
                 destination: Vec3::new(64.0, 0.0, 0.0),
-                waypoints: vec![Vec3::new(32.0, 0.0, 0.0)],
+                waypoints: Vec::new(),
             },
             vec![dozer],
         ));
         game_logic.process_commands();
 
+        let movement_goal = game_logic
+            .get_object(dozer)
+            .expect("moving dozer should exist")
+            .movement
+            .target_position
+            .expect("the move command should set a goal");
         let (loaded, _) = save_and_load("active_units", &game_logic);
         let loaded_dozer = loaded.get_object(dozer).expect("moving dozer should load");
         assert_eq!(loaded_dozer.ai_state(), AIState::Moving);
         assert!(loaded_dozer.status.moving);
-        assert_eq!(
-            loaded_dozer.movement.target_position,
-            Some(Vec3::new(64.0, 0.0, 0.0))
-        );
+        assert_eq!(loaded_dozer.movement.target_position, Some(movement_goal));
     }
 
     #[test]
@@ -813,12 +798,12 @@ mod integration_tests {
 
         let mut game_logic = fixture_game();
         let attacker = game_logic
-            .create_object("SaveTestRanger", Team::USA, Vec3::ZERO)
+            .create_object_for_player("SaveTestRanger", 0, Vec3::ZERO)
             .expect("attacker should spawn");
         let target = game_logic
-            .create_object(
+            .create_object_for_player(
                 "SaveTestCommandCenter",
-                Team::China,
+                1,
                 Vec3::new(60.0, 0.0, 0.0),
             )
             .expect("target should spawn");
@@ -828,13 +813,6 @@ mod integration_tests {
             let attacker = game_logic
                 .get_object_mut(attacker)
                 .expect("attacker should exist");
-            attacker.weapon = Some(Weapon {
-                damage: 75.0,
-                range: 200.0,
-                reload_time: 0.0,
-                projectile_speed: 0.0,
-                ..Weapon::default()
-            });
             attacker.attack_target(
                 target,
                 frame,
@@ -842,29 +820,41 @@ mod integration_tests {
                 &mut generals_main::game_logic::ObjectAudio::queue(&mut audio),
             );
         }
+        let target_health = |world: &GameLogic| {
+            world.get_object(target).expect("target should exist").health.current
+        };
+        for _ in 0..80 {
+            game_logic.tick_logic_frame(1.0 / 30.0, None, Some(0));
+            if target_health(&game_logic) < 2000.0 {
+                break;
+            }
+        }
+        let saved_health = target_health(&game_logic);
+        assert!(saved_health < 2000.0);
 
         let (mut loaded, _) = save_and_load("active_combat", &game_logic);
         let loaded_attacker = loaded.get_object(attacker).expect("attacker should load");
         assert_eq!(loaded_attacker.ai_state(), AIState::Attacking);
         assert_eq!(loaded_attacker.target, Some(target));
         assert!(loaded_attacker.weapon.is_some());
+        assert_eq!(target_health(&loaded), saved_health);
 
-        loaded.update();
-        assert!(
-            loaded
-                .get_object(target)
-                .expect("target should still exist")
-                .health
-                .current
-                < 2000.0
-        );
+        for _ in 0..80 {
+            game_logic.tick_logic_frame(1.0 / 30.0, None, Some(0));
+            loaded.tick_logic_frame(1.0 / 30.0, None, Some(0));
+            assert_eq!(target_health(&game_logic), target_health(&loaded));
+            if target_health(&loaded) < saved_health {
+                break;
+            }
+        }
+        assert!(target_health(&loaded) < saved_health);
     }
 
     #[test]
     fn test_save_with_production_queue() {
         let mut game_logic = fixture_game();
         let barracks = game_logic
-            .create_object("SaveTestBarracks", Team::USA, Vec3::ZERO)
+            .create_object_for_player("SaveTestBarracks", 0, Vec3::ZERO)
             .expect("barracks should spawn");
         assert!(game_logic.enqueue_production(barracks, "SaveTestRanger".to_string()));
         {
@@ -892,7 +882,7 @@ mod integration_tests {
     fn test_autosave_functionality() {
         let mut game_logic = fixture_game();
         let command_center = game_logic
-            .create_object("SaveTestCommandCenter", Team::USA, Vec3::ZERO)
+            .create_object_for_player("SaveTestCommandCenter", 0, Vec3::ZERO)
             .expect("command center should spawn");
         let save_dir = TempDir::new().expect("save temp dir should be created");
         let mut manager = SaveFileManager::with_save_directory(save_dir.path());
@@ -906,8 +896,7 @@ mod integration_tests {
         assert_eq!(saves[0].save_info.save_type, SaveFileType::AutoSave);
 
         let mut loaded = GameLogic::new();
-        admit_fixture_objects(&mut loaded);
-        install_fixture_templates(&mut loaded);
+        initialize_fixture_world(&mut loaded);
         let loaded_info = manager
             .load_game(&saves[0].filename, &mut loaded)
             .expect("autosave should load");

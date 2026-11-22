@@ -47,11 +47,61 @@ const CHUNK_SCRIPT_ENGINE: &str = "CHUNK_ScriptEngine";
 const CHUNK_TERRAIN_LOGIC: &str = "CHUNK_TerrainLogic";
 const CHUNK_RADAR: &str = "CHUNK_Radar";
 const CHUNK_HOST_MAP_INTENT: &str = "CHUNK_HostMapIntent";
+const CHUNK_HOST_SAVE_KIND: &str = "CHUNK_HostSaveKind";
 const SAVE_FILE_EOF: &str = "SG_EOF";
 const CPP_GAME_STATE_XFER_VERSION: u8 = 2;
 const CPP_SAVE_FILE_TYPE_NORMAL: i32 = 0;
 const CPP_SAVE_FILE_TYPE_MISSION: i32 = 1;
 const CPP_INVALID_MISSION_NUMBER: i32 = -1;
+
+/// GameState.h defines normal and mission saves. Preserve the Rust host's
+/// automatic and quick-save types in a separate named block that C++ skips.
+#[repr(u8)]
+enum HostSaveKind {
+    QuickSave = 1,
+    AutoSave = 2,
+}
+
+impl HostSaveKind {
+    const VERSION: u8 = 1;
+
+    fn encode(save_type: SaveFileType) -> Option<[u8; 2]> {
+        let kind = match save_type {
+            SaveFileType::QuickSave => Self::QuickSave,
+            SaveFileType::AutoSave => Self::AutoSave,
+            SaveFileType::Normal | SaveFileType::Mission => return None,
+        };
+        Some([Self::VERSION, kind as u8])
+    }
+
+    fn read(slot: &mut Option<Self>, payload: &[u8]) -> SaveLoadResult<()> {
+        if slot.is_some() {
+            return Err(SaveLoadError::Corrupted("duplicate host save kind".into()));
+        }
+        let kind = match payload {
+            [Self::VERSION, kind] if *kind == Self::QuickSave as u8 => Self::QuickSave,
+            [Self::VERSION, kind] if *kind == Self::AutoSave as u8 => Self::AutoSave,
+            _ => return Err(SaveLoadError::Corrupted("invalid host save kind".into())),
+        };
+        *slot = Some(kind);
+        Ok(())
+    }
+
+    fn apply(info: &mut SaveGameInfo, kind: Option<Self>) -> SaveLoadResult<()> {
+        let save_type = match kind {
+            Some(Self::QuickSave) => SaveFileType::QuickSave,
+            Some(Self::AutoSave) => SaveFileType::AutoSave,
+            None => return Ok(()),
+        };
+        if info.save_type != SaveFileType::Normal && info.save_type != save_type {
+            return Err(SaveLoadError::Corrupted(
+                "host save kind contradicts the GameState header".into(),
+            ));
+        }
+        info.save_type = save_type;
+        Ok(())
+    }
+}
 
 const SAVELOAD_BLOCK_NAMES: &[&str] = game_engine::System::SaveGame::SAVELOAD_BLOCK_NAMES;
 
@@ -1537,6 +1587,12 @@ impl SaveFileManager {
         let mut cursor = Cursor::new(Vec::<u8>::new());
         {
             let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+            if let Some(payload) = HostSaveKind::encode(save_info.save_type) {
+                write_named_block(&mut xfer, CHUNK_HOST_SAVE_KIND, |xfer| {
+                    xfer.xfer_readonly(&payload)
+                        .map_err(|error| SaveLoadError::Serialization(error.to_string()))
+                })?;
+            }
             for &name in block_names {
                 write_named_block(&mut xfer, name, |xfer| match name {
                     CHUNK_GAME_STATE => write_cpp_game_state_header(xfer, save_info),
@@ -1630,9 +1686,12 @@ impl SaveFileManager {
         let blocks = walk_named_chunks(data)?;
         let mut info = None;
         let mut campaign = None;
+        let mut host_save_kind = None;
         for (token, payload) in &blocks {
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
                 info = Some(parse_chunk_game_state(payload)?);
+            } else if token.eq_ignore_ascii_case(CHUNK_HOST_SAVE_KIND) {
+                HostSaveKind::read(&mut host_save_kind, payload)?;
             } else if token.eq_ignore_ascii_case(CHUNK_CAMPAIGN) {
                 campaign = parse_campaign_block(payload).ok();
             }
@@ -1643,6 +1702,7 @@ impl SaveFileManager {
         if let Some(state) = campaign {
             info.difficulty = campaign_difficulty(&state);
         }
+        HostSaveKind::apply(&mut info, host_save_kind)?;
         Ok(info)
     }
 
@@ -1695,6 +1755,7 @@ impl SaveFileManager {
         let mut map_payload: Option<Vec<u8>> = None;
         let mut map_admission = None;
         let mut map_intent = None;
+        let mut host_save_kind = None;
         let mut ghost_companion: Option<Vec<u8>> = None;
         let mut particle_companion: Option<Vec<u8>> = None;
 
@@ -1713,6 +1774,8 @@ impl SaveFileManager {
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
                 save_info = parse_chunk_game_state(&payload)?;
                 saw_game_state = true;
+            } else if token.eq_ignore_ascii_case(CHUNK_HOST_SAVE_KIND) {
+                HostSaveKind::read(&mut host_save_kind, &payload)?;
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_LOGIC) {
                 logic_data = Some(payload);
             } else if token.eq_ignore_ascii_case(CHUNK_CAMPAIGN) {
@@ -1787,6 +1850,7 @@ impl SaveFileManager {
                 "CHUNK_GameState missing from named-chunk save".to_string(),
             ));
         }
+        HostSaveKind::apply(&mut save_info, host_save_kind)?;
         let has_game_logic = logic_data.is_some();
         let mut world_snapshot = match logic_data {
             Some(payload) => Self::decode_chunk_game_logic_for_host(&payload)?,

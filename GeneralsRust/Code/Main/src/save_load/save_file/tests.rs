@@ -79,6 +79,45 @@ fn default_save_directory_is_user_data_save_like_popup() {
 }
 
 #[test]
+fn host_save_kind_survives_listing_and_archive_decode_with_a_cpp_normal_header() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut manager = SaveFileManager::with_save_directory(directory.path());
+    let world = GameLogic::new();
+    for (filename, save_type) in [
+        ("ordinary", SaveFileType::Normal),
+        ("quick", SaveFileType::QuickSave),
+        ("automatic", SaveFileType::AutoSave),
+    ] {
+        let info = SaveGameInfo {
+            save_type,
+            ..fixture_save_info()
+        };
+        manager.save_game(filename, &world, &info).unwrap();
+
+        let data = std::fs::read(manager.get_save_path(filename)).unwrap();
+        let blocks = walk_named_chunks(&data).unwrap();
+        let (_, cpp_header) = blocks
+            .iter()
+            .find(|(name, _)| name == CHUNK_GAME_STATE)
+            .unwrap();
+        assert_eq!(
+            parse_cpp_game_state_header(cpp_header).unwrap().save_type,
+            SaveFileType::Normal
+        );
+
+        let reported = manager
+            .list_saves()
+            .unwrap()
+            .into_iter()
+            .find(|save| save.filename == filename)
+            .unwrap();
+        assert_eq!(reported.save_info.save_type, save_type);
+        let loaded = manager.load_game_snapshot(filename).unwrap();
+        assert_eq!(loaded.save_info.save_type, save_type);
+    }
+}
+
+#[test]
 fn host_pause_save_writes_cpp_17_named_chunks_and_v2_header() {
     // C++ GameState::init (GameState.cpp:289-305) + xferSaveData
     // (GameState.cpp:1313-1381) writes 17 CHUNK_* tokens then SG_EOF.
