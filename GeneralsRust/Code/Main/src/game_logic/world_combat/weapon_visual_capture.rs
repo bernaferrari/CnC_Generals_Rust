@@ -7,6 +7,8 @@
 use super::super::*;
 use crate::presentation_frame::FrozenWeaponVisualSourceGate;
 use gamelogic::common::WeaponSlotType;
+use gamelogic::weapon::WeaponTemplate;
+use std::sync::Arc;
 
 /// Object-local facts sampled before ammo / stealth mutation.
 #[derive(Debug, Clone, PartialEq)]
@@ -81,66 +83,32 @@ pub fn geometry_center(position: Vec3, geometry: &GeometryInfo) -> Vec3 {
     Vec3::new(position.x, position.y + height * 0.5, position.z)
 }
 
-/// C++ `Weapon.cpp:904`: `isProjectileDetonation ? getProjectileDetonateFX(v) : getFireFX(v)`.
-pub fn select_weapon_template_fx<'a>(
+/// C++ `Weapon.cpp:904` selects one FX list using the firing object's rank.
+pub(super) fn select_weapon_template_fx(
+    rule: &WeaponTemplate,
+    veterancy: VeterancyLevel,
     is_projectile_detonation: bool,
-    fire_fx: &'a str,
-    projectile_detonate_fx: &'a str,
-) -> &'a str {
-    if is_projectile_detonation {
-        projectile_detonate_fx
-    } else {
-        fire_fx
-    }
-}
-
-fn selected_fx_name_for_weapon(
-    weapon_name: Option<&str>,
-    veterancy: crate::game_logic::VeterancyLevel,
-    is_projectile_detonation: bool,
-) -> String {
-    let Some(name) = weapon_name else {
-        return String::new();
+) -> &str {
+    let rank = match veterancy {
+        VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
+        VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
+        VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
+        VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
     };
-    let fire = crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(
-        name, veterancy,
-    );
-    let detonate =
-        crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name_at_veterancy(
-            name, veterancy,
-        );
-    select_weapon_template_fx(is_projectile_detonation, &fire, &detonate).to_string()
+    let fx = if is_projectile_detonation {
+        rule.get_projectile_detonate_fx(rank)
+    } else {
+        rule.get_fire_fx(rank)
+    };
+    fx.map_or("", |list| list.name())
 }
 
-fn host_weapon_recoil_amount(weapon_name: Option<&str>) -> f32 {
-    use crate::game_logic::weapon_bootstrap::with_host_weapon_store as with_weapon_store;
-    weapon_name
-        .and_then(|name| {
-            with_weapon_store(|store| {
-                store
-                    .find_weapon_template(name)
-                    .map(|template| template.weapon_recoil)
-            })
-            .ok()
-            .flatten()
-        })
-        .unwrap_or(0.0)
-}
-
-fn host_weapon_is_contact(weapon_name: Option<&str>, fallback_range: f32) -> bool {
-    use crate::game_logic::weapon_bootstrap::with_host_weapon_store as with_weapon_store;
-    let range = weapon_name
-        .and_then(|name| {
-            with_weapon_store(|store| {
-                store
-                    .find_weapon_template(name)
-                    .map(|template| template.attack_range)
-            })
-            .ok()
-            .flatten()
-        })
-        .unwrap_or(fallback_range);
-    (range - 2.5) < 10.0
+fn compatibility_weapon_rule(name: &str) -> Option<Arc<WeaponTemplate>> {
+    crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
+        store.find_weapon_template(name).cloned()
+    })
+    .ok()
+    .flatten()
 }
 
 impl Object {
@@ -177,32 +145,17 @@ impl Object {
             self.pending_weapon_visual_capture = None;
             return false;
         };
-        let weapon_name = self.weapon_name_for_slot(slot).map(str::to_owned);
-        let veterancy = self.experience.level;
-        let native = self.selected_native_weapon_rule(slot);
-        let native_rank = match veterancy {
-            VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
-            VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
-            VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
-            VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
+        let (rule, compatibility) = match self.selected_native_weapon_rule(slot) {
+            Some(rule) => (Some(rule), false),
+            None => (
+                self.weapon_name_for_slot(slot).and_then(compatibility_weapon_rule),
+                true,
+            ),
         };
-        let selected_fx = native
-            .as_ref()
-            .map(|rule| {
-                let fx = if is_projectile_detonation {
-                    rule.get_projectile_detonate_fx(native_rank)
-                } else {
-                    rule.get_fire_fx(native_rank)
-                };
-                fx.map(|fx| fx.name().to_owned()).unwrap_or_default()
-            })
-            .unwrap_or_else(|| {
-                selected_fx_name_for_weapon(
-                    weapon_name.as_deref(),
-                    veterancy,
-                    is_projectile_detonation,
-                )
-            });
+        let fx_name = rule.as_deref().map_or("", |rule| {
+            select_weapon_template_fx(rule, self.experience.level, is_projectile_detonation)
+        });
+        let selected_fx = if compatibility { fx_name.trim() } else { fx_name }.to_owned();
         let (suspend_fx_frame, ammo, fallback_range) = self
             .weapon_slot(slot)
             .map(|weapon| (weapon.suspend_fx_frame, weapon.ammo, weapon.range))
@@ -216,19 +169,21 @@ impl Object {
             source_is_detected: self.status.detected,
             source_is_disguised: self.status.disguised,
             source_is_mine: self.is_kind_of(KindOf::Mine),
-            weapon_plays_fx_when_stealthed: native.as_ref().map(|rule| rule.play_fx_when_stealthed).unwrap_or_else(|| weapon_name
-                .as_deref()
-                .map(crate::game_logic::weapon_bootstrap::host_play_fx_when_stealthed_for_weapon_name)
-                .unwrap_or(false)),
+            weapon_plays_fx_when_stealthed: rule
+                .as_ref()
+                .is_some_and(|rule| rule.play_fx_when_stealthed),
             selected_fx_is_present: !selected_fx.is_empty(),
             logic_frame,
             suspend_fx_frame,
-            recoil_amount: native.as_ref().map(|rule| rule.weapon_recoil).unwrap_or_else(|| host_weapon_recoil_amount(weapon_name.as_deref())),
+            recoil_amount: rule.as_ref().map_or(0.0, |rule| rule.weapon_recoil),
             source_orientation: self.get_orientation(),
             source_pos: [source_pos.x, source_pos.y, source_pos.z],
             target_id,
             target_pos: target_pos.map(|pos| [pos.x, pos.y, pos.z]),
-            is_contact_weapon: native.as_ref().map(|rule| rule.is_contact_weapon()).unwrap_or_else(|| host_weapon_is_contact(weapon_name.as_deref(), fallback_range)),
+            is_contact_weapon: rule.as_deref().map_or_else(
+                || (fallback_range - 2.5) < 10.0,
+                WeaponTemplate::is_contact_weapon,
+            ),
             ammo_at_capture: ammo,
             stealthed_at_capture: self.status.stealthed,
             template_name: self.template_name.clone(),
@@ -252,8 +207,13 @@ impl Object {
         target_pos: Vec3,
     ) -> bool {
         let fired_barrel = u8::try_from(current_barrel.max(0)).unwrap_or(0);
-        let selected_fx =
-            selected_fx_name_for_weapon(Some(weapon_template_name), self.experience.level, false);
+        let rule = compatibility_weapon_rule(weapon_template_name);
+        let selected_fx = rule
+            .as_deref()
+            .map_or("", |rule| {
+                select_weapon_template_fx(rule, self.experience.level, false).trim()
+            })
+            .to_owned();
         let source_pos = self.get_position();
         self.pending_weapon_visual_capture = Some(PendingWeaponVisualDispatchCapture {
             weapon_slot: WeaponSlotType::Primary,
@@ -263,19 +223,18 @@ impl Object {
             source_is_detected: self.status.detected,
             source_is_disguised: self.status.disguised,
             source_is_mine: self.is_kind_of(KindOf::Mine),
-            weapon_plays_fx_when_stealthed:
-                crate::game_logic::weapon_bootstrap::host_play_fx_when_stealthed_for_weapon_name(
-                    weapon_template_name,
-                ),
+            weapon_plays_fx_when_stealthed: rule
+                .as_ref()
+                .is_some_and(|rule| rule.play_fx_when_stealthed),
             selected_fx_is_present: !selected_fx.is_empty(),
             logic_frame,
             suspend_fx_frame,
-            recoil_amount: host_weapon_recoil_amount(Some(weapon_template_name)),
+            recoil_amount: rule.as_ref().map_or(0.0, |rule| rule.weapon_recoil),
             source_orientation: self.get_orientation(),
             source_pos: [source_pos.x, source_pos.y, source_pos.z],
             target_id: None,
             target_pos: Some([target_pos.x, target_pos.y, target_pos.z]),
-            is_contact_weapon: host_weapon_is_contact(Some(weapon_template_name), 0.0),
+            is_contact_weapon: rule.as_deref().is_none_or(WeaponTemplate::is_contact_weapon),
             ammo_at_capture: ammo_in_clip,
             stealthed_at_capture: self.status.stealthed,
             template_name: self.template_name.clone(),

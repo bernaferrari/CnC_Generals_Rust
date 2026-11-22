@@ -849,14 +849,22 @@ fn damaged_continuous_fires_every_ready_module() {
 
 #[test]
 fn fx_selection_uses_detonate_only_when_projectile_detonation() {
+    use gamelogic::effects::FXList;
+    use gamelogic::weapon::WeaponTemplate;
+
+    let mut rule = WeaponTemplate::new("TemporaryFX".into());
+    let rank = gamelogic::common::VeterancyLevel::Heroic as usize;
+    rule.fire_fx[rank] = Some(FXList::new("FireFX"));
+    rule.projectile_detonate_fx[rank] = Some(FXList::new("DetonateFX"));
     assert_eq!(
-        select_weapon_template_fx(false, "FireFX", "DetonateFX"),
+        select_weapon_template_fx(&rule, VeterancyLevel::Heroic, false),
         "FireFX"
     );
     assert_eq!(
-        select_weapon_template_fx(true, "FireFX", "DetonateFX"),
+        select_weapon_template_fx(&rule, VeterancyLevel::Heroic, true),
         "DetonateFX"
     );
+    assert_eq!(select_weapon_template_fx(&rule, VeterancyLevel::Rookie, false), "");
 }
 
 #[test]

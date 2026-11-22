@@ -214,8 +214,15 @@ fn barrel_read_at_capture_does_not_advance_cursor() {
 
 #[test]
 fn projectile_detonation_selects_detonate_fx_not_fire_fx() {
+    use gamelogic::effects::FXList;
+    use gamelogic::weapon::WeaponTemplate;
+
+    let mut rule = WeaponTemplate::new("DispatchFX".into());
+    let rank = gamelogic::common::VeterancyLevel::Regular as usize;
+    rule.fire_fx[rank] = Some(FXList::new("FireOnly"));
+    rule.projectile_detonate_fx[rank] = Some(FXList::new("DetonateOnly"));
     assert_eq!(
-        super::weapon_visual_capture::select_weapon_template_fx(true, "FireOnly", "DetonateOnly"),
+        super::weapon_visual_capture::select_weapon_template_fx(&rule, VeterancyLevel::Rookie, true),
         "DetonateOnly"
     );
     let mut object = test_object(90);
