@@ -1,6 +1,5 @@
 use crate::game_logic::GameLogic;
 use crate::save_load::*;
-use game_engine::common::system::save_game::GameState as CommonGameState;
 use game_engine::common::system::save_game::GameStateMap as CommonGameStateMap;
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
@@ -50,6 +49,7 @@ const CHUNK_HOST_MAP_INTENT: &str = "CHUNK_HostMapIntent";
 const CHUNK_HOST_SAVE_KIND: &str = "CHUNK_HostSaveKind";
 const SAVE_FILE_EOF: &str = "SG_EOF";
 const CPP_GAME_STATE_XFER_VERSION: u8 = 2;
+const CPP_GAME_STATE_MAP_XFER_VERSION: u8 = 2;
 const CPP_SAVE_FILE_TYPE_NORMAL: i32 = 0;
 const CPP_SAVE_FILE_TYPE_MISSION: i32 = 1;
 const CPP_INVALID_MISSION_NUMBER: i32 = -1;
@@ -434,18 +434,21 @@ fn read_unicode(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<Stri
 
 /// Parse C++ `GameState::xfer` enough to list a save. Version 2 is accepted.
 fn parse_cpp_game_state_header(payload: &[u8]) -> SaveLoadResult<SaveGameInfo> {
+    let actual = *payload.first().ok_or(SaveLoadError::InvalidFormat)?;
+    if actual != CPP_GAME_STATE_XFER_VERSION {
+        return Err(SaveLoadError::VersionMismatch {
+            expected: u32::from(CPP_GAME_STATE_XFER_VERSION),
+            actual: u32::from(actual),
+        });
+    }
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
     let mut version = 0u8;
-    // Accept C++ currentVersion=2; do not treat it as > host SAVE_FILE_VERSION.
     xfer.xfer_version(&mut version, CPP_GAME_STATE_XFER_VERSION)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     let mut file_type = CPP_SAVE_FILE_TYPE_NORMAL;
-    let mut mission_map_name = String::new();
-    if version >= 2 {
-        xfer.xfer_int(&mut file_type)
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-        mission_map_name = read_ascii(&mut xfer)?;
-    }
+    xfer.xfer_int(&mut file_type)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    let mission_map_name = read_ascii(&mut xfer)?;
     let mut date = [0u16; 8];
     for field in &mut date {
         xfer.xfer_unsigned_short(field)
@@ -611,8 +614,8 @@ fn write_game_state_map_block<W: Write + Seek>(
     source: Option<&game_engine::common::system::skirmish_game_info::SkirmishGameInfo>,
     mut game_mode: i32,
 ) -> SaveLoadResult<()> {
-    let mut version = 2u8;
-    xfer.xfer_version(&mut version, 2)
+    let mut version = CPP_GAME_STATE_MAP_XFER_VERSION;
+    xfer.xfer_version(&mut version, CPP_GAME_STATE_MAP_XFER_VERSION)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     let leaf = map_leaf_name(&save_info.map_name);
     write_ascii(xfer, &format!("Save\\{leaf}"))?;
@@ -671,14 +674,16 @@ fn extract_embedded_map(
 ) -> Option<(PathBuf, String)> {
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
     let mut version = 0u8;
-    xfer.xfer_version(&mut version, 2).ok()?;
+    xfer.xfer_version(&mut version, CPP_GAME_STATE_MAP_XFER_VERSION)
+        .ok()?;
+    if version != CPP_GAME_STATE_MAP_XFER_VERSION {
+        return None;
+    }
     let save_game_map = read_ascii(&mut xfer).ok()?;
     let portable_pristine = read_ascii(&mut xfer).ok()?;
     let pristine = super::map_paths::from_portable(&portable_pristine, save_dir, user_data);
-    if version >= 2 {
-        let mut game_mode = 0i32;
-        xfer.xfer_int(&mut game_mode).ok()?;
-    }
+    let mut game_mode = 0i32;
+    xfer.xfer_int(&mut game_mode).ok()?;
     let data_size = xfer.begin_block().ok()?;
     if data_size <= 0 {
         return None;
@@ -739,21 +744,6 @@ fn walk_named_chunks(data: &[u8]) -> SaveLoadResult<Vec<(String, Vec<u8>)>> {
         pos = end;
     }
     Ok(blocks)
-}
-
-fn parse_chunk_game_state(payload: &[u8]) -> SaveLoadResult<SaveGameInfo> {
-    if payload.first().copied().unwrap_or(0) >= 2 {
-        return parse_cpp_game_state_header(payload);
-    }
-    let mut header = CommonGameState::default();
-    let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
-    match header.xfer(&mut xfer) {
-        Ok(()) => Ok(SaveFileManager::save_info_from_common_state(
-            &header,
-            &WorldSnapshot::default(),
-        )),
-        Err(err) => Err(SaveLoadError::Serialization(err.to_string())),
-    }
 }
 
 /// Save file section types
@@ -1689,7 +1679,7 @@ impl SaveFileManager {
         let mut host_save_kind = None;
         for (token, payload) in &blocks {
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
-                info = Some(parse_chunk_game_state(payload)?);
+                info = Some(parse_cpp_game_state_header(payload)?);
             } else if token.eq_ignore_ascii_case(CHUNK_HOST_SAVE_KIND) {
                 HostSaveKind::read(&mut host_save_kind, payload)?;
             } else if token.eq_ignore_ascii_case(CHUNK_CAMPAIGN) {
@@ -1772,7 +1762,7 @@ impl SaveFileManager {
                 continue;
             }
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
-                save_info = parse_chunk_game_state(&payload)?;
+                save_info = parse_cpp_game_state_header(&payload)?;
                 saw_game_state = true;
             } else if token.eq_ignore_ascii_case(CHUNK_HOST_SAVE_KIND) {
                 HostSaveKind::read(&mut host_save_kind, &payload)?;
@@ -1787,23 +1777,14 @@ impl SaveFileManager {
                     campaign_state = Some(state);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GHOST_OBJECT) {
-                let bytes = if payload.first().copied() == Some(1) {
-                    if payload.len() == 1 {
-                        None // Historical empty Snapshotable placeholder.
-                    } else {
-                        Some(payload[1..].to_vec())
-                    }
-                } else {
-                    let mut block = CommonGameState::default();
-                    let mut xfer = CommonXferLoad::new(Cursor::new(&payload), SAVE_FILE_VERSION);
-                    block
-                        .xfer(&mut xfer)
-                        .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
-                    Some(block.data)
+                let Some((&1, bytes)) = payload.split_first() else {
+                    return Err(SaveLoadError::Corrupted(
+                        "invalid CHUNK_GhostObject version".into(),
+                    ));
                 };
-                if let Some(bytes) = bytes {
-                    decode_w3d_ghost_xfer_bytes(&bytes)?;
-                    ghost_companion = Some(bytes);
+                if !bytes.is_empty() {
+                    decode_w3d_ghost_xfer_bytes(bytes)?;
+                    ghost_companion = Some(bytes.to_vec());
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GAME_CLIENT) {
                 // NullSnapshot is a lone version-1 byte. Leftover GameClient::xfer
@@ -1891,13 +1872,10 @@ impl SaveFileManager {
                 super::map_paths::to_portable(map, save_dir, &user_data)
             })?;
         }
-        // C++ GameStateMap.cpp324–329 changes mode only for version 2.
+        // C++ GameStateMap.cpp324–329 carries the mode at the current version.
         // Retain the already-decoded header with this archive even when its
         // map block is empty. Extraction must not publish match selection.
-        let saved_game_mode = match (map_payload.as_deref(), &map_admission) {
-            (Some([2, ..]), Some((mode, _))) => Some(*mode),
-            _ => None,
-        };
+        let saved_game_mode = map_admission.as_ref().map(|(mode, _)| *mode);
         if let Some(payload) = map_payload {
             if let Some((extracted, pristine)) =
                 extract_embedded_map(&payload, save_dir, &user_data)
@@ -1926,62 +1904,15 @@ impl SaveFileManager {
         })
     }
 
-    /// Host `CHUNK_GameLogic` is positional `WorldSnapshot` bincode, optionally
-    /// wrapped in the older CommonGameState envelope. C++ `GameLogic::xfer`
-    /// (`GameLogic.cpp:4666`) is a different stream: refuse to report success
-    /// when those objects were not actually restored.
+    /// Host `CHUNK_GameLogic` is positional `WorldSnapshot` bincode. C++
+    /// `GameLogic::xfer` (`GameLogic.cpp:4666`) is a different stream: refuse
+    /// to report success when those objects were not actually restored.
     fn decode_chunk_game_logic_for_host(payload: &[u8]) -> SaveLoadResult<WorldSnapshot> {
         decode_bincode_world_snapshot(payload).map_err(|host_err| {
             SaveLoadError::Corrupted(format!(
                 "CHUNK_GameLogic is not a current host WorldSnapshot; C++ GameLogic::xfer (GameLogic.cpp:4666) was not restored ({host_err})"
             ))
         })
-    }
-
-    fn save_info_from_common_state(
-        state: &CommonGameState,
-        _world_snapshot: &WorldSnapshot,
-    ) -> SaveGameInfo {
-        let difficulty = match state
-            .get_metadata("difficulty")
-            .map(|s| s.as_str())
-            .unwrap_or("Medium")
-        {
-            "Easy" => GameDifficulty::Easy,
-            "Hard" => GameDifficulty::Hard,
-            _ => GameDifficulty::Medium,
-        };
-        let save_type = match state.game_mode.as_str() {
-            "Mission" => SaveFileType::Mission,
-            "QuickSave" => SaveFileType::QuickSave,
-            "AutoSave" => SaveFileType::AutoSave,
-            _ => SaveFileType::Normal,
-        };
-        SaveGameInfo {
-            pristine_map_name: None,
-            filename: String::new(),
-            display_name: state
-                .get_metadata("display_name")
-                .cloned()
-                .unwrap_or_default(),
-            description: state
-                .get_metadata("description")
-                .cloned()
-                .unwrap_or_default(),
-            map_name: state.map_name.clone(),
-            campaign_side: state.get_metadata("campaign_side").cloned(),
-            mission_number: state
-                .get_metadata("mission_number")
-                .and_then(|s| s.parse().ok()),
-            save_date: UNIX_EPOCH + std::time::Duration::from_secs(state.timestamp),
-            game_version: state
-                .get_metadata("game_version")
-                .cloned()
-                .unwrap_or_default(),
-            play_time: std::time::Duration::from_secs_f32(state.elapsed_time.max(0.0)),
-            difficulty,
-            save_type,
-        }
     }
 
     /// Get full path for save file

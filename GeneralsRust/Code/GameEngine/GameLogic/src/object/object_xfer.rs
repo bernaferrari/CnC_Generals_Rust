@@ -67,9 +67,26 @@ use native::{
 #[path = "object_xfer_native_tests.rs"]
 pub(super) mod native_tests;
 
+const OBJECT_XFER_VERSION: u8 = 9;
+
+/// Object.cpp:4012-4044 currentVersion=9 — only the current record is
+/// accepted; older layouts are rejected before any identity change.
+fn xfer_current_object_version(xfer: &mut dyn Xfer) -> std::io::Result<()> {
+    let mut version = OBJECT_XFER_VERSION;
+    xfer.xfer_version(&mut version, OBJECT_XFER_VERSION)?;
+    if version != OBJECT_XFER_VERSION {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "unsupported Object snapshot version {version}; expected {OBJECT_XFER_VERSION}"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy)]
 struct SavedObjectPrefix {
-    version: u8,
     mode: game_engine::system::XferMode,
     team_id: crate::team::TeamID,
     /// The driving GameLogic frame, when the caller owns that logic.
@@ -577,13 +594,9 @@ impl Object {
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
     ) -> Result<(), ObjectXferError> {
-        let mut prefix = self.xfer_prefix(xfer, &mut |object, change| match change {
-            SavedTransformChange::Matrix(matrix) => {
-                object.set_transform_matrix_with_trigger_context(&matrix, frame, changed);
-                Ok(())
-            }
-            SavedTransformChange::Position(position) => object.set_position(&position),
-            SavedTransformChange::Orientation(angle) => object.set_orientation(angle),
+        let mut prefix = self.xfer_prefix(xfer, &mut |object, matrix| {
+            object.set_transform_matrix_with_trigger_context(&matrix, frame, changed);
+            Ok(())
         })?;
         prefix.frame = frame;
         let is_loading = prefix.mode == game_engine::system::XferMode::Load;
@@ -608,19 +621,13 @@ impl Object {
     fn xfer_prefix(
         &mut self,
         xfer: &mut dyn Xfer,
-        apply_transform: &mut dyn FnMut(&mut Object, SavedTransformChange) -> Result<(), String>,
+        apply_transform: &mut dyn FnMut(&mut Object, Matrix3D) -> Result<(), String>,
     ) -> Result<SavedObjectPrefix, ObjectXferError> {
-        let current_version: u8 = 9;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
+        xfer_current_object_version(xfer)
             .map_err(|error| ObjectXferError::new(self.id, None, "version", error))?;
 
         let xfer_mode = xfer.get_xfer_mode();
         let is_loading = xfer_mode == game_engine::system::XferMode::Load;
-        let is_saving = matches!(
-            xfer_mode,
-            game_engine::system::XferMode::Save | game_engine::system::XferMode::Crc
-        );
 
         let mut id = self.get_id();
         xfer.xfer_unsigned_int(&mut id)
@@ -628,8 +635,8 @@ impl Object {
         self.set_id(id);
 
         let transform = self.get_transform_matrix();
-        xfer_transform_phase(xfer, version, transform, &mut |change| {
-            apply_transform(self, change)
+        xfer_transform_phase(xfer, transform, &mut |matrix| {
+            apply_transform(self, matrix)
         })
         .map_err(|error| ObjectXferError::new(self.id, None, "transform", error))?;
 
@@ -663,19 +670,10 @@ impl Object {
         if is_loading {
             self.name = AsciiString::from(name.as_str());
         }
-        if version >= 8 {
-            let mut status_bits = self.status.bits() as u128;
-            xfer_named_bits(xfer, &mut status_bits, OBJECT_STATUS_XFER_NAMES)
-                .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
-            self.status = ObjectStatusMaskType::from_bits_retain(status_bits as u64);
-        } else {
-            let mut old_status: u32 = self.status.bits() as u32;
-            xfer.xfer_unsigned_int(&mut old_status)
-                .map_err(|error| ObjectXferError::new(self.id, None, "old_status", error))?;
-            if is_loading {
-                self.status = restore_legacy_status(old_status);
-            }
-        }
+        let mut status_bits = self.status.bits() as u128;
+        xfer_named_bits(xfer, &mut status_bits, OBJECT_STATUS_XFER_NAMES)
+            .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
+        self.status = ObjectStatusMaskType::from_bits_retain(status_bits as u64);
 
         xfer.xfer_unsigned_byte(&mut self.script_status)
             .map_err(|error| ObjectXferError::new(self.id, None, "script_status", error))?;
@@ -683,7 +681,6 @@ impl Object {
             .map_err(|error| ObjectXferError::new(self.id, None, "private_status", error))?;
 
         Ok(SavedObjectPrefix {
-            version,
             mode: xfer_mode,
             team_id,
             frame: None,
@@ -696,7 +693,6 @@ impl Object {
         prefix: SavedObjectPrefix,
         mut services: Option<&mut native::ObjectXferServices<'_>>,
     ) -> Result<(), ObjectXferError> {
-        let version = prefix.version;
         let is_loading = prefix.mode == game_engine::system::XferMode::Load;
         let is_saving = matches!(
             prefix.mode,
@@ -707,13 +703,9 @@ impl Object {
 
         xfer_sighting_info(xfer, &mut self.partition_last_look)
             .map_err(|error| ObjectXferError::new(self.id, None, "xfer_sighting_info", error))?;
-        if version >= 9 {
-            xfer_sighting_info(xfer, &mut self.partition_reveal_all_last_look).map_err(
-                |error| ObjectXferError::new(self.id, None, "xfer_sighting_info", error),
-            )?;
-        } else if is_loading {
-            self.partition_reveal_all_last_look.reset();
-        }
+        xfer_sighting_info(xfer, &mut self.partition_reveal_all_last_look).map_err(
+            |error| ObjectXferError::new(self.id, None, "xfer_sighting_info", error),
+        )?;
         xfer_sighting_info(xfer, &mut self.partition_last_shroud)
             .map_err(|error| ObjectXferError::new(self.id, None, "xfer_sighting_info", error))?;
 
@@ -738,14 +730,10 @@ impl Object {
             .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
         self.disabled_mask = DisabledMaskType::from_bits_retain(disabled_mask_bits as u32);
 
-        if is_saving || version >= 2 {
-            xfer.xfer_bool(&mut self.single_use_command_used)
-                .map_err(|error| {
-                    ObjectXferError::new(self.id, None, "single_use_command_used", error)
-                })?;
-        } else {
-            self.single_use_command_used = false;
-        }
+        xfer.xfer_bool(&mut self.single_use_command_used)
+            .map_err(|error| {
+                ObjectXferError::new(self.id, None, "single_use_command_used", error)
+            })?;
 
         for frame in &mut self.disabled_till_frame {
             xfer.xfer_unsigned_int(frame)
@@ -772,13 +760,11 @@ impl Object {
                 .map_err(|error| ObjectXferError::new(self.id, None, "experience", error))?;
         }
 
-        if version >= 6 {
-            let mut contained_by_id = self.contained_by_id;
-            xfer.xfer_unsigned_int(&mut contained_by_id)
-                .map_err(|error| ObjectXferError::new(self.id, None, "contained_by_id", error))?;
-            if !is_saving {
-                self.contained_by_id = contained_by_id;
-            }
+        let mut contained_by_id = self.contained_by_id;
+        xfer.xfer_unsigned_int(&mut contained_by_id)
+            .map_err(|error| ObjectXferError::new(self.id, None, "contained_by_id", error))?;
+        if !is_saving {
+            self.contained_by_id = contained_by_id;
         }
 
         xfer.xfer_unsigned_int(&mut self.contained_by_frame)
@@ -920,104 +906,93 @@ impl Object {
             services.as_deref().map(|services| &services.definitions),
         )?;
 
-        if version >= 3 {
-            xfer.xfer_unsigned_int(&mut self.sole_healing_benefactor_id)
-                .map_err(|error| {
-                    ObjectXferError::new(self.id, None, "sole_healing_benefactor_id", error)
-                })?;
-            xfer.xfer_unsigned_int(&mut self.sole_healing_benefactor_expiration_frame)
-                .map_err(|error| {
-                    ObjectXferError::new(
-                        self.id,
-                        None,
-                        "sole_healing_benefactor_expiration_frame",
-                        error,
-                    )
-                })?;
-        } else if is_loading {
-            self.sole_healing_benefactor_id = INVALID_ID;
-            self.sole_healing_benefactor_expiration_frame = 0;
+        xfer.xfer_unsigned_int(&mut self.sole_healing_benefactor_id)
+            .map_err(|error| {
+                ObjectXferError::new(self.id, None, "sole_healing_benefactor_id", error)
+            })?;
+        xfer.xfer_unsigned_int(&mut self.sole_healing_benefactor_expiration_frame)
+            .map_err(|error| {
+                ObjectXferError::new(
+                    self.id,
+                    None,
+                    "sole_healing_benefactor_expiration_frame",
+                    error,
+                )
+            })?;
+
+        let mut cur_weapon_set_flags =
+            weapon_set_flags_to_bits(self.cur_weapon_set_flags) as u128;
+        xfer_named_bits(xfer, &mut cur_weapon_set_flags, WEAPON_SET_XFER_NAMES)
+            .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
+        self.cur_weapon_set_flags = weapon_set_flags_from_bits(cur_weapon_set_flags as u32);
+
+        let mut weapon_bonus_condition = self.weapon_bonus_condition.bits();
+        xfer.xfer_unsigned_int(&mut weapon_bonus_condition)
+            .map_err(|error| {
+                ObjectXferError::new(self.id, None, "weapon_bonus_condition", error)
+            })?;
+        self.weapon_bonus_condition =
+            WeaponBonusConditionFlags::from_bits_retain(weapon_bonus_condition);
+
+        for condition in &mut self.last_weapon_condition {
+            xfer.xfer_unsigned_byte(condition)
+                .map_err(|error| ObjectXferError::new(self.id, None, "unsigned_byte", error))?;
         }
 
-        if version >= 4 {
-            let mut cur_weapon_set_flags =
-                weapon_set_flags_to_bits(self.cur_weapon_set_flags) as u128;
-            xfer_named_bits(xfer, &mut cur_weapon_set_flags, WEAPON_SET_XFER_NAMES)
-                .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
-            self.cur_weapon_set_flags = weapon_set_flags_from_bits(cur_weapon_set_flags as u32);
-
-            let mut weapon_bonus_condition = self.weapon_bonus_condition.bits();
-            xfer.xfer_unsigned_int(&mut weapon_bonus_condition)
-                .map_err(|error| {
-                    ObjectXferError::new(self.id, None, "weapon_bonus_condition", error)
-                })?;
-            self.weapon_bonus_condition =
-                WeaponBonusConditionFlags::from_bits_retain(weapon_bonus_condition);
-
-            for condition in &mut self.last_weapon_condition {
-                xfer.xfer_unsigned_byte(condition)
-                    .map_err(|error| ObjectXferError::new(self.id, None, "unsigned_byte", error))?;
-            }
-
-            if let Some(services) = services.as_deref_mut() {
-                let definitions = &services.definitions;
-                let own_name = self.get_template_name().to_string();
-                let own_sets = self.weapon_set.installed_definition_sets();
-                self.weapon_set
-                    .xfer_with_named_definitions(
-                        xfer,
-                        definitions.frame,
-                        &mut |name| {
-                            Ok(if name == own_name {
-                                Some(own_sets.clone())
-                            } else {
-                                definitions.weapon_sets(name)
-                            })
-                        },
-                        &mut |name| Ok(definitions.weapon(name)),
-                    )
-                    .map_err(|error| ObjectXferError::new(self.id, None, "weapons", error))?;
-            } else {
-                if is_loading {
-                    self.refresh_weapon_set().map_err(|error| {
-                        ObjectXferError::new(self.id, None, "weapon preparation", error)
-                    })?;
-                }
-                let template_name = self.get_template_name().to_string();
-                self.weapon_set.remember_thing_template_name(&template_name);
-                // WeaponSet::xfer reads TheGameLogic->getFrame(); a caller that
-                // holds that logic (the GameLogic snapshot block) passes it in.
-                match prefix.frame {
-                    Some(frame) => self.weapon_set.xfer_state_at_frame(xfer, frame),
-                    None => self.weapon_set.xfer_state(xfer),
-                }
-                    .map_err(|error| ObjectXferError::new(self.id, None, "weapons", error))?;
-            }
-
-            let mut special_power_bits = self.special_power_bits.bits();
-            xfer_named_bits(xfer, &mut special_power_bits, SPECIAL_POWER_XFER_NAMES)
-                .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
-            self.special_power_bits = SpecialPowerMask::from_bits_retain(special_power_bits);
-
-            let mut command_override = self.command_set_string_override.to_string();
-            xfer.xfer_ascii_string(&mut command_override)
-                .map_err(|error| ObjectXferError::new(self.id, None, "command_override", error))?;
-            if is_loading {
-                self.command_set_string_override = AsciiString::from(command_override.as_str());
-            }
-
-            xfer.xfer_bool(&mut self.modules_ready)
-                .map_err(|error| ObjectXferError::new(self.id, None, "modules_ready", error))?;
-        }
-
-        if version >= 5 {
-            xfer.xfer_bool(&mut self.is_receiving_difficulty_bonus)
-                .map_err(|error| {
-                    ObjectXferError::new(self.id, None, "is_receiving_difficulty_bonus", error)
-                })?;
+        if let Some(services) = services.as_deref_mut() {
+            let definitions = &services.definitions;
+            let own_name = self.get_template_name().to_string();
+            let own_sets = self.weapon_set.installed_definition_sets();
+            self.weapon_set
+                .xfer_with_named_definitions(
+                    xfer,
+                    definitions.frame,
+                    &mut |name| {
+                        Ok(if name == own_name {
+                            Some(own_sets.clone())
+                        } else {
+                            definitions.weapon_sets(name)
+                        })
+                    },
+                    &mut |name| Ok(definitions.weapon(name)),
+                )
+                .map_err(|error| ObjectXferError::new(self.id, None, "weapons", error))?;
         } else {
-            self.is_receiving_difficulty_bonus = false;
+            if is_loading {
+                self.refresh_weapon_set().map_err(|error| {
+                    ObjectXferError::new(self.id, None, "weapon preparation", error)
+                })?;
+            }
+            let template_name = self.get_template_name().to_string();
+            self.weapon_set.remember_thing_template_name(&template_name);
+            // WeaponSet::xfer reads TheGameLogic->getFrame(); a caller that
+            // holds that logic (the GameLogic snapshot block) passes it in.
+            match prefix.frame {
+                Some(frame) => self.weapon_set.xfer_state_at_frame(xfer, frame),
+                None => self.weapon_set.xfer_state(xfer),
+            }
+                .map_err(|error| ObjectXferError::new(self.id, None, "weapons", error))?;
         }
+
+        let mut special_power_bits = self.special_power_bits.bits();
+        xfer_named_bits(xfer, &mut special_power_bits, SPECIAL_POWER_XFER_NAMES)
+            .map_err(|error| ObjectXferError::new(self.id, None, "xfer_named_bits", error))?;
+        self.special_power_bits = SpecialPowerMask::from_bits_retain(special_power_bits);
+
+        let mut command_override = self.command_set_string_override.to_string();
+        xfer.xfer_ascii_string(&mut command_override)
+            .map_err(|error| ObjectXferError::new(self.id, None, "command_override", error))?;
+        if is_loading {
+            self.command_set_string_override = AsciiString::from(command_override.as_str());
+        }
+
+        xfer.xfer_bool(&mut self.modules_ready)
+            .map_err(|error| ObjectXferError::new(self.id, None, "modules_ready", error))?;
+
+        xfer.xfer_bool(&mut self.is_receiving_difficulty_bonus)
+            .map_err(|error| {
+                ObjectXferError::new(self.id, None, "is_receiving_difficulty_bonus", error)
+            })?;
         Ok(())
     }
 }

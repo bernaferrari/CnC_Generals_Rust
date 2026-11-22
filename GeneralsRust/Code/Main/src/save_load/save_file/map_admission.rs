@@ -17,20 +17,17 @@ pub(super) fn read_source(payload: &[u8]) -> SaveLoadResult<(i32, Option<Skirmis
     }
     let mut bytes = payload;
     let version = *take(&mut bytes, 1)?.first().unwrap();
-    if version != 1 && version != 2 {
-        return Err(SaveLoadError::Corrupted(
-            "unsupported GameStateMap version".into(),
-        ));
+    if version != CPP_GAME_STATE_MAP_XFER_VERSION {
+        return Err(SaveLoadError::VersionMismatch {
+            expected: u32::from(CPP_GAME_STATE_MAP_XFER_VERSION),
+            actual: u32::from(version),
+        });
     }
     for _ in 0..2 {
         let length = *take(&mut bytes, 1)?.first().unwrap() as usize;
         take(&mut bytes, length)?;
     }
-    let mode = if version >= 2 {
-        word(&mut bytes)? as i32
-    } else {
-        CPP_GAME_SINGLE_PLAYER
-    };
+    let mode = word(&mut bytes)? as i32;
     let map_size = word(&mut bytes)? as usize;
     take(&mut bytes, map_size)?;
     word(&mut bytes)?;

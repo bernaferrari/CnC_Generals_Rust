@@ -43,8 +43,8 @@ fn owned_pose_off_map_uses_receiving_terrain_and_cpp_movement_threshold() {
     }
     fn move_to(object: &mut Object, terrain: &crate::terrain::TerrainLogic, x: f32) {
         object
-            .set_snapshot_position_with_services(
-                &Coord3D::new(x, 25.0, 0.0),
+            .set_snapshot_transform_with_services(
+                &Matrix3D::from_translation(Coord3D::new(x, 25.0, 0.0)),
                 terrain,
                 &mut crate::object::collide::collision_system::CollisionSystem::new(),
                 0,
@@ -176,34 +176,14 @@ fn cpp_position_retains_basis_then_orientation_makes_it_upright() {
         2.0, 1.0, 3.0, 0.0, -1.0, 4.0, 5.0, 0.0, 6.0, 7.0, 8.0, 0.0, 10.0, 20.0, 30.0, 1.0,
     ]);
     transform(&mut object, &matrix);
-    let terrain = crate::terrain::TerrainLogic::new();
-    let mut collision = crate::object::collide::collision_system::CollisionSystem::new();
     let position = Coord3D::new(40.0, 50.0, 60.0);
-    object
-        .set_snapshot_position_with_services(
-            &position,
-            &terrain,
-            &mut collision,
-            24,
-            &mut |_| {},
-            &mut |_| {},
-        )
-        .unwrap();
+    object.set_position(&position).unwrap();
     let moved = object.get_transform_matrix();
     assert_eq!(moved.x_axis, matrix.x_axis);
     assert_eq!(moved.y_axis, matrix.y_axis);
     assert_eq!(moved.z_axis, matrix.z_axis);
     assert_eq!(moved.w_axis, position.extend(1.0));
-    object
-        .set_snapshot_orientation_with_services(
-            0.5,
-            &terrain,
-            &mut collision,
-            24,
-            &mut |_| {},
-            &mut |_| {},
-        )
-        .unwrap();
+    object.set_orientation(0.5).unwrap();
     assert_eq!(
         object.get_transform_matrix(),
         Matrix3D::from_translation(position) * Matrix3D::from_rotation_z(0.5)
@@ -251,35 +231,15 @@ fn cpp_matrix_angle_keeps_signed_boundary_while_orientation_normalizes_only_cach
         object.get_orientation().to_bits(),
         (-std::f32::consts::PI).to_bits()
     );
-    let terrain = crate::terrain::TerrainLogic::new();
-    let mut collision = crate::object::collide::collision_system::CollisionSystem::new();
     let position = Coord3D::new(10.0, 20.0, 0.0);
-    object
-        .set_snapshot_position_with_services(
-            &position,
-            &terrain,
-            &mut collision,
-            23,
-            &mut |_| {},
-            &mut |_| {},
-        )
-        .unwrap();
+    object.set_position(&position).unwrap();
     assert_eq!(
         object.get_orientation().to_bits(),
         (-std::f32::consts::PI).to_bits()
     );
     assert_eq!(object.get_transform_matrix().x_axis, matrix.x_axis);
     // Thing.cpp174 uses raw angle for the basis, normalizeAngle for the cache.
-    object
-        .set_snapshot_orientation_with_services(
-            -std::f32::consts::PI,
-            &terrain,
-            &mut collision,
-            23,
-            &mut |_| {},
-            &mut |_| {},
-        )
-        .unwrap();
+    object.set_orientation(-std::f32::consts::PI).unwrap();
     assert_eq!(
         object.get_orientation().to_bits(),
         std::f32::consts::PI.to_bits()

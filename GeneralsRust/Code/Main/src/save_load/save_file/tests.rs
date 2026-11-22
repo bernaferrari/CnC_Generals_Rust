@@ -663,17 +663,21 @@ fn game_state_map_round_trips_live_game_mode() {
 }
 
 #[test]
-fn legacy_v1_map_header_keeps_the_declared_single_player_mode_default() {
-    // GameStateMap v1 predates the mode integer. Keep the historical reader
-    // default explicit while v2 writes the receiving mode at its native slot.
+fn obsolete_v1_map_header_is_rejected() {
+    // GameStateMap v1 predates the mode integer; only the current v2 layout is
+    // accepted (GameStateMap.cpp:232).
     let mut payload = vec![1, 0, 0]; // version + two empty ASCII path strings
     payload.extend_from_slice(&0u32.to_le_bytes()); // empty embedded map
     payload.extend_from_slice(&1u32.to_le_bytes()); // ObjectID counter
     payload.extend_from_slice(&1u32.to_le_bytes()); // DrawableID counter
 
-    let (mode, source) = map_admission::read_source(&payload).expect("read legacy v1 header");
-    assert_eq!(mode, CPP_GAME_SINGLE_PLAYER);
-    assert!(source.is_none());
+    assert!(matches!(
+        map_admission::read_source(&payload),
+        Err(SaveLoadError::VersionMismatch {
+            expected: 2,
+            actual: 1
+        })
+    ));
 }
 
 #[test]

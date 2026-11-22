@@ -242,7 +242,6 @@ impl Object {
             changed,
             notify_terrain_moved,
             false,
-            None,
         )
     }
 
@@ -266,69 +265,6 @@ impl Object {
             changed,
             notify_terrain_moved,
             true,
-            None,
-        )
-    }
-
-    /// Thing.cpp:145-172 retains the basis when moving a non-slope object.
-    /// This callback runs before the old-save orientation value is read.
-    pub(super) fn set_snapshot_position_with_services(
-        &mut self,
-        position: &Coord3D,
-        terrain: &crate::terrain::TerrainLogic,
-        collision: &mut crate::object::collide::collision_system::CollisionSystem,
-        frame: u32,
-        changed: &mut dyn FnMut(ObjectID),
-        notify_terrain_moved: &mut dyn FnMut(&Object),
-    ) -> Result<(), String> {
-        let mut matrix = self.transform_matrix;
-        if self.is_kind_of(KindOf::StickToTerrainSlope) {
-            terrain.align_on_terrain(self.geometry_info.angle, position, true, &mut matrix);
-        } else {
-            matrix.w_axis = position.extend(1.0);
-        }
-        let cached_pose = if self.is_kind_of(KindOf::StickToTerrainSlope) {
-            None
-        } else {
-            Some((*position, self.geometry_info.angle))
-        };
-        self.apply_transform_with_services(
-            &matrix,
-            terrain,
-            collision,
-            frame,
-            changed,
-            notify_terrain_moved,
-            true,
-            cached_pose,
-        )
-    }
-
-    /// Thing.cpp:174-218 always makes orientation upright/terrain-aligned,
-    /// preserving the translation already installed by the prior phase.
-    pub(super) fn set_snapshot_orientation_with_services(
-        &mut self,
-        angle: Real,
-        terrain: &crate::terrain::TerrainLogic,
-        collision: &mut crate::object::collide::collision_system::CollisionSystem,
-        frame: u32,
-        changed: &mut dyn FnMut(ObjectID),
-        notify_terrain_moved: &mut dyn FnMut(&Object),
-    ) -> Result<(), String> {
-        let position = self.transform_matrix.w_axis.truncate();
-        let mut matrix = Matrix3D::from_translation(position) * Matrix3D::from_rotation_z(angle);
-        if self.is_kind_of(KindOf::StickToTerrainSlope) {
-            terrain.align_on_terrain(angle, &position, true, &mut matrix);
-        }
-        self.apply_transform_with_services(
-            &matrix,
-            terrain,
-            collision,
-            frame,
-            changed,
-            notify_terrain_moved,
-            true,
-            Some((position, normalize_orientation_angle(angle))),
         )
     }
 
@@ -347,7 +283,6 @@ impl Object {
         changed: &mut dyn FnMut(ObjectID),
         notify_terrain_moved: &mut dyn FnMut(&Object),
         snapshot: bool,
-        cached_pose: Option<(Coord3D, Real)>,
     ) -> Result<(), String> {
         // Validate callbacks before changing pose. A populated owner needs
         // supplied rider transform services. An unchanged saved pose does not
@@ -378,7 +313,7 @@ impl Object {
         } else {
             None
         };
-        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, cached_pose, &mut |object| {
+        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, None, &mut |object| {
             let p = object.get_position();
             p.z - terrain.get_layer_height(
                 p.x,

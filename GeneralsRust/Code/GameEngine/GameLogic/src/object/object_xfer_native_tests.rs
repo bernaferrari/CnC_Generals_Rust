@@ -337,8 +337,8 @@ fn object_snapshot_preserves_transient_off_map_bit_across_same_id_worlds() {
     sender.operate(&definitions, 17, |services| {
         let mut object = source.write().unwrap();
         for x in [99.996, 100.004] {
-            object.set_snapshot_position_with_services(
-                &Coord3D::new(x, 25.0, 0.0),
+            object.set_snapshot_transform_with_services(
+                &Matrix3D::from_translation(Coord3D::new(x, 25.0, 0.0)),
                 services.terrain,
                 services.collision,
                 services.definitions.frame,
@@ -357,8 +357,8 @@ fn object_snapshot_preserves_transient_off_map_bit_across_same_id_worlds() {
     assert_eq!(source.read().unwrap().get_id(), restored.read().unwrap().get_id());
     assert!(!saved_off_map(&restored.read().unwrap()));
     receiver.operate(&definitions, 71, |services| {
-        restored.write().unwrap().set_snapshot_position_with_services(
-            &Coord3D::new(100.02, 25.0, 0.0),
+        restored.write().unwrap().set_snapshot_transform_with_services(
+            &Matrix3D::from_translation(Coord3D::new(100.02, 25.0, 0.0)),
             services.terrain,
             services.collision,
             services.definitions.frame,

@@ -449,10 +449,11 @@ mod tests {
     }
 
     #[test]
-    fn get_save_info_from_file_walks_synthetic_named_chunks() {
+    fn save_load_menu_rejects_obsolete_rust_game_state_header() {
         // C++ GameState::getSaveGameInfoFromFile (GameState.cpp:975-1038) walks
-        // u8-len tokens + i32 block sizes. Pre-fix Rust bincode'd the first 1024
-        // bytes and dropped every CHUNK_*.sav from the save list.
+        // u8-len tokens + i32 block sizes. A CHUNK_GameState payload encoded by
+        // the pre-C++ Rust CommonGameState envelope is obsolete: only the
+        // current C++ v2 header is accepted (GameState.cpp:1543).
         let mut header = CommonGameState::new(SAVE_FILE_VERSION);
         header.map_name = "SyntheticMap".to_string();
         header.game_mode = "Normal".to_string();
@@ -487,12 +488,22 @@ mod tests {
         std::fs::write(&path, &bytes).expect("write synthetic sav");
 
         let manager = SaveLoadManager::new();
-        let info = manager
-            .get_save_info_from_file(&path)
-            .expect("parse named chunks");
-        assert_eq!(info.map_name, "SyntheticMap");
-        assert_eq!(info.display_name, "Chunk Walk");
-        assert_eq!(info.save_type, SaveFileType::Normal);
+        assert!(matches!(
+            manager.get_save_info_from_file(&path),
+            Err(SaveLoadError::VersionMismatch {
+                expected: 2,
+                actual: 1
+            })
+        ));
+        // The full reader rejects the same obsolete header on the same path.
+        let mut reader = crate::save_load::save_file::SaveFileManager::with_save_directory(&dir);
+        assert!(matches!(
+            reader.load_game_snapshot("00000001"),
+            Err(SaveLoadError::VersionMismatch {
+                expected: 2,
+                actual: 1
+            })
+        ));
 
         let _ = std::fs::remove_dir_all(dir);
     }

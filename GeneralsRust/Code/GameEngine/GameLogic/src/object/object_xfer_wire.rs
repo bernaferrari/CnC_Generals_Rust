@@ -37,54 +37,17 @@ pub(super) fn xfer_matrix3d_rows(
     Ok(())
 }
 
-/// Object.cpp:4020-4045 has two distinct wire and observation sequences.
-/// The old position callback runs before orientation is read, not after both
-/// values have been buffered. Current records retain their full matrix phase.
-pub(super) enum SavedTransformChange {
-    Matrix(Matrix3D),
-    Position(Coord3D),
-    Orientation(Real),
-}
-
+/// Object.cpp:4025: the current record carries its full matrix phase.
 pub(super) fn xfer_transform_phase(
     xfer: &mut dyn Xfer,
-    version: u8,
-    transform: Matrix3D,
-    apply: &mut dyn FnMut(SavedTransformChange) -> Result<(), String>,
+    mut matrix: Matrix3D,
+    apply: &mut dyn FnMut(Matrix3D) -> Result<(), String>,
 ) -> Result<(), String> {
-    if version >= 7 {
-        let mut matrix = transform;
-        xfer_matrix3d(xfer, &mut matrix).map_err(|error| error.to_string())?;
-        if !matrix.is_finite() {
-            return Err("non-finite saved Object matrix".into());
-        }
-        apply(SavedTransformChange::Matrix(matrix))
-    } else {
-        let mut position = transform.w_axis.truncate();
-        xfer.xfer_real(&mut position.x)
-            .map_err(|error| error.to_string())?;
-        xfer.xfer_real(&mut position.y)
-            .map_err(|error| error.to_string())?;
-        xfer.xfer_real(&mut position.z)
-            .map_err(|error| error.to_string())?;
-        if !position.is_finite() {
-            return Err("non-finite saved Object position".into());
-        }
-        apply(SavedTransformChange::Position(position))?;
-        let mut orientation = crate::object::object_triggers::cpp_matrix_z_rotation(&transform);
-        xfer.xfer_real(&mut orientation)
-            .map_err(|error| error.to_string())?;
-        if !orientation.is_finite() {
-            return Err("non-finite saved Object orientation".into());
-        }
-        // Original saves write Thing::getOrientation(), which is canonical
-        // [-PI, PI]. Reject malformed finite angles too: repeated subtraction
-        // in the compatibility setter can make no progress at f32::MAX.
-        if orientation.abs() > std::f32::consts::PI {
-            return Err("non-canonical saved Object orientation".into());
-        }
-        apply(SavedTransformChange::Orientation(orientation))
+    xfer_matrix3d(xfer, &mut matrix).map_err(|error| error.to_string())?;
+    if !matrix.is_finite() {
+        return Err("non-finite saved Object matrix".into());
     }
+    apply(matrix)
 }
 
 /// C++ `Object::crc` → `xferSnapshot(thisWeapon)` → `Weapon::crc`.
@@ -434,12 +397,6 @@ pub(super) fn xfer_color_rgba(xfer: &mut dyn Xfer, value: &mut Color) -> std::io
     value.b = ((packed >> 16) & 0xFF) as u8;
     value.a = ((packed >> 24) & 0xFF) as u8;
     Ok(())
-}
-
-/// Object.cpp:4070-4094: the old 32-bit format has no NONE position.
-/// Preserve every original bit, including bit31 -> current enum position32.
-pub(super) fn restore_legacy_status(bits: u32) -> ObjectStatusMaskType {
-    ObjectStatusMaskType::from_bits_retain(u64::from(bits) << 1)
 }
 
 #[cfg(test)]

@@ -329,9 +329,7 @@ impl ObjectSnapshotRecord {
     pub(crate) fn saved_id(&self) -> Result<ObjectID, String> {
         // Peek the same prefix with Xfer, never replace the real field reader.
         let mut xfer = XferLoad::new(Cursor::new(&self.bytes), 1);
-        let mut version = 9;
-        xfer.xfer_version(&mut version, 9)
-            .map_err(|error| error.to_string())?;
+        super::xfer_current_object_version(&mut xfer).map_err(|error| error.to_string())?;
         let mut id = INVALID_ID;
         xfer.xfer_object_id(&mut id)
             .map_err(|error| error.to_string())?;
@@ -560,38 +558,15 @@ impl ObjectXferServices<'_> {
         })
     }
 
-    fn transform(
-        &mut self,
-        object: &mut Object,
-        change: SavedTransformChange,
-    ) -> Result<(), String> {
-        match change {
-            SavedTransformChange::Matrix(matrix) => object.set_snapshot_transform_with_services(
-                &matrix,
-                self.terrain,
-                self.collision,
-                self.definitions.frame,
-                self.changed,
-                self.terrain_moved,
-            ),
-            SavedTransformChange::Position(position) => object.set_snapshot_position_with_services(
-                &position,
-                self.terrain,
-                self.collision,
-                self.definitions.frame,
-                self.changed,
-                self.terrain_moved,
-            ),
-            SavedTransformChange::Orientation(angle) => object
-                .set_snapshot_orientation_with_services(
-                    angle,
-                    self.terrain,
-                    self.collision,
-                    self.definitions.frame,
-                    self.changed,
-                    self.terrain_moved,
-                ),
-        }
+    fn transform(&mut self, object: &mut Object, matrix: Matrix3D) -> Result<(), String> {
+        object.set_snapshot_transform_with_services(
+            &matrix,
+            self.terrain,
+            self.collision,
+            self.definitions.frame,
+            self.changed,
+            self.terrain_moved,
+        )
     }
 }
 
