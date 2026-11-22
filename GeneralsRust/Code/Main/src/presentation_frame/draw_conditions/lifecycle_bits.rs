@@ -166,14 +166,14 @@ impl DrawConditionFacts {
                 bits &= !(1u128 << b);
                 bits &= !(1u128 << c);
                 let pre_b = match self.active_weapon_slot {
-                    1 => b,
-                    2 => c,
-                    _ => a,
+                    WeaponSlotType::Primary => a,
+                    WeaponSlotType::Secondary => b,
+                    WeaponSlotType::Tertiary => c,
                 };
                 // C++ sets WSF_PREATTACK only for WeaponStatus::PRE_ATTACK
                 // (Object.cpp:4719-4727). Approaching or aiming units never
                 // pop into PREATTACK poses here.
-                if self.weapon_fire_status == 4 {
+                if self.weapon_fire_status == Some(WeaponFireStatus::PreAttack) {
                     bits |= 1u128 << pre_b;
                 }
             }
@@ -217,14 +217,14 @@ impl DrawConditionFacts {
                 bits &= !(1u128 << b);
                 bits &= !(1u128 << c);
                 let reload_b = match self.active_weapon_slot {
-                    1 => b,
-                    2 => c,
-                    _ => a,
+                    WeaponSlotType::Primary => a,
+                    WeaponSlotType::Secondary => b,
+                    WeaponSlotType::Tertiary => c,
                 };
                 let coast = !self.is_firing_weapon
                     && self.continuous_fire_coast_until_frame > self.logic_frame
                     && self.continuous_fire_coast_until_frame > 0;
-                if coast || self.weapon_fire_status == 3 {
+                if coast || self.weapon_fire_status == Some(WeaponFireStatus::ReloadingClip) {
                     bits |= 1u128 << reload_b;
                 }
             }

@@ -1,4 +1,7 @@
 use super::*;
+use crate::game_logic::host_animation_steering::HostAnimSteerTurnAnim;
+use crate::game_logic::object::WeaponFireStatus;
+use gamelogic::common::WeaponSlotType;
 
 #[cfg(feature = "game_client")]
 #[path = "physics_visual_host_inputs.rs"]
@@ -876,10 +879,11 @@ impl UnitRenderInput {
     /// Wave 515: stamp RAISING_FLAG from is_surrendered residual.
     pub fn model_condition_bits_with_combat_flags(&self) -> u128 {
         super::draw_conditions::DrawConditionFacts {
-            active_weapon_slot: self.active_weapon_slot,
+            active_weapon_slot: WeaponSlotType::from_u32(u32::from(self.active_weapon_slot))
+                .unwrap_or(WeaponSlotType::Primary),
             ai_state_ordinal: self.ai_state_ordinal,
             airborne_target: self.airborne_target,
-            anim_steer_turn: self.anim_steer_turn,
+            anim_steer_turn: HostAnimSteerTurnAnim::from_ordinal(self.anim_steer_turn),
             armed: self.armed,
             armor_crate_upgrade: self.armor_crate_upgrade,
             attacking: self.attacking,
@@ -932,7 +936,7 @@ impl UnitRenderInput {
             user_1: self.user_1,
             user_2: self.user_2,
             using_ability: self.using_ability,
-            weapon_fire_status: self.weapon_fire_status,
+            weapon_fire_status: WeaponFireStatus::from_ordinal(self.weapon_fire_status),
             world_is_night: self.world_is_night,
             world_is_snow: self.world_is_snow,
         }

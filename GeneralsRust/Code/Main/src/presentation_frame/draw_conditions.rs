@@ -1,11 +1,14 @@
 //! Pure condition-bank projection shared by live camera queries and frozen Draw inputs.
 use super::*;
+use crate::game_logic::host_animation_steering::HostAnimSteerTurnAnim;
+use crate::game_logic::object::WeaponFireStatus;
+use gamelogic::common::WeaponSlotType;
 
 pub(super) struct DrawConditionFacts {
-    pub active_weapon_slot: u8,
+    pub active_weapon_slot: WeaponSlotType,
     pub ai_state_ordinal: u8,
     pub airborne_target: bool,
-    pub anim_steer_turn: u8,
+    pub anim_steer_turn: HostAnimSteerTurnAnim,
     pub armed: bool,
     pub armor_crate_upgrade: u8,
     pub attacking: bool,
@@ -58,7 +61,7 @@ pub(super) struct DrawConditionFacts {
     pub user_1: bool,
     pub user_2: bool,
     pub using_ability: bool,
-    pub weapon_fire_status: u8,
+    pub weapon_fire_status: Option<WeaponFireStatus>,
     pub world_is_night: bool,
     pub world_is_snow: bool,
 }

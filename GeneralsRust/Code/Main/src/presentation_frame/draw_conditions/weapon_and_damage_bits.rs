@@ -71,13 +71,12 @@ impl DrawConditionFacts {
             for b in [ctl, ctr, ltc, rtc] {
                 bits &= !(1u128 << b);
             }
-            // 0 invalid, 1 CTR, 2 CTL, 3 LTC, 4 RTC
             match self.anim_steer_turn {
-                1 => bits |= 1u128 << ctr,
-                2 => bits |= 1u128 << ctl,
-                3 => bits |= 1u128 << ltc,
-                4 => bits |= 1u128 << rtc,
-                _ => {}
+                HostAnimSteerTurnAnim::CenterToRight => bits |= 1u128 << ctr,
+                HostAnimSteerTurnAnim::CenterToLeft => bits |= 1u128 << ctl,
+                HostAnimSteerTurnAnim::LeftToCenter => bits |= 1u128 << ltc,
+                HostAnimSteerTurnAnim::RightToCenter => bits |= 1u128 << rtc,
+                HostAnimSteerTurnAnim::Invalid => {}
             }
         }
 

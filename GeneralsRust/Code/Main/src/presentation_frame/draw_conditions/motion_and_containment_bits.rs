@@ -250,18 +250,26 @@ impl DrawConditionFacts {
                 bits &= !(1u128 << b);
                 bits &= !(1u128 << c);
                 let use_b = match self.active_weapon_slot {
-                    1 => b,
-                    2 => c,
-                    _ => a,
+                    WeaponSlotType::Primary => a,
+                    WeaponSlotType::Secondary => b,
+                    WeaponSlotType::Tertiary => c,
                 };
-                if self.is_firing_weapon || self.using_ability || self.weapon_fire_status != 1 {
+                if self.is_firing_weapon
+                    || self.using_ability
+                    || self.weapon_fire_status != Some(WeaponFireStatus::OutOfAmmo)
+                {
                     // Keep using-weapon pose while not out-of-ammo residual.
                     if self.is_firing_weapon
                         || self.using_ability
                         || self.attacking
-                        || self.weapon_fire_status == 2
-                        || self.weapon_fire_status == 3
-                        || self.weapon_fire_status == 4
+                        || matches!(
+                            self.weapon_fire_status,
+                            Some(
+                                WeaponFireStatus::BetweenFiringShots
+                                    | WeaponFireStatus::ReloadingClip
+                                    | WeaponFireStatus::PreAttack
+                            )
+                        )
                     {
                         bits |= 1u128 << use_b;
                     }

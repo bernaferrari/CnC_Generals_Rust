@@ -2648,6 +2648,19 @@ pub enum WeaponFireStatus {
     PreAttack = 4,
 }
 
+impl WeaponFireStatus {
+    pub(crate) fn from_ordinal(value: u8) -> Option<Self> {
+        Some(match value {
+            0 => Self::ReadyToFire,
+            1 => Self::OutOfAmmo,
+            2 => Self::BetweenFiringShots,
+            3 => Self::ReloadingClip,
+            4 => Self::PreAttack,
+            _ => return None,
+        })
+    }
+}
+
 impl Default for WeaponFireStatus {
     fn default() -> Self {
         Self::ReadyToFire

@@ -37,6 +37,16 @@ pub enum HostAnimSteerTurnAnim {
 }
 
 impl HostAnimSteerTurnAnim {
+    pub(crate) fn from_ordinal(value: u8) -> Self {
+        match value {
+            1 => Self::CenterToRight,
+            2 => Self::CenterToLeft,
+            3 => Self::LeftToCenter,
+            4 => Self::RightToCenter,
+            _ => Self::Invalid,
+        }
+    }
+
     pub fn model_condition_name(self) -> Option<&'static str> {
         match self {
             Self::Invalid => None,

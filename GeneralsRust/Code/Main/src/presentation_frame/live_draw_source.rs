@@ -1,5 +1,6 @@
 //! Current immutable Drawable inputs at a camera observation point. No frame/event drain.
 use super::*;
+use gamelogic::common::WeaponSlotType;
 
 /// Same initial condition bank used by the frozen Drawable producer.
 pub(super) fn current_base_condition_bits(
@@ -131,7 +132,8 @@ pub(super) fn object_condition_facts(
     let construction_percent = obj.construction_percent;
     let under_construction = obj.status.under_construction;
     super::draw_conditions::DrawConditionFacts {
-        active_weapon_slot: obj.active_weapon_slot,
+        active_weapon_slot: WeaponSlotType::from_u32(u32::from(obj.active_weapon_slot))
+            .unwrap_or(WeaponSlotType::Primary),
         ai_state_ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
             &obj.ai_state(),
         ),
@@ -139,8 +141,8 @@ pub(super) fn object_condition_facts(
         anim_steer_turn: obj
             .animation_steering
             .as_ref()
-            .map(|s| s.current_turn_anim as u8)
-            .unwrap_or(0),
+            .map(|state| state.current_turn_anim)
+            .unwrap_or_default(),
         armed: obj.armed_riders_upgrade_weapon_set
             || (!obj.occupants.is_empty() && obj.passengers_allowed_to_fire),
         armor_crate_upgrade: obj.armor_crate_upgrade,
@@ -206,7 +208,7 @@ pub(super) fn object_condition_facts(
             & (1u128 << crate::game_logic::host_enum_table_residual::user_2_model_bit())
             != 0,
         using_ability: obj.status.using_ability,
-        weapon_fire_status: obj.weapon_fire_status as u8,
+        weapon_fire_status: Some(obj.weapon_fire_status),
         world_is_night: world_is_night,
         world_is_snow: world_is_snow,
     }
