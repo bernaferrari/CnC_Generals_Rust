@@ -218,9 +218,18 @@ fn run_executable_smoke_with_launch_and_driver(
     driver: SmokeDriver,
     options: &SmokeOptions,
 ) -> ExecutableSmokeResult {
+    run_smoke_with_boot_retry(timeout, |started| {
+        run_executable_smoke_once(timeout, started, use_new_game_path, launch, driver, options)
+    })
+}
+
+fn run_smoke_with_boot_retry(
+    timeout: Duration,
+    mut attempt: impl FnMut(Instant) -> ExecutableSmokeResult,
+) -> ExecutableSmokeResult {
     // Both attempts and their backoff share the invocation's wall budget.
     let started = Instant::now();
-    let first = run_executable_smoke_once(timeout, started, use_new_game_path, launch, driver, options);
+    let first = attempt(started);
     let retryable = matches!(
         first.status.as_str(),
         "process_exited" | "timeout" | "no_menu"
@@ -233,7 +242,7 @@ fn run_executable_smoke_with_launch_and_driver(
     if started.elapsed() >= timeout {
         return first;
     }
-    let second = run_executable_smoke_once(timeout, started, use_new_game_path, launch, driver, options);
+    let second = attempt(started);
     if second.executable_host_ok || second.reached_menu || second.reached_ingame {
         let mut out = second;
         out.detail = format!(

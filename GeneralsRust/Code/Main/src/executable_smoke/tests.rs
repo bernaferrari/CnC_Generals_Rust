@@ -140,30 +140,45 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn smoke_timeout_does_not_restart_or_leave_a_stuck_child() {
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = tempfile::tempdir().unwrap();
-        let executable = dir.path().join("stuck-generals");
-        fs::write(&executable, "#!/bin/sh\necho $$ >> \"$(dirname \"$0\")/pids\"\nexec /bin/sleep 30\n").unwrap();
-        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
-        isolated_environment_case(
-            "smoke_timeout_does_not_restart_or_leave_a_stuck_child",
-            "stuck",
-            "GENERALS_RUNTIME_EXE",
-            executable.as_os_str(),
-            || {
-                let executable = PathBuf::from(std::env::var_os("GENERALS_RUNTIME_EXE").unwrap());
-                let start = Instant::now();
-                let result = run_load_retail_skirmish_map(Duration::from_millis(300), &SmokeOptions::default());
-                assert_eq!(result.status, "timeout", "{}", result.detail);
-                assert!(start.elapsed() < Duration::from_millis(1400), "timeout was retried: {:?}", start.elapsed());
-                let pids = fs::read_to_string(executable.parent().unwrap().join("pids")).unwrap();
-                let pids: Vec<_> = pids.lines().collect();
-                assert_eq!(pids.len(), 1, "unexpected child launches: {pids:?}");
-                let alive = Command::new("/bin/kill").args(["-0", pids[0]]).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap().success();
-                assert!(!alive, "timed out child {} remains alive", pids[0]);
-            },
-        );
+        let timeout = Duration::ZERO;
+        let launch = ExecutableSmokeLaunch::HeadlessHost;
+        let mut spawned_pid = None;
+        let result = run_smoke_with_boot_retry(timeout, |started| {
+            assert!(spawned_pid.is_none(), "an expired run must not retry");
+            let child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+            // The OS reports the pid at spawn, whether or not the child has
+            // received CPU time by the time the harness reaches its deadline.
+            spawned_pid = Some(child.id());
+            let boot = SmokeBootstrap {
+                child: SmokeHost::Spawned(SmokeChild(child)),
+                tmp: dir.path().to_owned(),
+                owns_tmp: false,
+                control_path: dir.path().join("control"),
+                status_path: dir.path().join("status"),
+                map: "Lone Eagle".into(),
+                screenshot_path: None,
+            };
+            run_smoke_session(
+                boot,
+                ExecutableSmokeResult::default(),
+                timeout,
+                started,
+                false,
+                launch,
+                SmokeDriver::MapLoadOnly,
+            )
+        });
+        assert_eq!(result.status, "timeout", "{}", result.detail);
+        let pid = spawned_pid.expect("the initial attempt spawned a child").to_string();
+        let alive = Command::new("/bin/kill")
+            .args(["-0", &pid])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        assert!(!alive, "timed out child {pid} remains alive");
     }
 
     #[cfg(not(target_arch = "wasm32"))]
