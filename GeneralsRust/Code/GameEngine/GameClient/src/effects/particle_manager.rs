@@ -356,7 +356,7 @@ pub struct ParticleSystemManager {
     // LOD/Performance settings (matches C++ GameLODManager particle settings)
     max_particle_count: usize,
     max_field_particle_count: usize,
-    preloaded_texture_assets: Vec<String>,
+    preloaded_texture_assets: Arc<[String]>,
 }
 
 impl ParticleSystemManager {
@@ -382,10 +382,9 @@ impl ParticleSystemManager {
         uniforms: &crate::effects::particle_renderer::ParticleUniforms,
         use_heat: bool,
     ) -> Option<crate::effects::particle_renderer::ParticleRenderFrame> {
-        let preloaded_texture_assets = self.preloaded_texture_assets.clone();
         let mut random = self.random_state.clone();
         let systems = self.draw_particle_systems();
-        if systems.is_empty() && preloaded_texture_assets.is_empty() {
+        if systems.is_empty() && self.preloaded_texture_assets.is_empty() {
             return None;
         }
         let mut uniforms = *uniforms;
@@ -401,7 +400,7 @@ impl ParticleSystemManager {
             &mut |lo, hi| random.next_real(lo, hi),
         );
         self.random_state = random;
-        Some(frame.with_preloaded_texture_assets(preloaded_texture_assets))
+        Some(frame.with_preloaded_texture_assets(Arc::clone(&self.preloaded_texture_assets)))
     }
     pub fn seed_presentation_random(&mut self, seed: u32) {
         self.random_state.seed_random(seed);
@@ -437,7 +436,7 @@ impl ParticleSystemManager {
 
             max_particle_count: 2500,
             max_field_particle_count: 30,
-            preloaded_texture_assets: Vec::new(),
+            preloaded_texture_assets: Arc::default(),
         }
     }
 
@@ -589,20 +588,19 @@ impl ParticleSystemManager {
     /// Preload particle texture assets for all templates.
     /// (matches C++ ParticleSystemManager::preloadAssets, ParticleSys.cpp:3204)
     pub fn preload_assets(&mut self) {
-        self.preloaded_texture_assets.clear();
-
         // `TemplateMap` is ordered in C++; keeping the preloading order stable
         // also keeps archive requests and first-frame texture residency stable.
         let mut templates: Vec<_> = self.templates.values().collect();
         templates.sort_by(|left, right| left.name().cmp(right.name()));
+        let mut assets = Vec::new();
         for tmplate in templates {
             let info = tmplate.info();
             if info.particle_type != ParticleType::Particle || info.particle_type_name.is_empty() {
                 continue;
             }
-            self.preloaded_texture_assets
-                .push(info.particle_type_name.clone());
+            assets.push(info.particle_type_name.clone());
         }
+        self.preloaded_texture_assets = assets.into();
     }
 
     /// Texture asset names requested by the last preload pass.
@@ -1262,9 +1260,8 @@ impl ParticleSystemManager {
             .filter_map(|id| self.active_systems.get(id).map(|system| system.as_ref()))
     }
     pub fn for_each_particle_system_mut(&mut self, mut f: impl FnMut(&mut ParticleSystem)) {
-        let order = self.active_system_order.clone();
-        for id in order {
-            if let Some(system) = self.active_systems.get_mut(&id) {
+        for id in &self.active_system_order {
+            if let Some(system) = self.active_systems.get_mut(id) {
                 f(system.as_mut());
             }
         }
@@ -2032,6 +2029,26 @@ mod tests {
             manager.preloaded_texture_assets(),
             &["EXSmokePuff.tga".to_string()]
         );
+
+        let uniforms = crate::effects::particle_renderer::ParticleUniforms::default();
+        let first = manager.prepare_render_frame(&uniforms, false).unwrap();
+        let second = manager.prepare_render_frame(&uniforms, false).unwrap();
+        assert!(std::ptr::eq(
+            first.preloaded_texture_assets(),
+            second.preloaded_texture_assets()
+        ));
+
+        let mut new_particle = ParticleSystemTemplate::new("ATextureParticle".into());
+        new_particle.info_mut().particle_type = ParticleType::Particle;
+        new_particle.info_mut().particle_type_name = "SecondTexture.tga".into();
+        manager.register_template(Arc::new(new_particle));
+        manager.preload_assets();
+        let refreshed = manager.prepare_render_frame(&uniforms, false).unwrap();
+        assert_eq!(
+            refreshed.preloaded_texture_assets(),
+            &["SecondTexture.tga", "EXSmokePuff.tga"]
+        );
+        assert_eq!(first.preloaded_texture_assets(), &["EXSmokePuff.tga"]);
     }
 
     #[test]

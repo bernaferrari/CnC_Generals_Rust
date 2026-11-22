@@ -5,7 +5,7 @@ use crate::effects::particle_system::ParticleInfo;
 
 fn frame() -> ParticleRenderFrame {
     ParticleRenderFrame {
-        preloaded_texture_assets: Vec::new(),
+        preloaded_texture_assets: Arc::default(),
         uniforms: ParticleUniforms::default(),
         batches: Vec::new(),
         particles_rendered: 0,

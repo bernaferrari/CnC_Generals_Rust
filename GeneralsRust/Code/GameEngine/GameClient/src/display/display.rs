@@ -150,9 +150,9 @@ pub struct Display {
     graphics: GraphicsContext,
     drawable_pipeline:
         Option<Arc<Mutex<crate::drawable::drawable_draw_pipeline::DrawableDrawPipeline>>>,
-    particle_renderer: Option<Mutex<GpuParticleRenderer>>,
+    particle_renderer: Option<GpuParticleRenderer>,
     #[cfg(feature = "w3d_support")]
-    particle_bridge: Mutex<W3DParticleSystemBridge>,
+    particle_bridge: W3DParticleSystemBridge,
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
     start_time: Instant,
@@ -216,7 +216,7 @@ impl Display {
             surface_format,
             ww3d_gpu::SCENE_DEPTH_FORMAT,
         ) {
-            Ok(renderer) => Some(Mutex::new(renderer)),
+            Ok(renderer) => Some(renderer),
             Err(err) => {
                 error!("Failed to initialize particle renderer: {}", err);
                 None
@@ -241,7 +241,7 @@ impl Display {
             drawable_pipeline,
             particle_renderer,
             #[cfg(feature = "w3d_support")]
-            particle_bridge: Mutex::new(W3DParticleSystemBridge::new()),
+            particle_bridge: W3DParticleSystemBridge::new(),
             depth_texture,
             depth_view,
             start_time: Instant::now(),
@@ -863,7 +863,10 @@ impl Display {
         }
     }
 
-    fn build_particle_uniforms(&self) -> ParticleUniforms {
+    fn build_particle_uniforms(
+        graphics: &GraphicsContext,
+        start_time: Instant,
+    ) -> ParticleUniforms {
         with_tactical_view_ref(|view| {
             let camera_pos = view.get_3d_camera_position();
             let target = view.position();
@@ -884,10 +887,10 @@ impl Display {
                 view_matrix: view_matrix.to_cols_array_2d(),
                 projection_matrix: projection_matrix.to_cols_array_2d(),
                 camera_position: [camera.x, camera.y, camera.z],
-                time: self.start_time.elapsed().as_secs_f32(),
+                time: start_time.elapsed().as_secs_f32(),
                 screen_size: [
-                    self.graphics.config().width as f32,
-                    self.graphics.config().height as f32,
+                    graphics.config().width as f32,
+                    graphics.config().height as f32,
                 ],
                 particle_count: 0,
                 source_z_up: 1,
@@ -1220,85 +1223,76 @@ impl Display {
 
         // Particle rendering via W3DParticleSystemBridge
         #[cfg(feature = "w3d_support")]
-        if let Some(renderer) = self.particle_renderer.as_ref() {
+        if let Some(renderer) = self.particle_renderer.as_mut() {
             if let Ok(manager_guard) = get_particle_system_manager() {
                 if let Some(manager) = manager_guard.as_ref() {
-                    let mut uniforms = self.build_particle_uniforms();
+                    let mut uniforms =
+                        Self::build_particle_uniforms(&self.graphics, self.start_time);
                     let particle_count: usize = manager
                         .all_particle_systems()
                         .map(|s| s.particle_count())
                         .sum();
                     uniforms.particle_count = particle_count as u32;
-                    if let Ok(mut renderer_guard) = renderer.lock() {
-                        renderer_guard
-                            .preload_authored_textures(manager.preloaded_texture_assets());
-                        if let Ok(mut bridge) = self.particle_bridge.lock() {
-                            bridge.do_particles(
-                                manager,
-                                &mut *renderer_guard,
-                                &mut encoder,
-                                scene_view,
-                                &self.depth_view,
-                                &uniforms,
-                            );
-                        }
-                    }
+                    renderer.preload_authored_textures(manager.preloaded_texture_assets());
+                    self.particle_bridge.do_particles(
+                        manager,
+                        renderer,
+                        &mut encoder,
+                        scene_view,
+                        &self.depth_view,
+                        &uniforms,
+                        client_random,
+                    );
                 }
             }
         }
 
         #[cfg(not(feature = "w3d_support"))]
-        if let Some(renderer) = self.particle_renderer.as_ref() {
+        if let Some(renderer) = self.particle_renderer.as_mut() {
             if let Ok(manager_guard) = get_particle_system_manager() {
                 if let Some(manager) = manager_guard.as_ref() {
                     let systems: Vec<_> = manager.all_particle_systems().collect();
                     if !systems.is_empty() {
-                        let mut uniforms = self.build_particle_uniforms();
+                        let mut uniforms =
+                            Self::build_particle_uniforms(&self.graphics, self.start_time);
                         let particle_count: usize =
                             systems.iter().map(|system| system.particle_count()).sum();
                         uniforms.particle_count = particle_count as u32;
-                        if let Ok(mut renderer_guard) = renderer.lock() {
-                            renderer_guard
-                                .preload_authored_textures(manager.preloaded_texture_assets());
-                            renderer_guard.render_particles(
-                                &mut encoder,
-                                scene_view,
-                                &self.depth_view,
-                                &systems,
-                                &uniforms,
-                                client_random,
-                            );
-                        }
+                        renderer.preload_authored_textures(manager.preloaded_texture_assets());
+                        renderer.render_particles(
+                            &mut encoder,
+                            scene_view,
+                            &self.depth_view,
+                            &systems,
+                            &uniforms,
+                            client_random,
+                        );
                     }
                 }
             }
-            let uniforms = self.build_particle_uniforms();
-            if let Ok(mut renderer_guard) = renderer.lock() {
-                renderer_guard.render_tracer_and_ray_fx(
-                    &mut encoder,
-                    scene_view,
-                    &self.depth_view,
-                    &uniforms,
-                );
-            }
+            let uniforms = Self::build_particle_uniforms(&self.graphics, self.start_time);
+            renderer.render_tracer_and_ray_fx(
+                &mut encoder,
+                scene_view,
+                &self.depth_view,
+                &uniforms,
+            );
         }
 
         // Decal rendering pass (retail snow is drawn by terrain overlays).
-        if let Some(renderer) = self.particle_renderer.as_ref() {
+        if let Some(renderer) = self.particle_renderer.as_mut() {
             let decals = collect_decal_items(client_fx, projected_decals);
 
             if !decals.is_empty() {
-                let mut uniforms = self.build_particle_uniforms();
+                let mut uniforms = Self::build_particle_uniforms(&self.graphics, self.start_time);
                 uniforms.particle_count = decals.len() as u32;
-                if let Ok(mut renderer_guard) = renderer.lock() {
-                    renderer_guard.render_decals(
-                        &mut encoder,
-                        scene_view,
-                        &self.depth_view,
-                        &decals,
-                        &uniforms,
-                    );
-                }
+                renderer.render_decals(
+                    &mut encoder,
+                    scene_view,
+                    &self.depth_view,
+                    &decals,
+                    &uniforms,
+                );
             }
         }
         if rtt_view.is_some() {
@@ -1547,7 +1541,7 @@ impl Display {
         self.reset_views();
         #[cfg(feature = "w3d_support")]
         {
-            self.particle_bridge = Mutex::new(W3DParticleSystemBridge::new());
+            self.particle_bridge = W3DParticleSystemBridge::new();
         }
         self.set_time_of_day(lighting.time_of_day, lighting);
         Ok(())
@@ -1562,9 +1556,7 @@ impl Display {
         self.update_views();
         self.update_movie_playback(fx);
         #[cfg(feature = "w3d_support")]
-        if let Ok(mut bridge) = self.particle_bridge.lock() {
-            bridge.queue_particle_render();
-        }
+        self.particle_bridge.queue_particle_render();
         Ok(())
     }
 }

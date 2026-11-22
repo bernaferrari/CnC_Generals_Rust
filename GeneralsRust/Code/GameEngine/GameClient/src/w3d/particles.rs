@@ -18,6 +18,7 @@ use crate::effects::decals::DecalRenderItem;
 use crate::effects::particle_manager::ParticleSystemManager;
 use crate::effects::particle_renderer::{ParticleRenderer, ParticleUniforms};
 use crate::system::smudge::get_smudge_manager;
+use game_engine::common::random_value::RandomState;
 
 /// W3D Particle System Bridge
 ///
@@ -68,6 +69,7 @@ impl W3DParticleSystemBridge {
         view: &wgpu::TextureView,
         depth_view: &wgpu::TextureView,
         uniforms: &ParticleUniforms,
+        client_random: &mut RandomState,
     ) {
         if !self.ready_to_render {
             return;
@@ -82,7 +84,7 @@ impl W3DParticleSystemBridge {
         // C++ fills smudges during the system loop, draws point groups, then
         // `W3DSmudgeManager::render`. Live `render_particles` does the same
         // SMUD*/SMUDGE `addSmudgeToSet` feed; draw the set afterwards.
-        renderer.render_particles(encoder, view, depth_view, &systems, uniforms);
+        renderer.render_particles(encoder, view, depth_view, &systems, uniforms, client_random);
 
         let smudges = collect_manager_smudge_render_items();
         if !smudges.is_empty() {

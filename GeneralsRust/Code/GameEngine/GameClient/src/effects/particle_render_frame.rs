@@ -12,7 +12,7 @@ pub(super) struct PreparedParticleBatch {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParticleRenderFrame {
-    preloaded_texture_assets: Vec<String>,
+    preloaded_texture_assets: Arc<[String]>,
     pub(super) uniforms: ParticleUniforms,
     pub(super) batches: Vec<PreparedParticleBatch>,
     pub(super) particles_rendered: usize,
@@ -33,7 +33,7 @@ impl ParticleRenderFrame {
     ) -> Self {
         let started = std::time::Instant::now();
         let mut frame = Self {
-            preloaded_texture_assets: Vec::new(),
+            preloaded_texture_assets: Arc::default(),
             uniforms: *uniforms,
             batches: Vec::new(),
             particles_rendered: 0,
@@ -92,7 +92,7 @@ impl ParticleRenderFrame {
         let preparation_started = std::time::Instant::now();
         begin_particle_heat_smudge_frame();
         let mut frame = Self {
-            preloaded_texture_assets: Vec::new(),
+            preloaded_texture_assets: Arc::default(),
             uniforms: *uniforms,
             batches: Vec::new(),
             particles_rendered: 0,
@@ -260,7 +260,7 @@ mod owned_info_tests {
         assert_eq!(emitted.alpha_keys[0].value, 1.0);
         loaded.push_particle(Particle::new(&emitted, 1, 0));
         let mut frame = ParticleRenderFrame {
-            preloaded_texture_assets: Vec::new(),
+            preloaded_texture_assets: Arc::default(),
             uniforms: ParticleUniforms::default(),
             batches: Vec::new(),
             particles_rendered: 0,
@@ -317,7 +317,7 @@ impl ParticleRenderFrame {
     pub fn preloaded_texture_assets(&self) -> &[String] {
         &self.preloaded_texture_assets
     }
-    pub(crate) fn with_preloaded_texture_assets(mut self, names: Vec<String>) -> Self {
+    pub(crate) fn with_preloaded_texture_assets(mut self, names: Arc<[String]>) -> Self {
         self.preloaded_texture_assets = names;
         self
     }
