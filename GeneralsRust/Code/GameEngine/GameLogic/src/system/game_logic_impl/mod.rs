@@ -96,7 +96,6 @@ use crate::modules::{
 };
 use crate::object::collide::collision_geometry::GeometryInfo as CollisionGeometryInfo;
 use crate::object::collide::collision_response::{CollisionResponseConfig, CollisionResponseType};
-use crate::object::collide::collision_system::with_collision_system_mut;
 use crate::object::drawable::DrawableExt;
 use crate::object::{Object, the_ghost_object_manager, registry::OBJECT_REGISTRY};
 use crate::player::{GameDifficulty, Player, PlayerIndex, PlayerType, player_list};

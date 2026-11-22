@@ -1195,16 +1195,18 @@ impl GameLogic {
         let registry = world.object_registry();
         let managers = world.logic_managers();
         // C++ iterates GameLogic.objects (m_objList), not a second factory registry.
-        let collision_ids: Vec<ObjectID> = if !self.all_objects.is_empty() {
-            self.all_objects.clone()
+        let registry_ids;
+        let collision_ids = if !self.all_objects.is_empty() {
+            self.all_objects.as_slice()
         } else if !registry.is_empty() {
-            registry.get_all_object_ids()
+            registry_ids = registry.get_all_object_ids();
+            registry_ids.as_slice()
         } else {
-            Vec::new()
+            &[]
         };
         let cell_changed = if let Ok(mut system) = managers.collision.write() {
             if !collision_ids.is_empty() {
-                for obj_id in collision_ids {
+                for &obj_id in collision_ids {
                     // GameLogic-owned lookup first: a registry store miss
                     // while the GameLogic lock is held would warn and drop
                     // the object (C++ GameLogic.h:386-397 is a plain array
@@ -1331,20 +1333,16 @@ impl GameLogic {
         trace!("GameLogic::update_partition_manager()");
         // Explicit initial/map and restore updates also prepare the receiving
         // COIs. The ordinary frame does this before dispatching contacts.
-        if let Some(world) = self.owning_world_services() {
-            world
-                .logic_managers()
-                .partition
-                .write()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .update_dirty_geometry();
+        let owned = self.owning_world_services().is_some();
+        let mut partition = self.partition_manager_mut();
+        if owned {
+            partition.update_dirty_geometry();
         }
-        self.partition_manager_mut().update_host_index()
+        partition.update_host_index()
     }
 
     /// C++ `ThePartitionManager`: this world's single partition manager
-    /// (shared with `WorldLogicManagers::partition` when the logic is built
-    /// against its `WorldServices`).
+    /// (shared with `WorldLogicManagers::partition` when the logic has an owner).
     pub fn partition_manager(&self) -> std::sync::RwLockReadGuard<'_, PartitionManager> {
         self.partition.read().unwrap_or_else(std::sync::PoisonError::into_inner)
     }

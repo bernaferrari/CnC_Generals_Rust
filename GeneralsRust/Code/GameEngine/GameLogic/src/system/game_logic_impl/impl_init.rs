@@ -12,7 +12,9 @@ impl GameLogic {
     pub fn new_with_engine_stores(
         engine_stores: Arc<crate::system::engine_stores::EngineStores>,
     ) -> Self {
-        let mut logic = Self::new();
+        let mut logic = Self::with_partition(Arc::clone(
+            &engine_stores.services().logic_managers().partition,
+        ));
         // C++ m_controlBarOverrides: shared with this world's ControlBar.
         logic.control_bar_overrides = Arc::clone(engine_stores.services().control_bar_overrides());
         logic.pathfinding_owner = Some(engine_stores);
@@ -23,11 +25,9 @@ impl GameLogic {
     pub(crate) fn new_with_world_services(
         services: Arc<crate::system::engine_stores::WorldServices>,
     ) -> Self {
-        let mut logic = Self::new();
+        let mut logic = Self::with_partition(Arc::clone(&services.logic_managers().partition));
         logic.control_bar_overrides = Arc::clone(services.control_bar_overrides());
         logic.world_services = Some(Arc::downgrade(&services));
-        // C++ has one ThePartitionManager: this logic uses the world's.
-        logic.partition = Arc::clone(&services.logic_managers().partition);
         logic
     }
 

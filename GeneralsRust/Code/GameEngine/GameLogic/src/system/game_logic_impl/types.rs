@@ -383,6 +383,12 @@ struct NormalUpdateEntry {
 
 impl Default for GameLogic {
     fn default() -> Self {
+        Self::with_partition(Arc::new(RwLock::new(PartitionManager::new())))
+    }
+}
+
+impl GameLogic {
+    fn with_partition(partition: Arc<RwLock<PartitionManager>>) -> Self {
         Self {
             width: 0.0,
             height: 0.0,
@@ -398,7 +404,7 @@ impl Default for GameLogic {
             objects: HashMap::new(),
             pathfinding_owner: None,
             world_services: None,
-            partition: Arc::new(RwLock::new(PartitionManager::new())),
+            partition,
             physics_world: PhysicsWorld::new(),
             event_queue: Vec::new(),
             command_queue: VecDeque::new(),

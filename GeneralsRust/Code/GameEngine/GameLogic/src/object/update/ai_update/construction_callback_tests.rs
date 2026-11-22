@@ -1074,7 +1074,7 @@ fn construction_completion_partition_pin_matches_both_receiving_logic_constructo
     let core_logic = core.game_logic_mutex().lock().unwrap();
     let core_index = core.services().object_registry().owning_partition().unwrap();
     assert!(Arc::ptr_eq(&core_index, &core_logic.partition_weak().upgrade().unwrap()));
-    assert!(!Arc::ptr_eq(&core_index, &core.services().logic_managers().partition));
+    assert!(Arc::ptr_eq(&core_index, &core.services().logic_managers().partition));
 
     let main = new_world_services();
     let main_logic = main.game_logic_mutex().lock().unwrap();

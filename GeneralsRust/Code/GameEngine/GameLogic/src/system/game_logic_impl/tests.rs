@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::collide::collision_system::with_collision_system_mut;
     use game_engine::common::system::snapshot::Snapshotable;
     use game_engine::{XferLoad, XferSave};
     use std::fs;
@@ -2905,6 +2906,87 @@ mod tests {
         assert_eq!(raw_wall(&peer_pathfinder, peer_first), Some(PathfindCellType::Clear));
         assert_eq!(raw_wall(&peer_pathfinder, peer_second), Some(PathfindCellType::Clear));
         assert_eq!(peer_occupant.read().unwrap().get_health(), 100.0);
+    }
+
+    #[test]
+    fn core_partition_reads_its_own_world_collision_geometry() {
+        use crate::object::collide::{Coord3D, GeometryInfo};
+        use crate::system::engine_stores::{with_active_stores, EngineStores};
+
+        let first = Arc::new(EngineStores::new_for_world());
+        let second = Arc::new(EngineStores::new_for_world());
+        let first_logic = GameLogic::new_with_engine_stores(Arc::clone(&first));
+        let second_logic = GameLogic::new_with_engine_stores(Arc::clone(&second));
+        let id = 42;
+        let first_pos = Coord3D::new(20.0, 40.0, 0.0);
+        let second_pos = Coord3D::new(80.0, 160.0, 10.0);
+        let geometry = GeometryInfo::new_box(6.0, 12.0, false);
+        for (stores, pos) in [(&first, first_pos), (&second, second_pos)] {
+            stores
+                .services()
+                .logic_managers()
+                .collision
+                .write()
+                .unwrap()
+                .register_object(id, pos, geometry, None)
+                .unwrap();
+        }
+
+        with_active_stores(&second, || {
+            assert_eq!(
+                first_logic.partition_manager().get_object_pose(id),
+                Some((first_pos, geometry, 0.0))
+            );
+        });
+        assert_eq!(
+            second_logic.partition_manager().get_object_pose(id),
+            Some((second_pos, geometry, 0.0))
+        );
+    }
+
+    #[test]
+    fn core_collision_birth_and_removal_follow_the_driving_logic() {
+        use crate::system::engine_stores::{with_active_stores, EngineStores};
+
+        let first = Arc::new(EngineStores::new_for_world());
+        let second = Arc::new(EngineStores::new_for_world());
+        let mut first_logic = GameLogic::new_with_engine_stores(Arc::clone(&first));
+        let mut second_logic = GameLogic::new_with_engine_stores(Arc::clone(&second));
+        let id = 0xD353;
+        let first_pos = Coord3D::new(20.0, 40.0, 0.0);
+        let second_pos = Coord3D::new(80.0, 160.0, 10.0);
+
+        let make_object = |stores: &Arc<EngineStores>, pos| {
+            with_active_stores(stores, || {
+                let mut object = Object::new_test(id, 100.0);
+                object.set_position(&pos).unwrap();
+                Arc::new(RwLock::new(object))
+            })
+        };
+        let first_object = make_object(&first, first_pos);
+        let second_object = make_object(&second, second_pos);
+        with_active_stores(&first, || {
+            first_logic.admit_object(Arc::clone(&first_object))
+        })
+        .unwrap();
+        with_active_stores(&second, || second_logic.register_object(second_object)).unwrap();
+
+        // The body is admitted before its partition data and collision shape.
+        with_active_stores(&second, || {
+            first_logic.register_object_with_partition(id, &first_object);
+        });
+        let pose = |logic: &GameLogic| {
+            logic.partition_manager().get_object_pose(id).map(|entry| entry.0)
+        };
+        assert_eq!(pose(&first_logic), Some(first_pos));
+        assert_eq!(pose(&second_logic), Some(second_pos));
+
+        with_active_stores(&second, || {
+            first_logic.destroy_object(id);
+            first_logic.cleanup_dead_objects().unwrap();
+        });
+        assert_eq!(pose(&first_logic), None);
+        assert_eq!(pose(&second_logic), Some(second_pos));
     }
 
     /// hq-yac16: the rank cap is held once per world, with the roster that

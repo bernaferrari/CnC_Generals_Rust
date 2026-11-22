@@ -26,6 +26,18 @@ impl crate::object::ObjectDeletionServices for GameLogicDeletionServices<'_> {
 }
 
 impl GameLogic {
+    fn with_receiving_collision(
+        &self,
+        operation: impl FnOnce(&mut crate::object::collide::CollisionSystem),
+    ) {
+        let world = self
+            .owning_world_services()
+            .unwrap_or_else(crate::system::engine_stores::active_services);
+        if let Ok(mut collision) = world.logic_managers().collision.write() {
+            operation(&mut collision);
+        }
+    }
+
     /// Execute object cleanup services synchronously on the driving owner.
     fn apply_object_destroy_service(
         &mut self,
@@ -156,9 +168,8 @@ impl GameLogic {
             }
             self.partition_manager_mut().remove_object(obj_id);
 
-            let _ = with_collision_system_mut(|system| {
+            self.with_receiving_collision(|system| {
                 let _ = system.unregister_object(obj_id);
-                Ok::<(), crate::object::collide::CollisionError>(())
             });
 
             // In full implementation:
@@ -327,7 +338,7 @@ impl GameLogic {
 
             let geom =
                 map_collision_geometry(&obj.get_geometry_info(), obj.get_template_geometry_type());
-            let _ = with_collision_system_mut(|system| {
+            self.with_receiving_collision(|system| {
                 let _ = system.register_object(
                     object_id,
                     crate::object::collide::Coord3D::new(pos.x, pos.y, pos.z),
@@ -349,7 +360,6 @@ impl GameLogic {
                     CollisionResponseConfig::default()
                 };
                 system.set_birth_collision_config(object_id, cfg);
-                Ok::<(), crate::object::collide::CollisionError>(())
             });
 
             if !register_pathfinding {
