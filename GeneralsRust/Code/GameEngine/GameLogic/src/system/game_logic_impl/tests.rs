@@ -2782,6 +2782,131 @@ mod tests {
         );
     }
 
+    #[test]
+    fn detached_wall_cleanup_reclassifies_the_receiving_layer_without_splat() {
+        use crate::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
+        use crate::common::{AABox, Coord3D, DefaultThingTemplate, GeometryInfo};
+        use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+
+        let _fixture = test_state_lock();
+        const REMOVED: ObjectID = 0xD350;
+        const SURVIVOR: ObjectID = 0xD351;
+        const OCCUPANT: ObjectID = 0xD352;
+        let setup = |owner: &Arc<EngineStores>, center: Coord3D, remaining: Coord3D| {
+            with_active_stores(owner, || {
+                let mut logic = GameLogic::new_with_engine_stores(Arc::clone(owner));
+                let pathfinder = owner.ai().read().unwrap().pathfinder().unwrap();
+                pathfinder.write().unwrap().reset_with_size(40, 40);
+                let mut template = DefaultThingTemplate::new("RetiredPathfinderWall".into());
+                template.add_kind_of(KindOf::Structure);
+                template.add_kind_of(KindOf::Immobile);
+                template.add_kind_of(KindOf::WalkOnTopOfWall);
+                let template: Arc<dyn crate::common::ThingTemplate> = Arc::new(template);
+                for (id, position) in [(REMOVED, center), (SURVIVOR, remaining)] {
+                    let mut wall = Object::new_test_from_template(id, 100.0, Arc::clone(&template));
+                    wall.set_position(&position).unwrap();
+                    let mut geometry = GeometryInfo::default();
+                    geometry.set_bounds(AABox {
+                        min: Coord3D::new(-30.0, -30.0, 0.0),
+                        max: Coord3D::new(30.0, 30.0, 10.0),
+                    });
+                    wall.set_geometry_info(geometry);
+                    logic.register_object(Arc::new(RwLock::new(wall))).unwrap();
+                }
+                let mut occupant = Object::new_test(OCCUPANT, 100.0);
+                occupant.set_position(&Coord3D::new(center.x, center.y, 20.0)).unwrap();
+                occupant.set_layer(crate::common::PathfindLayerEnum::Wall);
+                let occupant = Arc::new(RwLock::new(occupant));
+                logic.register_object(Arc::clone(&occupant)).unwrap();
+
+                let mut map = crate::system::map_loader::MapData::new();
+                map.width = 40;
+                map.height = 40;
+                map.heightmap = vec![0; 40 * 40];
+                map.boundaries = vec![crate::common::ICoord2D::new(40, 40)];
+                owner.services().terrain().write().unwrap().load_map_data(map);
+                add_loaded_wall_piece(&logic, REMOVED);
+                add_loaded_wall_piece(&logic, SURVIVOR);
+                pathfinder_new_map_after_polygon_load(&logic).unwrap();
+                (logic, occupant, pathfinder)
+            })
+        };
+
+        let receiving = new_for_world();
+        let peer = new_for_world();
+        let cut = Coord3D::new(75.0, 105.0, 0.0);
+        let keep = Coord3D::new(175.0, 105.0, 0.0);
+        let peer_first = Coord3D::new(275.0, 205.0, 0.0);
+        let peer_second = Coord3D::new(175.0, 205.0, 0.0);
+        let (mut logic, occupant, pathfinder) = setup(&receiving, cut, keep);
+        let (_peer_logic, peer_occupant, peer_pathfinder) = setup(&peer, peer_first, peer_second);
+        let raw_wall = |pathfinder: &Arc<RwLock<crate::ai::Pathfinder>>, position: Coord3D| {
+            pathfinder.write().unwrap().pathfinding_system_mut().pathfinder
+                .get_cell_type_on_layer(GridCoord::from_world(&position), PathfindLayerEnum::Wall)
+        };
+        let walk_layer = |position: Coord3D| {
+            pathfinder.write().unwrap().pathfinding_system_mut().pathfinder
+                .resolved_layer_at(GridCoord::from_world(&position), PathfindLayerEnum::Wall)
+        };
+        let cut_cell = GridCoord::from_world(&cut);
+        let center = crate::common::ICoord2D::new(cut_cell.x, cut_cell.y);
+        {
+            let mut pathfinder = pathfinder.write().unwrap();
+            let grid = pathfinder.pathfinding_system_mut();
+            grid.set_pos_cells(OCCUPANT, center, 0, true, PathfindLayerEnum::Wall, false, true);
+            grid.set_goal_cells(OCCUPANT, center, 0, true, PathfindLayerEnum::Wall, false, true);
+            grid.set_goal_cells(SURVIVOR, center, 0, true, PathfindLayerEnum::Ground, true, false);
+            assert_eq!(grid.get_goal_unit(cut_cell, PathfindLayerEnum::Wall), OCCUPANT);
+            assert_eq!(grid.pos_unit_at(cut_cell, PathfindLayerEnum::Wall), OCCUPANT);
+            // AIPathfind.cpp:3554-3579 promotes the edge cell to Cliff
+            // and clears the temporary pinched flag before releasing the layer.
+            let edge = GridCoord::from_world(&Coord3D::new(155.0, keep.y, 0.0));
+            assert_eq!(
+                grid.pathfinder.get_cell_type_on_layer(edge, PathfindLayerEnum::Wall),
+                Some(PathfindCellType::Cliff),
+            );
+            assert_eq!(
+                grid.pathfinder.is_pinched_on_layer(edge, PathfindLayerEnum::Wall),
+                Some(false),
+            );
+        }
+        assert_eq!(raw_wall(&pathfinder, cut), Some(PathfindCellType::Clear));
+        assert_eq!(walk_layer(cut), Some(PathfindLayerEnum::Wall));
+        assert_eq!(raw_wall(&pathfinder, keep), Some(PathfindCellType::Clear));
+        assert_eq!(raw_wall(&peer_pathfinder, peer_first), Some(PathfindCellType::Clear));
+        assert_eq!(raw_wall(&peer_pathfinder, peer_second), Some(PathfindCellType::Clear));
+
+        with_active_stores(&peer, || {
+            logic.destroy_object(REMOVED);
+            assert!(logic.find_object_by_id(REMOVED).is_some());
+            assert_eq!(pathfinder.read().unwrap().wall_piece_count(), 1);
+            assert_eq!(raw_wall(&pathfinder, cut), Some(PathfindCellType::Clear));
+            logic.cleanup_dead_objects().unwrap();
+
+            assert!(logic.find_object_by_id(REMOVED).is_none());
+            assert_eq!(raw_wall(&pathfinder, cut), Some(PathfindCellType::Impassable));
+            assert_eq!(walk_layer(cut), Some(PathfindLayerEnum::Ground));
+            {
+                let mut pathfinder = pathfinder.write().unwrap();
+                let grid = pathfinder.pathfinding_system_mut();
+                assert_eq!(grid.get_goal_unit(cut_cell, PathfindLayerEnum::Wall), crate::common::INVALID_ID);
+                assert_eq!(grid.pos_unit_at(cut_cell, PathfindLayerEnum::Wall), crate::common::INVALID_ID);
+                assert_eq!(grid.get_goal_unit(cut_cell, PathfindLayerEnum::Ground), SURVIVOR);
+            }
+            assert_eq!(raw_wall(&pathfinder, keep), Some(PathfindCellType::Clear));
+            assert_eq!(walk_layer(keep), Some(PathfindLayerEnum::Wall));
+            assert_eq!(occupant.read().unwrap().get_health(), 100.0);
+
+            logic.destroy_object(SURVIVOR);
+            logic.cleanup_dead_objects().unwrap();
+        });
+        assert_eq!(pathfinder.read().unwrap().wall_piece_count(), 0);
+        assert_eq!(raw_wall(&pathfinder, keep), Some(PathfindCellType::Impassable));
+        assert_eq!(raw_wall(&peer_pathfinder, peer_first), Some(PathfindCellType::Clear));
+        assert_eq!(raw_wall(&peer_pathfinder, peer_second), Some(PathfindCellType::Clear));
+        assert_eq!(peer_occupant.read().unwrap().get_health(), 100.0);
+    }
+
     /// hq-yac16: the rank cap is held once per world, with the roster that
     /// lends its Players (C++ GameLogic.h setRankLevelLimit clamps to 1). Two
     /// worlds with the same player index rank/award against their own cap.

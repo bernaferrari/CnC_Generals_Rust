@@ -37,6 +37,11 @@ impl GameLogic {
             ObjectDestroyServiceAction::UnregisterUpdateModule(module) => {
                 self.unregister_update_module(object_id, module);
             }
+            ObjectDestroyServiceAction::ReclassifyDetachedWall => {
+                if let Err(error) = self.reclassify_detached_wall() {
+                    log::error!("cannot rebuild wall layer after retiring {object_id}: {error}");
+                }
+            }
             ObjectDestroyServiceAction::MarkTriggerAreasChanged => {
                 self.update_objects_changed_trigger_areas();
             }
@@ -52,6 +57,24 @@ impl GameLogic {
                 self.destroy_object(child);
             }
         }
+    }
+
+    fn reclassify_detached_wall(&self) -> Result<(), String> {
+        let Some(owner) = self.pathfinding_owner.as_ref() else {
+            return Ok(());
+        };
+        let pathfinder = owner.ai().try_read()
+            .map_err(|error| format!("cannot borrow retiring wall's AI: {error}"))?
+            .pathfinder().ok_or("retiring wall's pathfinder is missing")?;
+        let mut pathfinder = pathfinder.try_write()
+            .map_err(|error| format!("cannot borrow retiring wall's pathfinder: {error}"))?;
+        pathfinder.reclassify_allocated_wall_with_lookup(|id| {
+            self.objects.get(&id).map(|handle| {
+                let wall = handle.try_read()
+                    .map_err(|error| format!("cannot read surviving wall {id}: {error}"))?;
+                Ok(crate::path::pathfind_layer_classify::WallFootprint::from_object(&wall))
+            }).transpose()
+        })
     }
 
     pub fn cleanup_dead_objects(&mut self) -> Result<(), GameLogicError> {

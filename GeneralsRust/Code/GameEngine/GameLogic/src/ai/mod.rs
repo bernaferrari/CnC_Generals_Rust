@@ -1631,8 +1631,13 @@ impl Pathfinder {
         &mut self,
         terrain: &TerrainLogic,
         objects: impl Iterator<Item = &'a Arc<RwLock<Object>>>,
+        lookup: impl FnMut(ObjectID) -> Result<Option<crate::path::pathfind_layer_classify::WallFootprint>, String>,
     ) -> Result<(), String> {
+        let shapes = self.resolve_wall_shapes(lookup)?;
+        let wall_pieces = std::mem::take(&mut self.inner.wall_pieces);
         self.rebuild_terrain_cells(terrain);
+        self.inner.wall_pieces = wall_pieces;
+        self.inner.allocate_wall_cells(&shapes);
         for object in objects {
             let mut object = object.write().map_err(|error| format!("loaded pathfinding object: {error}"))?;
             self.add_object_to_pathfind_map(&object)?;
@@ -1785,6 +1790,32 @@ impl Pathfinder {
     #[cfg(test)]
     pub(crate) fn wall_piece_count(&self) -> usize {
         self.inner.wall_piece_count()
+    }
+
+    /// Reclassify an existing Wall allocation from the driving world's lookup.
+    /// A detached last piece leaves impassable cells in that same allocation.
+    pub(crate) fn reclassify_allocated_wall_with_lookup(
+        &mut self,
+        lookup: impl FnMut(ObjectID) -> Result<Option<crate::path::pathfind_layer_classify::WallFootprint>, String>,
+    ) -> Result<(), String> {
+        if self.inner.wall_extent.is_some() {
+            let shapes = self.resolve_wall_shapes(lookup)?;
+            self.inner.classify_allocated_wall_cells(&shapes);
+        }
+        Ok(())
+    }
+
+    fn resolve_wall_shapes(
+        &self,
+        mut lookup: impl FnMut(ObjectID) -> Result<Option<crate::path::pathfind_layer_classify::WallFootprint>, String>,
+    ) -> Result<Vec<crate::path::pathfind_layer_classify::WallFootprint>, String> {
+        let mut shapes = Vec::with_capacity(self.inner.wall_pieces.len());
+        for &id in &self.inner.wall_pieces {
+            if id != crate::common::INVALID_ID && let Some(shape) = lookup(id)? {
+                shapes.push(shape);
+            }
+        }
+        Ok(shapes)
     }
 
     /// C++ `Pathfinder::cleanOpenAndClosedLists`.

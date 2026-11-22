@@ -1196,104 +1196,114 @@ impl PathfindingSystem {
         self.wall_pieces.len()
     }
 
-    /// C++ `Pathfinder::isPointOnWall` (AIPathfind.cpp:3929-3942).
+    /// C++ AIPathfind.cpp:3929–3942 uses the classified Wall cell itself.
     pub fn is_point_on_wall(&self, pos: &Coord3D) -> bool {
-        if self.wall_pieces.is_empty() {
-            return false;
-        }
-        let cell = GridCoord::from_world(pos);
-        let walls = &self.wall_cells;
-        walls.contains(&(cell.x, cell.y))
+        !self.wall_pieces.is_empty()
+            && self.pathfinder.get_cell_type_on_layer(
+                GridCoord::from_world(pos), PathfindLayerEnum::Wall,
+            ) == Some(PathfindCellType::Clear)
     }
 
-    /// Residual wall-cell classification from registered wall piece positions.
-    /// C++ `PathfindLayer::classifyWallCells` — marks ground cells under pieces as wall.
+    /// Compatibility map rebuild. The receiving Core uses an explicit lookup.
     pub fn classify_wall_cells(&mut self) {
-        let walls = &mut self.wall_cells;
-        walls.clear();
-        if self.wall_pieces.is_empty() {
-            return;
+        use crate::path::pathfind_layer_classify::WallFootprint;
+        let pieces: Vec<_> = self.wall_pieces.iter().filter_map(|&id| {
+            OBJECT_REGISTRY.with_object(id, WallFootprint::from_object)
+        }).collect();
+        if self.wall_extent.is_some() {
+            self.classify_allocated_wall_cells(&pieces);
+        } else {
+            self.allocate_wall_cells(&pieces);
         }
-        let pieces = self.wall_pieces.clone();
-        let w = self.width as i32;
-        let h = self.height as i32;
-        let mut types: HashMap<(i32, i32), crate::path::PathfindCellType> = HashMap::new();
-        for y in 0..h {
-            for x in 0..w {
-                let mut cell = crate::path::PathfindCell::new();
-                crate::path::pathfind_layer_classify::classify_wall_map_cell(
-                    x, y, &mut cell, &pieces,
-                );
-                types.insert((x, y), cell.get_type());
+    }
+
+    /// Allocate once at map admission, with the padding from AIPathfind.cpp:3386.
+    pub(in crate::ai) fn allocate_wall_cells(
+        &mut self,
+        pieces: &[crate::path::pathfind_layer_classify::WallFootprint],
+    ) {
+        use game_engine::base_type::{real_to_int_ceil, real_to_int_floor};
+        let Some(first) = pieces.first() else { return; };
+        let mut bounds = first.bounds;
+        for piece in &pieces[1..] {
+            bounds.lo.x = bounds.lo.x.min(piece.bounds.lo.x);
+            bounds.lo.y = bounds.lo.y.min(piece.bounds.lo.y);
+            bounds.hi.x = bounds.hi.x.max(piece.bounds.hi.x);
+            bounds.hi.y = bounds.hi.y.max(piece.bounds.hi.y);
+        }
+        if self.width == 0 || self.height == 0 { return; }
+        let cell = PATHFIND_CELL_SIZE_F;
+        let epsilon = cell / 100.0;
+        let lo = ICoord2D::new(
+            real_to_int_floor((bounds.lo.x - epsilon) / cell).saturating_sub(1).max(0),
+            real_to_int_floor((bounds.lo.y - epsilon) / cell).saturating_sub(1).max(0),
+        );
+        let hi = ICoord2D::new(
+            real_to_int_ceil((bounds.hi.x + epsilon) / cell).saturating_add(1)
+                .min(self.width.saturating_sub(1) as i32),
+            real_to_int_ceil((bounds.hi.y + epsilon) / cell).saturating_add(1)
+                .min(self.height.saturating_sub(1) as i32),
+        );
+        if hi.x > lo.x && hi.y > lo.y {
+            self.wall_extent = Some(crate::common::IRegion2D { lo, hi });
+            self.classify_allocated_wall_cells(pieces);
+        }
+    }
+
+    /// AIPathfind.cpp:3526–3580 classifies every cell in the retained extent,
+    /// then tightens clear cells beside edges using the original classifications.
+    pub(in crate::ai) fn classify_allocated_wall_cells(
+        &mut self,
+        pieces: &[crate::path::pathfind_layer_classify::WallFootprint],
+    ) {
+        use crate::path::pathfind_layer_classify::cell_corners;
+        let Some(bounds) = self.wall_extent else { return; };
+        let width = (bounds.hi.x - bounds.lo.x) as usize;
+        let height = (bounds.hi.y - bounds.lo.y) as usize;
+        let mut terrain = Vec::with_capacity(width * height);
+        for y in bounds.lo.y..bounds.hi.y {
+            for x in bounds.lo.x..bounds.hi.x {
+                let corners = cell_corners(x, y);
+                let coverage = corners.iter().filter(|point| {
+                    pieces.iter().any(|piece| piece.contains(point))
+                }).count();
+                terrain.push(match coverage {
+                    0 => PathfindCellType::Impassable,
+                    4 => PathfindCellType::Clear,
+                    _ => PathfindCellType::BridgeImpassable,
+                });
             }
         }
-        let mut pinched = HashSet::new();
-        for y in 1..h.saturating_sub(1) {
-            for x in 1..w.saturating_sub(1) {
-                let mut pinch = false;
-                'adj: for dy in -1..=1 {
-                    for dx in -1..=1 {
-                        if types.get(&(x + dx, y + dy)).copied()
-                            != Some(crate::path::PathfindCellType::Clear)
-                        {
-                            pinch = true;
-                            break 'adj;
-                        }
-                    }
-                }
-                if pinch {
-                    pinched.insert((x, y));
-                }
-            }
-        }
-        let finder = &mut self.pathfinder;
-        for y in 0..h {
-            for x in 0..w {
-                let mut ty = types
-                    .get(&(x, y))
-                    .copied()
-                    .unwrap_or(crate::path::PathfindCellType::Impassable);
-                if pinched.contains(&(x, y)) && ty == crate::path::PathfindCellType::Clear {
-                    ty = crate::path::PathfindCellType::Cliff;
-                }
-                if ty == crate::path::PathfindCellType::Clear {
-                    walls.insert((x, y));
-                }
-                {
-                    let astar_ty = match ty {
-                        crate::path::PathfindCellType::Clear => PathfindCellType::Clear,
-                        crate::path::PathfindCellType::Water => PathfindCellType::Water,
-                        crate::path::PathfindCellType::Cliff => PathfindCellType::Cliff,
-                        crate::path::PathfindCellType::Rubble => PathfindCellType::Rubble,
-                        crate::path::PathfindCellType::Obstacle => PathfindCellType::Obstacle,
-                        crate::path::PathfindCellType::BridgeImpassable => {
-                            PathfindCellType::BridgeImpassable
-                        }
-                        crate::path::PathfindCellType::Impassable => PathfindCellType::Impassable,
-                    };
-                    finder.set_cell_type_on_layer(
-                        GridCoord::new(x, y),
-                        PathfindLayerEnum::Wall,
-                        astar_ty,
-                    );
-                }
+        for y in 0..height {
+            for x in 0..width {
+                let ty = terrain[y * width + x];
+                let pinched = x > 0 && x + 1 < width && y > 0 && y + 1 < height
+                    && (y - 1..=y + 1).any(|row| {
+                        terrain[row * width + x - 1..=row * width + x + 1]
+                            .iter().any(|ty| *ty != PathfindCellType::Clear)
+                    });
+                let ty = if pinched && ty == PathfindCellType::Clear {
+                    PathfindCellType::Cliff
+                } else {
+                    ty
+                };
+                let coord = GridCoord::new(bounds.lo.x + x as i32, bounds.lo.y + y as i32);
+                // The pinch flag is temporary. Only the promoted cell type
+                // survives C++ classifyWallCells.
+                self.pathfinder.reclassify_cell_on_layer(coord, PathfindLayerEnum::Wall, ty);
+                // C++ PathfindCell::reset also discards this cell's wall
+                // position/goal claims, without touching the ground below.
+                let claims = &mut self.goal_cells[coord.x as usize][coord.y as usize];
+                claims.set_pos_unit(PathfindLayerEnum::Wall, INVALID_ID);
+                claims.set_goal_unit(PathfindLayerEnum::Wall, INVALID_ID);
             }
         }
     }
 
-    /// Stamp a single wall cell (used when object positions are known).
+    /// Stamp a single classified wall cell.
     pub fn classify_wall_cell_at(&mut self, x: i32, y: i32, clear_for_walk: bool) {
-        if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height {
-            return;
-        }
-        {
-            let walls = &mut self.wall_cells;
-            if clear_for_walk {
-                walls.insert((x, y));
-            } else {
-                walls.remove(&(x, y));
-            }
-        }
+        let terrain = if clear_for_walk { PathfindCellType::Clear } else { PathfindCellType::Impassable };
+        self.pathfinder.set_cell_type_on_layer(GridCoord::new(x, y), PathfindLayerEnum::Wall, terrain);
     }
 
     /// C++ `Pathfinder::updateLayer` — demote to ground if not interacting with bridge.

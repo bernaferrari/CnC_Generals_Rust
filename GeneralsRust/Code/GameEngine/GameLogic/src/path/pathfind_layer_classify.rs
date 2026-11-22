@@ -13,36 +13,58 @@ fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
-/// C++ `PathfindLayer::isPointOnWall` — oriented rectangle (sphere uses major×major).
+/// Frozen geometry from the identity resolved by the driving GameLogic.
+#[derive(Clone, Copy)]
+pub(crate) struct WallFootprint {
+    position: Coord3D,
+    major: f32,
+    minor: f32,
+    sin: f32,
+    cos: f32,
+    pub(crate) bounds: game_engine::system::geometry::GeometryRegion2D,
+}
+
+impl WallFootprint {
+    pub(crate) fn from_object(wall: &crate::object::Object) -> Self {
+        let position = *wall.get_position();
+        let geometry = wall.get_geometry_info();
+        let major = geometry.get_major_radius();
+        let minor = if geometry.get_geometry_type() == GeometryType::Sphere {
+            major
+        } else {
+            geometry.get_minor_radius()
+        };
+        let orientation = wall.get_orientation();
+        let (sin, cos) = (-orientation).sin_cos();
+        let center = game_engine::system::Point3D::new(position.x, position.y, position.z);
+        Self {
+            position,
+            major,
+            minor,
+            sin,
+            cos,
+            bounds: geometry.shape.get_2d_bounds(&center, orientation),
+        }
+    }
+
+    /// C++ PathfindLayer::isPointOnWall compares the inverse-rotated axes.
+    pub(crate) fn contains(&self, point: &Coord3D) -> bool {
+        let x = point.x - self.position.x;
+        let y = point.y - self.position.y;
+        (x * self.cos - y * self.sin).abs() <= self.major
+            && (x * self.sin + y * self.cos).abs() <= self.minor
+    }
+}
+
+/// Compatibility lookup for callers outside a borrowed Core GameLogic.
 pub fn is_point_on_wall(wall_pieces: &[ObjectID], pt: &Coord3D) -> bool {
     if dual_world_registry_unavailable() {
         return false;
     }
-    for &wall_id in wall_pieces {
-        let on = OBJECT_REGISTRY
-            .with_object(wall_id, |wall| {
-                let pos = wall.get_position();
-                let geom = wall.get_geometry_info();
-                let major = geom.get_major_radius();
-                let minor = if geom.get_geometry_type() == GeometryType::Sphere {
-                    major
-                } else {
-                    geom.get_minor_radius()
-                };
-                let ori = -wall.get_orientation();
-                let (s, c) = ori.sin_cos();
-                let ptx = pt.x - pos.x;
-                let pty = pt.y - pos.y;
-                let ptx_new = (ptx * c - pty * s).abs();
-                let pty_new = (ptx * s + pty * c).abs();
-                ptx_new <= major && pty_new <= minor
-            })
-            .unwrap_or(false);
-        if on {
-            return true;
-        }
-    }
-    false
+    wall_pieces.iter().any(|&id| {
+        OBJECT_REGISTRY.with_object(id, |wall| WallFootprint::from_object(wall).contains(pt))
+            .unwrap_or(false)
+    })
 }
 
 /// World-space corners of pathfind cell `(i, j)` — C++ classify*MapCell.

@@ -64,7 +64,7 @@ impl PathfindingSystem {
             unit_goal_cells: HashMap::new(),
             unit_pos_cells: HashMap::new(),
             wall_pieces: Vec::new(),
-            wall_cells: HashSet::new(),
+            wall_extent: None,
             is_tunneling: false,
             ignore_obstacle_id: INVALID_ID,
             wall_height: 0.0,

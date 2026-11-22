@@ -126,6 +126,10 @@ fn pathfinder_new_map_after_polygon_load(logic: &GameLogic) -> Result<(), XferSt
     pathfinder.rebuild_from_terrain_after_load(
         &terrain,
         logic.get_all_object_ids().iter().map(|id| &logic.objects[id]),
+        |id| logic.find_object_by_id(id).map(|wall| {
+            let wall = wall.try_read().map_err(|error| format!("loaded wall {id}: {error}"))?;
+            Ok(crate::path::pathfind_layer_classify::WallFootprint::from_object(&wall))
+        }).transpose(),
     ).map_err(|error| {
         log::error!("cannot rebuild the loaded pathfinding map: {error}");
         XferStatus::InvalidData

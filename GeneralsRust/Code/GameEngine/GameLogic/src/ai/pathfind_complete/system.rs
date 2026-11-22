@@ -35,8 +35,8 @@ pub struct PathfindingSystem {
     pub(crate) unit_pos_cells: HashMap<ObjectID, ICoord2D>,
     /// C++ m_wallPieces / m_numWallPieces.
     pub(crate) wall_pieces: Vec<ObjectID>,
-    /// Cells classified as walkable wall (LAYER_WALL clear).
-    pub(crate) wall_cells: HashSet<(i32, i32)>,
+    /// The original Wall allocation, with an exclusive high corner.
+    pub(crate) wall_extent: Option<crate::common::IRegion2D>,
     /// C++ m_isTunneling
     pub(crate) is_tunneling: bool,
     /// C++ m_ignoreObstacleID

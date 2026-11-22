@@ -721,6 +721,9 @@ impl Object {
                     update_module,
                 );
             }
+            ObjectDestroyServiceAction::ReclassifyDetachedWall => {
+                // Only the driving GameLogic can resolve remaining live walls.
+            }
             ObjectDestroyServiceAction::MarkTriggerAreasChanged => {
                 crate::helpers::TheGameLogic::mark_objects_changed_trigger_areas();
             }
@@ -763,6 +766,22 @@ impl Object {
         &mut self,
         service: &mut impl FnMut(ObjectID, ObjectDestroyServiceAction),
     ) {
+        // GameLogic.cpp:2498–2505 unlinks and removes this object's ID
+        // before calling the destructor. AIPathfind.cpp:3728–3751 therefore
+        // cannot resolve its shape for splats, but still rebuilds Wall cells.
+        if self.pathfinding_owner.is_some()
+            && self.is_kind_of(KindOf::WalkOnTopOfWall)
+            && self.is_kind_of(KindOf::Immobile)
+            && !self.is_kind_of(KindOf::Mine)
+            && !self.is_kind_of(KindOf::Projectile)
+            && !self.is_kind_of(KindOf::BridgeTower)
+            && !self.is_kind_of(KindOf::BlastCrater)
+            && !(self.get_template().get_fence_width() > 0.0
+                && !self.is_kind_of(KindOf::DefensiveWall))
+        {
+            // Immobile walls have no unit position/goal removal phase.
+            service(self.id, ObjectDestroyServiceAction::ReclassifyDetachedWall);
+        }
         self.remove_destructor_footprint();
 
         if !self.is_kind_of(KindOf::Projectile) && !self.is_kind_of(KindOf::Inert) {

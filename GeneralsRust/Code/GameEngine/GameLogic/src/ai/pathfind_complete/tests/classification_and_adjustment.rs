@@ -24,7 +24,7 @@ fn cpp_reset_releases_map_dimensions_and_readiness() {
     system.new_map();
     assert!(system.is_map_ready());
 
-    system.wall_cells.insert((2, 2));
+    system.classify_wall_cell_at(2, 2, true);
     system.unit_goal_cells.insert(7, ICoord2D::new(3, 3));
     system.open_list_count = 9;
     system.reset();
@@ -32,7 +32,7 @@ fn cpp_reset_releases_map_dimensions_and_readiness() {
     assert_eq!(system.width(), 0);
     assert_eq!(system.height(), 0);
     assert!(!system.is_map_ready());
-    assert!(system.wall_cells.is_empty());
+    assert_eq!(system.pathfinder.get_cell_type_on_layer(GridCoord::new(2, 2), PathfindLayerEnum::Wall), None);
     assert!(system.wall_pieces.is_empty());
     assert!(system.unit_goal_cells.is_empty());
     assert!(system.request_queue.is_empty());
@@ -82,8 +82,8 @@ fn owned_classic_stores_isolate_same_id_and_reset_through_pathfinder() {
     );
     assert!(!first.inner.zone_interacts_with_bridge(b));
     assert!(second.inner.zone_interacts_with_bridge(b));
-    assert!(first.inner.wall_cells.contains(&(2, 2)));
-    assert!(!second.inner.wall_cells.contains(&(2, 2)));
+    assert_eq!(first.inner.pathfinder.get_cell_type_on_layer(a, PathfindLayerEnum::Wall), Some(PathfindCellType::Clear));
+    assert_eq!(second.inner.pathfinder.get_cell_type_on_layer(a, PathfindLayerEnum::Wall), None);
 
     let request = PathRequest {
         object_id: ID,
@@ -122,7 +122,7 @@ fn owned_classic_stores_isolate_same_id_and_reset_through_pathfinder() {
     assert!(first.inner.goal_cells.is_empty());
     assert!(first.inner.unit_goal_cells.is_empty());
     assert!(first.inner.unit_pos_cells.is_empty());
-    assert!(first.inner.wall_cells.is_empty());
+    assert_eq!(first.inner.pathfinder.get_cell_type_on_layer(a, PathfindLayerEnum::Wall), None);
     assert_eq!(crc_bytes(&second), second_before_reset);
     assert_eq!(second.inner.get_goal_unit(b, PathfindLayerEnum::Ground), ID);
     assert_eq!(

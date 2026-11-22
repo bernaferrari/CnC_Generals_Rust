@@ -2086,6 +2086,8 @@ pub(crate) enum PendingProducedExit {
 /// Immediate GameLogic-owned work emitted while an Object is being destroyed.
 pub(crate) enum ObjectDestroyServiceAction {
     UnregisterUpdateModule(UpdateModulePtr),
+    /// The wall is already absent from the owning GameLogic's ObjectID lookup.
+    ReclassifyDetachedWall,
     MarkTriggerAreasChanged,
     NotifyObjectCountChanged,
     SendObjectDestroyed,

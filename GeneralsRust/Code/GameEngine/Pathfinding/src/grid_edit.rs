@@ -32,6 +32,25 @@ impl AStarPathfinder {
         }
     }
 
+    /// Reclassify a raw map cell, clearing PathfindCellInfo and flags first.
+    pub fn reclassify_cell_on_layer(
+        &mut self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        terrain: PathfindCellType,
+    ) {
+        let Some(cell) = self.get_cell_mut_on_layer(coord, layer) else {
+            return;
+        };
+        *cell = crate::cell::PathfindCell::new();
+        cell.set_layer(layer);
+        cell.set_type(terrain);
+        let key = Self::obstacle_key(coord, layer);
+        self.obstacle_owners.remove(&key);
+        self.obstacle_fence.remove(&key);
+        self.obstacle_transparent.remove(&key);
+    }
+
     /// Stored type on `layer` with **no** C++ getCell fallback.
     ///
     /// Ground → `get_cell_type`. Elevated missing/OOB → `None`. Search still
