@@ -686,11 +686,7 @@ impl GameLogic {
             .with_module_downcast::<LifetimeUpdateModule, _, _>(|module| {
                 let update = module.behavior_mut();
                 let wake = update.set_lifetime_range_at(now, min, max, |lo, hi| {
-                    if hi < lo {
-                        hi
-                    } else {
-                        random.next_int(lo, hi)
-                    }
+                    random.next_int(lo, hi)
                 });
                 if let Some(wake) = changed_registered_wake(&self.sleepy_updates, &proxy, now, wake)
                 {

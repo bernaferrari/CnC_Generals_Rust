@@ -5,20 +5,21 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, INVALID_ID, Int, KindOf, ObjectID, TheGameLogic, UnsignedInt,
-    XferVersion,
+    AsciiString, Bool, Int, KindOf, ObjectID, UnsignedInt, XferVersion,
 };
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use game_engine::common::common_services::{LogicRandom, ReceivingLogicRandom};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    LifetimeControlInterface, Module, ModuleData as EngineModuleData, NameKeyType,
-    Object as ModuleObject, Thing as ModuleThing,
+    LifetimeControlInterface, Module, ModuleData as EngineModuleData, ModuleDataHandle,
+    NameKeyType, Thing as ModuleThing,
 };
 use log::warn;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
@@ -155,25 +156,18 @@ mod tests {
 
     #[test]
     fn hulk_lifetime_override_replaces_configured_range() {
-        let original = crate::helpers::TheGameLogic::get_hulk_max_lifetime_override();
-        crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(42);
-
         assert_eq!(
-            LifetimeUpdate::effective_lifetime_range(true, 30, 75),
+            LifetimeUpdate::effective_lifetime_range(true, 30, 75, 42),
             (42, 42)
         );
         assert_eq!(
-            LifetimeUpdate::effective_lifetime_range(false, 30, 75),
+            LifetimeUpdate::effective_lifetime_range(false, 30, 75, 42),
             (30, 75)
         );
-
-        crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
         assert_eq!(
-            LifetimeUpdate::effective_lifetime_range(true, 30, 75),
+            LifetimeUpdate::effective_lifetime_range(true, 30, 75, -1),
             (30, 75)
         );
-
-        crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(original);
     }
 
     #[test]
@@ -181,7 +175,6 @@ mod tests {
         let data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData::default());
         let behavior = LifetimeUpdate {
             object_id: crate::common::INVALID_ID,
-            shared_data: None,
             next_call_frame_and_phase: 0,
             die_frame: 123,
         };
@@ -200,7 +193,6 @@ mod tests {
         let data = game_engine::common::thing::module::ModuleDataHandle::new(LifetimeUpdateModuleData::default());
         let behavior = LifetimeUpdate {
             object_id: crate::common::INVALID_ID,
-            shared_data: None,
             next_call_frame_and_phase: 0,
             die_frame: 0,
         };
@@ -268,12 +260,165 @@ mod tests {
                 .is_none()
         );
     }
+
+    /// Two independent worlds carrying the same numeric object id: the
+    /// constructor must take owner identity, hulk policy, RNG stream and the
+    /// base frame from the supplied handle — not whichever world happens to
+    /// be published, and not an ambient-registry same-id peer.
+    #[test]
+    fn authored_lifetime_uses_supplied_owner_birth_frame_and_receiving_streams() {
+        let _guard = crate::test_sync::lock();
+        use crate::system::engine_stores::{new_for_world, with_active_stores};
+        use game_engine::common::random_value::RandomState;
+
+        let first_world = new_for_world();
+        let second_world = new_for_world();
+
+        let mut hulk_template =
+            crate::common::DefaultThingTemplate::new("HulkOwner".to_string());
+        hulk_template.add_kind_of(KindOf::Hulk);
+        let mut first_object =
+            Object::new_test_from_template(0x1F71, 100.0, Arc::new(hulk_template));
+        let mut second_object = Object::new_test(0x1F71, 100.0);
+        first_object.bind_owner_world_for_test(first_world.services());
+        second_object.bind_owner_world_for_test(second_world.services());
+        let first_arc = Arc::new(RwLock::new(first_object));
+        let second_arc = Arc::new(RwLock::new(second_object));
+        // Same-id peers registered on both sides so an ID-resolving
+        // implementation finds a valid (but wrong) object instead of panicking.
+        first_world
+            .services()
+            .object_registry()
+            .register_object(0x1F71, &first_arc);
+        second_world
+            .services()
+            .object_registry()
+            .register_object(0x1F71, &second_arc);
+
+        first_world
+            .services()
+            .session_flags()
+            .hulk_max_lifetime_override
+            .store(42, Ordering::Relaxed);
+        second_world
+            .services()
+            .session_flags()
+            .hulk_max_lifetime_override
+            .store(84, Ordering::Relaxed);
+        first_world.services().common().random.init_with_seed(123);
+        second_world.services().common().random.init_with_seed(567);
+
+        let mut first_reference = RandomState::default();
+        first_reference.seed_random(123);
+        let mut second_reference = RandomState::default();
+        second_reference.seed_random(567);
+        let second_initial_words = second_reference.seed_words();
+
+        // Ambient frames differ from the supplied birth frames so an ambient
+        // frame read produces a visibly wrong deadline.
+        with_active_stores(&first_world, || {
+            crate::system::game_logic::get_game_logic()
+                .lock()
+                .unwrap()
+                .set_current_frame(100);
+        });
+        with_active_stores(&second_world, || {
+            crate::system::game_logic::get_game_logic()
+                .lock()
+                .unwrap()
+                .set_current_frame(200);
+        });
+
+        let module_data = || {
+            ModuleDataHandle::new(LifetimeUpdateModuleData {
+                min_frames: 30,
+                max_frames: 75,
+                ..Default::default()
+            })
+        };
+
+        // Construct A while world B is the published one.
+        let mut first_module = with_active_stores(&second_world, || {
+            lifetime_update_module_factory(
+                Arc::new(crate::object::ObjectThingHandle::with_world_and_birth_frame(
+                    &first_arc,
+                    Some(crate::object::ObjectWorld::of(first_world.services())),
+                    Some(19),
+                )),
+                module_data(),
+            )
+        });
+        // Hulk owner in world A: override 42 -> draw (42,42) on A's stream.
+        let first_delay = first_reference.next_int(42, 42) as u32;
+        let first_die = 19u32.wrapping_add(first_delay);
+        assert_eq!(first_module.get_initial_wake_frame(), Some(first_die));
+        assert_eq!(
+            first_module
+                .get_lifetime_control_interface()
+                .map(|control| control.die_frame()),
+            Some(first_die)
+        );
+        // A's stream advanced exactly once; B's untouched.
+        assert_eq!(
+            first_world
+                .services()
+                .common()
+                .random
+                .with_logic_mut(|random| random.seed_words()),
+            first_reference.seed_words()
+        );
+        assert_eq!(
+            second_world
+                .services()
+                .common()
+                .random
+                .with_logic_mut(|random| random.seed_words()),
+            second_initial_words
+        );
+
+        // Construct B while world A is the published one.
+        let mut second_module = with_active_stores(&first_world, || {
+            lifetime_update_module_factory(
+                Arc::new(crate::object::ObjectThingHandle::with_world_and_birth_frame(
+                    &second_arc,
+                    Some(crate::object::ObjectWorld::of(second_world.services())),
+                    Some(71),
+                )),
+                module_data(),
+            )
+        });
+        // Non-hulk owner in world B: authored range -> draw (30,75) on B's
+        // stream; its own override 84 must not apply.
+        let second_delay = second_reference.next_int(30, 75) as u32;
+        let second_die = 71u32.wrapping_add(second_delay);
+        assert_eq!(second_module.get_initial_wake_frame(), Some(second_die));
+        assert_eq!(
+            second_module
+                .get_lifetime_control_interface()
+                .map(|control| control.die_frame()),
+            Some(second_die)
+        );
+        assert_eq!(
+            second_world
+                .services()
+                .common()
+                .random
+                .with_logic_mut(|random| random.seed_words()),
+            second_reference.seed_words()
+        );
+        assert_eq!(
+            first_world
+                .services()
+                .common()
+                .random
+                .with_logic_mut(|random| random.seed_words()),
+            first_reference.seed_words()
+        );
+    }
 }
 
 pub struct LifetimeUpdate {
     object_id: ObjectID,
-    #[allow(dead_code)]
-    shared_data: Option<game_engine::common::thing::module::ModuleDataHandle>,
     next_call_frame_and_phase: UnsignedInt,
     die_frame: UnsignedInt,
 }
@@ -281,52 +426,67 @@ pub struct LifetimeUpdate {
 impl LifetimeUpdate {
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: game_engine::common::thing::module::ModuleDataHandle,
+        module_data: ModuleDataHandle,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let mut behavior = {
-            let data = module_data.read();
-            let specific_data = data.as_any().downcast_ref::<LifetimeUpdateModuleData>()
-                .ok_or("Invalid module data")?;
-            Self::from_data(object, specific_data)
-        };
-        behavior.shared_data = Some(module_data);
-        Ok(behavior)
+        Self::new_with_birth_frame(&object, &module_data, None)
     }
 
-    fn from_data(object: Arc<RwLock<GameObject>>, specific_data: &LifetimeUpdateModuleData) -> Self {
-
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let is_hulk = object
-            .read()
-            .map(|guard| guard.is_kind_of(KindOf::Hulk))
-            .unwrap_or(false);
-        let (min_frames, max_frames) = Self::effective_lifetime_range(
-            is_hulk,
-            specific_data.min_frames,
-            specific_data.max_frames,
+    /// C++ LifetimeUpdate.cpp:23-40: choose the receiving world's hulk policy,
+    /// draw once even for fixed bounds, add the frame and schedule Normal.
+    /// Legacy callers without a birth frame still read the clock through
+    /// GameLogic. Only objects without a world use the ambient hulk policy
+    /// and RNG.
+    fn new_with_birth_frame(
+        object: &Arc<RwLock<GameObject>>,
+        module_data: &ModuleDataHandle,
+        birth_frame: Option<u32>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let (object_id, is_hulk, world) = {
+            let object = object.read().map_err(|_| "LifetimeUpdate owner poisoned")?;
+            (
+                object.get_id(),
+                object.is_kind_of(KindOf::Hulk),
+                object.owning_world_services(),
+            )
+        };
+        let (min, max) = {
+            let data = module_data.read();
+            let data = data
+                .downcast_ref::<LifetimeUpdateModuleData>()
+                .ok_or("Invalid LifetimeUpdate module data")?;
+            (data.min_frames, data.max_frames)
+        };
+        let now = birth_frame.unwrap_or_else(crate::helpers::TheGameLogic::get_frame);
+        let override_frames = world.as_ref().map_or_else(
+            crate::helpers::TheGameLogic::get_hulk_max_lifetime_override,
+            |world| {
+                world
+                    .session_flags()
+                    .hulk_max_lifetime_override
+                    .load(Ordering::Relaxed)
+            },
         );
-        let delay = Self::calc_sleep_delay_static(min_frames, max_frames);
-        let die_frame = Self::die_frame_after(current_frame, delay);
-        let object_id = object
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
-
-        Self {
+        let (min, max) = Self::effective_lifetime_range(is_hulk, min, max, override_frames);
+        let mut update = Self {
             object_id,
-            shared_data: None,
-            // C++ UpdateModule constructor packs the initial wake with the phase.
-            next_call_frame_and_phase: (die_frame.min(0x3fff_ffff) << 2)
-                | crate::modules::SleepyUpdatePhase::Normal as u32,
-            die_frame,
-        }
+            next_call_frame_and_phase: 0,
+            die_frame: 0,
+        };
+        let deadline = update.set_lifetime_range_at(now, min, max, |lo, hi| {
+            match &world {
+                Some(world) => ReceivingLogicRandom::new(world.common()).next_int(lo, hi),
+                None => crate::helpers::get_game_logic_random_value(lo, hi),
+            }
+        });
+        update.record_wake(deadline, crate::modules::SleepyUpdatePhase::Normal);
+        Ok(update)
     }
 
     /// C++ `LifetimeUpdate::setLifetimeRange` (LifetimeUpdate.cpp:51-64):
     /// draw the delay through the caller's RNG, derive the die frame, and
     /// return it so the owning scheduler can adjust the registration
     /// (GameLogic.cpp:2965-3004) instead of this module re-registering itself.
+    /// An inverted authored range keeps the Core helper's legacy guard.
     pub(crate) fn set_lifetime_range_at(
         &mut self,
         now: u32,
@@ -334,7 +494,9 @@ impl LifetimeUpdate {
         max: u32,
         draw: impl FnOnce(i32, i32) -> i32,
     ) -> u32 {
-        let delay = (draw(min as i32, max as i32) as u32).max(1);
+        let (lo, hi) = (min as i32, max as i32);
+        let frames = if hi < lo { hi } else { draw(lo, hi) };
+        let delay = (frames as u32).max(1);
         self.die_frame = Self::die_frame_after(now, delay);
         self.die_frame
     }
@@ -360,22 +522,12 @@ impl LifetimeUpdate {
         self.next_call_frame_and_phase >> 2
     }
 
-    /// Calculate random sleep delay between min and max frames
-    /// C++ Reference: LifetimeUpdate.cpp - uses GameLogicRandomValue
-    fn calc_sleep_delay_static(min_frames: UnsignedInt, max_frames: UnsignedInt) -> UnsignedInt {
-        let mut delay = crate::GameLogicRandomValue!(min_frames, max_frames) as UnsignedInt;
-        if delay < 1 {
-            delay = 1;
-        }
-        delay
-    }
-
     fn effective_lifetime_range(
         is_hulk: Bool,
         min_frames: UnsignedInt,
         max_frames: UnsignedInt,
+        override_frames: Int,
     ) -> (UnsignedInt, UnsignedInt) {
-        let override_frames: Int = crate::helpers::TheGameLogic::get_hulk_max_lifetime_override();
         if is_hulk && override_frames != -1 {
             let override_frames = override_frames as UnsignedInt;
             (override_frames, override_frames)
@@ -591,16 +743,13 @@ pub fn lifetime_update_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineModu
 
 pub fn lifetime_update_module_factory(
     thing: Arc<dyn ModuleThing>,
-    module_data: game_engine::common::thing::module::ModuleDataHandle,
+    module_data: ModuleDataHandle,
 ) -> Box<dyn Module> {
-    let owner_id = thing
-        .as_object()
-        .map(ModuleObject::get_object_id)
-        .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("LifetimeUpdate requires a valid object");
-    let behavior = LifetimeUpdate::new(object, module_data.clone())
-        .expect("LifetimeUpdateModuleData expected");
+    let object = crate::object::supplied_module_owner(thing.as_ref())
+        .expect("LifetimeUpdate requires its supplied Object owner");
+    let frame = crate::object::supplied_module_birth_frame(thing.as_ref());
+    let behavior = LifetimeUpdate::new_with_birth_frame(&object, &module_data, frame)
+        .expect("LifetimeUpdate must initialize from its supplied Object and module data");
     let module_name = AsciiString::from("LifetimeUpdate");
     Box::new(LifetimeUpdateModule::new(
         behavior,
