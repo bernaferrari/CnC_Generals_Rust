@@ -122,39 +122,18 @@ impl UnitVoiceSlot {
 }
 
 #[cfg(test)]
+#[derive(Default)]
 struct AudioDispatchOverrides {
-    template_voice: std::sync::Mutex<HashMap<(String, UnitVoiceSlot), String>>,
-    per_unit_sound: std::sync::Mutex<HashMap<(String, String), String>>,
-    initiate_sound: std::sync::Mutex<HashMap<String, String>>,
+    template_voice: HashMap<(String, UnitVoiceSlot), String>,
+    per_unit_sound: HashMap<(String, String), String>,
+    initiate_sound: HashMap<String, String>,
 }
 
-/// Fixture overrides are per test thread. Cargo runs each test on its own
-/// thread and a fixture's logic runs synchronously on it, so one test's
-/// `clear_test_template_voices` can never erase another test's authored cue
-/// (a process-wide map raced under the parallel runner).
+// Standalone audio fixtures set and read their overrides on the test thread.
 #[cfg(test)]
-struct ThreadAudioDispatchOverrides;
-
-#[cfg(test)]
-impl std::ops::Deref for ThreadAudioDispatchOverrides {
-    type Target = AudioDispatchOverrides;
-
-    fn deref(&self) -> &AudioDispatchOverrides {
-        #[cfg(test)]
-        thread_local! {
-            static OVERRIDES: &'static AudioDispatchOverrides =
-                Box::leak(Box::new(AudioDispatchOverrides {
-                    template_voice: std::sync::Mutex::new(HashMap::new()),
-                    per_unit_sound: std::sync::Mutex::new(HashMap::new()),
-                    initiate_sound: std::sync::Mutex::new(HashMap::new()),
-                }));
-        }
-        OVERRIDES.with(|overrides| *overrides)
-    }
+thread_local! {
+    static AUDIO_DISPATCH_OVERRIDES: RefCell<AudioDispatchOverrides> = RefCell::default();
 }
-
-#[cfg(test)]
-static AUDIO_DISPATCH_OVERRIDES: ThreadAudioDispatchOverrides = ThreadAudioDispatchOverrides;
 
 fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Option<String> {
     let name = event.get_event_name();
@@ -241,41 +220,43 @@ pub fn set_test_template_voice(
     slot: UnitVoiceSlot,
     event_name: impl Into<String>,
 ) {
-    AUDIO_DISPATCH_OVERRIDES
-        .template_voice
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .insert((template_name.to_string(), slot), event_name.into());
+    let event_name = event_name.into();
+    AUDIO_DISPATCH_OVERRIDES.with_borrow_mut(|overrides| {
+        overrides
+            .template_voice
+            .insert((template_name.to_owned(), slot), event_name);
+    });
 }
 
 #[cfg(test)]
 pub fn clear_test_template_voices() {
-    AUDIO_DISPATCH_OVERRIDES.template_voice.lock().unwrap_or_else(|p| p.into_inner()).clear();
-    AUDIO_DISPATCH_OVERRIDES.per_unit_sound.lock().unwrap_or_else(|p| p.into_inner()).clear();
-    AUDIO_DISPATCH_OVERRIDES.initiate_sound.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    AUDIO_DISPATCH_OVERRIDES.with_borrow_mut(|overrides| {
+        overrides.template_voice.clear();
+        overrides.per_unit_sound.clear();
+        overrides.initiate_sound.clear();
+    });
 }
 
 /// Test hook: ThingTemplate `UnitSpecificSounds` key without loading Object.ini.
 #[cfg(test)]
 pub fn set_test_per_unit_sound(template_name: &str, key: &str, event_name: impl Into<String>) {
-    AUDIO_DISPATCH_OVERRIDES
-        .per_unit_sound
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .insert((template_name.to_string(), key.to_string()), event_name.into());
+    let event_name = event_name.into();
+    AUDIO_DISPATCH_OVERRIDES.with_borrow_mut(|overrides| {
+        overrides
+            .per_unit_sound
+            .insert((template_name.to_owned(), key.to_owned()), event_name);
+    });
 }
 
 /// C++ `ThingTemplate::getPerUnitSound(key)` — building UnderConstruction, etc.
 #[cfg(test)]
 pub fn resolve_per_unit_sound(template_name: &str, key: &str) -> Option<String> {
-    #[cfg(test)]
-    if let Some(over) = {
-        let m = AUDIO_DISPATCH_OVERRIDES
+    if let Some(over) = AUDIO_DISPATCH_OVERRIDES.with_borrow(|overrides| {
+        overrides
             .per_unit_sound
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        m.get(&(template_name.to_string(), key.to_string())).cloned()
-    } {
+            .get(&(template_name.to_owned(), key.to_owned()))
+            .cloned()
+    }) {
         if over.is_empty() {
             return None;
         }
@@ -297,11 +278,10 @@ pub fn resolve_per_unit_sound(template_name: &str, key: &str) -> Option<String> 
 /// Test hook: SpecialPower / SpecialAbility `InitiateSound`.
 #[cfg(test)]
 pub fn set_test_initiate_sound(power_key: &str, event_name: impl Into<String>) {
-    AUDIO_DISPATCH_OVERRIDES
-        .initiate_sound
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .insert(power_key.to_string(), event_name.into());
+    let event_name = event_name.into();
+    AUDIO_DISPATCH_OVERRIDES.with_borrow_mut(|overrides| {
+        overrides.initiate_sound.insert(power_key.to_owned(), event_name);
+    });
 }
 
 /// C++ `spmInterface->getInitiateSound()` (CommandXlat.cpp:637-651).
@@ -310,7 +290,9 @@ pub fn resolve_special_power_initiate_sound(
     module_sound: Option<&str>,
 ) -> Option<String> {
     #[cfg(test)]
-    if let Some(over) = AUDIO_DISPATCH_OVERRIDES.initiate_sound.lock().unwrap_or_else(|p| p.into_inner()).get(_power_key).cloned() {
+    if let Some(over) = AUDIO_DISPATCH_OVERRIDES.with_borrow(|overrides| {
+        overrides.initiate_sound.get(_power_key).cloned()
+    }) {
         if over.is_empty() {
             return None;
         }
@@ -347,14 +329,12 @@ fn named_template_voice(
 /// and never invented `UnitVoiceSelect|Move|Attack`.
 #[cfg(test)]
 pub fn resolve_unit_voice_event(template_name: &str, slot: UnitVoiceSlot) -> Option<String> {
-    #[cfg(test)]
-    if let Some(over) = AUDIO_DISPATCH_OVERRIDES
-        .template_voice
-        .lock()
-        .unwrap_or_else(|err| err.into_inner())
-        .get(&(template_name.to_string(), slot))
-        .cloned()
-    {
+    if let Some(over) = AUDIO_DISPATCH_OVERRIDES.with_borrow(|overrides| {
+        overrides
+            .template_voice
+            .get(&(template_name.to_owned(), slot))
+            .cloned()
+    }) {
         if over.is_empty() {
             return None;
         }
