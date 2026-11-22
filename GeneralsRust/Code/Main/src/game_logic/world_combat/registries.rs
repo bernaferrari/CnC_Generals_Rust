@@ -634,7 +634,6 @@ impl GameLogic {
 
     pub fn honesty_animation_steering_ok(&self) -> bool {
         self.animation_steering_reg.honesty_host_path_ok()
-            && crate::game_logic::host_animation_steering::honesty_animation_steering_residual_ok()
     }
 
     pub fn honesty_active_shroud_upgrade_ok(&self) -> bool {

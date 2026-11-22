@@ -2117,17 +2117,31 @@ fn active_shroud_upgrade_sets_shroud_range() {
 #[test]
 fn animation_steering_battle_bus_turn_conditions() {
     use crate::game_logic::host_animation_steering::{
-        BATTLE_BUS_MIN_TRANSITION_FRAMES, honesty_animation_steering_residual_ok,
+        BATTLE_BUS_MIN_TRANSITION_FRAMES, BATTLE_BUS_MIN_TRANSITION_MS,
     };
     use crate::game_logic::object::PhysicsTurningType;
-    assert!(honesty_animation_steering_residual_ok());
 
     let mut logic = GameLogic::new();
-    let mut tpl = crate::game_logic::ThingTemplate::new("GLAVehicleBattleBus");
-    tpl.set_health(220.0);
     logic
-        .templates
-        .insert("GLAVehicleBattleBus".to_string(), tpl);
+        .admit_object_ini_sources([(
+            "battle-bus-steering.ini".into(),
+            format!(
+                "Object GLAVehicleBattleBus
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 220
+  InitialHealth = 220
+ End
+ Behavior = PhysicsBehavior Physics
+ End
+ Behavior = AnimationSteeringUpdate Steering
+  MinTransitionTime = {BATTLE_BUS_MIN_TRANSITION_MS}
+ End
+End
+"
+            ),
+        )])
+        .expect("authored Battle Bus steering");
     let id = logic
         .create_object("GLAVehicleBattleBus", Team::GLA, Vec3::ZERO)
         .expect("bus");
@@ -2162,6 +2176,81 @@ fn animation_steering_battle_bus_turn_conditions() {
         Some("RIGHT_TO_CENTER".to_string())
     );
     assert!(logic.honesty_animation_steering_ok());
+}
+
+#[test]
+fn animation_steering_uses_the_receiving_authored_module_and_duration() {
+    use crate::game_logic::host_animation_steering::HostAnimSteerTurnAnim;
+    use crate::game_logic::object::PhysicsTurningType;
+
+    let fixture = |milliseconds| {
+        let mut world = GameLogic::new();
+        let source = format!(
+            "Object ModSteeringTransport
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 220
+  InitialHealth = 220
+ End
+ Behavior = PhysicsBehavior Physics
+ End
+ Behavior = AnimationSteeringUpdate Steering
+  MinTransitionTime = {milliseconds}
+ End
+End
+Object BattleBusNamedDecoy
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody Body
+  MaxHealth = 220
+  InitialHealth = 220
+ End
+ Behavior = PhysicsBehavior Physics
+ End
+End
+"
+        );
+        world
+            .admit_object_ini_sources([("steering-fixture.ini".into(), source)])
+            .unwrap();
+        let id = world
+            .create_object("ModSteeringTransport", Team::GLA, Vec3::ZERO)
+            .unwrap();
+        let decoy = world
+            .create_object("BattleBusNamedDecoy", Team::GLA, Vec3::X)
+            .unwrap();
+        assert!(world.host_object(decoy).unwrap().animation_steering.is_none());
+        (world, id)
+    };
+    let (mut owner, id) = fixture(45);
+    let (mut peer, peer_id) = fixture(80);
+    assert_eq!(id, peer_id);
+    for (world, expected_frames) in [(&mut owner, 2), (&mut peer, 3)] {
+        let object = world.host_object_mut(id).unwrap();
+        let data = object.animation_steering.as_ref().expect("authored steering");
+        assert_eq!(data.transition_frames, expected_frames);
+        object.physics_turning = PhysicsTurningType::TurnNegative;
+        object.has_drawable = false;
+        world.update_animation_steering();
+        let object = world.host_object_mut(id).unwrap();
+        assert_eq!(
+            object.animation_steering.as_ref().unwrap().current_turn_anim,
+            HostAnimSteerTurnAnim::Invalid
+        );
+        object.has_drawable = true;
+        world.update_animation_steering();
+        let object = world.host_object_mut(id).unwrap();
+        let data = object.animation_steering.as_ref().unwrap();
+        assert_eq!(data.current_turn_anim, HostAnimSteerTurnAnim::CenterToRight);
+        assert_eq!(data.next_transition_frame, expected_frames);
+        object.physics_turning = PhysicsTurningType::TurnNone;
+        world.set_current_frame(2);
+        world.update_animation_steering();
+    }
+    let turn = |world: &GameLogic| {
+        world.host_object(id).unwrap().animation_steering.as_ref().unwrap().current_turn_anim
+    };
+    assert_eq!(turn(&owner), HostAnimSteerTurnAnim::RightToCenter);
+    assert_eq!(turn(&peer), HostAnimSteerTurnAnim::CenterToRight);
 }
 
 #[test]

@@ -1,28 +1,14 @@
-//! Host AnimationSteeringUpdate residual (turn anim conditions from physics).
-//!
-//! C++: `AnimationSteeringUpdate::update` maps `PhysicsBehavior::getTurning()` to
-//! model conditions:
-//! - straight → CENTER_TO_RIGHT / CENTER_TO_LEFT on turn start
-//! - turning → RIGHT_TO_CENTER / LEFT_TO_CENTER when turn ends
-//! - recenter → clear when TURN_NONE
-//!
-//! Retail peel (`GLAVehicleBattleBus` and variants):
-//! - `MinTransitionTime = 300` ms → **9** frames
-//!
-//! Fail-closed: not full Drawable clearAndSet multi-flag mask scrub /
-//! random physics spike / client-only anim blend fidelity.
+//! Receiving Object state for the authored AnimationSteeringUpdate behavior.
 
+use crate::game_logic::ThingTemplate;
 use crate::game_logic::object::PhysicsTurningType;
+use gamelogic::object::behavior::AnimationSteeringUpdateModuleData;
 use serde::{Deserialize, Serialize};
 
-pub const ANIM_STEER_LOGIC_FPS: f32 = 30.0;
-/// Retail MinTransitionTime 300ms.
+#[cfg(test)]
 pub const BATTLE_BUS_MIN_TRANSITION_MS: u32 = 300;
+#[cfg(test)]
 pub const BATTLE_BUS_MIN_TRANSITION_FRAMES: u32 = 9;
-
-pub fn anim_steer_ms_to_frames(ms: u32) -> u32 {
-    ((ms as f32) * ANIM_STEER_LOGIC_FPS / 1000.0).round() as u32
-}
 
 /// Current turn animation residual (C++ ModelConditionFlagType subset).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -59,7 +45,7 @@ impl HostAnimSteerTurnAnim {
 }
 
 /// Per-object AnimationSteeringUpdate residual state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostAnimationSteeringData {
     pub current_turn_anim: HostAnimSteerTurnAnim,
     pub next_transition_frame: u32,
@@ -68,82 +54,51 @@ pub struct HostAnimationSteeringData {
     pub active_condition: Option<String>,
 }
 
-impl Default for HostAnimationSteeringData {
-    fn default() -> Self {
-        Self {
-            current_turn_anim: HostAnimSteerTurnAnim::Invalid,
-            next_transition_frame: 0,
-            transition_frames: BATTLE_BUS_MIN_TRANSITION_FRAMES,
-            active_condition: None,
-        }
-    }
-}
-
 impl HostAnimationSteeringData {
-    pub fn battle_bus_default() -> Self {
-        Self::default()
+    /// C++ installs the behavior from the resolved ThingTemplate and uses
+    /// the module data's frame duration, including a zero-duration default.
+    pub(crate) fn from_authored(template: &ThingTemplate) -> Option<Self> {
+        let data = template
+            .authored_module_data::<AnimationSteeringUpdateModuleData>("AnimationSteeringUpdate")?;
+        Some(Self {
+            transition_frames: data.transition_frames,
+            ..Self::default()
+        })
     }
 
-    pub fn for_template(template_name: &str) -> Option<Self> {
-        if is_animation_steering_template(template_name) {
-            Some(Self::battle_bus_default())
-        } else {
-            None
-        }
-    }
+    /// C++ AnimationSteeringUpdate.cpp:55–108. Clearing a completed turn
+    /// returns no new animation.
+    pub(crate) fn tick(
+        &mut self,
+        now: u32,
+        turning: PhysicsTurningType,
+    ) -> Option<HostAnimSteerTurnAnim> {
+        use HostAnimSteerTurnAnim::{
+            CenterToLeft, CenterToRight, Invalid, LeftToCenter, RightToCenter,
+        };
+        use PhysicsTurningType::{TurnNegative, TurnNone, TurnPositive};
 
-    /// One frame residual. Returns newly set condition name if changed.
-    pub fn tick(&mut self, now: u32, turning: PhysicsTurningType) -> Option<&'static str> {
         if now < self.next_transition_frame {
             return None;
         }
-        let mut changed: Option<&'static str> = None;
-        match self.current_turn_anim {
-            HostAnimSteerTurnAnim::Invalid => {
-                if turning == PhysicsTurningType::TurnNegative {
-                    self.current_turn_anim = HostAnimSteerTurnAnim::CenterToRight;
-                    self.next_transition_frame = now.saturating_add(self.transition_frames);
-                    changed = Some("CENTER_TO_RIGHT");
-                } else if turning == PhysicsTurningType::TurnPositive {
-                    self.current_turn_anim = HostAnimSteerTurnAnim::CenterToLeft;
-                    self.next_transition_frame = now.saturating_add(self.transition_frames);
-                    changed = Some("CENTER_TO_LEFT");
-                }
-            }
-            HostAnimSteerTurnAnim::CenterToRight => {
-                if turning != PhysicsTurningType::TurnNegative {
-                    self.current_turn_anim = HostAnimSteerTurnAnim::RightToCenter;
-                    self.next_transition_frame = now.saturating_add(self.transition_frames);
-                    changed = Some("RIGHT_TO_CENTER");
-                }
-            }
-            HostAnimSteerTurnAnim::CenterToLeft => {
-                if turning != PhysicsTurningType::TurnPositive {
-                    self.current_turn_anim = HostAnimSteerTurnAnim::LeftToCenter;
-                    self.next_transition_frame = now.saturating_add(self.transition_frames);
-                    changed = Some("LEFT_TO_CENTER");
-                }
-            }
-            HostAnimSteerTurnAnim::LeftToCenter | HostAnimSteerTurnAnim::RightToCenter => {
-                if turning == PhysicsTurningType::TurnNone {
-                    self.current_turn_anim = HostAnimSteerTurnAnim::Invalid;
-                    self.next_transition_frame = now;
-                    self.active_condition = None;
-                    return None;
-                }
-            }
-        }
-        if let Some(name) = changed {
-            self.active_condition = Some(name.to_string());
-        }
-        changed
+        let next = match (self.current_turn_anim, turning) {
+            (Invalid, TurnNegative) => CenterToRight,
+            (Invalid, TurnPositive) => CenterToLeft,
+            (CenterToRight, TurnNone | TurnPositive) => RightToCenter,
+            (CenterToLeft, TurnNone | TurnNegative) => LeftToCenter,
+            (LeftToCenter | RightToCenter, TurnNone) => Invalid,
+            _ => return None,
+        };
+        self.current_turn_anim = next;
+        let Some(condition) = next.model_condition_name() else {
+            self.next_transition_frame = now;
+            self.active_condition = None;
+            return None;
+        };
+        self.next_transition_frame = now.wrapping_add(self.transition_frames);
+        self.active_condition = Some(condition.to_owned());
+        Some(next)
     }
-}
-
-/// Battle Bus family templates with AnimationSteeringUpdate.
-pub fn is_animation_steering_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("battlebus") || n.contains("battle_bus")
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -164,41 +119,58 @@ impl HostAnimationSteeringRegistry {
     pub fn record_install(&mut self) {
         self.installed = self.installed.saturating_add(1);
     }
-    pub fn record_transition(&mut self, cond: &str) {
+    pub(crate) fn record_transition(&mut self, transition: HostAnimSteerTurnAnim) {
+        use HostAnimSteerTurnAnim::{
+            CenterToLeft, CenterToRight, Invalid, LeftToCenter, RightToCenter,
+        };
+        match transition {
+            CenterToLeft | LeftToCenter => self.left_turns = self.left_turns.saturating_add(1),
+            CenterToRight | RightToCenter => {
+                self.right_turns = self.right_turns.saturating_add(1);
+            }
+            Invalid => return,
+        }
         self.transitions = self.transitions.saturating_add(1);
-        if cond.contains("LEFT") {
-            self.left_turns = self.left_turns.saturating_add(1);
-        }
-        if cond.contains("RIGHT") {
-            self.right_turns = self.right_turns.saturating_add(1);
-        }
     }
     pub fn honesty_host_path_ok(&self) -> bool {
         self.installed > 0 || self.transitions > 0
     }
 }
 
-pub fn honesty_animation_steering_residual_ok() -> bool {
-    anim_steer_ms_to_frames(BATTLE_BUS_MIN_TRANSITION_MS) == BATTLE_BUS_MIN_TRANSITION_FRAMES
-        && is_animation_steering_template("GLAVehicleBattleBus")
-        && is_animation_steering_template("Chem_GLAVehicleBattleBus")
-        && !is_animation_steering_template("AmericaTankCrusader")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn battle_bus_timing() -> HostAnimationSteeringData {
+        HostAnimationSteeringData {
+            transition_frames: BATTLE_BUS_MIN_TRANSITION_FRAMES,
+            ..Default::default()
+        }
+    }
+
     #[test]
-    fn residual_pack() {
-        assert!(honesty_animation_steering_residual_ok());
+    fn transition_deadline_wraps_like_the_original_frame_counter() {
+        let mut data = HostAnimationSteeringData {
+            transition_frames: 2,
+            ..Default::default()
+        };
+        assert_eq!(
+            data.tick(u32::MAX, PhysicsTurningType::TurnNegative),
+            Some(HostAnimSteerTurnAnim::CenterToRight)
+        );
+        assert_eq!(data.next_transition_frame, 1);
+        assert!(data.tick(0, PhysicsTurningType::TurnNone).is_none());
+        assert_eq!(
+            data.tick(1, PhysicsTurningType::TurnNone),
+            Some(HostAnimSteerTurnAnim::RightToCenter)
+        );
     }
 
     #[test]
     fn turn_right_then_recenter() {
-        let mut d = HostAnimationSteeringData::battle_bus_default();
+        let mut d = battle_bus_timing();
         let c = d.tick(0, PhysicsTurningType::TurnNegative);
-        assert_eq!(c, Some("CENTER_TO_RIGHT"));
+        assert_eq!(c, Some(HostAnimSteerTurnAnim::CenterToRight));
         // During transition, ignore.
         assert!(d.tick(1, PhysicsTurningType::TurnNone).is_none());
         // After transition frames, recenter path.
@@ -206,7 +178,7 @@ mod tests {
             BATTLE_BUS_MIN_TRANSITION_FRAMES,
             PhysicsTurningType::TurnNone,
         );
-        assert_eq!(c, Some("RIGHT_TO_CENTER"));
+        assert_eq!(c, Some(HostAnimSteerTurnAnim::RightToCenter));
         let c = d.tick(
             BATTLE_BUS_MIN_TRANSITION_FRAMES * 2,
             PhysicsTurningType::TurnNone,
@@ -217,10 +189,10 @@ mod tests {
 
     #[test]
     fn turn_left() {
-        let mut d = HostAnimationSteeringData::battle_bus_default();
+        let mut d = battle_bus_timing();
         assert_eq!(
             d.tick(0, PhysicsTurningType::TurnPositive),
-            Some("CENTER_TO_LEFT")
+            Some(HostAnimSteerTurnAnim::CenterToLeft)
         );
     }
 }

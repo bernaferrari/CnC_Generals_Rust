@@ -1990,11 +1990,16 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_animation_steering(&mut self) {
-        let frame = self.frame as u32;
+        let frame = self.frame;
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
-            .filter(|(_, o)| o.is_alive() && o.animation_steering.is_some())
+            .filter(|(_, object)| {
+                object.animation_steering.is_some()
+                    && object.is_alive()
+                    && object.has_drawable
+                    && object.get_template().authors_behavior_module("PhysicsBehavior")
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
@@ -2005,8 +2010,8 @@ impl GameLogic {
             let Some(anim) = obj.animation_steering.as_mut() else {
                 continue;
             };
-            if let Some(cond) = anim.tick(frame, turning) {
-                self.animation_steering_reg.record_transition(cond);
+            if let Some(transition) = anim.tick(frame, turning) {
+                self.animation_steering_reg.record_transition(transition);
             }
         }
     }

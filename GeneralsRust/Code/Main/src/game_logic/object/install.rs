@@ -509,15 +509,11 @@ impl Object {
     }
 
     pub fn install_animation_steering_if_needed(&mut self) {
-        if self.animation_steering.is_some() {
-            return;
-        }
-        if let Some(data) =
-            crate::game_logic::host_animation_steering::HostAnimationSteeringData::for_template(
-                &self.template_name,
-            )
-        {
-            self.animation_steering = Some(data);
+        if self.animation_steering.is_none() {
+            self.animation_steering =
+                crate::game_logic::host_animation_steering::HostAnimationSteeringData::from_authored(
+                    self.get_template(),
+                );
         }
     }
 
