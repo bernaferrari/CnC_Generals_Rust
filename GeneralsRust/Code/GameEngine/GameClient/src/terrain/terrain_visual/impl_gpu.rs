@@ -2628,16 +2628,15 @@ impl TerrainVisualImpl {
             .collect()
     }
 
-    /// Stage extra-blend overlay data and upload packed positions + draw verts
-    /// when a GPU device is present. C++ draws these as a second 3-way blend pass.
+    /// Stage extra-blend overlay data and upload its draw geometry.
+    /// C++ draws this geometry as a second 3-way blend pass.
     pub fn upload_extra_blend_overlay(&mut self) {
         self.extra_blend_upload_key = None;
         self.rebuild_extra_blend_gpu_state();
-        let positions = self.extra_blend_tile_positions.clone();
         let mesh = self.build_extra_blend_draw_mesh();
         self.extra_blend_gpu_upload = ExtraBlendGpuUpload {
-            tile_count: positions.len(),
-            positions: positions.clone(),
+            tile_count: self.extra_blend_tile_positions.len(),
+            positions: self.extra_blend_tile_positions.clone(),
             vertex_count: mesh.vertex_count(),
             index_count: mesh.index_count(),
         };
@@ -2647,27 +2646,11 @@ impl TerrainVisualImpl {
         self.extra_blend_batches.clear();
 
         let Some(device) = self.device.clone() else {
-            self.extra_blend_position_buffer = None;
             self.extra_blend_vertex_buffer = None;
             self.extra_blend_index_buffer = None;
             return;
         };
-        if positions.is_empty() {
-            self.extra_blend_position_buffer = None;
-            self.extra_blend_vertex_buffer = None;
-            self.extra_blend_index_buffer = None;
-            return;
-        }
-        Self::write_reusable_terrain_buffer(
-            &device,
-            self.queue.as_deref(),
-            &mut self.extra_blend_position_buffer,
-            "Terrain Extra Blend Positions",
-            cast_slice(&positions),
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
-        );
-
-        if self.extra_blend_draw_mesh.is_empty() {
+        if self.extra_blend_tile_positions.is_empty() || self.extra_blend_draw_mesh.is_empty() {
             self.extra_blend_vertex_buffer = None;
             self.extra_blend_index_buffer = None;
             return;

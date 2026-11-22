@@ -260,7 +260,6 @@ impl TerrainVisualImpl {
             extra_blend_tile_positions: Vec::new(),
             extra_blend_gpu_upload: ExtraBlendGpuUpload::default(),
             extra_blend_draw_mesh: ExtraBlendDrawMesh::default(),
-            extra_blend_position_buffer: None,
             extra_blend_vertex_buffer: None,
             extra_blend_index_buffer: None,
             extra_blend_index_count: 0,

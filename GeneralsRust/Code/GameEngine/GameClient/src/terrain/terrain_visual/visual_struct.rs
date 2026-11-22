@@ -299,8 +299,6 @@ pub struct TerrainVisualImpl {
     extra_blend_gpu_upload: ExtraBlendGpuUpload,
     /// Last CPU extra-blend draw mesh (two triangles per tile).
     extra_blend_draw_mesh: ExtraBlendDrawMesh,
-    /// GPU buffer of packed extra-blend tile positions (when a device exists).
-    extra_blend_position_buffer: Option<Buffer>,
     /// GPU extra-blend overlay vertex buffer (second 3-way pass).
     extra_blend_vertex_buffer: Option<Buffer>,
     /// GPU extra-blend overlay index buffer.
