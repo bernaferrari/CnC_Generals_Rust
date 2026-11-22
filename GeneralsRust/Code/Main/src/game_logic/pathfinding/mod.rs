@@ -541,8 +541,14 @@ impl OccBits {
             None => 0,
         };
         let pos_facts = (pos_unit != 0).then(|| facts(pos_unit)).flatten();
-        let goal = if goal_unit == 0 { 0 } else { relation(facts(goal_unit)) };
         let pos_player = relation(pos_facts);
+        let goal = if goal_unit == pos_unit {
+            pos_player
+        } else if goal_unit != 0 {
+            relation(facts(goal_unit))
+        } else {
+            0
+        };
         let present = pos_unit != 0;
         let fixed = present && goal_unit == pos_unit;
         let infantry = pos_facts.is_some_and(|f| f.infantry);
@@ -612,7 +618,9 @@ impl LineReceiver<'_> {
     ) -> bool {
         let bits = grid
             .raw_occupancy_bits_with(cell, layer, |id| {
-                grid.resolve_occupant(self.objects, Some(self.mover), id)
+                PathfindingGrid::resolve_occupant(
+                    self.objects, Some(self.mover), id, &grid.player_ally_masks,
+                )
             })
             .ignoring_unit(ignore_obstacle.unwrap_or(0));
         if bits.pos_unit == 0
@@ -737,7 +745,8 @@ pub struct PathfindingGrid {
     query_seeker_id: u32,
     /// Occupant facts as seen by `query_occupants_seeker`, resolved from the
     /// receiving world's live objects when the query binds its seeker.
-    query_occupants: HashMap<u32, OccupantFacts>,
+    /// A missing occupant is also memoized for the duration of this bind.
+    query_occupants: game_engine::common::fast_hash::FxHashMap<u32, Option<OccupantFacts>>,
     /// Seeker the `query_occupants` facts were resolved for. 0 = none.
     query_occupants_seeker: u32,
     /// Whether that seeker is infantry (`INFANTRY_MOVES_THROUGH_INFANTRY`).

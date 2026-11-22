@@ -1273,7 +1273,10 @@ impl PathfindingGrid {
             &self.fence_bits,
             &self.occ_pos_unit,
             &self.occ_goal_unit,
-            &|id| self.query_occupants.get(&id).map(|facts| facts.crushable_level),
+            &|id| {
+                self.query_occupants.get(&id).copied().flatten()
+                    .map(|facts| facts.crushable_level)
+            },
             crusher,
             cell,
             path_diameter,

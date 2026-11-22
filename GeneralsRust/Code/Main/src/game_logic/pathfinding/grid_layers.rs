@@ -1385,7 +1385,9 @@ impl PathfindingGrid {
 
     /// Cell observations without the current search's ignore filter.
     pub(super) fn raw_occupancy_bits(&self, pos: GridPos, layer: PathfindLayerEnum) -> OccBits {
-        self.raw_occupancy_bits_with(pos, layer, |id| self.query_occupants.get(&id).copied())
+        self.raw_occupancy_bits_with(pos, layer, |id| {
+            self.query_occupants.get(&id).copied().flatten()
+        })
     }
 
     /// Cell observations with occupant facts from an explicit source.
@@ -1418,16 +1420,16 @@ impl PathfindingGrid {
     /// `canCrushOrSquish`, AIPathfind.cpp:4943-4953, 5009-5063). `None` when the
     /// occupant no longer exists, which C++ skips (`if (unit)`).
     pub(super) fn resolve_occupant(
-        &self,
         objects: HostObjectRead<'_>,
         mover: Option<&Object>,
         id: u32,
+        player_ally_masks: &[u16; 16],
     ) -> Option<OccupantFacts> {
         let unit = objects.lookup(&ObjectId(id))?;
         // Order matters: whether the seeker considers the unit an ally.
         let allied = mover.is_some_and(|mover| match objects.relationship(mover, unit) {
             Some(relationship) => relationship == gamelogic::common::Relationship::Allies,
-            None => self.player_mask_allied(mover, unit),
+            None => Self::player_mask_allied(mover, unit, player_ally_masks),
         });
         Some(OccupantFacts {
             allied,
@@ -1450,16 +1452,17 @@ impl PathfindingGrid {
         self.query_seeker_infantry = mover.is_some_and(|mover| mover.is_kind_of(KindOf::Infantry));
         // A unit's footprint covers runs of adjacent cells; skip repeats of
         // the previous id before hashing, and resolve each id once.
-        let mut resolved: HashMap<u32, Option<OccupantFacts>> = HashMap::new();
+        self.query_occupants.clear();
+        let ally_masks = &self.player_ally_masks;
         let mut previous = 0u32;
         for id in self.occ_pos_ids.iter().chain(self.occ_goal_ids.iter()).copied() {
             if id == 0 || id == previous {
                 continue;
             }
             previous = id;
-            resolved
+            self.query_occupants
                 .entry(id)
-                .or_insert_with(|| self.resolve_occupant(objects, mover, id));
+                .or_insert_with(|| Self::resolve_occupant(objects, mover, id, ally_masks));
         }
         // Re-stamps append repeats; keep the lists bounded by distinct ids.
         for ids in [&mut self.occ_pos_ids, &mut self.occ_goal_ids] {
@@ -1468,18 +1471,14 @@ impl PathfindingGrid {
                 ids.dedup();
             }
         }
-        self.query_occupants = resolved
-            .into_iter()
-            .filter_map(|(id, facts)| Some((id, facts?)))
-            .collect();
     }
 
     /// Relationship for an object view without its world's player/team tables
     /// (standalone grid fixtures): owner-player ALLIES via the admitted masks.
-    fn player_mask_allied(&self, mover: &Object, unit: &Object) -> bool {
+    fn player_mask_allied(mover: &Object, unit: &Object, player_ally_masks: &[u16; 16]) -> bool {
         let owner = |object: &Object| object.owner_player_id.unwrap_or(object.team as u32);
         let (seeker, other) = (owner(mover), owner(unit));
-        seeker == other || self.ally_mask_for(seeker) & (1u16 << other.min(15)) != 0
+        seeker == other || player_ally_masks[seeker.min(15) as usize] & (1u16 << other.min(15)) != 0
     }
 
     pub(super) fn occupancy_cost(

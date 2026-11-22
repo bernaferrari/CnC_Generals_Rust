@@ -724,7 +724,6 @@ impl PathfindingSystem {
             let ignore_cells_for_extra = ignore_cells.as_ref();
             let extra = move |c: GridCoord, layer: PathfindLayerEnum| {
                 let pos = GridPos::new(c.x, c.y);
-                let (actual_layer, _) = grid.path_cell_on_layer(pos, layer);
                 // C++ validMovementPosition returns immediately when this
                 // cell contains the ignored structure (AIPathfind.cpp:4836-38),
                 // before object-occupancy checks. The A* extra-cost callback
@@ -732,8 +731,8 @@ impl PathfindingSystem {
                 // same exact ground-footprint exception instead of rejecting
                 // the victim's UNIT_PRESENT/GOAL bits first. Elevated layers
                 // have their own occupancy and do not inherit ground ignores.
-                if actual_layer == PathfindLayerEnum::Ground
-                    && ignore_cells_for_extra.is_some_and(|cells| cells.contains(&c))
+                if ignore_cells_for_extra.is_some_and(|cells| cells.contains(&c))
+                    && grid.path_cell_on_layer(pos, layer).0 == PathfindLayerEnum::Ground
                 {
                     return 0;
                 }

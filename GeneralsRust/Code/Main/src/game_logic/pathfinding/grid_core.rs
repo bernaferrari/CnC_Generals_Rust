@@ -43,7 +43,7 @@ impl PathfindingGrid {
             ground_connect: vec![0u8; cells],
             query_layer: PathfindLayerEnum::Ground as u8,
             query_seeker_id: 0,
-            query_occupants: HashMap::new(),
+            query_occupants: Default::default(),
             query_occupants_seeker: 0,
             query_seeker_infantry: false,
             query_ignore_unit_id: 0,
