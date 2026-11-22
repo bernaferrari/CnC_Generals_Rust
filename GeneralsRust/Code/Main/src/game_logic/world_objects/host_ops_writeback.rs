@@ -1475,7 +1475,7 @@ impl GameLogic {
         } else {
             UnitVoiceSlot::Attack
         };
-        let weapons: Vec<AttackVoiceWeapon> = unit_ids
+        let weapons = unit_ids
             .iter()
             .filter_map(|&id| {
                 let obj = self.objects.get(&id)?;
@@ -1485,14 +1485,14 @@ impl GameLogic {
                 let slot = forced_slot
                     .or_else(|| obj.selected_weapon_slot())
                     .unwrap_or(obj.active_weapon_slot);
-                let weapon = obj.selected_native_weapon_rule(slot)?;
+                let slot = gamelogic::common::WeaponSlotType::from_u32(u32::from(slot))?;
+                let weapon = obj.selected_native_weapon_rule(slot as u8)?;
                 Some(AttackVoiceWeapon {
                     name: weapon.name.clone(),
                     damage: crate::game_logic::combat::DamageType::from_store(weapon.damage_type),
                     slot,
                 })
-            })
-            .collect();
+            });
         pick_specialty_attack_voice(default, weapons, structure, specialty_weapon, at_location)
             })
     }

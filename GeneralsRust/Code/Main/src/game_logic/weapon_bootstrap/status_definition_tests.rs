@@ -55,7 +55,11 @@ End
                 use crate::game_logic::audio_dispatch_impl::{AttackVoiceWeapon, specialty_attack_voice_upgrade};
                 crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name).and_then(|damage| {
                     specialty_attack_voice_upgrade(
-                        &AttackVoiceWeapon { name: name.to_owned(), damage, slot: 0 },
+                        &AttackVoiceWeapon {
+                            name: name.to_owned(),
+                            damage,
+                            slot: gamelogic::common::WeaponSlotType::Primary,
+                        },
                         false,
                         true,
                         false,
