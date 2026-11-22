@@ -172,7 +172,7 @@ impl GameLogic {
         Ok(())
     }
 
-    fn apply_live_wall_footprint_removal(
+    pub(in crate::game_logic) fn apply_live_wall_footprint_removal(
         &mut self,
         structure: ObjectId,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,

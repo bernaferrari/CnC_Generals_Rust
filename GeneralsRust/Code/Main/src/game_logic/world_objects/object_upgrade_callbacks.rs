@@ -639,6 +639,13 @@ impl GameLogic {
 
         self.release_mobile_path_footprint(object_id);
         if !legacy_fallback {
+            // ReplaceObjectUpgrade.cpp:65 removes the source footprint while
+            // the source is still in lookup. AIPathfind.cpp:4125–4153 releases
+            // mobile claims before visiting live Wall-layer occupants.
+            self.apply_live_wall_footprint_removal(object_id, interpreter, effects)?;
+            if !self.object_birth_matches(object_id, object_birth) {
+                return Ok(());
+            }
             self.unclassify_object_path(object_id);
         }
         self.destroy_object_with_effects(object_id, effects)?;
@@ -2482,5 +2489,69 @@ mod replace_position_owner_tests {
         let new_cell = GridPos::new(x, y);
         assert_ne!(new_cell, cell);
         assert_eq!(world.pathfinding_ground_position(new_cell), Some(replacement));
+    }
+
+    #[test]
+    fn authored_replace_removes_live_wall_footprint_before_source_retirement() {
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
+
+        const SOURCE: &str = "ReplacementWallSource";
+        const TARGET: &str = "ReplacementWallTarget";
+        const UPGRADE: &str = "Upgrade_ReplaceWallFootprint";
+
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Occupant owner", true));
+        world.add_player(Player::new(1, Team::GLA, "Replacement owner", false));
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, UPGRADE, "OBJECT", 0, 1,
+        );
+        admit_fixture_objects(
+            &mut world,
+            &[
+                FixtureObject::new(SOURCE)
+                    .kind_of("STRUCTURE IMMOBILE WALK_ON_TOP_OF_WALL")
+                    .health(250.0)
+                    .field("Geometry = BOX")
+                    .field("GeometryIsSmall = No")
+                    .field("GeometryMajorRadius = 30")
+                    .field("GeometryMinorRadius = 30")
+                    .module(format!(
+                        "Behavior = ReplaceObjectUpgrade ReplaceWall\n TriggeredBy = {UPGRADE}\n ReplaceObject = {TARGET}\nEnd"
+                    )),
+                FixtureObject::new(TARGET).kind_of("STRUCTURE IMMOBILE").health(300.0),
+                FixtureObject::new("ReplacementWallOccupant")
+                    .kind_of("INFANTRY").health(100.0)
+                    .module("Behavior = InstantDeathBehavior RetireWallOccupant\nEnd"),
+            ],
+        );
+        let position = Vec3::new(105.0, 0.0, 105.0);
+        let source = world.create_object_for_player(SOURCE, 1, position).unwrap();
+        let victim = world.create_object_for_player("ReplacementWallOccupant", 0, position).unwrap();
+        let ground = world.create_object_for_player(
+            "ReplacementWallOccupant", 0, position + Vec3::Y * 8.0,
+        ).unwrap();
+        world.host_object_mut(victim).unwrap().pathfind_layer = PathfindLayerEnum::Wall as u8;
+        world.host_object_mut(ground).unwrap().pathfind_layer = PathfindLayerEnum::Ground as u8;
+        world.pathfinding_system.sync_wall_pieces_from_objects(world.objects.read(), 8.0);
+        assert!(world.pathfinding_system.is_point_on_wall(position));
+
+        world.apply_upgrade_to_object_with_effects_checked(
+            source, UPGRADE, &mut Default::default(),
+        ).unwrap();
+
+        let splatted = world.host_object(victim).unwrap();
+        assert_eq!(splatted.health.current, 0.0);
+        assert_eq!(splatted.status.death_type, HostDeathType::Splatted);
+        assert_eq!(splatted.last_damage_source, Some(victim));
+        assert_eq!(world.host_object(ground).unwrap().health.current, 100.0);
+        assert!(world.host_object(source).unwrap().status.destroyed);
+        assert_eq!(
+            world.pending_object_removal_snapshot().into_iter()
+                .map(|event| event.id).collect::<Vec<_>>(),
+            vec![victim, source],
+        );
+        assert!(world.host_objects().registered_values()
+            .any(|object| object.template_name == TARGET && object.is_alive()));
     }
 }
