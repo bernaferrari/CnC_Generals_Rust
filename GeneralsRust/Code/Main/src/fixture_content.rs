@@ -16,6 +16,29 @@ pub(crate) fn retail_content_root() -> std::path::PathBuf {
         })
 }
 
+/// Mount the selected Zero Hour installation through the game archive reader.
+pub(crate) fn retail_archive() -> crate::assets::ArchiveFileSystem {
+    let mut files = crate::assets::ArchiveFileSystem::new();
+    files.add_search_path(retail_content_root().join("Command & Conquer Generals Zero Hour/Data"));
+    pollster::block_on(files.init()).expect("licensed retail archive mounts");
+    files
+}
+
+pub(crate) fn read_retail_ini(
+    files: &mut crate::assets::ArchiveFileSystem,
+    relative: &str,
+) -> String {
+    let bytes = files
+        .read_optional_definition_source(&format!("Data/INI/{relative}"))
+        .unwrap_or_else(|error| panic!("read retail {relative}: {error}"))
+        .unwrap_or_else(|| panic!("retail {relative} exists"));
+    String::from_utf8(bytes).unwrap_or_else(|error| panic!("retail {relative} UTF-8: {error}"))
+}
+
+pub(crate) fn retail_ini_text(relative: &str) -> String {
+    read_retail_ini(&mut retail_archive(), relative)
+}
+
 pub(crate) fn retail_base_w3d_archive() -> std::path::PathBuf {
     let explicit = std::env::var_os("GENERALS_BASE_W3D_BIG").map(std::path::PathBuf::from);
     let root = retail_content_root();

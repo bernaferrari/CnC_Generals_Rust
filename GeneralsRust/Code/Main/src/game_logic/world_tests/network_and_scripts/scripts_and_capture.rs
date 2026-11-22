@@ -2526,7 +2526,6 @@ fn snipe_vehicle_command_applies_only_after_unit_reaches_target() {
 fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::VeterancyLevel;
-    use std::path::Path;
 
     fn selected_object_source(text: &str, name: &str) -> String {
         let lines = text.lines().collect::<Vec<_>>();
@@ -2560,15 +2559,8 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
     game_logic.add_player(Player::new(0, Team::USA, "USA 0", true));
     game_logic.add_player(Player::new(1, Team::USA, "USA 1", true));
 
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .expect("Main crate must remain three levels below repository root");
-    let source = std::fs::read_to_string(
-        repo_root
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaInfantry.ini"),
-    )
-    .expect("retail AmericaInfantry.ini");
+    let mut files = crate::fixture_content::retail_archive();
+    let source = crate::fixture_content::read_retail_ini(&mut files, "Object/AmericaInfantry.ini");
     let mut parser = crate::assets::IniParser::new();
     parser
         .parse_ini_content(&source, "AmericaInfantry.ini")

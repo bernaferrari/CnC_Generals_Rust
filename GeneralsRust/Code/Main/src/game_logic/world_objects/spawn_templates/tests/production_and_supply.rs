@@ -138,15 +138,8 @@ End
     // INI comments and module tags.  These values are the live China Red
     // Guard Queue producer and USA factory Default producer, not a
     // hand-copied template-name fallback.
-    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .expect("Main crate must remain three levels below repository root");
-    let retail = std::fs::read_to_string(
-        repo_root
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini"),
-    )
-    .expect("retail FactionBuilding.ini");
+    let mut files = crate::fixture_content::retail_archive();
+    let retail = crate::fixture_content::read_retail_ini(&mut files, "Object/FactionBuilding.ini");
     let mut retail_parser = crate::assets::IniParser::new();
     retail_parser
         .parse_ini_content(&retail, "FactionBuilding.ini")
@@ -334,15 +327,8 @@ End
 
     // Actual retail map supply objects declare the same capability.  The
     // parser must retain it rather than relying on their familiar names.
-    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .expect("Main crate must remain three levels below repository root");
-    let retail = std::fs::read_to_string(
-        repo_root
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/CivilianBuilding.ini"),
-    )
-    .expect("retail CivilianBuilding.ini");
+    let mut files = crate::fixture_content::retail_archive();
+    let retail = crate::fixture_content::read_retail_ini(&mut files, "Object/CivilianBuilding.ini");
     let mut retail_parser = crate::assets::IniParser::new();
     retail_parser
         .parse_ini_content(&retail, "CivilianBuilding.ini")
@@ -360,11 +346,7 @@ End
             "{template_name} must retain retail KINDOF_SUPPLY_SOURCE"
         );
     }
-    let faction_buildings = std::fs::read_to_string(
-        repo_root
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini"),
-    )
-    .expect("retail FactionBuilding.ini");
+    let faction_buildings = crate::fixture_content::read_retail_ini(&mut files, "Object/FactionBuilding.ini");
     retail_parser
         .parse_ini_content(&faction_buildings, "FactionBuilding.ini")
         .expect("parse retail FactionBuilding.ini");

@@ -1382,28 +1382,7 @@ pub(super) fn dozer_site_state(logic: &GameLogic, builder: ObjectId, site: Objec
     )
 }
 
-/// Text of an original retail `Data/INI/<relative>` file, read from the
-/// licensed retail archive the other receiving fixtures mount
-/// (`GENERALS_RETAIL_CONTENT_ROOT`, default `<repo>/windows_game`).
-pub(super) fn retail_ini_text(relative: &str) -> String {
-    let retail = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .ancestors()
-                .nth(3)
-                .expect("Main crate must remain three levels below repository root")
-                .join("windows_game")
-        });
-    let mut files = crate::assets::ArchiveFileSystem::new();
-    files.add_search_path(retail.join("Command & Conquer Generals Zero Hour/Data"));
-    pollster::block_on(files.init()).expect("licensed retail archive mounts");
-    let bytes = files
-        .read_optional_definition_source(&format!("Data/INI/{relative}"))
-        .unwrap_or_else(|error| panic!("read retail {relative}: {error}"))
-        .unwrap_or_else(|| panic!("retail {relative} exists"));
-    String::from_utf8(bytes).unwrap_or_else(|error| panic!("retail {relative} UTF-8: {error}"))
-}
+pub(super) use crate::fixture_content::retail_ini_text;
 
 /// Original retail Science.ini admitted as this world's science catalog: the
 /// receiving facts (host grants, ranks) and the world's own ScienceStore

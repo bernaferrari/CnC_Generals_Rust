@@ -1,5 +1,6 @@
 //! Behavioral tests for Object INI template construction.
 use super::*;
+use crate::fixture_content::retail_archive;
 
 fn admit_fixture_content(
     logic: &mut GameLogic,
@@ -24,24 +25,6 @@ fn admit_fixture_source(logic: &mut GameLogic, path: &str, text: &str, names: &[
         crate::assets::ReceivingObjectContent::from_sources([(path.to_owned(), text.to_owned())])
             .expect("complete source grammar through the actual typed factory");
     admit_fixture_content(logic, content, names);
-}
-
-/// The licensed retail archive the receiving fixtures read their INI from.
-fn retail_archive() -> crate::assets::ArchiveFileSystem {
-    use std::path::Path;
-    let retail = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .ancestors()
-                .nth(3)
-                .unwrap()
-                .join("windows_game")
-        });
-    let mut files = crate::assets::ArchiveFileSystem::new();
-    files.add_search_path(retail.join("Command & Conquer Generals Zero Hour/Data"));
-    pollster::block_on(files.init()).expect("licensed retail archive mounts");
-    files
 }
 
 fn retail_receiving_fixture(extra: &[(&str, &str)]) -> crate::assets::ReceivingObjectContent {

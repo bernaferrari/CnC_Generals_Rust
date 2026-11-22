@@ -502,19 +502,11 @@ fn retail_overcharge_behavior_metadata_drives_frozen_command_and_live_drain() {
     use crate::game_logic::host_enum_table_residual::model_condition_bit_name_index;
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
     use crate::presentation_frame::PresentationFrame;
-    use std::path::Path;
 
     // The retail object, not a hand-written China-name fixture, is the source
     // of all three active inputs: +5 EnergyBonus, 3% drain, and 0% threshold.
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .expect("Main crate must remain three levels below repository root");
-    let retail_source = std::fs::read_to_string(
-        repo_root
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini"),
-    )
-    .expect("read retail FactionBuilding.ini");
+    let mut files = crate::fixture_content::retail_archive();
+    let retail_source = crate::fixture_content::read_retail_ini(&mut files, "Object/FactionBuilding.ini");
     let mut parser = crate::assets::IniParser::new();
     parser
         .parse_ini_content(&retail_source, "FactionBuilding.ini")

@@ -50,26 +50,14 @@ End
 }
 
 fn retail_service_and_dozer_kindof_tags_survive_object_ini_parsing() {
-    use std::path::Path;
 
     // Parse the actual retail definitions rather than a name-shaped
     // fixture.  C++ ActionManager distinguishes these exact KindOf tags:
     // AmericaBarracks is a HEAL_PAD, AmericaWarFactory a REPAIR_PAD,
     // AmericaAirfield an FS_AIRFIELD, and the construction unit a DOZER.
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .expect("Main crate must remain three levels below repository root");
-    let faction_buildings = std::fs::read_to_string(
-        repo_root
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini"),
-    )
-    .expect("retail FactionBuilding.ini");
-    let america_vehicles = std::fs::read_to_string(
-        repo_root
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaVehicle.ini"),
-    )
-    .expect("retail AmericaVehicle.ini");
+    let mut files = crate::fixture_content::retail_archive();
+    let faction_buildings = crate::fixture_content::read_retail_ini(&mut files, "Object/FactionBuilding.ini");
+    let america_vehicles = crate::fixture_content::read_retail_ini(&mut files, "Object/AmericaVehicle.ini");
 
     let mut parser = crate::assets::IniParser::new();
     parser
@@ -219,7 +207,6 @@ fn retail_hack_internet_metadata_drives_field_and_contained_income() {
 #[test]
 fn retail_hacker_disable_pair_uses_exact_power_identity_not_microwave_alias() {
     use std::collections::HashMap;
-    use std::path::Path;
 
     // The live boot path owns this global store.  Focused unit tests do
     // not run the shell bootstrap, so seed only the two actual retail
@@ -251,24 +238,14 @@ fn retail_hacker_disable_pair_uses_exact_power_identity_not_microwave_alias() {
         }
     }
 
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .expect("Main crate must remain three levels below repository root");
-    let special_power = std::fs::read_to_string(
-        repo_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/SpecialPower.ini"),
-    )
-    .expect("retail SpecialPower.ini");
+    let mut files = crate::fixture_content::retail_archive();
+    let special_power = crate::fixture_content::read_retail_ini(&mut files, "SpecialPower.ini");
     assert!(special_power.contains("SpecialPower SpecialAbilityHackerDisableBuilding"));
     assert!(special_power.contains("SpecialPower SpecialAbilityMicrowaveDisableBuilding"));
     assert!(special_power.contains("ReloadTime        = 500"));
     assert!(special_power.contains("ReloadTime        = 4000"));
 
-    let china_infantry = std::fs::read_to_string(
-        repo_root
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/ChinaInfantry.ini"),
-    )
-    .expect("retail ChinaInfantry.ini");
+    let china_infantry = crate::fixture_content::read_retail_ini(&mut files, "Object/ChinaInfantry.ini");
     let mut parser = crate::assets::IniParser::new();
     parser
         .parse_ini_content(&china_infantry, "ChinaInfantry.ini")
