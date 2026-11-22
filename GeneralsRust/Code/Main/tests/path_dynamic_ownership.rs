@@ -1521,6 +1521,45 @@ fn possible_destination_uses_terrain_zone_when_starting_inside_a_structure() {
 }
 
 #[test]
+fn possible_destination_reports_low_edge_overflow_after_the_half_cell_bias() {
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+
+    let grid = PathfindingGrid::new(200.0, 200.0, 10.0);
+    let ground = PathfindingGround::Flat(0.0);
+    let start = Vec3::new(65.0, 0.0, 65.0);
+
+    // AIPathfind.h::worldToCell floors before reporting overflow.
+    // AIPathfind.cpp:5515-5524 returns before touching dest.
+    for off_map in [Vec3::new(-1.0, 0.0, 55.0), Vec3::new(55.0, 0.0, -1.0)] {
+        let mut dest = off_map;
+        assert!(!adjust_fixture(
+            &grid,
+            start,
+            &mut dest,
+            SURFACE_GROUND,
+            false,
+            2.0,
+            &ground,
+        ));
+        assert_eq!(dest, off_map);
+    }
+
+    // An even footprint adds half a cell before the same bounds check.
+    // Its first spiral candidate to the east has room for the whole unit.
+    let mut dest = Vec3::new(-1.0, 0.0, 55.0);
+    assert!(adjust_fixture(
+        &grid,
+        start,
+        &mut dest,
+        SURFACE_GROUND,
+        false,
+        6.0,
+        &ground,
+    ));
+    assert_eq!(dest, Vec3::new(10.5, 0.0, 60.5));
+}
+
+#[test]
 fn possible_destination_checks_the_whole_footprint_on_every_candidate() {
     use gamelogic::ai::pathfind_astar::PathfindCellType;
     use gamelogic::ai::pathfind_complete::SURFACE_GROUND;

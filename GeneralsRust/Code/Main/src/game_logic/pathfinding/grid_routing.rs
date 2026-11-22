@@ -1541,7 +1541,8 @@ impl PathfindingGrid {
             adjust_dest.x += half;
             adjust_dest.z += half;
         }
-        let goal_cell = self.world_to_grid(adjust_dest);
+        // worldToCell floors before checking the pathfinding extent.
+        let goal_cell = self.cell_for_unit_position(adjust_dest, true);
         if !self.is_valid_pos(goal_cell) {
             return false;
         }
