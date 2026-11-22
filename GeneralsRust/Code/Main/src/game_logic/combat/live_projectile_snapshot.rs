@@ -124,6 +124,14 @@ impl CombatSystem {
 
     /// No name resolution, rebinding, ignition, countermeasure reporting or FX.
     pub(crate) fn restore_live_projectile_arena(&mut self, arena: ValidatedLiveProjectileArena) {
+        // Older saves can contain a flight that has yet to reach the
+        // normal bonus phase. Rebuild the IDs without applying its bonus here.
+        self.pending_projectile_weapon_bonus_ids.clear();
+        self.pending_projectile_weapon_bonus_ids.extend(
+            arena.projectiles.values()
+                .filter(|projectile| !projectile.projectile_upgrades_initialized)
+                .map(|projectile| projectile.id)
+        );
         self.projectiles = arena.projectiles;
         self.next_projectile_id = arena.next_projectile_id;
     }

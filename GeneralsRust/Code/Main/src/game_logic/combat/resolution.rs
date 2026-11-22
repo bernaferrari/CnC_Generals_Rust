@@ -40,6 +40,7 @@ impl CombatSystem {
     pub fn new() -> Self {
         Self {
             projectiles: HashMap::new(),
+            pending_projectile_weapon_bonus_ids: Default::default(),
             fire_sound_loop_events: Default::default(),
             pending_projectiles: Vec::new(),
             next_projectile_id: ObjectId(100000), // Start high to avoid conflicts with objects
@@ -130,12 +131,26 @@ impl CombatSystem {
         self.projectiles.values_mut()
     }
 
+    pub(in crate::game_logic) fn visit_new_projectile_weapon_bonuses(
+        &mut self,
+        mut visit: impl FnMut(&mut Projectile),
+    ) {
+        for id in self.pending_projectile_weapon_bonus_ids.drain() {
+            if let Some(projectile) = self.projectiles.get_mut(&id)
+                .filter(|projectile| !projectile.projectile_upgrades_initialized)
+            {
+                visit(projectile);
+            }
+        }
+    }
+
     pub fn projectile_mut(&mut self, id: ObjectId) -> Option<&mut Projectile> {
         self.projectiles.get_mut(&id)
     }
 
     /// Remove one projectile by id (GameWorld projectile-authority writeback).
     pub fn remove_projectile(&mut self, id: ObjectId) -> bool {
+        self.pending_projectile_weapon_bonus_ids.remove(&id);
         self.projectiles.remove(&id).is_some()
     }
 
@@ -237,6 +252,7 @@ impl CombatSystem {
         }
 
         self.projectiles.insert(projectile_id, projectile);
+        self.pending_projectile_weapon_bonus_ids.insert(projectile_id);
 
         projectile_id
     }
@@ -667,7 +683,7 @@ impl CombatSystem {
         // Full per-module deletion phases remain tracked in hq-om90a.
         // The observation importer discovers retirement from this canonical map.
         for proj_id in projectiles_to_remove {
-            self.projectiles.remove(proj_id);
+            self.remove_projectile(*proj_id);
         }
     }
 
@@ -1057,6 +1073,7 @@ impl CombatSystem {
     /// Clear all projectiles
     pub fn clear(&mut self) {
         self.projectiles.clear();
+        self.pending_projectile_weapon_bonus_ids.clear();
     }
 }
 

@@ -460,20 +460,13 @@ impl GameLogic {
         use gamelogic::weapon::WeaponBonusConditionType;
         let players = &self.players;
         let definitions = &self.projectile_definitions;
-        for projectile in self.combat_system.projectiles_mut() {
-            if let Some(player_id) = completed_player {
-                if projectile.source_owner_player_id != Some(player_id) {
-                    continue;
-                }
-            } else if projectile.projectile_upgrades_initialized {
-                continue;
-            }
+        let apply = |projectile: &mut crate::game_logic::combat::Projectile| {
             projectile.projectile_upgrades_initialized = true;
             let Some(player) = projectile.source_owner_player_id.and_then(|id| players.get(&id)) else {
-                continue;
+                return;
             };
             let Some(profile) = definitions.get(&projectile.projectile_object_name) else {
-                continue;
+                return;
             };
             for module in &profile.behaviors {
                 if module.authored.class_name.eq_ignore_ascii_case("WeaponBonusUpgrade")
@@ -488,6 +481,13 @@ impl GameLogic {
                     }
                 }
             }
+        };
+        if let Some(player_id) = completed_player {
+            self.combat_system.projectiles_mut()
+                .filter(|projectile| projectile.source_owner_player_id == Some(player_id))
+                .for_each(apply);
+        } else {
+            self.combat_system.visit_new_projectile_weapon_bonuses(apply);
         }
     }
 

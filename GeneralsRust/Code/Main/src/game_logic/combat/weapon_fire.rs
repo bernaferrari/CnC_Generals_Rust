@@ -137,6 +137,8 @@ pub struct CombatSystem {
     pub(crate) fire_sound_loop_events:
         crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents,
     projectiles: HashMap<ObjectId, Projectile>,
+    /// Materialized flights awaiting their owner's existing upgrade phase.
+    pending_projectile_weapon_bonus_ids: game_engine::common::fast_hash::FxHashSet<ObjectId>,
     /// Accepted shots awaiting this world's existing materialization phase.
     pending_projectiles: Vec<PendingProjectile>,
     next_projectile_id: ObjectId,

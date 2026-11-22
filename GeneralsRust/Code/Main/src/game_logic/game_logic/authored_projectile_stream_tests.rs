@@ -631,3 +631,55 @@ fn uranium_shell_upgrade_is_owner_scoped_at_launch_in_flight_and_after_load() {
     loaded_before_upgrade.add_completed_player_upgrade(0, UPGRADE);
     assert_eq!(uranium_impact(&mut loaded_before_upgrade, target), 100.0);
 }
+
+#[test]
+fn pending_shell_bonus_after_load_waits_for_receiving_materialization_phase() {
+    use gamelogic::weapon::WeaponBonusConditionType;
+
+    let (mut source_world, source, target) = uranium_projectile_world();
+    source_world.add_completed_player_upgrade(0, "Upgrade_ChinaUraniumShells");
+    let shooter = source_world.objects.get_mut(&source).unwrap();
+    shooter.set_max_shots_to_fire(1);
+    let muzzle = shooter.get_position();
+    let (_, accepted) = shooter.prepare_passive_weapon_shot(
+        gamelogic::world::WEAPON_SLOT_PRIMARY,
+        target,
+        10.0,
+        false,
+        false,
+        source_world.frame,
+        muzzle,
+        &mut source_world.combat_system.fire_sound_loop_events,
+        &mut source_world.attack_events,
+        Some(&source_world.projectile_definitions),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+    ).expect("authored shell accepted");
+    crate::game_logic::combat::queue_projectile_direct(&mut source_world.combat_system, accepted);
+    source_world
+        .materialize_owned_queued_projectiles_with_effects(&mut Default::default())
+        .unwrap();
+    let shot = source_world.combat_system.projectiles_snapshot()[0];
+    let id = shot.id;
+    assert!(!shot.projectile_upgrades_initialized);
+    assert_eq!(shot.projectile_bonus_mask, 0);
+
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&source_world).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let saved = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut receiving, _, _) = uranium_projectile_world();
+    builder.restore_from_snapshot(&saved, &mut receiving).unwrap();
+    let shot = &receiving.combat_system.get_projectiles()[&id];
+    assert!(!shot.projectile_upgrades_initialized);
+    assert_eq!(shot.projectile_bonus_mask, 0);
+
+    receiving.drain_pending_projectiles_into_combat();
+    let shot = &receiving.combat_system.get_projectiles()[&id];
+    assert!(shot.projectile_upgrades_initialized);
+    assert_eq!(
+        shot.projectile_bonus_mask,
+        1u64 << WeaponBonusConditionType::PlayerUpgrade as u8,
+    );
+    assert!(!source_world.combat_system.get_projectiles()[&id].projectile_upgrades_initialized);
+    assert_eq!(uranium_impact(&mut receiving, target), 100.0);
+}
