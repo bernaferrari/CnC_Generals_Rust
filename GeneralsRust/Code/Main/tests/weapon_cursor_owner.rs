@@ -1,3 +1,4 @@
+use gamelogic::common::WeaponSlotType::{self, Primary, Secondary, Tertiary};
 use gamelogic::weapon::WeaponTemplate;
 use generals_main::game_logic::{GameLogic, ObjectId, Player, Team};
 
@@ -62,9 +63,9 @@ fn cursor_uses_each_sessions_authored_upgrade_bonus() {
     let (owner, id) = world_with_upgrade_bonus(20.0, 100, None, Some(50));
     let (peer, peer_id) = world_with_upgrade_bonus(20.0, 100, None, Some(200));
     assert_eq!(id, peer_id);
-    assert_eq!(owner.weapon_cursor_radii(id, 1).unwrap().damage, 10.0);
-    assert_eq!(peer.weapon_cursor_radii(peer_id, 1).unwrap().damage, 40.0);
-    assert_eq!(owner.weapon_cursor_radii(id, 1).unwrap().damage, 10.0);
+    assert_eq!(owner.weapon_cursor_radii(id, Secondary).unwrap().damage, 10.0);
+    assert_eq!(peer.weapon_cursor_radii(peer_id, Secondary).unwrap().damage, 40.0);
+    assert_eq!(owner.weapon_cursor_radii(id, Secondary).unwrap().damage, 10.0);
     let snapshot = generals_main::save_load::SnapshotBuilder::new()
         .create_world_snapshot(&owner)
         .unwrap();
@@ -72,8 +73,8 @@ fn cursor_uses_each_sessions_authored_upgrade_bonus() {
     generals_main::save_load::SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    assert_eq!(restored.weapon_cursor_radii(id, 1).unwrap().damage, 10.0);
-    assert_eq!(peer.weapon_cursor_radii(peer_id, 1).unwrap().damage, 40.0);
+    assert_eq!(restored.weapon_cursor_radii(id, Secondary).unwrap().damage, 10.0);
+    assert_eq!(peer.weapon_cursor_radii(peer_id, Secondary).unwrap().damage, 40.0);
 }
 
 #[test]
@@ -98,6 +99,23 @@ fn bonus_conditions_are_appended_in_cpp_order() {
     set.append_bonuses(flags, &mut result);
     assert_eq!(result.get_field(WeaponBonusField::Damage), 2.0);
 }
+
+const HELIX_CONTENT: &str = "
+Object CursorHelix
+  KindOf = VEHICLE SELECTABLE
+  Body = ActiveBody Health
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = HelixContain PassengerBay
+    ContainMax = 2
+    Slots = 2
+    AllowInsideKindOf = INFANTRY
+    WeaponBonusPassedToPassengers = Yes
+    PassengersAllowedToFire = Yes
+  End
+End
+";
 
 fn contained_weapon_world(
     authored_pass: bool,
@@ -207,7 +225,7 @@ fn contained_weapon_world_with_extra_rof(
     });
     game.admit_object_ini_sources([("Container.ini".into(), format!(
         "Object Passenger\n KindOf = INFANTRY SELECTABLE\n TransportSlotCount = 1\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\n WeaponSet\n Conditions = NONE\n Weapon = PRIMARY ContainedWeapon\n End\nEnd\nObject Carrier\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = TransportContain Transport\n ContainMax = 2\n Slots = 2\n AllowInsideKindOf = INFANTRY\n WeaponBonusPassedToPassengers = {pass}\n{fire} End\n Behavior = AIUpdateInterface Brain\n End\nEnd\nObject Enemy\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
-    ))]).unwrap();
+    )), ("CursorHelix.ini".into(), HELIX_CONTENT.into())]).unwrap();
     if force_metadata {
         game.templates
             .get_mut("Carrier")
@@ -550,52 +568,9 @@ fn weapon_activity_roundtrips_bincode_and_xfer() {
 }
 
 #[test]
-fn version_20_preserves_weapon_activity_without_target_positions() {
-    let (mut source, attacker, _) = contained_weapon_world_with_fire(true, false, Some(false));
-    source
-        .host_object_mut(attacker)
-        .unwrap()
-        .status
-        .is_aiming_weapon = true;
-    source.host_object_mut(attacker).unwrap().target_location =
-        Some(glam::Vec3::new(40.0, 0.0, 20.0));
-    let builder = generals_main::save_load::SnapshotBuilder::new();
-    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
-    let offset = snapshot
-        .lifecycle_tail
-        .windows(4)
-        .rposition(|tag| tag == b"OXOB")
-        .unwrap();
-    let length = u32::from_le_bytes(
-        snapshot.lifecycle_tail[offset + 8..offset + 12]
-            .try_into()
-            .unwrap(),
-    ) as usize;
-    let end = offset + 12 + length;
-    let target_length = 8 + snapshot.objects.len() * 17;
-    snapshot.lifecycle_tail.drain(end - target_length..end);
-    snapshot.lifecycle_tail[offset + 4..offset + 8].copy_from_slice(&20u32.to_le_bytes());
-    snapshot.lifecycle_tail[offset + 8..offset + 12]
-        .copy_from_slice(&((length - target_length) as u32).to_le_bytes());
-    let (mut restored, _, _) = contained_weapon_world_with_fire(true, false, Some(false));
-    builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .unwrap();
-    assert!(
-        restored
-            .host_object(attacker)
-            .unwrap()
-            .status
-            .is_aiming_weapon
-    );
-    assert_eq!(
-        restored.host_object(attacker).unwrap().target_location,
-        None
-    );
-}
+fn obsolete_oxob_versions_leave_the_receiving_world_untouched() {
+    use generals_main::save_load::{SaveLoadError, SnapshotBuilder};
 
-#[test]
-fn version_19_weapon_activity_defaults_without_losing_passenger_permission() {
     let (mut source, attacker, carrier) =
         contained_weapon_world_with_fire(true, false, Some(false));
     source
@@ -607,41 +582,39 @@ fn version_19_weapon_activity_defaults_without_losing_passenger_permission() {
         .unwrap()
         .status
         .is_aiming_weapon = true;
-    let builder = generals_main::save_load::SnapshotBuilder::new();
-    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
-    let offset = snapshot
+    let builder = SnapshotBuilder::new();
+    let mut rejected = builder.create_world_snapshot(&source).unwrap();
+    let offset = rejected
         .lifecycle_tail
         .windows(4)
         .rposition(|tag| tag == b"OXOB")
         .unwrap();
-    let length = u32::from_le_bytes(
-        snapshot.lifecycle_tail[offset + 8..offset + 12]
-            .try_into()
-            .unwrap(),
-    ) as usize;
-    let end = offset + 12 + length;
-    let activity_length = 16 + snapshot.objects.len() * 23;
-    snapshot.lifecycle_tail.drain(end - activity_length..end);
-    snapshot.lifecycle_tail[offset + 4..offset + 8].copy_from_slice(&19u32.to_le_bytes());
-    snapshot.lifecycle_tail[offset + 8..offset + 12]
-        .copy_from_slice(&((length - activity_length) as u32).to_le_bytes());
-    let (mut restored, _, _) = contained_weapon_world_with_fire(true, false, Some(false));
-    builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .unwrap();
-    assert!(
-        restored
-            .host_object(carrier)
-            .unwrap()
-            .passengers_allowed_to_fire
-    );
-    assert!(
-        !restored
-            .host_object(attacker)
-            .unwrap()
-            .status
-            .is_aiming_weapon
-    );
+
+    for version in [18_u32, 19, 20] {
+        rejected.lifecycle_tail[offset + 4..offset + 8].copy_from_slice(&version.to_le_bytes());
+        let (mut receiving, receiver, receiver_carrier) =
+            contained_weapon_world_with_fire(true, false, Some(false));
+        let target = glam::Vec3::new(70.0, 0.0, 30.0);
+        receiving.host_object_mut(receiver).unwrap().target_location = Some(target);
+
+        let error = builder
+            .restore_from_snapshot(&rejected, &mut receiving)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            SaveLoadError::Corrupted(message)
+                if message == format!("unsupported OXOB projection version {version}")
+        ));
+        assert!(
+            !receiving
+                .host_object(receiver_carrier)
+                .unwrap()
+                .passengers_allowed_to_fire
+        );
+        let receiver = receiving.host_object(receiver).unwrap();
+        assert_eq!(receiver.target_location, Some(target));
+        assert!(!receiver.status.is_aiming_weapon);
+    }
 }
 
 #[test]
@@ -773,103 +746,119 @@ fn boarded_passenger_shots_use_owning_carrier_rof() {
     );
 }
 
+fn tick_until_authored_clip_reload(world: &mut GameLogic, attacker: ObjectId) -> (u32, u32) {
+    for _ in 0..45 {
+        world.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        let weapon = world
+            .host_object(attacker)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap();
+        if weapon.reloading_clip {
+            // Weapon.cpp:1880–1892 refills the clip immediately and sets its
+            // integer reload deadline before the weapon can fire again.
+            assert_eq!(weapon.ammo, Some(3));
+            assert!(weapon.frame_clock_active);
+            return (weapon.reload_started_frame, weapon.next_fire_frame);
+        }
+    }
+    panic!("the authored weapon never fired its third shot");
+}
+
 #[test]
 fn boarded_passenger_reload_uses_owning_carrier_rof() {
     let (mut boosted, passenger, carrier) =
         contained_weapon_world_with_timing(true, false, Some(true), 0, 30);
     let (mut plain, peer_passenger, peer_carrier) =
         contained_weapon_world_with_timing(false, false, Some(true), 0, 30);
+    let (mut restored, _, _) = contained_weapon_world_with_timing(true, false, Some(true), 0, 30);
     assert_eq!((passenger, carrier), (peer_passenger, peer_carrier));
+    for world in [&mut boosted, &mut plain, &mut restored] {
+        world
+            .templates
+            .get_mut("Enemy")
+            .unwrap()
+            .add_kind_of(generals_main::game_logic::KindOf::Attackable);
+        world.add_player(Player::new(2, Team::GLA, "Enemy", false));
+    }
+    let mut enemies = Vec::new();
     for world in [&mut boosted, &mut plain] {
         world.host_object_mut(passenger).unwrap().contained_by = None;
+        enemies.push(
+            world
+                .create_object_for_player("Enemy", 2, glam::Vec3::new(20.0, 0.0, 0.0))
+                .unwrap(),
+        );
         assert!(world.unit_command_order_enter(passenger, carrier));
         world.try_physics_collide(passenger, carrier, 1.0).unwrap();
         assert_eq!(
             world.host_object(passenger).unwrap().contained_by,
             Some(carrier)
         );
-        let weapon = world
-            .host_object_mut(passenger)
-            .unwrap()
-            .weapon
-            .as_mut()
-            .unwrap();
-        weapon.ammo = Some(0);
-        weapon.reloading_clip = true;
-        weapon.last_fire_time = 0.0;
-        weapon.last_bonus_rof = 1.0;
     }
-    for _ in 0..6 {
-        boosted.tick_logic_frame(1.0 / 30.0, None, Some(1));
-        plain.tick_logic_frame(1.0 / 30.0, None, Some(1));
-    }
-    let snapshot = generals_main::save_load::SnapshotBuilder::new()
-        .create_world_snapshot(&boosted)
-        .unwrap();
-    let (mut restored, _, _) = contained_weapon_world_with_timing(true, false, Some(true), 0, 30);
-    generals_main::save_load::SnapshotBuilder::new()
+    let enemy = enemies[0];
+    assert_eq!(enemies[1], enemy);
+    let (start, ready) = tick_until_authored_clip_reload(&mut boosted, passenger);
+    let (peer_start, peer_ready) = tick_until_authored_clip_reload(&mut plain, passenger);
+    assert_eq!(ready - start, 15);
+    assert_eq!(peer_ready - peer_start, 30);
+
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&boosted).unwrap();
+    builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    for _ in 0..12 {
+    let state = |world: &GameLogic| {
+        let weapon = world
+            .host_object(passenger)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap();
+        (weapon.ammo, weapon.next_fire_frame, weapon.reloading_clip)
+    };
+    let health = |world: &GameLogic| world.host_object(enemy).unwrap().health.current;
+    let boosted_health_at_save = health(&boosted);
+    let peer_health_at_save = health(&plain);
+    assert_eq!(state(&restored), (Some(3), ready, true));
+    assert_eq!(health(&restored), boosted_health_at_save);
+    for _ in 0..16 {
         boosted.tick_logic_frame(1.0 / 30.0, None, Some(1));
         plain.tick_logic_frame(1.0 / 30.0, None, Some(1));
         restored.tick_logic_frame(1.0 / 30.0, None, Some(1));
-        assert_eq!(
-            boosted
-                .host_object(passenger)
-                .unwrap()
-                .weapon
-                .as_ref()
-                .unwrap()
-                .ammo,
-            restored
-                .host_object(passenger)
-                .unwrap()
-                .weapon
-                .as_ref()
-                .unwrap()
-                .ammo
-        );
+        assert_eq!(state(&boosted), state(&restored));
+        assert_eq!(health(&boosted), health(&restored));
+        assert_eq!(health(&plain), peer_health_at_save);
     }
-    assert_eq!(
-        boosted
-            .host_object(passenger)
-            .unwrap()
-            .weapon
-            .as_ref()
-            .unwrap()
-            .ammo,
-        Some(3)
-    );
-    assert_eq!(
-        plain
-            .host_object(passenger)
-            .unwrap()
-            .weapon
-            .as_ref()
-            .unwrap()
-            .ammo,
-        Some(0)
-    );
+    assert!(health(&restored) < boosted_health_at_save);
+    assert!(state(&plain).2);
 }
 
 #[test]
 fn bonused_clip_reload_uses_original_integer_frame_floor() {
-    let (mut world, passenger, _) = contained_weapon_world_with_timing(false, false, None, 0, 7);
-    let object = world.host_object_mut(passenger).unwrap();
-    object.contained_by = None;
-    object.weapon_bonus_solo = 0;
-    object.weapon_bonus_horde = true;
-    let weapon = object.weapon.as_mut().unwrap();
-    weapon.ammo = Some(0);
-    weapon.reloading_clip = true;
-    weapon.last_fire_time = 1.0;
-    weapon.last_bonus_rof = 1.5;
+    use generals_main::command_executor::CommandExecutor;
+    use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
+    use std::time::UNIX_EPOCH;
 
-    object.refresh_weapon_fire_status(1.0 + 3.0 / 30.0);
-    assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(0));
-    object.refresh_weapon_fire_status(1.0 + 4.0 / 30.0);
-    assert_eq!(object.weapon.as_ref().unwrap().ammo, Some(3));
+    let (mut world, passenger, _) =
+        contained_weapon_world_with_human_rof(false, false, None, 0, 7, 0, 150);
+    world.host_object_mut(passenger).unwrap().contained_by = None;
+    CommandExecutor::new(&mut world, 1)
+        .execute_command(GameCommand {
+            command_type: CommandType::AttackPosition {
+                location: Some(glam::Vec3::new(40.0, 0.0, 20.0)),
+                max_shots: 3,
+            },
+            player_id: 1,
+            command_id: 1,
+            timestamp: UNIX_EPOCH,
+            selected_units: vec![passenger],
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap();
+    let (start, ready) = tick_until_authored_clip_reload(&mut world, passenger);
+    assert_eq!(ready - start, 4); // Weapon.cpp:496–499 floors 7 / 1.5.
 }
 
 #[test]
@@ -970,19 +959,72 @@ fn authored_passenger_fire_permission_controls_actual_firing() {
 
 #[test]
 fn helix_passenger_receives_authored_garrisoned_bonus() {
-    let (mut world, passenger, carrier) = contained_weapon_world(true, false);
+    use generals_main::command_executor::CommandExecutor;
+    use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
+    use std::time::UNIX_EPOCH;
+
+    let (mut world, passenger, _) = contained_weapon_world(true, false);
+    world.host_object_mut(passenger).unwrap().contained_by = None;
+    let helix = world
+        .create_object_for_player("CursorHelix", 1, glam::Vec3::ZERO)
+        .unwrap();
+    let carrier = world.host_object_mut(helix).unwrap();
+    assert!(carrier.is_helix_transport);
+    carrier.weapon_bonus_solo = gamelogic::weapon::WeaponBonusConditionType::SoloAiEasy as u8;
     assert_eq!(
-        world.weapon_cursor_radii(passenger, 0).unwrap().damage,
-        50.0
+        world
+            .weapon_cursor_radii(passenger, Primary)
+            .unwrap()
+            .damage,
+        30.0
     );
-    world.host_object_mut(carrier).unwrap().is_helix_transport = true;
+
+    assert!(world.unit_command_order_enter(passenger, helix));
+    world.try_physics_collide(passenger, helix, 1.0).unwrap();
     assert_eq!(
-        world.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        world.host_object(passenger).unwrap().contained_by,
+        Some(helix)
+    );
+    assert!(
+        world
+            .host_object(passenger)
+            .unwrap()
+            .weapon_bonus_garrisoned
+    );
+    // Weapon.cpp:1797–1817 appends additive deltas for all admitted flags.
+    // 20 * (1 + 0.5 rider + 1.0 carrier + 0.25 garrisoned) = 55.
+    assert_eq!(
+        world
+            .weapon_cursor_radii(passenger, Primary)
+            .unwrap()
+            .damage,
         55.0
     );
-    world.host_object_mut(passenger).unwrap().contained_by = None;
+
+    CommandExecutor::new(&mut world, 1)
+        .execute_command(GameCommand {
+            command_type: CommandType::Evacuate,
+            player_id: 1,
+            command_id: 1,
+            timestamp: UNIX_EPOCH,
+            selected_units: vec![helix],
+            modifier_keys: ModifierKeys::default(),
+        })
+        .unwrap();
+    for _ in 0..8 {
+        if world.host_object(passenger).unwrap().contained_by.is_none() {
+            break;
+        }
+        world.tick_logic_frame(1.0 / 30.0, None, Some(1));
+    }
+    let rider = world.host_object(passenger).unwrap();
+    assert_eq!(rider.contained_by, None);
+    assert!(!rider.weapon_bonus_garrisoned);
     assert_eq!(
-        world.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        world
+            .weapon_cursor_radii(passenger, Primary)
+            .unwrap()
+            .damage,
         30.0
     );
 }
@@ -1175,10 +1217,10 @@ fn authored_container_flag_controls_passenger_weapon_bonus() {
             .passes_weapon_bonus_to_passengers()
     );
     assert_eq!(
-        no.weapon_cursor_radii(peer_passenger, 0).unwrap().damage,
+        no.weapon_cursor_radii(peer_passenger, Primary).unwrap().damage,
         30.0
     );
-    assert_eq!(yes.weapon_cursor_radii(passenger, 0).unwrap().damage, 50.0);
+    assert_eq!(yes.weapon_cursor_radii(passenger, Primary).unwrap().damage, 50.0);
 }
 
 #[test]
@@ -1189,7 +1231,7 @@ fn contained_weapon_combines_distinct_source_and_carrier_conditions() {
             .unwrap()
             .passes_weapon_bonus_to_passengers()
     );
-    assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 50.0);
+    assert_eq!(game.weapon_cursor_radii(passenger, Primary).unwrap().damage, 50.0);
     game.host_object_mut(passenger).unwrap().weapon_bonus_frenzy = true;
     game.host_object_mut(passenger)
         .unwrap()
@@ -1198,14 +1240,14 @@ fn contained_weapon_combines_distinct_source_and_carrier_conditions() {
     game.host_object_mut(carrier)
         .unwrap()
         .weapon_bonus_frenzy_level = 3;
-    assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 70.0);
+    assert_eq!(game.weapon_cursor_radii(passenger, Primary).unwrap().damage, 70.0);
     game.host_object_mut(carrier).unwrap().weapon_bonus_solo = 16;
-    assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 50.0);
+    assert_eq!(game.weapon_cursor_radii(passenger, Primary).unwrap().damage, 50.0);
     game.host_object_mut(passenger)
         .unwrap()
         .weapon_bonus_veteran = true;
     game.host_object_mut(carrier).unwrap().weapon_bonus_hero = true;
-    assert_eq!(game.weapon_cursor_radii(passenger, 0).unwrap().damage, 65.0);
+    assert_eq!(game.weapon_cursor_radii(passenger, Primary).unwrap().damage, 65.0);
 }
 
 #[test]
@@ -1224,11 +1266,11 @@ fn boarding_save_and_evacuation_preserve_session_bonus_ownership() {
         );
     }
     assert_eq!(
-        owner.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        owner.weapon_cursor_radii(passenger, Primary).unwrap().damage,
         50.0
     );
     assert_eq!(
-        peer.weapon_cursor_radii(peer_passenger, 0).unwrap().damage,
+        peer.weapon_cursor_radii(peer_passenger, Primary).unwrap().damage,
         30.0
     );
     let snapshot = generals_main::save_load::SnapshotBuilder::new()
@@ -1243,13 +1285,13 @@ fn boarding_save_and_evacuation_preserve_session_bonus_ownership() {
         Some(carrier)
     );
     assert_eq!(
-        restored.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        restored.weapon_cursor_radii(passenger, Primary).unwrap().damage,
         50.0
     );
     assert!(owner.evacuate_container_now(carrier, false).unwrap());
     assert_eq!(owner.host_object(passenger).unwrap().contained_by, None);
     assert_eq!(
-        owner.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        owner.weapon_cursor_radii(passenger, Primary).unwrap().damage,
         30.0
     );
     assert_eq!(
@@ -1257,11 +1299,11 @@ fn boarding_save_and_evacuation_preserve_session_bonus_ownership() {
         Some(peer_carrier)
     );
     assert_eq!(
-        peer.weapon_cursor_radii(peer_passenger, 0).unwrap().damage,
+        peer.weapon_cursor_radii(peer_passenger, Primary).unwrap().damage,
         30.0
     );
     assert_eq!(
-        restored.weapon_cursor_radii(passenger, 0).unwrap().damage,
+        restored.weapon_cursor_radii(passenger, Primary).unwrap().damage,
         50.0
     );
 }
@@ -1366,7 +1408,7 @@ fn rejected_passenger_fire_continuation_preserves_running_session() {
         .unwrap();
     snapshot.lifecycle_tail[offset + 4..offset + 8].copy_from_slice(&18u32.to_le_bytes());
     let (mut running, _, _) = contained_weapon_world_with_fire(true, false, Some(false));
-    let before = running.weapon_cursor_radii(passenger, 0).unwrap();
+    let before = running.weapon_cursor_radii(passenger, Primary).unwrap();
     assert!(
         builder
             .restore_from_snapshot(&snapshot, &mut running)
@@ -1378,55 +1420,7 @@ fn rejected_passenger_fire_continuation_preserves_running_session() {
             .unwrap()
             .passengers_allowed_to_fire
     );
-    assert_eq!(running.weapon_cursor_radii(passenger, 0).unwrap(), before);
-}
-
-#[test]
-fn prior_object_continuation_uses_authored_permission() {
-    let (mut source, _, carrier) = contained_weapon_world_with_fire(true, false, Some(false));
-    source
-        .host_object_mut(carrier)
-        .unwrap()
-        .passengers_allowed_to_fire = true;
-    let builder = generals_main::save_load::SnapshotBuilder::new();
-    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
-    let offset = snapshot
-        .lifecycle_tail
-        .windows(4)
-        .rposition(|tag| tag == b"OXOB")
-        .unwrap();
-    let length = u32::from_le_bytes(
-        snapshot.lifecycle_tail[offset + 8..offset + 12]
-            .try_into()
-            .unwrap(),
-    ) as usize;
-    let end = offset + 12 + length;
-    // Version 18 predates passenger permissions, weapon activity, and targets.
-    let tail_length = 24 + snapshot.objects.len() * 28;
-    let start = end - tail_length;
-    assert_eq!(
-        u64::from_le_bytes(
-            snapshot.lifecycle_tail[start..start + 8]
-                .try_into()
-                .unwrap()
-        ) as usize,
-        snapshot.objects.len()
-    );
-    snapshot.lifecycle_tail.drain(start..end);
-    snapshot.lifecycle_tail[offset + 4..offset + 8].copy_from_slice(&18u32.to_le_bytes());
-    snapshot.lifecycle_tail[offset + 8..offset + 12]
-        .copy_from_slice(&((length - tail_length) as u32).to_le_bytes());
-    snapshot.version = 38;
-    let (mut restored, _, _) = contained_weapon_world_with_fire(true, false, Some(false));
-    builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .unwrap();
-    assert!(
-        !restored
-            .host_object(carrier)
-            .unwrap()
-            .passengers_allowed_to_fire
-    );
+    assert_eq!(running.weapon_cursor_radii(passenger, Primary).unwrap(), before);
 }
 
 #[test]
@@ -1434,9 +1428,9 @@ fn cursor_radii_use_exact_slot_receiving_definitions_and_bonus() {
     let (owner, id) = world(20.0, 150, None);
     let (peer, peer_id) = world(40.0, 100, None);
     assert_eq!(id, peer_id);
-    let primary = owner.weapon_cursor_radii(id, 0).unwrap();
-    let secondary = owner.weapon_cursor_radii(id, 1).unwrap();
-    let peer_secondary = peer.weapon_cursor_radii(id, 1).unwrap();
+    let primary = owner.weapon_cursor_radii(id, Primary).unwrap();
+    let secondary = owner.weapon_cursor_radii(id, Secondary).unwrap();
+    let peer_secondary = peer.weapon_cursor_radii(id, Secondary).unwrap();
     assert_eq!(
         (primary.damage, primary.scatter, primary.continue_attack),
         (7.5, 3.0, 3.0)
@@ -1457,8 +1451,8 @@ fn cursor_radii_use_exact_slot_receiving_definitions_and_bonus() {
         ),
         (40.0, 11.0, 90.0)
     );
-    assert!(owner.weapon_cursor_radii(id, 2).is_none());
-    assert!(owner.weapon_cursor_radii(id, 3).is_none());
+    assert!(owner.weapon_cursor_radii(id, Tertiary).is_none());
+    assert!(WeaponSlotType::from_u32(3).is_none());
     let snapshot = generals_main::save_load::SnapshotBuilder::new()
         .create_world_snapshot(&owner)
         .unwrap();
@@ -1466,7 +1460,7 @@ fn cursor_radii_use_exact_slot_receiving_definitions_and_bonus() {
     generals_main::save_load::SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    assert_eq!(restored.weapon_cursor_radii(id, 1), Some(secondary));
+    assert_eq!(restored.weapon_cursor_radii(id, Secondary), Some(secondary));
 }
 
 #[test]
@@ -1474,9 +1468,9 @@ fn cursor_radius_uses_each_sessions_weapon_extra_bonus() {
     let (owner, id) = world(20.0, 150, Some(2.0));
     let (peer, peer_id) = world(20.0, 150, Some(3.0));
     assert_eq!(id, peer_id);
-    assert_eq!(owner.weapon_cursor_radii(id, 1).unwrap().damage, 50.0);
-    assert_eq!(peer.weapon_cursor_radii(peer_id, 1).unwrap().damage, 70.0);
-    assert_eq!(owner.weapon_cursor_radii(id, 1).unwrap().damage, 50.0);
+    assert_eq!(owner.weapon_cursor_radii(id, Secondary).unwrap().damage, 50.0);
+    assert_eq!(peer.weapon_cursor_radii(peer_id, Secondary).unwrap().damage, 70.0);
+    assert_eq!(owner.weapon_cursor_radii(id, Secondary).unwrap().damage, 50.0);
     let snapshot = generals_main::save_load::SnapshotBuilder::new()
         .create_world_snapshot(&owner)
         .unwrap();
@@ -1484,6 +1478,6 @@ fn cursor_radius_uses_each_sessions_weapon_extra_bonus() {
     generals_main::save_load::SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
-    assert_eq!(restored.weapon_cursor_radii(id, 1).unwrap().damage, 50.0);
-    assert_eq!(peer.weapon_cursor_radii(peer_id, 1).unwrap().damage, 70.0);
+    assert_eq!(restored.weapon_cursor_radii(id, Secondary).unwrap().damage, 50.0);
+    assert_eq!(peer.weapon_cursor_radii(peer_id, Secondary).unwrap().damage, 70.0);
 }
