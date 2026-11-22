@@ -543,7 +543,7 @@ pub struct HostScriptRequestQueues {
     pub(crate) ai_player_build_upgrade_requests: Mutex<Vec<(String, String)>>,
     pub(crate) ai_player_build_type_nearest_team_requests: Mutex<Vec<(String, String, String)>>,
     pub(crate) guard_supply_center_requests: Mutex<Vec<(String, i32)>>,
-    pub(crate) skirmish_attack_group_requests: Mutex<Vec<(String, i32, i32)>>,
+    pub(crate) skirmish_attack_group_requests: Mutex<Vec<(String, Option<ComparisonType>, i32)>>,
     pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
     pub(crate) script_hunt_guard_requests: Mutex<Vec<HostScriptHuntGuardRequest>>,
     pub(crate) script_follow_waypoints_requests: Mutex<Vec<HostScriptFollowWaypointsRequest>>,
@@ -1176,7 +1176,11 @@ pub fn take_host_skirmish_base_defense_requests() -> Vec<HostScriptSkirmishBaseD
 }
 
 /// Live host drain: SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE.
-pub fn request_host_skirmish_attack_nearest_group(team: &str, comparison: i32, value: i32) {
+pub fn request_host_skirmish_attack_nearest_group(
+    team: &str,
+    comparison: Option<ComparisonType>,
+    value: i32,
+) {
     {
         let services = host_script_queues();
         let mut q = services.host_script_requests().skirmish_attack_group_requests.lock().unwrap_or_else(|p| p.into_inner());
@@ -1185,7 +1189,7 @@ pub fn request_host_skirmish_attack_nearest_group(team: &str, comparison: i32, v
     }
 }
 
-pub fn take_host_skirmish_attack_nearest_group_requests() -> Vec<(String, i32, i32)> {
+pub fn take_host_skirmish_attack_nearest_group_requests() -> Vec<(String, Option<ComparisonType>, i32)> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_attack_group_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 

@@ -1155,6 +1155,42 @@ pub enum ComparisonType {
     NotEqual = 5,
 }
 
+impl ComparisonType {
+    /// Decode the comparison ordinal authored in a script parameter.
+    pub fn from_i32(value: i32) -> Option<Self> {
+        Some(match value {
+            0 => Self::LessThan,
+            1 => Self::LessEqual,
+            2 => Self::Equal,
+            3 => Self::GreaterEqual,
+            4 => Self::Greater,
+            5 => Self::NotEqual,
+            _ => return None,
+        })
+    }
+}
+
+#[cfg(test)]
+mod comparison_type_tests {
+    use super::ComparisonType;
+
+    #[test]
+    fn comparison_ordinals_round_trip_without_accepting_unknown_values() {
+        for comparison in [
+            ComparisonType::LessThan,
+            ComparisonType::LessEqual,
+            ComparisonType::Equal,
+            ComparisonType::GreaterEqual,
+            ComparisonType::Greater,
+            ComparisonType::NotEqual,
+        ] {
+            assert_eq!(ComparisonType::from_i32(comparison as i32), Some(comparison));
+        }
+        assert_eq!(ComparisonType::from_i32(-1), None);
+        assert_eq!(ComparisonType::from_i32(6), None);
+    }
+}
+
 /// Relation types matching C++ Parameter relation types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u32)]

@@ -592,6 +592,8 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         interpreter: &gamelogic::scripting::engine::ScriptEngine,
     ) {
+        use gamelogic::scripting::ComparisonType;
+
         let attacks = gamelogic::scripting::take_host_skirmish_attack_nearest_group_requests();
         for (team, comparison, value) in attacks {
             let members = self.host_script_team_member_ids(&team);
@@ -619,7 +621,7 @@ impl GameLogic {
                 .and_then(|o| o.owner_player_id)
                 .unwrap_or(0);
             let mut dest = origin;
-            if matches!(comparison, 3 | 4) {
+            if matches!(comparison, Some(ComparisonType::GreaterEqual | ComparisonType::Greater)) {
                 if let Some(pos) =
                     self.host_script_nearest_enemy_group_with_value(attacker_pid, origin, value)
                 {

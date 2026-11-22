@@ -2360,15 +2360,7 @@ impl ScriptConditionEvaluator<'_> {
                 ScriptError::ParameterNotFound(format!("Parameter {} not found", index))
             })?
             .get_int();
-        match value {
-            0 => Ok(ComparisonType::LessThan),
-            1 => Ok(ComparisonType::LessEqual),
-            2 => Ok(ComparisonType::Equal),
-            3 => Ok(ComparisonType::GreaterEqual),
-            4 => Ok(ComparisonType::Greater),
-            5 => Ok(ComparisonType::NotEqual),
-            _ => Ok(ComparisonType::Equal),
-        }
+        Ok(ComparisonType::from_i32(value).unwrap_or(ComparisonType::Equal))
     }
 
     pub(crate) fn compare_i32(comparison: ComparisonType, lhs: i32, rhs: i32) -> bool {

@@ -24,7 +24,7 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
     use crate::game_logic::AIState;
     use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
     use gamelogic::common::Relationship;
-    use gamelogic::scripting::request_host_skirmish_attack_nearest_group;
+    use gamelogic::scripting::{ComparisonType, request_host_skirmish_attack_nearest_group};
 
     let mut logic = GameLogic::new();
     // Match admission initializes the actual receiving scalar grid before
@@ -119,7 +119,7 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
     logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
     // The real interpreter queues the action on the driving world's services.
     logic.with_own_services(|| {
-        request_host_skirmish_attack_nearest_group("teamUSA1", 4, 50);
+        request_host_skirmish_attack_nearest_group("teamUSA1", Some(ComparisonType::Greater), 50);
     });
     logic.evaluate_and_execute_scripts(0.0);
 

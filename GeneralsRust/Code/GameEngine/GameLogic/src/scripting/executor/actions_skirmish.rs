@@ -559,14 +559,14 @@ impl ScriptActionDispatcher<'_> {
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
-        let comparison = self.get_int_param(action, 1)?;
+        let comparison = ComparisonType::from_i32(self.get_int_param(action, 1)?);
         let value = self.get_int_param(action, 2)?;
         if dual_world_registry_unavailable() {
             super::request_host_skirmish_attack_nearest_group(&team_name, comparison, value);
             return Ok(ScriptActionResult::Success);
         }
         log::debug!(
-            "Skirmish team '{}' attacking nearest group with comparison {} value {}",
+            "Skirmish team '{}' attacking nearest group with comparison {:?} value {}",
             team_name,
             comparison,
             value
@@ -607,10 +607,7 @@ impl ScriptActionDispatcher<'_> {
         // C++ only queries for GREATER / GREATER_EQUAL; other comparisons
         // leave loc uninitialized then still attack-move.
         let mut target_loc = Coord3D::ZERO;
-        if matches!(
-            comparison,
-            3 | 4 // ComparisonType::GreaterEqual | ComparisonType::Greater
-        ) {
+        if matches!(comparison, Some(ComparisonType::GreaterEqual | ComparisonType::Greater)) {
             let mut enemy_mask = 0u32;
             for other in player_list_guard.iter() {
                 let Ok(other_guard) = other.read() else {
