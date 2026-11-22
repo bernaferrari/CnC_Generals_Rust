@@ -377,6 +377,7 @@ pub struct SleepyUpdateEntry {
 #[derive(Clone)]
 struct NormalUpdateEntry {
     object_id: ObjectID,
+    phase: SleepyUpdatePhase,
     module: UpdateModulePtr,
 }
 

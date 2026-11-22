@@ -553,6 +553,7 @@ fn normal_callbacks_observe_driving_frame_and_preserve_phase_order() {
         (SleepyUpdatePhase::Normal, 3),
         (SleepyUpdatePhase::Initial, 1),
         (SleepyUpdatePhase::Physics, 2),
+        (SleepyUpdatePhase::Initial, 5),
     ] {
         let module: UpdateModulePtr = Arc::new(RwLock::new(CountUpdate {
             calls: Arc::new(AtomicU32::new(0)),
@@ -564,7 +565,7 @@ fn normal_callbacks_observe_driving_frame_and_preserve_phase_order() {
         world.register_normal_update_module(96, module);
     }
     world.process_normal_updates();
-    assert_eq!(trace.load(Ordering::Relaxed), 1234);
+    assert_eq!(trace.load(Ordering::Relaxed), 15234);
     assert_eq!(observed_frame.load(Ordering::Relaxed), 37);
 }
 

@@ -826,24 +826,14 @@ impl GameLogic {
             while cursor < self.normal_updates.len() {
                 let entry = &self.normal_updates[cursor];
                 cursor += 1;
-                let (module_disabled_mask, module_phase) = entry
-                    .module
-                    .read()
-                    .map(|module| {
-                        let module_phase = module.get_update_phase();
-                        // Class phase is immutable. Only the selected phase
-                        // needs to borrow mutable module state for its mask.
-                        let disabled = if module_phase == phase {
-                            module.get_disabled_types_to_process()
-                        } else {
-                            DisabledMaskType::empty()
-                        };
-                        (disabled, module_phase)
-                    })
-                    .unwrap_or((DisabledMaskType::empty(), SleepyUpdatePhase::Normal));
-                if module_phase != phase {
+                if entry.phase != phase {
                     continue;
                 }
+                let module_disabled_mask = entry
+                    .module
+                    .read()
+                    .map(|module| module.get_disabled_types_to_process())
+                    .unwrap_or_else(|_| DisabledMaskType::empty());
 
                 // Scoped map borrow for the disabled-flag check — no Arc
                 // handle clone per entry per phase. A missing object still
@@ -1032,6 +1022,12 @@ impl GameLogic {
 
     /// Register a normal (every-frame) update module
     pub fn register_normal_update_module(&mut self, object_id: ObjectID, module: UpdateModulePtr) {
+        // Class phase is immutable; capture it once at registration so the
+        // per-phase sweep does not re-lock each entry for every phase.
+        let phase = module
+            .read()
+            .map(|update| update.get_update_phase())
+            .unwrap_or(SleepyUpdatePhase::Normal);
         // Move one registration between categories/owners, never duplicate it.
         self.unregister_update_module(object_id, Arc::clone(&module));
         self.module_lookup
@@ -1040,7 +1036,11 @@ impl GameLogic {
             .push(ModuleIdentity::of(&module));
 
         self.normal_updates
-            .push(NormalUpdateEntry { object_id, module });
+            .push(NormalUpdateEntry {
+                object_id,
+                phase,
+                module,
+            });
     }
 
     /// Register a sleepy (delayed) update module
