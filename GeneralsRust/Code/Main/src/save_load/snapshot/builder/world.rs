@@ -935,6 +935,7 @@ impl SnapshotBuilder {
             ),
             &current_layers,
             &object_status_bits,
+            pathfinder_ready,
             game_logic,
         )?;
         // C++ Object admission notifications stamp the restored frame as the

@@ -589,7 +589,8 @@ impl PathfindingGrid {
         map_ready: bool,
     ) -> Vec<RestoredPathGoal> {
         self.occ_goal_aircraft.fill(0);
-        self.clear_position_cells();
+        // Timeline reset cleared the old grid. Keep the new saved-pose claims
+        // admitted before AI loadPostProcess (AIPathfind.cpp:4542–4565).
         let mut actor_cells = Vec::new();
         // GameLogic::xfer reads the saved object list in order; XferLoad queues
         // each AI module's post-process as it is read. Object admission prepends

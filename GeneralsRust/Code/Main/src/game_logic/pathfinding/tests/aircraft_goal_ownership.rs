@@ -883,3 +883,106 @@ fn ground_position_postload_rebuilds_idle_occupancy_in_receiving_world() {
     assert_eq!(at(&restored, moved), id.0);
     assert_eq!(at(&source, position), id.0);
 }
+
+#[test]
+fn moving_ground_position_postload_preserves_saved_pose_claim_and_raw_cursor() {
+    if isolated("moving_ground_position_postload_preserves_saved_pose_claim_and_raw_cursor") {
+        return;
+    }
+    use crate::game_logic::{AIState, ObjectAudio};
+    use crate::save_load::{DecodedGameSave, SaveFileManager};
+
+    let make_world = || {
+        let mut world = admitted_aircraft_world();
+        world.override_world_size(600.0, 600.0);
+        world.pathfinding_system.map_ready = true;
+        world
+    };
+    let mut source = make_world();
+    let mut peer = make_world();
+    let mut restored = make_world();
+    let start = Vec3::new(45.0, 0.0, 75.0);
+    let pose = Vec3::new(85.0, 0.0, 75.0);
+    let waypoint = Vec3::new(125.0, 0.0, 75.0);
+    let goal = Vec3::new(175.0, 0.0, 75.0);
+    let peer_pose = Vec3::new(205.0, 0.0, 135.0);
+    let id = source
+        .create_object("HqOccupancyVehicle", Team::USA, start)
+        .unwrap();
+    let peer_id = peer
+        .create_object("HqOccupancyVehicle", Team::USA, peer_pose)
+        .unwrap();
+    assert_eq!(id, peer_id);
+
+    let raw_waypoint = Vec3::new(55.0, 0.0, 85.0);
+    let mut nodes = PathRoute::from_coords(vec![start, raw_waypoint, waypoint, goal])
+        .nodes()
+        .to_vec();
+    nodes[0].next_optimized = Some(2);
+    for node in &mut nodes {
+        node.layer = Some(PathfindLayerEnum::Ground as u8);
+    }
+    let route = PathRoute::from_nodes(nodes, false).unwrap();
+    let cursor = route.cursor_from_raw(Some(0), Some(2)).unwrap();
+    let frame = source.frame;
+    {
+        let mover = source.host_object_mut(id).unwrap();
+        mover.movement.path = route.clone();
+        mover.movement.path_cursor = cursor;
+        mover.movement.target_position = Some(waypoint);
+        mover.requested_destination = Some(goal);
+        mover.is_final_goal = true;
+        mover.set_ai_state(
+            AIState::Moving,
+            frame,
+            &mut ObjectAudio::record(&mut Vec::new()),
+        );
+        mover.set_locomotor_goal_position_on_path();
+        mover.set_status_moving(true);
+    }
+    assert!(source.set_registered_object_position(id, pose));
+    source.register_path_goal_on_layer(id, goal, PathfindLayerEnum::Ground as u8);
+
+    // The authored radius of three is centered in a single ten-unit cell.
+    // The fixture's world-size override keeps a centered origin.
+    let cell_at = |position| source.pathfinding_system.grid.world_to_grid(position);
+    let pose_cell = cell_at(pose);
+    let goal_cell = cell_at(goal);
+    let peer_cell = cell_at(peer_pose);
+    assert_eq!(source.pathfinding_ground_position(pose_cell), Some(id));
+    assert_eq!(source.pathfinding_ground_goal(goal_cell), Some(id));
+    assert_eq!(peer.pathfinding_ground_position(peer_cell), Some(id));
+    assert_eq!(peer.pathfinding_ground_position(pose_cell), None);
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut manager = SaveFileManager::with_save_directory(dir.path());
+    manager.init().unwrap();
+    manager.quick_save(&source).unwrap();
+    let DecodedGameSave { snapshot, .. } = manager.load_game_snapshot("quicksave").unwrap();
+    manager
+        .restore_game_snapshot(&snapshot, &mut restored)
+        .unwrap();
+
+    let mover = restored.host_object(id).unwrap();
+    assert_eq!(mover.get_position(), pose);
+    assert!(mover.host_ai_is_moving());
+    assert_eq!(mover.movement.path, route);
+    assert_eq!(mover.movement.path_cursor, cursor);
+    assert_eq!(mover.movement.target_position, Some(waypoint));
+    assert_eq!(mover.pathfind_cur_cell, (pose_cell.x, pose_cell.y));
+    assert_eq!(restored.pathfinding_ground_goal(goal_cell), Some(id));
+    // Object::xfer sets the saved pose before restoring the active AI path.
+    // The moving AI post-process reinstalls its goal and keeps that pose claim.
+    assert_eq!(restored.pathfinding_ground_position(pose_cell), Some(id));
+    for clear in [
+        cell_at(start),
+        cell_at(raw_waypoint),
+        cell_at(waypoint),
+        goal_cell,
+        peer_cell,
+    ] {
+        assert_eq!(restored.pathfinding_ground_position(clear), None);
+    }
+    assert_eq!(peer.pathfinding_ground_position(peer_cell), Some(id));
+    assert_eq!(peer.pathfinding_ground_position(pose_cell), None);
+}

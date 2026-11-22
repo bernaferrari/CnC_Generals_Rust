@@ -1,8 +1,11 @@
 //! SnapshotBuilder: restore live GameLogic from a WorldSnapshot.
 
 use super::*;
+use crate::game_logic::pathfinding::PathPositionFootprint;
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
+use game_engine::base_type::real_to_int;
+use gamelogic::ai::pathfind_astar::PathfindLayerEnum;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -39,6 +42,53 @@ fn validate_object_transform(object: &ObjectSnapshot) -> SaveLoadResult<()> {
         }
     }
     Ok(())
+}
+
+fn initial_moving_ground_footprint(
+    object: &Object,
+    snapshot: &ObjectSnapshot,
+    current_layer: Option<u8>,
+    game_logic: &GameLogic,
+) -> Option<PathPositionFootprint> {
+    let ground = PathfindLayerEnum::Ground as u8;
+    // Restrict this continuation to ordinary, uncontained ground movers
+    // with a single authored ground locomotor at construction.
+    if !snapshot.status.moving
+        || !matches!(snapshot.status.ai_state, AIState::Moving | AIState::AttackMoving)
+        || snapshot.container_object.is_some()
+        || snapshot.status.garrisoned
+        || snapshot.status.disabled_held
+        || snapshot.status.disabled_unmanned
+        || snapshot.status.airborne_target
+        || snapshot.status.destroyed
+        || current_layer.is_some_and(|layer| layer != ground)
+        || object.is_kind_of(KindOf::Aircraft)
+        || object.is_kind_of(KindOf::Immobile)
+        || object.is_kind_of(KindOf::Projectile)
+        || object.is_kind_of(KindOf::Inert)
+        || object.thing().template.authored_ai_update_interface() != Some(true)
+    {
+        return None;
+    }
+    let [name] = object.thing().template.locomotor_set_names.as_slice() else {
+        return None;
+    };
+    let locomotor = game_logic.resolve_receiving_locomotor(name)?;
+    if locomotor.locomotor_surfaces != crate::game_logic::object::LOCO_SURFACE_GROUND {
+        return None;
+    }
+    let position = object.get_position();
+    // C++ Object.cpp:220,2571–2577 requires a change from the initial
+    // integer XY before the pose callback updates position cells.
+    if [position.x, position.z].map(real_to_int) == [0, 0] {
+        return None;
+    }
+    Some(PathPositionFootprint {
+        unit_id: object.id.0,
+        radius: object.geometry_info().bounding_circle_radius(),
+        layer: ground,
+        on_ground: true,
+    })
 }
 
 impl SnapshotBuilder {
@@ -113,6 +163,7 @@ impl SnapshotBuilder {
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
+            false,
             game_logic,
         )
     }
@@ -131,6 +182,7 @@ impl SnapshotBuilder {
         script_status_flags: &HashMap<ObjectId, bool>,
         current_layers: &HashMap<ObjectId, u8>,
         status_bits: &HashMap<ObjectId, u64>,
+        pathfinder_ready: bool,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         self.validate_object_restore_admission(objects, game_logic)?;
@@ -202,6 +254,7 @@ impl SnapshotBuilder {
                 script_status_flags.get(&snapshot.id).copied(),
                 current_layers.get(&snapshot.id).copied(),
                 status_bits.get(&snapshot.id).copied(),
+                pathfinder_ready,
                 game_logic,
             )?;
             max_id = max_id.max(id.0);
@@ -246,7 +299,9 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_object_transform(snapshot)?;
-        self.restore_object_with_body_kind(snapshot, None, None, None, None, None, game_logic)
+        self.restore_object_with_body_kind(
+            snapshot, None, None, None, None, None, false, game_logic,
+        )
     }
 
     pub(super) fn validate_object_restore_admission(
@@ -460,6 +515,7 @@ impl SnapshotBuilder {
         script_status_disabled: Option<bool>,
         current_layer: Option<u8>,
         status_bits: Option<u64>,
+        pathfinder_ready: bool,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         game_logic
@@ -555,10 +611,6 @@ impl SnapshotBuilder {
         // StealthUpdate constructor (InnateStealth CAN_STEALTH); the saved
         // m_stealthAllowedFrame overlays it in restore_object_status.
         object.construct_stealth_update(frame, &mut game_logic.session_view.client_random);
-        // Object::xfer restores m_layer before its behavior modules.
-        if let Some(layer) = current_layer {
-            object.pathfind_layer = layer;
-        }
         object.partition_cash_value = partition_cash;
         if let Some(threat) = receiving_partition_threat {
             object.partition_threat_value = threat;
@@ -601,6 +653,19 @@ impl SnapshotBuilder {
         } else {
             object.set_position(snapshot.geometry.position);
             object.set_orientation(snapshot.geometry.rotation);
+        }
+        // Object::xfer applies the saved pose before saved geometry, layer
+        // and AI runtime (Object.cpp:4027,4115,4248,4348). Keep the constructor
+        // footprint but publish it only for a successfully admitted Object.
+        let initial_path_position = if pathfinder_ready {
+            initial_moving_ground_footprint(&object, snapshot, current_layer, game_logic)
+                .map(|footprint| (footprint, object.get_position()))
+        } else {
+            None
+        };
+        // Object::xfer restores m_layer before its behavior modules.
+        if let Some(layer) = current_layer {
+            object.pathfind_layer = layer;
         }
         object.set_geometry_bounds_min(snapshot.geometry.bounds_min);
         object.set_geometry_bounds_max(snapshot.geometry.bounds_max);
@@ -806,6 +871,12 @@ impl SnapshotBuilder {
             .map_err(|error| {
                 SaveLoadError::Corrupted(format!("saved Object admission: {error}"))
             })?;
+        if let Some((footprint, position)) = initial_path_position {
+            game_logic
+                .pathfinding_system
+                .grid
+                .update_path_position_cell(&footprint, (-1, -1), position);
+        }
         super::dozer_task_module::apply_after_admission(snapshot, game_logic)?;
 
         Ok(())
