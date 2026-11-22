@@ -59,6 +59,7 @@ impl PathfindingGrid {
         let (radius, center) = Self::radius_and_center(footprint.radius, self.grid_size);
         let layer = PathfindLayerEnum::from_u32(footprint.layer as u32);
         let above = radius + i32::from(center);
+        let mut changes = FootprintOccupancyChanges::new();
         for x in (cell.x - radius)..(cell.x + above) {
             for y in (cell.y - radius)..(cell.y + above) {
                 let pos = GridPos::new(x, y);
@@ -66,13 +67,16 @@ impl PathfindingGrid {
                     continue;
                 }
                 if layer != PathfindLayerEnum::Ground {
-                    self.mark_occupancy(pos, false, footprint.unit_id, layer);
+                    changes.record(self.replace_occupancy_slot(pos, false, footprint.unit_id, layer));
                 }
                 if footprint.on_ground || layer == PathfindLayerEnum::Ground {
-                    self.mark_occupancy(pos, false, footprint.unit_id, PathfindLayerEnum::Ground);
+                    changes.record(self.replace_occupancy_slot(
+                        pos, false, footprint.unit_id, PathfindLayerEnum::Ground,
+                    ));
                 }
             }
         }
+        self.count_footprint_occupancy(changes, false, footprint.unit_id);
     }
 
     /// C++ `removePos`: remove only this actor's previous position cells,
@@ -89,6 +93,7 @@ impl PathfindingGrid {
         }
         let (radius, center) = Self::radius_and_center(radius, self.grid_size);
         let above = radius + i32::from(center);
+        let mut removed = 0;
         for x in (old.0 - radius)..(old.0 + above) {
             for y in (old.1 - radius)..(old.1 + above) {
                 let Some(idx) = self.bit_index(GridPos::new(x, y)) else {
@@ -96,17 +101,20 @@ impl PathfindingGrid {
                 };
                 if self.occ_pos_unit[idx] == unit_id {
                     self.occ_pos_unit[idx] = 0;
+                    removed += 1;
                 }
                 if layer != PathfindLayerEnum::Ground as u8 {
                     if let Some(occ) = self.layer_occ.get_mut(&layer) {
                         let key = (x, y);
                         if occ.occ_pos_unit.get(&key).copied() == Some(unit_id) {
                             occ.occ_pos_unit.remove(&key);
+                            removed += 1;
                         }
                     }
                 }
             }
         }
+        self.remove_occupant_slots(unit_id, false, removed);
     }
 
     /// Read the current actor geometry and bridge intersection for a position event.
@@ -425,6 +433,7 @@ impl PathfindingGrid {
             update.old_layer,
         );
         let layer = PathfindLayerEnum::from_u32(update.new_layer as u32);
+        let mut changes = FootprintOccupancyChanges::new();
         for x in (cell.x - radius)..(cell.x + above) {
             for y in (cell.y - radius)..(cell.y + above) {
                 let pos = GridPos::new(x, y);
@@ -432,15 +441,18 @@ impl PathfindingGrid {
                     continue;
                 }
                 if update.new_on_ground {
-                    self.mark_occupancy(pos, true, update.unit_id, PathfindLayerEnum::Ground);
+                    changes.record(self.replace_occupancy_slot(
+                        pos, true, update.unit_id, PathfindLayerEnum::Ground,
+                    ));
                 }
                 if layer != PathfindLayerEnum::Ground
                     && self.layer_cell_type(update.new_layer, pos).is_some()
                 {
-                    self.mark_occupancy(pos, true, update.unit_id, layer);
+                    changes.record(self.replace_occupancy_slot(pos, true, update.unit_id, layer));
                 }
             }
         }
+        self.count_footprint_occupancy(changes, true, update.unit_id);
         (cell.x, cell.y)
     }
 
@@ -474,6 +486,7 @@ impl PathfindingGrid {
         let (radius, center) = Self::radius_and_center(selection_radius, self.grid_size);
         let clear_radius = radius.max(1);
         let clear_above = clear_radius + i32::from(center);
+        let mut removed = 0;
         for x in (old.0 - clear_radius)..(old.0 + clear_above) {
             for y in (old.1 - clear_radius)..(old.1 + clear_above) {
                 let pos = GridPos::new(x, y);
@@ -482,6 +495,7 @@ impl PathfindingGrid {
                 };
                 if self.occ_goal_unit[idx] == unit_id {
                     self.occ_goal_unit[idx] = 0;
+                    removed += 1;
                 }
                 if self.occ_goal_aircraft[idx] == unit_id {
                     self.occ_goal_aircraft[idx] = 0;
@@ -491,11 +505,13 @@ impl PathfindingGrid {
                         let key = (x, y);
                         if occupancy.occ_goal_unit.get(&key).copied() == Some(unit_id) {
                             occupancy.occ_goal_unit.remove(&key);
+                            removed += 1;
                         }
                     }
                 }
             }
         }
+        self.remove_occupant_slots(unit_id, true, removed);
     }
 
     pub fn goal_aircraft(&self, pos: GridPos) -> u32 {
@@ -1101,9 +1117,8 @@ impl PathfindingGrid {
             center_in_cell = true;
         }
         radius /= 2;
-        const MAX_RADIUS: i32 = 2;
-        if radius > MAX_RADIUS {
-            radius = MAX_RADIUS;
+        if radius > MAX_PATHFIND_RADIUS {
+            radius = MAX_PATHFIND_RADIUS;
             center_in_cell = true;
         }
         (radius, center_in_cell)

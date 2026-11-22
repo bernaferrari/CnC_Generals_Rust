@@ -294,6 +294,7 @@ fn possible_destination_uses_restored_world_relationships_and_goal_reservations(
     use generals_main::game_logic::pathfinding::GridPos;
     use generals_main::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
     use game_engine::common::{
+        common_services::{CommonServices, with_common_services},
         dict::Dict,
         ini::INILoadType,
         rts::player_template::PlayerTemplateStore,
@@ -337,28 +338,31 @@ fn possible_destination_uses_restored_world_relationships_and_goal_reservations(
     }
     data.close_data_chunk();
     data.open_data_chunk("SidesList", 2);
-    data.write_int(3);
-    for (name, faction, human) in [
-        ("", "FactionCivilian", false),
-        ("Owner", "FactionAmerica", true),
-        ("Other", "FactionChina", false),
-    ] {
-        let mut side = Dict::new();
-        side.set_ascii_string(key_player_name(), name);
-        side.set_ascii_string(key_player_faction(), faction);
-        side.set_unicode_string(key_player_display_name(), name);
-        side.set_bool(key_player_is_human(), human);
-        data.write_dict(&side);
-        data.write_int(0);
-    }
-    data.write_int(2);
-    for (name, owner) in [("SourceRoster", "Owner"), ("TargetRoster", "Other")] {
-        let mut team = Dict::new();
-        team.set_ascii_string(key_team_name(), name);
-        team.set_ascii_string(key_team_owner(), owner);
-        team.set_bool(key_team_is_singleton(), false);
-        data.write_dict(&team);
-    }
+    let map_author = std::sync::Arc::new(CommonServices::new());
+    with_common_services(&map_author, || {
+        data.write_int(3);
+        for (name, faction, human) in [
+            ("", "FactionCivilian", false),
+            ("Owner", "FactionAmerica", true),
+            ("Other", "FactionChina", false),
+        ] {
+            let mut side = Dict::new();
+            side.set_ascii_string(key_player_name(), name);
+            side.set_ascii_string(key_player_faction(), faction);
+            side.set_unicode_string(key_player_display_name(), name);
+            side.set_bool(key_player_is_human(), human);
+            data.write_dict(&side);
+            data.write_int(0);
+        }
+        data.write_int(2);
+        for (name, owner) in [("SourceRoster", "Owner"), ("TargetRoster", "Other")] {
+            let mut team = Dict::new();
+            team.set_ascii_string(key_team_name(), name);
+            team.set_ascii_string(key_team_owner(), owner);
+            team.set_bool(key_team_is_singleton(), false);
+            data.write_dict(&team);
+        }
+    });
     data.close_data_chunk();
     data.open_data_chunk("ObjectsList", 3);
     data.close_data_chunk();

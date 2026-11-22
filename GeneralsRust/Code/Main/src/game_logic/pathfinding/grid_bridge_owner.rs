@@ -6,6 +6,7 @@ impl PathfindingGrid {
         self.bridge_layers.clear();
         self.flight_bridge_order.clear();
         self.layer_occ.clear();
+        self.rebuild_occupant_slots();
         self.ground_connect.fill(0);
     }
 
@@ -36,10 +37,6 @@ impl PathfindingGrid {
                 self.occ_goal_aircraft[new] = previous.occ_goal_aircraft[old];
             }
         }
-        if !previous.occ_goal_ids.is_empty() {
-            self.occ_goal_ids.extend_from_slice(&previous.occ_goal_ids);
-            self.occ_goal_ids_dirty = true;
-        }
         for (&layer, old) in &previous.layer_occ {
             let current = self.layer_occ.entry(layer).or_default();
             for (&(x, y), &id) in &old.occ_goal_unit {
@@ -48,6 +45,7 @@ impl PathfindingGrid {
                 }
             }
         }
+        self.rebuild_occupant_slots();
     }
 
     pub(crate) fn reclassify_ground(&mut self) {

@@ -1450,31 +1450,18 @@ impl PathfindingGrid {
         let mover = seeker.filter(|id| id.0 != 0).and_then(|id| objects.lookup(&id));
         self.query_occupants_seeker = mover.map_or(0, |mover| mover.id.0);
         self.query_seeker_infantry = mover.is_some_and(|mover| mover.is_kind_of(KindOf::Infantry));
-        // A unit's footprint covers runs of adjacent cells; skip repeats of
-        // the previous id before hashing, and resolve each id once.
         self.query_occupants.clear();
-        let ally_masks = &self.player_ally_masks;
-        let mut previous = 0u32;
-        for id in self.occ_pos_ids.iter().chain(self.occ_goal_ids.iter()).copied() {
-            if id == 0 || id == previous {
-                continue;
-            }
-            previous = id;
-            self.query_occupants
-                .entry(id)
-                .or_insert_with(|| Self::resolve_occupant(objects, mover, id, ally_masks));
+        // Release historical peak capacity after large drops in occupancy.
+        let peak_limit = self.occupant_slots.len().saturating_mul(4).max(64);
+        if self.occupant_slots.capacity() > peak_limit {
+            self.occupant_slots.shrink_to_fit();
         }
-        // Compact after new stamps append IDs. Later queries can reuse the
-        // compacted list, even while resolving live facts for different seekers.
-        for (ids, dirty) in [
-            (&mut self.occ_pos_ids, &mut self.occ_pos_ids_dirty),
-            (&mut self.occ_goal_ids, &mut self.occ_goal_ids_dirty),
-        ] {
-            if *dirty && ids.len() > 64 {
-                ids.sort_unstable();
-                ids.dedup();
-                *dirty = false;
-            }
+        if self.query_occupants.capacity() > peak_limit {
+            self.query_occupants.shrink_to(self.occupant_slots.len().max(16));
+        }
+        let ally_masks = &self.player_ally_masks;
+        for &id in self.occupant_slots.keys() {
+            self.query_occupants.insert(id, Self::resolve_occupant(objects, mover, id, ally_masks));
         }
     }
 
@@ -1671,10 +1658,49 @@ impl PathfindingGrid {
         Some(extra)
     }
 
-    /// C++ `Pathfinder::updatePos` / `updateGoal` cell stamp
-    /// (`PathfindCell::setPosUnit` / `setGoalUnit`, AIPathfind.cpp:1302-1410).
-    /// LAYER cells go on the layer map; ground occupancy uses the cell records.
-    /// Missing layer cells fall back to ground (`getCell` residual).
+    /// C++ `Pathfinder::updatePos` / `updateGoal` cell stamp. Return the
+    /// previous owner only when a ground or layered slot actually changes.
+    pub(super) fn replace_occupancy_slot(
+        &mut self,
+        pos: GridPos,
+        goal: bool,
+        unit_id: u32,
+        layer: PathfindLayerEnum,
+    ) -> Option<u32> {
+        let previous = if (layer as u8) > PathfindLayerEnum::Ground as u8
+            && self.layer_cell_type(layer as u8, pos).is_some()
+        {
+            let occ = self.layer_occ.entry(layer as u8).or_default();
+            let key = (pos.x, pos.y);
+            if goal {
+                // C++ stores one goal unit per cell: a newer owner replaces it.
+                occ.occ_goal_unit.insert(key, unit_id).unwrap_or(0)
+            } else {
+                let previous = occ.occ_pos_unit.get(&key).copied().unwrap_or(0);
+                let goal_id = occ.occ_goal_unit.get(&key).copied().unwrap_or(0);
+                if previous != 0 && previous == goal_id {
+                    return None;
+                }
+                occ.occ_pos_unit.insert(key, unit_id);
+                previous
+            }
+        } else {
+            let idx = self.bit_index(pos)?;
+            let slot = if goal {
+                &mut self.occ_goal_unit[idx]
+            } else {
+                let previous = self.occ_pos_unit[idx];
+                if previous != 0 && previous == self.occ_goal_unit[idx] {
+                    return None;
+                }
+                &mut self.occ_pos_unit[idx]
+            };
+            std::mem::replace(slot, unit_id)
+        };
+        (previous != unit_id).then_some(previous)
+    }
+
+    #[cfg(test)]
     pub(super) fn mark_occupancy(
         &mut self,
         pos: GridPos,
@@ -1682,47 +1708,57 @@ impl PathfindingGrid {
         unit_id: u32,
         layer: PathfindLayerEnum,
     ) {
-        let (ids, dirty) = if goal {
-            (&mut self.occ_goal_ids, &mut self.occ_goal_ids_dirty)
-        } else {
-            (&mut self.occ_pos_ids, &mut self.occ_pos_ids_dirty)
+        let mut changes = FootprintOccupancyChanges::new();
+        changes.record(self.replace_occupancy_slot(pos, goal, unit_id, layer));
+        self.count_footprint_occupancy(changes, goal, unit_id);
+    }
+
+    pub(super) fn count_footprint_occupancy(
+        &mut self,
+        mut changes: FootprintOccupancyChanges,
+        goal: bool,
+        unit_id: u32,
+    ) {
+        if unit_id != 0 && changes.added != 0 {
+            *self.occupant_slots.entry(unit_id).or_default().count_mut(goal) += changes.added;
+        }
+        let displaced = &mut changes.displaced[..changes.displaced_count];
+        displaced.sort_unstable();
+        for same_owner in displaced.chunk_by(|a, b| a == b) {
+            self.remove_occupant_slots(same_owner[0], goal, same_owner.len());
+        }
+    }
+
+    pub(super) fn remove_occupant_slots(&mut self, unit_id: u32, goal: bool, count: usize) {
+        if unit_id == 0 || count == 0 {
+            return;
+        }
+        let mut entry = match self.occupant_slots.entry(unit_id) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry,
+            std::collections::hash_map::Entry::Vacant(_) => unreachable!("missing cell owner"),
         };
-        if unit_id != 0 && ids.last() != Some(&unit_id) {
-            ids.push(unit_id);
-            *dirty = true;
+        let slots = entry.get_mut().count_mut(goal);
+        *slots = slots.checked_sub(count).expect("removed more slots than the owner claimed");
+        if entry.get().is_empty() {
+            entry.remove();
         }
-        if (layer as u8) > PathfindLayerEnum::Ground as u8
-            && self.layer_cell_type(layer as u8, pos).is_some()
-        {
-            let occ = self.layer_occ.entry(layer as u8).or_default();
-            let key = (pos.x, pos.y);
-            if goal {
-                // C++ stores one goal unit per cell: a newer owner replaces it.
-                occ.occ_goal_unit.insert(key, unit_id);
-                return;
-            }
-            let previous = occ.occ_pos_unit.get(&key).copied().unwrap_or(0);
-            let goal_id = occ.occ_goal_unit.get(&key).copied().unwrap_or(0);
-            if previous != 0 && previous == goal_id {
-                return;
-            }
-            occ.occ_pos_unit.insert(key, unit_id);
-            return;
+    }
+
+    /// Bulk grid replacement and layer removal copy/drop raw cell storage.
+    pub(super) fn rebuild_occupant_slots(&mut self) {
+        self.occupant_slots.clear();
+        let positions = self.occ_pos_unit.iter().chain(
+            self.layer_occ.values().flat_map(|layer| layer.occ_pos_unit.values()),
+        );
+        for &id in positions.filter(|&&id| id != 0) {
+            self.occupant_slots.entry(id).or_default().positions += 1;
         }
-        let Some(idx) = self.bit_index(pos) else {
-            return;
-        };
-        if goal {
-            if let Some(slot) = self.occ_goal_unit.get_mut(idx) {
-                *slot = unit_id;
-            }
-            return;
+        let goals = self.occ_goal_unit.iter().chain(
+            self.layer_occ.values().flat_map(|layer| layer.occ_goal_unit.values()),
+        );
+        for &id in goals.filter(|&&id| id != 0) {
+            self.occupant_slots.entry(id).or_default().goals += 1;
         }
-        let previous = self.occ_pos_unit[idx];
-        if previous != 0 && previous == self.occ_goal_unit[idx] {
-            return;
-        }
-        self.occ_pos_unit[idx] = unit_id;
     }
 
     /// C++ TerrainLogic::objectInteractsWithBridgeLayer for the receiving grid.

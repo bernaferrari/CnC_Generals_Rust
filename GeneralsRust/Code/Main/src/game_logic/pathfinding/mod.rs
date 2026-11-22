@@ -441,6 +441,51 @@ struct HostBridgeLayer {
     ground_connect_cells: Vec<(i32, i32)>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct OccupantSlots {
+    positions: usize,
+    goals: usize,
+}
+
+impl OccupantSlots {
+    fn count_mut(&mut self, goal: bool) -> &mut usize {
+        if goal { &mut self.goals } else { &mut self.positions }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.positions == 0 && self.goals == 0
+    }
+}
+
+const MAX_PATHFIND_RADIUS: i32 = 2;
+/// Ground and elevated slots are the only two writes per footprint cell.
+const MAX_FOOTPRINT_SLOTS: usize = 2 * ((2 * MAX_PATHFIND_RADIUS + 1) as usize).pow(2);
+
+struct FootprintOccupancyChanges {
+    added: usize,
+    displaced: [u32; MAX_FOOTPRINT_SLOTS],
+    displaced_count: usize,
+}
+
+impl FootprintOccupancyChanges {
+    fn new() -> Self {
+        Self {
+            added: 0,
+            displaced: [0; MAX_FOOTPRINT_SLOTS],
+            displaced_count: 0,
+        }
+    }
+
+    fn record(&mut self, previous: Option<u32>) {
+        let Some(previous) = previous else { return };
+        self.added += 1;
+        if previous != 0 {
+            self.displaced[self.displaced_count] = previous;
+            self.displaced_count += 1;
+        }
+    }
+}
+
 /// C++ PathfindLayer pos/goal occupancy (`updatePos` / `updateGoal`).
 #[derive(Debug, Clone, Default)]
 struct LayerOccupancy {
@@ -681,14 +726,8 @@ pub struct PathfindingGrid {
     terrain_zones: Vec<u16>,
     /// C++ `PathfindCellInfo::m_posUnitID` single-occupant identity. 0 = none.
     occ_pos_unit: Vec<u32>,
-    /// Superset of the ids stamped into `occ_pos_unit` (and layer position
-    /// maps) since the position cells were last cleared, so a query binds
-    /// occupants without scanning every cell. Stale entries are harmless.
-    occ_pos_ids: Vec<u32>,
-    occ_pos_ids_dirty: bool,
-    /// Same for `occ_goal_unit` (and layer goal maps).
-    occ_goal_ids: Vec<u32>,
-    occ_goal_ids_dirty: bool,
+    /// IDs present in the current ground and layered position and goal slots.
+    occupant_slots: HashMap<u32, OccupantSlots>,
     /// C++ PathfindCellInfo::m_obstacleIsFence.
     fence_bits: Vec<u64>,
     /// C++ PathfindCellInfo::m_obstacleIsTransparent (KINDOF_CAN_SEE_THROUGH).

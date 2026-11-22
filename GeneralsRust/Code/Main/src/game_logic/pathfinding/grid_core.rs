@@ -28,10 +28,7 @@ impl PathfindingGrid {
             terrain_zones: vec![0u16; cells],
             occ_goal_unit: vec![0u32; cells],
             occ_pos_unit: vec![0u32; cells],
-            occ_pos_ids: Vec::new(),
-            occ_pos_ids_dirty: false,
-            occ_goal_ids: Vec::new(),
-            occ_goal_ids_dirty: false,
+            occupant_slots: HashMap::new(),
             occ_goal_aircraft: vec![0u32; cells],
             fence_bits: vec![0u64; words],
             transparent_bits: vec![0u64; words],
@@ -1264,8 +1261,7 @@ impl PathfindingGrid {
     pub fn clear_dynamic_blocks(&mut self) {
         self.clear_dynamic_observations();
         self.occ_goal_unit.fill(0);
-        self.occ_goal_ids.clear();
-        self.occ_goal_ids_dirty = false;
+        self.occupant_slots.clear();
         self.occ_goal_aircraft.fill(0);
         self.layer_occ.clear();
         self.query_ignore_unit_id = 0;
@@ -1280,8 +1276,10 @@ impl PathfindingGrid {
     /// Clear transient position owners when a receiving map is rebuilt.
     pub(super) fn clear_position_cells(&mut self) {
         self.occ_pos_unit.fill(0);
-        self.occ_pos_ids.clear();
-        self.occ_pos_ids_dirty = false;
+        self.occupant_slots.retain(|_, slots| {
+            slots.positions = 0;
+            slots.goals != 0
+        });
         self.layer_occ.retain(|_, occ| {
             occ.occ_pos_unit.clear();
             !occ.occ_goal_unit.is_empty()
