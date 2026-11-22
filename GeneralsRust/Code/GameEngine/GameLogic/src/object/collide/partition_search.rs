@@ -2,13 +2,14 @@
 use super::*;
 
 impl PartitionManager {
-    /// Candidate identity order is radius bucket, Y/X offset, then newest COI first.
-    /// Callers perform the original live distance and filter observations afterwards.
-    pub(crate) fn ordered_search_candidates(
+    /// C++ `getClosestObjects` cell ordering: cells sorted by radius bucket,
+    /// then Y/X offset, matching `m_radiusVec` ring visitation under
+    /// FASTER_GCO.
+    fn sorted_search_cells(
         &self,
         position: &Coord3D,
         range: f32,
-    ) -> Vec<ObjectId> {
+    ) -> Vec<(i32, i32, i32, CellCoord)> {
         let center = CellCoord::from_world_pos(position);
         let max_radius = super::super::partition_coi::world_to_cell_dist(range.max(0.0));
         let cell_size = f64::from(PARTITION_CELL_SIZE);
@@ -28,9 +29,19 @@ impl PartitionManager {
             })
             .collect::<Vec<_>>();
         cells.sort_by_key(|(radius, y, x, _)| (*radius, *y, *x));
+        cells
+    }
+
+    /// Candidate identity order is radius bucket, Y/X offset, then newest COI first.
+    /// Callers perform the original live distance and filter observations afterwards.
+    pub(crate) fn ordered_search_candidates(
+        &self,
+        position: &Coord3D,
+        range: f32,
+    ) -> Vec<ObjectId> {
         let mut seen = HashSet::new();
         let mut result = Vec::new();
-        for (_, _, _, coord) in cells {
+        for (_, _, _, coord) in self.sorted_search_cells(position, range) {
             for id in &self.cells[&coord].objects {
                 if seen.insert(*id) {
                     result.push(*id);
@@ -38,6 +49,38 @@ impl PartitionManager {
             }
         }
         result
+    }
+
+    /// C++ `getClosestObject` under FASTER_GCO (PartitionManager.cpp:3245-3315):
+    /// rings are visited innermost-first, each cell's COI list head-first with
+    /// done-flag dedup. `accept(id, best_distance)` returns `Some(distance)`
+    /// only for a strictly-closer allowed candidate; the first ring that
+    /// accepts one ends the search after that ring finishes.
+    pub(crate) fn closest_ordered_candidate(
+        &self,
+        position: &Coord3D,
+        range: f32,
+        mut accept: impl FnMut(ObjectId, f32) -> Option<f32>,
+    ) -> Option<ObjectId> {
+        let mut seen = HashSet::new();
+        let mut best: Option<(ObjectId, f32)> = None;
+        let mut accepted_ring = None;
+        for (radius, _, _, coord) in self.sorted_search_cells(position, range) {
+            if accepted_ring.is_some_and(|ring| ring != radius) {
+                break;
+            }
+            for id in &self.cells[&coord].objects {
+                if !seen.insert(*id) {
+                    continue;
+                }
+                let best_distance = best.map_or(range * range, |(_, distance)| distance);
+                if let Some(distance) = accept(*id, best_distance) {
+                    best = Some((*id, distance));
+                    accepted_ring = Some(radius);
+                }
+            }
+        }
+        best.map(|(id, _)| id)
     }
 }
 
@@ -92,6 +135,62 @@ mod tests {
             PartitionManager::new()
                 .ordered_search_candidates(&Coord3D::new(1.0, 1.0, 0.0), PARTITION_CELL_SIZE)
                 .is_empty()
+        );
+    }
+    #[test]
+    fn closest_ordered_candidate_uses_strict_distance_then_first_coi() {
+        let geometry =
+            crate::object::collide::collision_geometry::GeometryInfo::new_sphere(1.0, false);
+        let mut partition = PartitionManager::new();
+        // Registration order deliberately puts the far and +x objects first;
+        // cell visitation (dx -1 before +1 at the same ring) decides ties.
+        partition
+            .register_object(7, Coord3D::new(200.0, 0.0, 0.0), geometry)
+            .unwrap();
+        partition
+            .register_object(9, Coord3D::new(50.0, 0.0, 0.0), geometry)
+            .unwrap();
+        partition
+            .register_object(4, Coord3D::new(-20.0, 0.0, 0.0), geometry)
+            .unwrap();
+        let position = Coord3D::new(0.0, 0.0, 0.0);
+        // Equal-distance tie: the -x cell visits first at the same ring and
+        // keeps the win; the far ring is never reached once a ring accepts.
+        assert_eq!(
+            partition.closest_ordered_candidate(&position, 300.0, |id, best| {
+                let distance = match id {
+                    4 | 9 => 1600.0,
+                    7 => 14400.0,
+                    _ => f32::MAX,
+                };
+                (distance < best).then_some(distance)
+            }),
+            Some(4)
+        );
+        // Strict improvement still applies inside the ring: the later-visited
+        // +x candidate wins when its distance is strictly smaller.
+        assert_eq!(
+            partition.closest_ordered_candidate(&position, 300.0, |id, best| {
+                let distance = match id {
+                    4 => 2500.0,
+                    9 => 100.0,
+                    7 => 14400.0,
+                    _ => f32::MAX,
+                };
+                (distance < best).then_some(distance)
+            }),
+            Some(9)
+        );
+        // Strict boundary: a distance equal to range² is never closer.
+        assert_eq!(
+            partition.closest_ordered_candidate(&position, 40.0, |id, best| {
+                let distance = match id {
+                    4 | 9 => 1600.0,
+                    _ => f32::MAX,
+                };
+                (distance < best).then_some(distance)
+            }),
+            None
         );
     }
 }

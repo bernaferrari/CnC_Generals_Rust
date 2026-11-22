@@ -764,22 +764,22 @@ impl Object {
 
     /// C++ `PartitionFilterFlammable::allow`:
     /// the first installed `FlammableUpdate` decides whether the object can be
-    /// ignited by a neighboring fire. Older injected-handle harnesses fall back
-    /// to the behavior-view lookup.
+    /// ignited by a neighboring fire. Without an installed entry there is no
+    /// C++ module to ask.
     pub(crate) fn can_ignite_from_fire_spread(&self) -> bool {
-        if let Some(module) = self.find_update_module("FlammableUpdate") {
-            return module
-                .try_with_module(|module| {
-                    module
-                        .as_any_mut()
-                        .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
-                            crate::object::behavior::flammable_update::FlammableUpdate,
-                        >>()
-                        .is_some_and(|module| module.behavior_mut().would_ignite())
-                })
-                .unwrap_or(false);
-        }
-        self.find_flammable_update_module().is_some()
+        let Some(module) = self.find_update_module("FlammableUpdate") else {
+            return false;
+        };
+        module
+            .try_with_module(|module| {
+                module
+                    .as_any_mut()
+                    .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
+                        crate::object::behavior::flammable_update::FlammableUpdate,
+                    >>()
+                    .is_some_and(|module| module.behavior_mut().would_ignite())
+            })
+            .unwrap_or(false)
     }
 
     pub fn with_spawn_behavior_full_interface<R, F>(&self, f: F) -> Option<R>

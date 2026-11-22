@@ -105,11 +105,29 @@ pub trait UpdateScheduleContext {
     }
 
     /// Ignite a fire-spread target through the driving world's own scheduler
-    /// and object table. Returns true when the context owns ignition, even for
-    /// retired or nonflammable targets; compatibility contexts return false so
-    /// the caller falls back to the legacy ambient route.
-    fn ignite_fire_spread_target(&mut self, _object_id: u32) -> bool {
+    /// and object table. Scheduling-only contexts own no ignition.
+    fn ignite_fire_spread_target(&mut self, _object_id: u32) {}
+
+    /// C++ reads the source's AFLAME bit directly; owned contexts resolve the
+    /// exact owner in their own object table.
+    fn fire_spread_source_is_aflame(&self, _owner_id: u32) -> bool {
         false
+    }
+
+    /// C++ `getClosestObject` with `FROM_CENTER_3D` and the flammable filter:
+    /// the owned context answers from its own partition and object table.
+    fn closest_fire_spread_target(&self, _owner_id: u32, _range: f32) -> Option<u32> {
+        None
+    }
+
+    /// Execute the authored ember OCL for the source when this context owns a
+    /// live creation factory; scheduling-only contexts do nothing.
+    fn create_fire_spread_embers(&mut self, _owner_id: u32, _ocl: u32) {}
+
+    /// Draw the next spread delay from the owning world's logic stream.
+    /// Scheduling-only contexts keep the deterministic upper bound.
+    fn fire_spread_random_int(&mut self, _lo: i32, hi: i32) -> i32 {
+        hi
     }
 
     fn awaken(&mut self, module: &UpdateModulePtr, wake_frame: u32);

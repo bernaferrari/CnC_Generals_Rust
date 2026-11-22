@@ -1237,47 +1237,8 @@ impl Object {
     ) {
         // C++ Object::notifyFiringTrackerShotFired calls the ctor-owned
         // `m_firingTracker` pointer directly (Object.cpp:1496-1500) — no module
-        // scan exists upstream. Rust additionally routes the optional installed
-        // wrapper selected by immutable `has_firing_tracker` metadata, waking
-        // that exact registration's borrowed runtime (FiringTracker.cpp:60-160).
-        let selected = self
-            .update_module_handles
-            .iter()
-            .copied()
-            .find_map(|index| {
-                let entry = self.modules.get(index)?;
-                entry
-                    .has_firing_tracker
-                    .then(|| (index, Arc::clone(entry)))
-            });
-        if let Some((index, entry)) = selected {
-            let proxy = self
-                .update_module_registrations
-                .iter()
-                .find(|registration| registration.module_index == Some(index))
-                .map(|registration| Arc::clone(&registration.module));
-            let now = TheGameLogic::get_frame();
-            entry.with_module(|module| {
-                let tracker = module_behavior_utility_kind(module)
-                    .and_then(BehaviorUtilityModuleKindMut::into_firing_tracker)
-                    .expect("installed FiringTracker type changed")
-                    .behavior_mut();
-                let wake = tracker.shot_fired_at(self, weapon, victim_id, now);
-                if let Some(proxy) = proxy {
-                    if !crate::system::game_logic::is_cur_update_module(&proxy) {
-                        if let Ok(mut scheduler) =
-                            crate::system::game_logic::get_game_logic().lock()
-                        {
-                            if let Err(error) =
-                                scheduler.awaken_borrowed_update(&proxy, now, wake, tracker)
-                            {
-                                log::debug!("FiringTracker wake unavailable: {error}");
-                            }
-                        }
-                    }
-                }
-            });
-        } else if let Some(mut tracker) = self.firing_tracker.take() {
+        // scan exists upstream.
+        if let Some(mut tracker) = self.firing_tracker.take() {
             tracker.shot_fired_with_owner(self, weapon, victim_id);
             self.firing_tracker = Some(tracker);
         }
@@ -1292,21 +1253,6 @@ impl Object {
         ] {
             self.fire_linked_turret_slot_at_position(slot, position);
         }
-    }
-
-    pub(super) fn has_firing_tracker_module(&self) -> bool {
-        for entry in self.interface_entries(&self.update_module_handles) {
-            let found = entry.with_module(|module| {
-                matches!(
-                    module_behavior_utility_kind(module),
-                    Some(BehaviorUtilityModuleKindMut::FiringTracker(_))
-                )
-            });
-            if found {
-                return true;
-            }
-        }
-        false
     }
 
     pub fn choose_best_weapon_for_target(
@@ -2570,24 +2516,9 @@ impl Object {
     /// Get the last frame when this object fired a weapon
     /// Returns 0 if no firing tracker exists or never fired
     pub fn get_last_shot_fired_frame(&self) -> u32 {
-        for entry in self.interface_entries(&self.update_module_handles) {
-            let mut last_frame: Option<u32> = None;
-            entry.with_module(|module| {
-                if let Some(tracker_module) = module_behavior_utility_kind(module)
-                    .and_then(BehaviorUtilityModuleKindMut::into_firing_tracker)
-                {
-                    last_frame = Some(tracker_module.behavior().last_shot_frame());
-                }
-            });
-            if let Some(frame) = last_frame {
-                return frame;
-            }
-        }
-
-        if let Some(tracker) = &self.firing_tracker {
-            return tracker.get_last_shot_frame();
-        }
-        0
+        self.firing_tracker
+            .as_ref()
+            .map_or(0, |tracker| tracker.get_last_shot_frame())
     }
 
     pub(super) fn all_weapon_fire_flags(slot: WeaponSlotType) -> ModelConditionFlags {
@@ -2819,26 +2750,6 @@ impl Object {
     }
 
     pub fn get_num_consecutive_shots_fired_at_target(&self, victim_id: ObjectID) -> i32 {
-        for entry in self.interface_entries(&self.update_module_handles) {
-            if !entry.has_firing_tracker {
-                continue;
-            }
-            let mut count: Option<i32> = None;
-            entry.with_module(|module| {
-                if let Some(tracker_module) = module_behavior_utility_kind(module)
-                    .and_then(BehaviorUtilityModuleKindMut::into_firing_tracker)
-                {
-                    count = Some(
-                        tracker_module
-                            .behavior()
-                            .get_num_consecutive_shots_at_victim(victim_id),
-                    );
-                }
-            });
-            if let Some(count) = count {
-                return count;
-            }
-        }
         self.firing_tracker
             .as_ref()
             .map(|t| t.get_num_consecutive_shots_at_victim(victim_id))

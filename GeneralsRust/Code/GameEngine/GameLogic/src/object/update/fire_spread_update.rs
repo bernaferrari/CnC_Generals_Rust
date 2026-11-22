@@ -3,11 +3,8 @@
 // Ported to Rust
 
 use crate::common::types::PartitionManagerInterface;
-use crate::contain_module_overrides::ActiveBehaviorModule;
-use crate::modules::FlammableUpdateExt;
-use crate::object::ObjectArcExt;
-use crate::object::behavior::flammable_update::FlammableUpdate;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
+use crate::object::object_thing::ObjectArcExt;
 use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -165,52 +162,44 @@ impl game_engine::common::thing::update_module::UpdateModuleInterface for FireSp
         FireSpreadUpdate::update_simple(self)
     }
 
-    /// Scheduled dispatch ignites the chosen target through the driving
-    /// world's own scheduler (C++ FireSpreadUpdate.cpp:124-130 happens inside
-    /// the update). Contexts that cannot own ignition take the legacy route.
+    /// C++ FireSpreadUpdate.cpp:93-135 through the driving context's owned
+    /// world: aflame check, authored OCL embers, partition closest-target
+    /// selection, target ignition, and the logic-random retry draw.
     fn update_scheduled(
         &mut self,
         context: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self.update_with_ignition(|id| {
-            if !context.ignite_fire_spread_target(id) {
-                ignite_legacy_target(id);
+        if !context.fire_spread_source_is_aflame(self.thing) {
+            return Ok(UpdateSleepTime::Forever);
+        }
+        let (ocl, range, min, max) = {
+            let data = self.module_data.read();
+            let data = data
+                .as_any()
+                .downcast_ref::<FireSpreadUpdateModuleData>()
+                .expect("invalid FireSpread data");
+            (
+                data.ocl_embers,
+                data.spread_try_range,
+                data.min_spread_try_delay,
+                data.max_spread_try_delay,
+            )
+        };
+        if let Some(ocl) = ocl {
+            context.create_fire_spread_embers(self.thing, ocl);
+        }
+        if range != 0.0 {
+            if let Some(id) = context.closest_fire_spread_target(self.thing, range) {
+                context.ignite_fire_spread_target(id);
             }
-        }))
+        }
+        Ok(UpdateSleepTime::Frames(
+            (context.fire_spread_random_int(min as i32, max as i32) as u32).max(1),
+        ))
     }
 
     fn record_scheduled_wake(&mut self, frame: u32, phase: crate::modules::SleepyUpdatePhase) {
         self.next_call_frame_and_phase = (frame.min(0x3fff_ffff) << 2) | phase as u32;
-    }
-}
-
-/// Legacy compatibility ignition: the ambient registry supplies the target
-/// and the compatibility `try_to_ignite` owns scheduling. The first installed
-/// `FlammableUpdate` entry wins (C++ `Object::findUpdateModule` first-match);
-/// injected-handle harnesses keep the behavior-view fallback.
-fn ignite_legacy_target(id: ObjectID) {
-    if let Some(owner) = crate::object::OBJECT_REGISTRY.get_object(id) {
-        let installed = owner
-            .read()
-            .ok()
-            .and_then(|object| object.find_update_module("FlammableUpdate"));
-        if let Some(module) = installed {
-            module.with_module(|module| {
-                if let Some(wrapper) = module
-                    .as_any_mut()
-                    .downcast_mut::<ActiveBehaviorModule<FlammableUpdate>>()
-                {
-                    wrapper.behavior_mut().try_to_ignite();
-                }
-            });
-            return;
-        }
-    }
-    if let Some(flammable) = crate::object::OBJECT_REGISTRY
-        .with_object(id, |obj| obj.find_flammable_update_module())
-        .flatten()
-    {
-        flammable.try_to_ignite_without_context();
     }
 }
 
@@ -283,78 +272,10 @@ impl FireSpreadUpdate {
         UpdateSleepTime::Frames(self.calc_next_spread_delay())
     }
 
+    /// Scheduling-only `update_simple` has no owning context — the C++ body
+    /// cannot run without a source object, partition, or logic-random owner.
     pub fn update_simple(&mut self) -> UpdateSleepTime {
-        self.update_with_ignition(ignite_legacy_target)
-    }
-
-    /// C++ FireSpreadUpdate.cpp:93-135 ordered body. OCL embers, closest-
-    /// flammable selection, and the spread delay are unchanged; only the final
-    /// target-ignition effect is supplied by the caller.
-    fn update_with_ignition(&mut self, mut ignite: impl FnMut(ObjectID)) -> UpdateSleepTime {
-        // A cleared owner cannot represent a live flammable object. Match
-        // the typed missing-owner adapter without inspecting a peer registry.
-        if self.thing == crate::common::INVALID_ID {
-            return UpdateSleepTime::Forever;
-        }
-        let (ocl_embers, spread_try_range) = {
-            let guard = self.module_data.read();
-            let data = guard.as_any().downcast_ref::<FireSpreadUpdateModuleData>().expect("invalid FireSpread data");
-            (data.ocl_embers, data.spread_try_range)
-        };
-
-        let object_to_light = {
-            let Some((aflame, pos, orientation)) =
-                crate::object::OBJECT_REGISTRY.with_object(self.thing, |me| {
-                    (
-                        me.get_status_bits().test(ObjectStatus::Aflame),
-                        *me.get_position(),
-                        me.get_orientation(),
-                    )
-                })
-            else {
-                return UpdateSleepTime::Forever;
-            };
-
-            if !aflame {
-                return UpdateSleepTime::Forever;
-            }
-
-            if let Some(ocl_key) = ocl_embers {
-                if let Some(ocl_name) = NameKeyGenerator::key_to_name(ocl_key as NameKeyType) {
-                    if let Some(ocl) =
-                        crate::helpers::TheObjectCreationListStore::find_object_creation_list(
-                            &ocl_name,
-                        )
-                    {
-                        let ctx = crate::object_creation_list::live_creation_context();
-                        let _ = crate::object::OBJECT_REGISTRY.with_object(self.thing, |me| {
-                            ocl.create_with_angle(&ctx, Some(me), &pos, &pos, orientation, 0)
-                        });
-                    }
-                }
-            }
-
-            if spread_try_range != 0.0 {
-                crate::object::OBJECT_REGISTRY
-                    .with_object(self.thing, |me| {
-                        crate::helpers::ThePartitionManagerBridge.get_closest_object_id(
-                            me,
-                            spread_try_range,
-                            PartitionDistanceType::Center3D,
-                            &[PartitionFilter::Flammable],
-                        )
-                    })
-                    .flatten()
-            } else {
-                None
-            }
-        };
-
-        if let Some(object_to_light_id) = object_to_light {
-            ignite(object_to_light_id);
-        }
-
-        UpdateSleepTime::Frames(self.calc_next_spread_delay())
+        UpdateSleepTime::Forever
     }
 
     /// Start fire spreading behavior
@@ -393,6 +314,8 @@ impl FireSpreadUpdate {
         draw(min, max).max(1)
     }
 
+    /// C++ draws `getGameLogicRandomValue(min, max)` unconditionally — equal
+    /// bounds still consume one draw from the supplied logic stream.
     fn wake_delay_if_aflame_with_random(
         &self,
         is_aflame: bool,
@@ -400,18 +323,7 @@ impl FireSpreadUpdate {
     ) -> Option<u32> {
         is_aflame.then(|| {
             self.calc_next_spread_delay_with(|min, max| {
-                if min >= max {
-                    return min;
-                }
-                // Same inclusive wrapping range arithmetic as the existing Common
-                // integer adapter; only the explicitly supplied stream changes.
-                let lo = min as i32;
-                let hi = max as i32;
-                let delta = hi.wrapping_sub(lo).wrapping_add(1) as u32;
-                if delta == 0 {
-                    return max;
-                }
-                ((random.next_u32() % delta) as i32).wrapping_add(lo) as u32
+                random.next_int(min as i32, max as i32) as u32
             })
         })
     }
@@ -553,19 +465,6 @@ impl FireSpreadControlInterface for FireSpreadUpdateModule {
         Ok(self
             .behavior
             .wake_delay_if_aflame_with_random(is_aflame, random))
-    }
-}
-
-trait FlammableUpdateGlobalExt {
-    fn try_to_ignite_without_context(&self);
-}
-
-impl FlammableUpdateGlobalExt for crate::object::BehaviorInterfaceHandle {
-    fn try_to_ignite_without_context(&self) {
-        let mut behavior = self.clone();
-        if let Ok(mut guard) = behavior.access() {
-            guard.try_to_ignite_flammable();
-        }
     }
 }
 

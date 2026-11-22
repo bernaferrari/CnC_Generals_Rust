@@ -500,10 +500,7 @@ impl Object {
     pub fn run_on_create(&mut self) {
         self.install_template_weapons();
         self.run_create_hooks(false);
-        if self.firing_tracker.is_none()
-            && !self.has_firing_tracker_module()
-            && self.weapon_set.has_any_weapons()
-        {
+        if self.firing_tracker.is_none() && self.weapon_set.has_any_weapons() {
             self.firing_tracker = Some(Box::new(FiringTracker::new(self.id)));
         }
     }

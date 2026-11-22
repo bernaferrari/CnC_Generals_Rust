@@ -876,9 +876,6 @@ fn behavior_production_rally_kind(
 }
 
 enum BehaviorUtilityModuleKindMut<'a> {
-    FiringTracker(
-        &'a mut crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule,
-    ),
     HordeUpdate(&'a mut crate::object::behavior::horde_update::HordeUpdateModule),
     SpawnBehavior(&'a mut crate::object::behavior::spawn_behavior::SpawnBehaviorModule),
     SlavedUpdate(&'a mut crate::object::update::slaved_update::SlavedUpdateModule),
@@ -893,16 +890,6 @@ enum BehaviorUtilityModuleKindMut<'a> {
 }
 
 impl<'a> BehaviorUtilityModuleKindMut<'a> {
-    fn into_firing_tracker(
-        self,
-    ) -> Option<&'a mut crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule>
-    {
-        match self {
-            Self::FiringTracker(module) => Some(module),
-            _ => None,
-        }
-    }
-
     fn into_horde_interface(self) -> Option<&'a mut dyn crate::modules::HordeUpdateInterface> {
         match self {
             Self::HordeUpdate(module) => Some(module.behavior_mut()),
@@ -961,8 +948,7 @@ impl<'a> BehaviorUtilityModuleKindMut<'a> {
                 let _ = module.behavior_mut().on_capture(None, None);
             }
             Self::PropagandaTower(module) => module.behavior_mut().on_capture(old_owner, new_owner),
-            Self::FiringTracker(_)
-            | Self::HordeUpdate(_)
+            Self::HordeUpdate(_)
             | Self::SpawnBehavior(_)
             | Self::SlavedUpdate(_)
             | Self::PowerPlantUpdate(_) => {}
@@ -973,14 +959,6 @@ impl<'a> BehaviorUtilityModuleKindMut<'a> {
 fn module_behavior_utility_kind(
     module: &mut dyn Module,
 ) -> Option<BehaviorUtilityModuleKindMut<'_>> {
-    if module
-        .as_any()
-        .is::<crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule>()
-    {
-        return (module as &mut dyn Any)
-            .downcast_mut::<crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule>()
-            .map(|m| BehaviorUtilityModuleKindMut::FiringTracker(m));
-    }
     if module
         .as_any()
         .is::<crate::object::behavior::horde_update::HordeUpdateModule>()
@@ -1460,7 +1438,6 @@ pub struct ModuleEntry {
     module_data: ModuleDataHandle,
     module: Mutex<Box<dyn Module>>,
     has_dock_update: bool,
-    has_firing_tracker: bool,
     has_flight_deck: bool,
     has_stealth: bool,
     has_spy_vision: bool,
@@ -1487,9 +1464,6 @@ impl ModuleEntry {
         // The concrete module type never changes after installation. This is
         // immutable interface metadata, not another mutable dock runtime.
         let has_dock_update = module_dock_update_kind(module.as_mut()).is_some();
-        let has_firing_tracker = module_behavior_utility_kind(module.as_mut())
-            .and_then(BehaviorUtilityModuleKindMut::into_firing_tracker)
-            .is_some();
         let has_flight_deck = module_production_behavior_kind(module.as_mut())
             .and_then(ProductionBehaviorModuleKindMut::into_flight_deck_behavior)
             .is_some();
@@ -1509,7 +1483,6 @@ impl ModuleEntry {
             module_data,
             module: Mutex::new(module),
             has_dock_update,
-            has_firing_tracker,
             has_flight_deck,
             has_stealth,
             has_spy_vision,

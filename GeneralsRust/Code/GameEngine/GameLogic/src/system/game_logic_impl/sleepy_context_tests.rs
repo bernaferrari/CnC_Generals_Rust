@@ -629,7 +629,6 @@ fn fire_spread_scheduled_ignition_uses_the_already_borrowed_scheduler() {
     use crate::object::behavior::flammable_update::{
         FlammableUpdate, FlammableUpdateModuleData,
     };
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::update::fire_spread_update::{
         FireSpreadUpdate, FireSpreadUpdateModule, FireSpreadUpdateModuleData,
     };
@@ -642,6 +641,9 @@ fn fire_spread_scheduled_ignition_uses_the_already_borrowed_scheduler() {
             min_spread_try_delay: 45,
             max_spread_try_delay: 45,
             spread_try_range: 50.0,
+            // Deliberately unresolvable list: the scheduled path calls the
+            // ember hook and continues without an owned OCL authority.
+            ocl_embers: Some(71),
             ..Default::default()
         });
         let (mut source_object, source_proxy) = Object::installed_update_proxy_for_test(
@@ -718,20 +720,100 @@ fn fire_spread_scheduled_ignition_uses_the_already_borrowed_scheduler() {
             )
         };
 
-        OBJECT_REGISTRY.register_object(0xF501, &source);
-        OBJECT_REGISTRY.register_object(0xF502, &target);
+        // Boundary decoy: canonical installed FlammableUpdate exactly on the
+        // strict radius edge — admitted everywhere but rejected by distance.
+        let boundary = Arc::new(RwLock::new(Object::new_test(0xF503, 100.0)));
+        let boundary_data = ModuleDataHandle::new(FlammableUpdateModuleData {
+            aflame_duration: 90,
+            aflame_damage_delay: 30,
+            ..Default::default()
+        });
+        let boundary_flammable =
+            FlammableUpdate::new_with_module_data(boundary.clone(), boundary_data.clone())
+                .expect("boundary flammable");
+        {
+            let mut guard = boundary.write().unwrap();
+            guard
+                .set_position(&crate::common::Coord3D {
+                    x: 50.0,
+                    y: 0.0,
+                    z: 0.0,
+                })
+                .expect("boundary position");
+            guard.install_update_module(
+                "FlammableUpdate",
+                Box::new(ActiveBehaviorModule::<FlammableUpdate>::new(
+                    "FlammableUpdate",
+                    boundary_data.clone(),
+                    boundary_flammable,
+                )),
+                boundary_data,
+            );
+            guard.attach_installed_update_proxies_for_test();
+        }
+        let boundary_flammable_proxy = {
+            let guard = boundary.read().unwrap();
+            guard
+                .named_update_registrations("FlammableUpdate")
+                .pop()
+                .unwrap()
+        };
 
         // All ambient-frame reads (position setters, AreaTracker) are done;
-        // only now hold the compatibility scheduler through processing.
+        // only now hold the compatibility scheduler through processing. The
+        // driving context resolves candidates through this world's partition
+        // and objects table — the ambient OBJECT_REGISTRY plays no part.
         let mut world = crate::system::game_logic::get_game_logic()
             .lock()
             .unwrap();
         world.frame = 20;
         world.admit_scheduling_owner(0xF501, source.clone());
         world.admit_scheduling_owner(0xF502, target.clone());
+        world.admit_scheduling_owner(0xF503, boundary.clone());
         world.register_sleepy_update_module(0xF501, source_proxy.clone(), 20);
         world.register_sleepy_update_module(0xF502, target_flammable_proxy.clone(), 100);
         world.register_sleepy_update_module(0xF502, target_spread_proxy.clone(), 100);
+        world.register_sleepy_update_module(0xF503, boundary_flammable_proxy.clone(), 100);
+        {
+            use crate::object::collide::collision_geometry::GeometryInfo;
+            let mut partition = world.partition_manager_mut();
+            let geometry = GeometryInfo::new_sphere(5.0, false);
+            partition
+                .register_object(
+                    0xF502,
+                    crate::common::Coord3D {
+                        x: 5.0,
+                        y: 0.0,
+                        z: 0.0,
+                    },
+                    geometry,
+                )
+                .unwrap();
+            partition
+                .register_object(
+                    0xF503,
+                    crate::common::Coord3D {
+                        x: 50.0,
+                        y: 0.0,
+                        z: 0.0,
+                    },
+                    geometry,
+                )
+                .unwrap();
+            // A partition COI the objects table cannot resolve — closer than
+            // the real target — is skipped rather than selected.
+            partition
+                .register_object(
+                    0xF504,
+                    crate::common::Coord3D {
+                        x: 2.0,
+                        y: 0.0,
+                        z: 0.0,
+                    },
+                    geometry,
+                )
+                .unwrap();
+        }
 
         let _in_update_frame = crate::system::game_logic::enter_update_frame(20);
         world.process_sleepy_updates(20);
@@ -755,6 +837,17 @@ fn fire_spread_scheduled_ignition_uses_the_already_borrowed_scheduler() {
         assert_eq!(count_registration(&world, &target_flammable_proxy), 1);
         assert_eq!(count_registration(&world, &target_spread_proxy), 1);
         assert!(target
+            .read()
+            .unwrap()
+            .get_status_bits()
+            .contains(crate::common::ObjectStatusMaskType::AFLAME));
+        // Exact-range boundary stays cold: strict 3-D distance rejected it
+        // and its own Flammable registration kept its 100-frame wake.
+        assert_eq!(
+            world.sleepy_entry_for(&boundary_flammable_proxy),
+            Some((0xF503, 100))
+        );
+        assert!(!boundary
             .read()
             .unwrap()
             .get_status_bits()

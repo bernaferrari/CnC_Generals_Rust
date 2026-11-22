@@ -50,6 +50,34 @@ fn disabled_module_should_process(
 }
 
 /// Borrow only scheduling state, not the mutable match or an ambient singleton.
+/// The driving world's logic stream for FireSpread draws. An unbound context
+/// (manually constructed fixture without `WorldServices`) yields `hi` like
+/// `fire_spread_random_int`, never the ambient route.
+struct FireSpreadRandom<'w>(Option<&'w crate::system::engine_stores::WorldServices>);
+
+impl game_engine::common::common_services::LogicRandom for FireSpreadRandom<'_> {
+    fn next_u32(&mut self) -> u32 {
+        use game_engine::common::common_services::ReceivingLogicRandom;
+        self.0.map_or(0, |owner| {
+            ReceivingLogicRandom::new(owner.common()).next_u32()
+        })
+    }
+
+    fn next_int(&mut self, lo: i32, hi: i32) -> i32 {
+        use game_engine::common::common_services::ReceivingLogicRandom;
+        self.0.map_or(hi, |owner| {
+            ReceivingLogicRandom::new(owner.common()).next_int(lo, hi)
+        })
+    }
+
+    fn next_real(&mut self, lo: f32, hi: f32) -> f32 {
+        use game_engine::common::common_services::ReceivingLogicRandom;
+        self.0.map_or(hi, |owner| {
+            ReceivingLogicRandom::new(owner.common()).next_real(lo, hi)
+        })
+    }
+}
+
 struct UpdateExecutionContext<'a> {
     queue: &'a mut SleepyUpdateQueue,
     normal: &'a mut Vec<NormalUpdateEntry>,
@@ -61,6 +89,8 @@ struct UpdateExecutionContext<'a> {
         Option<game_engine::common::thing::update_module::UpgradeProductionObservation>,
     objects: &'a HashMap<ObjectID, Arc<RwLock<Object>>>,
     owner_id: ObjectID,
+    partition: &'a RwLock<PartitionManager>,
+    world: Option<&'a crate::system::engine_stores::WorldServices>,
     normal_cursor: Option<&'a mut usize>,
     minefield_drain: Option<f32>,
     minefield: Option<MinefieldWindow<'a>>,
@@ -153,15 +183,71 @@ impl UpdateScheduleContext for UpdateExecutionContext<'_> {
         true
     }
 
-    fn ignite_fire_spread_target(&mut self, object_id: u32) -> bool {
+    fn ignite_fire_spread_target(&mut self, object_id: u32) {
         if let Some(owner) = self.objects.get(&object_id).cloned() {
-            if let Err(error) =
-                crate::object::behavior::flammable_update::ignite_fire_spread_target(&owner, self)
-            {
+            let mut random = FireSpreadRandom(self.world);
+            if let Err(error) = crate::object::behavior::flammable_update::ignite_fire_spread_target(
+                &owner,
+                &mut random,
+                self,
+            ) {
                 log::debug!("Fire-spread ignition unavailable: {error}");
             }
         }
-        true
+    }
+
+    fn fire_spread_source_is_aflame(&self, owner_id: u32) -> bool {
+        if owner_id != self.owner_id {
+            return false;
+        }
+        self.objects
+            .get(&owner_id)
+            .and_then(|object| object.read().ok())
+            .is_some_and(|object| {
+                object
+                    .get_status_bits()
+                    .contains(crate::common::ObjectStatusMaskType::AFLAME)
+            })
+    }
+
+    fn closest_fire_spread_target(&self, owner_id: u32, range: f32) -> Option<u32> {
+        if owner_id != self.owner_id {
+            return None;
+        }
+        let source_position = *self.objects.get(&owner_id)?.read().ok()?.get_position();
+        let partition = self.partition.read().ok()?;
+        partition.closest_ordered_candidate(&source_position, range, |id, best_distance| {
+            if id == owner_id {
+                return None;
+            }
+            let object = self.objects.get(&id)?.read().ok()?;
+            if object.is_destroyed() {
+                return None;
+            }
+            // C++ runs the distance proc before the flammable filter: a
+            // candidate failing the strict radius never reaches the module.
+            let position = object.get_position();
+            let dx = position.x - source_position.x;
+            let dy = position.y - source_position.y;
+            let dz = position.z - source_position.z;
+            let distance = dx * dx + dy * dy + dz * dz;
+            (distance < best_distance && object.can_ignite_from_fire_spread())
+                .then_some(distance)
+        })
+    }
+
+    fn create_fire_spread_embers(&mut self, owner_id: u32, ocl: u32) {
+        // OCL creation runs `ObjectFactory::create_object_inner`, which takes
+        // `get_game_logic().lock()` — already held by this dispatcher — so the
+        // effect needs a borrowed object-creation owner (not yet ported).
+        log::debug!(
+            "Core scheduled FireSpread owner {owner_id}: ember list {ocl} requires a borrowed object-creation owner"
+        );
+    }
+
+    fn fire_spread_random_int(&mut self, lo: i32, hi: i32) -> i32 {
+        use game_engine::common::common_services::LogicRandom;
+        FireSpreadRandom(self.world).next_int(lo, hi)
     }
 
     fn frame(&self) -> u32 {
@@ -373,6 +459,7 @@ impl GameLogic {
         mut minefield: Option<&mut dyn MinefieldPlacementServices>,
     ) {
         let loading_map = self.is_loading_map();
+        let world = self.owning_world_services();
         let mut minefield_effects = Vec::new();
         // C++ GameLogic.cpp:3698–3736 keeps a module registered during update,
         // then rebalances it immediately before executing the next callback.
@@ -423,6 +510,8 @@ impl GameLogic {
                             upgrade_observation,
                             objects: &self.objects,
                             owner_id: object_id,
+                            partition: self.partition.as_ref(),
+                            world: world.as_deref(),
                             normal_cursor: None,
                             minefield_drain: None,
                             minefield: minefield.as_mut().map(|services| MinefieldWindow {
@@ -630,6 +719,7 @@ impl GameLogic {
         mut minefield: Option<&mut dyn MinefieldPlacementServices>,
     ) {
         let loading_map = self.is_loading_map();
+        let world = self.owning_world_services();
         let mut minefield_effects = Vec::new();
         let phases = [
             SleepyUpdatePhase::Initial,
@@ -702,6 +792,8 @@ impl GameLogic {
                         upgrade_observation,
                         objects: &self.objects,
                         owner_id: object_id,
+                        partition: self.partition.as_ref(),
+                        world: world.as_deref(),
                         normal_cursor: Some(&mut cursor),
                         minefield_drain: None,
                         minefield: minefield.as_mut().map(|services| MinefieldWindow {
@@ -794,6 +886,7 @@ impl GameLogic {
         }
         let mut update = handle.write().expect("production continuation poisoned");
         let loading_map = self.is_loading_map();
+        let world = self.owning_world_services();
         let mut context = UpdateExecutionContext {
             queue: &mut self.sleepy_updates,
             normal: &mut self.normal_updates,
@@ -804,6 +897,8 @@ impl GameLogic {
             upgrade_observation: None,
             objects: &self.objects,
             owner_id: object_id,
+            partition: self.partition.as_ref(),
+            world: world.as_deref(),
             normal_cursor: None,
             minefield_drain: None,
             minefield: None,

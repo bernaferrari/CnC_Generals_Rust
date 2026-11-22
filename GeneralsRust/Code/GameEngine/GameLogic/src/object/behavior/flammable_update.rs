@@ -231,7 +231,7 @@ impl FlammableUpdate {
                 let _ = crate::helpers::TheGameLogic::register_update_module(
                     id, proxy, deadline,
                 );
-            })
+            }, None)
             .and_then(|sleep| {
                 let Some(sleep) = sleep else {
                     return Ok(());
@@ -260,7 +260,8 @@ impl FlammableUpdate {
 
     /// Compatibility and scheduled-target ignition share the audio and spread
     /// wiring; only the spread-wake delivery differs (ambient registry write
-    /// vs the driving world's scheduler).
+    /// vs the driving world's scheduler). A supplied logic stream replaces the
+    /// ambient draw for the target's spread retry.
     fn try_to_ignite_at_with_spread_wake(
         &mut self,
         frame: UnsignedInt,
@@ -269,6 +270,7 @@ impl FlammableUpdate {
             game_engine::common::thing::update_module::UpdateModulePtr,
             UnsignedInt,
         ),
+        mut random: Option<&mut dyn game_engine::common::common_services::LogicRandom>,
     ) -> Result<Option<UpdateSleepTime>, String> {
         let owner_audio = self.audio.clone();
         let mut audio = |event: &crate::common::audio::AudioEventRts| {
@@ -285,9 +287,15 @@ impl FlammableUpdate {
             };
             let delay = module
                 .try_with_module(|module| {
-                    module
-                        .get_fire_spread_control_interface()
-                        .and_then(|spread| spread.wake_delay_if_aflame(is_aflame))
+                    let control = module.get_fire_spread_control_interface();
+                    match (control, random.as_deref_mut()) {
+                        (Some(control), Some(random)) => control
+                            .wake_delay_if_aflame_with_random(is_aflame, random)
+                            .ok()
+                            .flatten(),
+                        (Some(control), None) => control.wake_delay_if_aflame(is_aflame),
+                        _ => None,
+                    }
                 })
                 .flatten();
             if let (Some(delay), Some(proxy)) = (delay, proxy) {
@@ -726,6 +734,7 @@ impl Snapshotable for FlammableUpdate {
 /// ambient scheduler is re-entered while module borrows are held.
 pub(crate) fn ignite_fire_spread_target(
     owner: &Arc<RwLock<GameObject>>,
+    random: &mut dyn game_engine::common::common_services::LogicRandom,
     context: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
 ) -> Result<(), String> {
     let Some((module, proxy)) = owner
@@ -736,15 +745,21 @@ pub(crate) fn ignite_fire_spread_target(
         return Ok(());
     };
     let frame = context.frame();
+    // The target's FireSpread retry draws from the same context-owned logic
+    // stream as the source update — never the ambient route.
     let sleep = module.with_module(|module| -> Result<Option<UpdateSleepTime>, String> {
         let flammable = module
             .as_any_mut()
             .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<FlammableUpdate>>()
             .ok_or("canonical Flammable module mismatch")?
             .behavior_mut();
-        flammable.try_to_ignite_at_with_spread_wake(frame, |_, proxy, deadline| {
-            context.awaken(&proxy, deadline);
-        })
+        flammable.try_to_ignite_at_with_spread_wake(
+            frame,
+            |_, proxy, deadline| {
+                context.awaken(&proxy, deadline);
+            },
+            Some(random),
+        )
     })?;
     if let (Some(sleep), Some(proxy)) = (sleep, proxy) {
         context.awaken(&proxy, ignition_wake_frame(frame, sleep));
