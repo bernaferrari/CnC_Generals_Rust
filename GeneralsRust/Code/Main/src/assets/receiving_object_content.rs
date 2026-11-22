@@ -86,11 +86,10 @@ impl ReceivingObjectContent {
             gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory)?;
             let mut modules = ReceivingModuleContent::new(factory);
             modules.admit_action_definitions(actions);
-            for (path, text) in &sources {
-                modules
-                    .load_ini_text(text, INILoadType::Overwrite)
-                    .map_err(|error| error.context(format!("Receiving Object source '{path}'")))?;
-            }
+            modules.load_ini_sources(
+                sources.iter().map(|(path, text)| (path.as_str(), text.as_str())),
+                INILoadType::Overwrite,
+            )?;
             modules.validate_production_prerequisites()?;
             // Boot projections depend only on the source bytes: engines of
             // one host share them read-only (map overrides copy on write).

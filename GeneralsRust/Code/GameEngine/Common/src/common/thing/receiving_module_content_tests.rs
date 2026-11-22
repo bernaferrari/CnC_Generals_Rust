@@ -342,6 +342,38 @@ fn rejected_receiving_file_preserves_live_plans_namespace_and_module_xfer_list()
 }
 
 #[test]
+fn named_object_batch_preserves_inheritance_and_rolls_back_a_late_file() {
+    let mut owner = content();
+    owner
+        .load_ini_text(
+            "Object Resident\nDraw = ReceivingDraw ResidentTag\nEnd\nEnd",
+            INILoadType::Overwrite,
+        )
+        .unwrap();
+    let resident = owner.admitted_template("Resident").unwrap();
+    let count = owner.modules.retained_module_data_count();
+    let parent = ("Parent.ini", "Object BatchParent\nDraw = ReceivingDraw ParentTag\nEnd\nEnd");
+    let broken = ("Broken.ini", "Object Broken\nUnknownField = Yes\nEnd");
+    let error = owner
+        .load_ini_sources([parent, broken], INILoadType::Overwrite)
+        .unwrap_err();
+    assert!(error.to_string().contains("Receiving Object source 'Broken.ini'"));
+    assert!(owner.admitted_template("BatchParent").is_none());
+    assert_eq!(owner.modules.retained_module_data_count(), count);
+    assert!(Arc::ptr_eq(&resident, &owner.admitted_template("Resident").unwrap()));
+
+    let child = ("Child.ini", "ChildObject BatchChild BatchParent\nEnd");
+    assert_eq!(
+        owner.load_ini_sources([parent, child], INILoadType::Overwrite).unwrap(),
+        2
+    );
+    let parent = owner.admitted_template("BatchParent").unwrap();
+    let child = owner.admitted_template("BatchChild").unwrap();
+    assert!(ModuleDataHandle::ptr_eq(first_data(&parent), first_data(&child)));
+    assert!(Arc::ptr_eq(&resident, &owner.admitted_template("Resident").unwrap()));
+}
+
+#[test]
 fn receiving_scalar_link_key_and_module_tag_share_source_order_without_peer_namespace() {
     let source = "Object ScalarA\nMaxSimultaneousLinkKey = OwnedGroup\nDraw = ReceivingDraw OwnedTag\nEnd\nEnd\nObject ScalarB\nMaxSimultaneousLinkKey = OwnedGroup\nEnd";
     let mut first = content();

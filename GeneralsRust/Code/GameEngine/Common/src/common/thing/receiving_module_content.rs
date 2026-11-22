@@ -396,6 +396,30 @@ impl ReceivingModuleContent {
         Ok(loaded)
     }
 
+    /// Admit an ordered set of named Object sources atomically. Parse each
+    /// file in its own context and preserve the existing live handles only
+    /// after the complete sequence succeeds.
+    pub fn load_ini_sources<'a>(
+        &mut self,
+        sources: impl IntoIterator<Item = (&'a str, &'a str)>,
+        load_type: INILoadType,
+    ) -> Result<usize, ReceivingModuleError> {
+        let mut sources = sources.into_iter().peekable();
+        if sources.peek().is_none() {
+            return Ok(0);
+        }
+
+        let (mut candidate, data_remap, templates, admissions) = self.clone_for_transaction();
+        let mut loaded = 0;
+        for (path, content) in sources {
+            loaded += candidate
+                .load_ini_text_in_place(content, load_type)
+                .map_err(|error| error.context(format!("Receiving Object source '{path}'")))?;
+        }
+        self.commit_transaction(candidate, data_remap, templates, admissions);
+        Ok(loaded)
+    }
+
     /// Apply the original ThingFactory reset and Map/Solo override sequence
     /// within one draft. Validate dependent host definitions before restoring
     /// the live template and ModuleData identities in the accepted draft.
