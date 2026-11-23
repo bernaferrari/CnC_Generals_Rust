@@ -246,6 +246,16 @@ impl TreeTypeInfo {
     }
 }
 
+/// A source-space caster for the shared `W3DTreeBuffer` terrain decal.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TreeDecalCaster {
+    pub drawable_id: u32,
+    /// Drawable placement in the original Z-up world.
+    pub position: Vec3,
+    /// `Shadow::setSize` arguments. The negative Y defines the V orientation.
+    pub signed_size: Vec2,
+}
+
 /// C++ `TTree`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TreeEntry {
@@ -595,6 +605,24 @@ impl W3DTreeBuffer {
 
     pub fn tree_types(&self) -> &[TreeTypeInfo] {
         &self.tree_types
+    }
+
+    /// The authored casters in admission order, after view cull and before
+    /// toppling/sinking. The caller owns decal readiness and display policy.
+    pub fn visible_decal_casters(&self) -> impl Iterator<Item = TreeDecalCaster> + '_ {
+        self.trees.iter().filter_map(|tree| {
+            if !tree.visible
+                || matches!(tree.topple_state, W3DToppleState::Falling | W3DToppleState::Down)
+            {
+                return None;
+            }
+            let tree_type = self.tree_types.get(usize::try_from(tree.tree_type).ok()?)?;
+            tree_type.do_shadow.then_some(TreeDecalCaster {
+                drawable_id: tree.drawable_id,
+                position: tree.location,
+                signed_size: Vec2::new(tree_type.shadow_size, -tree_type.shadow_size),
+            })
+        })
     }
 
     pub fn area_partition(&self) -> &[i16] {

@@ -48,6 +48,7 @@ impl TerrainVisualImpl {
         self.skybox_textures = [None, None, None, None, None];
         self.road_named_bind_groups.clear();
         self.projected_shadow_gpu = None;
+        self.tree_decal_texture_requested = false;
         self.tank_track_draws = TankTrackDraws::default();
         self.road_texture = None;
         self.road_sampler = None;
@@ -1245,15 +1246,24 @@ impl TerrainVisualImpl {
     }
 
     pub fn record_chunk_draws(&self, pass: &mut RenderPass<'_>) {
-        self.record_chunk_draws_impl(pass, true);
+        self.record_chunk_draws_impl(pass, true, true);
     }
 
     /// Main completes the waypoint overlay after shroud and before the bibs.
     pub fn record_chunk_draws_before_bibs(&self, pass: &mut RenderPass<'_>) {
-        self.record_chunk_draws_impl(pass, false);
+        self.record_chunk_draws_impl(pass, false, true);
     }
 
-    fn record_chunk_draws_impl(&self, pass: &mut RenderPass<'_>, inline_bibs: bool) {
+    pub fn record_native_terrain_ground(&self, pass: &mut RenderPass<'_>, inline_bibs: bool) {
+        self.record_chunk_draws_impl(pass, inline_bibs, false);
+    }
+
+    fn record_chunk_draws_impl(
+        &self,
+        pass: &mut RenderPass<'_>,
+        inline_bibs: bool,
+        inline_trees: bool,
+    ) {
         if !self.enabled {
             return;
         }
@@ -1290,7 +1300,9 @@ impl TerrainVisualImpl {
         // with W3DShroud's projected destination texture. Keep the base mesh
         // independent of changing fog cells and darken the road depth itself.
         self.record_shroud_ground_pass(pass);
-        self.record_tree_draws(pass);
+        if inline_trees {
+            self.record_tree_draws(pass);
+        }
         self.record_shroud_water_pass(pass, true);
     }
 
@@ -2148,6 +2160,19 @@ impl TerrainVisualImpl {
         texture
     }
 
+    /// W3DScene::Flush calls DoTrees after opaque/occluded meshes. Its decal
+    /// multiplies the receiver before any tree vertices enter this pass.
+    pub fn has_native_tree_scene_draws(&self) -> bool {
+        self.enabled && (!self.tree_meshes.is_empty() || self.has_projected_tree_decals())
+    }
+
+    pub fn record_native_tree_scene(&self, pass: &mut RenderPass<'_>) {
+        if self.enabled {
+            self.record_projected_tree_decals(pass);
+            self.record_tree_draws(pass);
+        }
+    }
+
     fn record_tree_draws(&self, pass: &mut RenderPass<'_>) {
         let shroud = self
             .shroud_gpu
@@ -2317,6 +2342,11 @@ impl TerrainVisualImpl {
         }
         let lights = self.current_tree_object_lights();
         if native_view {
+            // W3DTreeBuffer.cpp:675–685: the first full dirty vertex/index
+            // build requests the shared decal after this pass captured its casters.
+            if !self.tree_buffer.tree_types().is_empty() {
+                self.request_projected_tree_decal_texture();
+            }
             self.tree_buffer.load_trees_in_vertex_and_index_buffers(&lights);
         } else {
             self.tree_buffer

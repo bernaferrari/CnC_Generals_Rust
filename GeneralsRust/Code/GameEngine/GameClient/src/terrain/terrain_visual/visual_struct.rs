@@ -220,6 +220,7 @@ pub struct TerrainVisualImpl {
     /// Cached GPU meshes for visible road surfaces.
     road_meshes: Vec<GpuRoadMesh>,
     projected_shadow_gpu: Option<ProjectedShadowGpu>,
+    tree_decal_texture_requested: bool,
     /// Cached GPU meshes for W3D sectional/fixed bridges.
     bridge_meshes: Vec<GpuRoadMesh>,
     /// Cached GPU mesh for C++ terrain scorch marks.

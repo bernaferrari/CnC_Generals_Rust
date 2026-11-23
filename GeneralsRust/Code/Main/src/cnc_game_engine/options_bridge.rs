@@ -20,13 +20,15 @@ fn apply_receiving_static_detail(
     result: SessionStaticLodResult,
 ) {
     match result {
-        SessionStaticLodResult::Apply { level, rules } => {
+        SessionStaticLodResult::Apply { level, rules, use_trees } => {
+            lighting.use_trees = use_trees;
             lighting.apply_static_lod(level, rules, |definitions| {
                 renderer.set_native_terrain_track_detail(&definitions.effective.terrain_tracks);
             });
         }
-        SessionStaticLodResult::MarkerOnly { level } => {
+        SessionStaticLodResult::MarkerOnly { level, use_trees } => {
             lighting.static_lod_level = Some(level);
+            lighting.use_trees = use_trees;
         }
     }
 }
@@ -112,18 +114,23 @@ impl CnCGameEngine {
                 HostOptionsRequest::TerrainTrackRules {
                     selected_level,
                     rules,
+                    use_trees,
                 } => {
                     apply_receiving_static_detail(
                         &mut self.game_logic.lighting_definitions,
                         &mut self.render_pipeline,
-                        SessionStaticLodResult::Apply { level: selected_level, rules },
+                        SessionStaticLodResult::Apply {
+                            level: selected_level,
+                            rules,
+                            use_trees,
+                        },
                     );
                 }
-                HostOptionsRequest::StaticLodMarkerOnly { level } => {
+                HostOptionsRequest::StaticLodMarkerOnly { level, use_trees } => {
                     apply_receiving_static_detail(
                         &mut self.game_logic.lighting_definitions,
                         &mut self.render_pipeline,
-                        SessionStaticLodResult::MarkerOnly { level },
+                        SessionStaticLodResult::MarkerOnly { level, use_trees },
                     );
                 }
             }

@@ -654,6 +654,73 @@ fn add_tree_zero_random_scale_amount_keeps_scale_but_still_draws_sway_type() {
 }
 
 #[test]
+fn visible_tree_decal_casters_match_cpp_before_topple_update() {
+    use game_client_rust::terrain::{TreeTypeMesh, tree_buffer::TreeDecalCaster};
+
+    let mut buffer = W3DTreeBuffer::new();
+    let admitted_type = |do_shadow| TreeModuleData {
+        model_name: if do_shadow { "Caster" } else { "NoShadow" }.into(),
+        texture_name: "Tree.tga".into(),
+        do_shadow,
+        ..Default::default()
+    };
+    let mut admit = |id, x, do_shadow, topple_state| {
+        let index = buffer
+            .add_tree_from_model(
+                id,
+                Vec3::new(x, 18., 3.),
+                2.5,
+                0.8,
+                admitted_type(do_shadow),
+                |_| {
+                    Some((
+                        TreeTypeMesh {
+                            positions: vec![[0., 0., 0.], [1., 0., 0.], [0., 1., 3.]],
+                            normals: None,
+                            uvs: vec![[0., 0.]; 3],
+                            colors: None,
+                            polygons: vec![[0, 1, 2]],
+                            emissive: [0.; 3],
+                        },
+                        Vec3::new(2., 4., 6.),
+                        Some(12.),
+                    ))
+                },
+                &mut FixedRandom,
+            )
+            .unwrap();
+        buffer.tree_mut(index).unwrap().topple_state = topple_state;
+    };
+    admit(31, 15., true, W3DToppleState::Upright);
+    admit(32, 16., true, W3DToppleState::Falling);
+    admit(33, 17., true, W3DToppleState::Fogged);
+    admit(34, 18., true, W3DToppleState::Down);
+    admit(35, 19., true, W3DToppleState::Shrouded);
+    admit(36, 20., true, W3DToppleState::Upright);
+    admit(37, 21., false, W3DToppleState::Upright);
+    admit(38, 200., true, W3DToppleState::Upright);
+    buffer.cull_trees(Vec3::X, |s| s.center.x < 100.);
+    buffer.remove_tree(36);
+
+    let caster = |drawable_id, x| TreeDecalCaster {
+        drawable_id,
+        position: Vec3::new(x, 18., 3.),
+        signed_size: Vec2::new(12., -12.),
+    };
+    assert_eq!(
+        buffer.visible_decal_casters().collect::<Vec<_>>(),
+        [caster(31, 15.), caster(33, 17.), caster(35, 19.)]
+    );
+
+    // Fogged trees cast this pass before the visibility transition to Down.
+    buffer.tick_cpu(false, |_| TreeShroudStatus::Clear);
+    assert_eq!(
+        buffer.visible_decal_casters().collect::<Vec<_>>(),
+        [caster(31, 15.), caster(35, 19.)]
+    );
+}
+
+#[test]
 fn cull_trees_updates_visibility_and_sort_key_like_cpp() {
     let mut buffer = W3DTreeBuffer::new();
     let first = buffer

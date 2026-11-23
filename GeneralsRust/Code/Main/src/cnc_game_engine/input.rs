@@ -2017,6 +2017,10 @@ impl CnCGameEngine {
         let allow_sync_model_loads = deferred_startup_model_load_budget == 0;
         let skip_world_scene = self.should_skip_world_scene_for_shell_menu();
         #[cfg(feature = "game_client")]
+        let use_shadow_decals = !skip_world_scene
+            && self.game_logic.world_services.common().system.runtime_global_data
+                .read().writable.use_shadow_decals;
+        #[cfg(feature = "game_client")]
         {
             let waypoints = self.game_client.in_game_ui_subsystem()
                 .filter(|_| !skip_world_scene)
@@ -2213,7 +2217,7 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             let projected_shadow_ids = {
                 let assets = &self.application_assets;
-                self.render_pipeline.admit_native_projected_shadows(&self.game_logic, |path| {
+                self.render_pipeline.admit_native_projected_shadows(&self.game_logic, use_shadow_decals, |path| {
                     assets.lock().unwrap_or_else(|error| error.into_inner())
                         .archive_file_system_mut().open_file_sync(path).ok()
                 })
@@ -2398,6 +2402,7 @@ impl CnCGameEngine {
                 local_player_id: self.current_player_id,
                 assets: self.application_assets.as_ref(),
                 logic_frame: presentation_logic_frame,
+                use_shadow_decals,
             };
             let result = render_pipeline.execute(
                 graphics_system,

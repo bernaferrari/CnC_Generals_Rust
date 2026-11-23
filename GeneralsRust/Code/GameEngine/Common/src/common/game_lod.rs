@@ -114,10 +114,13 @@ pub enum SessionStaticLodResult {
     Apply {
         level: StaticGameLODLevel,
         rules: crate::common::ini::ini_game_data::TerrainTrackRules,
+        /// Effective receiver-facing tree choice after this preset or Custom
+        /// preference has been applied to GameData.
+        use_trees: bool,
     },
     /// Static LOD is disabled. C++ changes current level to Custom without
     /// applying settings or rebuilding tracks, so update only the owner marker.
-    MarkerOnly { level: StaticGameLODLevel },
+    MarkerOnly { level: StaticGameLODLevel, use_trees: bool },
 }
 
 fn canonical_static_lod_name(value: &str) -> Option<&'static str> {
@@ -252,8 +255,10 @@ fn apply_static_lod_from_string(
     if !global_data.read().enable_static_lod {
         get_game_lod_manager_mut().set_current_static_lod_level(StaticGameLODLevel::Custom);
         if let Some(receive) = receive {
+            let use_trees = global_data.read().use_trees;
             receive(SessionStaticLodResult::MarkerOnly {
                 level: StaticGameLODLevel::Custom,
+                use_trees,
             });
         }
         return;
@@ -272,7 +277,12 @@ fn apply_static_lod_from_string(
     if let Some(receive) = receive
         && let Some(rules) = resolve_session_track_rules(level)
     {
-        receive(SessionStaticLodResult::Apply { level, rules });
+        let use_trees = global_data.read().use_trees;
+        receive(SessionStaticLodResult::Apply {
+            level,
+            rules,
+            use_trees,
+        });
     }
     if apply {
         get_game_lod_manager_mut().set_current_static_lod_level(level);

@@ -64,6 +64,7 @@ impl RenderPipeline {
     pub(crate) fn admit_native_projected_shadows(
         &mut self,
         world: &crate::game_logic::GameLogic,
+        use_shadow_decals: bool,
         read_texture: impl FnMut(&str) -> Option<Vec<u8>>,
     ) -> HashSet<u32> {
         let Some(terrain) = self.native_terrain.as_mut() else {
@@ -71,11 +72,18 @@ impl RenderPipeline {
         };
         let mut shadows = Vec::new();
         let mut handled = HashSet::new();
-        if game_engine::common::game_lod::use_shadow_decals()
-            && let Some(frame) = self.presentation_frame.as_ref()
+        if use_shadow_decals && let Some(frame) = self.presentation_frame.as_ref()
         {
             for direct in &frame.direct_host_drawables {
                 let unit = &direct.object;
+                // A tree Draw queues its own shared decal from the terrain
+                // roster. A missing decal asset cannot become a model disc.
+                if direct.receiving_client_template.as_ref()
+                    .is_some_and(|template| template.has_only_tree_draws())
+                {
+                    handled.insert(unit.id.0);
+                    continue;
+                }
                 let Some((texture_name, size, offset)) = direct
                     .receiving_client_template
                     .as_ref()

@@ -75,6 +75,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.construction_removals.clear();
         self.road_meshes.clear();
         self.projected_shadow_gpu = None;
+        self.tree_decal_texture_requested = false;
         self.bridge_meshes.clear();
         self.scorch_meshes.clear();
         // C++ BaseHeightMap.cpp:618 reset → clearAllScorches.
@@ -601,6 +602,7 @@ impl TerrainVisualImpl {
         self.update_road_meshes()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
         self.update_projected_unit_shadow_meshes();
+        self.update_projected_tree_decal_mesh();
         // C++ drawScorches calls updateScorches every frame; addScorch only
         // zeros m_scorchesInBuffer. Do not wait for overlay_gpu_meshes_dirty
         // (that rebuilds all roads).

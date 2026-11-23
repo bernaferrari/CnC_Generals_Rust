@@ -2193,6 +2193,7 @@ End
             local_player_id: 0,
             assets: &assets,
             logic_frame: clock,
+            use_shadow_decals: true,
         };
         pipeline.execute(
             &mut graphics, &mut bridge, &Mat4::IDENTITY, &Mat4::IDENTITY, Vec3::ZERO,

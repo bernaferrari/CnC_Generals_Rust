@@ -28,11 +28,13 @@ pub enum HostOptionsRequest {
     TerrainTrackRules {
         selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel,
         rules: game_engine::common::ini::ini_game_data::TerrainTrackRules,
+        use_trees: bool,
     },
     /// C++ disabled-static-LOD behavior: update only the session comparison
     /// marker and do not mutate track rules or reset its visual.
     StaticLodMarkerOnly {
         level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel,
+        use_trees: bool,
     },
 }
 
@@ -89,24 +91,28 @@ mod tests {
         a.publish(HostOptionsRequest::TerrainTrackRules {
             selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel::High,
             rules: first,
+            use_trees: true,
         });
         b.publish(HostOptionsRequest::TerrainTrackRules {
             selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel::Low,
             rules: second,
+            use_trees: false,
         });
 
         assert_eq!(
             a.take_requests(),
             vec![HostOptionsRequest::TerrainTrackRules {
                 selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel::High,
-                rules: first
+                rules: first,
+                use_trees: true,
             }]
         );
         assert_eq!(
             b.take_requests(),
             vec![HostOptionsRequest::TerrainTrackRules {
                 selected_level: game_engine::common::ini::ini_game_lod::StaticGameLODLevel::Low,
-                rules: second
+                rules: second,
+                use_trees: false,
             }]
         );
     }

@@ -29,7 +29,7 @@ pub(super) fn record(
             render_pass.set_scissor_rect(vp_x as u32, vp_y as u32, vp_w as u32, vp_h as u32);
 
             if let Some(draw_waypoints) = draw_waypoints {
-                terrain_visual.record_chunk_draws_before_bibs(render_pass);
+                terrain_visual.record_native_terrain_ground(render_pass, false);
                 // HeightMap.cpp:2151–2154. The marker batch may end the pass.
                 // Reopen with Load before painting the bibs.
                 draw_waypoints(frame)?;
@@ -38,7 +38,7 @@ pub(super) fn record(
                 render_pass.set_scissor_rect(vp_x as u32, vp_y as u32, vp_w as u32, vp_h as u32);
                 terrain_visual.record_bib_draws(render_pass);
             } else {
-                terrain_visual.record_chunk_draws(render_pass);
+                terrain_visual.record_native_terrain_ground(render_pass, true);
             }
 
             let terrain_draw_elapsed = terrain_draw_started.elapsed();
@@ -49,6 +49,13 @@ pub(super) fn record(
                 );
             }
 
+            Ok(())
+        }
+        ScopedNativePass::TerrainTrees => {
+            let render_pass = frame.scene_pass();
+            render_pass.set_viewport(vp_x, vp_y, vp_w, vp_h, 0.0, 1.0);
+            render_pass.set_scissor_rect(vp_x as u32, vp_y as u32, vp_w as u32, vp_h as u32);
+            terrain_visual.record_native_tree_scene(render_pass);
             Ok(())
         }
         ScopedNativePass::ProjectedDecalShadows => {

@@ -157,6 +157,7 @@ pub(super) struct RestoreTemplateCatalog<'a> {
     upgrade_definition_base: &'a game_engine::common::system::upgrade::UpgradeCenter,
     lighting_baseline: &'a crate::game_logic::lighting_rules::LightingContentRules,
     static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
+    use_trees: bool,
     dynamic_debris_skip_mask: u32,
     roads_baseline: &'a game_engine::common::ini::ini_road::TerrainRoadCollection,
     combat_bonus_baseline: &'a game_engine::common::ini::ini_game_data::CombatBonusRules,
@@ -185,6 +186,7 @@ impl<'a> RestoreTemplateCatalog<'a> {
             baseline: &world.receiving_template_baseline,
             lighting_baseline: world.lighting_rules_baseline(),
             static_lod_level: world.current_static_lod_level(),
+            use_trees: world.current_map_tree_setting(),
             dynamic_debris_skip_mask: world.current_dynamic_debris_skip_mask(),
             roads_baseline: world.terrain_road_baseline(),
             combat_bonus_baseline: world.combat_bonus_baseline(),
@@ -2389,31 +2391,7 @@ impl CnCGameEngine {
             terrain_visual_xfer,
             slot,
             live.game_mode(),
-            RestoreTemplateCatalog {
-                random_source: &live.session_view,
-                templates: &live.templates,
-                upgrade_definition_base: &live.upgrade_definition_base,
-                modules: &live.receiving_module_content,
-                player_templates: &live.player_template_definitions,
-                multiplayer_definitions: &live.multiplayer_definitions,
-                object_definitions: &live.receiving_object_definitions,
-                locomotors: &live.locomotor_definition_base,
-                baseline: &live.receiving_template_baseline,
-                lighting_baseline: live.lighting_rules_baseline(),
-                static_lod_level: live.current_static_lod_level(),
-                dynamic_debris_skip_mask: live.current_dynamic_debris_skip_mask(),
-                roads_baseline: live.terrain_road_baseline(),
-                combat_bonus_baseline: live.combat_bonus_baseline(),
-                tunnel_capacity_base: live.tunnel_capacity_base,
-                body_damage_baseline: live.body_damage_baseline(),
-                damage_fx_base: &live.damage_fx_base,
-                #[cfg(feature = "game_client")]
-                fx_baseline: live.fx_baseline(),
-                power_bar_baseline: live.power_bar_baseline(),
-                body_auto_particle_baseline: live.body_auto_particle_baseline(),
-                session_sell_percentage: live.session_sell_percentage,
-                max_beacons_per_player: live.max_beacons_per_player,
-            },
+            RestoreTemplateCatalog::from_world(live),
             &live.weapon_definition_base,
             &live.projectile_definitions,
             &live.ocl_application_definitions(),
@@ -2571,6 +2549,7 @@ impl CnCGameEngine {
             candidate.admit_body_damage_baseline(live.body_damage_baseline());
             candidate.admit_lighting_rules_base(live.lighting_rules_baseline().clone());
             candidate.admit_static_lod_level(live.current_static_lod_level());
+            candidate.admit_map_tree_setting(live.current_map_tree_setting());
             candidate.admit_dynamic_debris_skip_mask(live.current_dynamic_debris_skip_mask());
             candidate.admit_terrain_road_definitions(live.terrain_road_baseline().clone())?;
             candidate
@@ -2909,6 +2888,7 @@ impl CnCGameEngine {
         }
         staged.admit_lighting_rules_base(template_catalog.lighting_baseline.clone());
         staged.admit_static_lod_level(template_catalog.static_lod_level);
+        staged.admit_map_tree_setting(template_catalog.use_trees);
         staged.admit_dynamic_debris_skip_mask(template_catalog.dynamic_debris_skip_mask);
         staged.admit_terrain_road_definitions(template_catalog.roads_baseline.clone())?;
         staged.admit_terrain_definitions(Arc::clone(terrain_definition_seed))?;
@@ -3161,29 +3141,8 @@ impl CnCGameEngine {
                 active_mode,
                 campaign_context.clone(),
                 RestoreTemplateCatalog {
-                    random_source: &self.game_logic.session_view,
                     templates: &template_catalog,
-                    upgrade_definition_base: &self.game_logic.upgrade_definition_base,
-                    modules: &self.game_logic.receiving_module_content,
-                    player_templates: &self.game_logic.player_template_definitions,
-                    multiplayer_definitions: &self.game_logic.multiplayer_definitions,
-                    object_definitions: &self.game_logic.receiving_object_definitions,
-                    locomotors: &self.game_logic.locomotor_definition_base,
-                    baseline: &self.game_logic.receiving_template_baseline,
-                    lighting_baseline: self.game_logic.lighting_rules_baseline(),
-                    static_lod_level: self.game_logic.current_static_lod_level(),
-                    dynamic_debris_skip_mask: self.game_logic.current_dynamic_debris_skip_mask(),
-                    roads_baseline: self.game_logic.terrain_road_baseline(),
-                    combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
-                    tunnel_capacity_base: self.game_logic.tunnel_capacity_base,
-                    body_damage_baseline: self.game_logic.body_damage_baseline(),
-                    damage_fx_base: &self.game_logic.damage_fx_base,
-                    #[cfg(feature = "game_client")]
-                    fx_baseline: self.game_logic.fx_baseline(),
-                    power_bar_baseline: self.game_logic.power_bar_baseline(),
-                    body_auto_particle_baseline: self.game_logic.body_auto_particle_baseline(),
-                    session_sell_percentage: self.game_logic.session_sell_percentage,
-                    max_beacons_per_player: self.game_logic.max_beacons_per_player,
+                    ..RestoreTemplateCatalog::from_world(&self.game_logic)
                 },
                 &self.game_logic.weapon_definition_base,
                 &self.game_logic.projectile_definitions,
@@ -3219,29 +3178,8 @@ impl CnCGameEngine {
             active_mode,
             campaign_context,
             RestoreTemplateCatalog {
-                random_source: &self.game_logic.session_view,
                 templates: &template_catalog,
-                upgrade_definition_base: &self.game_logic.upgrade_definition_base,
-                modules: &self.game_logic.receiving_module_content,
-                player_templates: &self.game_logic.player_template_definitions,
-                multiplayer_definitions: &self.game_logic.multiplayer_definitions,
-                object_definitions: &self.game_logic.receiving_object_definitions,
-                locomotors: &self.game_logic.locomotor_definition_base,
-                baseline: &self.game_logic.receiving_template_baseline,
-                lighting_baseline: self.game_logic.lighting_rules_baseline(),
-                static_lod_level: self.game_logic.current_static_lod_level(),
-                dynamic_debris_skip_mask: self.game_logic.current_dynamic_debris_skip_mask(),
-                roads_baseline: self.game_logic.terrain_road_baseline(),
-                combat_bonus_baseline: self.game_logic.combat_bonus_baseline(),
-                tunnel_capacity_base: self.game_logic.tunnel_capacity_base,
-                body_damage_baseline: self.game_logic.body_damage_baseline(),
-                damage_fx_base: &self.game_logic.damage_fx_base,
-                #[cfg(feature = "game_client")]
-                fx_baseline: self.game_logic.fx_baseline(),
-                power_bar_baseline: self.game_logic.power_bar_baseline(),
-                body_auto_particle_baseline: self.game_logic.body_auto_particle_baseline(),
-                session_sell_percentage: self.game_logic.session_sell_percentage,
-                max_beacons_per_player: self.game_logic.max_beacons_per_player,
+                ..RestoreTemplateCatalog::from_world(&self.game_logic)
             },
             &self.game_logic.weapon_definition_base,
             &self.game_logic.projectile_definitions,

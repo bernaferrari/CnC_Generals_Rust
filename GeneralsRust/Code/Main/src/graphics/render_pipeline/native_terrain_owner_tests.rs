@@ -756,7 +756,7 @@ End
         .unwrap();
     let admit = |render: &mut RenderPipeline| {
         assert_eq!(
-            render.admit_native_projected_shadows(&world, |path| {
+            render.admit_native_projected_shadows(&world, true, |path| {
                 (path == "Art/Textures/shadows.tga").then(|| tga.get_ref().clone())
             }),
             HashSet::from([ID.0]),

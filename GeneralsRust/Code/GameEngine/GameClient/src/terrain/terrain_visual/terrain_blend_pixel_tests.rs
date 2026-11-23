@@ -1816,3 +1816,111 @@ fn authored_tank_tracks_draw_in_used_order_and_fade_on_the_receiving_clock() {
     let faded = render_live_terrain_visual_with_transform(&device, &queue, &mut visual, view);
     assert_pixel(&faded, [160, 113, 176, 255]);
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires a native GPU adapter"]
+fn native_tree_decal_first_dirty_build_defers_draw_and_uses_world_aligned_uv() {
+    use crate::terrain::{
+        TREE_TILE_DATA_LEN, TreeModuleData, TreeSphere, TreeTgaHeader, TreeTileImageSpec,
+        TreeTypeMesh, W3DToppleState,
+    };
+
+    crate::test_support::ensure_ambient_host();
+    let adapter = pollster::block_on(
+        wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default()),
+    )
+    .expect("tree decal test requires a GPU adapter");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+    let mut visual = live_terrain_visual(
+        &device,
+        &queue,
+        &[],
+        HeightMap::new(64, 64, 255., 10.),
+        1.,
+    );
+    visual.add_tree(
+        12,
+        Vec3::new(140., 160., 34.),
+        3.,
+        0.5,
+        0.,
+        TreeModuleData {
+            model_name: "TreeDecalWitness".into(),
+            texture_name: "TreeDecalWitness.tga".into(),
+            do_shadow: true,
+            ..Default::default()
+        },
+        TreeSphere { center: Vec3::new(2., 3., 4.), radius: 10. },
+    );
+    assert!(visual.tree_buffer.set_tree_type_mesh(0, TreeTypeMesh {
+        positions: vec![[0., 0., 0.], [1., 0., 0.], [0., 1., 3.]],
+        normals: None,
+        uvs: vec![[0., 0.]; 3],
+        colors: None,
+        polygons: vec![[0, 1, 2]],
+        emissive: [0.; 3],
+    }));
+    visual.tree_buffer.update_texture(&[TreeTileImageSpec {
+        texture_name: "TreeDecalWitness.tga".into(),
+        header: TreeTgaHeader::truecolor(64, 64),
+    }]);
+    assert!(visual.tree_buffer.set_source_tile_bgra(0, &vec![255; TREE_TILE_DATA_LEN]));
+    visual.observe_native_tree_view(&Mat4::IDENTITY, &Mat4::IDENTITY);
+    visual.tree_buffer.cull_trees(Vec3::Z, |_| true);
+    let motion = TerrainVisualMotion {
+        paused: true,
+        frame: 1,
+        gravity: 0.,
+        breeze: Default::default(),
+    };
+
+    visual.observe_projected_tree_decals(true);
+    assert_eq!(visual.update_projected_tree_decal_mesh(), 0);
+    visual.prepare_projected_tree_decal_texture(|_| panic!("no dirty tree build yet"));
+    visual.update_tree_meshes_after_cpu(Some(motion), None);
+    let mut requested = Vec::new();
+    visual.prepare_projected_tree_decal_texture(|path| {
+        requested.push(path.to_owned());
+        None
+    });
+    assert_eq!(requested, ["Art/Textures/shadow.dds", "Art/Textures/shadow.tga"]);
+    visual.observe_projected_tree_decals(true);
+    assert_eq!(visual.update_projected_tree_decal_mesh(), 0);
+    visual.prepare_projected_tree_decal_texture(|_| panic!("no new dirty build to retry"));
+
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(2, 2, image::Rgba([128; 4])))
+        .write_to(&mut encoded, image::ImageFormat::Tga)
+        .unwrap();
+    visual.tree_buffer.force_vertex_rebuild();
+    visual.update_tree_meshes_after_cpu(Some(motion), None);
+    visual.prepare_projected_tree_decal_texture(|path| {
+        (path == "Art/Textures/shadow.tga").then(|| encoded.get_ref().clone())
+    });
+    assert_eq!(visual.update_projected_tree_decal_mesh(), 0, "dirty-build pass has no caster batch");
+
+    // The source queues the shadow first. This tree becomes Down during the
+    // same motion step, but the submitted decal survives until the next draw.
+    visual.tree_buffer.tree_mut(0).unwrap().topple_state = W3DToppleState::Fogged;
+    visual.observe_projected_tree_decals(true);
+    visual.tree_buffer.tick_cpu(false, |_| crate::terrain::TreeShroudStatus::Clear);
+    assert!(visual.update_projected_tree_decal_mesh() > 0);
+    let decals = &visual.projected_shadow_gpu.as_ref().unwrap().tree_decals;
+    let vertex = |x, z| {
+        decals.vertices.iter().find(|v| v.position[0] == x && v.position[2] == z).unwrap()
+    };
+    let near_y = vertex(130., 150.);
+    let far_y = vertex(150., 170.);
+    assert!((near_y.position[1] - 0.1).abs() < 1.0e-6);
+    assert_eq!((near_y.uv, far_y.uv), ([0., 0.], [1., 1.]));
+    assert_ne!(decals.indices.len(), 0);
+    assert_eq!(visual.update_projected_tree_decal_mesh(), 0, "same batch reuses buffers");
+
+    visual.observe_projected_tree_decals(true);
+    visual.update_projected_tree_decal_mesh();
+    assert!(visual.projected_shadow_gpu.as_ref().unwrap().tree_decals.indices.is_empty());
+}

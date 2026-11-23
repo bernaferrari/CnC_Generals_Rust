@@ -35,6 +35,7 @@ pub(super) struct StartupSimulationRules {
     body_auto_particles: game_engine::common::ini::ini_game_data::BodyAutoParticleRules,
     lighting: game_engine::common::ini::ini_game_data::LightingContentRules,
     static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
+    use_trees: bool,
     dynamic_debris_skip_mask: u32,
     client_random: game_engine::common::random_value::RandomState,
     roads: game_engine::common::ini::ini_road::TerrainRoadCollection,
@@ -62,6 +63,7 @@ impl StartupSimulationRules {
             body_auto_particles: world.body_auto_particle_baseline().clone(),
             lighting: world.lighting_rules_baseline().clone(),
             static_lod_level: world.current_static_lod_level(),
+            use_trees: world.current_map_tree_setting(),
             dynamic_debris_skip_mask: world.current_dynamic_debris_skip_mask(),
             client_random: world.session_view.client_random.clone(),
             roads: world.terrain_road_baseline().clone(),
@@ -146,6 +148,7 @@ impl StartupSimulationRules {
         world.admit_body_auto_particle_baseline(self.body_auto_particles);
         world.admit_lighting_rules_base(self.lighting);
         world.admit_static_lod_level(self.static_lod_level);
+        world.admit_map_tree_setting(self.use_trees);
         world.admit_dynamic_debris_skip_mask(self.dynamic_debris_skip_mask);
         world.session_view.client_random = self.client_random;
         world.admit_terrain_road_definitions(self.roads)?;

@@ -16,6 +16,7 @@ pub(super) struct NativeFrameReceiver<'a> {
     pub local_player_id: u32,
     pub assets: &'a dyn crate::assets::pristine_bones::PristineBoneAssets,
     pub logic_frame: u32,
+    pub use_shadow_decals: bool,
 }
 fn transfer_tree_center_refresh(
     camera: &mut crate::presentation_frame::camera::SessionCamera,
@@ -248,6 +249,7 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
         ) else {
             return Ok(None);
         };
+        terrain.observe_projected_tree_decals(self.use_shadow_decals);
         loop {
             // A real shroud owner is borrowed only until the next FX suspension.
             // No guard or buffer loan spans authored FX.

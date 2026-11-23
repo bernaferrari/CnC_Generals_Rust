@@ -555,6 +555,7 @@ fn actual_options_terrain_lod_callback_precedes_common_level_commit() {
         let TerrainLodEffect::StaticDetail(SessionStaticLodResult::Apply {
             level: StaticGameLODLevel::Medium,
             rules,
+            use_trees,
         }) = effect
         else {
             panic!("Options without a detail combo selects its Medium preset, got {effect:?}");
@@ -577,6 +578,7 @@ fn actual_options_terrain_lod_callback_precedes_common_level_commit() {
             ],
         );
         let written = global.read();
+        assert_eq!(use_trees, written.use_trees);
         assert_eq!(written.max_particle_count, preset.max_particle_count);
         assert_eq!(
             [

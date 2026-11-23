@@ -9,6 +9,26 @@ impl GameLogic {
             .is_some_and(ThingTemplate::is_optimized_map_tree)
     }
 
+    fn is_map_shrubbery(&self, template: &str) -> bool {
+        self.templates
+            .get(template)
+            .is_some_and(ThingTemplate::is_map_shrubbery)
+    }
+
+    fn should_skip_map_shrubbery(
+        &self,
+        template: &str,
+        use_trees: bool,
+        recorder_is_multiplayer: bool,
+    ) -> bool {
+        self.is_map_shrubbery(template)
+            && !super::super::lighting_rules::map_object_allowed_by_tree_lod(
+                true,
+                use_trees,
+                recorder_is_multiplayer,
+            )
+    }
+
     /// Replay commands belong to their recorded map; never substitute another match.
     pub(crate) fn load_recorded_map_with_progress<F>(
         &mut self,
@@ -898,9 +918,19 @@ impl GameLogic {
                         // objects during PlayerList admission. Preserve them.
 
                         // Build a mapping from map-defined player IDs to teams.
+                        // C++ Recorder::isMultiplayer sees an offline Skirmish
+                        // owner or multiplayer replay metadata. Network state
+                        // is outside this offline map-load owner.
+                        let use_trees = self.current_map_tree_setting();
+                        let recorder_is_multiplayer = self.game_mode == GameMode::Skirmish
+                            || (self.game_mode == GameMode::Replay
+                                && self.replay_pending.recorder_owned().is_multiplayer());
                         let mut map_player_to_team: HashMap<u32, Team> = HashMap::new();
                         for obj in objects {
-                            if obj.is_terrain_endpoint() || self.is_optimized_map_tree(&obj.template) {
+                            if obj.is_terrain_endpoint()
+                                || self.is_optimized_map_tree(&obj.template)
+                                || self.is_map_shrubbery(&obj.template)
+                            {
                                 continue;
                             }
                             if let Some(pid) = obj.player_id {
@@ -984,6 +1014,13 @@ impl GameLogic {
                                 )?;
                             }
                             let optimized_tree = self.is_optimized_map_tree(&obj.template);
+                            if self.should_skip_map_shrubbery(
+                                &obj.template,
+                                use_trees,
+                                recorder_is_multiplayer,
+                            ) {
+                                continue;
+                            }
                             if obj.is_terrain_endpoint() && (!saved_foundation || !optimized_tree) {
                                 continue;
                             }

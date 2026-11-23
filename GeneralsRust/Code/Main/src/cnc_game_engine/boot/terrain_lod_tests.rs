@@ -28,7 +28,7 @@ fn actual_startup_terrain_lod_admits_the_selected_owner_across_boot_phases() {
             format!("StaticGameLOD = {option}\nIdealStaticGameLOD = High\n"),
         )
         .unwrap();
-        let (terrain_lod, authored) = with_common_services(&startup, || {
+        let (terrain_lod, authored, use_trees) = with_common_services(&startup, || {
             let global = ensure_global_data();
             {
                 let mut global = global.write();
@@ -42,7 +42,8 @@ fn actual_startup_terrain_lod_admits_the_selected_owner_across_boot_phases() {
             let lod = startup.ini.game_lod.read();
             assert_eq!(lod.get_static_lod_level(), level, "{option}");
             let authored = TerrainTrackRules::from_global_data(&global.read());
-            (StartupTerrainLod::capture(&lod), authored)
+            let use_trees = global.read().use_trees;
+            (StartupTerrainLod::capture(&lod, use_trees), authored, use_trees)
         });
 
         let actual = with_common_services(&peer, || {
@@ -54,6 +55,7 @@ fn actual_startup_terrain_lod_admits_the_selected_owner_across_boot_phases() {
             (
                 world.effective_terrain_track_rules(),
                 world.current_static_lod_level(),
+                world.current_map_tree_setting(),
             )
         });
         let expected = TerrainTrackRules {
@@ -61,7 +63,7 @@ fn actual_startup_terrain_lod_admits_the_selected_owner_across_boot_phases() {
             make_track_marks: false,
             ..authored
         };
-        assert_eq!(actual, (expected, Some(level)), "{option}");
+        assert_eq!(actual, (expected, Some(level), use_trees), "{option}");
     }
 
     with_common_services(&peer, || {

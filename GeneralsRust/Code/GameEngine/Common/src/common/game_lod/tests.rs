@@ -55,6 +55,7 @@ fn session_static_lod_reports_only_real_applications_and_reapplies_custom() {
 
             let Some(SessionStaticLodResult::Apply {
                 rules: already_applied,
+                use_trees,
                 ..
             }) = set_static_lod_from_string_for_session("High")
             else {
@@ -63,6 +64,11 @@ fn session_static_lod_reports_only_real_applications_and_reapplies_custom() {
             assert_eq!(already_applied.max_tank_track_edges, 29);
             assert_eq!(already_applied.max_tank_track_opaque_edges, 8);
             assert_eq!(already_applied.max_tank_track_fade_delay, 456);
+            assert_eq!(
+                use_trees,
+                global.read().use_trees,
+                "session result transfers effective GameData tree setting"
+            );
             let Some(SessionStaticLodResult::Apply { rules: first, .. }) =
                 set_static_lod_from_string_for_session("Custom")
             else {
@@ -95,7 +101,8 @@ fn disabled_static_lod_updates_only_the_session_marker_before_reenable() {
             assert_eq!(
                 set_static_lod_from_string_for_session("High"),
                 Some(SessionStaticLodResult::MarkerOnly {
-                    level: StaticGameLODLevel::Custom
+                    level: StaticGameLODLevel::Custom,
+                    use_trees: false,
                 })
             );
             assert_eq!(

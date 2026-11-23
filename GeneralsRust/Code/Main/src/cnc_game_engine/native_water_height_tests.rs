@@ -241,6 +241,7 @@ fn motion_blur_retained_scene_does_not_advance_the_receiving_wake() {
                 local_player_id: 0,
                 assets: &assets,
                 logic_frame: frame,
+                use_shadow_decals: true,
             };
             pipeline
                 .execute(

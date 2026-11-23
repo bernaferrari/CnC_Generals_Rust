@@ -719,6 +719,17 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
         FramePhase::DecalShadows,
         ScopedNativePass::ProjectedDecalShadows,
     );
+    renderer.enqueue_scoped_native_pass(FramePhase::Trees, ScopedNativePass::TerrainTrees);
+    let occluded = send.clone();
+    renderer.enqueue_frame_work(FramePhase::OccludedStencil, move |_| {
+        occluded.send("occluded").unwrap();
+        Ok(())
+    });
+    let stencil = send.clone();
+    renderer.enqueue_frame_work(FramePhase::StencilShadows, move |_| {
+        stencil.send("stencil").unwrap();
+        Ok(())
+    });
     let third = send.clone();
     renderer.enqueue_frame_work(FramePhase::StaticSort, move |_| {
         third.send("post-before").unwrap();
@@ -735,6 +746,7 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
         native_count += 1;
         send.send(match kind {
             ScopedNativePass::TerrainGround => "ground",
+            ScopedNativePass::TerrainTrees => "trees",
             ScopedNativePass::ProjectedDecalShadows => "projected shadows",
             ScopedNativePass::TerrainWater => "water",
             ScopedNativePass::ClientEffects => "effects",
@@ -753,6 +765,9 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
             "ground",
             "pre-after",
             "projected shadows",
+            "occluded",
+            "trees",
+            "stencil",
             "post-before",
             "water",
             "post-after"
@@ -779,7 +794,7 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
     );
     drop(scoped);
     assert_eq!(
-        native_count, 3,
+        native_count, 4,
         "scoped handler never escapes its driving frame"
     );
     renderer.enqueue_scoped_native_pass(FramePhase::Terrain, ScopedNativePass::TerrainGround);

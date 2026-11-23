@@ -1,4 +1,7 @@
 use crate::terrain::scorch_mesh::ScorchHeightSource;
+use crate::terrain::tree_buffer::TreeDecalCaster;
+
+const TREE_DECAL_TEXTURE: &str = "shadow.tga";
 
 /// One visible W3DModelDraw shadow using an authored SHADOW_DECAL texture.
 #[derive(Debug, Clone, PartialEq)]
@@ -14,6 +17,39 @@ pub struct ProjectedUnitShadow {
     pub layer_height: Option<f32>,
 }
 
+#[derive(Clone, Copy)]
+struct DecalProjection {
+    transform: Mat4,
+    size: Vec2,
+    offset: Vec2,
+    layer_height: Option<f32>,
+}
+
+impl ProjectedUnitShadow {
+    fn projection(&self) -> DecalProjection {
+        DecalProjection {
+            transform: self.transform,
+            size: self.size,
+            offset: self.offset,
+            layer_height: self.layer_height,
+        }
+    }
+}
+
+impl TreeDecalCaster {
+    fn projection(self) -> DecalProjection {
+        let [x, y, z] = self.position.to_array();
+        DecalProjection {
+            transform: Mat4::from_translation(Vec3::new(x, z, y)),
+            // queueDecal uses the negative V reciprocal for signed -Y.
+            // The shared geometry helper already applies that sign.
+            size: self.signed_size.abs(),
+            offset: Vec2::ZERO,
+            layer_height: None,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct ProjectedShadowVertex {
@@ -21,7 +57,19 @@ struct ProjectedShadowVertex {
     uv: [f32; 2],
 }
 
+#[derive(Default)]
+struct TreeProjectedDecals {
+    ready: bool,
+    casters: Vec<TreeDecalCaster>,
+    geometry_draw_window: Option<([i32; 2], [i32; 2])>,
+    vertices: Vec<ProjectedShadowVertex>,
+    indices: Vec<u32>,
+    vertex_buffer: Option<Buffer>,
+    index_buffer: Option<Buffer>,
+}
+
 struct ProjectedShadowGpu {
+    tree_decals: TreeProjectedDecals,
     pipeline: wgpu::RenderPipeline,
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -119,6 +167,7 @@ impl ProjectedShadowGpu {
             cache: None,
         });
         Self {
+            tree_decals: TreeProjectedDecals::default(),
             pipeline,
             texture_layout,
             sampler,
@@ -190,33 +239,9 @@ impl TerrainVisualImpl {
                 .textures
                 .entry(shadow.texture_name.clone())
                 .or_insert_with(|| {
-                    // WW3D Get_Texture asks for a TGA name and admits the DDS
-                    // counterpart. Both cases use the original base level only.
-                    let name = shadow
-                        .texture_name
-                        .trim_end_matches(".tga")
-                        .trim_end_matches(".dds");
-                    let texture = ["dds", "tga"].into_iter().find_map(|extension| {
-                        let path = format!("Art/Textures/{name}.{extension}");
-                        let bytes = read(&path)?;
-                        Self::upload_runtime_texture(device, queue, Path::new(&path), &bytes, 1)
-                            .ok()
-                    })?;
-                    let view = texture.create_view(&Default::default());
-                    Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("Authored projected shadow texture"),
-                        layout: texture_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(&view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::Sampler(sampler),
-                            },
-                        ],
-                    }))
+                    Self::load_projected_decal_texture(
+                        device, queue, texture_layout, sampler, &shadow.texture_name, &mut read,
+                    )
                 });
             bound.is_some()
         });
@@ -225,6 +250,107 @@ impl TerrainVisualImpl {
         // each surviving caster's final model matrix.
         gpu.pending_inputs = Some(inputs);
         casters
+    }
+
+    fn load_projected_decal_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        texture_name: &str,
+        read: &mut impl FnMut(&str) -> Option<Vec<u8>>,
+    ) -> Option<BindGroup> {
+        // WW3D Get_Texture requests TGA and admits its authored DDS
+        // counterpart. The projected manager disables mip filtering.
+        let name = texture_name.trim_end_matches(".tga").trim_end_matches(".dds");
+        let texture = ["dds", "tga"].into_iter().find_map(|extension| {
+            let path = format!("Art/Textures/{name}.{extension}");
+            let bytes = read(&path)?;
+            Self::upload_runtime_texture(device, queue, Path::new(&path), &bytes, 1).ok()
+        })?;
+        let view = texture.create_view(&Default::default());
+        Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Authored projected shadow texture"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        }))
+    }
+
+    fn request_projected_tree_decal_texture(&mut self) {
+        self.tree_decal_texture_requested = self
+            .projected_shadow_gpu
+            .as_ref()
+            .is_none_or(|gpu| !gpu.tree_decals.ready);
+    }
+
+    /// Realize the shared decal requested during the completed dirty mesh
+    /// build. Missing authored media leaves it unavailable for the next draw.
+    pub fn prepare_projected_tree_decal_texture(
+        &mut self,
+        mut read: impl FnMut(&str) -> Option<Vec<u8>>,
+    ) {
+        if !std::mem::take(&mut self.tree_decal_texture_requested) {
+            return;
+        }
+        let (Some(device), Some(queue), Some(camera_layout)) = (
+            self.device.as_ref(),
+            self.queue.as_ref(),
+            self.terrain_camera_bind_group_layout.as_ref(),
+        ) else {
+            return;
+        };
+        let gpu = self
+            .projected_shadow_gpu
+            .get_or_insert_with(|| ProjectedShadowGpu::new(device, camera_layout));
+        if !gpu.textures.get(TREE_DECAL_TEXTURE).is_some_and(Option::is_some) {
+            let Some(texture) = Self::load_projected_decal_texture(
+                device, queue, &gpu.texture_layout, &gpu.sampler, TREE_DECAL_TEXTURE, &mut read,
+            ) else {
+                return;
+            };
+            gpu.textures.insert(TREE_DECAL_TEXTURE.into(), Some(texture));
+        }
+        gpu.tree_decals.ready = true;
+    }
+
+    /// C++ W3DTreeBuffer.cpp:1565–1584 uses the visibility established by
+    /// cull, then queues the decal before any push, topple or sink changes.
+    /// The receiver is already shrouded; queueDecal has no extra shroud test.
+    pub fn observe_projected_tree_decals(&mut self, enabled: bool) {
+        let Some(decals) = self.projected_shadow_gpu.as_mut().map(|gpu| &mut gpu.tree_decals)
+        else {
+            return;
+        };
+        let mut count = 0;
+        if enabled && decals.ready && !self.tree_buffer.tree_types().is_empty() {
+            for caster in self.tree_buffer.visible_decal_casters() {
+                match decals.casters.get_mut(count) {
+                    Some(previous) if *previous == caster => {}
+                    Some(previous) => {
+                        *previous = caster;
+                        decals.geometry_draw_window = None;
+                    }
+                    None => {
+                        decals.casters.push(caster);
+                        decals.geometry_draw_window = None;
+                    }
+                }
+                count += 1;
+            }
+        }
+        if decals.casters.len() != count {
+            decals.casters.truncate(count);
+            decals.geometry_draw_window = None;
+        }
     }
 
     pub fn has_projected_unit_shadow_inputs(&self) -> bool {
@@ -271,6 +397,7 @@ impl TerrainVisualImpl {
     fn invalidate_projected_unit_shadow_meshes(&mut self) {
         if let Some(gpu) = self.projected_shadow_gpu.as_mut() {
             gpu.geometry_draw_window = None;
+            gpu.tree_decals.geometry_draw_window = None;
         }
     }
 
@@ -310,7 +437,9 @@ impl TerrainVisualImpl {
         };
         for shadow in &gpu.inputs {
             let before = gpu.indices.len() as u32;
-            append_projected_shadow(&ground, start, end, shadow, &mut gpu.vertices, &mut gpu.indices);
+            append_projected_shadow(
+                &ground, start, end, shadow.projection(), &mut gpu.vertices, &mut gpu.indices,
+            );
             let after = gpu.indices.len() as u32;
             if before == after {
                 continue;
@@ -353,6 +482,86 @@ impl TerrainVisualImpl {
         vertices.len() + indices.len()
     }
 
+    fn update_projected_tree_decal_mesh(&mut self) -> usize {
+        let (Some(gpu), Some(map), Some(device), Some(queue)) = (
+            self.projected_shadow_gpu.as_mut(),
+            self.height_map.as_ref(),
+            self.device.as_ref(),
+            self.queue.as_ref(),
+        ) else {
+            return 0;
+        };
+        let tree = &mut gpu.tree_decals;
+        let start = [self.draw_origin_x, self.draw_origin_y];
+        let end = [
+            (start[0] + self.draw_width - 1).min(map.width as i32 - 1),
+            (start[1] + self.draw_height - 1).min(map.height as i32 - 1),
+        ];
+        let window = (start, end);
+        if tree.geometry_draw_window == Some(window) {
+            return 0;
+        }
+        tree.geometry_draw_window = Some(window);
+        tree.vertices.clear();
+        tree.indices.clear();
+        if tree.casters.is_empty() {
+            return 0;
+        }
+        let ground = TerrainReceiverHeight { map, classes: &self.source_tile_classes };
+        for caster in &tree.casters {
+            append_projected_shadow(
+                &ground, start, end, caster.projection(), &mut tree.vertices, &mut tree.indices,
+            );
+        }
+        if tree.indices.is_empty() {
+            return 0;
+        }
+        let limit = device.limits().max_buffer_size;
+        let vertices = cast_slice(&tree.vertices);
+        let indices = cast_slice(&tree.indices);
+        if vertices.len() as u64 > limit || indices.len() as u64 > limit {
+            tree.indices.clear();
+            return 0;
+        }
+        ProjectedShadowGpu::upload_buffer(
+            device, queue, &mut tree.vertex_buffer, wgpu::BufferUsages::VERTEX, vertices, limit,
+        );
+        ProjectedShadowGpu::upload_buffer(
+            device, queue, &mut tree.index_buffer, wgpu::BufferUsages::INDEX, indices, limit,
+        );
+        vertices.len() + indices.len()
+    }
+
+    fn has_projected_tree_decals(&self) -> bool {
+        self.projected_shadow_gpu
+            .as_ref()
+            .is_some_and(|gpu| !gpu.tree_decals.indices.is_empty())
+    }
+
+    fn record_projected_tree_decals(&self, pass: &mut RenderPass<'_>) {
+        let (Some(gpu), Some(camera)) = (
+            self.projected_shadow_gpu.as_ref(),
+            self.terrain_camera_bind_group.as_ref(),
+        ) else {
+            return;
+        };
+        let tree = &gpu.tree_decals;
+        let (Some(vertices), Some(indices), Some(Some(texture))) = (
+            tree.vertex_buffer.as_ref(), tree.index_buffer.as_ref(), gpu.textures.get(TREE_DECAL_TEXTURE),
+        ) else {
+            return;
+        };
+        if tree.indices.is_empty() {
+            return;
+        }
+        pass.set_pipeline(&gpu.pipeline);
+        pass.set_bind_group(0, camera, &[]);
+        pass.set_bind_group(1, texture, &[]);
+        pass.set_vertex_buffer(0, vertices.slice(..));
+        pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..tree.indices.len() as u32, 0, 0..1);
+    }
+
     /// C++ `DoShadows(false)`, after terrain and before opaque scene models.
     pub fn record_projected_unit_shadows(&self, pass: &mut RenderPass<'_>) {
         let (Some(gpu), Some(camera)) = (
@@ -388,7 +597,7 @@ fn append_projected_shadow(
     ground: &TerrainReceiverHeight<'_>,
     draw_start: [i32; 2],
     draw_end: [i32; 2],
-    shadow: &ProjectedUnitShadow,
+    shadow: DecalProjection,
     vertices: &mut Vec<ProjectedShadowVertex>,
     indices: &mut Vec<u32>,
 ) {
@@ -509,7 +718,7 @@ mod projected_unit_shadow_tests {
             layer_height: None,
         };
         let (mut vertices, mut indices) = (Vec::new(), Vec::new());
-        append_projected_shadow(&ground, [0, 0], [7, 7], &decal, &mut vertices, &mut indices);
+        append_projected_shadow(&ground, [0, 0], [7, 7], decal.projection(), &mut vertices, &mut indices);
         assert_eq!(vertices.len(), 9);
         assert_eq!(&indices[..6], &[0, 4, 3, 0, 1, 4]);
         assert_eq!(&indices[6..12], &[2, 4, 1, 2, 5, 4]);
@@ -528,7 +737,7 @@ mod projected_unit_shadow_tests {
         decal.layer_height = Some(33.0);
         vertices.clear();
         indices.clear();
-        append_projected_shadow(&ground, [0, 0], [7, 7], &decal, &mut vertices, &mut indices);
+        append_projected_shadow(&ground, [0, 0], [7, 7], decal.projection(), &mut vertices, &mut indices);
         assert!((vertices[2].position[1] - 80.0).abs() < 0.0001);
         assert_eq!(vertices[1].position[1], 34.5);
     }

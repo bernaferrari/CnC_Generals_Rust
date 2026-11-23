@@ -485,6 +485,14 @@ impl RenderPipeline {
             })
             .map_err(|e| anyhow::anyhow!("terrain visual update failed: {}", e))?;
             if let Some(assets) = &self.forward_pass.application_assets {
+                // A retained MotionBlur scene does not run DoTrees. Keep a
+                // first dirty-build request pending until a real terrain pass.
+                if native_after_tree.is_some_and(|(_, _, draw_scene)| draw_scene) {
+                    terrain_visual.prepare_projected_tree_decal_texture(|path| {
+                        assets.lock().unwrap_or_else(|error| error.into_inner())
+                            .archive_file_system_mut().open_file_sync(path).ok()
+                    });
+                }
                 terrain_visual.prepare_tank_track_draws(|path| {
                     assets.lock().unwrap_or_else(|error| error.into_inner())
                         .archive_file_system_mut().open_file_sync(path).ok()
@@ -538,6 +546,12 @@ impl RenderPipeline {
             ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Terrain,
             ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::TerrainGround,
         );
+        if self.native_terrain.as_ref().is_some_and(|visual| visual.has_native_tree_scene_draws()) {
+            self.forward_pass.renderer.enqueue_scoped_native_pass(
+                ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Trees,
+                ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::TerrainTrees,
+            );
+        }
 
         Ok(())
     }

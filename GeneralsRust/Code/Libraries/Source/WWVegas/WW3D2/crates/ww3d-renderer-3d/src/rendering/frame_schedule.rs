@@ -21,6 +21,8 @@ pub enum FramePhase {
     Opaque,
     /// `flushOccludedObjectsIntoStencil`: occluded player-color silhouettes.
     OccludedStencil,
+    /// `DoTrees`: the shared projected tree decal immediately before tree geometry.
+    Trees,
     /// `DoShadows(true)`: stencil volume shadows.
     StencilShadows,
     /// `Render_And_Clear_Static_Sort_Lists`: water.
@@ -39,7 +41,7 @@ pub enum FramePhase {
 
 impl FramePhase {
     /// Number of phases.
-    pub const COUNT: usize = 10;
+    pub const COUNT: usize = 11;
 
     /// Dense slot index for per-phase storage.
     pub const fn slot(self) -> usize {
@@ -48,12 +50,13 @@ impl FramePhase {
             Self::DecalShadows => 1,
             Self::Opaque => 2,
             Self::OccludedStencil => 3,
-            Self::StencilShadows => 4,
-            Self::StaticSort => 5,
-            Self::Translucent => 6,
-            Self::Sorted => 7,
-            Self::Particles => 8,
-            Self::Overlay2D => 9,
+            Self::Trees => 4,
+            Self::StencilShadows => 5,
+            Self::StaticSort => 6,
+            Self::Translucent => 7,
+            Self::Sorted => 8,
+            Self::Particles => 9,
+            Self::Overlay2D => 10,
         }
     }
 
@@ -65,7 +68,7 @@ impl FramePhase {
 
 /// Recording order of one frame: the C++ `RTS3DScene::Flush` order
 /// (W3DScene.cpp: DoShadows(false), DX8MeshRenderer.Flush, occluded objects
-/// into stencil, DoShadows(true), Render_And_Clear_Static_Sort_Lists,
+/// into stencil, DoTrees, DoShadows(true), Render_And_Clear_Static_Sort_Lists,
 /// flushTranslucentObjects, DoParticles + SortingRendererClass::Flush), then
 /// W3DInGameUI's 2D world overlays.
 pub const FRAME_SCHEDULE: [FramePhase; FramePhase::COUNT] = [
@@ -73,6 +76,7 @@ pub const FRAME_SCHEDULE: [FramePhase; FramePhase::COUNT] = [
     FramePhase::DecalShadows,
     FramePhase::Opaque,
     FramePhase::OccludedStencil,
+    FramePhase::Trees,
     FramePhase::StencilShadows,
     FramePhase::StaticSort,
     FramePhase::Translucent,
@@ -86,6 +90,7 @@ pub const FRAME_SCHEDULE: [FramePhase; FramePhase::COUNT] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScopedNativePass {
     TerrainGround,
+    TerrainTrees,
     ProjectedDecalShadows,
     TerrainWater,
     ClientEffects,

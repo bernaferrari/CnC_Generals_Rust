@@ -208,6 +208,7 @@ impl TerrainVisualImpl {
             water_track_index_buffer: None,
             road_meshes: Vec::new(),
             projected_shadow_gpu: None,
+            tree_decal_texture_requested: false,
             bridge_meshes: Vec::new(),
             scorch_meshes: Vec::new(),
             scorches: TerrainScorchBuffer::new(),

@@ -8,6 +8,9 @@ pub(crate) struct LightingDefinitions {
     /// Last static LOD applied to this receiving session. The application
     /// GameLODManager is shared legacy preference state, not this authority.
     pub(crate) static_lod_level: Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel>,
+    /// Receiver-owned `GlobalData::m_useTrees` after static LOD and Custom
+    /// preference admission. Map creation must not re-read application globals.
+    pub(crate) use_trees: bool,
 }
 impl LightingDefinitions {
     /// Install the track rules, run the original terrain reset, then publish the level.
@@ -77,6 +80,7 @@ impl super::GameLogic {
             base: rules.clone(),
             effective: rules,
             static_lod_level: self.lighting_definitions.static_lod_level.clone(),
+            use_trees: self.lighting_definitions.use_trees,
         };
     }
     pub(crate) fn lighting_rules_baseline(&self) -> &LightingContentRules {
@@ -109,6 +113,12 @@ impl super::GameLogic {
         &self,
     ) -> Option<game_engine::common::ini::ini_game_lod::StaticGameLODLevel> {
         self.lighting_definitions.static_lod_level
+    }
+    pub(crate) fn admit_map_tree_setting(&mut self, use_trees: bool) {
+        self.lighting_definitions.use_trees = use_trees;
+    }
+    pub(crate) fn current_map_tree_setting(&self) -> bool {
+        self.lighting_definitions.use_trees
     }
     /// Record the application-selected LOD and return whether it applied here.
     /// Custom retains this world's effective track rules and always applies.
@@ -151,6 +161,39 @@ impl super::GameLogic {
                 rules.objects[tod + TIME_OF_DAY_FIRST][slot] =
                     authored(lighting.objects[tod][slot]);
             }
+        }
+    }
+}
+
+/// C++ GameLogic.cpp skips every SHRUBBERY map row while trees are disabled,
+/// except when Recorder::isMultiplayer forces tree creation for multiplayer.
+#[inline]
+pub(crate) const fn map_object_allowed_by_tree_lod(
+    is_shrubbery: bool,
+    use_trees: bool,
+    recorder_is_multiplayer: bool,
+) -> bool {
+    !is_shrubbery || use_trees || recorder_is_multiplayer
+}
+
+#[cfg(test)]
+mod map_tree_lod_tests {
+    use super::map_object_allowed_by_tree_lod;
+
+    #[test]
+    fn shrubbery_rows_follow_receiver_trees_and_recorder_override() {
+        for (shrubbery, use_trees, recorder_mp, expected) in [
+            (false, false, false, true),
+            (true, false, false, false),
+            (true, true, false, true),
+            (true, false, true, true),
+            (false, false, true, true),
+        ] {
+            assert_eq!(
+                map_object_allowed_by_tree_lod(shrubbery, use_trees, recorder_mp),
+                expected,
+                "shrubbery={shrubbery}, use_trees={use_trees}, recorder_mp={recorder_mp}"
+            );
         }
     }
 }

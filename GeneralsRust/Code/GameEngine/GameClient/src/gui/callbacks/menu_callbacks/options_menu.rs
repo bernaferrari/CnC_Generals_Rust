@@ -1429,17 +1429,22 @@ impl OptionsMenu {
                     game_engine::common::game_lod::SessionStaticLodResult::Apply {
                         level,
                         rules,
+                        use_trees,
                     } => publish_host_option(
                         effects,
                         HostOptionsRequest::TerrainTrackRules {
                             selected_level: level,
                             rules,
+                            use_trees,
                         },
                     ),
-                    game_engine::common::game_lod::SessionStaticLodResult::MarkerOnly { level } => {
+                    game_engine::common::game_lod::SessionStaticLodResult::MarkerOnly {
+                        level,
+                        use_trees,
+                    } => {
                         publish_host_option(
                             effects,
-                            HostOptionsRequest::StaticLodMarkerOnly { level },
+                            HostOptionsRequest::StaticLodMarkerOnly { level, use_trees },
                         )
                     }
                 }

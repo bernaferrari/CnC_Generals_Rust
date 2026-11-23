@@ -7,19 +7,21 @@ type StartupAssets = Mutex<crate::assets::manager::AssetManager>;
 
 struct StartupTerrainLod {
     level: StaticGameLODLevel,
+    use_trees: bool,
     max_edges: i32,
     max_opaque_edges: i32,
     fade_delay: i32,
 }
 
 impl StartupTerrainLod {
-    fn capture(lod: &GameLODManager) -> Self {
+    fn capture(lod: &GameLODManager, use_trees: bool) -> Self {
         let level = lod.get_static_lod_level();
         // GameLOD init snapshots authored GameData tracks into Custom before Options.
         let index = level.to_index().unwrap_or(StaticGameLODLevel::Custom as usize);
         let preset = &lod.static_game_lod_info[index];
         Self {
             level,
+            use_trees,
             max_edges: preset.max_tank_track_edges,
             max_opaque_edges: preset.max_tank_track_opaque_edges,
             fade_delay: preset.max_tank_track_fade_delay,
@@ -32,6 +34,7 @@ impl StartupTerrainLod {
         rules.terrain_tracks.max_tank_track_fade_delay = self.fade_delay;
         world.admit_lighting_rules_base(rules);
         world.admit_static_lod_level(Some(self.level));
+        world.admit_map_tree_setting(self.use_trees);
     }
 }
 
@@ -377,19 +380,21 @@ impl CnCGameEngine {
         // GlobalData.writable.frames_per_second_limit / use_fps_limit
         // (GameEngine.cpp:535 setFramesPerSecondLimit).
         game_engine::common::game_lod::load_game_lod_ini_presets_and_options();
-        let startup_terrain_lod = StartupTerrainLod::capture(
-            &gamelogic::system::engine_stores::active_services().common().ini.game_lod.read(),
-        );
         // GameEngine::init sets m_maxFPS from the now-admitted application
         // defaults. Capture them as this engine's immutable baseline before
         // its startup worker or any later session can mutate compatibility data.
-        let (fps_configured_rate, fps_configured_enabled) = {
+        let (fps_configured_rate, fps_configured_enabled, startup_use_trees) = {
             let global = game_engine::common::global_data::read();
             (
                 global.writable.frames_per_second_limit,
                 global.writable.use_fps_limit,
+                global.use_trees,
             )
         };
+        let startup_terrain_lod = StartupTerrainLod::capture(
+            &gamelogic::system::engine_stores::active_services().common().ini.game_lod.read(),
+            startup_use_trees,
+        );
         // C++ GameEngine::init createAudioManager / TheAudio (GameEngine.cpp:410).
         let native_audio_device =
             game_engine::common::audio::game_audio::initialize_global_audio_manager();

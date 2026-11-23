@@ -383,6 +383,12 @@ impl ReceivingClientTemplate {
 
     /// W3DTreeDraw registers with the terrain tree buffer and leaves decal
     /// admission to its typed DoShadow field (W3DTreeBuffer.cpp:1565-1584).
+    pub(crate) fn has_only_tree_draws(&self) -> bool {
+        let draws = self.0.draw_modules();
+        !draws.is_empty()
+            && draws.iter().all(|entry| entry.name.as_str().eq_ignore_ascii_case("W3DTreeDraw"))
+    }
+
     pub(crate) fn has_only_shadowless_tree_draws(&self) -> bool {
         let mut draws = self.0.draw_modules().iter().peekable();
         draws.peek().is_some()
@@ -1326,6 +1332,10 @@ impl ThingTemplate {
                 .template()
                 .is_kind_of_mask(KindOfMask::OPTIMIZED_TREE.bits())
         })
+    }
+
+    pub(crate) fn is_map_shrubbery(&self) -> bool {
+        self.is_kind_of(crate::game_logic::KindOf::Shrubbery)
     }
 
     pub(crate) fn placement_preview_facts(&self) -> Option<(f32, (f32, f32, bool))> {
