@@ -661,24 +661,58 @@ impl PathfindingSystem {
         repulsor_radius: f32,
         downhill_only: Option<bool>,
     ) -> PathResult {
+        self.find_safe_path_with_observations(
+            request,
+            repulsor_pos1,
+            repulsor_pos2,
+            repulsor_radius,
+            downhill_only,
+            None,
+        )
+        .unwrap_or_else(|_| PathResult::none())
+    }
+
+    pub(crate) fn find_safe_path_with_observations(
+        &mut self,
+        request: PathRequest,
+        repulsor_pos1: &Coord3D,
+        repulsor_pos2: &Coord3D,
+        repulsor_radius: f32,
+        downhill_only: Option<bool>,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> Result<PathResult, String> {
         const MAX_CELLS: i32 = 2000;
         const COST_ORTHO: i32 = 10;
         const COST_DIAG: i32 = 14;
 
         if !self.is_map_ready {
-            return PathResult::none();
+            return Ok(PathResult::none());
         }
         self.zones.set_all_passable();
 
         let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
         let start = Self::cell_for_unit_position(&request.from, center_in_cell);
         if !self.is_valid_coord(start) {
-            return PathResult::none();
+            return Ok(PathResult::none());
         }
         let is_human = request.is_human;
         let surfaces = request.surfaces;
         let is_crusher = request.is_crusher;
         let repulsor_radius_sqr = repulsor_radius * repulsor_radius;
+        let downhill_only =
+            downhill_only.unwrap_or_else(|| Self::object_is_downhill_only(request.object_id));
+        let ground_height = |cell: GridCoord| {
+            let x = cell.x as f32 * PATHFIND_CELL_SIZE_F;
+            let y = cell.y as f32 * PATHFIND_CELL_SIZE_F;
+            observations.map_or_else(
+                || {
+                    TheTerrainLogic::get()
+                        .map(|terrain| terrain.get_layer_height(x, y, CommonPathfindLayerEnum::Ground))
+                        .unwrap_or(0.0)
+                },
+                |world| world.terrain.get_ground_height(x, y, None),
+            )
+        };
 
         let deltas: [(i32, i32); 8] = [
             (1, 0),
@@ -694,21 +728,20 @@ impl PathfindingSystem {
         // Dijkstra open list (C++ startPathfind(NULL) — no goal heuristic).
         let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32)>> =
             std::collections::BinaryHeap::new();
-        let mut g_score: HashMap<(i32, i32), i32> = HashMap::new();
-        let mut closed: HashSet<(i32, i32)> = HashSet::new();
+        let mut reached = HashMap::<GridCoord, (i32, Option<GridCoord>)>::new();
+        let mut closed = HashSet::<GridCoord>::new();
         open.push(std::cmp::Reverse((0, 0, start.x, start.y)));
-        g_score.insert((start.x, start.y), 0);
+        reached.insert(start, (0, None));
 
         let mut farthest_distance_sqr = 0.0;
         let mut cell_count = 0i32;
         let mut destination = None;
 
         while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
-            if closed.contains(&(cx, cy)) {
+            let cell = GridCoord::new(cx, cy);
+            if !closed.insert(cell) {
                 continue;
             }
-            closed.insert((cx, cy));
-            let cell = GridCoord::new(cx, cy);
             let layer = self.get_layer_for_coord(cell);
             let mut center = Coord3D::new(0.0, 0.0, 0.0);
             self.adjust_coord_to_cell(cx, cy, center_in_cell, &mut center, layer);
@@ -744,7 +777,10 @@ impl PathfindingSystem {
                 )
             {
                 if !(is_human && !self.in_logical_extent(cell)) {
-                    destination = Some(center);
+                    self.adjust_coord_to_cell_with_observations(
+                        cx, cy, center_in_cell, &mut center, layer, observations,
+                    );
+                    destination = Some((cell, center));
                     break;
                 }
             }
@@ -752,13 +788,12 @@ impl PathfindingSystem {
             // put on closed and expand neighbors
             // C++ checkChangeLayers: enqueue connect-layer same-xy at parent cost.
             if let Some(link) = self.check_change_layers(cell) {
-                if !closed.contains(&(link.x, link.y)) {
-                    let key = (link.x, link.y);
-                    if !g_score.get(&key).is_some_and(|&og| g >= og) {
-                        g_score.insert(key, g);
-                        open.push(std::cmp::Reverse((g, g, link.x, link.y)));
-                        cell_count += 1;
-                    }
+                if !closed.contains(&link)
+                    && !reached.get(&link).is_some_and(|&(cost, _)| g >= cost)
+                {
+                    reached.insert(link, (g, Some(cell)));
+                    open.push(std::cmp::Reverse((g, g, link.x, link.y)));
+                    cell_count += 1;
                 }
             }
             let mut neighbor_flags = [false; 8];
@@ -766,7 +801,7 @@ impl PathfindingSystem {
                 let nx = cx + dx;
                 let ny = cy + dy;
                 let nc = GridCoord::new(nx, ny);
-                if !self.is_valid_coord(nc) || closed.contains(&(nx, ny)) {
+                if !self.is_valid_coord(nc) || closed.contains(&nc) {
                     continue;
                 }
                 if is_human && !self.in_logical_extent(nc) {
@@ -776,46 +811,64 @@ impl PathfindingSystem {
                 if Self::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
-                {
-                    let pf = &self.pathfinder;
-                    if !pf.is_passable(nc, surfaces, is_crusher) {
-                        continue;
-                    }
+                if downhill_only && ground_height(cell) < ground_height(nc) {
+                    continue;
+                }
+                if !self.pathfinder.is_passable(nc, surfaces, is_crusher) {
+                    continue;
                 }
                 neighbor_flags[i] = true;
                 let step = if i >= 4 { COST_DIAG } else { COST_ORTHO };
                 let ng = g + step;
-                let key = (nx, ny);
-                if g_score.get(&key).is_some_and(|&og| ng >= og) {
+                if reached.get(&nc).is_some_and(|&(cost, _)| ng >= cost) {
                     continue;
                 }
-                g_score.insert(key, ng);
+                reached.insert(nc, (ng, Some(cell)));
                 open.push(std::cmp::Reverse((ng, ng, nx, ny)));
                 cell_count += 1;
             }
         }
 
-        // Exhaustion without an accepted cell returns null in C++.
-        let Some(goal_pos) = destination else {
-            return PathResult::none();
+        self.cumulative_cells_allocated = self.cumulative_cells_allocated.wrapping_add(cell_count);
+        // AIPathfind.cpp:10991 builds the path from the accepted cell's parent
+        // chain. The safe search already found the route and its end point.
+        let Some((goal, goal_position)) = destination else {
+            return Ok(PathResult::none());
         };
-
-        // C++ buildActualPath from unit position to chosen cell.
-        let from = request.from;
-        let mut req = request;
-        req.to = goal_pos;
-        let result = self.find_path_with_movement_policy(req, downhill_only);
-        if result.success {
-            result
-        } else {
-            PathResult {
-                success: true,
-                waypoints: vec![from, goal_pos],
-                layers: vec![PathfindLayerEnum::Ground, PathfindLayerEnum::Ground],
-                can_optimize: vec![true, true],
-                total_cost: 0,
-                blocked_by_ally: false,
-            }
+        let mut grid_path: Vec<_> =
+            std::iter::successors(Some(goal), |cell| reached.get(cell).and_then(|row| row.1))
+                .map(|cell| (cell, self.get_layer_for_coord(cell)))
+                .collect();
+        grid_path.reverse();
+        let result = self.build_actual_path_from_layered_path_with_observations(
+            &grid_path,
+            &request.from,
+            &goal_position,
+            request.surfaces,
+            request.is_crusher,
+            false,
+            center_in_cell,
+            request.object_id,
+            observations,
+        );
+        if !result.success {
+            return Ok(result);
         }
+        let (waypoints, layers) = self.optimize_path_blocked_with_observations(
+            &result.waypoints,
+            &result.layers,
+            &request,
+            result.blocked_by_ally,
+            request.ignore_obstacle_id,
+            observations,
+        )?;
+        Ok(PathResult {
+            success: true,
+            can_optimize: vec![true; waypoints.len()],
+            waypoints,
+            layers,
+            total_cost: reached[&goal].0 as u32,
+            blocked_by_ally: result.blocked_by_ally,
+        })
     }
 }

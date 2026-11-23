@@ -37,11 +37,13 @@ fn closest_path_respects_goal_occupancy_in_its_factory() {
         factory: &ally_factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let enemy = PathfindObservations {
         factory: &enemy_factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let goal = GridCoord::new(4, 4);
     let mut world = PathfindingSystem::new(8, 8);
@@ -292,11 +294,13 @@ fn movement_occupancy_uses_resolved_layer_and_receiving_factory() {
         factory: &ally_factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let enemy = PathfindObservations {
         factory: &enemy_factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let cell = GridCoord::new(3, 3);
     let center = ICoord2D::new(cell.x, cell.y);
@@ -476,11 +480,13 @@ fn closest_path_respects_occupied_ground_at_bridge_fallback() {
         factory: &factory_a,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let obs_b = PathfindObservations {
         factory: &factory_b,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let start = GridCoord::new(1, 2);
     let goal = GridCoord::new(7, 2);
@@ -587,11 +593,13 @@ fn closest_path_resolves_parked_aircraft_airfield_in_its_factory() {
         factory: &airport_factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let other_obs = PathfindObservations {
         factory: &other_factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let goal = GridCoord::new(6, 2);
     let request = PathRequest {
@@ -757,6 +765,7 @@ fn closest_dozer_crosses_only_obstacles_allowed_by_its_factory() {
             factory,
             players: &players,
             terrain: &terrain,
+            wall_height: crate::ai::AiData::default().wall_height,
         };
         world
             .find_closest_path_with_observations(

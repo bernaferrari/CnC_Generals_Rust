@@ -767,12 +767,29 @@ impl TerrainLogic {
     /// Find farthest edge point
     /// Determine the layer for a destination position (C++ getLayerForDestination).
     pub fn get_layer_for_destination(&self, pos: &Coord3D) -> PathfindLayerEnum {
+        self.get_layer_for_destination_with_wall(
+            pos,
+            || self.get_wall_height(),
+            || self.is_point_on_wall(pos),
+        )
+    }
+
+    pub(crate) fn get_layer_for_destination_with_wall(
+        &self,
+        pos: &Coord3D,
+        wall_height: impl FnOnce() -> Real,
+        is_point_on_wall: impl FnOnce() -> bool,
+    ) -> PathfindLayerEnum {
         let ground_z = self.get_ground_height(pos.x, pos.y, None);
         let mut best_layer = PathfindLayerEnum::Ground;
         let mut best_distance = (pos.z - ground_z).abs();
 
-        let wall_height = self.get_wall_height();
-        if best_distance > wall_height * 0.5 && self.is_point_on_wall(pos) {
+        if best_distance == 0.0 {
+            return best_layer;
+        }
+
+        let wall_height = wall_height();
+        if best_distance > wall_height * 0.5 && is_point_on_wall() {
             let delta = (pos.z - wall_height).abs();
             if delta < best_distance {
                 best_layer = PathfindLayerEnum::Wall;

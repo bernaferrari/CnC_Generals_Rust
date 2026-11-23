@@ -1150,6 +1150,7 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
         &game.factory,
         &game.players,
         &game.terrain,
+        &game.rules,
     );
     let observations = queue_observations.admit().unwrap();
     let grid = game.pathfinder.pathfinding_system_mut();
@@ -1830,6 +1831,7 @@ fn native_adjust_uses_bridge_layer_for_quick_path_gate() {
         factory: &game.factory,
         players: &game.players,
         terrain: &game.terrain,
+        wall_height: game.rules.wall_height,
     };
     let grid = game.pathfinder.pathfinding_system_mut();
     assert!(grid.client_safe_quick_does_path_exist_with_observations(

@@ -25,7 +25,7 @@ fn possible_destination_uses_each_borrowed_receiver_on_every_footprint_check() {
     let factory = crate::object::object_factory::ObjectFactory::new();
     let players = crate::player::PlayerList::new();
     let terrain = crate::terrain::TerrainLogic::new();
-    let observations = PathfindObservations { factory: &factory, players: &players, terrain: &terrain };
+    let observations = PathfindObservations { factory: &factory, players: &players, terrain: &terrain, wall_height: crate::ai::AiData::default().wall_height };
     let object = crate::object::Object::new_test(100, 100.0);
     let mut world = PathfindingSystem::new(16, 16);
     world.new_map();
@@ -316,6 +316,7 @@ fn cpp_destination_uses_cell_identity_not_surface_or_registry() {
         factory: &factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let mut first = PathfindingSystem::new(8, 8);
     let mut second = PathfindingSystem::new(8, 8);
@@ -389,6 +390,7 @@ fn aircraft_destination_respects_resolved_cell_layer() {
         factory: &factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let mut world = PathfindingSystem::new(8, 8);
     world.new_map();
@@ -617,11 +619,13 @@ fn destination_occupancy_uses_the_receiving_factory() {
         factory: &ally_factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let enemy = PathfindObservations {
         factory: &enemy_factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let check = |owner| {
         world.check_destination_with_observations(
@@ -696,6 +700,7 @@ fn destination_goal_occupancy_follows_resolved_bridge_cell() {
         factory: &factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let mut world = PathfindingSystem::new(8, 8);
     world.new_map();
@@ -762,6 +767,7 @@ fn owned_adjust_candidate_applies_human_logical_extent() {
         factory: &factory,
         players: &players,
         terrain: &terrain,
+        wall_height: crate::ai::AiData::default().wall_height,
     };
     let object = crate::object::Object::new_test(100, 100.0);
     let mut world = PathfindingSystem::new(8, 8);

@@ -468,8 +468,9 @@ impl UnitAIUpdate {
             .as_ref()
             .and_then(|machine| machine.get_temporary_state())
             .or(self.get_current_state_id());
-        let movement = matches!(state, Some(id) if id == AIStateType::FollowWaypointPathAsIndividuals as u32 || id == AIStateType::FollowWaypointPathAsIndividualsExact as u32 || id == AIStateType::FollowWaypointPathAsTeam as u32 || id == AIStateType::FollowWaypointPathAsTeamExact as u32 || id == AIStateType::MoveTo as u32 || id == AIStateType::FollowPath as u32 || id == AIStateType::FollowExitProductionPath as u32);
-        if movement {
+        let movement = matches!(state, Some(id) if id == AIStateType::FollowWaypointPathAsIndividuals as u32 || id == AIStateType::FollowWaypointPathAsIndividualsExact as u32 || id == AIStateType::FollowWaypointPathAsTeam as u32 || id == AIStateType::FollowWaypointPathAsTeamExact as u32 || id == AIStateType::MoveTo as u32 || id == AIStateType::FollowPath as u32 || id == AIStateType::FollowExitProductionPath as u32 || id == AIStateType::WanderInPlace as u32);
+        let safe_movement = state == Some(AIStateType::MoveAwayFromRepulsors as u32);
+        if movement || safe_movement {
             self.validate_owned_path_components(true)
                 .map_err(|error| error.to_string())?;
             let object = owner.read().map_err(|_| "queued movement owner poisoned")?;
@@ -504,8 +505,8 @@ impl UnitAIUpdate {
             self.validate_owned_path_components(false)
                 .map_err(|error| error.to_string())?;
         }
-        if (!movement && state != Some(AIStateType::Enter as u32))
-            || self.runtime.data.is_safe_path
+        if (!movement && !safe_movement && state != Some(AIStateType::Enter as u32))
+            || self.runtime.data.is_safe_path != safe_movement
             || self.runtime.data.is_attack_path
             || (self.runtime.data.is_approach_path
                 && (!movement || !self.runtime.data.is_final_goal))
@@ -513,7 +514,11 @@ impl UnitAIUpdate {
         {
             return Err("supplied queue does not admit this path family".into());
         }
+        let repulsed_distance = observations.repulsed_distance;
         let observations = observations.admit()?;
+        if safe_movement {
+            return self.do_receiving_safe_pathfind(pathfinder, observations, frame, repulsed_distance);
+        }
         let found = self.do_queued_pathfind_with_observations(
             pathfinder,
             Some((frame, terrain.get_maximum_pathfind_extent(), observations)),
@@ -886,6 +891,53 @@ impl UnitAIUpdate {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    fn do_receiving_safe_pathfind(
+        &mut self,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        observations: &crate::ai::pathfind_complete::PathfindObservations<'_>,
+        frame: u32,
+        repulsed_distance: f32,
+    ) -> Result<bool, String> {
+        let owner = self.runtime.native_owner().ok_or("safe path owner retired")?;
+        let (position, vision_range) = {
+            let object = owner.read().map_err(|_| "safe path owner poisoned")?;
+            (*object.get_position(), object.get_vision_range())
+        };
+        let repulsor_position = |id| {
+            observations
+                .object(id)
+                .map(|object| {
+                    object
+                        .read()
+                        .map(|object| *object.get_position())
+                        .map_err(|_| "safe path repulsor poisoned")
+                })
+                .transpose()
+        };
+        let first = repulsor_position(self.runtime.data.repulsor1)?
+            .unwrap_or_else(|| Coord3D::new(-1000.0, -1000.0, 0.0));
+        let second = repulsor_position(self.runtime.data.repulsor2)?.unwrap_or(first);
+        let mut request = self.build_classic_path_request(position, false)?;
+        request.is_human = observations.owner_is_human(request.object_id)?;
+        let (downhill_only, _) = self.native_path_movement_policy();
+        self.destroy_path();
+        self.set_queue_for_path_time(0);
+        self.runtime.data.retry_path = false;
+        let result = pathfinder.find_safe_path_with_observations(
+            request,
+            &first,
+            &second,
+            vision_range + repulsed_distance,
+            Some(downhill_only),
+            Some(observations),
+        )?;
+        if !result.success || result.waypoints.is_empty() {
+            return Ok(false);
+        }
+        self.install_path_result_at(&result, pathfinder, Some(frame))?;
+        Ok(true)
     }
 
     fn do_queued_safe_pathfind_with_pathfinder(

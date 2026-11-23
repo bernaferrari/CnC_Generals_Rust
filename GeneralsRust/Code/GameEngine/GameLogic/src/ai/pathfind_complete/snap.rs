@@ -214,13 +214,7 @@ impl PathfindingSystem {
             center_in_cell,
             layer,
             |x, y, layer| match observations {
-                Some(observations) => observations.terrain.get_layer_height(
-                    x,
-                    y,
-                    crate::path::PathfindLayerEnum::from_u32(layer as u32),
-                    None,
-                    false,
-                ),
+                Some(observations) => observations.layer_height(x, y, layer),
                 // hq-6oqj89: no ambient TheTerrainLogic — callers must pass
                 // PathfindObservations from the driving world.
                 None => 0.0,

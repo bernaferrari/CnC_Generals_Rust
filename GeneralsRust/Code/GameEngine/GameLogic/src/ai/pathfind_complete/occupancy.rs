@@ -680,13 +680,7 @@ impl PathfindingSystem {
             object_id,
             observations,
             |x, y, layer| match observations {
-                Some(observations) => observations.terrain.get_layer_height(
-                    x,
-                    y,
-                    crate::path::PathfindLayerEnum::from_u32(layer as u32),
-                    None,
-                    false,
-                ),
+                Some(observations) => observations.layer_height(x, y, layer),
                 // hq-6oqj89 sibling: path reconstruct fail-closes without
                 // PathfindObservations from the driving world.
                 None => 0.0,

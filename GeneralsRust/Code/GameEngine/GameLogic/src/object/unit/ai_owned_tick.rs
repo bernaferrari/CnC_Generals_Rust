@@ -23,6 +23,9 @@ impl UnitAIUpdate {
             || (temporary.is_none() && state == Some(AIStateType::FollowPath as u32));
         let idle = temporary.is_none() && state == Some(AIStateType::Idle as u32);
         let dozer = self.owned_dozer_phase_is_admitted();
+        let repulsor_cycle = temporary.is_none()
+            && matches!(state, Some(id) if id == AIStateType::MoveAwayFromRepulsors as u32
+                || id == AIStateType::WanderInPlace as u32);
         let move_to = dozer
             && (temporary == Some(AIStateType::MoveTo as u32)
                 || (temporary.is_none() && state == Some(AIStateType::MoveTo as u32)));
@@ -49,7 +52,7 @@ impl UnitAIUpdate {
             .map_err(|error| error.to_string())?;
             false
         };
-        if !path && !idle && !waypoint && !enter && !exit && !dead && !move_to {
+        if !path && !idle && !waypoint && !enter && !exit && !dead && !move_to && !repulsor_cycle {
             return Err("scheduled UnitAI state requires its supplied callback domain".into());
         }
         let owner = self
@@ -144,14 +147,17 @@ impl UnitAIUpdate {
         } else if matches!(state, Some(id) if id == AIStateType::Exit as u32 || id == AIStateType::ExitInstantly as u32)
         {
             <Self as AIUpdateInterface>::update_exit_phase_sleep_with_world(self, world)?
-        } else if self.owned_dozer_phase_is_admitted()
-            && (temporary == Some(AIStateType::MoveTo as u32)
-                || state == Some(AIStateType::MoveTo as u32))
+        } else if (temporary.is_none()
+            && matches!(state, Some(id) if id == AIStateType::MoveAwayFromRepulsors as u32
+                || id == AIStateType::WanderInPlace as u32))
+            || (self.owned_dozer_phase_is_admitted()
+                && (temporary == Some(AIStateType::MoveTo as u32)
+                    || state == Some(AIStateType::MoveTo as u32)))
         {
             let machine = self
                 .ai_state_machine
                 .as_mut()
-                .ok_or("Dozer movement machine absent")?;
+                .ok_or("scheduled movement machine absent")?;
             let mut runtime = super::UnitAiStateRuntime {
                 runtime: &mut self.runtime,
                 parent_exists: true,
@@ -178,13 +184,18 @@ impl UnitAIUpdate {
         let deadline = self.runtime.data.queue_for_path_frame;
         if deadline != 0 {
             if now >= deadline {
-                let request = self
-                    .runtime
-                    .build_classic_path_request(self.runtime.data.requested_destination, false)?;
-                world
-                    .pathfinder()
-                    .ok_or("scheduled AI pathfinder disappeared")?
-                    .queue_for_path_request(request)?;
+                let pathfinder = world.pathfinder().ok_or("scheduled AI pathfinder disappeared")?;
+                if self.runtime.data.is_safe_path {
+                    if !pathfinder.queue_for_path(self.runtime.unit_id) {
+                        return Err("safe path queue is full".into());
+                    }
+                } else {
+                    let request = self.runtime.build_classic_path_request(
+                        self.runtime.data.requested_destination,
+                        false,
+                    )?;
+                    pathfinder.queue_for_path_request(request)?;
+                }
                 self.runtime.data.queue_for_path_frame = 0;
             } else {
                 sleep = minimum_sleep(sleep, UpdateSleepTime::Frames(deadline - now));

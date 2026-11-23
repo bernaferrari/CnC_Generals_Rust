@@ -270,8 +270,12 @@ impl<'a> BorrowedAiWorld<'a> {
     pub fn process_enter_path_queue(&mut self, max_per_frame: usize) -> Result<usize, String> {
         let factory = &*self.factory;
         let terrain = self.services.terrain;
-        let mut observations =
-            crate::ai::pathfind_complete::QueuedPathObservations::new(factory, self.players, terrain);
+        let mut observations = crate::ai::pathfind_complete::QueuedPathObservations::new(
+            factory,
+            self.players,
+            terrain,
+            self.services.rules,
+        );
         let frame = self.services.frame;
         let scheduler = &*self.update_scheduler;
         self.services
@@ -373,6 +377,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
             factory: self.factory,
             players: self.players,
             terrain: self.services.terrain,
+            wall_height: self.services.rules.wall_height,
         };
         Ok(self.services.pathfinder.adjust_exit_destination_with_observations(
             owner,
@@ -620,6 +625,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
             factory: self.factory,
             players: self.players,
             terrain: self.services.terrain,
+            wall_height: self.services.rules.wall_height,
         };
         let is_human = self
             .controller(object)
@@ -656,6 +662,7 @@ impl AiWorld for BorrowedAiWorld<'_> {
             factory: self.factory,
             players: self.players,
             terrain: self.services.terrain,
+            wall_height: self.services.rules.wall_height,
         };
         self.services
             .pathfinder

@@ -131,6 +131,150 @@ fn repulsor_query_reads_actual_rule_and_partition_owner_without_peer_selection()
 }
 
 #[test]
+fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
+    let services = crate::system::engine_stores::new_world_services();
+    crate::system::engine_stores::with_world_services(&services, || {
+        let mut base = DefaultThingTemplate::new("NativeRepulsibleInfantry".into());
+        base.add_kind_of(KindOf::Infantry);
+        base.add_kind_of(KindOf::CanBeRepulsed);
+        let mut body = crate::object::body::active_body::ActiveBodyModuleData::default();
+        body.initial_health = 100.0;
+        body.max_health = 100.0;
+        let locomotor_name = "NativeRepulsorInfantryGround";
+        let mut locomotor = crate::locomotor::LocomotorTemplate::new_infantry(locomotor_name.into());
+        locomotor.surfaces = crate::locomotor::SURFACE_GROUND;
+        locomotor.max_speed = 3.0;
+        locomotor.acceleration = 0.1;
+        locomotor.max_turn_rate = 0.1;
+        crate::system::engine_stores::active_services()
+            .locomotor_store()
+            .register_template(locomotor);
+        let mut ai_data = crate::object::update::AIUpdateModuleData::default();
+        ai_data.set_locomotor_set_entries(
+            crate::common::LocomotorSetType::Normal,
+            vec![locomotor_name.into()],
+        );
+        let modules = vec![
+            TemplateModuleInfo {
+                name: "AIUpdateInterface".into(),
+                module_tag: "NativeRepulsorAI".into(),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(ai_data),
+                interface_mask: ModuleInterfaceType::UPDATE,
+            },
+            TemplateModuleInfo {
+                name: "ActiveBody".into(),
+                module_tag: "NativeRepulsorBody".into(),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(body),
+                interface_mask: ModuleInterfaceType::BODY,
+            },
+            TemplateModuleInfo {
+                name: "PhysicsBehavior".into(),
+                module_tag: "NativeRepulsorPhysics".into(),
+                data: game_engine::common::thing::module::ModuleDataHandle::new(
+                    crate::object::behavior::physics_update::PhysicsBehaviorModuleData::default(),
+                ),
+                interface_mask: ModuleInterfaceType::UPDATE,
+            },
+        ];
+        let infantry: Arc<dyn ThingTemplate> = Arc::new(EntryTemplate { base, modules });
+        let mut receiver =
+            NativeMatch::with_source_template(60.0, container_template(), false, infantry.clone());
+        let mut peer = NativeMatch::with_source_template(95.0, container_template(), false, infantry);
+        admit_actual_search_partition(&mut receiver);
+        admit_actual_search_partition(&mut peer);
+        receiver.rules.enable_repulsors = true;
+        receiver.rules.repulsed_distance = 25.0;
+        peer.rules.enable_repulsors = false;
+        peer.rules.repulsed_distance = 3.0;
+        for world in [&mut receiver, &mut peer] {
+            world.source.write().unwrap().set_vision_range(20.0);
+            world
+                .target
+                .write()
+                .unwrap()
+                .set_status(crate::common::ObjectStatusMaskType::REPULSOR, true);
+        }
+        let tick = |game: &mut NativeMatch, frame| {
+            let ai = game.source.read().unwrap().get_ai_update_interface().unwrap();
+            let proxy = game
+                .source
+                .read()
+                .unwrap()
+                .named_update_registrations("AIUpdateInterface")
+                .pop()
+                .unwrap();
+            game.operate_with_current(frame, Some(proxy), |world| {
+                {
+                    let mut ai = ai.lock().unwrap();
+                    if ai.get_current_state_id().is_none() {
+                        ai.execute_command_with_world(
+                            &AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromAI),
+                            world,
+                        )
+                        .unwrap();
+                    }
+                    ai.update_scheduled_tick_with_world(world).unwrap();
+                }
+                world.process_enter_path_queue(8).unwrap();
+            });
+        };
+        let away = Some(crate::modules::AIStateType::MoveAwayFromRepulsors as u32);
+        let repulsor = *receiver.target.read().unwrap().get_position();
+        tick(&mut peer, 7);
+        tick(&mut receiver, 31);
+        let (state, has_path, end, _, layer) = installed_path_observation(&receiver);
+        assert_eq!(state, away, "native Idle must enter the receiving panic state");
+        assert!(has_path, "the receiving pathfinder must install the queued safe path");
+        let end = end.unwrap();
+        assert!((end.x - repulsor.x).hypot(end.y - repulsor.y) > 45.0);
+        assert_eq!(layer, Some(crate::common::PathfindLayerEnum::Ground as u8));
+        let peer_path = installed_path_observation(&peer);
+        assert_ne!(peer_path.0, away);
+        assert!(!peer_path.1);
+
+        // The next scheduled update must consume the path without replacing it
+        // with a normal move request to the old goal.
+        tick(&mut receiver, 32);
+        let next_path = installed_path_observation(&receiver);
+        assert_eq!(next_path.0, away);
+        assert!(next_path.1);
+        assert_eq!(next_path.2, Some(end));
+
+        // Run the receiving Physics phase as the real object follows the
+        // escape route. C++ enters WanderInPlace when the movement completes.
+        let actor = Arc::clone(&receiver.source);
+        let physics_proxy = actor
+            .read()
+            .unwrap()
+            .named_update_registrations("PhysicsBehavior")
+            .pop()
+            .unwrap();
+        let wander = Some(crate::modules::AIStateType::WanderInPlace as u32);
+        let mut arrival_frame = None;
+        for frame in 33..=400 {
+            tick(&mut receiver, frame);
+            let state = installed_path_observation(&receiver).0;
+            if state == wander {
+                arrival_frame = Some(frame);
+                break;
+            }
+            assert_eq!(state, away);
+            receiver.operate_with_current(frame, Some(physics_proxy.clone()), |world| {
+                world.update_physics_phase(&actor).unwrap();
+            });
+        }
+        let position = *actor.read().unwrap().get_position();
+        let arrival_frame = arrival_frame.unwrap_or_else(|| {
+            panic!("unit did not follow its safe path to {end:?}; final position {position:?}")
+        });
+        assert!((position.x - repulsor.x).hypot(position.y - repulsor.y) > 20.0);
+        tick(&mut receiver, arrival_frame + 1);
+        assert_eq!(installed_path_observation(&receiver).0, wander);
+        assert_eq!(installed_path_observation(&peer), peer_path);
+    });
+}
+
+#[test]
 fn ordered_enemy_query_obeys_actual_relationship_and_range() {
     let mut hostile = NativeMatch::with_target_owner(90.0, container_template(), true);
     let mut allied = NativeMatch::with_target_owner(90.0, container_template(), false);

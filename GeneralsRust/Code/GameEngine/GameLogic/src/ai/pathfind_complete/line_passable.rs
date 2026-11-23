@@ -87,13 +87,7 @@ impl PathfindingSystem {
     ) -> Coord3D {
         Self::cell_center_with_height(coord, layer, |x, y, common_layer| {
             if let Some(world) = observations {
-                return world.terrain.get_layer_height(
-                    x,
-                    y,
-                    crate::path::PathfindLayerEnum::from_u32(common_layer as u32),
-                    None,
-                    false,
-                );
+                return world.layer_height(x, y, common_layer);
             }
             TheTerrainLogic::get()
                 .map(|terrain| terrain.get_layer_height(x, y, common_layer))
@@ -993,8 +987,19 @@ impl PathfindingSystem {
         ignore_obstacle_id: Option<ObjectID>,
         observations: Option<&PathfindObservations<'_>>,
     ) -> bool {
-        self.client_safe_quick_does_path_exist_with_terrain(
-            surfaces, from, to, ignore_obstacle_id, observations.map(|world| world.terrain),
+        self.client_safe_quick_does_path_exist_with_layers(
+            surfaces,
+            from,
+            to,
+            ignore_obstacle_id,
+            |position| observations.map_or(PathfindLayerEnum::Ground, |world| {
+                let layer = world.terrain.get_layer_for_destination_with_wall(
+                    position,
+                    || world.wall_height,
+                    || self.is_point_on_wall(position),
+                );
+                PathfindLayerEnum::from_u32(layer as u32)
+            }),
         )
     }
 
@@ -1006,9 +1011,25 @@ impl PathfindingSystem {
         ignore_obstacle_id: Option<ObjectID>,
         terrain: Option<&crate::terrain::TerrainLogic>,
     ) -> bool {
-        let layer_at = |position| terrain.map_or(PathfindLayerEnum::Ground, |terrain| {
-            PathfindLayerEnum::from_u32(terrain.get_layer_for_destination(position) as u32)
-        });
+        self.client_safe_quick_does_path_exist_with_layers(
+            surfaces,
+            from,
+            to,
+            ignore_obstacle_id,
+            |position| terrain.map_or(PathfindLayerEnum::Ground, |terrain| {
+                PathfindLayerEnum::from_u32(terrain.get_layer_for_destination(position) as u32)
+            }),
+        )
+    }
+
+    fn client_safe_quick_does_path_exist_with_layers(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        from: &Coord3D,
+        to: &Coord3D,
+        ignore_obstacle_id: Option<ObjectID>,
+        layer_at: impl Fn(&Coord3D) -> PathfindLayerEnum,
+    ) -> bool {
         let destination_layer = layer_at(to);
         // C++ validMovementPosition uses truncating coordinates; worldToCell
         // below uses floor and clips before reading the zone cells.

@@ -10,12 +10,14 @@ pub(crate) struct PathfindObservations<'a> {
     pub factory: &'a ObjectFactory,
     pub players: &'a PlayerList,
     pub terrain: &'a TerrainLogic,
+    pub wall_height: f32,
 }
 /// One synchronous owned pathfinder drain. Its source objects are borrowed
 /// for the entire phase, and searches keep reading live observations.
 pub struct QueuedPathObservations<'a> {
     pub(crate) world: PathfindObservations<'a>,
     admitted: bool,
+    pub(crate) repulsed_distance: f32,
 }
 
 impl<'a> QueuedPathObservations<'a> {
@@ -23,14 +25,17 @@ impl<'a> QueuedPathObservations<'a> {
         factory: &'a ObjectFactory,
         players: &'a PlayerList,
         terrain: &'a TerrainLogic,
+        rules: &crate::ai::AiData,
     ) -> Self {
         Self {
             world: PathfindObservations {
                 factory,
                 players,
                 terrain,
+                wall_height: rules.wall_height,
             },
             admitted: false,
+            repulsed_distance: rules.repulsed_distance,
         }
     }
 
@@ -46,6 +51,20 @@ impl<'a> QueuedPathObservations<'a> {
 }
 
 impl PathfindObservations<'_> {
+    pub(crate) fn layer_height(&self, x: f32, y: f32, layer: CommonPathfindLayerEnum) -> f32 {
+        if layer == CommonPathfindLayerEnum::Wall {
+            self.wall_height
+        } else {
+            self.terrain.get_layer_height(
+                x,
+                y,
+                crate::path::PathfindLayerEnum::from_u32(layer as u32),
+                None,
+                false,
+            )
+        }
+    }
+
     fn validate(&self) -> Result<(), String> {
         for instance in self.factory.instances() {
             let object = instance
@@ -102,7 +121,7 @@ mod tests {
         let mut players = PlayerList::new();
         players.add_player(Arc::clone(&player));
 
-        let mut batch = QueuedPathObservations::new(&factory, &players, &terrain);
+        let mut batch = QueuedPathObservations::new(&factory, &players, &terrain, &crate::ai::AiData::default());
         batch.admit().unwrap();
         let rejected = std::panic::catch_unwind(|| {
             let _held = player.write().unwrap();
@@ -113,7 +132,7 @@ mod tests {
         batch
             .admit()
             .expect("a second request reuses this drain's preflight");
-        let mut next = QueuedPathObservations::new(&factory, &players, &terrain);
+        let mut next = QueuedPathObservations::new(&factory, &players, &terrain, &crate::ai::AiData::default());
         assert_eq!(
             next.admit().err().as_deref(),
             Some("admitted path player poisoned")

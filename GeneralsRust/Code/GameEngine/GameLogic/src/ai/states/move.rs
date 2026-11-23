@@ -91,6 +91,7 @@ impl AIMoveAwayFromRepulsorsState {
     pub fn new(machine: &StateMachine) -> Self {
         let mut base = AIMoveToState::new(machine);
         base.base.name = "AIMoveAwayFromRepulsors".to_string();
+        base.is_move_to = false;
         Self {
             base,
             goal_position: Coord3D::new(0.0, 0.0, 0.0),
@@ -118,6 +119,7 @@ impl AIWanderInPlaceState {
     pub fn new(machine: &StateMachine) -> Self {
         let mut base = AIMoveToState::new(machine);
         base.base.name = "AIWanderInPlace".to_string();
+        base.is_move_to = false;
         Self {
             base,
             origin: Coord3D::new(0.0, 0.0, 0.0),
@@ -291,7 +293,11 @@ impl CppState for AIWanderInPlaceState {
         &mut self,
         ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
-        self.wander_in_place_enter(Some(ai))
+        if ai.world().is_some() {
+            self.enter_receiving_wander(ai)
+        } else {
+            self.wander_in_place_enter(Some(ai))
+        }
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -302,15 +308,89 @@ impl CppState for AIWanderInPlaceState {
         &mut self,
         ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
-        self.wander_in_place_update(Some(ai))
+        if ai.world().is_some() {
+            self.update_receiving_wander(ai)
+        } else {
+            self.wander_in_place_update(Some(ai))
+        }
     }
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         self.base.cpp_on_exit(_exit)
     }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn AiStateRuntime,
+    ) -> Result<(), String> {
+        if ai.world().is_some() {
+            self.base.cpp_on_exit_with_ai(exit, ai)
+        } else {
+            self.cpp_on_exit(exit)
+        }
+    }
 }
 
 impl AIWanderInPlaceState {
+    fn enter_receiving_wander(
+        &mut self,
+        ai: &mut dyn AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        let owner = self.base.base.get_machine_owner().ok_or("wander owner missing")?;
+        {
+            let object = owner.read().map_err(|_| "wander owner poisoned")?;
+            self.origin = *object.get_position();
+            self.wait_frames = 10 + ((object.get_id() & 0x7) as i32);
+        }
+        self.timer = 0;
+        ai.choose_locomotor_set(LocomotorSetType::Wander)
+            .map_err(|error| error.to_string())?;
+        self.queue_receiving_wander_segment(ai)
+    }
+
+    fn queue_receiving_wander_segment(
+        &mut self,
+        ai: &mut dyn AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        let mut delta = 3;
+        ai.with_cur_locomotor(&mut |locomotor| {
+            delta = ((locomotor.template.wander_about_point_radius / PATHFIND_CELL_SIZE_F) + 0.5)
+                .floor() as i32;
+        });
+        let world = ai.world_mut().ok_or("receiving wander services missing")?;
+        let x = world.mood_random_offset(-delta, delta)? as f32 * PATHFIND_CELL_SIZE_F;
+        let y = world.mood_random_offset(-delta, delta)? as f32 * PATHFIND_CELL_SIZE_F;
+        self.goal_position = self.origin + Coord3D::new(x, y, 0.0);
+        self.base.enter_authored_segment(ai, self.goal_position)
+    }
+
+    fn update_receiving_wander(
+        &mut self,
+        ai: &mut dyn AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        self.base.base.goal_position_copied = Some(self.goal_position);
+        let status = self.base.cpp_on_update_with_ai(ai)?;
+        let owner = self.base.base.get_machine_owner().ok_or("wander owner missing")?;
+        {
+            let object = owner.read().map_err(|_| "wander owner poisoned")?;
+            if object.is_kind_of(KindOf::CanBeRepulsed) {
+                self.timer -= 1;
+                if self.timer < 0 {
+                    self.timer = self.wait_frames;
+                    let world = ai.world().ok_or("receiving wander services missing")?;
+                    if world.closest_repulsor(&object, object.get_vision_range())?.is_some() {
+                        return Ok(StateReturnType::Failure);
+                    }
+                }
+            }
+        }
+        if status != StateReturnType::Continue {
+            self.queue_receiving_wander_segment(ai)?;
+        }
+        Ok(StateReturnType::Continue)
+    }
+
     fn wander_in_place_enter(
         &mut self,
         mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
@@ -1126,6 +1206,58 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
     }
 }
 
+impl AIMoveAwayFromRepulsorsState {
+    fn enter_receiving_safe_path(
+        &mut self,
+        ai: &mut dyn AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        let owner = self
+            .base
+            .base
+            .get_machine_owner()
+            .ok_or("MoveAwayFromRepulsors owner missing")?;
+        let (position, repulsor) = {
+            let object = owner.read().map_err(|_| "repulsible owner poisoned")?;
+            let world = ai.world().ok_or("receiving repulsor services missing")?;
+            (
+                *object.get_position(),
+                world.closest_repulsor(&object, object.get_vision_range())?,
+            )
+        };
+        let Some(repulsor) = repulsor else {
+            return Ok(StateReturnType::Failure);
+        };
+        self.base.set_adjusts_destination(false);
+        self.base.adjust_destinations = false;
+        ai.choose_locomotor_set(LocomotorSetType::Panic)
+            .map_err(|error| error.to_string())?;
+        ai.remove_pathfinder_goal();
+        // AIStates.cpp:2281 calls requestSafePath before entering the base
+        // movement state. Its virtual computePath consumes the only retry.
+        ai.request_safe_path(repulsor)?;
+        owner
+            .write()
+            .map_err(|_| "repulsible owner poisoned")?
+            .set_model_condition_state(ModelConditionFlags::PANICKING);
+
+        self.goal_position = position;
+        self.base.goal_position = position;
+        self.goal_dirty = true;
+        self.goal_clear_object = true;
+        self.check_for_path = true;
+        self.ok_to_repath_times = 0;
+        self.base.set_repath_limit(0, false);
+        self.base.waiting_for_path = true;
+        self.base.ambient_playing_handle = 0;
+        let _ = ai.set_path_extra_distance(0.0);
+        ai.set_desired_speed(FAST_AS_POSSIBLE);
+        ai.friend_starting_move();
+        ai.with_cur_locomotor_mut(&mut |locomotor| locomotor.start_move());
+        self.base.start_move_sound_with_ai(&owner, ai)?;
+        Ok(StateReturnType::Continue)
+    }
+}
+
 impl CppState for AIMoveAwayFromRepulsorsState {
     fn base_state(&self) -> &State {
         &self.base.base
@@ -1133,6 +1265,59 @@ impl CppState for AIMoveAwayFromRepulsorsState {
 
     fn base_state_mut(&mut self) -> &mut State {
         &mut self.base.base
+    }
+
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            self.enter_receiving_safe_path(ai)
+        } else {
+            self.cpp_on_enter()
+        }
+    }
+
+    fn cpp_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_none() {
+            return self.cpp_on_update();
+        }
+        if self.check_for_path && !ai.is_waiting_for_path() {
+            let Some(destination) = ai.get_path_last_node() else {
+                return Ok(StateReturnType::Failure);
+            };
+            self.goal_position = destination;
+            self.base.goal_position = destination;
+            self.check_for_path = false;
+        }
+        self.base.base.goal_position_copied = Some(self.goal_position);
+        let owner = self
+            .base
+            .base
+            .get_machine_owner()
+            .ok_or("MoveAwayFromRepulsors owner missing")?;
+        self.base.finish_move_update(&owner, ai)
+    }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        status: StateExitType,
+        ai: &mut dyn AiStateRuntime,
+    ) -> Result<(), String> {
+        if ai.world().is_none() {
+            return self.cpp_on_exit(status);
+        }
+        self.base.cpp_on_exit_with_ai(status, ai)?;
+        if let Some(owner) = self.base.base.get_machine_owner() {
+            owner
+                .write()
+                .map_err(|_| "repulsible owner poisoned")?
+                .clear_model_condition_state(ModelConditionFlags::PANICKING);
+        }
+        Ok(())
     }
 
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {

@@ -1084,7 +1084,7 @@ impl UnitAiRuntime {
         }
         Ok(())
     }
-    pub(super) fn request_safe_path(&mut self, repulsor_id: ObjectID) -> Result<bool, String> {
+    fn record_safe_path_request(&mut self, repulsor_id: ObjectID) {
         self.data.is_final_goal = false;
         self.data.is_attack_path = false;
         self.data.requested_victim_id = INVALID_ID;
@@ -1095,6 +1095,10 @@ impl UnitAiRuntime {
             self.data.repulsor2 = self.data.repulsor1;
         }
         self.data.repulsor1 = repulsor_id;
+    }
+
+    pub(super) fn request_safe_path(&mut self, repulsor_id: ObjectID) -> Result<bool, String> {
+        self.record_safe_path_request(repulsor_id);
         let now = TheGameLogic::get_frame();
         if self.data.path_timestamp > now.wrapping_sub(3) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
@@ -2764,8 +2768,33 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
     fn append_goal_position_to_path(&mut self, _goal: &Coord3D) -> Result<(), String> {
         self.runtime.append_goal_position_to_path(_goal)
     }
-    fn request_safe_path(&mut self, _repulsor_id: ObjectID) -> Result<bool, String> {
-        self.runtime.request_safe_path(_repulsor_id)
+    fn request_safe_path(&mut self, repulsor_id: ObjectID) -> Result<bool, String> {
+        let Some(world) = self.world.as_deref_mut() else {
+            return self.runtime.request_safe_path(repulsor_id);
+        };
+        if world.object(repulsor_id).is_none() {
+            return Err("safe path repulsor is absent from the receiving world".into());
+        }
+        let now = world.frame();
+        let owner = self.runtime.unit_id;
+        let too_soon = self.runtime.data.path_timestamp > now.wrapping_sub(3);
+        let deadline = if too_soon {
+            let delay = 2 * LOGICFRAMES_PER_SECOND;
+            world.shorten_ai_queue_wake(owner, delay)?;
+            now.wrapping_add(delay)
+        } else {
+            if !world
+                .pathfinder()
+                .ok_or("safe path requires the receiving pathfinder")?
+                .queue_for_path(owner)
+            {
+                return Err("safe path queue is full".into());
+            }
+            0
+        };
+        self.runtime.record_safe_path_request(repulsor_id);
+        self.runtime.data.queue_for_path_frame = deadline;
+        Ok(!too_soon)
     }
     fn is_doing_ground_movement(&self) -> bool {
         let Some(world) = self.world.as_deref() else {

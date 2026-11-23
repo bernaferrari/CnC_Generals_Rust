@@ -201,6 +201,7 @@ impl BorrowedAiWorld<'_> {
             factory: self.factory,
             players: self.players,
             terrain: self.services.terrain,
+            wall_height: self.services.rules.wall_height,
         };
         let mut position = Coord3D::default();
         Ok(self
