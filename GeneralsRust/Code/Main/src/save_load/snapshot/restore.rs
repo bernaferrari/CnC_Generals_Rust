@@ -1055,7 +1055,7 @@ impl SnapshotBuilder {
                 }
                 ModuleSnapshot::BaseAi(_) | ModuleSnapshot::FollowPath(_) => {}
                 ModuleSnapshot::ObjectTransform(_) => {}
-                ModuleSnapshot::DozerTasks(_) => {}
+                ModuleSnapshot::DozerTasks(_) | ModuleSnapshot::ActiveDozerTask(_) => {}
                 ModuleSnapshot::ActiveWeaponStatus(status) => object.weapon_fire_status = *status,
                 ModuleSnapshot::AIUpdate(snapshot) => {
                     if matches!(

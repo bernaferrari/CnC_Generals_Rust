@@ -25,10 +25,12 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const AITQ_MAGIC: &[u8; 4] = b"AITQ";
-const AITQ_VERSION: u32 = 8;
+const AITQ_VERSION: u32 = 9;
+const AITQ_VERSION_V8: u32 = 8;
 const AITQ_VERSION_V7: u32 = 7;
 const AITQ_VERSION_V6: u32 = 6;
 const FRAME_MAGIC: &[u8; 4] = b"AIQF";
+#[cfg(test)]
 const AITQ_VERSION_V5: u32 = 5;
 const AITQ_VERSION_V4: u32 = 4;
 const AITQ_VERSION_V3: u32 = 3;
@@ -61,6 +63,14 @@ struct AIPlayerQueuePersistPayloadV7 {
 struct AIPlayerQueuePersistPayloadV8 {
     shared: AIPlayerQueuePersistPayloadV7,
     ordinary: Vec<(u32, OrdinaryAiContinuation)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AIPlayerQueuePersistPayloadV9 {
+    queues: AIPlayerQueuePersistPayloadV8,
+    // Saved-map foundation skips Player::newMap. A live AI must keep its
+    // completed initialization so the next tick cannot recreate its base.
+    initialized_on_map: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -519,7 +529,16 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
             ))
         })
         .collect();
-    let payload = AIPlayerQueuePersistPayloadV8 { shared, ordinary };
+    let initialized_on_map = game_logic
+        .ai_manager
+        .ai_players
+        .iter()
+        .filter_map(|(&id, ai)| ai.initialized_on_map().then_some(id))
+        .collect();
+    let payload = AIPlayerQueuePersistPayloadV9 {
+        queues: AIPlayerQueuePersistPayloadV8 { shared, ordinary },
+        initialized_on_map,
+    };
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
@@ -540,15 +559,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != AITQ_VERSION
-        && version != AITQ_VERSION_V7
-        && version != AITQ_VERSION_V6
-        && version != AITQ_VERSION_V5
-        && version != AITQ_VERSION_V4
-        && version != AITQ_VERSION_V3
-        && version != AITQ_VERSION_V2
-        && version != AITQ_VERSION_V1
-    {
+    if !(AITQ_VERSION_V1..=AITQ_VERSION).contains(&version) {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown AITQ suffix version {version}"
         )));
@@ -562,22 +573,33 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     let encoded = &rest[..payload_len];
     let mut buildings = None;
     let mut conditions = None;
-    let (shared, ordinary) = match version {
+    let (shared, ordinary, initialized_on_map) = match version {
         AITQ_VERSION => {
+            let current: AIPlayerQueuePersistPayloadV9 = bincode_legacy::deserialize(encoded)
+                .map_err(|err| {
+                    SaveLoadError::Corrupted(format!("AITQ v9 payload decode: {err}"))
+                })?;
+            (
+                Some(current.queues.shared),
+                current.queues.ordinary,
+                Some(current.initialized_on_map),
+            )
+        }
+        AITQ_VERSION_V8 => {
             let current: AIPlayerQueuePersistPayloadV8 = bincode_legacy::deserialize(encoded)
                 .map_err(|err| {
                     SaveLoadError::Corrupted(format!("AITQ v8 payload decode: {err}"))
                 })?;
-            (Some(current.shared), current.ordinary)
+            (Some(current.shared), current.ordinary, None)
         }
         AITQ_VERSION_V7 => {
             let current: AIPlayerQueuePersistPayloadV7 = bincode_legacy::deserialize(encoded)
                 .map_err(|err| {
                     SaveLoadError::Corrupted(format!("AITQ v7 payload decode: {err}"))
                 })?;
-            (Some(current), Vec::new())
+            (Some(current), Vec::new(), None)
         }
-        _ => (None, Vec::new()),
+        _ => (None, Vec::new(), None),
     };
     let mut ordinary_timing = std::collections::HashMap::new();
     let payload = if version >= AITQ_VERSION_V6 {
@@ -710,6 +732,24 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ payload decode: {err}")))?
     };
+    let mut initialized = std::collections::HashSet::new();
+    if initialized_on_map.is_some_and(|players| {
+        players.into_iter().any(|id| {
+            !payload.players.iter().any(|entry| entry.player_id == id)
+                || !game_logic.ai_manager.ai_players.contains_key(&id)
+                || !initialized.insert(id)
+        })
+    }) {
+        return Err(SaveLoadError::Corrupted(
+            "invalid AITQ map initialization owners".into(),
+        ));
+    }
+    if version == AITQ_VERSION {
+        for (&id, ai) in &mut game_logic.ai_manager.ai_players {
+            ai.restore_map_initialization(initialized.contains(&id));
+        }
+    }
+
     // Older versions have no continuation evidence for this cache. Clear it
     // only after every supplied owner row has been decoded and validated.
     for ai in game_logic.ai_manager.ai_players.values_mut() {
@@ -1006,10 +1046,12 @@ mod tests {
         pad.current_gatherers = -1;
         pad.desired_gatherers = 8;
         ai.building_queue.push(pad);
+        ai.restore_map_initialization(true);
         let mut bytes = Vec::new();
         append_to_lifecycle_tail(&mut bytes, &source);
         let mut target = china_ai_logic();
         apply_from_lifecycle_tail(&bytes, &mut target).unwrap();
+        assert!(target.ai_manager.ai_players[&1].initialized_on_map());
         let pad = &target.ai_manager.ai_players[&1].building_queue[0];
         assert_eq!(pad.template_name, "ChinaSupplyCenter");
         assert_eq!(pad.position, Vec3::new(1.0, 0.0, 3.0));

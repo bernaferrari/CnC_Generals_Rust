@@ -1,6 +1,8 @@
 use super::{HeadlessSkirmish, HumanOrders, SharedSkirmishAssets};
 use crate::save_load::SaveFileManager;
-use gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
+use gamelogic::object::update::ai_update::dozer_ai_update::{
+    DozerBuildSubTask, DozerTask, owned_state::ActionState,
+};
 
 #[test]
 #[ignore = "requires retail assets"]
@@ -37,6 +39,11 @@ fn check_power_plant_save() {
         DozerBuildSubTask::DoBuildAtDock
     );
     let dock = builder.dozer_dock_action().unwrap();
+    let action = &builder.dozer_tasks.primary.actions[DozerTask::Build as usize];
+    let ActionState::DoAction { enter_frame } = action.state else {
+        panic!("the saved Dozer must already be building");
+    };
+    assert_eq!(action.control.goal_object, site.0);
     let scaffold = game.logic.host_object(site).unwrap();
     let health = scaffold.health.current;
     let plant_output = scaffold.get_template().energy_production.unwrap();
@@ -55,6 +62,9 @@ fn check_power_plant_save() {
     let neutral_id = neutral.id;
     let neutral_power = neutral.power_produced;
     let saved_passability = game.logic.snapshot_pathfinding_passability();
+    let gla = 1;
+    let saved_command_center = game.owned_ids(gla, "GLACommandCenter");
+    assert_eq!(saved_command_center.len(), 1);
 
     let directory = tempfile::tempdir().unwrap();
     let mut archive = SaveFileManager::with_save_directory(directory.path());
@@ -100,9 +110,51 @@ fn check_power_plant_save() {
     );
     assert_eq!(receiving.observe(), saved_observation);
 
+    let restored_builder = receiving.logic.host_object(dozer).unwrap();
+    let restored_action = &restored_builder.dozer_tasks.primary.actions[DozerTask::Build as usize];
+    assert_eq!(restored_action.control.goal_object, site.0);
+    assert!(matches!(
+        restored_action.state,
+        ActionState::DoAction { enter_frame: restored_frame } if restored_frame == enter_frame
+    ));
+    receiving.advance();
+    assert_eq!(game.frame(), saved_frame);
+    assert_eq!(game.construction(human, plant), [(site, true, progress)]);
+    assert_eq!(production(&game), saved_power);
+    game.advance();
+    assert_eq!(
+        receiving.owned_ids(gla, "GLACommandCenter"),
+        saved_command_center,
+        "restoring a match must not repeat the skirmish AI's map initialization"
+    );
+    assert_eq!(
+        receiving.construction(human, plant),
+        game.construction(human, plant)
+    );
+    let next_health = game.logic.host_object(site).unwrap().health.current;
+    assert!(
+        next_health > health,
+        "the uninterrupted builder contributes on this tick"
+    );
+    assert_eq!(
+        receiving.logic.host_object(site).unwrap().health.current,
+        next_health
+    );
+    let resumed_tick = receiving.observe();
+    let original_tick = game.observe();
+    assert_eq!(resumed_tick.players, original_tick.players);
+    assert_eq!(resumed_tick.world_digest, original_tick.world_digest);
+
     let finished = (0..900).any(|_| {
         receiving.advance();
+        game.advance();
         let sites = receiving.construction(human, plant);
+        assert_eq!(
+            sites,
+            game.construction(human, plant),
+            "logic frame {}",
+            game.frame()
+        );
         if sites == [(site, false, 1.0)] {
             return true;
         }
@@ -117,7 +169,4 @@ fn check_power_plant_save() {
         receiving.advance();
     }
     assert_eq!(production(&receiving), saved_power + plant_output);
-    assert_eq!(game.frame(), saved_frame);
-    assert_eq!(game.construction(human, plant), [(site, true, progress)]);
-    assert_eq!(production(&game), saved_power);
 }

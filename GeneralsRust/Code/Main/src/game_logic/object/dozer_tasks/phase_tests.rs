@@ -283,7 +283,9 @@ fn supplied_build_request_does_not_interrupt_busy_motion_but_repair_invalid_curr
     );
 }
 #[test]
-fn native32_entered_action_keeps_current_but_restarts_nested_pick() {
+fn native32_entered_repair_continues_on_the_next_tick() {
+    use crate::save_load::{XferLoad, XferSave};
+
     let (mut source, id, target) = world();
     assert!(
         command(&mut source, id, CommandType::Repair { target_id: target }) == CommandResult::Success);
@@ -291,28 +293,37 @@ fn native32_entered_action_keeps_current_but_restarts_nested_pick() {
         drive(&mut source, id, frame);
     }
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
-    let snapshot = builder
+    let mut snapshot = builder
         .create_world_snapshot(&source)
         .expect("save entered action");
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    snapshot.xfer(&mut XferSave::new(&mut bytes)).expect("encode");
+    let mut decoded = crate::save_load::snapshot::WorldSnapshot::default();
+    decoded
+        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
+        .expect("decode");
     let (mut restored, _, _) = world();
     builder
-        .restore_from_snapshot(&snapshot, &mut restored)
+        .restore_from_snapshot(&decoded, &mut restored)
         .expect("restore entered action");
     let actor = restored.host_object(id).unwrap();
     assert_eq!(actor.dozer_tasks.current, DozerTask::Repair);
     assert!(
         matches!(
             actor.dozer_tasks.primary.actions[1].state,
-            ActionState::PickPosition { .. }
-        ),
-        "CPP819 saves task only; no invented nested continuation"
+            ActionState::DoAction { enter_frame: 13 }
+        )
     );
+    assert_eq!(actor.dozer_tasks.primary.actions[1].control.goal_object, target.0);
     let hp = restored.host_object(target).unwrap().health.current;
     drive(&mut restored, id, 14);
+    assert_eq!(source.host_object(target).unwrap().health.current, hp);
+    drive(&mut source, id, 14);
+    let expected = source.host_object(target).unwrap().health.current;
+    assert!(expected > hp);
     assert_eq!(
         restored.host_object(target).unwrap().health.current,
-        hp,
-        "first restored action phase is Pick"
+        expected
     );
 }
 #[test]
@@ -568,27 +579,20 @@ fn direct_snapshot_rejects_foreign_action_definition_before_receiving_mutation()
     let mut snapshot = builder
         .create_world_snapshot(&source)
         .expect("entered source save");
-    let actor = snapshot
-        .objects
-        .values_mut()
-        .find(|object| object.id == id)
-        .unwrap();
-    let saved = actor
+    let saved = snapshot.objects.get_mut(&id).unwrap()
         .modules
-        .iter_mut()
-        .find_map(|(_, module)| match module {
-            crate::save_load::snapshot::ModuleSnapshot::DozerTasks(saved) => Some(saved),
-            _ => None,
-        })
+        .get_mut("ReceivingDozerTasks")
         .expect("actual source task payload");
     // Corrupt only detached input, never live task/action state.
-    saved.primary.actions[1].task = DozerTask::Fortify;
+    let mut value = serde_json::to_value(&*saved).unwrap();
+    value["ActiveDozerTask"]["action"]["task"] = serde_json::to_value(DozerTask::Fortify).unwrap();
+    *saved = serde_json::from_value(value).unwrap();
     let (mut receiving, _, _) = world();
     receiving.frame = 77;
     let error = builder
         .restore_from_snapshot(&snapshot, &mut receiving)
         .expect_err("foreign nested task definition must be rejected");
-    assert!(error.to_string().contains("action task differs"));
+    assert!(error.to_string().contains("invalid active action continuation"));
     assert_eq!(receiving.frame, 77);
     assert_eq!(
         receiving.host_object(id).unwrap().dozer_tasks.current,
@@ -917,10 +921,7 @@ fn actual_construct_latch_is_builder_owned_survives_resume_and_is_omitted_from_o
             .create_world_snapshot(world)
             .unwrap();
         let object = snapshot.objects.get(&builder).unwrap();
-        let mut module = match object.modules.get("ReceivingDozerTasks").unwrap() {
-            crate::save_load::snapshot::ModuleSnapshot::DozerTasks(module) => module.clone(),
-            _ => panic!("receiving Dozer snapshot has wrong module type"),
-        };
+        let mut module = object.modules.get("ReceivingDozerTasks").unwrap().clone();
         let mut out = std::io::Cursor::new(Vec::new());
         module.xfer(&mut XferSave::new(&mut out)).unwrap();
         out.into_inner()

@@ -362,7 +362,7 @@ impl SnapshotBuilder {
 
         modules.insert(
             "ReceivingDozerTasks".into(),
-            ModuleSnapshot::DozerTasks(DozerTaskObjectSnapshot::capture(object)?),
+            super::dozer_task_module::ActiveDozerTaskSnapshot::capture_module(object)?,
         );
 
         modules.insert(

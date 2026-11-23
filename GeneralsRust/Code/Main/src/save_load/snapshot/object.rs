@@ -395,6 +395,7 @@ pub enum ModuleSnapshot {
     ObjectTransform([f32; 16]),
     /// AIFollowPathState::m_index into this Object's ReceivingBaseAI goal path.
     FollowPath(u32),
+    ActiveDozerTask(super::dozer_task_module::ActiveDozerTaskSnapshot),
 }
 
 /// AI update module snapshot
@@ -1677,6 +1678,7 @@ impl XferData for ModuleSnapshot {
             ModuleSnapshot::Contain(_) => 6,
             ModuleSnapshot::Upgrade(_) => 7,
             ModuleSnapshot::DozerTasks(_) => 10,
+            ModuleSnapshot::ActiveDozerTask(_) => 23,
             ModuleSnapshot::BaseAi(_) => 14,
             ModuleSnapshot::ActiveWeaponStatus(_) => 16,
             ModuleSnapshot::OpenContainEntered(_) => 17,
@@ -1698,6 +1700,7 @@ impl XferData for ModuleSnapshot {
                 ModuleSnapshot::Contain(d) => d.xfer(xfer)?,
                 ModuleSnapshot::Upgrade(d) => d.xfer(xfer)?,
                 ModuleSnapshot::DozerTasks(d) => d.xfer(xfer)?,
+                ModuleSnapshot::ActiveDozerTask(d) => d.write_xfer(xfer)?,
                 ModuleSnapshot::BaseAi(d) => d.xfer(xfer)?,
                 ModuleSnapshot::FollowPath(index) => xfer.xfer_u32(index)?,
                 ModuleSnapshot::ObjectTransform(matrix) => {
@@ -1808,6 +1811,9 @@ impl XferData for ModuleSnapshot {
                     d.xfer(xfer)?;
                     ModuleSnapshot::DozerTasks(d)
                 }
+                23 => ModuleSnapshot::ActiveDozerTask(
+                    super::dozer_task_module::ActiveDozerTaskSnapshot::read_xfer(xfer)?,
+                ),
                 14 => {
                     let mut d = super::base_ai_machine_persist::BaseAiObjectSnapshot::default();
                     d.xfer(xfer)?;

@@ -575,6 +575,14 @@ impl AIPlayer {
         self.queue_front_base_defense(None);
     }
 
+    pub(crate) fn initialized_on_map(&self) -> bool {
+        self.skirmish_new_map_applied
+    }
+
+    pub(crate) fn restore_map_initialization(&mut self, initialized: bool) {
+        self.skirmish_new_map_applied = initialized;
+    }
+
     /// C++ `AISkirmishPlayer::newMap` — replace invented pads with AIData list.
     pub(super) fn ensure_skirmish_new_map(
         &mut self,
