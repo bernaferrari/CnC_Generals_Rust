@@ -210,6 +210,10 @@ impl crate::game_logic::NativeMapAdmission for NativeMapCandidate {
     }
 }
 
+#[cfg(all(test, feature = "game_client", not(target_arch = "wasm32")))]
+#[path = "map_native_admission/optimized_tree_tests.rs"]
+mod optimized_tree_tests;
+
 #[cfg(all(test, feature = "game_client"))]
 mod tests {
     use super::*;
@@ -496,6 +500,52 @@ impl crate::game_logic::NativeMapAdmission for NativeMapAttempt<'_> {
             *self.retirement = CandidateRetirement::MayOwnResources;
         }
         self.view.admit_restored_object_drawables(world)
+    }
+    fn place_optimized_tree(
+        &mut self,
+        world: &mut crate::game_logic::GameLogic,
+        template_name: &str,
+        position: [f32; 3],
+        angle: f32,
+    ) -> Result<(), String> {
+        use crate::game_logic::NativeViewEffects;
+
+        let template = world.templates.get(template_name).ok_or_else(|| {
+            format!("admitted optimized map tree template '{template_name}' is missing")
+        })?;
+        let plan = world
+            .receiving_module_content
+            .as_ref()
+            .and_then(|content| content.admitted_template(template_name))
+            .ok_or_else(|| format!("optimized map tree '{template_name}' lacks receiving modules"))?;
+        let draws = template.receiving_draw_models().ok_or_else(|| {
+            format!("optimized map tree '{template_name}' lacks receiving Draw declarations")
+        })?;
+        let source = crate::game_logic::NativeAuxiliarySource {
+            world: std::sync::Arc::clone(&world.live_draw_playback_world),
+            epoch: self.view.host_epoch(),
+            template: plan,
+            draws,
+            scale: template.asset_scale,
+            frame: world.frame,
+            birth: world.native_drawable_birth_context(),
+            ambient_audio_locality: world.receiving_audio_locality_for_player(-1),
+        };
+        let visual = self.visual.as_mut().ok_or(
+            "optimized map tree requires a prepared receiving native terrain",
+        )?;
+        let content = world
+            .receiving_module_content
+            .as_mut()
+            .expect("optimized map tree plan came from receiving content");
+        self.view.place_optimized_map_tree(
+            &source,
+            content.module_factory_mut(),
+            position,
+            angle,
+            visual,
+            &mut world.session_view.client_random,
+        )
     }
     fn on_level_start(&mut self, world: &crate::game_logic::GameLogic) -> Result<(), String> {
         if !matches!(*self.retirement, CandidateRetirement::Failed) {

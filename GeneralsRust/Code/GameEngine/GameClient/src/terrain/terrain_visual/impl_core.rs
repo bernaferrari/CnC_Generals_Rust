@@ -226,6 +226,8 @@ impl TerrainVisualImpl {
             tree_atlas_bind_group_layout: None,
             tree_atlas_sampler: None,
             tree_atlas_bind_group: None,
+            tree_sway_uniform_buffer: None,
+            tree_sway_bind_group: None,
             terrain_camera_bind_group_layout: None,
             terrain_texture_bind_group_layout: None,
             terrain_camera_bind_group: None,

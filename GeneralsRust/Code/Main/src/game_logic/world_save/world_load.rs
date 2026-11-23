@@ -3,6 +3,12 @@
 use super::*;
 
 impl GameLogic {
+    fn is_optimized_map_tree(&self, template: &str) -> bool {
+        self.templates
+            .get(template)
+            .is_some_and(ThingTemplate::is_optimized_map_tree)
+    }
+
     /// Replay commands belong to their recorded map; never substitute another match.
     pub(crate) fn load_recorded_map_with_progress<F>(
         &mut self,
@@ -894,7 +900,7 @@ impl GameLogic {
                         // Build a mapping from map-defined player IDs to teams.
                         let mut map_player_to_team: HashMap<u32, Team> = HashMap::new();
                         for obj in objects {
-                            if obj.is_terrain_endpoint() {
+                            if obj.is_terrain_endpoint() || self.is_optimized_map_tree(&obj.template) {
                                 continue;
                             }
                             if let Some(pid) = obj.player_id {
@@ -966,6 +972,7 @@ impl GameLogic {
 
                         let mut spawned_object_ids: Vec<(ObjectId, usize)> = Vec::new();
                         let total_objects = objects.len().max(1) as f32;
+                        let saved_foundation = self.is_loading_saved_snapshot();
                         for (index, obj) in objects.iter().enumerate() {
                             if index % 4 == 0 {
                                 let t = (index as f32 / total_objects).clamp(0.0, 1.0);
@@ -976,7 +983,11 @@ impl GameLogic {
                                     "Spawning world objects",
                                 )?;
                             }
-                            if obj.is_terrain_endpoint() || Self::apply_map_object_scorch(obj) {
+                            let optimized_tree = self.is_optimized_map_tree(&obj.template);
+                            if obj.is_terrain_endpoint() && (!saved_foundation || !optimized_tree) {
+                                continue;
+                            }
+                            if !optimized_tree && Self::apply_map_object_scorch(obj) {
                                 continue;
                             }
 
@@ -989,6 +1000,22 @@ impl GameLogic {
                             )) {
                                 // Match C++ map-object placement: map z-offset sits on top of terrain.
                                 spawn_position.y += ground_height;
+                            }
+                            // GameLogic.cpp:1758–1782, 1836–1848. This map
+                            // placement has a transient Drawable and no Team
+                            // validation, Object birth, or path classification.
+                            if optimized_tree {
+                                #[cfg(feature = "game_client")]
+                                if let Some(native) = native.as_mut() {
+                                    use game_engine::common::system::game_common::normalize_angle;
+                                    native.place_optimized_tree(
+                                        self,
+                                        &obj.template,
+                                        spawn_position.to_array(),
+                                        normalize_angle(obj.rotation.unwrap_or(0.0)),
+                                    )?;
+                                }
+                                continue;
                             }
                             let mut effects = native
                                 .as_mut()

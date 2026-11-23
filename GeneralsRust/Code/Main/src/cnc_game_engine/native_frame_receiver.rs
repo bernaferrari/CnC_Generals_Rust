@@ -338,7 +338,9 @@ fn flush_receiving_water_tracks(
 }
 
 /// Borrowed adapter to the same receiving client stream used by authored FX.
-struct ReceivingTreeRandom<'a>(&'a mut game_engine::common::random_value::RandomState);
+pub(super) struct ReceivingTreeRandom<'a>(
+    pub(super) &'a mut game_engine::common::random_value::RandomState,
+);
 impl game_client::terrain::TreeRandom for ReceivingTreeRandom<'_> {
     fn int_range(&mut self, min: i32, max: i32) -> i32 {
         let width = max.wrapping_sub(min).wrapping_add(1) as u32;

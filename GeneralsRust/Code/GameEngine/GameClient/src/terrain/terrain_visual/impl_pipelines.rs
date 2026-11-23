@@ -594,6 +594,37 @@ impl TerrainVisualImpl {
             ));
         };
 
+        let sway_layout = device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                label: Some("Tree Sway Uniform Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: std::num::NonZeroU64::new(
+                            std::mem::size_of::<TreeSwayGpuUniform>() as u64,
+                        ),
+                    },
+                    count: None,
+                }],
+            },
+        );
+        let sway_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Tree Sway Uniform Buffer"),
+            contents: bytemuck::bytes_of(&self.tree_buffer.advance_sway_for_draw(true)),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let sway_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Tree Sway Uniform Bind Group"),
+            layout: &sway_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: sway_uniform_buffer.as_entire_binding(),
+            }],
+        });
+
         // Dedicated atlas layout. Do not reuse road/terrain bind groups.
         let atlas_layout = Arc::new(device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
@@ -625,10 +656,13 @@ impl TerrainVisualImpl {
                 Some(camera_layout.as_ref()),
                 Some(atlas_layout.as_ref()),
                 Some(shroud_layout.as_ref()),
+                Some(&sway_layout),
             ],
             immediate_size: 0,
         });
         self.tree_atlas_bind_group_layout = Some(atlas_layout);
+        self.tree_sway_uniform_buffer = Some(sway_uniform_buffer);
+        self.tree_sway_bind_group = Some(sway_bind_group);
 
         self.tree_pipeline = Some(
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -637,7 +671,10 @@ impl TerrainVisualImpl {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[Some(TreeGpuVertex::desc())],
+                    buffers: &[
+                        Some(TreeGpuVertexStatic::desc()),
+                        Some(TreeGpuVertexDynamic::desc()),
+                    ],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {

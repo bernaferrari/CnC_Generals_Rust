@@ -1447,6 +1447,7 @@ impl CnCGameEngine {
         let candidate_camera_movement = candidate.camera.movement_policy;
         let candidate_camera_input = candidate.camera.input_policy;
         let candidate_scripted = std::mem::take(&mut candidate.scripted);
+        let candidate_client_random = candidate.client_random.clone();
         // Map actions already applied to the candidate's receiving filter.
         #[cfg(feature = "game_client")]
         let candidate_filter = std::mem::take(&mut candidate.filter);
@@ -1460,6 +1461,7 @@ impl CnCGameEngine {
         candidate.camera.movement_policy = candidate_camera_movement;
         candidate.camera.input_policy = candidate_camera_input;
         candidate.scripted = candidate_scripted;
+        candidate.client_random = candidate_client_random;
         #[cfg(feature = "game_client")]
         {
             candidate.filter = candidate_filter;
@@ -1746,11 +1748,19 @@ impl CnCGameEngine {
         // staging/preflight above retains its live pending owner and windows.
         self.pending_match_start = None;
         self.destroy_source_new_game_background();
+        // The staged map starts at the receiving client RNG position.
+        // Commit the accepted map's draws even for the pose-only camera path.
+        #[cfg(feature = "game_client")]
+        let staged_client_random = logic.session_view.client_random.clone();
         admit_staged_session_view(
             &mut self.game_logic.session_view,
             &mut logic.session_view,
             owns_session_camera,
         );
+        #[cfg(feature = "game_client")]
+        {
+            logic.session_view.client_random = staged_client_random;
+        }
         let saved_local = logic
             .initial_skirmish_admission
             .as_ref()
@@ -1864,9 +1874,18 @@ impl CnCGameEngine {
         // Native map actions already ran at definition admission and saved team
         // state replaced their runtime state. No Core script is replayed here.
         // Native effects follow client/view admission, on this renderer only.
+        #[cfg(feature = "game_client")]
+        if terrain_visual.as_ref().is_some_and(|visual| visual.tree_records().is_some()) {
+            self.admit_pending_native_terrain_trees();
+        }
         if let Some(visual) = self.render_pipeline.native_terrain_mut() {
             if let Some(terrain_visual) = terrain_visual {
-                terrain_visual.apply_native(visual);
+                // C++ GameState restores TerrainVisual after GameClient.
+                // Map admission has already installed the authored tree types.
+                let mut random = super::native_frame_receiver::ReceivingTreeRandom(
+                    &mut self.game_logic.session_view.client_random,
+                );
+                terrain_visual.apply_native(visual, &mut random);
             } else if let Some(configured) = map_water_configuration {
                 visual.admit_map_water_configuration(&configured);
             }
@@ -2022,6 +2041,17 @@ impl CnCGameEngine {
         Ok(())
     }
 
+    #[cfg(feature = "game_client")]
+    fn admit_pending_native_terrain_trees(&mut self) {
+        let (mut poses, terrain) = self.render_pipeline.borrow_native_installed_poses_and_terrain();
+        if let Some(terrain) = terrain {
+            let mut random = super::native_frame_receiver::ReceivingTreeRandom(
+                &mut self.game_logic.session_view.client_random,
+            );
+            poses.admit_pending_native_trees(terrain, &mut random);
+        }
+    }
+
     pub(super) fn host_save_game_authority(
         &mut self,
         slot: &str,
@@ -2036,6 +2066,10 @@ impl CnCGameEngine {
                 ui.take_radar_acknowledgments(),
             );
         }
+        // C++ Drawable transform changes have already registered trees when
+        // save runs. Finish the receiving queue even before the first draw.
+        #[cfg(feature = "game_client")]
+        self.admit_pending_native_terrain_trees();
         // Wave 928: single save authority boundary.
         // Capture the renderer-owned Drawable companion at the same host
         // authority boundary as the logical snapshot.  The pipeline method

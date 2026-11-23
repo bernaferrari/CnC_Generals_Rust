@@ -114,6 +114,19 @@ fn startup_and_save_handoffs_keep_the_receiving_radar_cues() {
 }
 
 #[test]
+fn startup_view_keeps_the_client_random_draws_made_by_the_map() {
+    let mut live = receiving_view();
+    live.client_random.seed_random(17);
+    let mut candidate = SessionView::default();
+    candidate.client_random = live.client_random.clone();
+    candidate.client_random.next_int(0, 9);
+    let expected = candidate.client_random.seed_words();
+    assert_ne!(expected, live.client_random.seed_words());
+    CnCGameEngine::admit_startup_candidate_view(&mut live, &mut candidate);
+    assert_eq!(candidate.client_random.seed_words(), expected);
+}
+
+#[test]
 fn unavailable_map_staging_preserves_actual_receiver_and_peer_viewports() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

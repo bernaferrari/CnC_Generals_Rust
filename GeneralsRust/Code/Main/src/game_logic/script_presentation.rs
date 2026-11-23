@@ -530,6 +530,16 @@ pub(crate) trait NativeMapAdmission {
         metadata: Option<&super::script_loader::MapMetadata>,
     ) -> Result<(), String>;
     fn admit_restored_heights(&mut self, world: &super::GameLogic) -> Result<(), String>;
+    #[cfg(feature = "game_client")]
+    fn place_optimized_tree(
+        &mut self,
+        _world: &mut super::GameLogic,
+        _template: &str,
+        _position: [f32; 3],
+        _angle: f32,
+    ) -> Result<(), String> {
+        Err("optimized map tree requires its receiving native Drawable owner".into())
+    }
     /// Snapshot replaced host instances after map foundation. Reconstruct only
     /// their native constructor state, without replaying gameplay creation.
     fn admit_restored_object_drawables(

@@ -42,7 +42,7 @@ fn tree_atlas_gpu_upload_survives_vertex_refresh_and_reloads_after_lod_change() 
 
 #[test]
 #[ignore = "requires native WGPU readback for the tree material"]
-fn tree_alpha_test_applies_shroud_only_to_covered_pixels() {
+fn tree_shader_applies_cutout_shroud_darken_and_sway() {
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
@@ -119,6 +119,11 @@ fn tree_alpha_test_applies_shroud_only_to_covered_pixels() {
                 color: [1.0; 3],
                 tex_coords: [coord, 0.5],
                 diffuse: u32::MAX,
+                tree_effects: [
+                    if coord > 0.5 { 1.0 } else { 0.0 },
+                    if coord > 0.5 { 0.5 } else { 1.0 },
+                    -1.0,
+                ],
             })
         })
         .collect();
@@ -160,66 +165,69 @@ fn tree_alpha_test_applies_shroud_only_to_covered_pixels() {
     );
     let color_view = color.create_view(&Default::default());
     let depth_view = depth.create_view(&Default::default());
-    let mut command = device.create_command_encoder(&Default::default());
-    {
-        let mut pass = command.begin_render_pass(&wgpu::RenderPassDescriptor {
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &color_view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &depth_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Discard,
+    let render = || {
+        let mut command = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = command.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &color_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
                 }),
-                stencil_ops: None,
-            }),
-            ..Default::default()
+                ..Default::default()
+            });
+            visual.record_tree_draws(&mut pass);
+        }
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree alpha readback"),
+            size: 512,
+            mapped_at_creation: false,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         });
-        visual.record_tree_draws(&mut pass);
-    }
-    let readback = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("tree alpha readback"),
-        size: 512,
-        mapped_at_creation: false,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-    });
-    command.copy_texture_to_buffer(
-        color.as_image_copy(),
-        wgpu::TexelCopyBufferInfo {
-            buffer: &readback,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(256),
-                rows_per_image: Some(2),
+        command.copy_texture_to_buffer(
+            color.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(256),
+                    rows_per_image: Some(2),
+                },
             },
-        },
-        extent,
-    );
-    queue.submit([command.finish()]);
-    let (done, completed) = std::sync::mpsc::channel();
-    readback
-        .slice(..)
-        .map_async(wgpu::MapMode::Read, move |result| {
-            done.send(result).unwrap()
-        });
-    device
-        .poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(std::time::Duration::from_secs(20)),
-        })
-        .unwrap();
-    completed
-        .recv_timeout(std::time::Duration::from_secs(1))
-        .unwrap()
-        .unwrap();
-    let image = readback.slice(..).get_mapped_range().unwrap();
+            extent,
+        );
+        queue.submit([command.finish()]);
+        let (done, completed) = std::sync::mpsc::channel();
+        readback
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                done.send(result).unwrap()
+            });
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(20)),
+            })
+            .unwrap();
+        completed
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap()
+            .unwrap();
+        readback.slice(..).get_mapped_range().unwrap().to_vec()
+    };
+    let image = render();
     assert_eq!(
         &image[0..4],
         &[255, 0, 0, 255],
@@ -227,7 +235,19 @@ fn tree_alpha_test_applies_shroud_only_to_covered_pixels() {
     );
     assert_eq!(
         &image[12..16],
-        &[128, 128, 128, 96],
-        "96 writes one shroud-modulated fragment"
+        &[64, 64, 64, 96],
+        "96 writes one fragment with shroud and C++ push-aside darkening"
     );
+    let mut sway = TreeSwayGpuUniform {
+        factors: [[0.0; 4]; crate::terrain::tree_buffer::MAX_SWAY_TYPES],
+    };
+    sway.factors[0][0] = -0.5;
+    queue.write_buffer(
+        visual.tree_sway_uniform_buffer.as_ref().unwrap(),
+        0,
+        bytemuck::bytes_of(&sway),
+    );
+    let image = render();
+    assert_eq!(&image[4..8], &[64, 64, 64, 96], "the upper tree moves left");
+    assert_eq!(&image[12..16], &[255, 0, 0, 255], "the old pixel is clear");
 }

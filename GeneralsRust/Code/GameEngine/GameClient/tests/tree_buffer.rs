@@ -527,11 +527,29 @@ fn load_records_rebuilds_from_known_types_and_restores_cpp_subset() {
         },
     ];
 
-    buffer.load_records(&records);
+    #[derive(Default)]
+    struct RestoreRandom(Vec<&'static str>);
+    impl TreeRandom for RestoreRandom {
+        fn real_range(&mut self, min: f32, max: f32) -> f32 {
+            assert_eq!((min, max), (1.0, 1.0));
+            self.0.push("scale");
+            min
+        }
+        fn int_range(&mut self, min: i32, max: i32) -> i32 {
+            assert_eq!((min, max), (0, 9));
+            self.0.push("sway");
+            7
+        }
+    }
 
+    let mut random = RestoreRandom::default();
+    buffer.load_records_with_rng(&records, &mut random);
+
+    assert_eq!(random.0, ["scale", "sway"], "only the known type adds a tree");
     assert_eq!(buffer.trees().len(), 1);
     let tree = &buffer.trees()[0];
     assert_eq!(tree.drawable_id, 77);
+    assert_eq!(tree.sway_type, 7);
     assert_eq!(tree.location, Vec3::new(3.0, 4.0, 5.0));
     approx_eq(tree.scale, 1.5);
     approx_eq(tree.sin, 0.0);

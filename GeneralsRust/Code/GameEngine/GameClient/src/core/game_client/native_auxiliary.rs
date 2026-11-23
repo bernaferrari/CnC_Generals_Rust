@@ -320,6 +320,59 @@ impl NativeDrawableOwner<'_> {
         }
         Ok(())
     }
+    /// C++ GameLogic::startNewGame sets orientation before the nonzero
+    /// position that registers this objectless Drawable's W3DTreeDraw.
+    pub fn position_auxiliary_terrain_tree(
+        &mut self,
+        receipt: &NativeAuxiliaryReceipt,
+        position: [f32; 3],
+        orientation: f32,
+        mut observe: impl FnMut(NativeAuxiliaryMutation<'_>) -> GameClientResult<()>,
+        mut add_tree: impl FnMut(gamelogic::object::draw::w3d_tree_draw::TerrainTreeAddRequest),
+    ) -> GameClientResult<()> {
+        use gamelogic::object::draw::w3d_tree_draw::W3DTreeDraw;
+
+        if !self.auxiliary_is_live(receipt) {
+            return Err(GameClientError::InvalidOperation(
+                "stale or foreign objectless Drawable receipt".into(),
+            ));
+        }
+        let draw = self
+            .drawables
+            .drawable_map
+            .get_mut(&receipt.id)
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<BasicDrawable>()
+            .unwrap();
+        draw.set_base_transform(Matrix4::rotation_y(-orientation));
+        observe(NativeAuxiliaryMutation::TransformInstalled {
+            receipt,
+            transform: draw.native_base_transform(),
+        })?;
+        draw.set_position(Vector3::new(position[0], position[1], position[2]));
+        observe(NativeAuxiliaryMutation::TransformInstalled {
+            receipt,
+            transform: draw.native_base_transform(),
+        })?;
+        let position = gamelogic::common::Coord3D::new(position[0], position[2], position[1]);
+        let scale = draw.get_instance_scale();
+        for slot in draw.get_draw_modules_mut() {
+            let Some(tree) = slot
+                .logic_module_mut()
+                .and_then(|module| module.as_any_mut().downcast_mut::<W3DTreeDraw>())
+            else {
+                continue;
+            };
+            if let Some(request) =
+                tree.react_to_owned_transform(receipt.id.0, position, orientation, scale)
+            {
+                add_tree(request);
+            }
+        }
+        Ok(())
+    }
+
     pub fn set_auxiliary_scene_flags(
         &mut self,
         receipt: &NativeAuxiliaryReceipt,

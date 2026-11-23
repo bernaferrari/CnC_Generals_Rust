@@ -987,8 +987,7 @@ impl SaveFileManager {
         )
     }
 
-    /// Native source owner: water-render state and scorch marks are observed
-    /// together from the receiving pipeline, never from ambient selection.
+    /// Native source owner for water-render state, scorch marks and TREE records.
     pub fn save_game_with_client_save_state_and_native_terrain(
         &mut self,
         filename: &str,
@@ -1142,11 +1141,13 @@ impl SaveFileManager {
             MapAdmissionIntent::Mapless
         };
         let native_water = native_terrain.map(|visual| visual.capture_water_state());
+        let tree_records = native_terrain.map_or_else(Vec::new, |visual| visual.capture_tree_records());
         let terrain_visual_bytes =
             crate::save_load::snapshot::capture_receiving_terrain_visual_with_water(
                 game_logic,
                 native_water.as_ref(),
                 terrain_scorches,
+                tree_records,
             )?;
         let write_result = self.save_to_file(
             &temp_path,

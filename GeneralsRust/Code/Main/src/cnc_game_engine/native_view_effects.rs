@@ -62,6 +62,85 @@ impl<'a> NativeRendererViewEffects<'a> {
             .particle_systems_mut()
             .admit_map_definition_overlays(sources)
     }
+    fn create_auxiliary_drawable(
+        &mut self,
+        source: &crate::game_logic::NativeAuxiliarySource,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+    ) -> Result<game_client::core::game_client::NativeAuxiliaryReceipt, String> {
+        if source.epoch != self.host_epoch {
+            return Err("auxiliary Drawable source epoch mismatch".into());
+        }
+        let poses = &mut self.poses;
+        let graphics = &mut *self.graphics;
+        let sync = poses.current_animation_sync_ms();
+        self.drawables
+            .create_auxiliary_drawable_with_locality(
+                std::sync::Arc::clone(&source.template),
+                content,
+                source.scale,
+                self.policy,
+                source.birth,
+                source.frame,
+                sync,
+                Some(&source.ambient_audio_locality),
+                |mutation| admit_auxiliary_mutation(poses, graphics, source, mutation),
+            )
+            .map_err(|error| error.to_string())
+    }
+
+    fn retire_auxiliary_drawable(
+        &mut self,
+        source: &crate::game_logic::NativeAuxiliarySource,
+        receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
+    ) -> Result<(), String> {
+        if source.epoch != self.host_epoch {
+            return Err("auxiliary Drawable source epoch mismatch".into());
+        }
+        let poses = &mut self.poses;
+        let graphics = &mut *self.graphics;
+        self.drawables
+            .retire_auxiliary_drawable(receipt, |mutation| {
+                admit_auxiliary_mutation(poses, graphics, source, mutation)
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    /// Original map placement creates, poses and retires a client Drawable
+    /// while the receiving terrain retains the actual W3DTreeDraw record.
+    pub(super) fn place_optimized_map_tree(
+        &mut self,
+        source: &crate::game_logic::NativeAuxiliarySource,
+        content: &mut game_engine::common::thing::module_factory::ModuleFactory,
+        position: [f32; 3],
+        angle: f32,
+        terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+        rng: &mut game_engine::common::random_value::RandomState,
+    ) -> Result<(), String> {
+        let receipt = self.create_auxiliary_drawable(source, content)?;
+        let assets = self.poses.tree_assets();
+        let mut random = super::native_frame_receiver::ReceivingTreeRandom(rng);
+        let poses = &mut self.poses;
+        let graphics = &mut *self.graphics;
+        let posed = self
+            .drawables
+            .position_auxiliary_terrain_tree(
+                &receipt,
+                position,
+                angle,
+                |mutation| admit_auxiliary_mutation(poses, graphics, source, mutation),
+                |request| {
+                    if let Some(assets) = &assets {
+                        NativeInstalledPoseLoan::admit_tree_with_assets(
+                            terrain, request, assets, &mut random,
+                        );
+                    }
+                },
+            )
+            .map_err(|error| error.to_string());
+        let retired = self.retire_auxiliary_drawable(source, &receipt);
+        posed.and(retired)
+    }
+
     pub(super) fn discard_map_attempt(&mut self) -> Result<(), String> {
         self.retirement
             .retire(&mut self.drawables, None)
@@ -295,25 +374,7 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         source: &crate::game_logic::NativeAuxiliarySource,
         content: &mut game_engine::common::thing::module_factory::ModuleFactory,
     ) -> Result<game_client::core::game_client::NativeAuxiliaryReceipt, String> {
-        if source.epoch != self.host_epoch {
-            return Err("lock-on source epoch mismatch".into());
-        }
-        let poses = &mut self.poses;
-        let graphics = &mut *self.graphics;
-        let sync = poses.current_animation_sync_ms();
-        self.drawables
-            .create_auxiliary_drawable_with_locality(
-                std::sync::Arc::clone(&source.template),
-                content,
-                source.scale,
-                self.policy,
-                source.birth,
-                source.frame,
-                sync,
-                Some(&source.ambient_audio_locality),
-                |mutation| admit_auxiliary_mutation(poses, graphics, source, mutation),
-            )
-            .map_err(|error| error.to_string())
+        self.create_auxiliary_drawable(source, content)
     }
     fn position_jet_lockon(
         &mut self,
@@ -352,16 +413,7 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         source: &crate::game_logic::NativeAuxiliarySource,
         receipt: &game_client::core::game_client::NativeAuxiliaryReceipt,
     ) -> Result<(), String> {
-        if source.epoch != self.host_epoch {
-            return Err("lock-on source epoch mismatch".into());
-        }
-        let poses = &mut self.poses;
-        let graphics = &mut *self.graphics;
-        self.drawables
-            .retire_auxiliary_drawable(receipt, |mutation| {
-                admit_auxiliary_mutation(poses, graphics, source, mutation)
-            })
-            .map_err(|error| error.to_string())
+        self.retire_auxiliary_drawable(source, receipt)
     }
 
     fn spawn_tracer(

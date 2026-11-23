@@ -248,6 +248,8 @@ pub struct TerrainVisualImpl {
     /// Bind group 1: tree atlas + clamp sampler (C++ `Set_Texture(0, m_treeTexture)`).
     /// Owned separately from `road_texture_bind_group` / terrain chunk groups.
     tree_atlas_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
+    tree_sway_uniform_buffer: Option<wgpu::Buffer>,
+    tree_sway_bind_group: Option<wgpu::BindGroup>,
     tree_atlas_sampler: Option<Sampler>,
     tree_atlas_bind_group: Option<BindGroup>,
 
@@ -446,6 +448,7 @@ struct GpuRoadMesh {
 
 struct GpuTreeMesh {
     vertex_buffer: Buffer,
+    dynamic_vertex_buffer: Buffer,
     index_buffer: Buffer,
     index_count: u32,
 }

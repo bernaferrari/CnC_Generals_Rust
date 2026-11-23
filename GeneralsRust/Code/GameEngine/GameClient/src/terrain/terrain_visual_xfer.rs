@@ -10,10 +10,12 @@ use crate::terrain::scorch_mesh::{
     ScorchMark, add_terrain_scorch, clear_terrain_scorches, terrain_scorch_marks,
 };
 use crate::terrain::terrain_visual::get_terrain_visual;
-use game_engine::common::system::xfer::Xfer as CommonXfer;
+use crate::terrain::tree_buffer::{MAX_TREES, TreeRandom, TreeSaveRecord, W3DToppleState};
+use game_engine::common::system::xfer::{Xfer as CommonXfer, XferMode as CommonXferMode};
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
-use std::io::Cursor;
+use glam::{Mat4, Vec3};
+use std::io::{self, Cursor};
 
 const W3D_TERRAIN_VISUAL_VERSION: u8 = 3;
 const TERRAIN_VISUAL_BASE_VERSION: u8 = 1;
@@ -29,6 +31,7 @@ pub struct PreparedTerrainVisual {
     grid: gamelogic::terrain_water::WaterGridState,
     heights: Vec<u8>,
     height_present: bool,
+    tree_records: Option<Vec<TreeSaveRecord>>,
     scorches: Option<Vec<ScorchMark>>,
 }
 impl PreparedTerrainVisual {
@@ -48,15 +51,26 @@ impl PreparedTerrainVisual {
     pub fn heights(&self) -> &[u8] {
         &self.heights
     }
+    /// The original v3 TREE slot, in record order, including deleted entries.
+    pub fn tree_records(&self) -> Option<&[TreeSaveRecord]> {
+        self.tree_records.as_deref()
+    }
     pub fn scorches(&self) -> Option<&[ScorchMark]> {
         self.scorches.as_deref()
     }
 
     /// Apply only to the receiving native owner after logical admission commits.
-    pub fn apply_native(&self, visual: &mut crate::terrain::terrain_visual::TerrainVisualImpl) {
+    pub fn apply_native(
+        &self,
+        visual: &mut crate::terrain::terrain_visual::TerrainVisualImpl,
+        tree_random: &mut impl TreeRandom,
+    ) {
         visual.admit_water_state(&self.grid);
         if self.height_present {
             visual.apply_logic_height_map_bytes(&self.heights);
+        }
+        if let Some(records) = self.tree_records() {
+            visual.tree_buffer_mut().load_records_with_rng(records, tree_random);
         }
         if let Some(marks) = &self.scorches {
             visual.clear_scorches();
@@ -104,6 +118,17 @@ pub fn capture_terrain_visual_with_water(
     native_water: Option<&gamelogic::terrain_water::WaterGridState>,
     scorches: Option<&[ScorchMark]>,
 ) -> Result<Vec<u8>, String> {
+    capture_terrain_visual_with_tree_records(terrain, native_water, scorches, Vec::new())
+}
+
+/// Capture the ordered records from the same native terrain as the other
+/// visual observations. An empty list writes the original zero-record slot.
+pub fn capture_terrain_visual_with_tree_records(
+    terrain: &gamelogic::terrain::TerrainLogic,
+    native_water: Option<&gamelogic::terrain_water::WaterGridState>,
+    scorches: Option<&[ScorchMark]>,
+    mut tree_records: Vec<TreeSaveRecord>,
+) -> Result<Vec<u8>, String> {
     terrain.validate_height_map()?;
     let mut bytes = Vec::new();
     let mut grid = native_water
@@ -111,7 +136,7 @@ pub fn capture_terrain_visual_with_water(
         .clone();
     let mut heights = terrain.logic_height_map_bytes().to_vec();
     let mut xfer = CommonXferSave::new(Cursor::new(&mut bytes), 3);
-    xfer_live_terrain_visual(&mut xfer, &mut grid, &mut heights, None)?;
+    xfer_live_terrain_visual(&mut xfer, &mut grid, &mut heights, &mut tree_records, None)?;
     if let Some(marks) = scorches {
         let mut count =
             i32::try_from(marks.len()).map_err(|_| "scorch count exceeds source integer domain")?;
@@ -136,9 +161,16 @@ pub fn prepare_terrain_visual_for_terrain(
     let mut grid = terrain.water_grid_state().clone();
     let mut heights = terrain.logic_height_map_bytes().to_vec();
     let mut cursor = Cursor::new(bytes);
-    let height_present = {
+    let mut tree_records = Vec::new();
+    let version = {
         let mut xfer = CommonXferLoad::new(&mut cursor, 3);
-        xfer_live_terrain_visual(&mut xfer, &mut grid, &mut heights, Some(bytes.len()))?
+        xfer_live_terrain_visual(
+            &mut xfer,
+            &mut grid,
+            &mut heights,
+            &mut tree_records,
+            Some(bytes.len()),
+        )?
     };
     let remaining = bytes.len() - cursor.position() as usize;
     let scorches = if remaining == 0 {
@@ -176,7 +208,8 @@ pub fn prepare_terrain_visual_for_terrain(
     Ok(Some(PreparedTerrainVisual {
         grid,
         heights,
-        height_present,
+        height_present: version >= 2,
+        tree_records: (version >= 3).then_some(tree_records),
         scorches,
     }))
 }
@@ -269,8 +302,9 @@ fn xfer_live_terrain_visual(
     xfer: &mut dyn CommonXfer,
     grid: &mut gamelogic::terrain_water::WaterGridState,
     height_data: &mut Vec<u8>,
+    tree_records: &mut Vec<TreeSaveRecord>,
     payload_limit: Option<usize>,
-) -> Result<bool, String> {
+) -> Result<u8, String> {
     let mut version = W3D_TERRAIN_VISUAL_VERSION;
     xfer.xfer_version(&mut version, W3D_TERRAIN_VISUAL_VERSION)
         .map_err(|e| e.to_string())?;
@@ -313,20 +347,109 @@ fn xfer_live_terrain_visual(
         let mut base_height_version = BASE_HEIGHT_MAP_VERSION;
         xfer.xfer_version(&mut base_height_version, BASE_HEIGHT_MAP_VERSION)
             .map_err(|e| e.to_string())?;
-        let mut tree_version = TREE_BUFFER_VERSION;
-        xfer.xfer_version(&mut tree_version, TREE_BUFFER_VERSION)
-            .map_err(|e| e.to_string())?;
-        let mut num_trees = 0i32;
-        xfer.xfer_int(&mut num_trees).map_err(|e| e.to_string())?;
-        if num_trees != 0 {
-            return Err("live CHUNK_TerrainVisual writes empty tree buffer".into());
-        }
+        xfer_cpp_tree_buffer(xfer, tree_records).map_err(|err| err.to_string())?;
         let mut prop_version = PROP_BUFFER_VERSION;
         xfer.xfer_version(&mut prop_version, PROP_BUFFER_VERSION)
             .map_err(|e| e.to_string())?;
     }
 
-    Ok(version >= 2)
+    Ok(version)
+}
+
+/// C++ W3DTreeBuffer::xfer v1. Read into a candidate until every record is
+/// complete. Callers own whether and when any records are admitted.
+pub(crate) fn xfer_cpp_tree_buffer(
+    xfer: &mut dyn CommonXfer,
+    records: &mut Vec<TreeSaveRecord>,
+) -> io::Result<()> {
+    let mut version = TREE_BUFFER_VERSION;
+    xfer.xfer_version(&mut version, TREE_BUFFER_VERSION)?;
+    let mut count = i32::try_from(records.len())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "TREE count exceeds source i32"))?;
+    xfer.xfer_int(&mut count)?;
+    if !(0..=MAX_TREES as i32).contains(&count) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("TREE count {count} exceeds 0..={MAX_TREES}"),
+        ));
+    }
+
+    if xfer.get_xfer_mode() != CommonXferMode::Load {
+        for record in records {
+            xfer_cpp_tree_record(xfer, record)?;
+        }
+    } else {
+        let mut candidate = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let mut record = TreeSaveRecord {
+                model_name: String::new(),
+                model_texture: String::new(),
+                location: Vec3::ZERO,
+                scale: 0.,
+                sin: 0.,
+                cos: 0.,
+                drawable_id: 0,
+                angular_velocity: 0.,
+                angular_acceleration: 0.,
+                topple_direction: Vec3::ZERO,
+                topple_state: W3DToppleState::Upright,
+                angular_accumulation: 0.,
+                options: 0,
+                matrix: Mat4::IDENTITY,
+                sink_frames_left: 0,
+            };
+            xfer_cpp_tree_record(xfer, &mut record)?;
+            candidate.push(record);
+        }
+        *records = candidate;
+    }
+    Ok(())
+}
+
+fn xfer_cpp_tree_record(xfer: &mut dyn CommonXfer, record: &mut TreeSaveRecord) -> io::Result<()> {
+    // W3DTreeBuffer.cpp:1953–1984. Empty model and texture are a tombstone
+    // with the same remaining fields as every other record.
+    xfer.xfer_ascii_string(&mut record.model_name)?;
+    xfer.xfer_ascii_string(&mut record.model_texture)?;
+    xfer.xfer_real(&mut record.location.x)?;
+    xfer.xfer_real(&mut record.location.y)?;
+    xfer.xfer_real(&mut record.location.z)?;
+    xfer.xfer_real(&mut record.scale)?;
+    xfer.xfer_real(&mut record.sin)?;
+    xfer.xfer_real(&mut record.cos)?;
+    xfer.xfer_drawable_id(&mut record.drawable_id)?;
+    xfer.xfer_real(&mut record.angular_velocity)?;
+    xfer.xfer_real(&mut record.angular_acceleration)?;
+    xfer.xfer_real(&mut record.topple_direction.x)?;
+    xfer.xfer_real(&mut record.topple_direction.y)?;
+    xfer.xfer_real(&mut record.topple_direction.z)?;
+    let mut state = (record.topple_state as i32).to_ne_bytes();
+    xfer.xfer_user(&mut state)?;
+    if xfer.get_xfer_mode() == CommonXferMode::Load {
+        record.topple_state = match i32::from_ne_bytes(state) {
+            0 => W3DToppleState::Upright,
+            1 => W3DToppleState::Falling,
+            2 => W3DToppleState::Fogged,
+            3 => W3DToppleState::Shrouded,
+            4 => W3DToppleState::Down,
+            _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid TREE topple state")),
+        };
+    }
+    xfer.xfer_real(&mut record.angular_accumulation)?;
+    xfer.xfer_unsigned_int(&mut record.options)?;
+    // Xfer::xferMatrix3D version 1 serializes three rows of four floats.
+    let mut matrix_version = 1;
+    xfer.xfer_version(&mut matrix_version, 1)?;
+    let mut cols = record.matrix.to_cols_array();
+    for row in 0..3 {
+        for col in 0..4 {
+            xfer.xfer_real(&mut cols[col * 4 + row])?;
+        }
+    }
+    if xfer.get_xfer_mode() == CommonXferMode::Load {
+        record.matrix = Mat4::from_cols_array(&cols);
+    }
+    xfer.xfer_unsigned_int(&mut record.sink_frames_left)
 }
 
 fn xfer_scorch_mark(xfer: &mut dyn CommonXfer, mark: &mut ScorchMark) -> Result<(), String> {

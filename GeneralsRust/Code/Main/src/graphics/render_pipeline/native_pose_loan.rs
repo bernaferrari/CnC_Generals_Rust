@@ -75,10 +75,7 @@ impl NativeInstalledPoseLoan<'_> {
             return;
         };
         for request in self.pending_native_trees.drain() {
-            terrain.admit_authored_tree(request, |name| {
-                let mut assets = assets.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                super::native_tree_mesh::load_native_tree_mesh(&mut assets, name)
-            }, rng);
+            Self::admit_tree_with_assets(terrain, request, assets, rng);
         }
         let trees = terrain.tree_buffer_mut();
         if trees.need_to_update_texture() {
@@ -87,6 +84,32 @@ impl NativeInstalledPoseLoan<'_> {
                 assets.archive_file_system_mut().open_file_sync(path).ok()
             });
         }
+    }
+
+    /// The authored tree callback borrows assets independently of the
+    /// renderer pose callbacks delivered during the same transient birth.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn tree_assets(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<crate::assets::AssetManager>>> {
+        self.application_assets.clone()
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn admit_tree_with_assets(
+        terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+        request: gamelogic::object::draw::w3d_tree_draw::TerrainTreeAddRequest,
+        assets: &std::sync::Mutex<crate::assets::AssetManager>,
+        rng: &mut impl game_client::terrain::TreeRandom,
+    ) {
+        terrain.admit_authored_tree(
+            request,
+            |name| {
+                let mut assets = assets.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                super::native_tree_mesh::load_native_tree_mesh(&mut assets, name)
+            },
+            rng,
+        );
     }
 
     pub(crate) fn reborrow(&mut self) -> NativeInstalledPoseLoan<'_> {

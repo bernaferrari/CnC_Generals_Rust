@@ -1317,6 +1317,17 @@ pub struct ThingTemplate {
 }
 
 impl ThingTemplate {
+    pub(crate) fn is_optimized_map_tree(&self) -> bool {
+        use game_engine::common::system::kind_of::KindOfMask;
+
+        self.receiving_client_template.as_ref().is_some_and(|typed| {
+            typed
+                .0
+                .template()
+                .is_kind_of_mask(KindOfMask::OPTIMIZED_TREE.bits())
+        })
+    }
+
     pub(crate) fn placement_preview_facts(&self) -> Option<(f32, (f32, f32, bool))> {
         self.receiving_client_template
             .as_ref()

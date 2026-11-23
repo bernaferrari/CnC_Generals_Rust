@@ -282,43 +282,6 @@ fn xfer_matrix3d_cpp(xfer: &mut dyn Xfer, value: &mut Mat4) -> Result<(), XferSt
     Ok(())
 }
 
-fn xfer_tree_save_record_cpp(
-    xfer: &mut dyn Xfer,
-    record: &mut TreeSaveRecord,
-) -> Result<(), XferStatus> {
-    // C++ W3DTreeBuffer::xfer per-tree record (W3DTreeBuffer.cpp:1953-1984).
-    xfer.xfer_ascii_string(&mut record.model_name)?;
-    xfer.xfer_ascii_string(&mut record.model_texture)?;
-    xfer_vec3_value(xfer, &mut record.location)?;
-    xfer.xfer_real(&mut record.scale)?;
-    xfer.xfer_real(&mut record.sin)?;
-    xfer.xfer_real(&mut record.cos)?;
-    xfer.xfer_unsigned_int(&mut record.drawable_id)?;
-    xfer.xfer_real(&mut record.angular_velocity)?;
-    xfer.xfer_real(&mut record.angular_acceleration)?;
-    xfer_vec3_value(xfer, &mut record.topple_direction)?;
-    let mut topple_state = record.topple_state as i32;
-    let mut topple_bytes = topple_state.to_ne_bytes();
-    let result = xfer.xfer_user(&mut topple_bytes);
-    topple_state = i32::from_ne_bytes(topple_bytes);
-    result?;
-    if xfer.get_xfer_mode() == XferMode::Load {
-        record.topple_state = match topple_state {
-            0 => W3DToppleState::Upright,
-            1 => W3DToppleState::Falling,
-            2 => W3DToppleState::Fogged,
-            3 => W3DToppleState::Shrouded,
-            4 => W3DToppleState::Down,
-            _ => return Err(XferStatus::InvalidData),
-        };
-    }
-    xfer.xfer_real(&mut record.angular_accumulation)?;
-    xfer.xfer_unsigned_int(&mut record.options)?;
-    xfer_matrix3d_cpp(xfer, &mut record.matrix)?;
-    xfer.xfer_unsigned_int(&mut record.sink_frames_left)?;
-    Ok(())
-}
-
 fn apply_loaded_tree_records(terrain: &mut TerrainVisualStub, records: Vec<TreeSaveRecord>) {
     terrain.clear_tree_state();
     apply_tree_records_to_buffer(&mut terrain.tree_buffer, &records);
@@ -338,40 +301,21 @@ fn xfer_terrain_tree_buffer_v3(
     terrain: &mut TerrainVisualStub,
     xfer: &mut dyn Xfer,
 ) -> Result<(), XferStatus> {
-    // C++ W3DTreeBuffer::xfer (W3DTreeBuffer.cpp:1920-2004).
-    let mut tree_version: XferVersion = 1;
-    xfer.xfer_version(&mut tree_version, 1)?;
-
-    let mut records = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+    let mode = xfer.get_xfer_mode();
+    let mut records = if matches!(mode, XferMode::Save | XferMode::Crc) {
         terrain.tree_save_records()
     } else {
         Vec::new()
     };
-    let mut num_trees = records.len() as i32;
-    xfer.xfer_int(&mut num_trees)?;
-    if num_trees < 0 {
-        return Err(XferStatus::InvalidData);
-    }
-
-    if xfer.get_xfer_mode() == XferMode::Load {
-        records = Vec::with_capacity(num_trees as usize);
-        for _ in 0..num_trees {
-            let mut record = registration_to_tree_save_record(&TerrainTreeRegistration {
-                drawable_id: 0,
-                location: Vec3::ZERO,
-                scale: 1.0,
-                angle: 0.0,
-                random_scale_amount: 0.0,
-                module_data: W3DTreeDrawModuleData::new(),
-            });
-            xfer_tree_save_record_cpp(xfer, &mut record)?;
-            records.push(record);
-        }
+    let mut adapter = crate::core::game_client::RuntimeCommonXferAdapter::new(xfer);
+    crate::terrain::terrain_visual_xfer::xfer_cpp_tree_buffer(&mut adapter, &mut records)
+        .map_err(|err| match err.kind() {
+            io::ErrorKind::UnexpectedEof => XferStatus::Eof,
+            io::ErrorKind::WriteZero => XferStatus::WriteError,
+            _ => XferStatus::InvalidData,
+        })?;
+    if mode == XferMode::Load {
         apply_loaded_tree_records(terrain, records);
-    } else {
-        for record in &mut records {
-            xfer_tree_save_record_cpp(xfer, record)?;
-        }
     }
     Ok(())
 }

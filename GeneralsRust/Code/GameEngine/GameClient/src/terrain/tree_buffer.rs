@@ -160,6 +160,57 @@ pub struct TreeGpuVertex {
     pub color: [f32; 3],
     pub tex_coords: [f32; 2],
     pub diffuse: u32,
+    /// `(sway index, push-aside diffuse multiplier, source-Z base height)`.
+    /// The shader maps source X/Y/Z to render X/Z/Y before applying sway.
+    pub tree_effects: [f32; 3],
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct TreeGpuVertexStatic {
+    pub color: [f32; 3],
+    pub tex_coords: [f32; 2],
+    pub sway_index: f32,
+    pub base_z: f32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct TreeGpuVertexDynamic {
+    pub position: [f32; 3],
+    pub darkening: f32,
+}
+
+impl TreeGpuVertex {
+    pub(super) fn static_attributes(self) -> TreeGpuVertexStatic {
+        TreeGpuVertexStatic {
+            color: self.color,
+            tex_coords: self.tex_coords,
+            sway_index: self.tree_effects[0],
+            base_z: self.tree_effects[2],
+        }
+    }
+
+    pub(super) fn dynamic_attributes(self) -> TreeGpuVertexDynamic {
+        TreeGpuVertexDynamic {
+            position: self.position,
+            darkening: self.tree_effects[1],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct TreeVertexRangeUpdate {
+    pub first_vertex: usize,
+    pub dynamic_vertices: Vec<TreeGpuVertexDynamic>,
+}
+
+/// Ten interpolated native `c9..c18` tree-shader vectors, tightly matching
+/// WGSL's uniform array stride of one vec4 per sway category.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct TreeSwayGpuUniform {
+    pub factors: [[f32; 4]; MAX_SWAY_TYPES],
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -454,6 +505,7 @@ pub struct W3DTreeBuffer {
     tree_types: Vec<TreeTypeInfo>,
     anything_changed: bool,
     any_push_changed: bool,
+    pending_vertex_update_trees: Vec<usize>,
     update_all_keys: bool,
     initialized: bool,
     is_terrain_pass: bool,
@@ -496,6 +548,7 @@ impl W3DTreeBuffer {
             tree_types: Vec::new(),
             anything_changed: false,
             any_push_changed: false,
+            pending_vertex_update_trees: Vec::new(),
             update_all_keys: false,
             initialized: false,
             is_terrain_pass: false,
@@ -570,6 +623,14 @@ impl W3DTreeBuffer {
         let changed = self.any_push_changed;
         self.any_push_changed = false;
         changed
+    }
+
+    fn queue_tree_vertex_update(&mut self, tree_index: usize) {
+        self.pending_vertex_update_trees.push(tree_index);
+    }
+
+    pub(super) fn discard_pending_vertex_updates(&mut self) {
+        self.pending_vertex_update_trees.clear();
     }
 
     pub fn update_all_keys(&self) -> bool {
@@ -919,6 +980,8 @@ impl W3DTreeBuffer {
         self.anything_changed = true;
         self.area_partition.fill(END_OF_PARTITION);
         self.tree_types.clear();
+        self.pending_vertex_update_trees.clear();
+        self.any_push_changed = false;
         self.num_tiles = 0;
         self.tile_locations.clear();
         self.source_tiles.clear();
@@ -1419,6 +1482,18 @@ impl W3DTreeBuffer {
     pub fn begin_cpu_draw(&mut self, pause: bool) -> TreeCpuDrawCursor {
         self.is_terrain_pass = false;
         self.cpu_draw_generation = self.cpu_draw_generation.wrapping_add(1);
+        // A fresh cursor supersedes any abandoned callback walk; keep the
+        // allocation while dropping its stale pending ranges.
+        self.pending_vertex_update_trees.clear();
+        if pause && self.any_push_changed {
+            self.pending_vertex_update_trees.extend(
+                self.trees
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, tree)| tree.visible && tree.buffer_ndx >= 0)
+                    .map(|(index, _)| index),
+            );
+        }
         TreeCpuDrawCursor {
             next: 0,
             paused: pause,
@@ -1502,6 +1577,14 @@ impl W3DTreeBuffer {
             if tree_type < 0 {
                 continue;
             }
+            let tree_is_vertex_moving = self.trees[index].topple_state != W3DToppleState::Upright
+                || self.trees[index].push_aside_delta != 0.0;
+            if tree_is_vertex_moving {
+                self.any_push_changed = true;
+                if self.trees[index].visible && self.trees[index].buffer_ndx >= 0 {
+                    self.queue_tree_vertex_update(index);
+                }
+            }
             match self.trees[index].topple_state {
                 W3DToppleState::Falling | W3DToppleState::Fogged => {
                     let status = shroud(&self.trees[index])?;
@@ -1574,6 +1657,31 @@ impl W3DTreeBuffer {
         self.cur_sway_version = info.breeze_version;
     }
 
+    /// Advance the C++ `drawTrees` phase once and return its ten interpolated
+    /// sway vectors for the receiving tree shader's compact uniform.
+    pub(super) fn advance_sway_for_draw(&mut self, paused: bool) -> TreeSwayGpuUniform {
+        let mut factors = [[0.0; 4]; MAX_SWAY_TYPES];
+        for (index, factor) in factors.iter_mut().enumerate() {
+            if !paused {
+                self.cur_sway_offset[index] += self.cur_sway_step[index];
+                if self.cur_sway_offset[index] > (NUM_SWAY_ENTRIES - 1) as f32 {
+                    self.cur_sway_offset[index] -= (NUM_SWAY_ENTRIES - 1) as f32;
+                }
+            }
+            let base = self.cur_sway_offset[index].floor();
+            if !(0.0..(NUM_SWAY_ENTRIES - 1) as f32).contains(&base) {
+                continue;
+            }
+            let fraction = self.cur_sway_offset[index] - base;
+            let base = base as usize;
+            let wave = (self.sway_offsets[base] * (1.0 - fraction)
+                + self.sway_offsets[base + 1] * fraction)
+                * self.cur_sway_factor[index];
+            *factor = [wave.x, wave.y, wave.z, 0.0];
+        }
+        TreeSwayGpuUniform { factors }
+    }
+
     pub fn save_records(&self) -> Vec<TreeSaveRecord> {
         self.trees
             .iter()
@@ -1609,6 +1717,11 @@ impl W3DTreeBuffer {
     }
 
     pub fn load_records(&mut self, records: &[TreeSaveRecord]) {
+        self.load_records_with_rng(records, &mut DeterministicTreeRandom);
+    }
+
+    /// Restore the source records over the receiving map's authored tree types.
+    pub fn load_records_with_rng(&mut self, records: &[TreeSaveRecord], rng: &mut impl TreeRandom) {
         self.do_full_update();
         self.cpu_draw_generation = self.cpu_draw_generation.wrapping_add(1);
         self.trees.clear();
@@ -1617,6 +1730,9 @@ impl W3DTreeBuffer {
         self.cur_num_tree_indices = [0; MAX_BUFFERS];
 
         for record in records {
+            if !self.initialized || self.trees.len() >= MAX_TREES {
+                break;
+            }
             let Some(tree_type) = self.tree_types.iter().position(|existing| {
                 existing
                     .data
@@ -1630,15 +1746,17 @@ impl W3DTreeBuffer {
                 continue;
             };
             let data = self.tree_types[tree_type].data.clone();
-            let base_bounds = self.tree_types[tree_type].bounds;
-            let Some(index) = self.add_tree(
+            // C++ xfer reads the saved sine/cosine but calls addTree with
+            // yaw and random scale fixed at zero. Both client RNG calls remain.
+            let Some(index) = self.add_tree_instance(
                 record.drawable_id,
                 record.location,
                 record.scale,
                 0.0,
                 0.0,
-                data,
-                base_bounds,
+                tree_type,
+                &data,
+                rng,
             ) else {
                 continue;
             };
@@ -1704,16 +1822,12 @@ impl W3DTreeBuffer {
                     continue;
                 };
 
-                let scale = self.trees[cur_tree].scale;
-                let loc = self.trees[cur_tree].location;
                 let the_sin = self.trees[cur_tree].sin;
                 let the_cos = self.trees[cur_tree].cos;
-                let offset = tree_type.offset;
                 let tile_width = tree_type.tile_width;
                 let half_tile = tree_type.half_tile;
                 let texture_origin = tree_type.texture_origin;
                 let darkening = tree_type.data.darkening;
-                let max_outward = tree_type.data.max_outward_movement;
                 let emissive = mesh.emissive;
                 let num_vertex = mesh.positions.len();
                 let num_index = mesh.polygons.len();
@@ -1748,11 +1862,7 @@ impl W3DTreeBuffer {
                 }
 
                 let push_aside = self.trees[cur_tree].push_aside;
-                let push_aside_sin = self.trees[cur_tree].push_aside_sin;
-                let push_aside_cos = self.trees[cur_tree].push_aside_cos;
                 let sway_type = self.trees[cur_tree].sway_type as f32;
-                let topple_state = self.trees[cur_tree].topple_state;
-                let topple_matrix = self.trees[cur_tree].matrix;
 
                 for i in 0..num_vertex {
                     if self.cur_num_tree_vertices[b_ndx] as usize >= MAX_TREE_VERTEX {
@@ -1775,25 +1885,7 @@ impl W3DTreeBuffer {
                     }
 
                     let p = mesh.positions[i];
-                    let x = p[0] + offset.x;
-                    let y = p[1] + offset.y;
-                    let mut v_loc = Vec3::new(
-                        x * scale * the_cos - y * scale * the_sin,
-                        y * scale * the_cos + x * scale * the_sin,
-                        p[2] * scale + offset.z,
-                    );
-
-                    if topple_state != W3DToppleState::Upright {
-                        v_loc = topple_matrix.transform_point3(v_loc);
-                    } else {
-                        if push_aside > 0.0 {
-                            v_loc.x += p[2] * push_aside * push_aside_cos * max_outward;
-                            v_loc.y += p[2] * push_aside * push_aside_sin * max_outward;
-                        }
-                        v_loc.x += loc.x;
-                        v_loc.y += loc.y;
-                        v_loc.z += loc.z;
-                    }
+                    let v_loc = tree_vertex_world_position(&self.trees[cur_tree], tree_type, p);
 
                     let diffuse = if do_vertex_lighting {
                         let mut normal = [0.0, 0.0, 1.0];
@@ -1822,7 +1914,7 @@ impl W3DTreeBuffer {
                         z: v_loc.z,
                         nx: sway_type,
                         ny: 1.0 - darkening * push_aside,
-                        nz: loc.z,
+                        nz: self.trees[cur_tree].location.z,
                         diffuse,
                         u1: u * u_scale + u_offset,
                         v1: v * v_scale + v_offset,
@@ -1888,6 +1980,56 @@ impl W3DTreeBuffer {
                 *destination = tile;
             }
         }
+    }
+
+    /// Update the admitted mover ranges using C++ `updateVertexBuffer`.
+    pub(super) fn update_moving_tree_vertex_ranges(&mut self) -> Vec<TreeVertexRangeUpdate> {
+        let mut updates = Vec::with_capacity(self.pending_vertex_update_trees.len());
+        for pending_index in 0..self.pending_vertex_update_trees.len() {
+            let tree_index = self.pending_vertex_update_trees[pending_index];
+            let Some(tree) = self.trees.get(tree_index) else {
+                continue;
+            };
+            if tree.tree_type < 0 || !tree.visible || tree.buffer_ndx < 0 {
+                continue;
+            }
+            let Some(tree_type) = self.tree_types.get(tree.tree_type as usize) else {
+                continue;
+            };
+            let Some(mesh) = tree_type.mesh.as_ref() else {
+                continue;
+            };
+            let first_vertex = tree.first_index as usize;
+            let Some(end_vertex) = first_vertex.checked_add(mesh.positions.len()) else {
+                continue;
+            };
+            if end_vertex > self.cpu_vertices.len() {
+                continue;
+            }
+            if tree.topple_state == W3DToppleState::Upright && tree.push_aside_delta == 0.0 {
+                continue;
+            }
+            self.any_push_changed = true;
+            let darkening = 1.0 - tree_type.data.darkening * tree.push_aside;
+            let dynamic_vertices = self.cpu_vertices[first_vertex..end_vertex]
+                .iter_mut()
+                .zip(&mesh.positions)
+                .map(|(vertex, &position)| {
+                    let position = tree_vertex_world_position(tree, tree_type, position);
+                    vertex.x = position.x;
+                    vertex.y = position.y;
+                    vertex.z = position.z;
+                    vertex.ny = darkening;
+                    TreeGpuVertexDynamic {
+                        position: [position.x, position.z, position.y],
+                        darkening,
+                    }
+                })
+                .collect();
+            updates.push(TreeVertexRangeUpdate { first_vertex, dynamic_vertices });
+        }
+        self.pending_vertex_update_trees.clear();
+        updates
     }
 
     /// C++ `drawTrees` VB fill: cull then `loadTreesInVertexAndIndexBuffers`.
@@ -1999,6 +2141,36 @@ impl W3DTreeBuffer {
                 .ceil() as i32,
         )
     }
+}
+
+fn tree_vertex_world_position(
+    tree: &TreeEntry,
+    tree_type: &TreeTypeInfo,
+    position: [f32; 3],
+) -> Vec3 {
+    let x = position[0] + tree_type.offset.x;
+    let y = position[1] + tree_type.offset.y;
+    let mut location = Vec3::new(
+        x * tree.scale * tree.cos - y * tree.scale * tree.sin,
+        y * tree.scale * tree.cos + x * tree.scale * tree.sin,
+        position[2] * tree.scale + tree_type.offset.z,
+    );
+    if tree.topple_state != W3DToppleState::Upright {
+        location = tree.matrix.transform_point3(location);
+    } else {
+        if tree.push_aside > 0.0 {
+            location.x += position[2]
+                * tree.push_aside
+                * tree.push_aside_cos
+                * tree_type.data.max_outward_movement;
+            location.y += position[2]
+                * tree.push_aside
+                * tree.push_aside_sin
+                * tree_type.data.max_outward_movement;
+        }
+        location += tree.location;
+    }
+    location
 }
 
 fn pre_rotate_topple_matrix(tree: &mut TreeEntry, angle: f32) {
@@ -2511,6 +2683,7 @@ pub fn fill_tree_gpu_upload_vertices(cpu: &[TreeVertexXyznduv1]) -> Vec<TreeGpuV
                 color: [r, g, b],
                 tex_coords: [vertex.u1, vertex.v1],
                 diffuse: vertex.diffuse,
+                tree_effects: [vertex.nx, vertex.ny, vertex.nz],
             }
         })
         .collect()
@@ -2531,6 +2704,117 @@ impl TreeRandom for DeterministicTreeRandom {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tree_gpu_upload_preserves_native_sway_and_darken_registers() {
+        let cpu = [TreeVertexXyznduv1 {
+            x: 2.0,
+            y: 4.0,
+            z: 3.0,
+            nx: 7.0,
+            ny: 0.7,
+            nz: 3.0,
+            diffuse: 0xFF12_3456,
+            u1: 0.25,
+            v1: 0.75,
+        }];
+        let [gpu] = fill_tree_gpu_upload_vertices(&cpu).try_into().unwrap();
+        assert_eq!(gpu.position, [2.0, 3.0, 4.0]);
+        assert_eq!(gpu.tree_effects, [7.0, 0.7, 3.0]);
+    }
+
+    #[test]
+    fn tree_sway_uniform_advances_once_and_retains_phase_while_paused() {
+        let mut buffer = W3DTreeBuffer::new();
+        buffer.sway_offsets[0] = Vec3::new(0.0, 0.0, 0.0);
+        buffer.sway_offsets[1] = Vec3::new(4.0, -2.0, 1.0);
+        buffer.cur_sway_offset[0] = 0.0;
+        buffer.cur_sway_step[0] = 0.25;
+        buffer.cur_sway_factor[0] = 1.0;
+        let sample = buffer.advance_sway_for_draw(false);
+        assert_eq!(sample.factors[0], [1.0, -0.5, 0.25, 0.0]);
+        assert_eq!(buffer.cur_sway_offset[0], 0.25);
+        let paused = buffer.advance_sway_for_draw(true);
+        assert_eq!(buffer.cur_sway_offset[0], 0.25);
+        assert_eq!(paused.factors[0], sample.factors[0]);
+    }
+
+    #[test]
+    fn moving_tree_updates_only_cached_xyz_and_ny_through_final_step() {
+        crate::test_support::ensure_ambient_host();
+        let mut buffer = W3DTreeBuffer::new();
+        buffer.set_bounds(TreeRegion2D::new(Vec2::ZERO, Vec2::new(100.0, 100.0)));
+        let data = TreeModuleData {
+            model_name: "MovingOak".into(),
+            texture_name: "MovingOakT".into(),
+            darkening: 0.8,
+            max_outward_movement: 1.0,
+            ..TreeModuleData::default()
+        };
+        let type_idx = buffer
+            .add_tree_type(data.clone(), TreeSphere { center: Vec3::ZERO, radius: 2.0 })
+            .unwrap();
+        buffer.tree_type_mut(type_idx).unwrap().tile_width = 1;
+        buffer.set_tree_type_mesh(type_idx, TreeTypeMesh {
+            positions: vec![[0.0, 0.0, 0.0], [0.0, 0.0, 2.0]],
+            normals: None,
+            uvs: vec![[0.25, 0.5], [0.75, 0.5]],
+            colors: None,
+            polygons: vec![[0, 1, 1]],
+            emissive: [0.0; 3],
+        });
+        buffer.add_tree(
+            7,
+            Vec3::new(10.0, 20.0, 3.0),
+            1.0,
+            0.0,
+            0.0,
+            data,
+            TreeSphere { center: Vec3::ZERO, radius: 2.0 },
+        ).unwrap();
+        buffer.draw_trees_fill_vertex_buffer(&[], Vec3::Z, |_| true);
+        let original = buffer.cpu_vertices().to_vec();
+        let indices = buffer.cpu_indices().to_vec();
+        {
+            let tree = &mut buffer.trees[0];
+            tree.push_aside = 0.5;
+            tree.push_aside_delta = 0.1;
+            tree.push_aside_sin = 1.0;
+            tree.push_aside_cos = 0.0;
+        }
+
+        let mut cursor = buffer.begin_cpu_draw(false);
+        assert!(buffer.advance_cpu_draw(&mut cursor, |_| TreeShroudStatus::Clear).is_none());
+        assert!(!buffer.anything_changed(), "motion must not request a full mesh rebuild");
+        assert!(buffer.take_any_push_changed());
+        let [range] = buffer.update_moving_tree_vertex_ranges().try_into().unwrap();
+        assert_eq!(range.first_vertex, 0);
+        assert_eq!(range.dynamic_vertices.len(), 2);
+        assert_eq!(range.dynamic_vertices[0].position, [10.0, 3.0, 20.0]);
+        assert_eq!(range.dynamic_vertices[1].position, [10.0, 5.0, 21.2]);
+        assert!((range.dynamic_vertices[0].darkening - 0.52).abs() < 1e-6);
+        assert_eq!(buffer.cpu_indices(), indices);
+        for (before, after) in original.iter().zip(buffer.cpu_vertices()) {
+            assert_eq!((before.u1, before.v1, before.diffuse, before.nx, before.nz),
+                (after.u1, after.v1, after.diffuse, after.nx, after.nz));
+        }
+
+        buffer.trees[0].push_aside = 0.2;
+        buffer.trees[0].push_aside_delta = -0.3;
+        let mut cursor = buffer.begin_cpu_draw(false);
+        assert!(buffer.advance_cpu_draw(&mut cursor, |_| TreeShroudStatus::Clear).is_none());
+        assert!(buffer.take_any_push_changed());
+        assert_eq!(buffer.trees[0].push_aside, 0.0);
+        assert_eq!(buffer.trees[0].push_aside_delta, 0.0);
+        assert!(buffer.update_moving_tree_vertex_ranges().is_empty(),
+            "the C++ updater skips a now-upright tree after its final push step");
+        assert_eq!(buffer.cpu_vertices()[1].y, 21.2);
+        assert_eq!(buffer.cpu_vertices()[1].ny, 0.52);
+        let mut cursor = buffer.begin_cpu_draw(false);
+        assert!(buffer.advance_cpu_draw(&mut cursor, |_| TreeShroudStatus::Clear).is_none());
+        assert!(!buffer.take_any_push_changed());
+        assert!(buffer.update_moving_tree_vertex_ranges().is_empty());
+    }
 
     #[test]
     fn do_lighting_matches_cpp_w3d_tree_buffer() {

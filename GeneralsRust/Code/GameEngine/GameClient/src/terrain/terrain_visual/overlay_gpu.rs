@@ -92,6 +92,11 @@ impl TerrainVisualImpl {
         );
     }
 
+    /// Ordered source records, including deleted entries, for v1 TREE Xfer.
+    pub fn capture_tree_records(&self) -> Vec<crate::terrain::TreeSaveRecord> {
+        self.tree_buffer.save_records()
+    }
+
     /// Admit one native W3DTreeDraw instance into the receiving terrain.
     pub fn admit_authored_tree(
         &mut self,

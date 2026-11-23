@@ -25,6 +25,8 @@ impl TerrainVisualImpl {
             self.tree_atlas_sampler = None;
             self.tree_atlas_texture = None;
             self.tree_atlas_bind_group = None;
+            self.tree_sway_uniform_buffer = None;
+            self.tree_sway_bind_group = None;
         }
         self.device = Some(Arc::clone(&device));
         self.queue = Some(Arc::clone(&queue));
@@ -2152,11 +2154,12 @@ impl TerrainVisualImpl {
             .bind_group
             .as_ref()
             .or(self.shroud_gpu.neutral_bind_group.as_ref());
-        let (Some(tree_pipeline), Some(camera_bg), Some(atlas_bg), Some(shroud)) = (
+        let (Some(tree_pipeline), Some(camera_bg), Some(atlas_bg), Some(shroud), Some(sway_bg)) = (
             self.tree_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
             self.tree_atlas_bind_group.as_ref(),
             shroud,
+            self.tree_sway_bind_group.as_ref(),
         ) else {
             return;
         };
@@ -2169,10 +2172,24 @@ impl TerrainVisualImpl {
         // Own atlas group. Do not overwrite road/terrain bind group 1 after this pass.
         pass.set_bind_group(1, atlas_bg, &[]);
         pass.set_bind_group(2, shroud, &[]);
+        pass.set_bind_group(3, sway_bg, &[]);
         for mesh in &self.tree_meshes {
             pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_vertex_buffer(1, mesh.dynamic_vertex_buffer.slice(..));
             pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
+    }
+
+    pub(super) fn advance_tree_sway_uniform_for_draw(&mut self, paused: bool) {
+        if paused {
+            return;
+        }
+        let factors = self.tree_buffer.advance_sway_for_draw(false);
+        if let (Some(queue), Some(buffer)) =
+            (self.queue.as_ref(), self.tree_sway_uniform_buffer.as_ref())
+        {
+            queue.write_buffer(buffer, 0, bytemuck::bytes_of(&factors));
         }
     }
 
@@ -2224,9 +2241,7 @@ impl TerrainVisualImpl {
         sway_completed: bool,
         client_random: Option<&mut game_engine::common::random_value::RandomState>,
     ) {
-        if self.tree_buffer.take_any_push_changed() {
-            self.tree_buffer.force_vertex_rebuild();
-        }
+        let moving_vertices_changed = self.tree_buffer.take_any_push_changed();
         if !sway_completed {
             // C++ `W3DTreeBuffer::drawTrees`: ScriptEngine breeze + versioned updateSway.
             let pause = motion.map(|motion| motion.paused).unwrap_or_else(|| {
@@ -2265,6 +2280,13 @@ impl TerrainVisualImpl {
         }
 
         if (native_view || !self.tree_meshes.is_empty())
+            && !self.tree_buffer.need_to_update_texture()
+            && !self.tree_buffer.anything_changed()
+            && moving_vertices_changed
+        {
+            self.update_tree_motion_gpu_ranges();
+            return;
+        } else if (native_view || !self.tree_meshes.is_empty())
             && !self.tree_buffer.need_to_update_texture()
             && !self.tree_buffer.anything_changed()
         {
@@ -2313,6 +2335,37 @@ impl TerrainVisualImpl {
             })
             .into_iter()
             .collect();
+        self.tree_buffer.discard_pending_vertex_updates();
+    }
+
+    fn update_tree_motion_gpu_ranges(&mut self) {
+        let updates = self.tree_buffer.update_moving_tree_vertex_ranges();
+        let Some(queue) = self.queue.as_ref().cloned() else {
+            return;
+        };
+        let Some(mesh) = self.tree_meshes.first() else {
+            return;
+        };
+        for update in updates {
+            let end_vertex = update.first_vertex + update.dynamic_vertices.len();
+            if end_vertex > self.last_tree_gpu_vertices.len() {
+                continue;
+            }
+            let offset = update.first_vertex * std::mem::size_of::<TreeGpuVertexDynamic>();
+            queue.write_buffer(
+                &mesh.dynamic_vertex_buffer,
+                offset as u64,
+                cast_slice(&update.dynamic_vertices),
+            );
+            for (cached, dynamic) in self.last_tree_gpu_vertices
+                [update.first_vertex..end_vertex]
+                .iter_mut()
+                .zip(update.dynamic_vertices)
+            {
+                cached.position = dynamic.position;
+                cached.tree_effects[1] = dynamic.darkening;
+            }
+        }
     }
 
     fn upload_tree_mesh(
@@ -2323,11 +2376,26 @@ impl TerrainVisualImpl {
         if vertices.is_empty() || indices.is_empty() {
             return None;
         }
+        let static_vertices: Vec<_> = vertices
+            .iter()
+            .copied()
+            .map(TreeGpuVertex::static_attributes)
+            .collect();
+        let dynamic_vertices: Vec<_> = vertices
+            .iter()
+            .copied()
+            .map(TreeGpuVertex::dynamic_attributes)
+            .collect();
         Some(GpuTreeMesh {
             vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Tree Mesh"),
-                contents: cast_slice(vertices),
+                label: Some("Tree Static Attributes"),
+                contents: cast_slice(&static_vertices),
                 usage: wgpu::BufferUsages::VERTEX,
+            }),
+            dynamic_vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Tree Dynamic Position Attributes"),
+                contents: cast_slice(&dynamic_vertices),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             }),
             index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Tree Mesh Indices"),

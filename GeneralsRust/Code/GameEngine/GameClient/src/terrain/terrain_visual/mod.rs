@@ -31,7 +31,8 @@ use super::textures::{
     TextureRule, TextureWeights, TileData,
 };
 use super::tree_buffer::{
-    TREE_MAX_GLOBAL_LIGHTS, TreeGpuVertex, TreeObjectLight, W3DTreeBuffer,
+    TREE_MAX_GLOBAL_LIGHTS, TreeGpuVertex, TreeGpuVertexDynamic, TreeGpuVertexStatic,
+    TreeObjectLight, TreeSwayGpuUniform, TreeVertexRangeUpdate, W3DTreeBuffer,
     fill_tree_gpu_upload_vertices,
 };
 use super::w3d_overlay_mesh::{

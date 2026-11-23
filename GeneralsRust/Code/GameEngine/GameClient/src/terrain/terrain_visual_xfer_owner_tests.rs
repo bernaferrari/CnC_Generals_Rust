@@ -1,5 +1,18 @@
 //! Detached codec owners; no global terrain, water or scorch fixture.
 use super::*;
+
+struct NoTreeDraws;
+
+impl TreeRandom for NoTreeDraws {
+    fn int_range(&mut self, _: i32, _: i32) -> i32 {
+        panic!("empty TREE slot consumed an integer draw");
+    }
+
+    fn real_range(&mut self, _: f32, _: f32) -> f32 {
+        panic!("empty TREE slot consumed a real draw");
+    }
+}
+
 fn terrain(raw: u8, enabled: bool) -> gamelogic::terrain::TerrainLogic {
     let mut owner = gamelogic::terrain::TerrainLogic::new();
     owner
@@ -211,7 +224,7 @@ fn prepared_native_admission_changes_only_receiving_visual_and_preserves_absent_
         scorch_type: 1,
     };
     b.add_scorch(foreign.location, foreign.radius, foreign.scorch_type);
-    prepared.apply_native(&mut a);
+    prepared.apply_native(&mut a, &mut NoTreeDraws);
     assert!(a.water_grid_enabled());
     assert!(!b.water_grid_enabled());
     assert_eq!(a.scorch_marks(), [mark]);
@@ -220,7 +233,7 @@ fn prepared_native_admission_changes_only_receiving_visual_and_preserves_absent_
     prepare_terrain_visual_for_terrain(&source, &absent)
         .unwrap()
         .unwrap()
-        .apply_native(&mut a);
+        .apply_native(&mut a, &mut NoTreeDraws);
     assert_eq!(
         a.scorch_marks(),
         [mark],
@@ -230,7 +243,7 @@ fn prepared_native_admission_changes_only_receiving_visual_and_preserves_absent_
     prepare_terrain_visual_for_terrain(&source, &clear)
         .unwrap()
         .unwrap()
-        .apply_native(&mut a);
+        .apply_native(&mut a, &mut NoTreeDraws);
     assert!(a.scorch_marks().is_empty());
     assert_eq!(b.scorch_marks(), [foreign]);
 }
@@ -274,7 +287,7 @@ fn native_water_motion_is_captured_from_receiving_visual_without_changing_logica
         before,
         "failed parse does not apply native motion"
     );
-    prepared.apply_native(&mut receiver);
+    prepared.apply_native(&mut receiver, &mut NoTreeDraws);
     assert_eq!(
         receiver.capture_water_state().mesh_motion,
         observed.mesh_motion
@@ -307,5 +320,119 @@ fn native_water_admission_and_recapture_preserves_complete_source_status_byte() 
         visual.capture_water_state().mesh_motion[&(0, 0)].status,
         0x83,
         "C++ BitSet preserves accepted upper status bits"
+    );
+}
+
+#[test]
+fn native_tree_slot_round_trips_source_fields_and_deleted_rows_in_admission_order() {
+    use crate::terrain::{TreeModuleData, TreeSphere, W3DToppleState, terrain_visual::TerrainVisualImpl};
+    use glam::{Vec3, Vec4};
+
+    let logical = terrain(40, false);
+    let mut visual = TerrainVisualImpl::new();
+    let module = TreeModuleData {
+        model_name: "Oak".into(),
+        texture_name: "Oak.tga".into(),
+        ..Default::default()
+    };
+    for (id, position) in [(42, Vec3::new(1., 2., 3.)), (7, Vec3::new(4., 5., 6.))] {
+        visual.add_tree(id, position, 2., 0., 0., module.clone(), TreeSphere::default());
+    }
+    let tree = visual.tree_buffer_mut().tree_mut(0).unwrap();
+    tree.sin = 0.6;
+    tree.cos = 0.8;
+    tree.angular_velocity = 0.125;
+    tree.angular_acceleration = 0.25;
+    tree.topple_direction = Vec3::new(-0.5, 0.75, 0.);
+    tree.topple_state = W3DToppleState::Fogged;
+    tree.angular_accumulation = 0.5;
+    tree.options = 0x03;
+    tree.matrix = Mat4::from_cols(
+        Vec4::new(1., 2., 3., 0.),
+        Vec4::new(4., 5., 6., 0.),
+        Vec4::new(7., 8., 9., 0.),
+        Vec4::new(10., 11., 12., 1.),
+    );
+    tree.sink_frames_left = 31;
+    visual.tree_buffer_mut().remove_tree(7);
+
+    let authored = visual.capture_tree_records();
+    assert_eq!(authored.len(), 2);
+    assert_eq!(authored[0].drawable_id, 42);
+    assert_eq!(authored[1].drawable_id, 7);
+    assert!(authored[1].model_name.is_empty() && authored[1].model_texture.is_empty());
+    let mark = ScorchMark {
+        location: [10., 20., 3.],
+        radius: 5.,
+        scorch_type: 2,
+    };
+    let bytes =
+        capture_terrain_visual_with_tree_records(&logical, None, Some(&[mark]), authored.clone())
+            .unwrap();
+    let prepared = prepare_terrain_visual_for_terrain(&logical, &bytes)
+        .unwrap()
+        .unwrap();
+    assert_eq!(prepared.tree_records(), Some(authored.as_slice()));
+    assert_eq!(prepared.scorches(), Some([mark].as_slice()));
+
+    let mut expected = b"\x03\x01\x00\x04\x00\x00\x00\x28\x28\x28\x28\x01\x01".to_vec();
+    expected.extend(2_i32.to_le_bytes());
+    expected.extend(b"\x03Oak\x07Oak.tga");
+    for value in [1.0_f32, 2., 3., 2., 0.6, 0.8] {
+        expected.extend(value.to_le_bytes());
+    }
+    expected.extend(42_u32.to_le_bytes());
+    for value in [0.125_f32, 0.25, -0.5, 0.75, 0.] {
+        expected.extend(value.to_le_bytes());
+    }
+    expected.extend(2_i32.to_le_bytes()); // TOPPLE_FOGGED
+    expected.extend(0.5_f32.to_le_bytes());
+    expected.extend(3_u32.to_le_bytes());
+    expected.push(1); // Matrix3D version
+    for value in [1.0_f32, 4., 7., 10., 2., 5., 8., 11., 3., 6., 9., 12.] {
+        expected.extend(value.to_le_bytes());
+    }
+    expected.extend(31_u32.to_le_bytes());
+    expected.extend([0, 0]); // empty model and texture of the next record
+    assert_eq!(&bytes[..expected.len()], &expected);
+}
+
+#[test]
+fn native_tree_slot_rejects_invalid_counts_and_truncated_records_before_admission() {
+    let source = terrain(40, false);
+    let receiver = terrain(90, false);
+    let bytes = capture_owned_terrain_visual_for_terrain(&source, None).unwrap();
+    let count_offset = 9 + source.logic_height_map_bytes().len();
+    let tree_version_offset = count_offset - 1;
+    assert_eq!(bytes[tree_version_offset], 1);
+    assert_eq!(bytes[count_offset..count_offset + 4], [0; 4]);
+    let prepared = prepare_terrain_visual_for_terrain(&receiver, &bytes)
+        .unwrap()
+        .unwrap();
+    assert_eq!(prepared.tree_records(), Some([].as_slice()));
+
+    let before_height_revision = receiver.height_revision();
+    for count in [-1, MAX_TREES as i32 + 1] {
+        let mut invalid = bytes.clone();
+        invalid[count_offset..count_offset + 4].copy_from_slice(&count.to_le_bytes());
+        let err = prepare_terrain_visual_for_terrain(&receiver, &invalid).unwrap_err();
+        assert!(err.contains("TREE count"), "{err}");
+    }
+
+    let mut truncated = bytes.clone();
+    truncated[count_offset..count_offset + 4].copy_from_slice(&1_i32.to_le_bytes());
+    assert!(prepare_terrain_visual_for_terrain(&receiver, &truncated).is_err());
+    assert_eq!(receiver.logic_height_map_bytes(), &[90; 4]);
+    assert_eq!(receiver.height_revision(), before_height_revision);
+
+    // Terrain v2 ends before the BaseHeightMap/Tree/Prop snapshot.
+    let mut v2 = bytes[..tree_version_offset - 1].to_vec();
+    v2[0] = 2;
+    assert!(
+        prepare_terrain_visual_for_terrain(&receiver, &v2)
+            .unwrap()
+            .unwrap()
+            .tree_records()
+            .is_none()
     );
 }

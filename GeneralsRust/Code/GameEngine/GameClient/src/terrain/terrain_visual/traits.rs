@@ -215,6 +215,7 @@ impl TerrainVisualImpl {
             self.tree_buffer.update_sway(motion.breeze, rng);
             self.overlay.last_sway_version = motion.breeze.breeze_version;
         }
+        self.advance_tree_sway_uniform_for_draw(motion.paused);
         self.tree_buffer.cull_pending_native_view();
         Some(self.tree_buffer.begin_cpu_draw(motion.paused))
     }
@@ -444,10 +445,43 @@ pub type WaterVertex = WaterGpuVertex;
 /// Shipped wgpu overlay vertex (roads/bridges/scorch). Packed `diffuse` is C++ BGRA.
 pub type RoadVertex = OverlayGpuVertex;
 
-impl TreeGpuVertex {
+impl TreeGpuVertexStatic {
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<TreeGpuVertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<TreeGpuVertexStatic>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::offset_of!(TreeGpuVertexStatic, tex_coords)
+                        as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::offset_of!(TreeGpuVertexStatic, sway_index)
+                        as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::offset_of!(TreeGpuVertexStatic, base_z) as wgpu::BufferAddress,
+                    shader_location: 6,
+                    format: wgpu::VertexFormat::Float32,
+                },
+            ],
+        }
+    }
+}
+
+impl TreeGpuVertexDynamic {
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TreeGpuVertexDynamic>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -456,19 +490,10 @@ impl TreeGpuVertex {
                     format: wgpu::VertexFormat::Float32x3,
                 },
                 wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Uint32,
+                    offset: std::mem::offset_of!(TreeGpuVertexDynamic, darkening)
+                        as wgpu::BufferAddress,
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float32,
                 },
             ],
         }
