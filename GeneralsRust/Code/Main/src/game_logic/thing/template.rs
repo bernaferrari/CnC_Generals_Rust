@@ -1,5 +1,6 @@
 use super::*;
 use crate::assets::AuthoredDrawModel;
+use gamelogic::object::collide::crate_collide::sabotage_power_plant_crate_collide::PowerPlantSabotageRule;
 use std::sync::Arc;
 
 /// ActiveBody subclasses expose health/history; InactiveBody inherits the
@@ -687,9 +688,9 @@ pub struct ThingTemplate {
     pub(crate) turret_spawn_definition: Option<crate::game_logic::object::TurretSpawnSpec>,
     #[serde(skip)]
     pub(crate) receiving_client_template: Option<ReceivingClientTemplate>,
-    /// SabotagePowerPlantCrateCollide's parsed duration on this exact template.
+    /// SabotagePowerPlantCrateCollide rules in the template's behavior order.
     #[serde(skip)]
-    pub(crate) power_plant_sabotage_frames: Option<u32>,
+    pub(crate) power_plant_sabotage_rules: Box<[PowerPlantSabotageRule]>,
     /// Immutable transition-effect content rebound from the receiving catalog.
     #[serde(skip)]
     pub(crate) transition_damage_definition:
@@ -1444,7 +1445,7 @@ impl ThingTemplate {
             receiving_object_definition: None,
             turret_spawn_definition: None,
             receiving_client_template: None,
-            power_plant_sabotage_frames: None,
+            power_plant_sabotage_rules: Default::default(),
             transition_damage_definition: None,
             body_kind: None,
             highlander_body: false,

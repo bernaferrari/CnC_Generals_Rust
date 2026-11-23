@@ -5,6 +5,7 @@
 
 use crate::common::ObjectID;
 use crate::contain_module_overrides::collide_crates::CrateCollideDataAdapter;
+use game_engine::common::system::kind_of::KindOfMask;
 use game_engine::common::thing::module::{ModuleDataHandle, ModuleDataView};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
@@ -48,28 +49,58 @@ impl Default for SabotagePowerPlantCrateCollideModuleData {
     }
 }
 
-impl SabotagePowerPlantCrateCollideModuleData {
-    /// Read the already parsed duration from the receiving module factory's
-    /// typed data. An omitted field keeps the C++ constructor default of zero.
-    pub fn admitted_duration(
-        template: &game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
-    ) -> Result<Option<u32>, String> {
-        let Some(entry) = template.behavior_modules().iter().find(|entry| {
-            entry
-                .name
-                .as_str()
-                .eq_ignore_ascii_case("SabotagePowerPlantCrateCollide")
-        }) else {
-            return Ok(None);
-        };
-        entry
-            .data
-            .read()
-            .downcast_ref::<CrateCollideDataAdapter<Self>>()
-            .map(|adapter| Some(adapter.data.power_sabotage_frames))
-            .ok_or_else(|| format!("Invalid power sabotage module data on '{}'", template.name()))
-    }
+/// Immutable fields used by CrateCollide eligibility and power-plant sabotage.
+#[derive(Debug, Clone)]
+pub struct PowerPlantSabotageRule {
+    pub duration_frames: u32,
+    pub required_kind_of: KindOfMask,
+    pub forbidden_kind_of: KindOfMask,
+    pub building_pickup: bool,
+    pub forbid_owner: bool,
+    pub human_only: bool,
+    pub pickup_science: Option<String>,
+}
 
+impl PowerPlantSabotageRule {
+    /// Copy the typed rules in behavior order, resolving science IDs in the
+    /// catalog that parsed the template. No module borrow escapes admission.
+    pub fn from_admitted_template(
+        template: &game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
+        sciences: &game_engine::common::rts::science::ScienceNameFacts,
+    ) -> Result<Box<[Self]>, String> {
+        template
+            .behavior_modules()
+            .iter()
+            .filter(|entry| entry.name.as_str().eq_ignore_ascii_case("SabotagePowerPlantCrateCollide"))
+            .map(|entry| {
+                let guard = entry.data.read();
+                let data = &guard
+                    .downcast_ref::<CrateCollideDataAdapter<SabotagePowerPlantCrateCollideModuleData>>()
+                    .ok_or_else(|| format!("Invalid power sabotage module data on '{}'", template.name()))?
+                    .data;
+                let base = &data.base;
+                let pickup_science = if base.pickup_science == crate::common::science::SCIENCE_INVALID {
+                    None
+                } else {
+                    Some(sciences.name(base.pickup_science)
+                        .ok_or_else(|| format!("Unknown power sabotage pickup science on '{}'", template.name()))?
+                        .to_owned())
+                };
+                Ok(Self {
+                    duration_frames: data.power_sabotage_frames,
+                    required_kind_of: KindOfMask::from_bits_retain(base.required_kind_of),
+                    forbidden_kind_of: KindOfMask::from_bits_retain(base.forbidden_kind_of),
+                    building_pickup: base.is_building_pickup,
+                    forbid_owner: base.is_forbid_owner_player,
+                    human_only: base.is_human_only_pickup,
+                    pickup_science,
+                })
+            })
+            .collect()
+    }
+}
+
+impl SabotagePowerPlantCrateCollideModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, SABOTAGE_POWER_PLANT_CRATE_COLLIDE_FIELDS)
     }
@@ -86,27 +117,30 @@ impl SabotagePowerPlantCrateCollideModuleData {
     }
 }
 
-fn parse_kind_of_mask(tokens: &[&str]) -> Result<u128, INIError> {
-    if tokens.is_empty() {
+fn parse_kind_of_mask(existing: u128, tokens: &[&str]) -> Result<u128, INIError> {
+    let value = tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect::<Vec<_>>()
+        .join(" ");
+    if value.is_empty() {
         return Err(INIError::InvalidData);
     }
-
-    let mut mask = 0u128;
-    for token in tokens
-        .iter()
-        .filter(|token| **token != "=")
-        .flat_map(|token| token.split('|'))
-    {
-        let token = token.trim();
-        if token.is_empty() {
-            continue;
-        }
-        let Some(kind) = kindof_from_name(token) else {
-            return Err(INIError::InvalidData);
-        };
-        mask |= kind.cpp_mask();
-    }
-    Ok(mask)
+    KindOfMask::parse_ini(KindOfMask::from_bits_retain(existing), &value)
+        .map(|mask| mask.bits())
+        .or_else(|_| {
+            // Keep accepting old Rust enum spellings such as COMMAND_CENTER.
+            value
+                .split_whitespace()
+                .flat_map(|token| token.split('|'))
+                .filter(|token| !token.is_empty())
+                .try_fold(0, |mask, token| {
+                    kindof_from_name(token)
+                        .map(|kind| mask | kind.cpp_mask())
+                        .ok_or(INIError::InvalidData)
+                })
+        })
 }
 
 fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
@@ -122,7 +156,7 @@ fn parse_required_kind_of(
     data: &mut SabotagePowerPlantCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.base.required_kind_of = parse_kind_of_mask(tokens)?;
+    data.base.required_kind_of = parse_kind_of_mask(data.base.required_kind_of, tokens)?;
     Ok(())
 }
 
@@ -131,7 +165,7 @@ fn parse_forbidden_kind_of(
     data: &mut SabotagePowerPlantCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.base.forbidden_kind_of = parse_kind_of_mask(tokens)?;
+    data.base.forbidden_kind_of = parse_kind_of_mask(data.base.forbidden_kind_of, tokens)?;
     Ok(())
 }
 
@@ -163,11 +197,16 @@ fn parse_human_only(
 }
 
 fn parse_pickup_science(
-    _ini: &mut INI,
+    ini: &mut INI,
     data: &mut SabotagePowerPlantCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    super::parse_crate_pickup_science(&mut data.base, first_token(tokens)?)
+    let name = first_token(tokens)?;
+    if let Some(sciences) = ini.receiving_science_names() {
+        data.base.pickup_science = sciences.science(name).ok_or(INIError::InvalidData)?;
+        return Ok(());
+    }
+    super::parse_crate_pickup_science(&mut data.base, name)
 }
 
 fn parse_execute_fx(

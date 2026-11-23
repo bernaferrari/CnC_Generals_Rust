@@ -132,9 +132,10 @@ impl ThingTemplate {
         plan: &game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
         content: &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
     ) -> Result<(), String> {
-        use gamelogic::object::collide::crate_collide::sabotage_power_plant_crate_collide::SabotagePowerPlantCrateCollideModuleData;
+        use gamelogic::object::collide::crate_collide::sabotage_power_plant_crate_collide::PowerPlantSabotageRule;
 
-        let sabotage_frames = SabotagePowerPlantCrateCollideModuleData::admitted_duration(plan)?;
+        let sabotage_rules =
+            PowerPlantSabotageRule::from_admitted_template(plan, content.science_facts_ref())?;
         let mut prereqs = plan.production_prerequisites().to_vec();
         let definitions = PrerequisiteDefinitions::admit_receiving(&mut prereqs, content)?;
         self.production_prerequisites = prereqs;
@@ -143,7 +144,7 @@ impl ThingTemplate {
         self.buildable_status = plan.buildable_status();
         self.reskinned_from = plan.reskin_name().map(str::to_owned);
         self.build_variations = plan.build_variations().map(str::to_owned).collect();
-        self.power_plant_sabotage_frames = sabotage_frames;
+        self.power_plant_sabotage_rules = sabotage_rules;
         Ok(())
     }
 

@@ -548,14 +548,17 @@ impl GameLogic {
                         ),
                     )
                 });
-                let power_duration = match effect {
-                    Some(SaboteurEffectKind::PowerPlant) => source.zip(target).and_then(
-                        |(source, target)| self.power_plant_sabotage_duration(source, target),
-                    ),
-                    _ => None,
+                let power_durations: Vec<_> = match effect {
+                    Some(SaboteurEffectKind::PowerPlant) => source
+                        .filter(|source| !source.status.no_collisions)
+                        .zip(target)
+                        .into_iter()
+                        .flat_map(|(source, target)| self.power_plant_sabotage_durations(source, target))
+                        .collect(),
+                    _ => Vec::new(),
                 };
                 let saboteur_ok = if effect == Some(SaboteurEffectKind::PowerPlant) {
-                    power_duration.is_some()
+                    !power_durations.is_empty()
                 } else {
                     source.is_some_and(|object| is_saboteur_template(&object.template_name))
                 };
@@ -564,7 +567,20 @@ impl GameLogic {
                         let mut cash_stolen = 0u32;
                         match kind {
                             SaboteurEffectKind::PowerPlant => {
-                                // Player power changes after victim feedback below.
+                                // Object.cpp:2369–2389 walks the behaviors in order.
+                                // Each eligible power crate can refresh the deadline.
+                                for duration in power_durations {
+                                    self.try_infiltration_event(special_target_id);
+                                    self.do_sabotage_feedback_fx(special_target_id, kind);
+                                    self.try_eva_building_sabotaged(special_target_id);
+                                    if let Some(owner) = self
+                                        .objects
+                                        .get(&special_target_id)
+                                        .and_then(|target| self.player_owner_for_host_object(target))
+                                    {
+                                        self.sabotage_player_power(owner, self.frame.wrapping_add(duration));
+                                    }
+                                }
                             }
                             SaboteurEffectKind::SupplyCenter
                             | SaboteurEffectKind::SupplyDropzone => {
@@ -661,40 +677,29 @@ impl GameLogic {
                         }
                         self.admit_host_radar_disabled_edges(special_target_id);
                         self.saboteur.record(kind, cash_stolen);
-                        // C++ TheRadar->tryInfiltrationEvent(other) residual
-                        // (victim local player warning).
-                        self.try_infiltration_event(special_target_id);
-                        // C++ TheEva->setShouldPlay residual when victim local.
-                        // Supply center: CashStolen if cash taken, else BuildingSabotaged.
-                        if kind.steals_cash() && cash_stolen > 0 {
-                            // C++ controller ScoreKeeper::addMoneyEarned residual.
-                            if let Some(p) = self
-                                .objects
-                                .get(&object_id)
-                                .and_then(|caster| self.player_owner_for_host_object(caster))
-                                .and_then(|id| self.get_player_mut(id))
-                            {
-                                p.add_money_earned(cash_stolen);
+                        if kind != SaboteurEffectKind::PowerPlant {
+                            self.try_infiltration_event(special_target_id);
+                            // C++ TheEva alerts the local victim. A supply center
+                            // uses CashStolen when the saboteur took money.
+                            if kind.steals_cash() && cash_stolen > 0 {
+                                if let Some(player) = self
+                                    .objects
+                                    .get(&object_id)
+                                    .and_then(|caster| self.player_owner_for_host_object(caster))
+                                    .and_then(|id| self.get_player_mut(id))
+                                {
+                                    player.add_money_earned(cash_stolen);
+                                }
+                                self.try_eva_cash_stolen(special_target_id);
+                                self.spawn_sabotage_cash_floating_texts(
+                                    object_id,
+                                    special_target_id,
+                                    cash_stolen,
+                                );
+                            } else {
+                                self.try_eva_building_sabotaged(special_target_id);
                             }
-                            self.try_eva_cash_stolen(special_target_id);
-                            // C++ GUI:AddCash / GUI:LoseCash floating text residual.
-                            self.spawn_sabotage_cash_floating_texts(
-                                object_id,
-                                special_target_id,
-                                cash_stolen,
-                            );
-                        } else {
-                            self.try_eva_building_sabotaged(special_target_id);
-                        }
-                        // C++ doSabotageFeedbackFX residual (type audio + flash).
-                        self.do_sabotage_feedback_fx(special_target_id, kind);
-                        if let Some(duration) = power_duration
-                            && let Some(owner) = self
-                                .objects
-                                .get(&special_target_id)
-                                .and_then(|target| self.player_owner_for_host_object(target))
-                        {
-                            self.sabotage_player_power(owner, self.frame.wrapping_add(duration));
+                            self.do_sabotage_feedback_fx(special_target_id, kind);
                         }
                         let msg =
                             localization::localize("hud.saboteur.complete", "Building sabotaged");

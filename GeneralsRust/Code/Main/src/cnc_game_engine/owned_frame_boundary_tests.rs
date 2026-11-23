@@ -38,15 +38,15 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
     use crate::fixture_content::FixtureObject;
     use crate::game_logic::presentation_definitions::PresentationDefinitions;
 
-    let fixture = |source_template, module: Option<&str>| {
+    let fixture = |source_template, modules: &[&str]| {
         let mut source = FixtureObject::new(source_template)
             .kind_of("INFANTRY SELECTABLE")
             .health(120.)
             .walker()
             .instant_death();
-        if let Some(fields) = module {
+        for (index, fields) in modules.iter().enumerate() {
             source = source.module(format!(
-                "Behavior = SabotagePowerPlantCrateCollide SabotagePower\n BuildingPickup = Yes\n{fields}\nEnd"
+                "Behavior = SabotagePowerPlantCrateCollide SabotagePower{index}\n{fields}\nEnd"
             ));
         }
         let (mut world, _, _) = fixture_with(
@@ -83,10 +83,18 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
         (world, victim, infiltrator, plant, consumer, saboteur)
     };
     let saboteur_template = "GLAInfantrySaboteur";
-    let (mut world, victim, infiltrator, plant, consumer, saboteur) =
-        fixture(saboteur_template, Some(" SabotagePowerDuration = 1000"));
+    let (mut world, victim, infiltrator, plant, consumer, saboteur) = fixture(
+        saboteur_template,
+        &[
+            " SabotagePowerDuration = 6000",
+            " BuildingPickup = Yes\n RequiredKindOf = COMMANDCENTER\n SabotagePowerDuration = 4000",
+            " BuildingPickup = Yes\n ForbiddenKindOf = FS_POWER\n SabotagePowerDuration = 3000",
+            " BuildingPickup = Yes\n SabotagePowerDuration = 1500",
+            " BuildingPickup = Yes\n SabotagePowerDuration = 1000",
+        ],
+    );
     let (mut peer, peer_victim, peer_infiltrator, peer_plant, peer_consumer, peer_saboteur) =
-        fixture(saboteur_template, Some(" SabotagePowerDuration = 2000"));
+        fixture(saboteur_template, &[" BuildingPickup = Yes\n SabotagePowerDuration = 2000"]);
     assert_eq!(
         (victim, plant, consumer, saboteur),
         (peer_victim, peer_plant, peer_consumer, peer_saboteur)
@@ -151,8 +159,17 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
         );
         assert_eq!(world.host_radar.online_transitions, 1 + u32::from(powered));
     }
-    let radar_cues: Vec<_> = world
-        .process_audio_events(None)
+    let events = world.process_audio_events(None);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| {
+                event.event_type == crate::game_logic::host_saboteur::SABOTEUR_SHUTDOWN_AUDIO
+            })
+            .count(),
+        2
+    );
+    let radar_cues: Vec<_> = events
         .into_iter()
         .filter(|event| {
             matches!(
@@ -197,7 +214,7 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
     // An authored module with no duration starts an immediate outage with
     // a deadline equal to the contact frame. The name grants no capability.
     let (mut default, victim, infiltrator, plant, consumer, saboteur) =
-        fixture("MissionInfiltrator", Some(""));
+        fixture("MissionInfiltrator", &[" BuildingPickup = Yes"]);
     let contact = default.get_frame();
     sabotage(&mut default, infiltrator, saboteur, plant);
     advance_owned(&mut default, None);
@@ -221,7 +238,7 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
 
     // A name-compatible template with the module removed leaves the grid alone.
     let (mut absent, victim, infiltrator, plant, consumer, saboteur) =
-        fixture(saboteur_template, None);
+        fixture(saboteur_template, &[]);
     sabotage(&mut absent, infiltrator, saboteur, plant);
     advance_owned(&mut absent, None);
     assert_eq!(

@@ -161,7 +161,8 @@ impl<'a> CommandExecutor<'a> {
                     {
                         return self
                             .game_logic
-                            .power_plant_sabotage_duration(unit, target)
+                            .power_plant_sabotage_durations(unit, target)
+                            .next()
                             .is_some();
                     }
                     unit.team != target_team

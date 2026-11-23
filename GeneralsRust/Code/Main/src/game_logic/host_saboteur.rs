@@ -29,6 +29,7 @@
 //! - Not network saboteur replication (network deferred)
 
 use crate::game_logic::{GameLogic, KindOf, Object, ObjectId};
+use game_engine::common::system::kind_of::KindOfMask;
 use serde::{Deserialize, Serialize};
 
 /// Logic frames per second (host fixed step).
@@ -439,26 +440,51 @@ pub fn is_saboteur_template(template_name: &str) -> bool {
 }
 
 impl GameLogic {
-    /// SabotagePowerPlantCrateCollide.cpp:56–84 checks FS_POWER and the
-    /// source Object's relationship to the actual target. Consult the
-    /// Saboteur's admitted definition so name-compatible substitutes cannot
-    /// invent or replace an authored outage duration.
-    pub(crate) fn power_plant_sabotage_duration(
-        &self,
-        source: &Object,
-        target: &Object,
-    ) -> Option<u32> {
+    /// CrateCollide.cpp:127–168 and SabotagePowerPlantCrateCollide.cpp:56–84.
+    /// The action check and contact walk observe the same receiving rules.
+    pub(crate) fn power_plant_sabotage_durations<'a>(
+        &'a self,
+        source: &'a Object,
+        target: &'a Object,
+    ) -> impl Iterator<Item = u32> + 'a {
         let template = source.get_template();
-        if template.receiving_client_template.is_none() {
-            return is_saboteur_template(&source.template_name)
-                .then_some(SABOTEUR_POWER_DURATION_FRAMES);
-        }
-        let frames = template.power_plant_sabotage_frames?;
-        (target.is_kind_of(KindOf::FSPower)
+        let legacy_duration = (template.receiving_client_template.is_none()
+            && is_saboteur_template(&source.template_name))
+        .then_some(SABOTEUR_POWER_DURATION_FRAMES);
+        let target_player = target.owner_player_id.and_then(|id| self.get_player(id));
+        let eligible = !template.power_plant_sabotage_rules.is_empty()
+            && target.is_kind_of(KindOf::FSPower)
             && target.is_alive()
-            && !target.status.effectively_dead
-            && self.object_relationship(source, target) == gamelogic::common::Relationship::Enemies)
-            .then_some(frames)
+            && !target.is_kind_of(KindOf::Parachute)
+            && !target_player.is_some_and(|player| player.is_reserved_neutral())
+            && self.object_relationship(source, target) == gamelogic::common::Relationship::Enemies;
+        let rules = if eligible {
+            &*template.power_plant_sabotage_rules
+        } else {
+            &[]
+        };
+        let target_kinds = KindOfMask::from_bits_retain(target.kind_of_cpp_mask());
+        let target_is_building = target.is_kind_of(KindOf::Structure);
+        let target_has_ai = target.has_ai_update_interface();
+        let source_above_terrain = source.is_above_terrain();
+        rules
+            .iter()
+            .filter(move |rule| {
+                let building_pickup = rule.building_pickup && target_is_building;
+                (building_pickup || (target_has_ai && !source_above_terrain))
+                    && target_kinds.contains(rule.required_kind_of)
+                    && !target_kinds.intersects(rule.forbidden_kind_of)
+                    && (!rule.forbid_owner || source.owner_player_id != target.owner_player_id)
+                    && target_player.is_none_or(|player| {
+                        (!rule.human_only || player.is_human)
+                            && rule
+                                .pickup_science
+                                .as_deref()
+                                .is_none_or(|science| player.has_unlocked_science(science))
+                    })
+            })
+            .map(|rule| rule.duration_frames)
+            .chain(legacy_duration)
     }
 }
 
@@ -657,6 +683,72 @@ pub fn honesty_saboteur_residual_pack_ok() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sabotage_pickup_science_and_human_gate_belong_to_the_victim() {
+        use crate::game_logic::{Player, Team};
+        use game_engine::common::rts::science::{ScienceInfo, ScienceNameFacts, ScienceStore};
+        use std::sync::Arc;
+
+        let science = "SCIENCE_TargetLicense";
+        let mut store = ScienceStore::new();
+        store.add_science(ScienceInfo::new(701, science));
+        let ini = "
+Object MissionCharge
+  KindOf = INFANTRY
+  Body = ActiveBody ActorBody
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = SabotagePowerPlantCrateCollide PowerTag
+    BuildingPickup = Yes
+    HumanOnly = Yes
+    PickupScience = SCIENCE_TargetLicense
+    SabotagePowerDuration = 1000
+  End
+End
+Object CandidatePlant
+  KindOf = STRUCTURE FS_POWER
+  Body = ActiveBody PlantBody
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+End";
+        let content = crate::assets::ReceivingObjectContent::from_sources_with_sciences(
+            [("sabotage.ini".into(), ini.into())],
+            Arc::new(ScienceNameFacts::from_store(&store)),
+        )
+        .unwrap();
+        let mut world = GameLogic::new();
+        world.admit_receiving_module_content(content).unwrap();
+        let mut attacker = Player::new(0, Team::GLA, "Attacker", true);
+        attacker.alliance_team = 0;
+        world.add_player(attacker);
+        let mut victim = Player::new(1, Team::USA, "Victim", true);
+        victim.alliance_team = 1;
+        world.add_player(victim);
+        let source = world
+            .create_object_for_player("MissionCharge", 0, glam::Vec3::ZERO)
+            .unwrap();
+        let target = world
+            .create_object_for_player("CandidatePlant", 1, glam::Vec3::X)
+            .unwrap();
+        let duration = |world: &GameLogic| {
+            world
+                .power_plant_sabotage_durations(
+                    world.host_object(source).unwrap(),
+                    world.host_object(target).unwrap(),
+                )
+                .next()
+        };
+        assert_eq!(duration(&world), None);
+        assert!(world.get_player_mut(0).unwrap().unlock_science(science));
+        assert_eq!(duration(&world), None);
+        assert!(world.get_player_mut(1).unwrap().unlock_science(science));
+        assert_eq!(duration(&world), Some(30));
+        world.get_player_mut(1).unwrap().is_human = false;
+        assert_eq!(duration(&world), None);
+    }
 
     #[test]
     fn saboteur_template_matrix() {
