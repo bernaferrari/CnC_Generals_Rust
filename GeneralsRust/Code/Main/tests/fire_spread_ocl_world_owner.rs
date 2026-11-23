@@ -11,9 +11,13 @@ const EMBER_OBJECT_INI: &str = "Object EmberFixtureActor\n Body = ActiveBody Bod
 const EMBER_OCL_INI: &str = "ObjectCreationList CustomEmberList\n CreateObject\n ObjectNames = EmberFixtureActor\n Count = 1\n End\nEnd\n";
 
 fn ignite_now(world: &mut GameLogic, id: generals_main::game_logic::ObjectId) {
-    let fire = world
-        .host_object_mut(id)
-        .and_then(|object| object.fire_spread.as_mut())
+    let object = world.host_object_mut(id).expect("spread source");
+    // C++ tryToIgnite sets the Object AFLAME status bit the scheduled
+    // FireSpreadUpdate wake gates on, alongside the private module state.
+    object.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+    let fire = object
+        .fire_spread
+        .as_mut()
         .expect("spread source admits FlammableUpdate and FireSpreadUpdate");
     fire.state = HostFlammableState::Aflame;
     fire.body_aflame = true;
@@ -253,15 +257,12 @@ fn missing_receiving_ember_ocl_does_not_synthesize_a_gameplay_object() {
         .create_object("DogwoodTreeFireSpreadOclOwner", Team::Neutral, Vec3::ZERO)
         .expect("create source tree");
 
-    let fire = world
+    ignite_now(&mut world, tree);
+    world
         .host_object_mut(tree)
         .and_then(|object| object.fire_spread.as_mut())
-        .expect("tree admits FlammableUpdate and FireSpreadUpdate");
-    fire.state = HostFlammableState::Aflame;
-    fire.body_aflame = true;
-    fire.aflame_end_frame = u32::MAX;
-    fire.next_spread_frame = 0;
-    fire.spread_try_range = 0.0;
+        .expect("tree admits FlammableUpdate and FireSpreadUpdate")
+        .spread_try_range = 0.0;
 
     // The public fixed-step path reaches the real FireSpreadUpdate callback.
     // The authored OCLEmbers name has no admitted list, so C++
@@ -279,4 +280,92 @@ fn missing_receiving_ember_ocl_does_not_synthesize_a_gameplay_object() {
     );
     let source = world.host_object(tree).expect("source stays live");
     assert!(source.fire_spread.as_ref().unwrap().next_spread_frame > 0);
+}
+
+#[test]
+fn due_spread_uses_object_aflame_status_and_does_not_rearm_itself() {
+    // C++ FireSpreadUpdate.cpp:93-103 tests the Object AFLAME bit at the
+    // scheduled wake; an extinguished source returns FOREVER — no ember,
+    // target search, or retry RNG — and a re-lit bit cannot revive the wake.
+    let build = || {
+        let mut world = GameLogic::new();
+        let ini = format!("{SPREADER_INI}{EMBER_OBJECT_INI}");
+        world
+            .admit_object_ini_sources([("FireSpreadOwner.ini".into(), ini)])
+            .unwrap();
+        world
+            .admit_object_creation_list_sources([EMBER_OCL_INI.to_string()])
+            .unwrap();
+        world.start_new_game(GameMode::SinglePlayer).unwrap();
+        world
+    };
+    let mut lit = build();
+    let mut out = build();
+    let lit_source = lit
+        .create_object("FlameSpreader", Team::Neutral, Vec3::new(5.0, 0.0, 5.0))
+        .expect("lit source");
+    let out_source = out
+        .create_object("FlameSpreader", Team::Neutral, Vec3::new(5.0, 0.0, 5.0))
+        .expect("extinguished source");
+    ignite_now(&mut lit, lit_source);
+    ignite_now(&mut out, out_source);
+
+    // lit: private state back to Normal while the Object bit stays set —
+    // only the status bit may gate the wake, not the module state.
+    lit.host_object_mut(lit_source)
+        .and_then(|object| object.fire_spread.as_mut())
+        .unwrap()
+        .state = HostFlammableState::Normal;
+    // out: private state stays Aflame while the Object bit is cleared —
+    // the extinguished-source direction.
+    let _ = out
+        .host_object_mut(out_source)
+        .unwrap()
+        .apply_status_bits_upgrade_masks(&[], &["AFLAME"]);
+
+    lit.update_with_dt(1.0 / 30.0);
+    out.update_with_dt(1.0 / 30.0);
+
+    let ember = lit
+        .host_objects()
+        .registered_values()
+        .find(|object| object.template_name == "EmberFixtureActor");
+    assert!(
+        ember.is_some(),
+        "AFLAME-bit source births embers on its due wake"
+    );
+    let lit_next = lit.host_object(lit_source).unwrap().fire_spread.as_ref().unwrap().next_spread_frame;
+    assert!(
+        lit_next != u32::MAX && lit_next > 0,
+        "due clock rearmed after the wake, got {lit_next}"
+    );
+
+    assert!(
+        out.host_objects()
+            .registered_values()
+            .all(|object| object.template_name != "EmberFixtureActor"),
+        "extinguished source births no ember"
+    );
+    let out_next = out.host_object(out_source).unwrap().fire_spread.as_ref().unwrap().next_spread_frame;
+    assert_eq!(
+        out_next,
+        u32::MAX,
+        "extinguished source consumes its wake to Forever"
+    );
+
+    // Re-setting the bit does not resurrect the consumed wake.
+    let _ = out
+        .host_object_mut(out_source)
+        .unwrap()
+        .apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+    out.update_with_dt(1.0 / 30.0);
+    assert!(
+        out.host_objects()
+            .registered_values()
+            .all(|object| object.template_name != "EmberFixtureActor")
+    );
+    assert_eq!(
+        out.host_object(out_source).unwrap().fire_spread.as_ref().unwrap().next_spread_frame,
+        u32::MAX
+    );
 }

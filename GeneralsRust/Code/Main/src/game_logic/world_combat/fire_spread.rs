@@ -340,6 +340,19 @@ impl GameLogic {
                 if !fire.spread_due(frame) {
                     continue;
                 }
+                // C++ FireSpreadUpdate.cpp:93-103 tests the Object's AFLAME
+                // status bit at the scheduled wake; an extinguished source
+                // returns FOREVER — no ember, target search, or retry RNG.
+                if !object.has_object_status_bit("AFLAME") {
+                    if let Some(fire) = self
+                        .objects
+                        .get_mut(&id)
+                        .and_then(|object| object.fire_spread.as_mut())
+                    {
+                        fire.next_spread_frame = u32::MAX;
+                    }
+                    continue;
+                }
                 (
                     object.get_position(),
                     fire.ocl_embers.clone(),

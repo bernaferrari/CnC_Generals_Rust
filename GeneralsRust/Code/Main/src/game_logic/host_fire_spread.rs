@@ -423,7 +423,7 @@ impl HostFireSpreadData {
 
     /// Standalone compatibility update. Production schedules after its effects.
     pub fn tick_spread(&mut self, current_frame: u32) -> SpreadTickResult {
-        if !self.spread_due(current_frame) {
+        if !self.is_aflame() || !self.spread_due(current_frame) {
             return SpreadTickResult::default();
         }
         let delay = self.calc_next_spread_delay(current_frame);
@@ -440,8 +440,13 @@ impl HostFireSpreadData {
         self.next_spread_frame = current_frame.saturating_add(delay);
     }
 
+    /// Due-clock predicate only — `u32::MAX` is the Forever sentinel an
+    /// extinguished source is retired to. The original gates the wake on the
+    /// Object's AFLAME status bit, not the private module state.
     pub(in crate::game_logic) fn spread_due(&self, current_frame: u32) -> bool {
-        self.spread_enabled && self.is_aflame() && current_frame >= self.next_spread_frame
+        self.spread_enabled
+            && self.next_spread_frame != u32::MAX
+            && current_frame >= self.next_spread_frame
     }
 
     /// C++ FlammableUpdate work this frame still owes the clock: pending DOT,
