@@ -603,7 +603,11 @@ fn ordinary_disabled_producer_resumes_only_after_the_expiry_frame_case() {
         "OwnedDisableClock",
         100.0,
         &[
-            FixtureObject::new("OwnedDisableBarracks").kind_of("STRUCTURE FS_BARRACKS").energy(0).health(1000.0),
+            FixtureObject::new("OwnedDisableBarracks")
+                .kind_of("STRUCTURE FS_BARRACKS")
+                .energy(0)
+                .health(1000.0)
+                .module("Behavior = ProductionUpdate FixtureProduction\nEnd"),
             FixtureObject::new("OwnedDisableInfantry").kind_of("INFANTRY").build_cost(0).build_time(10.0).health(100.0),
         ],
     );
