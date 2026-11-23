@@ -1,8 +1,6 @@
 // Remaining InGameUI placement, hints, modes, movies, and helpers.
 // Split from `gui/ingame_ui.rs` dump. Included by `ingame_ui/mod.rs`.
 
-use crate::video_buffer::VideoBuffer;
-use crate::video_player::VideoPlayerInterface;
 impl InGameUI {
     pub fn start_building_placement(
         &mut self,
@@ -711,132 +709,6 @@ impl InGameUI {
     // C++: InGameUI.cpp:3333 (isAnySelectedKindOf)
     // C++: InGameUI.cpp:3357 (isAllSelectedKindOf)
 
-    pub fn radar_movie_window_name() -> &'static str {
-        "ControlBar.wnd:LeftHUD"
-    }
-
-    pub fn play_movie(
-        &mut self,
-        movie_name: &str,
-        windows: &crate::gui::window_manager::WindowManager,
-    ) {
-        self.stop_movie(windows);
-        let Some(player) = crate::video_player::get_video_player() else {
-            return;
-        };
-        let Ok(mut guard) = player.lock() else {
-            return;
-        };
-        let Some(player) = guard.as_mut() else {
-            return;
-        };
-        let Some(stream) = player.open(movie_name.to_string()) else {
-            return;
-        };
-        let mut buffer = crate::video_buffer::SoftwareVideoBuffer::new(
-            crate::video_buffer::VideoBufferType::X8R8G8B8,
-        );
-        if !buffer.allocate(stream.width() as u32, stream.height() as u32) {
-            stream.close();
-            return;
-        }
-        self.video_stream = Some(stream);
-        self.video_buffer = Some(crate::video_buffer::VideoBufferHandle::new(buffer));
-        self.currently_playing_movie = Some(movie_name.to_string());
-        self.attach_window_video_buffer(
-            Self::radar_movie_window_name(),
-            self.video_buffer.clone(),
-            windows,
-        );
-    }
-
-    pub fn stop_movie(&mut self, windows: &crate::gui::window_manager::WindowManager) {
-        self.attach_window_video_buffer(Self::radar_movie_window_name(), None, windows);
-        if let Some(stream) = self.video_stream.take() {
-            stream.close();
-        }
-        self.video_buffer = None;
-        self.currently_playing_movie = None;
-    }
-
-    pub fn is_movie_playing(&self) -> bool {
-        self.currently_playing_movie.is_some() && self.video_stream.is_some()
-    }
-
-    pub fn get_currently_playing_movie(&self) -> Option<&str> {
-        self.currently_playing_movie.as_deref()
-    }
-
-    pub fn play_cameo_movie(
-        &mut self,
-        movie_name: &str,
-        windows: &crate::gui::window_manager::WindowManager,
-    ) {
-        self.stop_cameo_movie(windows);
-        let Some(player) = crate::video_player::get_video_player() else {
-            return;
-        };
-        let Ok(mut guard) = player.lock() else {
-            return;
-        };
-        let Some(player) = guard.as_mut() else {
-            return;
-        };
-        let Some(stream) = player.open(movie_name.to_string()) else {
-            return;
-        };
-        let mut buffer = crate::video_buffer::SoftwareVideoBuffer::new(
-            crate::video_buffer::VideoBufferType::X8R8G8B8,
-        );
-        if !buffer.allocate(stream.width() as u32, stream.height() as u32) {
-            stream.close();
-            return;
-        }
-        let handle = crate::video_buffer::VideoBufferHandle::new(buffer);
-        self.attach_cameo_video_buffer(Some(handle.clone()), windows);
-        self.cameo_video_stream = Some(stream);
-        self.cameo_video_buffer = Some(handle);
-        self.cameo_movie_playing = Some(movie_name.to_string());
-    }
-
-    pub fn stop_cameo_movie(&mut self, windows: &crate::gui::window_manager::WindowManager) {
-        self.attach_cameo_video_buffer(None, windows);
-        if let Some(stream) = self.cameo_video_stream.take() {
-            stream.close();
-        }
-        self.cameo_video_buffer = None;
-        self.cameo_movie_playing = None;
-    }
-
-    pub fn is_cameo_movie_playing(&self) -> bool {
-        self.cameo_movie_playing.is_some() && self.cameo_video_stream.is_some()
-    }
-
-    fn attach_window_video_buffer(
-        &self,
-        window_name: &str,
-        buffer: Option<crate::video_buffer::VideoBufferHandle>,
-        windows: &crate::gui::window_manager::WindowManager,
-    ) {
-        let key =
-            game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(window_name);
-        if let Some(window) = windows.get_window_by_id(key as i32) {
-            window.borrow_mut().set_video_buffer(buffer);
-        }
-    }
-
-    fn attach_cameo_video_buffer(
-        &self,
-        buffer: Option<crate::video_buffer::VideoBufferHandle>,
-        windows: &crate::gui::window_manager::WindowManager,
-    ) {
-        self.attach_window_video_buffer("ControlBar.wnd:RightHUD", buffer, windows);
-    }
-
-    pub fn video_buffer(&self) -> Option<crate::video_buffer::VideoBufferHandle> {
-        self.video_buffer.clone()
-    }
-
     pub fn popup_message(
         &mut self,
         identifier: &str,
@@ -849,37 +721,6 @@ impl InGameUI {
     ) {
         // C++ InGameUI::popupMessage always UpdateDiplomacyBriefingText first.
         crate::helpers::popup_message(identifier, x, y, width, pause, pause_music, effects);
-    }
-
-    fn update_movie_playback(&mut self, windows: &crate::gui::window_manager::WindowManager) {
-        let mut stop_main = false;
-        if let Some(stream) = self.video_stream.as_mut() {
-            if stream.is_frame_ready() {
-                stream.frame_decompress();
-                if let Some(buffer) = self.video_buffer.as_ref() {
-                    let mut guard = buffer.lock();
-                    stream.frame_render(&mut *guard);
-                }
-                stream.frame_next();
-                if stream.frame_index() == 0 {
-                    stop_main = true;
-                }
-            }
-        }
-        if stop_main {
-            self.stop_movie(windows);
-        }
-
-        if let Some(stream) = self.cameo_video_stream.as_mut() {
-            if stream.is_frame_ready() {
-                stream.frame_decompress();
-                if let Some(buffer) = self.cameo_video_buffer.as_ref() {
-                    let mut guard = buffer.lock();
-                    stream.frame_render(&mut *guard);
-                }
-                stream.frame_next();
-            }
-        }
     }
 
     // ── World animations ──────────────────────────────────────────────

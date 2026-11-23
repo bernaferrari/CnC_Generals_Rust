@@ -1201,15 +1201,6 @@ pub struct InGameUI {
     /// When > 0, command hints are suppressed. Decremented each logic frame.
     double_click_attack_move_guard_timer: u32,
 
-    // ── Movie playback (C++: InGameUI.h:688,713-718) ──
-    /// C++: m_currentlyPlayingMovie (InGameUI.h:688)
-    currently_playing_movie: Option<String>,
-    /// C++: m_cameoVideoBuffer/m_cameoVideoStream (InGameUI.h:717-718)
-    cameo_movie_playing: Option<String>,
-    video_stream: Option<Box<dyn crate::video_stream::VideoStreamInterface>>,
-    video_buffer: Option<crate::video_buffer::VideoBufferHandle>,
-    cameo_video_stream: Option<Box<dyn crate::video_stream::VideoStreamInterface>>,
-    cameo_video_buffer: Option<crate::video_buffer::VideoBufferHandle>,
     /// C++: m_displayedMaxWarning
     displayed_max_warning: bool,
     last_ui_logic_frame: u32,

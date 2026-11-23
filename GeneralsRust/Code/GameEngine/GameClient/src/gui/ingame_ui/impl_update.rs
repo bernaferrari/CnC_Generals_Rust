@@ -141,13 +141,6 @@ impl InGameUI {
             frame_selection_changed: 0,
             double_click_attack_move_guard_timer: 0,
 
-            // Movie playback (C++ constructor: InGameUI.cpp)
-            currently_playing_movie: None,
-            cameo_movie_playing: None,
-            video_stream: None,
-            video_buffer: None,
-            cameo_video_stream: None,
-            cameo_video_buffer: None,
             displayed_max_warning: false,
             last_ui_logic_frame: u32::MAX,
 
@@ -818,7 +811,6 @@ impl InGameUI {
             renderer.set_time(self.ui_time);
         }
         self.current_frame = TheGameLogic::get_frame();
-        self.update_movie_playback(input.manager);
         self.expire_messages();
         self.update_military_subtitle(ui.state.the_audio().as_ref());
         self.update_floating_texts();

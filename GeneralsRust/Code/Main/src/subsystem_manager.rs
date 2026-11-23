@@ -1076,17 +1076,9 @@ impl GameClientSubsystem {
             .map_err(|error| anyhow!(error.to_string()))?;
         {
             use game_client::system::SubsystemInterface as _;
-            use game_client::video_player::VideoPlayerInterface as _;
             client.with_window_event_effects(Some(menu_world), |effects| {
                 effects.with_manager(|manager, effects| manager.update(effects))
             });
-            if let Some(video_player) = game_client::video_player::get_video_player() {
-                if let Ok(mut guard) = video_player.lock() {
-                    if let Some(player) = guard.as_mut() {
-                        player.update();
-                    }
-                }
-            }
             if let Err(error) = game_client::gui::get_display_string_manager().update() {
                 warn!("Display string manager update failed: {error}");
             }

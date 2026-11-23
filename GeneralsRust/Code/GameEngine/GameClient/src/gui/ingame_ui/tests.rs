@@ -1022,15 +1022,6 @@ mod tests {
     }
 
     #[test]
-    fn radar_movie_targets_left_hud_window() {
-        crate::test_support::ensure_ambient_host();
-        assert_eq!(
-            InGameUI::radar_movie_window_name(),
-            "ControlBar.wnd:LeftHUD"
-        );
-    }
-
-    #[test]
     fn popup_message_appends_diplomacy_briefing_identifier() {
         crate::test_support::ensure_ambient_host();
         use crate::core::game_client::ClientInputAuthority;
