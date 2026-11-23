@@ -260,22 +260,7 @@ impl AIPlayer {
         world: &GameLogic,
     ) -> Option<super::economic_owner::DozerQueueAttempt> {
         let (template, factory) = self.first_dozer_template_with_factory(world)?;
-        let mut preexisting: Vec<_> = world
-            .host_objects()
-            .registered()
-            .filter_map(|(&id, object)| {
-                (world.object_owned_by_player(object, self.player_id)
-                    && object.producer_id == Some(factory)
-                    && object.template_name.eq_ignore_ascii_case(&template))
-                .then_some(id)
-            })
-            .collect();
-        preexisting.sort_by_key(|id| id.0);
-        Some(super::economic_owner::DozerQueueAttempt {
-            template,
-            factory,
-            preexisting,
-        })
+        Some(super::economic_owner::DozerQueueAttempt { template, factory })
     }
 
     pub(super) fn finish_dozer_queue(
@@ -284,11 +269,12 @@ impl AIPlayer {
         queued: bool,
         now: f32,
     ) {
+        // AIPlayer.cpp:3143–3148 starts a new work order without members.
+        // Delivery and recruitment own subsequent membership observations.
         let mut order = AIWorkOrder::new(attempt.template, 1, 100);
         if queued {
             order.factory_id = Some(attempt.factory);
             order.queued_count = 1;
-            order.observed_unit_ids = attempt.preexisting;
         }
         self.team_queue.push_front(AITeamQueue::new(
             "DOZER - building one at the factory".into(),

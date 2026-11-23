@@ -72,7 +72,6 @@ impl ScaffoldAttempt {
 pub(super) struct DozerQueueAttempt {
     pub template: String,
     pub factory: ObjectId,
-    pub preexisting: Vec<ObjectId>,
 }
 impl DozerQueueAttempt {
     pub(super) fn start(
@@ -224,6 +223,7 @@ mod tests {
                 FixtureObject::new("OwnedEconomyDozer")
                     .kind_of("VEHICLE DOZER SELECTABLE")
                     .build_cost(500)
+                    .build_time(0.001)
                     .walker()
                     .dozer(),
                 FixtureObject::new("OwnedEconomyWorker")
@@ -380,6 +380,43 @@ mod tests {
         assert_eq!(building.production_queue[0].template_name, "OwnedEconomyWorker");
         assert_eq!(building.production_queue[1].template_name, "OwnedEconomyWorker");
         assert_eq!(world.get_player(1).unwrap().resources.supplies, 9600);
+    }
+
+    #[test]
+    fn owned_dozer_queue_observes_its_delivery_without_claiming_older_factory_outputs() {
+        let (mut world, _) = world();
+        let factory = attach_factory(&mut world);
+        let template = "OwnedEconomyDozer";
+        let finish_one = |world: &mut GameLogic, older: Option<ObjectId>| {
+            for _ in 0..4 {
+                world.frame += 1;
+                world.update_production(1.0 / LOGIC_FRAMES_PER_SECOND);
+                if let Some(output) = world.host_objects().registered_values().find(|output| {
+                    output.producer_id == Some(factory)
+                        && output.template_name == template
+                        && Some(output.id) != older
+                }) {
+                    return output.id;
+                }
+            }
+            panic!("authored factory did not deliver its paid Dozer");
+        };
+        assert!(world.enqueue_production(factory, template.into()));
+        let older = finish_one(&mut world, None);
+
+        world.admit_owned_ai_dozer(1, world.frame as f32 / LOGIC_FRAMES_PER_SECOND);
+        let order = &world.ai_manager.ai_players[&1].team_queue[0].work_orders[0];
+        assert_eq!(order.factory_id, Some(factory));
+        assert_eq!(order.queued_count, 1);
+        assert_eq!(order.num_completed, 0);
+        assert!(order.observed_unit_ids.is_empty());
+
+        let delivered = finish_one(&mut world, Some(older));
+        let order = &world.ai_manager.ai_players[&1].team_queue[0].work_orders[0];
+        assert_eq!(order.num_completed, 1);
+        assert_eq!(order.queued_count, 0);
+        assert_eq!(order.observed_unit_ids, vec![delivered]);
+        assert_eq!(world.host_object(older).unwrap().producer_id, Some(factory));
     }
 
     #[test]
