@@ -14,7 +14,7 @@ use crate::terrain::get_terrain_logic;
 use game_engine::common::system::{Snapshotable, Xfer};
 use slotmap::SlotMap;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 /// Wave 426: host-only path has no dual-world factory objects.
@@ -952,16 +952,7 @@ impl Snapshotable for Path {
         xfer.xfer_int(&mut count)
             .map_err(|e| format!("Failed to xfer Path node count: {:?}", e))?;
 
-        if xfer.is_loading() {
-            self.nodes.clear();
-            self.head = None;
-            self.tail = None;
-            self.cpop_recent_start = None;
-            self.cpop_valid = false;
-            self.cpop_countdown = Self::MAX_CPOP;
-        }
-
-        if !xfer.is_loading() {
+        let mut restored = if !xfer.is_loading() {
             // Save: iterate from tail backwards to head via prev chain
             let mut remaining = count;
             let mut current = self.tail;
@@ -1006,15 +997,24 @@ impl Snapshotable for Path {
                 // C++ writes the doubly-linked list tail -> head.
                 current = node.prev;
             }
+            None
         } else {
-            // Load: rebuild SlotMap from saved data
+            if count < 0 {
+                return Err(format!("Invalid Path node count {count}"));
+            }
+            // Nodes are saved tail-first with IDs `count..=1`, so an optimized
+            // successor is already present. The dense list indexes those nodes
+            // without hashing or retaining a list of links to resolve later.
+            let mut path = Self::new();
             let mut remaining = count;
-            let mut id_map: HashMap<i32, PathNodeKey> = HashMap::new();
-            let mut pending_opt: Vec<(i32, i32)> = Vec::new();
+            let mut saved_keys = Vec::new();
             while remaining > 0 {
                 let mut node_id: i32 = 0;
                 xfer.xfer_int(&mut node_id)
                     .map_err(|e| format!("Failed to xfer Path node id: {:?}", e))?;
+                if node_id != remaining {
+                    return Err(format!("Invalid Path node ID {node_id}, expected {remaining}"));
+                }
 
                 let mut pos = Coord3D::new(0.0, 0.0, 0.0);
                 xfer.xfer_real(&mut pos.x)
@@ -1035,6 +1035,13 @@ impl Snapshotable for Path {
                 let mut opt_id: i32 = -1;
                 xfer.xfer_int(&mut opt_id)
                     .map_err(|e| format!("Failed to xfer Path opt id: {:?}", e))?;
+                let next_optimized = if opt_id <= 0 {
+                    None
+                } else if opt_id > node_id && opt_id <= count {
+                    Some(saved_keys[(count - opt_id) as usize])
+                } else {
+                    return Err(format!("Invalid Path optimized successor {opt_id} for node {node_id}"));
+                };
 
                 let mut new_node = PathNode::new();
                 new_node.id = node_id;
@@ -1042,37 +1049,34 @@ impl Snapshotable for Path {
                 new_node.set_layer(path_layer_from_u32(layer_value));
                 new_node.set_can_optimize(can_opt);
 
-                let new_key = self.nodes.insert(new_node);
+                let new_key = path.nodes.insert(new_node);
 
                 // First node inserted is the tail.  Each subsequent node is
                 // prepended because C++ writes tail -> head.
-                if let Some(old_head_key) = self.head.take() {
-                    self.nodes[new_key].next = Some(old_head_key);
-                    self.nodes[old_head_key].prev = Some(new_key);
+                if let Some(old_head_key) = path.head {
+                    path.nodes[new_key].next = Some(old_head_key);
+                    path.nodes[old_head_key].prev = Some(new_key);
                 } else {
                     // First node is also tail
-                    self.tail = Some(new_key);
+                    path.tail = Some(new_key);
                 }
-                self.head = Some(new_key);
-                id_map.insert(node_id, new_key);
+                path.head = Some(new_key);
 
-                if opt_id > 0 {
-                    pending_opt.push((node_id, opt_id));
+                if next_optimized.is_some() {
+                    path.set_opti_link(new_key, next_optimized);
                 }
+                saved_keys.push(new_key);
 
                 remaining -= 1;
             }
 
-            for (node_id, opt_id) in pending_opt {
-                if let (Some(&node_key), Some(&opti_key)) =
-                    (id_map.get(&node_id), id_map.get(&opt_id))
-                {
-                    self.set_opti_link(node_key, Some(opti_key));
-                }
-            }
-        }
+            Some(path)
+        };
 
-        xfer.xfer_bool(&mut self.is_optimized)
+        // Commit only after the entire block, including its trailing fields,
+        // has been read successfully.
+        let path = restored.as_mut().unwrap_or(&mut *self);
+        xfer.xfer_bool(&mut path.is_optimized)
             .map_err(|e| format!("Failed to xfer Path is_optimized: {:?}", e))?;
         let mut obsolete1: i32 = 0;
         xfer.xfer_int(&mut obsolete1)
@@ -1080,8 +1084,11 @@ impl Snapshotable for Path {
         let mut obsolete2: u32 = 0;
         xfer.xfer_unsigned_int(&mut obsolete2)
             .map_err(|e| format!("Failed to xfer Path obsolete2: {:?}", e))?;
-        xfer.xfer_bool(&mut self.blocked_by_ally)
+        xfer.xfer_bool(&mut path.blocked_by_ally)
             .map_err(|e| format!("Failed to xfer Path blocked_by_ally: {:?}", e))?;
+        if let Some(path) = restored {
+            *self = path;
+        }
 
         Ok(())
     }
@@ -2124,6 +2131,9 @@ mod tests {
         source.prepend_node(&Coord3D::new(0.0, 0.0, 0.0), PathfindLayerEnum::Ground);
         source.append_node(&Coord3D::new(10.0, 0.0, 0.0), PathfindLayerEnum::Ground);
         source.append_node(&Coord3D::new(20.0, 0.0, 0.0), PathfindLayerEnum::Ground);
+        let source_keys = source.ordered_keys();
+        source.set_opti_link(source_keys[0], Some(source_keys[2]));
+        source.is_optimized = true;
 
         let mut saved = Vec::new();
         {
@@ -2147,6 +2157,46 @@ mod tests {
                 Coord3D::new(20.0, 0.0, 0.0),
             ]
         );
+        let loaded_keys = loaded.ordered_keys();
+        assert_eq!(loaded.nodes[loaded_keys[0]].next_opti, Some(loaded_keys[2]));
+    }
+
+    #[test]
+    fn path_xfer_invalid_blocks_leave_the_installed_path_untouched() {
+        const FIRST_NODE_ID: usize = size_of::<u8>() + size_of::<i32>();
+        const FIRST_NODE_LAYER: usize = FIRST_NODE_ID + size_of::<i32>() + size_of::<[f32; 3]>();
+        const FIRST_OPTIMIZED_ID: usize = FIRST_NODE_LAYER + size_of::<u32>() + size_of::<u8>();
+
+        let mut saved_path = Path::new();
+        saved_path.append_node(&Coord3D::new(25.0, 35.0, 6.0), PathfindLayerEnum::Ground);
+        saved_path.append_node(&Coord3D::new(65.0, 35.0, 11.0), PathfindLayerEnum::Bridge2);
+        saved_path.connect_waypoints_as_optimized();
+        let mut bytes = Vec::new();
+        saved_path.xfer(&mut XferSave::new(Cursor::new(&mut bytes), 1)).unwrap();
+
+        let mut duplicate_id = bytes.clone();
+        duplicate_id[FIRST_NODE_ID..FIRST_NODE_ID + size_of::<i32>()]
+            .copy_from_slice(&1i32.to_le_bytes());
+        let mut backwards_link = bytes.clone();
+        backwards_link[FIRST_OPTIMIZED_ID..FIRST_OPTIMIZED_ID + size_of::<i32>()]
+            .copy_from_slice(&1i32.to_le_bytes());
+        let truncated = &bytes[..bytes.len() - 1];
+
+        let mut installed = Path::new();
+        let previous_position = Coord3D::new(90.0, 100.0, 2.0);
+        installed.append_node(&previous_position, PathfindLayerEnum::Wall);
+        for (name, bad_path) in [
+            ("duplicate node", duplicate_id.as_slice()),
+            ("backwards optimized link", backwards_link.as_slice()),
+            ("truncated path", truncated),
+        ] {
+            let result = installed.xfer(&mut XferLoad::new(Cursor::new(bad_path), 1));
+            assert!(result.is_err(), "the {name} must fail");
+            let tail = installed.get_last_node().unwrap();
+            assert_eq!(*tail.get_position(), previous_position, "{name}");
+            assert_eq!(tail.get_layer(), PathfindLayerEnum::Wall, "{name}");
+            assert_eq!(points(&installed), [previous_position], "{name}");
+        }
     }
 
     #[test]
