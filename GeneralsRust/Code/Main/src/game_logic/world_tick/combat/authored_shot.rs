@@ -91,7 +91,7 @@ impl GameLogic {
         if let Err(error) = self.deliver_and_commit_authored_shot(attacker_id, fired_slot, shot, effects) {
             return CombatShotResult::Failed(error);
         }
-        self.queue_authored_shot_presentation(attacker_id, fired_slot, Some(target_id), None, effects);
+        self.queue_authored_shot_sound(attacker_id, fired_slot);
         // C++ AssaultTransportAIUpdate (AssaultTransportAIUpdate.cpp:150-260)
         // sends the transport's passengers at the victim while it attacks.
         // Keyed on the authored module, never the transport's name.
@@ -166,13 +166,7 @@ impl GameLogic {
         if let Err(error) = self.deliver_and_commit_authored_shot(attacker_id, fired_slot, shot, effects) {
             return CombatShotResult::Failed(error);
         }
-        self.queue_authored_shot_presentation(
-            attacker_id,
-            fired_slot,
-            None,
-            Some(target_location),
-            effects,
-        );
+        self.queue_authored_shot_sound(attacker_id, fired_slot);
         // AIAttackState: a ground command whose MaxShotsToFire are spent ends.
         let spent = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
             let spent = attacker.max_shots_to_fire == 0;
@@ -323,17 +317,10 @@ impl GameLogic {
         self.cool_down_owned_firing_tracker(id);
     }
 
-    /// FiringTracker::shotFired FireSound and the WeaponTemplate LaserName beam
-    /// for a shot already delivered and committed (FiringTracker.cpp:144-155,
-    /// Weapon.cpp LaserName). Both come from the selected WeaponTemplate.
-    pub(super) fn queue_authored_shot_presentation(
-        &mut self,
-        attacker_id: ObjectId,
-        slot: u8,
-        target_id: Option<ObjectId>,
-        target_location: Option<Vec3>,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    /// FiringTracker::shotFired FireSound for a shot already delivered and
+    /// committed (FiringTracker.cpp:144-155). The WeaponTemplate LaserName
+    /// beam is emitted by the materializer before Body damage instead.
+    fn queue_authored_shot_sound(&mut self, attacker_id: ObjectId, slot: u8) {
         let Some(rule) = self
             .objects
             .get(&attacker_id)
@@ -345,32 +332,6 @@ impl GameLogic {
             .objects
             .get(&attacker_id)
             .map_or(Vec3::ZERO, Object::get_position);
-        let fire_target = target_id.filter(|id| self.objects.contains_key(id));
-        let impact_pos = fire_target
-            .and_then(|id| self.objects.get(&id).map(Object::get_position))
-            .or(target_location);
-        if !rule.laser_name.is_empty() {
-            let to = impact_pos.unwrap_or(muzzle_pos);
-            self.weapon_lasers.push(
-                crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone(
-                    rule.laser_name.clone(),
-                    rule.laser_bone_name.clone(),
-                    attacker_id,
-                    fire_target,
-                    (muzzle_pos.x, muzzle_pos.y, muzzle_pos.z),
-                    (to.x, to.y, to.z),
-                    self.frame,
-                ),
-            );
-            let _ = self.spawn_weapon_laser_beam_object_with_effects(
-                &rule.laser_name,
-                attacker_id,
-                fire_target,
-                muzzle_pos,
-                to,
-                effects,
-            );
-        }
         let fire_sound = rule.fire_sound.name();
         if !fire_sound.is_empty() {
             self.queue_audio_event(

@@ -184,6 +184,16 @@ impl LiveProjectilelessDelayedDamage {
     pub(in crate::game_logic) fn weapon_key(&self) -> &str {
         &self.pending.historic_weapon_key
     }
+
+    /// Beam source, muzzle origin, and resolved shot/scatter aim for the
+    /// LaserName object born before Body damage.
+    pub(in crate::game_logic) fn laser_endpoints(&self) -> (ObjectId, Vec3, Vec3) {
+        (
+            self.pending.shooter_id,
+            self.pending.shooter_pos,
+            self.damage_pos,
+        )
+    }
 }
 
 fn leftover_weapon_is_laser(weapon_name: &str) -> bool {
@@ -231,7 +241,7 @@ fn handle_projectileless_pending(
     victim_id: Option<ObjectId>,
     rolled_radius: f32,
     frame: u32,
-) -> Option<LiveProjectilelessDelayedDamage> {
+) -> Option<MaterializedWeaponShot> {
     let source_pos = pending.self_damage_position.unwrap_or(pending.shooter_pos);
     let speed_per_logic_frame = pending.speed_unit.distance_per_logic_frame(pending.speed);
     let delay_in_frames =
@@ -243,38 +253,56 @@ fn handle_projectileless_pending(
     let laser = pending
         .selected_weapon_is_laser
         .unwrap_or_else(|| leftover_weapon_is_laser(&pending.historic_weapon_key));
-    let mut damage_id = if pending.self_damage_position.is_some() {
+    // C++ creates the LaserName beam before Body damage from the resolved
+    // shot aim. A near scatter resets projectileDestination to the victim
+    // object's actual position only when that object exists; a roll past both
+    // authored radii or a coordinate shot keeps the scattered aim.
+    if laser {
+        let target = if rolled_radius <= pending.splash_radius
+            || rolled_radius <= pending.secondary_damage_radius
+        {
+            victim_id.and_then(|id| objects.lookup(&id))
+        } else {
+            None
+        };
+        let beam_target = target.map(|object| object.id);
+        let damage_pos = target.map_or(aim_pos, Object::get_position);
+        let damage_id = if pending.self_damage_position.is_some() {
+            None
+        } else {
+            beam_target
+        };
+        return Some(MaterializedWeaponShot::Laser {
+            damage: LiveProjectilelessDelayedDamage {
+                when: frame,
+                pending,
+                damage_pos,
+                damage_id,
+            },
+            target: beam_target,
+        });
+    }
+    // Self-position weapons capture the source position while retaining
+    // target travel time; ordinary shots damage at the victim position.
+    let damage_id = if pending.self_damage_position.is_some() {
         None
     } else {
         victim_id
     };
-    // C++ laser damage uses projectileDestination within the authored radii;
-    // a near scatter resets it to the victim object's actual position only
-    // when that object exists, while a roll past both radii lands on the aim
-    // point without a victim. Self-position weapons capture the source
-    // position while retaining target travel time.
-    let damage_pos = if laser {
-        if rolled_radius <= pending.splash_radius || rolled_radius <= pending.secondary_damage_radius
-        {
-            victim_id
-                .and_then(|id| objects.lookup(&id))
-                .map_or(aim_pos, Object::get_position)
-        } else {
-            damage_id = None;
-            aim_pos
-        }
-    } else if pending.self_damage_position.is_some() {
+    let damage_pos = if pending.self_damage_position.is_some() {
         source_pos
     } else {
         victim_pos
     };
-    if laser || delay_in_frames < 1.0 {
-        return Some(LiveProjectilelessDelayedDamage {
-            when: frame,
-            pending,
-            damage_pos,
-            damage_id,
-        });
+    if delay_in_frames < 1.0 {
+        return Some(MaterializedWeaponShot::ImmediateDamage(
+            LiveProjectilelessDelayedDamage {
+                when: frame,
+                pending,
+                damage_pos,
+                damage_id,
+            },
+        ));
     }
     let delay_whole_frames = game_engine::base_type::real_to_int_ceil(delay_in_frames) as u32;
     let when = frame.wrapping_add(delay_whole_frames);
@@ -633,7 +661,12 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
         let projectile_actor_id = is_missile.then(|| {
             crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
         });
-        if let Some(MaterializedWeaponShot::ImmediateDamage(immediate)) = materialize_accepted_projectile(
+        if let Some(
+            MaterializedWeaponShot::ImmediateDamage(immediate)
+            | MaterializedWeaponShot::Laser {
+                damage: immediate, ..
+            },
+        ) = materialize_accepted_projectile(
             combat,
             objects,
             frame,
@@ -658,6 +691,12 @@ pub(in crate::game_logic) enum ProjectilePlacement {
 
 pub(in crate::game_logic) enum MaterializedWeaponShot {
     ImmediateDamage(LiveProjectilelessDelayedDamage),
+    /// Projectileless authored beam: its named laser object must be born
+    /// before the same shot's Body damage runs.
+    Laser {
+        damage: LiveProjectilelessDelayedDamage,
+        target: Option<ObjectId>,
+    },
     PlaceProjectile(Vec3),
 }
 
@@ -874,7 +913,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             fire_target_id,
             rolled_radius,
             frame,
-        ).map(MaterializedWeaponShot::ImmediateDamage);
+        );
     }
 
     // C++ WeaponSpeed is distance per logic frame. CombatSystem integrates

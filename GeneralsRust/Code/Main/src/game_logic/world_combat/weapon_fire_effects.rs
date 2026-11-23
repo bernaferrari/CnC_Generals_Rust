@@ -61,7 +61,7 @@ impl GameLogic {
             self.objects.get(&shot.shooter_id)
                 .and_then(|object| object.selected_native_weapon_rule(slot))
         });
-        let stream_binding = stream_rule.map(|rule| {
+        let stream_binding = stream_rule.as_ref().map(|rule| {
             crate::game_logic::combat::ProjectileStreamBinding {
                 slot,
                 name: rule.projectile_stream_name.clone(),
@@ -107,6 +107,7 @@ impl GameLogic {
         self.materialize_owned_passive_shot_with_effects(
             shot,
             stream_binding,
+            stream_rule.as_deref(),
             presentation_effects,
         )?;
         Ok(if let Some(accepted) = accepted {

@@ -1696,6 +1696,7 @@ impl GameLogic {
         self.materialize_owned_passive_shot_with_effects(
             pending,
             stream_binding,
+            None,
             &mut Default::default(),
         )
     }
@@ -1704,9 +1705,11 @@ impl GameLogic {
         &mut self,
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
+        accepted_rule: Option<&gamelogic::weapon::WeaponTemplate>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let ready = self.materialize_owned_shot_with_effects(pending, stream_binding, effects)?;
+        let ready =
+            self.materialize_owned_shot_with_effects(pending, stream_binding, accepted_rule, effects)?;
         self.update_projectile_weapon_bonus_upgrades(None);
         if let Some(shot) = ready {
             let limit = self.combat_system.historic_damage_limit();
@@ -1740,6 +1743,51 @@ impl GameLogic {
         )
     }
 
+    /// Weapon.cpp:1010-1032: the authored LaserName beam is born before the
+    /// same shot's Body damage, aimed at the already-resolved scatter aim.
+    /// Non-projectile attached targets on the ground get the +10 raise.
+    fn emit_accepted_weapon_laser(
+        &mut self,
+        shot: &crate::game_logic::combat::LiveProjectilelessDelayedDamage,
+        target: Option<ObjectId>,
+        accepted_rule: Option<&gamelogic::weapon::WeaponTemplate>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let rule = accepted_rule.or_else(|| {
+            self.weapon_definitions
+                .as_ref()?
+                .get(&shot.weapon_key().to_ascii_lowercase())
+                .map(AsRef::as_ref)
+        });
+        let Some(rule) = rule.filter(|rule| rule.is_laser()) else {
+            return;
+        };
+        let (name, bone) = (rule.laser_name.clone(), rule.laser_bone_name.clone());
+        let (source, from, mut to) = shot.laser_endpoints();
+        if target
+            .and_then(|id| self.objects.lookup(&id))
+            .is_some_and(|object| {
+                !object.is_kind_of(crate::game_logic::KindOf::Projectile)
+                    && !object.status.airborne_target
+            })
+        {
+            to.y += 10.0;
+        }
+        self.weapon_lasers
+            .push(crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone(
+                name.clone(),
+                bone,
+                source,
+                target,
+                (from.x, from.y, from.z),
+                (to.x, to.y, to.z),
+                self.frame,
+            ));
+        let _ = self.spawn_weapon_laser_beam_object_with_effects(
+            &name, source, target, from, to, effects,
+        );
+    }
+
     /// Materialize the batch selected at the existing queue boundary. Shots
     /// accepted reentrantly remain queued for the next boundary.
     pub(in crate::game_logic) fn materialize_owned_queued_projectiles_with_effects(
@@ -1748,7 +1796,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         let pending = self.combat_system.take_pending_projectiles();
         for shot in pending {
-            if let Some(immediate) = self.materialize_owned_shot_with_effects(shot, None, effects)? {
+            if let Some(immediate) = self.materialize_owned_shot_with_effects(shot, None, None, effects)? {
                 self.combat_system.defer_projectileless_shot(immediate);
             }
         }
@@ -1803,6 +1851,7 @@ impl GameLogic {
         &mut self,
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
+        accepted_rule: Option<&gamelogic::weapon::WeaponTemplate>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<crate::game_logic::combat::LiveProjectilelessDelayedDamage>> {
         use crate::game_logic::combat::{MaterializedWeaponShot, ProjectilePlacement};
@@ -1883,6 +1932,11 @@ impl GameLogic {
         );
         let ready = match accepted {
             Some(MaterializedWeaponShot::ImmediateDamage(damage)) => Some(damage),
+            Some(MaterializedWeaponShot::Laser { damage, target }) => {
+                // Weapon.cpp:1010-1032 births the beam before Body damage.
+                self.emit_accepted_weapon_laser(&damage, target, accepted_rule, effects);
+                Some(damage)
+            }
             Some(MaterializedWeaponShot::PlaceProjectile(at)) => {
                 let (id, birth) = self.create_accepted_projectile_actor(
                     &projectile_name, team, owner, Vec3::ZERO,

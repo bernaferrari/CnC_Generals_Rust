@@ -94,6 +94,16 @@ Weapon LaserCoordGun\n\
   DelayBetweenShots = 2000\n\
   ScatterRadius = 120\n\
   LaserName = ScatterCoordBeam\n\
+End\n\
+Weapon OrderBeamGun\n\
+  PrimaryDamage = 50\n\
+  PrimaryDamageRadius = 0\n\
+  AttackRange = 200\n\
+  DamageType = ARMOR_PIERCING\n\
+  DeathType = NORMAL\n\
+  WeaponSpeed = 999999\n\
+  DelayBetweenShots = 2000\n\
+  LaserName = OrderCheckBeam\n\
 End\n";
 
 fn object(name: &str, weapon: Option<&str>) -> String {
@@ -400,6 +410,13 @@ fn authored_ecm_primary_only_pulses_its_target_and_stops_with_fire() {
     assert!(world.weapon_lasers.iter().any(|beam|
         beam.laser_name == "ECMDisableStream" && beam.to_id == Some(first)));
     assert!(!world.weapon_lasers.iter().any(|beam| beam.to_id == Some(second)));
+    // Weapon.cpp:2418-2449 raises grounded attached targets 10 units.
+    let first_pos_y = world.objects[&first].get_position().y;
+    assert!(world
+        .weapon_lasers
+        .iter()
+        .filter(|beam| beam.laser_name == "ECMDisableStream" && beam.to_id == Some(first))
+        .all(|beam| (beam.to_pos().1 - (first_pos_y + 10.0)).abs() < 0.001));
 
     let source_obj = world.objects.get_mut(&source).unwrap();
     source_obj.target = None;
@@ -504,6 +521,18 @@ fn instant_laser_scatter_beyond_both_radii_misses_the_victim() {
     step(&mut world, &[shooter, victim]);
 
     assert_eq!(hp(&world, victim), 500.0);
+    let beams: Vec<_> = world
+        .weapon_lasers
+        .iter()
+        .filter(|beam| beam.laser_name == "ScatterCheckBeam")
+        .collect();
+    assert_eq!(beams.len(), 1, "exactly one authored beam");
+    let beam = beams[0];
+    assert_eq!(beam.to_id, None, "miss past both radii keeps no target");
+    assert!(
+        Vec3::from(beam.to_pos()).distance(Vec3::new(40.0, 0.0, 0.0) + probe.1) < 0.001,
+        "beam aims at the scattered aim point"
+    );
 }
 
 /// Delayed projectileless scatter: the delayed impact recenters on the
@@ -679,6 +708,87 @@ fn coordinate_laser_near_scatter_splashes_at_the_scattered_aim() {
     step(&mut world, &[shooter, bystander]);
 
     assert_eq!(hp(&world, bystander), 500.0 - 25.0);
+    let beams: Vec<_> = world
+        .weapon_lasers
+        .iter()
+        .filter(|beam| beam.laser_name == "ScatterCoordBeam")
+        .collect();
+    assert_eq!(beams.len(), 1, "exactly one authored beam");
+    let beam = beams[0];
+    assert_eq!(beam.to_id, None, "coordinate shot keeps no beam target");
+    assert!(
+        Vec3::from(beam.to_pos()).distance(coord + offset) < 0.001,
+        "beam aims at the scattered aim point"
+    );
+}
+
+/// Weapon.cpp:1010-1032 creates the LaserName beam before Body damage runs,
+/// so a lethal shot's victim CreateObjectDie child must be born after the
+/// beam object (allocation order, not queue order).
+#[test]
+fn lethal_laser_beam_is_born_before_victim_die_child() {
+    // The beam object itself must be an admitted receiving template, same as
+    // retail beam objects in Object INI.
+    let extra = r#"
+Object OrderCheckBeam
+KindOf = IMMOBILE
+Body = ActiveBody BodyTag
+MaxHealth = 100
+InitialHealth = 100
+End
+End
+Object BeamOrderVictim
+KindOf = VEHICLE SELECTABLE
+Body = ActiveBody BodyTag
+MaxHealth = 10
+InitialHealth = 10
+End
+Behavior = CreateObjectDie CreateTag
+CreationList = OCL_BeamOrderChild
+End
+End
+Object BeamOrderChild
+KindOf = VEHICLE SELECTABLE
+Body = ActiveBody BodyTag
+MaxHealth = 10
+InitialHealth = 10
+End
+End
+"#;
+    let mut world = world_from(
+        &object("AuthoredOrderShooter", Some("OrderBeamGun")),
+        extra,
+    );
+    world
+        .admit_ocl_application_sources(&[
+            "ObjectCreationList OCL_BeamOrderChild\nCreateObject\nObjectNames = BeamOrderChild\nCount = 1\nEnd\nEnd\n"
+                .into(),
+        ])
+        .unwrap();
+    let shooter = world
+        .create_object("AuthoredOrderShooter", Team::China, Vec3::ZERO)
+        .unwrap();
+    let victim = world
+        .create_object("BeamOrderVictim", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+
+    engage(&mut world, shooter, victim);
+    world.set_current_frame(100);
+    step(&mut world, &[shooter, victim]);
+
+    let beam = world
+        .objects
+        .registered_values()
+        .find(|object| object.template_name == "OrderCheckBeam")
+        .map(|object| object.id)
+        .expect("beam object born");
+    let child = world
+        .objects
+        .registered_values()
+        .find(|object| object.template_name == "BeamOrderChild")
+        .map(|object| object.id)
+        .expect("victim die child born");
+    assert!(beam < child, "beam {beam} born before child {child}");
 }
 
 /// When the tracked victim is gone before the delayed impact resolves, the
