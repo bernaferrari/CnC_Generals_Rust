@@ -85,30 +85,45 @@ fn tree_shader_applies_cutout_shroud_darken_and_sway() {
         }],
     }));
     let atlas_size = wgpu::Extent3d {
-        width: 2,
+        width: 16,
         height: 1,
         depth_or_array_layers: 1,
     };
     let atlas = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("alpha threshold controls"),
+        label: Some("alpha threshold and mip selection controls"),
         size: atlas_size,
-        mip_level_count: 1,
+        mip_level_count: 3,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Bgra8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    queue.write_texture(
-        atlas.as_image_copy(),
-        &[255, 255, 255, 95, 255, 255, 255, 96],
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(8),
-            rows_per_image: Some(1),
-        },
-        atlas_size,
-    );
+    for mip in 0..3 {
+        let width = atlas_size.width >> mip;
+        let pixels: Vec<u8> = (0..width)
+            .flat_map(|x| {
+                let alpha = match mip {
+                    0 => 95 + u8::from(x >= width / 2),
+                    1 => 112,
+                    _ => 0,
+                };
+                [255, 255, 255, alpha]
+            })
+            .collect();
+        let mut copy = atlas.as_image_copy();
+        copy.mip_level = mip;
+        queue.write_texture(
+            copy,
+            &pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d { width, ..atlas_size },
+        );
+    }
     visual.tree_atlas_texture = Some(atlas);
     visual.bind_tree_atlas_group();
     let vertices: Vec<_> = [(-1.0, 0.0, 0.25), (0.0, 1.0, 0.75)]
@@ -165,7 +180,7 @@ fn tree_shader_applies_cutout_shroud_darken_and_sway() {
     );
     let color_view = color.create_view(&Default::default());
     let depth_view = depth.create_view(&Default::default());
-    let render = || {
+    let render = |visual: &TerrainVisualImpl| {
         let mut command = device.create_command_encoder(&Default::default());
         {
             let mut pass = command.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -227,7 +242,7 @@ fn tree_shader_applies_cutout_shroud_darken_and_sway() {
             .unwrap();
         readback.slice(..).get_mapped_range().unwrap().to_vec()
     };
-    let image = render();
+    let image = render(&visual);
     assert_eq!(
         &image[0..4],
         &[255, 0, 0, 255],
@@ -247,9 +262,29 @@ fn tree_shader_applies_cutout_shroud_darken_and_sway() {
         0,
         bytemuck::bytes_of(&sway),
     );
-    let image = render();
+    let image = render(&visual);
     assert_eq!(&image[4..8], &[64, 64, 64, 96], "the upper tree moves left");
     assert_eq!(&image[12..16], &[255, 0, 0, 255], "the old pixel is clear");
+
+    // 0.65 U across four screen pixels on a 16-texel atlas gives
+    // LOD log2(16 * 0.65 / 4) = 1.38. Point mip selection keeps level 1
+    // (alpha 112). Blending it with level 2 gives alpha 70 and discards.
+    let minified = [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
+        .map(|[x, y]| TreeGpuVertex {
+            position: [x, y, 0.5],
+            color: [1.0; 3],
+            tex_coords: [if x < 0.0 { 0.175 } else { 0.825 }, 0.5],
+            diffuse: u32::MAX,
+            tree_effects: [0.0, 1.0, -1.0],
+        });
+    visual.tree_meshes = vec![
+        TerrainVisualImpl::upload_tree_mesh(&device, &minified, &[0, 1, 2, 0, 2, 3])
+            .unwrap(),
+    ];
+    let image = render(&visual);
+    for x in 0..4 {
+        assert_eq!(image[4 * x + 3], 112, "one mip supplies pixel {x}");
+    }
 }
 
 

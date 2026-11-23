@@ -2569,7 +2569,8 @@ impl TerrainVisualImpl {
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::MipmapFilterMode::Linear,
+                // Stock WW3D bilinear mode selects one mip, then filters within it.
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
                 ..Default::default()
             }));
         }
