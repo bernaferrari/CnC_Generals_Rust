@@ -215,7 +215,8 @@ impl<'a> CommandExecutor<'a> {
         // C++ Dozer/Worker aiDoCommand (DozerAIUpdate.cpp:2326, 2386-2387):
         // any command clears ACTIVELY_CONSTRUCTING; CMD_FROM_PLAYER default
         // arm (not Repair/ResumeConstruction) cancels getCurrentTask().
-        self.apply_dozer_ai_do_command(&command);
+        self.apply_dozer_ai_do_command(&command)
+            .map_err(|error| error.to_string())?;
 
         let result = match &command.command_type {
             // Movement commands
