@@ -265,6 +265,48 @@ fn xfer_roundtrip_preserves_path_squad_temp_and_waypoint_lookup_rules() {
 }
 
 #[test]
+fn repulsor_escape_xfer_writes_the_cpp_inherited_movement_block() {
+    let machine = StateMachine::new(None, "repulsor-state-xfer");
+    let mut state = AIMoveAwayFromRepulsorsState::new(&machine);
+    state.base.goal_position = Coord3D::new(1.0, -2.0, 3.0);
+    state.base.goal_layer = crate::ai::pathfind_astar::PathfindLayerEnum::Layer4 as u32;
+    state.base.waiting_for_path = true;
+    state.base.path_goal_position = Coord3D::new(-6.0, 7.0, 8.0);
+    state.base.path_timestamp = 131;
+    state.base.blocked_repath_timestamp = 53;
+    state.base.adjust_destinations = false;
+    state.ok_to_repath_times = 0;
+    state.check_for_path = true;
+
+    let mut saved = Vec::new();
+    state
+        .cpp_xfer_snapshot(&mut XferSave::new(Cursor::new(&mut saved), 1))
+        .unwrap();
+    // Original AIMoveAndTightenState::xfer around AIInternalMoveToState::xfer.
+    let cpp_bytes = [
+        0x01, 0x01,
+        0x00, 0x00, 0x80, 0x3f, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x40, 0x40,
+        0x04, 0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0xc0, 0xc0, 0x00, 0x00, 0xe0, 0x40, 0x00, 0x00, 0x00, 0x41,
+        0x83, 0x00, 0x00, 0x00, 0x35, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x01,
+    ];
+    assert_eq!(saved, cpp_bytes);
+
+    let mut restored = AIMoveAwayFromRepulsorsState::new(&machine);
+    restored
+        .cpp_xfer_snapshot(&mut XferLoad::new(Cursor::new(cpp_bytes), 1))
+        .unwrap();
+    assert_eq!(restored.goal_position, state.base.goal_position);
+    assert_eq!(restored.base.path_goal_position, state.base.path_goal_position);
+    assert_eq!(restored.base.path_timestamp, 131);
+    assert_eq!(restored.base.blocked_repath_timestamp, 53);
+    assert!(restored.base.waiting_for_path);
+    assert!(restored.check_for_path);
+    assert_eq!(restored.ok_to_repath_times, 0);
+}
+
+#[test]
 fn follow_path_state_snapshot_roundtrip_preserves_runtime_fields() {
     let _guard = test_guard();
     let source_machine = StateMachine::new(None, "follow-path-source");

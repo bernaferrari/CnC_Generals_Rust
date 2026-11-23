@@ -1790,6 +1790,8 @@ impl UnitAIUpdate {
         let current_admitted = matches!(current, Some(id) if id == AIStateType::Idle as u32
             || id == AIStateType::Enter as u32 || id == AIStateType::Exit as u32
             || id == AIStateType::ExitInstantly as u32
+            || id == AIStateType::MoveAwayFromRepulsors as u32
+            || id == AIStateType::WanderInPlace as u32
             || (dozer && id == AIStateType::MoveTo as u32));
         let temporary_admitted = machine.get_temporary_state().is_none()
             || (dozer

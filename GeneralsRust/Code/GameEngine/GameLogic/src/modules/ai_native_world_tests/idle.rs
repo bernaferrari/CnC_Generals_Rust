@@ -148,7 +148,7 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
         locomotor.max_turn_rate = 0.1;
         crate::system::engine_stores::active_services()
             .locomotor_store()
-            .register_template(locomotor);
+            .register_template(locomotor.clone());
         let mut ai_data = crate::object::update::AIUpdateModuleData::default();
         ai_data.set_locomotor_set_entries(
             crate::common::LocomotorSetType::Normal,
@@ -177,8 +177,18 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
             },
         ];
         let infantry: Arc<dyn ThingTemplate> = Arc::new(EntryTemplate { base, modules });
-        let mut receiver =
-            NativeMatch::with_source_template(60.0, container_template(), false, infantry.clone());
+        let structure = container_template();
+        let catalog = super::object_restore_tests::Catalog::from_templates(
+            Arc::clone(&infantry),
+            Arc::clone(&structure),
+            locomotor,
+        );
+        let mut receiver = NativeMatch::with_source_template(
+            60.0,
+            structure,
+            false,
+            infantry.clone(),
+        );
         let mut peer = NativeMatch::with_source_template(95.0, container_template(), false, infantry);
         admit_actual_search_partition(&mut receiver);
         admit_actual_search_partition(&mut peer);
@@ -221,7 +231,7 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
         let away = Some(crate::modules::AIStateType::MoveAwayFromRepulsors as u32);
         let repulsor = *receiver.target.read().unwrap().get_position();
         tick(&mut peer, 7);
-        tick(&mut receiver, 31);
+        tick(&mut receiver, 131);
         let (state, has_path, end, _, layer) = installed_path_observation(&receiver);
         assert_eq!(state, away, "native Idle must enter the receiving panic state");
         assert!(has_path, "the receiving pathfinder must install the queued safe path");
@@ -232,9 +242,30 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
         assert_ne!(peer_path.0, away);
         assert!(!peer_path.1);
 
+        // Commit the ordinary Core Object blocks while escape is in flight.
+        // The new receiving world must resume the same scheduled move.
+        let source_name = receiver.source.read().unwrap().get_template().get_name().to_string();
+        let target_name = receiver.target.read().unwrap().get_template().get_name().to_string();
+        let saved = super::object_restore_tests::capture_at(&mut receiver, &catalog, 131);
+        let mut restored = super::object_restore_tests::fresh_with_templates(
+            &catalog,
+            Some(&saved),
+            &source_name,
+            &target_name,
+            true,
+            131,
+        )
+        .unwrap();
+        restored.rules = receiver.rules.clone();
+        tick(&mut restored, 132);
+        let restored_path = installed_path_observation(&restored);
+        assert_eq!(restored_path.0, away);
+        assert!(restored_path.1);
+        assert_eq!(restored_path.2, Some(end));
+
         // The next scheduled update must consume the path without replacing it
         // with a normal move request to the old goal.
-        tick(&mut receiver, 32);
+        tick(&mut receiver, 132);
         let next_path = installed_path_observation(&receiver);
         assert_eq!(next_path.0, away);
         assert!(next_path.1);
@@ -249,11 +280,20 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
             .named_update_registrations("PhysicsBehavior")
             .pop()
             .unwrap();
+        let restored_actor = Arc::clone(&restored.source);
+        let restored_physics_proxy = restored_actor
+            .read()
+            .unwrap()
+            .named_update_registrations("PhysicsBehavior")
+            .pop()
+            .unwrap();
         let wander = Some(crate::modules::AIStateType::WanderInPlace as u32);
         let mut arrival_frame = None;
-        for frame in 33..=400 {
+        for frame in 133..=500 {
             tick(&mut receiver, frame);
+            tick(&mut restored, frame);
             let state = installed_path_observation(&receiver).0;
+            assert_eq!(installed_path_observation(&restored).0, state);
             if state == wander {
                 arrival_frame = Some(frame);
                 break;
@@ -262,6 +302,14 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
             receiver.operate_with_current(frame, Some(physics_proxy.clone()), |world| {
                 world.update_physics_phase(&actor).unwrap();
             });
+            restored.operate_with_current(frame, Some(restored_physics_proxy.clone()), |world| {
+                world.update_physics_phase(&restored_actor).unwrap();
+            });
+            assert_eq!(
+                actor.read().unwrap().get_position(),
+                restored_actor.read().unwrap().get_position(),
+                "restored escape pose at frame {frame}",
+            );
         }
         let position = *actor.read().unwrap().get_position();
         let arrival_frame = arrival_frame.unwrap_or_else(|| {

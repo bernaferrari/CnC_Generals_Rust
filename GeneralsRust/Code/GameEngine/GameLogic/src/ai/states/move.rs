@@ -1267,6 +1267,21 @@ impl CppState for AIMoveAwayFromRepulsorsState {
         &mut self.base.base
     }
 
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // AIStateMachine.h:408 inherits AIMoveAndTightenState's version-1 block.
+        xfer_move_and_tighten_state(
+            &mut self.base,
+            &mut self.ok_to_repath_times,
+            &mut self.check_for_path,
+            xfer,
+        )?;
+        if xfer.is_loading() {
+            self.goal_position = self.base.goal_position;
+            self.base.set_repath_limit(self.ok_to_repath_times, false);
+        }
+        Ok(())
+    }
+
     fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn AiStateRuntime,
@@ -2646,6 +2661,25 @@ impl Snapshotable for AIWanderInPlaceState {
     }
 }
 
+/// AIStates.cpp:2189 writes the inherited base movement block and these two
+/// fields for both MoveAndTighten and MoveAwayFromRepulsors.
+fn xfer_move_and_tighten_state(
+    base: &mut AIMoveToState,
+    ok_to_repath_times: &mut i32,
+    check_for_path: &mut bool,
+    xfer: &mut dyn Xfer,
+) -> Result<(), String> {
+    let mut version: game_engine::common::system::xfer::XferVersion = 1;
+    xfer.xfer_version(&mut version, 1)
+        .map_err(|e| format!("AIMoveAndTightenState xfer version failed: {e:?}"))?;
+    Snapshotable::xfer(base, xfer)?;
+    xfer.xfer_int(ok_to_repath_times)
+        .map_err(|e| format!("AIMoveAndTightenState xfer ok_to_repath_times failed: {e:?}"))?;
+    xfer.xfer_bool(check_for_path)
+        .map_err(|e| format!("AIMoveAndTightenState xfer check_for_path failed: {e:?}"))?;
+    Ok(())
+}
+
 impl Snapshotable for AIMoveAndTightenState {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
@@ -2666,20 +2700,12 @@ impl Snapshotable for AIMoveAndTightenState {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: game_engine::common::system::xfer::XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("AIMoveAndTightenState xfer version failed: {:?}", e))?;
-
-        Snapshotable::xfer(&mut self.base, xfer)?;
-        xfer.xfer_int(&mut self.ok_to_repath_times).map_err(|e| {
-            format!(
-                "AIMoveAndTightenState xfer ok_to_repath_times failed: {:?}",
-                e
-            )
-        })?;
-        xfer.xfer_bool(&mut self.check_for_path)
-            .map_err(|e| format!("AIMoveAndTightenState xfer check_for_path failed: {:?}", e))?;
-        Ok(())
+        xfer_move_and_tighten_state(
+            &mut self.base,
+            &mut self.ok_to_repath_times,
+            &mut self.check_for_path,
+            xfer,
+        )
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
