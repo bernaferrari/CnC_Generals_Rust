@@ -24,7 +24,9 @@ impl GameLogic {
         } else {
             &no_players
         };
-        let has_anthrax_gamma = {
+        // Captured DemoTrapUpdate definitions own their module fields; the
+        // Gamma profile swap is the unbound name-residual path only.
+        let has_anthrax_gamma = object.thing().template.receiving_object_definition.is_none() && {
             use crate::game_logic::host_toxin_tractor::is_anthrax_gamma_upgrade_name;
             let player_has_gamma = |player: &Player| {
                 player

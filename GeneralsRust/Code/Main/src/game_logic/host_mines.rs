@@ -1437,6 +1437,22 @@ pub fn should_detonate_when_killed(
         && matches!(kind, HostMineKind::DemoTrap)
 }
 
+/// C++ DemoTrapUpdateModuleData: `DetonateWhenKilled` is an authored module
+/// field (INI default No). Unbound name-residual traps keep the constant.
+pub(in crate::game_logic) fn demo_trap_detonates_when_killed(
+    object: &crate::game_logic::Object,
+) -> bool {
+    match object.thing().template.receiving_object_definition.as_ref() {
+        Some(definition) => definition
+            .behavior_modules
+            .iter()
+            .find(|module| module.class_name.eq_ignore_ascii_case("DemoTrapUpdate"))
+            .and_then(|module| module.attribute("DetonateWhenKilled"))
+            .is_some_and(|value| value.trim().eq_ignore_ascii_case("Yes")),
+        None => DEMO_TRAP_DETONATE_WHEN_KILLED,
+    }
+}
+
 /// Build residual mine data for a newly created host object (if template matches).
 ///
 /// `has_gamma` applies Chem Anthrax Gamma puddle (`OCL_PoisonFieldGammaMedium`)
@@ -1473,7 +1489,6 @@ pub fn admitted_data_for_modules(
     modules: &[crate::assets::ini_parser::BehaviorModuleDefinition],
     template_name: &str,
     current_frame: u32,
-    has_gamma: bool,
 ) -> Option<HostMineData> {
     let has = |class: &str| {
         modules
@@ -1505,8 +1520,9 @@ pub fn admitted_data_for_modules(
         return Some(data);
     }
     if let Some(module) = has("DemoTrapUpdate") {
-        let profile = demo_trap_profile(template_name, has_gamma, false);
-        let mut data = HostMineData::demo_trap_with_profile(profile);
+        // Captured definitions own their module fields; the name/Gamma
+        // profile inference is the unbound residual path only.
+        let mut data = HostMineData::demo_trap();
         if let Some(v) = module.attribute("TriggerDetonationRange").and_then(|v| v.trim().parse::<f32>().ok()) {
             data.trigger_range = v;
         }

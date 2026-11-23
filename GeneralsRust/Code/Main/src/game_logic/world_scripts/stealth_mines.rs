@@ -427,7 +427,7 @@ impl GameLogic {
             };
             if crate::game_logic::host_mines::should_detonate_when_killed(
                 data.kind,
-                crate::game_logic::host_mines::DEMO_TRAP_DETONATE_WHEN_KILLED,
+                crate::game_logic::host_mines::demo_trap_detonates_when_killed(obj),
                 !obj.is_alive(),
                 data.detonated,
                 obj.status.under_construction || obj.status.sold,

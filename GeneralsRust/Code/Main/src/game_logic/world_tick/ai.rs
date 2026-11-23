@@ -1246,7 +1246,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_mines::{
-            DEMO_TRAP_DETONATE_WHEN_KILLED, HostMineDetonateReason, should_detonate_when_killed,
+            HostMineDetonateReason, demo_trap_detonates_when_killed, should_detonate_when_killed,
         };
         let due: Vec<ObjectId> = self
             .objects
@@ -1255,7 +1255,7 @@ impl GameLogic {
                 let data = obj.mine_data.as_ref()?;
                 if should_detonate_when_killed(
                     data.kind,
-                    DEMO_TRAP_DETONATE_WHEN_KILLED,
+                    demo_trap_detonates_when_killed(obj),
                     !obj.is_alive(),
                     data.detonated,
                     obj.status.under_construction || obj.status.sold,

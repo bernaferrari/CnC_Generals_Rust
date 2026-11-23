@@ -766,6 +766,211 @@ fn demo_trap_manual_detonate_residual() {
     );
 }
 
+/// Authored `DemoTrapUpdate` fixture: a `Chem_`-shaped trap name is bound to a
+/// captured Object definition, so only the module's own `DetonationWeapon` /
+/// death modules own the blast — never the name-profile synthetic splash,
+/// warning arm, or poison zone (C++ DemoTrapUpdate.cpp:240-251).
+fn authored_demo_trap_world(
+    trap_modules: &str,
+    extra_objects: &str,
+    weapons_ini: &str,
+    ocl_ini: &str,
+) -> (GameLogic, ObjectId, ObjectId) {
+    let mut world = GameLogic::new();
+    ensure_test_player_for_team(&mut world, Team::GLA);
+    ensure_test_player_for_team(&mut world, Team::USA);
+    world
+        .get_player_mut(0)
+        .unwrap()
+        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+    world
+        .get_player_mut(2)
+        .unwrap()
+        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
+    if !ocl_ini.trim().is_empty() {
+        world
+            .admit_object_creation_list_sources([ocl_ini.to_owned()])
+            .unwrap();
+    }
+    world
+        .admit_object_ini_sources([(
+            "authored-traps.ini".to_owned(),
+            format!(
+                "Object Chem_DemoTrapAuthored\n  KindOf = STRUCTURE IMMOBILE DEMOTRAP\n  Body = ActiveBody BodyTag\n    MaxHealth = 100\n    InitialHealth = 100\n  End\n  {trap_modules}\nEnd\nObject TrapBlastTarget\n  KindOf = VEHICLE\n  Body = ActiveBody BodyTag\n    MaxHealth = 1000\n    InitialHealth = 1000\n  End\nEnd\n{extra_objects}"
+            ),
+        )])
+        .unwrap();
+    let mut weapons = std::collections::HashMap::new();
+    assert!(
+        crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+            &mut weapons,
+            weapons_ini,
+            crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+        ) >= 1,
+        "fixture weapons must parse"
+    );
+    world
+        .admit_weapon_content_snapshot(
+            weapons
+                .into_values()
+                .map(|rule| (rule.name.clone(), rule))
+                .collect(),
+            &[],
+        )
+        .unwrap();
+    let trap = world
+        .create_object("Chem_DemoTrapAuthored", Team::GLA, Vec3::ZERO)
+        .expect("authored trap");
+    let enemy = world
+        .create_object("TrapBlastTarget", Team::USA, Vec3::new(8.0, 0.0, 0.0))
+        .expect("enemy");
+    (world, trap, enemy)
+}
+
+fn authored_trap_children(world: &GameLogic, name: &str) -> Vec<ObjectId> {
+    world
+        .host_objects()
+        .registered()
+        .filter(|(_, object)| object.template_name == name)
+        .map(|(id, _)| *id)
+        .collect()
+}
+
+#[test]
+fn authored_demo_trap_manual_detonate_fires_bound_weapon_once() {
+    let (mut world, trap, enemy) = authored_demo_trap_world(
+        "Behavior = DemoTrapUpdate TrapModule\n    DetonationWeapon = AuthoredTrapBlast\n    DetonateWhenKilled = No\n    DefaultProximityMode = Yes\n  End",
+        "Object TrapBlastChild\n  KindOf = IMMOBILE INERT NO_COLLIDE\n  Body = ActiveBody BodyTag\n    MaxHealth = 10\n    InitialHealth = 10\n  End\nEnd\n",
+        "Weapon AuthoredTrapBlast\n PrimaryDamage = 31\n PrimaryDamageRadius = 20\n WeaponSpeed = 999999\n DamageType = UNRESISTABLE\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n FireOCL = OCL_TrapBlastSpawn\nEnd\n",
+        "ObjectCreationList OCL_TrapBlastSpawn\n  CreateObject\n    ObjectNames = TrapBlastChild\n    Count = 1\n  End\nEnd\n",
+    );
+    assert_eq!(
+        world.host_object(trap).unwrap().mine_data.as_ref().unwrap().kind,
+        crate::game_logic::host_mines::HostMineKind::DemoTrap,
+        "authored DemoTrapUpdate must bind mine runtime"
+    );
+    let zones_before = world.toxin_tractor_registry().zones_spawned;
+
+    assert!(world.manual_detonate_mine(trap).unwrap());
+    assert_eq!(world.mine_residual_manual_detonations(), 1);
+    assert_eq!(
+        world.host_object(enemy).unwrap().health.current,
+        969.0,
+        "authored DetonationWeapon applies exactly its PrimaryDamage at range 8"
+    );
+    let children = authored_trap_children(&world, "TrapBlastChild");
+    assert_eq!(children.len(), 1, "weapon FireOCL creates exactly one child");
+    assert_eq!(
+        world.host_object(children[0]).unwrap().producer_id,
+        Some(trap),
+        "OCL child producer is the detonating trap"
+    );
+    {
+        let trap_obj = world.host_object(trap).unwrap();
+        assert!(
+            !trap_obj.is_alive() || trap_obj.status.destroyed,
+            "detonate() runs Object::kill the same frame"
+        );
+        assert!(trap_obj.mine_data.as_ref().unwrap().detonated);
+    }
+    assert_eq!(
+        world.toxin_tractor_registry().zones_spawned,
+        zones_before,
+        "authored trap never spawns a synthetic poison zone"
+    );
+
+    // detonate() is once-only: m_detonated latches.
+    assert!(!world.manual_detonate_mine(trap).unwrap());
+    assert_eq!(world.mine_residual_manual_detonations(), 1);
+    assert_eq!(authored_trap_children(&world, "TrapBlastChild").len(), 1);
+}
+
+#[test]
+fn authored_demo_trap_detonate_none_delegates_to_death_modules() {
+    let (mut world, trap, enemy) = authored_demo_trap_world(
+        "Behavior = DemoTrapUpdate TrapModule\n    DetonationWeapon = None\n    DetonateWhenKilled = No\n    DefaultProximityMode = Yes\n  End\n  Behavior = FireWeaponWhenDeadBehavior DeathTag\n    StartsActive = Yes\n    DeathWeapon = AuthoredTrapDeathBlast\n  End",
+        "Object TrapPoisonChild\n  KindOf = IMMOBILE INERT NO_COLLIDE\n  Body = ActiveBody BodyTag\n    MaxHealth = 10\n    InitialHealth = 10\n  End\nEnd\n",
+        "Weapon AuthoredTrapDeathBlast\n PrimaryDamage = 31\n PrimaryDamageRadius = 20\n WeaponSpeed = 999999\n DamageType = UNRESISTABLE\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n FireOCL = OCL_TrapDeathSpawn\nEnd\n",
+        "ObjectCreationList OCL_TrapDeathSpawn\n  CreateObject\n    ObjectNames = TrapPoisonChild\n    Count = 1\n  End\nEnd\n",
+    );
+    let zones_before = world.toxin_tractor_registry().zones_spawned;
+
+    assert!(world.manual_detonate_mine(trap).unwrap());
+    assert_eq!(world.mine_residual_manual_detonations(), 1);
+    assert_eq!(
+        world.host_object(enemy).unwrap().health.current,
+        969.0,
+        "no direct blast: the death module's authored DeathWeapon owns the damage"
+    );
+    let children = authored_trap_children(&world, "TrapPoisonChild");
+    assert_eq!(
+        children.len(),
+        1,
+        "death weapon FireOCL emits exactly the authored child"
+    );
+    assert_eq!(
+        world.host_object(children[0]).unwrap().producer_id,
+        Some(trap)
+    );
+    assert_eq!(
+        world.toxin_tractor_registry().zones_spawned,
+        zones_before,
+        "Chem_-shaped name must not add the synthetic MediumPoisonField"
+    );
+}
+
+#[test]
+fn authored_demo_trap_without_weapon_or_detonate_when_killed_stays_quiet() {
+    // Neither the trap update nor an on-death module supplies a blast.
+    let (mut world, trap, enemy) = authored_demo_trap_world(
+        "Behavior = DemoTrapUpdate TrapModule\n    DetonateWhenKilled = No\n    DefaultProximityMode = Yes\n  End",
+        "",
+        "Weapon AuthoredTrapUnused\n PrimaryDamage = 31\n DamageType = UNRESISTABLE\n ProjectileObject = NONE\nEnd\n",
+        "",
+    );
+    let zones_before = world.toxin_tractor_registry().zones_spawned;
+
+    assert!(world.manual_detonate_mine(trap).unwrap());
+    assert_eq!(world.mine_residual_manual_detonations(), 1);
+    assert_eq!(
+        world.host_object(enemy).unwrap().health.current,
+        1000.0,
+        "authored module with no blast does no synthetic splash"
+    );
+    assert_eq!(world.toxin_tractor_registry().zones_spawned, zones_before);
+
+    // DetonateWhenKilled = No: a normal (non-detonate) death must not queue
+    // the killed scan either (DemoTrapUpdate.cpp:124-130).
+    let (mut killed_world, killed_trap, killed_enemy) = authored_demo_trap_world(
+        "Behavior = DemoTrapUpdate TrapModule\n    DetonationWeapon = AuthoredTrapBlast\n    DetonateWhenKilled = No\n    DefaultProximityMode = Yes\n  End",
+        "Object TrapBlastChild\n  KindOf = IMMOBILE INERT NO_COLLIDE\n  Body = ActiveBody BodyTag\n    MaxHealth = 10\n    InitialHealth = 10\n  End\nEnd\n",
+        "Weapon AuthoredTrapBlast\n PrimaryDamage = 31\n PrimaryDamageRadius = 20\n WeaponSpeed = 999999\n DamageType = UNRESISTABLE\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\n FireOCL = OCL_TrapBlastSpawn\nEnd\n",
+        "ObjectCreationList OCL_TrapBlastSpawn\n  CreateObject\n    ObjectNames = TrapBlastChild\n    Count = 1\n  End\nEnd\n",
+    );
+    {
+        let trap_obj = killed_world.host_object_mut(killed_trap).unwrap();
+        trap_obj.health.current = 0.0;
+        trap_obj.status.destroyed = true;
+        trap_obj.status.effectively_dead = true;
+    }
+    killed_world
+        .update_demo_trap_detonate_when_killed_with_effects(&mut Default::default())
+        .unwrap();
+    assert_eq!(
+        killed_world.mine_residual_manual_detonations(),
+        0,
+        "DetonateWhenKilled = No must not queue the killed scan"
+    );
+    assert_eq!(
+        killed_world.host_object(killed_enemy).unwrap().health.current,
+        1000.0
+    );
+    assert_eq!(
+        authored_trap_children(&killed_world, "TrapBlastChild").len(),
+        0
+    );
+}
+
 #[test]
 fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
     use crate::game_logic::host_mines::{

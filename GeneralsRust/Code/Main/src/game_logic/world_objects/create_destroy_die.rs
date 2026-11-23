@@ -2131,7 +2131,6 @@ impl GameLogic {
                     &definition.behavior_modules,
                     template_name,
                     self.frame,
-                    false,
                 ),
                 None => crate::game_logic::host_mines::residual_data_for_template(
                     template_name,

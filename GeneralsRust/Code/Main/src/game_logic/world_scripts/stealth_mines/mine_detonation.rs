@@ -28,6 +28,38 @@ impl GameLogic {
         Ok(true)
     }
 
+    /// C++ DemoTrapUpdate::detonate (DemoTrapUpdate.cpp:240-251): the authored
+    /// module fires its optional `DetonationWeapon` at the trap's own position,
+    /// then `Object::kill` runs the authored death path the same frame — the
+    /// SlowDeath delay, not this module, owns any warning visuals.
+    fn detonate_authored_demo_trap(
+        &mut self,
+        id: ObjectId,
+        weapon: Option<&str>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((position, generation)) = self
+            .objects
+            .get(&id)
+            .map(|object| (object.get_position(), object.visual_object_generation))
+        else {
+            return Ok(());
+        };
+        let epoch = self.visual_world_epoch;
+        if let Some(weapon) = weapon {
+            self.fire_owned_temporary_weapon_at(id, weapon, position, effects)?;
+        }
+        if self.spawn_identity_matches(id, generation, epoch) {
+            self.apply_owned_kill_with_effects(
+                id,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                effects,
+            )?;
+        }
+        Ok(())
+    }
+
     /// Safely disarm/clear a residual mine without detonation or area damage.
     /// C++ Weapon DAMAGE_DISARM → LandMineInterface::disarm / destroyObject residual.
     /// Demo traps (KINDOF_DEMOTRAP) are disarmed the same way — no explosion.
@@ -203,6 +235,28 @@ impl GameLogic {
             return Ok(killed);
         }
 
+        // An admitted DemoTrapUpdate module binds its own DetonationWeapon;
+        // `Some(None)` means authored with no direct blast.
+        let authored_demo_weapon = matches!(
+            data.kind,
+            crate::game_logic::host_mines::HostMineKind::DemoTrap
+        )
+        .then(|| mine.thing().template.receiving_object_definition.as_ref())
+        .flatten()
+        .and_then(|definition| {
+            definition
+                .behavior_modules
+                .iter()
+                .find(|module| module.class_name.eq_ignore_ascii_case("DemoTrapUpdate"))
+        })
+        .map(|module| {
+            module
+                .attribute("DetonationWeapon")
+                .and_then(|value| value.split_whitespace().next())
+                .filter(|value| !value.eq_ignore_ascii_case("None"))
+                .map(str::to_owned)
+        });
+
         let kind = data.kind;
         let damage = data.detonation_damage;
         let radius = data.detonation_radius;
@@ -221,6 +275,7 @@ impl GameLogic {
         // warning arm. Only passive paths (proximity scan / death) ride the
         // SlowDeath DestructionDelay residual.
         if is_demo_trap
+            && authored_demo_weapon.is_none()
             && reason != crate::game_logic::host_mines::HostMineDetonateReason::Manual
             && !data.demo_trap_warning_ready(frame)
         {
@@ -265,6 +320,13 @@ impl GameLogic {
                 self.mine_residual_manual_detonations =
                     self.mine_residual_manual_detonations.saturating_add(1);
             }
+        }
+
+        // Authored path: DemoTrapUpdate::detonate fires its own weapon then
+        // kills the trap; the synthetic splash/poison profile is not consulted.
+        if let Some(weapon) = authored_demo_weapon {
+            self.detonate_authored_demo_trap(mine_id, weapon.as_deref(), effects)?;
+            return Ok(true);
         }
 
         // Area damage: residual hits enemies + neutrals; demo trap / sticky charges
