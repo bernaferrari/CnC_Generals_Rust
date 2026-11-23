@@ -484,7 +484,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
 
     /// Source getDrawModules: consume dirty selections only for the actual
     /// named camera target. This does not run Draw pause/completion/recoil.
-    pub(super) fn consume_native_camera_conditions(
+    pub(crate) fn consume_native_camera_conditions(
         &mut self,
         id: crate::game_logic::ObjectId,
         graphics: &mut GraphicsSystem,

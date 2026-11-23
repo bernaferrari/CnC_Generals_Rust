@@ -420,6 +420,62 @@ impl NativeDrawableOwner<'_> {
         Ok(())
     }
 
+    /// Adopt the empty-epoch Client Xfer association before a saved-load
+    /// callback needs its installed RenderObj. Exactly one Object is observed;
+    /// the ordinary update will retain this same binding on the next frame.
+    pub fn adopt_restored_drawable_for_postprocess(
+        &mut self,
+        source: &PresentationDrawableSync,
+        sync_ms: u32,
+        mut observe: impl FnMut(PresentationDrawableMutation<'_>) -> GameClientResult<()>,
+    ) -> GameClientResult<Option<PresentationDirectDrawableBindingKey>> {
+        let Some(&id) = self.drawables.drawable_object_map.get(&source.object_id) else {
+            return Ok(None);
+        };
+        let invalid = |reason: &str| GameClientError::InvalidOperation(reason.to_owned());
+        let binding = self.drawables.presentation_direct_drawable_bindings.get(&id)
+            .ok_or_else(|| invalid("saved Drawable has no receiving Xfer association"))?;
+        let mut key = binding.binding_key;
+        let drawable = self.drawables.drawable_map.get(&id)
+            .and_then(|drawable| drawable.as_any().downcast_ref::<crate::drawable::drawable::BasicDrawable>())
+            .ok_or_else(|| invalid("saved Drawable has no receiving BasicDrawable"))?;
+        if source.host_epoch == 0
+            || !binding.semantic_lifetime
+            || key.object_id != source.object_id
+            || key.drawable_id != id
+            || drawable.get_object_id() != Some(source.object_id)
+            || binding.visual_template_name != source.visual_template_name
+            || !drawable.receiving_template_matches(match &source.module_admission {
+                PresentationModuleAdmission::Authored(plan) => Some(plan),
+                PresentationModuleAdmission::Compatibility => None,
+            })
+        {
+            return Err(invalid("saved Drawable differs from the receiving template or Object"));
+        }
+        if key.host_epoch == source.host_epoch {
+            return Ok(Some(key));
+        }
+        if key.host_epoch != 0 {
+            return Err(invalid("saved Drawable belongs to a different receiving world"));
+        }
+        let transform = drawable.native_base_transform();
+        let bits = drawable.get_model_condition_flags().low_bits();
+        // The same replacement observations as normal Xfer adoption in
+        // impl_update.rs, using restored Client condition flags and pose.
+        observe(PresentationDrawableMutation::Destroyed {
+            host_epoch: source.host_epoch,
+            object_id: source.object_id,
+            terrain_tracks: &[],
+        })?;
+        observe(PresentationDrawableMutation::Creating { source, initial_transform: transform, sync_ms })?;
+        observe(PresentationDrawableMutation::TransformInstalled { source, transform })?;
+        observe(PresentationDrawableMutation::ConditionsMarked { source, bits })?;
+        key.host_epoch = source.host_epoch;
+        self.drawables.presentation_direct_drawable_bindings.get_mut(&id)
+            .expect("validated saved Drawable association").binding_key = key;
+        Ok(Some(key))
+    }
+
     /// Actual receiving Drawable::setInstanceMatrix; no Object pose restamping.
     pub fn set_instance_transform(
         &mut self,

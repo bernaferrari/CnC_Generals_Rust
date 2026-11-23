@@ -1237,8 +1237,46 @@ impl crate::game_logic::GameLogic {
         current: i32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.update_receiving_drawable_supply_status_inner(id, max, current, false, effects);
+    }
+
+    /// SupplyWarehouseDockUpdate.cpp:197–208. This is a visual postprocess
+    /// of already restored signed stock on the current warehouse Drawable.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn post_process_restored_supply_warehouses(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Result<(), String> {
+        if !self.native_drawable_birth_context().in_load_game {
+            return Err("supply postprocess requires a saved snapshot admission".into());
+        }
+        for id in self.restored_supply_warehouse_ids() {
+            let object = &self.objects[&id];
+            let maximum = object.get_template().dock_starting_boxes.unwrap_or(0);
+            let current = object.warehouse_boxes();
+            self.update_receiving_drawable_supply_status_inner(id, maximum, current, true, effects);
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn restored_supply_warehouse_ids(&self) -> Vec<ObjectId> {
+        self.objects.registered().filter_map(|(id, object)| {
+            (object.get_template().dock_kind == crate::game_logic::DockKind::SupplyWarehouse)
+                .then_some(*id)
+        }).collect()
+    }
+
+    fn update_receiving_drawable_supply_status_inner(
+        &mut self,
+        id: ObjectId,
+        max: i32,
+        current: i32,
+        restoring: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         #[cfg(not(feature = "game_client"))]
-        let _ = (id, max, current, effects);
+        let _ = (id, max, current, restoring, effects);
         #[cfg(feature = "game_client")]
         {
             let Some(view) = effects.view.as_deref_mut() else {
@@ -1254,6 +1292,14 @@ impl crate::game_logic::GameLogic {
             else {
                 return;
             };
+            if restoring {
+                // The saved logical Drawable state precedes the module
+                // callback and can differ from the Object's projected bits.
+                let Ok(Some(bits)) = view.drawable_model_condition_bits(&source) else {
+                    return;
+                };
+                source.condition_bits = bits;
+            }
             let carry = 1u128 << crate::game_logic::host_enum_table_residual::carrying_model_bit();
             source.condition_bits = (source.condition_bits & !carry)
                 | if current > 0 { carry } else { 0 };

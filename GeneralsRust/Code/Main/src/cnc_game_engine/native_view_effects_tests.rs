@@ -2618,4 +2618,127 @@ fn mounted_supply_draw_latches_stock_pristine_children_only_at_real_status() {
         assert_eq!(visible.len(), shown as usize);
         assert_eq!(writes.len(), (total - shown) as usize);
     }
+
+    // A native snapshot replaces an already drawn SupplyDock at the same ID
+    // with a SupplyWarehouse. The peer keeps its own 35-child, 9-shown latch.
+    let mut sender = GameLogic::new();
+    stock.admit(&mut sender).unwrap();
+    sender.add_player(Player::new(0, Team::USA, "Local", true));
+    let saved_id = sender
+        .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(160., 0., 100.))
+        .unwrap();
+    let full_id = sender
+        .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(200., 0., 100.))
+        .unwrap();
+    assert_eq!(saved_id, id);
+    assert!(sender.set_host_object_name(saved_id, "SavedDepot"));
+    sender.initialize_receiving_named_cache_for_fixture();
+    assert!(sender.apply_warehouse_set_value("SavedDepot", 200 * sender.supply_box_value()));
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&sender).unwrap();
+
+    for client_xfer in [false, true] {
+        let mut staged = GameLogic::new();
+        stock.admit(&mut staged).unwrap();
+        staged.add_player(Player::new(0, Team::USA, "Local", true));
+        let mut candidate = super::map_native_admission::NativeMapCandidate::with_epoch(EPOCH);
+        let mut attempt = candidate
+            .attempt(
+                pipelines[0].borrow_native_draw_services(),
+                &mut graphics,
+                0,
+                receiving_native_drawable_policy(),
+                &mut retirement,
+                None,
+            )
+            .unwrap();
+        let outgoing = staged
+            .create_object_with_script_effects_checked(
+                "SupplyDock",
+                Team::Neutral,
+                Vec3::new(80., 0., 100.),
+                None,
+                &mut attempt.effects(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(outgoing, id);
+        let old = staged.current_native_slave_source(id, 0).unwrap();
+        assert_eq!(old.template_name, "SupplyDock");
+        staged
+            .clear_all_objects_with_effects_checked(&mut attempt.effects())
+            .unwrap();
+        staged.begin_saved_snapshot_admission().unwrap();
+        builder.restore_from_snapshot(&snapshot, &mut staged).unwrap();
+        let incoming = staged.current_native_slave_source(id, 0).unwrap();
+        assert_ne!(incoming.identity, old.identity);
+        assert_eq!(incoming.template_name, "SupplyWarehouse");
+        attempt.admit_restored_object_drawables(&mut staged).unwrap();
+        if !client_xfer {
+            staged
+                .post_process_restored_supply_warehouses(&mut attempt.effects())
+                .unwrap();
+        }
+        drop(attempt);
+        let mut receiver = GameClient::new().unwrap();
+        candidate
+            .install_owned_worlds(&mut receiver, &mut pipelines[0])
+            .map_err(|(reason, _)| reason)
+            .unwrap();
+
+        if client_xfer {
+            // The attached fresh Drawable still has every native child and no
+            // supply latch. Importing its real Client payload retires its
+            // binding and leaves the next key unadopted until postprocess.
+            assert_eq!(read(&pipelines[0]).0, None);
+            assert!(read(&pipelines[0]).2.is_empty());
+            let bytes = receiver.capture_xfer_bytes_with_owned_auxiliaries(&[]).unwrap();
+            let pre_xfer = receiver
+                .presentation_direct_drawable_state(EPOCH, id.0)
+                .unwrap()
+                .binding_key;
+            let policy = super::native_view_effects::receiving_native_drawable_policy_for(&staged);
+            let (content, colors) = staged.drawable_restore_inputs(false);
+            receiver
+                .restore_from_xfer_bytes_with_receiving_content_and_indicator_colors(
+                    &bytes, content, policy, colors,
+                )
+                .unwrap();
+            assert!(receiver.presentation_direct_drawable_state(EPOCH, id.0).is_none());
+            let (_, _, drawables) = receiver.split_frame_snow_and_drawable_owner();
+            let mut view = NativeRendererViewEffects::new(
+                pipelines[0].borrow_native_installed_poses(),
+                &mut graphics,
+                drawables,
+                EPOCH,
+                0,
+                policy,
+                &mut retirement,
+            );
+            view.adopt_saved_supply_warehouse_drawables(&staged).unwrap();
+            staged
+                .post_process_restored_supply_warehouses(&mut ScriptPresentationEffects {
+                    view: Some(&mut view),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_ne!(
+                receiver.presentation_direct_drawable_state(EPOCH, id.0).unwrap().binding_key,
+                pre_xfer
+            );
+        }
+
+        let (latch, visible, writes) = read(&pipelines[0]);
+        assert_eq!(latch, Some((35, 18)));
+        assert_eq!(visible.len(), 18);
+        assert_eq!(writes.len(), 17);
+        assert_eq!(staged.host_object(id).unwrap().warehouse_boxes(), 200);
+        let full = pipelines[0].observe_native_supply_draw(full_id, 1).unwrap();
+        assert_eq!(full.0, Some((35, 35)));
+        assert_eq!(full.1.len(), 35);
+        assert!(full.2.is_empty());
+        assert_eq!(staged.host_object(full_id).unwrap().warehouse_boxes(), 400);
+        assert_eq!(read(&pipelines[1]).0, Some((35, 9)));
+        assert_eq!(worlds[1].host_object(id).unwrap().warehouse_boxes(), 100);
+    }
 }

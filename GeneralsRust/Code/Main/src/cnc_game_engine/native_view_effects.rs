@@ -190,6 +190,32 @@ impl<'a> NativeRendererViewEffects<'a> {
             .map_err(|error| error.to_string())?;
         Ok(())
     }
+
+    pub(super) fn adopt_saved_supply_warehouse_drawables(
+        &mut self,
+        world: &crate::game_logic::GameLogic,
+    ) -> Result<(), String> {
+        use game_client::core::GameClientError;
+        for id in world.restored_supply_warehouse_ids() {
+            let source = world.current_native_factory_drawable_source(
+                id, self.host_epoch, self.local_player_id,
+            )?;
+            let poses = &mut self.poses;
+            let graphics = &mut *self.graphics;
+            let sync_ms = poses.current_animation_sync_ms();
+            if let Some(key) = self.drawables.adopt_restored_drawable_for_postprocess(
+                &source.drawable, sync_ms, |event| {
+                    poses.receive_native_factory_mutation(event, &source.render, graphics)
+                        .map_err(GameClientError::SubsystemError)
+                },
+            ).map_err(|error| error.to_string())?
+            {
+                poses.admit_binding(&source.render.identity, key).map_err(str::to_owned)?;
+            }
+        }
+        Ok(())
+    }
+
     fn retire_object_drawable(
         &mut self,
         identity: &crate::assets::LiveDrawPlaybackIdentity,
@@ -499,9 +525,16 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         let Some(key) = self.drawables.binding_key(self.host_epoch, source.identity.object_id()) else {
             return false;
         };
-        if self.poses.validate_object_retirement(&source.identity, key).is_err()
-            || self.drawables.set_supply_carrying(key, current > 0).is_err()
-        {
+        if self.poses.validate_object_retirement(&source.identity, key).is_err() {
+            return false;
+        }
+        // Drawable.cpp:4668 broadcasts through getDrawModules(), which
+        // consumes an already dirty model before this status writes CARRYING.
+        self.poses.consume_native_camera_conditions(
+            crate::game_logic::ObjectId(source.identity.object_id()),
+            self.graphics,
+        );
+        if self.drawables.set_supply_carrying(key, current > 0).is_err() {
             return false;
         }
         if let Err(error) = self.poses.receive_supply_status(

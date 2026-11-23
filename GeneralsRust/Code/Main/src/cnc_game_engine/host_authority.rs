@@ -1815,6 +1815,30 @@ impl CnCGameEngine {
             .as_deref()
             .is_some_and(|bytes| !bytes.is_empty())
         {
+            // XferLoad queues Module loadPostProcess until all chunks are
+            // read. This Client chunk can replace the staged Drawable key.
+            if !self.game_logic.restored_supply_warehouse_ids().is_empty() {
+                use super::native_view_effects::NativeRendererViewEffects;
+                let policy = super::native_view_effects::receiving_native_drawable_policy_for(&self.game_logic);
+                let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+                let (_, _, drawables) = self.game_client.split_frame_snow_and_drawable_owner();
+                let mut view = NativeRendererViewEffects::new(
+                    self.render_pipeline.borrow_native_installed_poses(),
+                    &mut self.graphics_system,
+                    drawables,
+                    self.host_direct_visual_world_epoch,
+                    self.current_player_id,
+                    policy,
+                    &mut retirement,
+                );
+                view.adopt_saved_supply_warehouse_drawables(&self.game_logic)?;
+                self.game_logic.post_process_restored_supply_warehouses(
+                    &mut crate::game_logic::ScriptPresentationEffects {
+                        view: Some(&mut view),
+                        ..Default::default()
+                    },
+                )?;
+            }
             let logic = &self.game_logic;
             let policy = super::native_view_effects::receiving_native_drawable_policy_for(logic);
             let mut locality_for_object = |object_id: Option<u32>| {
@@ -2974,6 +2998,10 @@ impl CnCGameEngine {
             restore_snapshot(snapshot, &mut staged)?;
             if let Some(native) = native.as_mut() {
                 native.admit_restored_object_drawables(&mut staged)?;
+                #[cfg(feature = "game_client")]
+                if game_client_xfer_bytes.as_deref().is_none_or(<[u8]>::is_empty) {
+                    staged.post_process_restored_supply_warehouses(&mut native.effects())?;
+                }
             }
             if let Some(bytes) = snapshot.particle_system_companion.as_deref() {
                 let native = native
