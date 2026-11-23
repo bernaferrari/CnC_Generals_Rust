@@ -567,13 +567,11 @@ impl Object {
         // manager for enemy mines without a stealth check (mines carry
         // OBJECT_STATUS_NO_ATTACK_FROM_AI, not attack-stealth), so an armed
         // but hidden mine stays a legal DAMAGE_DISARM victim.
-        let target_disarmable_mine = {
-            let wname = slot.and_then(|weapon_slot| self.weapon_name_for_slot(weapon_slot));
-            wname
-                .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
-                .unwrap_or(false)
-                && target.is_disarmable_mine()
-        };
+        let disarm = slot.is_some_and(|slot| self.slot_uses_disarm(slot));
+        let target_disarmable_mine = disarm && target.is_disarmable_mine();
+        if disarm && !target_disarmable_mine {
+            return false;
+        }
         if target.is_effectively_stealthed()
             && target.team != self.team
             && !self.status.ignoring_stealth
@@ -585,19 +583,6 @@ impl Object {
         let target_anti_mask = target.weapon_target_anti_mask();
         if !self.weapon_allows_target_anti_mask(weapon, slot, target_anti_mask) {
             return false;
-        }
-
-        // C++ DAMAGE_DISARM estimate residual: only mines/demo/booby are valid.
-        {
-            let wname = slot.and_then(|weapon_slot| self.weapon_name_for_slot(weapon_slot));
-            if wname
-                .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
-                .unwrap_or(false)
-            {
-                if !target.is_disarmable_mine() {
-                    return false;
-                }
-            }
         }
 
         // C++ ATTACK_RANGE_IS_2D: FROM_BOUNDINGSPHERE_2D for air and ground.
@@ -629,15 +614,22 @@ impl Object {
         distance <= max_range
     }
 
-    /// True if primary **or** secondary can currently hit the target.
+    pub(crate) fn slot_uses_disarm(&self, slot: u8) -> bool {
+        self.selected_native_weapon_rule(slot).map_or_else(
+            || {
+                self.weapon_name_for_slot(slot).is_some_and(
+                    crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage,
+                )
+            },
+            |rule| rule.damage_type == gamelogic::damage::DamageType::Disarm,
+        )
+    }
+
+    /// True if any slot can currently hit the target.
     pub fn can_target(&self, target: &Object) -> bool {
         // DISARM exception (see can_target_with_slot): a hidden enemy mine
         // stays a legal DAMAGE_DISARM victim for mine-clearing weapons.
-        let any_slot_disarm = [0u8, 1, 2].into_iter().any(|slot| {
-            self.weapon_name_for_slot(slot)
-                .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
-                .unwrap_or(false)
-        });
+        let any_slot_disarm = [0u8, 1, 2].into_iter().any(|slot| self.slot_uses_disarm(slot));
         if target.is_effectively_stealthed()
             && target.team != self.team
             && !(any_slot_disarm && target.is_disarmable_mine())

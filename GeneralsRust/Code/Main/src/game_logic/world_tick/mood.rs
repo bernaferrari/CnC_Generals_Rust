@@ -1073,9 +1073,7 @@ impl GameLogic {
         // CMD_FROM_PLAYER non-force attack on a non-enemy is NOT_POSSIBLE
         // unless the victim is a non-allied mine or SCRIPT_TARGETABLE
         // (map `objectTargetable` / leftover_sa `Player Targetable`).
-        let is_mine = victim.is_kind_of(KindOf::Mine)
-            || victim.is_kind_of(KindOf::DemoTrap)
-            || victim.is_disarmable_mine();
+        let is_mine = victim.is_kind_of(KindOf::Mine);
         if allies && !force {
             return CanAttackResult::NotPossible;
         }
@@ -1125,10 +1123,8 @@ impl GameLogic {
             self.get_able_to_use_weapon_against_target(unit_id, Some(victim_id), None, attack_type);
         // C++ ActionManager.cpp:740-748 — dozer DISARM InvalidShot → NOT_POSSIBLE.
         if result == CanAttackResult::InvalidShot && source.is_kind_of(KindOf::Dozer) {
-            let disarm = source
-                .weapon_name_for_slot(source.active_weapon_slot)
-                .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
-                .unwrap_or(true);
+            let disarm = source.slot_uses_disarm(source.active_weapon_slot)
+                || source.weapon_name_for_slot(source.active_weapon_slot).is_none();
             if disarm {
                 return CanAttackResult::NotPossible;
             }

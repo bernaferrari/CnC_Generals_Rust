@@ -553,8 +553,8 @@ impl GameLogic {
                         // partition manager without a stealth gate, so a hidden
                         // mine must not be skipped by residual acquire either.
                         effectively_stealthed: candidate.is_effectively_stealthed()
-                            && !(attacker.selected_native_weapon_rule(firing_slot).map(|rule| rule.damage_type == gamelogic::damage::DamageType::Disarm)
-                            .unwrap_or_else(|| crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage(attacker.weapon_name_for_slot(firing_slot).unwrap_or(""))) && candidate.is_disarmable_mine()),
+                            && !(attacker.slot_uses_disarm(firing_slot)
+                                && candidate.is_disarmable_mine()),
                         is_air: candidate.is_kind_of(KindOf::Aircraft)
                             || candidate.status.airborne_target,
                         combat_kind: true,

@@ -125,6 +125,7 @@ fn disarm_damage_clears_mine_without_hp_on_tank() {
     use crate::game_logic::host_mines::{HostMineData, HostMineKind};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut mt = ThingTemplate::new("Mine");
+    mt.add_kind_of(KindOf::Mine);
     mt.set_health(10.0);
     let mut mine = Object::new(mt, ObjectId(1), Team::GLA);
     mine.mine_data = Some(HostMineData {
@@ -163,8 +164,9 @@ fn disarm_keeps_regenerating_china_pad() {
 
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_mines::{HostMineData, MINE_MIN_HEALTH};
-    use crate::game_logic::{Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut mt = ThingTemplate::new("ChinaStandardMine");
+    mt.add_kind_of(KindOf::Mine);
     mt.set_health(100.0);
     let mut mine = Object::new(mt, ObjectId(3), Team::China);
     mine.mine_data = Some(HostMineData::land_mine_for_template("ChinaStandardMine"));

@@ -177,25 +177,17 @@ impl Object {
         v
     }
 
-    /// Residual mine / demo-trap / booby identity for DAMAGE_DISARM targeting.
-    ///
-    /// C++ Weapon.cpp DISARM estimate is nonzero for KINDOF_MINE | BOOBY_TRAP | DEMOTRAP.
+    /// Weapon.cpp:601–608 estimates DISARM damage for these authored kinds.
     pub fn is_disarmable_mine(&self) -> bool {
-        use crate::game_logic::host_mines::can_clear_mine_kind;
-        if let Some(md) = self.mine_data.as_ref() {
-            return !md.detonated && can_clear_mine_kind(md.kind);
-        }
-        let n = self.template_name.to_ascii_lowercase();
-        n.contains("mine")
-            || n.contains("booby")
-            || n.contains("demotrap")
-            || self.status.booby_trapped
+        self.is_kind_of(KindOf::Mine)
+            || self.is_kind_of(KindOf::BoobyTrap)
+            || self.is_kind_of(KindOf::DemoTrap)
     }
 
     /// C++ LandMineInterface::disarm residual (safe clear, no splash).
     /// Regenerates pads stay at MIN_HEALTH rubble so AutoHeal can refill.
     pub fn disarm_mine_safe(&mut self) -> bool {
-        if !self.is_disarmable_mine() {
+        if !self.is_disarmable_mine() || self.mine_data.as_ref().is_some_and(|mine| mine.detonated) {
             return false;
         }
         let keep_regen = self.mine_data.as_ref().is_some_and(|md| md.regenerates);

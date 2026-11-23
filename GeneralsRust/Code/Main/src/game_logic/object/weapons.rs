@@ -48,12 +48,7 @@ impl Object {
             WeaponAntiMask::BALLISTIC_MISSILE
         } else if self.is_kind_of(KindOf::Projectile) {
             WeaponAntiMask::PROJECTILE
-        } else if self.is_kind_of(KindOf::Mine)
-            || self.is_kind_of(KindOf::DemoTrap)
-            // Existing live mine objects predate semantic Object INI seeding;
-            // keep their concrete mine data in the same C++ category.
-            || self.is_disarmable_mine()
-        {
+        } else if self.is_kind_of(KindOf::Mine) || self.is_kind_of(KindOf::DemoTrap) {
             WeaponAntiMask::MINE | WeaponAntiMask::GROUND
         } else if self.status.airborne_target {
             if self.is_kind_of(KindOf::Vehicle) {

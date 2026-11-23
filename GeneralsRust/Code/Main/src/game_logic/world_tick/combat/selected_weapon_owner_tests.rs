@@ -1124,17 +1124,13 @@ End
             .unwrap();
         // INI KindOf text must land as actual authored bits.
         assert!(world.host_object(id).unwrap().is_kind_of(kind));
-        // None of these names trips the legacy name-substring heuristic, so
-        // the fixture can only pass through the authored bits.
-        assert!(!world.host_object(id).unwrap().is_disarmable_mine());
+        assert!(world.host_object(id).unwrap().is_disarmable_mine());
         id
     });
     let prop = world
         .create_object_for_player("LaundryMineCart", 2, Vec3::new(30.0, 0.0, 30.0))
         .unwrap();
-    // The legacy heuristic still flags the name; the authored-bit estimate
-    // must not.
-    assert!(world.host_object(prop).unwrap().is_disarmable_mine());
+    assert!(!world.host_object(prop).unwrap().is_disarmable_mine());
     let accepts: Vec<bool> = flagged
         .iter()
         .map(|&target| world.choose_best_weapon_for_target(chooser, Some(target), 3.0))
@@ -1147,4 +1143,21 @@ End
         "authored MINE / BOOBY_TRAP / DEMOTRAP bits admit DISARM; a \
          mine-sounding template name alone must not"
     );
+
+    use gamelogic::weapon::WeaponAntiMask;
+    assert_eq!(
+        world.host_object(flagged[1]).unwrap().weapon_target_anti_mask(),
+        WeaponAntiMask::GROUND
+    );
+    for target in flagged {
+        world.host_object_mut(target).unwrap().set_status_stealthed(true);
+        let attacker = world.host_object(chooser).unwrap();
+        let target = world.host_object(target).unwrap();
+        assert!(attacker.can_target(target));
+    }
+    let attacker = world.host_object(chooser).unwrap();
+    assert!(!attacker.can_target(world.host_object(prop).unwrap()));
+    let prop = world.host_object_mut(prop).unwrap();
+    assert!(!prop.disarm_mine_safe());
+    assert!(!prop.status.destroyed);
 }
