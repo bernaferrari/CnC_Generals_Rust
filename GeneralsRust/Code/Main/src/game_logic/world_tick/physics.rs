@@ -284,6 +284,9 @@ impl GameLogic {
         {
             return Ok(true);
         }
+        if self.try_owned_missile_contact(a_id, b_id, presentation_effects)? {
+            return Ok(true);
+        }
         // C++ PhysicsUpdate.cpp:1182-1213: recrew only inside
         // ai->getIgnoredObstacleID() == other->getID(); else bounce/crush.
         if a_ignore_obs {

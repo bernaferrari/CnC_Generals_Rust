@@ -56,6 +56,12 @@ fn world_for_with(
     locomotors.apply_source(&loco_ini).unwrap();
 
     let mut world = GameLogic::new();
+    world.admit_camera_application_movement(
+        game_engine::common::ini::ini_game_data::CameraMovementRules {
+            partition_cell_size: crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL,
+            ..Default::default()
+        },
+    );
     world.admit_locomotor_definitions(locomotors).unwrap();
     let mut map = gamelogic::system::map_loader::MapData::new();
     map.width = 32;
@@ -388,6 +394,47 @@ fn retail_patriot_checks_lock_before_missing_target() {
             "target removed at {distance} units",
         );
     }
+}
+
+#[test]
+fn retail_patriot_lock_requires_intended_target_contact() {
+    use crate::game_logic::weapon_bootstrap::HostMissilePhase;
+
+    let (mut world, source, target) = world();
+    launch(&mut world, source, target);
+    let _ = world.update_with_dt(1.0 / 30.0);
+    let shot = world.combat_system.projectiles_snapshot()[0];
+    assert!(shot.flight_runtime.missile_armed);
+    assert_eq!(shot.flight_runtime.missile_phase, HostMissilePhase::Attack);
+    let missile = shot.id;
+    let victim = world.objects[&target].get_position();
+
+    // The stock missile has radius 2 and the target has radius 0.
+    // MissileAIUpdate.cpp:506–529 enters KILL without running its handler here.
+    world.set_fixture_object_position(missile, victim - 4.9 * Vec3::X);
+    world.objects.get_mut(&missile).unwrap().movement.velocity = Vec3::ZERO;
+    let _ = world.update_with_dt(1.0 / 30.0);
+
+    assert_eq!(world.objects[&target].health.current, 1000.0);
+    let shot = world.combat_system.get_projectiles().get(&missile).unwrap();
+    assert_eq!(shot.flight_runtime.missile_phase, HostMissilePhase::Kill);
+    assert!(!shot.missile_drawable_hidden());
+    assert!(host_geom_collides(&world.objects[&missile], &world.objects[&target]).is_none());
+    let age = shot.lifetime;
+
+    let contact = victim - 1.5 * Vec3::X;
+    world.set_fixture_object_position(missile, contact);
+    assert!(host_geom_collides(&world.objects[&missile], &world.objects[&target]).is_some());
+    // Dispatch from the partition phase, without stepping the flight again.
+    world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+    assert!(world.partition_manager.neighbor_ids_in_coi_order(missile.0).contains(&target.0));
+    let shot = world.combat_system.get_projectiles().get(&missile).unwrap();
+    assert_eq!(shot.lifetime, age);
+    assert_eq!(shot.position, contact);
+    assert!(shot.missile_drawable_hidden());
+    assert!(world.objects[&missile].status.no_collisions);
+    assert_eq!(world.objects[&target].health.current, 970.0);
+    advance_to_impact(&mut world, target);
 }
 
 #[test]

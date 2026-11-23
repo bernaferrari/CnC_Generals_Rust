@@ -1,6 +1,13 @@
 #[path = "projectile_step.rs"]
 mod projectile_step;
 
+/// The source of a projectile callback, in its receiving world's phase order.
+#[derive(Clone, Copy)]
+pub(in crate::game_logic) enum ProjectileCallback {
+    Update(f32),
+    ObjectContact { target: ObjectId, pose: Vec3 },
+}
+
 // C++ ownership: Weapon.cpp projectile resolution, damage ordering, and impact side effects.
 
 impl Default for CombatSystem {

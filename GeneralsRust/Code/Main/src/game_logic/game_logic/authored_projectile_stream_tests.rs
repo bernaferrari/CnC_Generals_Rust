@@ -146,14 +146,16 @@ End
                 gamelogic::common::Relationship::Allies
             }
         );
-        let retired = world.update_owned_projectile_impacts(dt).unwrap();
-        let detonated = retired.contains(&shot) || world.objects[&shot].status.no_collisions;
+        world.update_owned_projectile_impacts(dt).unwrap();
+        world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+        let detonated = world.objects[&shot].status.no_collisions;
         assert_eq!(detonated, collision, "controller {controller} crossing the flame");
         assert_eq!(world.objects[&blocker].health.current, if collision { 90.0 } else { 100.0 });
         assert_eq!(world.objects[&target].health.current, 100.0);
         if collision {
             world.frame += 1;
             world.update_owned_projectile_impacts(dt).unwrap();
+            world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
             assert_eq!(world.objects[&blocker].health.current, 90.0);
         }
     }

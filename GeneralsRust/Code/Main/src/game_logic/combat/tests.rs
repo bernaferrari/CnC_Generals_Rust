@@ -1439,11 +1439,10 @@ pub(in crate::game_logic) mod tests {
         );
         let (damage_events, _, _) = combat.prepare_projectile_impact_with_runtime(
             pid,
-            1.0 / 30.0,
+            ProjectileCallback::Update(1.0 / 30.0),
             &mut objects,
             None,
             0,
-            None,
             None,
             None,
             &mut _ownership_output,

@@ -2058,7 +2058,9 @@ impl GameLogic {
         for id in ids {
             let birth = self.combat_system.get_projectiles().get(&id)
                 .and_then(|shot| shot.projectile_actor_birth);
-            let (retirement, result) = self.update_owned_projectile_impact_with_effects(id, dt, limit, effects);
+            let (retirement, result) = self.resolve_owned_projectile_callback(
+                id, crate::game_logic::combat::ProjectileCallback::Update(dt), limit, effects,
+            );
             if let Some(actor) = retirement {
                 retired.push((id, birth, actor));
             }
@@ -2071,16 +2073,8 @@ impl GameLogic {
         // retirement at the batch boundary so a retry cannot replay them.
         // A callback can replace an ID, so retire only the selected incarnation.
         for &(id, birth, actor) in &retired {
-            let current = self.combat_system.get_projectiles().get(&id);
-            if current.is_some_and(|shot| shot.projectile_actor_birth == birth) {
-                self.combat_system.retire_projectile_impacts(&[id]);
-                if matches!(actor, RetiredProjectileActor::Destroy)
-                    && let Some((generation, epoch)) = birth
-                    && self.spawn_identity_matches(id, generation, epoch)
-                    && let Err(destroy_error) = self.destroy_object_with_effects(id, effects)
-                {
-                    error.get_or_insert(destroy_error);
-                }
+            if let Err(destroy_error) = self.finish_owned_projectile_retirement(id, birth, actor, effects) {
+                error.get_or_insert(destroy_error);
             }
         }
         if let Some(error) = error {
@@ -2089,12 +2083,75 @@ impl GameLogic {
         Ok(retired.into_iter().map(|(id, _, _)| id).collect())
     }
 
-    /// One callback without holding the projectile arena across Body or OCL.
-    /// The retirement decision is final even if an effect fails.
-    fn update_owned_projectile_impact_with_effects(
+    fn finish_owned_projectile_retirement(
         &mut self,
         id: ObjectId,
-        dt: f32,
+        birth: Option<(u64, u64)>,
+        retirement: RetiredProjectileActor,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let current = self.combat_system.get_projectiles().get(&id);
+        if current.is_some_and(|shot| shot.projectile_actor_birth == birth) {
+            self.combat_system.retire_projectile_impacts(&[id]);
+            if matches!(retirement, RetiredProjectileActor::Destroy)
+                && let Some((generation, epoch)) = birth
+                && self.spawn_identity_matches(id, generation, epoch)
+            {
+                self.destroy_object_with_effects(id, effects)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// PhysicsUpdate.cpp:1141–1149 gives the projectile its contact before bounce.
+    pub(in crate::game_logic) fn try_owned_missile_contact(
+        &mut self,
+        missile: ObjectId,
+        other: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let Some(shot) = self.combat_system.get_projectiles().get(&missile) else {
+            return Ok(false);
+        };
+        let Some(birth) = shot.projectile_actor_birth.filter(|_| shot.missile_motion.is_some()) else {
+            return Ok(false);
+        };
+        if !self.spawn_identity_matches(missile, birth.0, birth.1) {
+            return Ok(false);
+        }
+        let objects = self.objects.read();
+        let actor = objects.lookup(&missile).expect("validated missile actor");
+        if actor.status.no_collisions || !shot.accepts_missile_contact(
+            objects.with_players(&self.players).with_team_factory(&self.team_factory),
+            other,
+            self.frame,
+        ) {
+            return Ok(true);
+        }
+        let (retired, result) = self.resolve_owned_projectile_callback(
+            missile,
+            crate::game_logic::combat::ProjectileCallback::ObjectContact {
+                target: other,
+                pose: actor.get_position(),
+            },
+            self.combat_system.historic_damage_limit(),
+            effects,
+        );
+        if let Some(retirement) = retired {
+            let cleanup = self.finish_owned_projectile_retirement(missile, Some(birth), retirement, effects);
+            result.and(cleanup)?;
+        } else {
+            result?;
+        }
+        Ok(true)
+    }
+
+    /// One callback without holding the projectile arena across Body or OCL.
+    /// The retirement decision is final even if an effect fails.
+    fn resolve_owned_projectile_callback(
+        &mut self,
+        id: ObjectId,
+        callback: crate::game_logic::combat::ProjectileCallback,
         historic_damage_limit: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (Option<RetiredProjectileActor>, gamelogic::GameLogicResult<()>) {
@@ -2178,13 +2235,12 @@ impl GameLogic {
                 |view| {
                     self.combat_system.prepare_projectile_impact_with_runtime(
                         id,
-                        dt,
+                        callback,
                         &mut self.objects,
                         Some(&mut self.countermeasures),
                         self.frame,
                         Some(&terrain),
                         Some(&mut self.partition_manager),
-                        Some((&self.players, &self.team_factory)),
                         &mut self.ownership_events,
                         historic_damage_limit,
                         self.receiving_object_definitions.as_ref(),
@@ -2196,13 +2252,12 @@ impl GameLogic {
         #[cfg(not(feature = "game_client"))]
         let (events, retired, detonation_pose) = self.combat_system.prepare_projectile_impact_with_runtime(
             id,
-            dt,
+            callback,
             &mut self.objects,
             Some(&mut self.countermeasures),
             self.frame,
             Some(&terrain),
             Some(&mut self.partition_manager),
-            Some((&self.players, &self.team_factory)),
             &mut self.ownership_events,
             historic_damage_limit,
             self.receiving_object_definitions.as_ref(),
