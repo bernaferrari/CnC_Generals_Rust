@@ -347,6 +347,39 @@ pub struct HostMineImmune {
     pub collide_frame: u32,
 }
 
+/// Authored DemoTrapUpdate runtime (C++ DemoTrapUpdate ctor
+/// m_nextScanFrames=0 plus module fields m_scanFrames / m_ignoreKindOf /
+/// m_friendlyDetonation and the configured weapon slots). `None` on unbound
+/// residual traps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct AuthoredDemoTrap {
+    /// C++ m_scanFrames (authored ScanRate): countdown reset on a real scan.
+    pub(crate) interval: u32,
+    /// C++ m_nextScanFrames: decremented per update even in manual mode.
+    pub(crate) remaining: u32,
+    /// C++ m_ignoreKindOf (authored IgnoreTargetTypes mask bits).
+    pub(crate) ignore_kinds: u128,
+    /// C++ m_friendlyDetonation (AutoDetonationWithFriendsInvolved).
+    pub(crate) allow_friends: bool,
+    /// C++ m_detonationWeaponSlot (DetonationWeaponSlot, default PRIMARY).
+    pub(crate) detonate_slot: u8,
+    /// C++ m_proximityModeWeaponSlot (ProximityModeWeaponSlot, default PRIMARY).
+    pub(crate) proximity_slot: u8,
+    /// C++ m_manualModeWeaponSlot (ManualModeWeaponSlot, default PRIMARY).
+    pub(crate) manual_slot: u8,
+}
+
+impl AuthoredDemoTrap {
+    /// C++ DemoTrapUpdate::onObjectCreated locks the authored mode slot.
+    pub(crate) fn initial_slot(self, proximity: bool) -> u8 {
+        if proximity {
+            self.proximity_slot
+        } else {
+            self.manual_slot
+        }
+    }
+}
+
 /// Per-object host residual mine/trap state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostMineData {
@@ -445,6 +478,9 @@ pub struct HostMineData {
     /// C++ MinefieldBehavior m_scootAccel (host Y-up).
     #[serde(default)]
     pub scoot_accel: [f32; 3],
+    /// Authored DemoTrapUpdate proximity scan (None = unbound residual).
+    #[serde(default)]
+    pub(crate) authored_demo_trap: Option<AuthoredDemoTrap>,
 }
 
 fn default_demo_trap_mode() -> DemoTrapMode {
@@ -513,6 +549,7 @@ impl HostMineData {
             scoot_frames_left: 0,
             scoot_vel: [0.0; 3],
             scoot_accel: [0.0; 3],
+            authored_demo_trap: None,
         }
     }
 
@@ -1541,6 +1578,47 @@ pub fn admitted_data_for_modules(
             DemoTrapMode::Manual
         };
         data.set_demo_trap_mode(mode);
+        // The module owns its own proximity scan (DemoTrapUpdate.cpp:136-155):
+        // authored ScanRate countdown, IgnoreTargetTypes mask, the
+        // friends-involved veto, and the three configured weapon slots — all
+        // authored-only, never name residuals.
+        let slot = |key: &str| {
+            module
+                .attribute(key)
+                .and_then(|value| value.split_whitespace().next())
+                .map(|token| match token.to_ascii_uppercase().as_str() {
+                    "SECONDARY" | "SECONDARY_WEAPON" => 1,
+                    "TERTIARY" | "TERTIARY_WEAPON" => 2,
+                    _ => 0,
+                })
+                .unwrap_or_default()
+        };
+        data.authored_demo_trap = Some(AuthoredDemoTrap {
+            interval: module
+                .attribute("ScanRate")
+                .and_then(|value| value.split_whitespace().next())
+                .and_then(|token| {
+                    game_engine::common::ini::ini::INI::parse_duration_unsigned_int(token).ok()
+                })
+                .unwrap_or_default(),
+            remaining: 0,
+            ignore_kinds: module
+                .attribute("IgnoreTargetTypes")
+                .and_then(|value| {
+                    game_engine::common::system::kind_of::KindOfMask::parse_ini(
+                        game_engine::common::system::kind_of::KindOfMask::empty(),
+                        value,
+                    )
+                    .ok()
+                })
+                .map_or(0, |mask| mask.bits()),
+            allow_friends: module
+                .attribute("AutoDetonationWithFriendsInvolved")
+                .is_some_and(parse_bool),
+            detonate_slot: slot("DetonationWeaponSlot"),
+            proximity_slot: slot("ProximityModeWeaponSlot"),
+            manual_slot: slot("ManualModeWeaponSlot"),
+        });
         return Some(data);
     }
     if has("StickyBombUpdate").is_some() {

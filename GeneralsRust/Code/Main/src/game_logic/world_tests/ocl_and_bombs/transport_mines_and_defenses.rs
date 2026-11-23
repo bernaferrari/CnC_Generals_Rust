@@ -777,6 +777,22 @@ fn authored_demo_trap_world(
     ocl_ini: &str,
 ) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
+    // Authored proximity scans query the partition manager (C++
+    // iterateObjectsInRange position overload); a flat map + grid + one
+    // partition phase publishes created objects before the first update.
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![0; 1024];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    world
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .try_load_map_geometry(map)
+        .unwrap();
+    world.initialize_receiving_partition_grid().unwrap();
     ensure_test_player_for_team(&mut world, Team::GLA);
     ensure_test_player_for_team(&mut world, Team::USA);
     world
@@ -824,8 +840,14 @@ fn authored_demo_trap_world(
     let enemy = world
         .create_object("TrapBlastTarget", Team::USA, Vec3::new(8.0, 0.0, 0.0))
         .expect("enemy");
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
     (world, trap, enemy)
 }
+
+/// 31-damage no-projectile blast used by the authored DemoTrap tests.
+const AUTHORED_TRAP_BLAST_INI: &str = "Weapon AuthoredTrapBlast\n PrimaryDamage = 31\n PrimaryDamageRadius = 20\n WeaponSpeed = 999999\n DamageType = UNRESISTABLE\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\nEnd\n";
 
 fn authored_trap_children(world: &GameLogic, name: &str) -> Vec<ObjectId> {
     world
@@ -975,7 +997,7 @@ fn authored_demo_trap_without_weapon_or_detonate_when_killed_stays_quiet() {
 fn authored_demo_trap_defaults_to_manual_and_zero_range() {
     // DemoTrapUpdateModuleData ctor: m_defaultsToProximityMode=false,
     // m_triggerDetonationRange=0.0f — only authored fields enable the scan.
-    let blast_ini = "Weapon AuthoredTrapBlast\n PrimaryDamage = 31\n PrimaryDamageRadius = 20\n WeaponSpeed = 999999\n DamageType = UNRESISTABLE\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\nEnd\n";
+    let blast_ini = AUTHORED_TRAP_BLAST_INI;
     let cases: [(&str, bool); 4] = [
         ("    TriggerDetonationRange = 20\n", false),
         (
@@ -1025,6 +1047,311 @@ fn authored_demo_trap_defaults_to_manual_and_zero_range() {
             );
         }
     }
+}
+
+#[test]
+fn authored_demo_trap_proximity_scan_obeys_friends_veto_and_ignore_kinds() {
+    let blast_ini = AUTHORED_TRAP_BLAST_INI;
+    let ally_ini =
+        "Object TrapBlastAlly\n  KindOf = VEHICLE\n  Body = ActiveBody BodyTag\n    MaxHealth = 500\n    InitialHealth = 500\n  End\nEnd\n";
+    // C++ DemoTrapUpdate.cpp:196-205 — a non-enemy inside the trigger range
+    // vetoes the whole scan unless AutoDetonationWithFriendsInvolved = Yes.
+    for friends in ["No", "Yes"] {
+        let (mut world, trap, enemy) = authored_demo_trap_world(
+            &format!(
+                "Behavior = DemoTrapUpdate TrapModule\n    DetonationWeapon = AuthoredTrapBlast\n    DetonateWhenKilled = No\n    DefaultProximityMode = Yes\n    TriggerDetonationRange = 20\n    IgnoreTargetTypes = DEMOTRAP UNATTACKABLE\n    AutoDetonationWithFriendsInvolved = {friends}\n  End"
+            ),
+            ally_ini,
+            blast_ini,
+            "",
+        );
+        let ally = world
+            .create_object("TrapBlastAlly", Team::GLA, Vec3::new(4.0, 0.0, 0.0))
+            .expect("ally");
+        world
+            .update_owned_partition_with_effects(&mut Default::default())
+            .unwrap();
+        world.update_mines_and_demo_traps().unwrap();
+        let trap_obj = world.host_object(trap).unwrap();
+        if friends == "No" {
+            assert_eq!(
+                world.host_object(enemy).unwrap().health.current,
+                1000.0,
+                "a friend in range vetoes the entire proximity scan"
+            );
+            assert!(trap_obj.is_alive() && !trap_obj.mine_data.as_ref().unwrap().detonated);
+        } else {
+            assert_eq!(
+                world.host_object(enemy).unwrap().health.current,
+                969.0,
+                "friends-involved mode stops at the first grounded enemy"
+            );
+            assert!(trap_obj.mine_data.as_ref().unwrap().detonated);
+            assert_eq!(
+                world.host_object(ally).unwrap().health.current,
+                500.0,
+                "ENEMIES-only blast spares the nearby friend"
+            );
+        }
+    }
+
+    // IgnoreTargetTypes: the matching enemy is skipped; a valid enemy entering
+    // later still trips the trap.
+    let (mut world, trap, enemy) = authored_demo_trap_world(
+        "Behavior = DemoTrapUpdate TrapModule\n    DetonationWeapon = AuthoredTrapBlast\n    DetonateWhenKilled = No\n    DefaultProximityMode = Yes\n    TriggerDetonationRange = 20\n    IgnoreTargetTypes = DEMOTRAP UNATTACKABLE\n    AutoDetonationWithFriendsInvolved = No\n  End",
+        "Object TrapBlastIgnored\n  KindOf = VEHICLE UNATTACKABLE\n  Body = ActiveBody BodyTag\n    MaxHealth = 1000\n    InitialHealth = 1000\n  End\nEnd\n",
+        blast_ini,
+        "",
+    );
+    let _ignored = world
+        .create_object("TrapBlastIgnored", Team::USA, Vec3::new(8.0, 0.0, 0.0))
+        .expect("ignored enemy");
+    assert!(world.set_registered_object_position(enemy, Vec3::new(200.0, 0.0, 0.0)));
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
+    world.update_mines_and_demo_traps().unwrap();
+    assert_eq!(
+        world.host_object(enemy).unwrap().health.current,
+        1000.0,
+        "an UNATTACKABLE enemy in range is ignored, not a veto"
+    );
+    let trap_obj = world.host_object(trap).unwrap();
+    assert!(trap_obj.is_alive() && !trap_obj.mine_data.as_ref().unwrap().detonated);
+
+    assert!(world.set_registered_object_position(enemy, Vec3::new(8.0, 0.0, 0.0)));
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
+    world.update_mines_and_demo_traps().unwrap();
+    assert_eq!(
+        world.host_object(enemy).unwrap().health.current,
+        969.0,
+        "a valid enemy entering range trips the same trap"
+    );
+}
+
+#[test]
+fn authored_demo_trap_scan_rate_counts_down_before_next_scan() {
+    let blast_ini = AUTHORED_TRAP_BLAST_INI;
+    let modules = "Behavior = DemoTrapUpdate TrapModule\n    DetonationWeapon = AuthoredTrapBlast\n    DetonateWhenKilled = No\n    DefaultProximityMode = Yes\n    TriggerDetonationRange = 20\n    AutoDetonationWithFriendsInvolved = Yes\n    ScanRate = 100\n  End";
+    // ScanRate 100ms -> 3 frames: scan on the countdown-expired update, then
+    // 3 countdown updates before the next scan (DemoTrapUpdate.cpp:140-150).
+    let (mut world, _trap, enemy) = authored_demo_trap_world(modules, "", blast_ini, "");
+    // No enemy in range for the initial scan at frame 1.
+    assert!(world.set_registered_object_position(enemy, Vec3::new(200.0, 0.0, 0.0)));
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
+    world.frame = 1;
+    world.update_mines_and_demo_traps().unwrap();
+    assert_eq!(world.host_object(enemy).unwrap().health.current, 1000.0);
+    // Enemy enters between scans; the countdown still has to finish.
+    assert!(world.set_registered_object_position(enemy, Vec3::new(8.0, 0.0, 0.0)));
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
+    for frame in 2..=3 {
+        world.frame = frame;
+        world.update_mines_and_demo_traps().unwrap();
+        assert_eq!(
+            world.host_object(enemy).unwrap().health.current,
+            1000.0,
+            "frame {frame}: m_nextScanFrames still counting down"
+        );
+    }
+
+    // Snapshot mid-countdown (frame 3: remaining 1) and restore into an
+    // identical receiving world — the countdown resumes, not resets.
+    use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let encoded = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = decode_bincode_world_snapshot(&encoded).unwrap();
+    let (mut restored, restored_trap, restored_enemy) =
+        authored_demo_trap_world(modules, "", blast_ini, "");
+    restored.clear_all_players();
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    let restored_scan = restored
+        .host_object(restored_trap)
+        .unwrap()
+        .mine_data
+        .as_ref()
+        .unwrap()
+        .authored_demo_trap
+        .expect("authored scan state survives snapshot");
+    assert_eq!(restored_scan.remaining, 1, "frame-3 snapshot keeps the countdown");
+    for frame in 4..=5 {
+        let expected = if frame == 5 { 969.0 } else { 1000.0 };
+        world.frame = frame;
+        world.update_mines_and_demo_traps().unwrap();
+        assert_eq!(
+            world.host_object(enemy).unwrap().health.current,
+            expected,
+            "live world frame {frame}"
+        );
+        restored.frame = frame;
+        restored.update_mines_and_demo_traps().unwrap();
+        assert_eq!(
+            restored.host_object(restored_enemy).unwrap().health.current,
+            expected,
+            "restored world frame {frame}: same countdown, same blast"
+        );
+    }
+}
+
+#[test]
+fn authored_demo_trap_named_placement_keeps_admitted_scan() {
+    let blast_ini = AUTHORED_TRAP_BLAST_INI;
+    let (mut world, trap, enemy) = authored_demo_trap_world(
+        "Behavior = DemoTrapUpdate TrapModule\n    DetonationWeapon = AuthoredTrapBlast\n    DetonateWhenKilled = No\n    DefaultProximityMode = Yes\n    TriggerDetonationRange = 20\n    AutoDetonationWithFriendsInvolved = Yes\n    ScanRate = 100\n  End",
+        "",
+        blast_ini,
+        "",
+    );
+    let placed = world
+        .place_demo_trap_named(
+            "Chem_DemoTrapAuthored",
+            Team::GLA,
+            Vec3::new(50.0, 0.0, 0.0),
+            Some(trap),
+            false,
+        )
+        .expect("named placement");
+    {
+        let placed_obj = world.host_object(placed).unwrap();
+        let md = placed_obj.mine_data.as_ref().unwrap();
+        let scan = md
+            .authored_demo_trap
+            .expect("authored scan survives named placement");
+        assert_eq!(scan.interval, 3, "ScanRate 100ms -> 3 frames");
+        assert_eq!(scan.remaining, 0);
+        assert!(matches!(
+            md.demo_trap_mode,
+            crate::game_logic::host_mines::DemoTrapMode::Proximity
+        ));
+        assert!(md.proximity_enabled && md.trigger_range == 20.0);
+        assert_eq!(md.producer_id, Some(trap));
+        assert_eq!(placed_obj.producer_id, Some(trap));
+        assert!(
+            !placed_obj.innate_stealth && !placed_obj.status.stealthed,
+            "authored placement adds no innate stealth"
+        );
+    }
+    // Live proof: the placed trap runs its own authored scan and detonates.
+    assert!(world.set_registered_object_position(enemy, Vec3::new(55.0, 0.0, 0.0)));
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
+    world.update_mines_and_demo_traps().unwrap();
+    assert_eq!(
+        world.host_object(enemy).unwrap().health.current,
+        969.0,
+        "named placement births a working authored proximity trap"
+    );
+    assert!(world.host_object(placed).unwrap().mine_data.as_ref().unwrap().detonated);
+    assert!(
+        world.host_object(trap).unwrap().is_alive(),
+        "the out-of-range fixture trap stays quiet"
+    );
+}
+
+#[test]
+fn authored_demo_trap_observes_selected_weapon_slot_on_update() {
+    use crate::game_logic::WeaponLockType;
+    // DemoTrapUpdate::onObjectCreated arms WEAPONSET_VETERAN then locks the
+    // authored mode slot; the unconditional base set lets the row identity
+    // actually switch, and every slot binds a dummy so selection is real.
+    let weapon_set = "WeaponSet\n  Conditions = None\n  Weapon = PRIMARY TrapModeDummy\n  Weapon = SECONDARY TrapModeDummy\n  Weapon = TERTIARY TrapModeDummy\nEnd\nWeaponSet\n  Conditions = VETERAN\n  Weapon = PRIMARY TrapModeDummy\n  Weapon = SECONDARY TrapModeDummy\n  Weapon = TERTIARY TrapModeDummy\nEnd\n";
+    let weapons = format!(
+        "{AUTHORED_TRAP_BLAST_INI}Weapon TrapModeDummy\n PrimaryDamage = 0\n DamageType = UNRESISTABLE\n ProjectileObject = NONE\nEnd\n"
+    );
+    // Permuted slots: manual PRIMARY, proximity TERTIARY, detonation SECONDARY.
+    let modules = |mode: &str| {
+        format!(
+            "{weapon_set}Behavior = DemoTrapUpdate TrapModule\n    DetonationWeapon = AuthoredTrapBlast\n    DetonateWhenKilled = No\n    {mode}\n    TriggerDetonationRange = 20\n    AutoDetonationWithFriendsInvolved = Yes\n    ScanRate = 100\n    ManualModeWeaponSlot = PRIMARY\n    ProximityModeWeaponSlot = TERTIARY\n    DetonationWeaponSlot = SECONDARY\n  End"
+        )
+    };
+
+    let (mut world, trap, enemy) =
+        authored_demo_trap_world(&modules("DefaultProximityMode = No"), "", &weapons, "");
+    {
+        let obj = world.host_object(trap).unwrap();
+        assert!(
+            obj.test_weapon_condition(0),
+            "VETERAN weapon set armed at birth"
+        );
+        assert_eq!(
+            obj.selected_weapon_slot(),
+            Some(0),
+            "manual mode locks the authored PRIMARY slot"
+        );
+    }
+    // The enemy sits inside trigger range but the manual slot never scans.
+    world.frame = 1;
+    world.update_mines_and_demo_traps().unwrap();
+    assert_eq!(world.host_object(enemy).unwrap().health.current, 1000.0);
+
+    // Locking TERTIARY — the authored proximity slot — only selects the
+    // weapon; the module observes it on its next update, no inline damage.
+    assert!(
+        world
+            .unit_command_set_weapon_lock(trap, 2, WeaponLockType::LockedPermanently)
+            .unwrap()
+    );
+    assert_eq!(world.host_object(enemy).unwrap().health.current, 1000.0);
+
+    // A real proximity scan with the enemy out of range starts the countdown.
+    assert!(world.set_registered_object_position(enemy, Vec3::new(200.0, 0.0, 0.0)));
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
+    world.frame = 2;
+    world.update_mines_and_demo_traps().unwrap();
+    {
+        let md = world.host_object(trap).unwrap().mine_data.as_ref().unwrap();
+        assert_eq!(md.authored_demo_trap.unwrap().remaining, 3);
+        assert!(!md.detonated);
+    }
+
+    // Bring the enemy back and select SECONDARY — the authored detonation
+    // slot fires before the countdown is touched (DemoTrapUpdate.cpp:134-138).
+    assert!(world.set_registered_object_position(enemy, Vec3::new(8.0, 0.0, 0.0)));
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
+    assert!(
+        world
+            .unit_command_set_weapon_lock(trap, 1, WeaponLockType::LockedPermanently)
+            .unwrap()
+    );
+    assert_eq!(
+        world.host_object(enemy).unwrap().health.current,
+        1000.0,
+        "the lock command itself has no inline damage"
+    );
+    assert!(world.host_object(trap).unwrap().is_alive());
+    world.frame = 3;
+    world.update_mines_and_demo_traps().unwrap();
+    assert_eq!(
+        world.host_object(enemy).unwrap().health.current,
+        969.0,
+        "detonation slot bypasses the remaining countdown"
+    );
+    assert!(world.host_object(trap).unwrap().mine_data.as_ref().unwrap().detonated);
+
+    // Fresh proximity-default fixture: the authored TERTIARY slot is selected
+    // at birth and auto-triggers despite the permutation.
+    let (mut world, trap, enemy) =
+        authored_demo_trap_world(&modules("DefaultProximityMode = Yes"), "", &weapons, "");
+    assert_eq!(
+        world.host_object(trap).unwrap().selected_weapon_slot(),
+        Some(2)
+    );
+    world.update_mines_and_demo_traps().unwrap();
+    assert_eq!(world.host_object(enemy).unwrap().health.current, 969.0);
 }
 
 #[test]

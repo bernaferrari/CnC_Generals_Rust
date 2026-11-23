@@ -11,6 +11,7 @@ mod stealth_update;
 mod stealth_update_tests;
 mod mine_placement;
 mod mine_detonation;
+mod demo_trap_scan;
 
 mod cluster_placement;
 mod construction_clearance;
@@ -421,10 +422,14 @@ impl GameLogic {
                                                               // C++ isClearingMines() && getGoalObject() != NULL keeps them immune while engaged.
         let mut windup: Vec<(ObjectId, ObjectId)> = Vec::new();
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
+        // Admitted traps handle this in their own update.
         for (id, obj) in self.objects.registered() {
             let Some(data) = obj.mine_data.as_ref() else {
                 continue;
             };
+            if data.authored_demo_trap.is_some() {
+                continue;
+            }
             if crate::game_logic::host_mines::should_detonate_when_killed(
                 data.kind,
                 crate::game_logic::host_mines::demo_trap_detonates_when_killed(obj),
@@ -696,6 +701,16 @@ impl GameLogic {
             if *under_construction {
                 continue;
             }
+            // Admitted traps use the partition scan instead.
+            if *kind == HostMineKind::DemoTrap
+                && self
+                    .objects
+                    .get(mine_id)
+                    .and_then(|obj| obj.mine_data.as_ref())
+                    .is_some_and(|data| data.authored_demo_trap.is_some())
+            {
+                continue;
+            }
             // C++ MinefieldBehavior::onCollide :360-362 — inert until scoot ends.
             if self
                 .objects
@@ -809,6 +824,10 @@ impl GameLogic {
         for (mine_id, clearer_id) in clear_due {
             self.clear_mine_internal_with_effects(mine_id, clearer_id, effects)?;
         }
+
+        // C++ DemoTrapUpdate::update: admitted traps run their own ScanRate
+        // countdown and call detonate() synchronously — no warning fuse.
+        self.update_authored_demo_traps(effects)?;
 
         // Idle clearer approach: set move toward nearest enemy mine.
         for (clearer_id, mine_pos) in approach {

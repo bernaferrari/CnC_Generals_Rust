@@ -2494,6 +2494,24 @@ impl GameLogic {
             // can run callbacks or create another actor.
             self.initialize_base_ai_on_object_created_owned(id)?;
             verify_factory_birth!();
+            // DemoTrapUpdate::onObjectCreated enables the Veteran weapon set
+            // before selecting the authored mode slot.
+            {
+                let object = self
+                    .objects
+                    .get_mut(&id)
+                    .expect("registered factory object");
+                if let Some((slots, proximity)) = object.mine_data.as_ref().and_then(|data| {
+                    Some((data.authored_demo_trap?, data.proximity_enabled))
+                }) {
+                    use gamelogic::weapon::weapon_set::WeaponSetType;
+                    object.set_weapon_condition_at_frame(WeaponSetType::Veteran as u8, true, self.frame);
+                    let _ = object.set_weapon_lock(
+                        slots.initial_slot(proximity),
+                        crate::game_logic::WeaponLockType::LockedTemporarily,
+                    );
+                }
+            }
             // C++ GameLogic map/create: team->setActive() once the team has members.
             self.admit_team_for_host_object_with_effects_checked(id, interpreter, false, ui)?;
             verify_factory_birth!();

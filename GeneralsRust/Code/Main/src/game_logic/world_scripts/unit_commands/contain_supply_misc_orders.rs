@@ -895,7 +895,9 @@ impl GameLogic {
     }
 
     /// Wave 233: weapon lock residual.
-    /// DemoTrapUpdate: PRIMARY=detonate, SECONDARY=proximity, TERTIARY=manual.
+    /// Unbound fixture lane only: PRIMARY=detonate, SECONDARY=proximity,
+    /// TERTIARY=manual. Admitted DemoTrapUpdate modules observe the real
+    /// selected slot on their next scheduled update instead.
     pub fn unit_command_set_weapon_lock(
         &mut self,
         id: ObjectId,
@@ -917,10 +919,12 @@ impl GameLogic {
             .get(&id)
             .and_then(|unit| unit.mine_data.as_ref())
             .is_some_and(|md| {
-                matches!(
-                    md.kind,
-                    crate::game_logic::host_mines::HostMineKind::DemoTrap
-                ) && !md.detonated
+                md.authored_demo_trap.is_none()
+                    && matches!(
+                        md.kind,
+                        crate::game_logic::host_mines::HostMineKind::DemoTrap
+                    )
+                    && !md.detonated
             });
         let locked = {
             let Some(unit) = self.objects.get_mut(&id) else {

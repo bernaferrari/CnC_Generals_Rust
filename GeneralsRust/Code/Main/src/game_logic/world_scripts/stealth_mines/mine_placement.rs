@@ -91,10 +91,28 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         use crate::game_logic::host_mines::{HostMineData, HostMineKind, demo_trap_profile};
 
-        let profile = demo_trap_profile(template_name, has_gamma, false);
         self.ensure_residual_mine_template(template_name, HostMineKind::DemoTrap);
         let id =
             self.create_object_with_script_effects(template_name, team, position, None, effects)?;
+        // Bound DemoTrapUpdate templates keep the factory-admitted runtime:
+        // C++ createObject + setProducer only — no residual profile, weapon
+        // strip, KindOf add, stealth grant, or invented place audio.
+        {
+            let object = self.objects.get_mut(&id)?;
+            if object.get_template().receiving_object_definition.is_some() {
+                object.producer_id = producer;
+                if let Some(data) = object
+                    .mine_data
+                    .as_mut()
+                    .filter(|data| data.kind == HostMineKind::DemoTrap)
+                {
+                    data.producer_id = producer;
+                }
+                self.mine_residual_places = self.mine_residual_places.saturating_add(1);
+                return Some(id);
+            }
+        }
+        let profile = demo_trap_profile(template_name, has_gamma, false);
         let mut data = HostMineData::demo_trap_with_profile(profile);
         if let Some(p) = producer {
             data = data.with_producer(p);
