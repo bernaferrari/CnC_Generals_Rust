@@ -238,20 +238,26 @@ impl GameLogic {
         self.record_power_projection(owner);
     }
 
-    /// Update the active bonus before the caller completes the module latch.
-    /// Disabled plants currently keep their bonus only in the saved output,
-    /// where it becomes available again on the normal reenable callback.
+    /// Energy.cpp:157–216 signals bonuses even if a plant is disabled.
+    /// Run the synchronous callback before updating the module's gross output.
     pub(in crate::game_logic) fn change_object_power_bonus(
         &mut self,
         id: ObjectId,
         delta: i32,
     ) -> Option<&mut Object> {
-        let object = self.objects.get(&id)?;
-        if !object.has_disabled_type() {
-            self.signal_power_bonus(object.owner_player_id, delta);
-        }
+        let owner = self.objects.get(&id)?.owner_player_id;
+        self.signal_power_bonus(owner, delta);
         let object = self.objects.get_mut(&id)?;
         object.power_provided = object.power_provided.wrapping_add(delta);
+        // A brownout callback can reenable or disable this Object. Use
+        // its settled state so the following fold counts the delta once.
+        if object.has_disabled_type()
+            && Self::omit_disabled_production_from_grid(object)
+            && let Some(player) = owner.and_then(|id| self.players.get_mut(&id))
+        {
+            player.disabled_plant_bonus_adjustment =
+                player.disabled_plant_bonus_adjustment.wrapping_add(delta);
+        }
         Some(object)
     }
 

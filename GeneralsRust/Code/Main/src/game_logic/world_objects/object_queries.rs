@@ -504,55 +504,8 @@ impl GameLogic {
         if requested_owner != Some(player_id) {
             return Ok(false);
         }
-        let effective_player_id = match self.inactive_controller_neutral_team(player_id) {
-            Ok(Some(neutral)) => neutral.owner,
-            Ok(None) => player_id,
-            Err(error) => return Err(error),
-        };
-
-        // C++ Object::setTeam changes membership before it dispatches
-        // BehaviorModule::onCapture.  Base power follows that membership, but
-        // `OverchargeBehavior::onCapture` deliberately leaves its
-        // ThingTemplate EnergyBonus with the old Energy pool when the active
-        // plant is disabled.  Capture the typed module state before changing
-        // the owner so the ownership-derived power scan can retain that one
-        // fire-and-forget delta afterwards.  This is not a name/KindOf
-        // fallback: only the parsed behavior authorizes it.
-        let (old_owner_player_id, retained_overcharge_bonus) = self
-            .objects
-            .get(&object_id)
-            .map(|object| {
-                let old_owner_player_id = self.player_owner_for_host_object(object);
-                let retained_overcharge_bonus = (old_owner_player_id != Some(effective_player_id)
-                    && object.is_alive()
-                    && object.is_constructed()
-                    && object.overcharge_enabled
-                    && object.is_disabled()
-                    && object.thing().template.supports_overcharge())
-                .then(|| object.thing().template.energy_bonus.unwrap_or(0));
-                (old_owner_player_id, retained_overcharge_bonus)
-            })
-            .unwrap_or((None, None));
-
-        if !self.set_host_object_team_with_effects(object_id, destination, presentation_effects)? {
-            return Ok(false);
-        }
-
-        if let Some(bonus) = retained_overcharge_bonus {
-            if let Some(old_player_id) = old_owner_player_id {
-                if let Some(old_player) = self.players.get_mut(&old_player_id) {
-                    old_player.captured_overcharge_power_delta = old_player
-                        .captured_overcharge_power_delta
-                        .saturating_add(bonus);
-                }
-            }
-            if let Some(new_player) = self.players.get_mut(&effective_player_id) {
-                new_player.captured_overcharge_power_delta = new_player
-                    .captured_overcharge_power_delta
-                    .saturating_sub(bonus);
-            }
-        }
-        Ok(true)
+        self.inactive_controller_neutral_team(player_id)?;
+        self.set_host_object_team_with_effects(object_id, destination, presentation_effects)
     }
 }
 

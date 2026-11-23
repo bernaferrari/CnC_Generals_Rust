@@ -366,6 +366,14 @@ impl Object {
                 }
             })
     }
+
+    pub(super) fn active_plant_power_bonus_output(&self) -> i32 {
+        let amount = self.get_template().energy_bonus.unwrap_or(0);
+        if amount == 0 {
+            return 0;
+        }
+        amount.wrapping_mul(self.active_plant_power_bonuses().count() as i32)
+    }
 }
 
 impl GameLogic {

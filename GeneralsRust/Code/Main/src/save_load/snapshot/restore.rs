@@ -1485,10 +1485,7 @@ impl SnapshotBuilder {
                     power_available: snap.resources.power,
                     power_produced: 0,
                     power_consumed: 0,
-                    // C++ Energy production is rebuilt after load.  In
-                    // particular, an active OverchargeBehavior replays its bonus
-                    // for the object's current controller in loadPostProcess.
-                    captured_overcharge_power_delta: 0,
+                    disabled_plant_bonus_adjustment: 0,
                     income_accumulator: 0.0,
                     selected_objects: Vec::new(),
                     hotkey_squads: std::array::from_fn(|_| Vec::new()),

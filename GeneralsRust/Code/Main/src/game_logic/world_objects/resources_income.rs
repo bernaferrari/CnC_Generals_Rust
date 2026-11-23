@@ -50,10 +50,19 @@ impl GameLogic {
         }
     }
 
+    pub(super) fn omit_disabled_production_from_grid(object: &Object) -> bool {
+        object.is_disabled()
+            && object
+                .get_template()
+                .energy_production
+                .unwrap_or(object.power_provided)
+                > 0
+    }
+
     fn accumulate_object_power((produced, consumed): &mut (i32, i32), object: &Object) {
         // Object::friend_adjustPowerForPlayer excludes disabled producers.
         // Persisted production already includes any Overcharge bonus.
-        if object.power_provided <= 0 || !object.is_disabled() {
+        if !Self::omit_disabled_production_from_grid(object) {
             *produced = produced.saturating_add(object.power_provided);
         }
         *consumed = consumed.saturating_add(object.power_consumed.abs());
@@ -69,7 +78,9 @@ impl GameLogic {
         totals
     }
 
-    fn all_player_power_totals(&self) -> game_engine::common::fast_hash::FxHashMap<u32, (i32, i32)> {
+    fn all_player_power_totals(
+        &self,
+    ) -> game_engine::common::fast_hash::FxHashMap<u32, (i32, i32)> {
         let mut totals: game_engine::common::fast_hash::FxHashMap<_, _> =
             self.players.keys().map(|&id| (id, (0, 0))).collect();
         // Read each Object once and keep the saturating fold in registration
@@ -88,7 +99,7 @@ impl GameLogic {
     }
 
     fn apply_derived_power(player: &mut Player, (produced, consumed): (i32, i32), frame: u32) {
-        player.power_produced = produced;
+        player.power_produced = produced.wrapping_add(player.disabled_plant_bonus_adjustment);
         player.power_consumed = consumed;
         // Preserve canonical production while exposing only the sabotage mask.
         // C++ getProduction/hasSufficientPower recover at frame == deadline.
@@ -99,6 +110,23 @@ impl GameLogic {
     /// them before observers run. All object/status tails must finish first.
     /// This boundary does not age sabotage, publish economy events, or tick.
     pub(crate) fn restore_player_power(&mut self) {
+        for player in self.players.values_mut() {
+            player.disabled_plant_bonus_adjustment = 0;
+        }
+        // PowerPlantUpgrade and OverchargeBehavior loadPostProcess credit
+        // the current controller even when its producer is disabled.
+        for object in self.objects.registered_values().filter(|object| {
+            object.has_disabled_type() && Self::omit_disabled_production_from_grid(object)
+        }) {
+            if let Some(player) = object
+                .owner_player_id
+                .and_then(|id| self.players.get_mut(&id))
+            {
+                player.disabled_plant_bonus_adjustment = player
+                    .disabled_plant_bonus_adjustment
+                    .wrapping_add(object.active_plant_power_bonus_output());
+            }
+        }
         let totals = self.all_player_power_totals();
         for (id, player) in &mut self.players {
             Self::apply_derived_power(player, totals[id], self.frame);

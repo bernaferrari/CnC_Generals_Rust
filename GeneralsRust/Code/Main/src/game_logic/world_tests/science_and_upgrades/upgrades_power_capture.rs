@@ -423,12 +423,10 @@ fn authored_power_plant_upgrade_adds_energy_bonus_once_by_module_not_name() {
     assert_eq!(logic.host_object(named).unwrap().power_provided, 5);
 }
 
-#[test]
-fn authored_plant_bonuses_reach_the_receiving_grid_at_each_callback() {
+fn plant_bonus_world(multiple_rod_modules: bool) -> (GameLogic, ObjectId, ObjectId) {
     use crate::game_logic::{Player, Team};
-    let fixture = |multiple_rod_modules: bool| {
-        let mut logic = GameLogic::new();
-        let source = "
+    let mut logic = GameLogic::new();
+    let source = "
 Object CallbackPlant
   KindOf = STRUCTURE FS_POWER
   EnergyProduction = 20
@@ -448,39 +446,51 @@ End
 Object CallbackLoad
   KindOf = STRUCTURE POWERED
   EnergyProduction = -24
+End
+Object CallbackAuxiliary
+  KindOf = STRUCTURE
+  EnergyProduction = 0
+  EnergyBonus = 5
+  Behavior = OverchargeBehavior Overcharge
+    HealthPercentToDrainPerSecond = 0%
+    NotAllowedWhenHealthBelowPercent = 0%
+  End
 End";
-        let source = if multiple_rod_modules {
-            source.replace(
+    let source = if multiple_rod_modules {
+        source.replace(
                 "  Behavior = OverchargeBehavior Overcharge",
                 "  Behavior = PowerPlantUpgrade SecondRods\n    TriggeredBy = Upgrade_CallbackRods\n  End\n  Behavior = OverchargeBehavior Overcharge",
             )
-        } else {
-            source.to_owned()
-        };
-        logic
-            .admit_receiving_module_content(
-                crate::assets::ReceivingObjectContent::from_sources([(
-                    "power-bonus-callbacks.ini".into(),
-                    source,
-                )])
-                .unwrap(),
-            )
-            .unwrap();
-        for (id, name) in [(0, "PowerOwner"), (1, "NewOwner")] {
-            let mut player = Player::new(id, Team::USA, name, true);
-            player.add_radar(false);
-            logic.add_player(player);
-        }
-        let plant = logic
-            .create_object_for_player("CallbackPlant", 0, Vec3::ZERO)
-            .unwrap();
-        let consumer = logic
-            .create_object_for_player("CallbackLoad", 0, Vec3::X)
-            .unwrap();
-        (logic, plant, consumer)
+    } else {
+        source.to_owned()
     };
-    let (mut world, plant, consumer) = fixture(false);
-    let (mut restored, restored_plant, _) = fixture(false);
+    logic
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "power-bonus-callbacks.ini".into(),
+                source,
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    for (id, name) in [(0, "PowerOwner"), (1, "NewOwner")] {
+        let mut player = Player::new(id, Team::USA, name, true);
+        player.add_radar(false);
+        logic.add_player(player);
+    }
+    let plant = logic
+        .create_object_for_player("CallbackPlant", 0, Vec3::ZERO)
+        .unwrap();
+    let consumer = logic
+        .create_object_for_player("CallbackLoad", 0, Vec3::X)
+        .unwrap();
+    (logic, plant, consumer)
+}
+
+#[test]
+fn authored_plant_bonuses_reach_the_receiving_grid_at_each_callback() {
+    let (mut world, plant, consumer) = plant_bonus_world(false);
+    let (mut restored, restored_plant, _) = plant_bonus_world(false);
     assert_eq!(plant, restored_plant);
     assert_eq!(world.players[&0].power_produced, 20);
     assert!(!world.players[&0].has_radar());
@@ -537,7 +547,7 @@ End";
     assert_eq!(restored.players[&1].power_produced, 0);
     assert!(!restored.objects.contains_key(&plant));
 
-    let (mut multiple, plant, _) = fixture(true);
+    let (mut multiple, plant, _) = plant_bonus_world(true);
     assert!(
         multiple.apply_authored_power_plant_upgrades(plant, |name| name == "Upgrade_CallbackRods")
     );
@@ -547,7 +557,7 @@ End";
     // Earlier Main saves recorded both module latches with only one credit.
     multiple.objects.get_mut(&plant).unwrap().power_provided = 25;
     let snapshot = builder.create_world_snapshot(&multiple).unwrap();
-    let (mut legacy, _, _) = fixture(true);
+    let (mut legacy, _, _) = plant_bonus_world(true);
     builder
         .restore_from_snapshot(&snapshot, &mut legacy)
         .unwrap();
@@ -565,6 +575,103 @@ End";
     ]);
     legacy.process_destroy_list();
     assert_eq!(legacy.players[&1].power_produced, 0);
+}
+
+#[test]
+fn disabled_plant_callbacks_keep_signed_credits_through_capture_and_recovery() {
+    let (mut world, plant, _) = plant_bonus_world(false);
+    let (mut restored, restored_plant, _) = plant_bonus_world(false);
+    let (mut control, control_plant, _) = plant_bonus_world(false);
+    assert_eq!((restored_plant, control_plant), (plant, plant));
+
+    world.set_current_frame(4);
+    control.set_current_frame(4);
+    assert!(world.apply_owned_emp_disabled(plant, 6));
+    assert!(control.apply_owned_emp_disabled(plant, 6));
+    assert_eq!(world.players[&0].power_produced, 0);
+    assert!(world.toggle_overcharge_object(plant));
+    assert_eq!(
+        world.players[&0].power_produced, 5,
+        "the module still calls addPowerBonus during EMP"
+    );
+    world.update_player_resources(0.);
+    assert_eq!(
+        world.players[&0].power_produced, 5,
+        "refresh cannot discard a booked callback"
+    );
+    assert!(
+        world.apply_authored_power_plant_upgrades(plant, |name| name == "Upgrade_CallbackRods")
+    );
+    assert_eq!(world.players[&0].power_produced, 10);
+    assert!(world.transfer_object_to_player(plant, 1).unwrap());
+    assert!(control.transfer_object_to_player(plant, 1).unwrap());
+    assert_eq!(
+        world.players[&0].power_produced, 10,
+        "disabled onCapture leaves the existing credit with its original owner"
+    );
+    assert_eq!(world.players[&1].power_produced, 0);
+    assert_eq!(control.players[&0].power_produced, 0);
+
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    let (mut restored_control, _, _) = plant_bonus_world(false);
+    let control_snapshot = builder.create_world_snapshot(&control).unwrap();
+    builder
+        .restore_from_snapshot(&control_snapshot, &mut restored_control)
+        .unwrap();
+    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    builder
+        .restore_from_snapshot(&decoded, &mut restored)
+        .unwrap();
+    assert_eq!(
+        restored.players[&0].power_produced, 0,
+        "Energy::xfer discards historical attribution"
+    );
+    let base_on_load = restored_control.players[&1].power_produced;
+    assert_eq!(
+        restored.players[&1].power_produced,
+        base_on_load + 10,
+        "module post-load credits go to the current owner"
+    );
+    restored.update_player_resources(0.);
+    assert_eq!(restored.players[&1].power_produced, base_on_load + 10);
+
+    assert!(world.toggle_overcharge_object(plant));
+    assert_eq!(
+        world.players[&1].power_produced, -5,
+        "removePowerBonus is signed production"
+    );
+    assert_eq!(world.players[&1].power_consumed, 0);
+    world.set_current_frame(6);
+    world.expire_owned_disabled_statuses();
+    assert_eq!(world.players[&0].power_produced, 10);
+    assert_eq!(
+        world.players[&1].power_produced, 20,
+        "recovery adds 25 to the settled -5"
+    );
+    assert!(!world.objects[&plant].status.disabled_emp);
+
+    restored.destroy_object(plant).unwrap();
+    restored.process_destroy_list();
+    restored.update_player_resources(0.);
+    assert_eq!(
+        restored.players[&1].power_produced, base_on_load,
+        "onDelete withdraws each restored bonus while disabled"
+    );
+    assert_eq!(control.players[&1].power_produced, 0);
+    assert!(control.objects[&plant].status.disabled_emp);
+
+    let auxiliary = control
+        .create_object_for_player("CallbackAuxiliary", 1, Vec3::Y)
+        .unwrap();
+    assert!(control.apply_owned_emp_disabled(auxiliary, 6));
+    assert!(control.toggle_overcharge_object(auxiliary));
+    control.update_player_resources(0.);
+    assert_eq!(
+        control.players[&1].power_produced, 5,
+        "a zero-base plant has no positive-producer disable edge"
+    );
 }
 
 #[test]
@@ -1044,7 +1151,8 @@ fn typed_overcharge_capture_keeps_disabled_bonus_in_cxx_energy_pool() {
     logic.update_player_resources(0.0);
     assert!(!logic.host_object(plant_id).unwrap().overcharge_enabled);
     assert_eq!(logic.get_player(0).unwrap().power_produced, 0);
-    assert_eq!(logic.get_player(1).unwrap().power_produced, 0);
+    // C++ removes the signed bonus even while the base plant is disabled.
+    assert_eq!(logic.get_player(1).unwrap().power_produced, -5);
 }
 
 #[test]
