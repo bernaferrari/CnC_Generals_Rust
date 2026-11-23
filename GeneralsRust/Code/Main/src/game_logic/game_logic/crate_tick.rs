@@ -141,6 +141,9 @@ pub struct AudioEventRequest {
     pub is_looping: bool,   // false = fire-and-forget, true = continuous
     /// C++ `TheAudio->removeAudioEvent` — stop a previously queued looping event.
     pub stop: bool,
+    /// Exact-object stop: when this object's loop has no tracked receipt, the
+    /// subsystem must not fall back to canceling same-name loops of others.
+    pub(crate) object_loop_stop_only: bool,
     /// C++ `AudioEventRTS::setPlayerIndex` — VoiceEject and other owner-local voices.
     pub player_index: Option<i32>,
 }
@@ -155,6 +158,7 @@ impl AudioEventRequest {
             priority: 128,
             is_looping: false,
             stop: false,
+            object_loop_stop_only: false,
             player_index: None,
         }
     }
@@ -186,6 +190,13 @@ impl AudioEventRequest {
 
     pub fn stopping(mut self) -> Self {
         self.stop = true;
+        self
+    }
+
+    /// Stop the producing object's tracked loop without falling back to a name lookup.
+    pub(crate) fn stopping_object_loop(mut self) -> Self {
+        self.stop = true;
+        self.object_loop_stop_only = true;
         self
     }
 }

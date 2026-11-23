@@ -76,7 +76,7 @@ impl GameLogic {
             AudioEventRequest::new(sound_name)
                 .with_object(object_id)
                 .with_position(pos)
-                .with_priority(200),
+                .stopping_object_loop(),
         );
     }
 

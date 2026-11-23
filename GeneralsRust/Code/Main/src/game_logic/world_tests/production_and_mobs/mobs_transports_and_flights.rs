@@ -2728,6 +2728,31 @@ fn flammable_buildings_ignite_and_play_burning_loop() {
     logic.set_current_frame(11);
     logic.update_fire_spread().unwrap();
     assert_eq!(burning_loops(&logic), 1, "the next update keeps the loop");
+
+    // C++ FlammableUpdate.cpp:139,227-233 removes the existing playback on
+    // extinction; the queued event must carry the stop flag, not replay.
+    let end_frame = logic
+        .host_object(id)
+        .unwrap()
+        .fire_spread
+        .as_ref()
+        .unwrap()
+        .aflame_end_frame;
+    logic.queued_audio_events.drain_requests();
+    logic.set_current_frame(end_frame.into());
+    logic.update_fire_spread().unwrap();
+    let mut events = logic
+        .queued_audio_events
+        .iter()
+        .filter(|event| event.event_type == TREE_BURNING_SOUND && event.object_id == Some(id));
+    let stop = events
+        .next()
+        .expect("extinction stops the existing burning loop");
+    assert!(
+        stop.stop && !stop.is_looping,
+        "extinction must not play the burning cue again"
+    );
+    assert!(events.next().is_none());
 }
 
 #[test]
