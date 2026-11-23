@@ -2,6 +2,7 @@
 
 use crate::common::audio::AudioEventRts;
 use crate::modules::ai_state_runtime::AiStateRuntime;
+use crate::modules::ai_world::AiWorld;
 
 use super::attack::*;
 use super::attack_machine::*;
@@ -100,6 +101,40 @@ impl AIMoveAwayFromRepulsorsState {
             goal_dirty: false,
             goal_clear_object: false,
         }
+    }
+}
+
+impl AIStateMachine {
+    pub(crate) fn restore_repulsor_movement_sound(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        world: &mut dyn AiWorld,
+    ) -> Result<(), String> {
+        use crate::state_machine::cpp_state::CppStateAdapter;
+
+        let Some(id) = self.get_current_state_id().filter(|&id| {
+            id == AIStateType::MoveAwayFromRepulsors as u32
+                || id == AIStateType::WanderInPlace as u32
+        }) else {
+            return Ok(());
+        };
+        let state = self.base.get_state_mut(id).ok_or("restored movement state missing")?;
+        let state = state.as_mut() as &mut dyn std::any::Any;
+        let movement = if id == AIStateType::MoveAwayFromRepulsors as u32 {
+            &mut state
+                .downcast_mut::<CppStateAdapter<AIMoveAwayFromRepulsorsState>>()
+                .ok_or("restored repulsor movement state has the wrong implementation")?
+                .inner_mut()
+                .base
+        } else {
+            &mut state
+                .downcast_mut::<CppStateAdapter<AIWanderInPlaceState>>()
+                .ok_or("restored wander state has the wrong implementation")?
+                .inner_mut()
+                .base
+        };
+        // Both original derived states call AIInternalMoveToState::loadPostProcess.
+        movement.start_move_sound_with_world(owner, world)
     }
 }
 
@@ -1620,21 +1655,38 @@ impl AIMoveToState {
         } else {
             template.get_sound_move_start()
         };
-        let loop_sound = if use_damaged {
-            template.get_sound_move_loop_damaged()
-        } else {
-            template.get_sound_move_loop()
-        };
-        if start_sound.get_event_name().is_empty() {
-            start_sound = loop_sound.clone();
+        let looping = start_sound.get_event_name().is_empty();
+        if looping {
+            start_sound = if use_damaged {
+                template.get_sound_move_loop_damaged()
+            } else {
+                template.get_sound_move_loop()
+            };
         }
         if start_sound.get_event_name().is_empty() {
             return None;
         }
         start_sound.set_object_id(owner_guard.get_id());
-        let looping = start_sound.get_event_name() == loop_sound.get_event_name()
-            && !loop_sound.get_event_name().is_empty();
         Some((start_sound, looping))
+    }
+
+    fn start_move_sound_with_world(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        world: &mut dyn AiWorld,
+    ) -> Result<(), String> {
+        let event = {
+            let owner = owner.read().map_err(|_| "movement sound owner poisoned")?;
+            Self::movement_sound(&owner)
+        };
+        if let Some((event, looping)) = event {
+            let handle = world.add_audio_event(&event);
+            if looping {
+                self.ambient_playing_handle = handle;
+                self.ambient_playing_audio = None;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn start_move_sound_with_ai(
@@ -1642,18 +1694,15 @@ impl AIMoveToState {
         owner: &Arc<RwLock<Object>>,
         ai: &mut dyn AiStateRuntime,
     ) -> Result<(), String> {
+        if let Some(world) = ai.world_mut() {
+            return self.start_move_sound_with_world(owner, world);
+        }
         let (event, audio) = {
             let owner = owner.read().map_err(|_| "movement sound owner poisoned")?;
             (Self::movement_sound(&owner), TheAudio::of_object(&owner))
         };
         if let Some((event, looping)) = event {
-            let handle = match ai.world_mut() {
-                Some(world) => world.add_audio_event(&event),
-                None => audio
-                    .as_ref()
-                    .map(|audio| audio.add_audio_event(&event))
-                    .unwrap_or(0),
-            };
+            let handle = audio.as_ref().map(|audio| audio.add_audio_event(&event)).unwrap_or(0);
             if looping {
                 self.ambient_playing_handle = handle;
                 self.ambient_playing_audio = audio;

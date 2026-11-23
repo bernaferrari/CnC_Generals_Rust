@@ -132,11 +132,29 @@ fn repulsor_query_reads_actual_rule_and_partition_owner_without_peer_selection()
 
 #[test]
 fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
+    const ESCAPE_LOOP: &str = "NativeRepulsorEscapeLoop";
+    fn install_escape_audio(audio: &mut AudioManager) {
+        audio.init();
+        audio.register_audio_event_info(game_engine::common::audio::AudioEventInfo {
+            audio_name: ESCAPE_LOOP.into(),
+            volume: 1.0,
+            sounds: vec!["escape.wav".into()],
+            filename: "escape.wav".into(),
+            type_field: game_engine::common::audio::ST_GLOBAL,
+            control: game_engine::common::audio::AC_LOOP,
+            pitch_shift_min: 1.0,
+            pitch_shift_max: 1.0,
+            ..Default::default()
+        });
+    }
+
     let services = crate::system::engine_stores::new_world_services();
     crate::system::engine_stores::with_world_services(&services, || {
         let mut base = DefaultThingTemplate::new("NativeRepulsibleInfantry".into());
         base.add_kind_of(KindOf::Infantry);
         base.add_kind_of(KindOf::CanBeRepulsed);
+        base.parse_object_fields_from_ini(&[("SoundMoveLoop".into(), ESCAPE_LOOP.into())].into())
+            .unwrap();
         let mut body = crate::object::body::active_body::ActiveBodyModuleData::default();
         body.initial_health = 100.0;
         body.max_health = 100.0;
@@ -190,6 +208,8 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
             infantry.clone(),
         );
         let mut peer = NativeMatch::with_source_template(95.0, container_template(), false, infantry);
+        install_escape_audio(&mut receiver.audio);
+        install_escape_audio(&mut peer.audio);
         admit_actual_search_partition(&mut receiver);
         admit_actual_search_partition(&mut peer);
         receiver.rules.enable_repulsors = true;
@@ -235,6 +255,8 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
         let (state, has_path, end, _, layer) = installed_path_observation(&receiver);
         assert_eq!(state, away, "native Idle must enter the receiving panic state");
         assert!(has_path, "the receiving pathfinder must install the queued safe path");
+        assert_eq!(receiver.audio.pending_play_request_count_for(ESCAPE_LOOP), 1);
+        assert_eq!(peer.audio.pending_play_request_count_for(ESCAPE_LOOP), 0);
         let end = end.unwrap();
         assert!((end.x - repulsor.x).hypot(end.y - repulsor.y) > 45.0);
         assert_eq!(layer, Some(crate::common::PathfindLayerEnum::Ground as u8));
@@ -246,16 +268,38 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
         // The new receiving world must resume the same scheduled move.
         let source_name = receiver.source.read().unwrap().get_template().get_name().to_string();
         let target_name = receiver.target.read().unwrap().get_template().get_name().to_string();
+        let restore_with_sound = |saved: &[_], frame, state| {
+            let mut restored = super::object_restore_tests::prepare_with_templates(
+                &catalog,
+                Some(saved),
+                &source_name,
+                &target_name,
+            )
+            .unwrap();
+            install_escape_audio(&mut restored.audio);
+            super::object_restore_tests::transfer(&mut restored, &catalog, frame, |services| {
+                services.load_objects(saved).unwrap();
+            });
+            assert_eq!(installed_path_observation(&restored).0, state);
+            assert_eq!(restored.audio.pending_play_request_count_for(ESCAPE_LOOP), 0);
+            super::object_restore_tests::finish_restored_objects(&mut restored, saved, frame)
+                .unwrap();
+            let sounds: Vec<_> = restored
+                .audio
+                .pending_play_events()
+                .filter(|event| event.get_event_name() == ESCAPE_LOOP)
+                .map(|event| event.get_object_id())
+                .collect();
+            assert_eq!(
+                sounds,
+                [restored.source.read().unwrap().get_id()],
+                "movement postload submits one loop for the receiving object",
+            );
+            restored
+        };
         let saved = super::object_restore_tests::capture_at(&mut receiver, &catalog, 131);
-        let mut restored = super::object_restore_tests::fresh_with_templates(
-            &catalog,
-            Some(&saved),
-            &source_name,
-            &target_name,
-            true,
-            131,
-        )
-        .unwrap();
+        let mut restored = restore_with_sound(&saved, 131, away);
+        assert_eq!(peer.audio.pending_play_request_count_for(ESCAPE_LOOP), 0);
         restored.rules = receiver.rules.clone();
         tick(&mut restored, 132);
         let restored_path = installed_path_observation(&restored);
@@ -318,7 +362,21 @@ fn scheduled_repulsor_escape_queues_and_installs_a_receiving_path() {
         assert!((position.x - repulsor.x).hypot(position.y - repulsor.y) > 20.0);
         tick(&mut receiver, arrival_frame + 1);
         assert_eq!(installed_path_observation(&receiver).0, wander);
+        let saved = super::object_restore_tests::capture_at(
+            &mut receiver,
+            &catalog,
+            arrival_frame + 1,
+        );
+        let resumed_wander = restore_with_sound(&saved, arrival_frame + 1, wander);
+        let (_, restored_has_path, restored_end, _, _) = installed_path_observation(&resumed_wander);
+        let (_, has_path, end, _, _) = installed_path_observation(&receiver);
+        assert_eq!((restored_has_path, restored_end), (has_path, end));
+        assert_eq!(
+            resumed_wander.source.read().unwrap().get_position(),
+            receiver.source.read().unwrap().get_position(),
+        );
         assert_eq!(installed_path_observation(&peer), peer_path);
+        assert_eq!(peer.audio.pending_play_request_count_for(ESCAPE_LOOP), 0);
     });
 }
 

@@ -1819,6 +1819,13 @@ impl UnitAIUpdate {
         };
         let moving = self.is_moving();
         let saved_goal = self.runtime.data.pathfind_goal_cell;
+        if world.pathfinder().is_none() {
+            return Err("supplied pathfinder missing".into());
+        }
+        self.ai_state_machine
+            .as_mut()
+            .expect("restored AI machine validated")
+            .restore_repulsor_movement_sound(&owner_arc, world)?;
         // Admit the mutable service before changing any saved occupancy marker.
         let pathfinder = world.pathfinder().ok_or("supplied pathfinder missing")?;
         let (cell_radius, center_in_cell) =

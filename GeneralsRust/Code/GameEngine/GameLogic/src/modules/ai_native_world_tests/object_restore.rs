@@ -338,30 +338,39 @@ pub(super) fn fresh_with_templates(
                     .is_none()
             );
         }
-        // Retain original record/module visitation order for supplied postload.
-        for record in records {
-            let owner = game
-                .factory
-                .get_object(record.saved_id()?)
-                .and_then(|slot| slot.get_base_object())
-                .unwrap();
-            game.operate(restore_frame, |world| {
-                Object::load_post_process_from_handle_with_world(&owner, world)
-            })?;
-        }
-        game.scheduler.set_current_frame(restore_frame.into());
-        for record in records {
-            let owner = game
-                .factory
-                .get_object(record.saved_id()?)
-                .and_then(|slot| slot.get_base_object())
-                .unwrap();
-            Object::admit_update_schedule_from_handle(&owner, &mut game.scheduler)?;
-        }
+        finish_restored_objects(&mut game, records, restore_frame)?;
     } else {
         admit_prepared_match(&mut game, catalog)?;
     }
     Ok(game)
+}
+
+pub(super) fn finish_restored_objects(
+    game: &mut NativeMatch,
+    records: &[ObjectSnapshotRecord],
+    restore_frame: u32,
+) -> Result<(), String> {
+    // Retain original record/module visitation order for supplied postload.
+    for record in records {
+        let owner = game
+            .factory
+            .get_object(record.saved_id()?)
+            .and_then(|slot| slot.get_base_object())
+            .unwrap();
+        game.operate(restore_frame, |world| {
+            Object::load_post_process_from_handle_with_world(&owner, world)
+        })?;
+    }
+    game.scheduler.set_current_frame(restore_frame.into());
+    for record in records {
+        let owner = game
+            .factory
+            .get_object(record.saved_id()?)
+            .and_then(|slot| slot.get_base_object())
+            .unwrap();
+        Object::admit_update_schedule_from_handle(&owner, &mut game.scheduler)?;
+    }
+    Ok(())
 }
 
 fn capture(game: &mut NativeMatch, catalog: &Catalog) -> Vec<ObjectSnapshotRecord> {

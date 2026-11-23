@@ -67,6 +67,9 @@ impl ThingTemplate for EntryTemplate {
     fn get_behavior_module_info(&self) -> &[TemplateModuleInfo] {
         &self.modules
     }
+    fn get_sound_move_loop(&self) -> crate::common::audio::AudioEventRts {
+        self.base.get_sound_move_loop()
+    }
 }
 fn infantry_template() -> Arc<dyn ThingTemplate> {
     let mut base = DefaultThingTemplate::new("NativeEnterInfantry".into());
