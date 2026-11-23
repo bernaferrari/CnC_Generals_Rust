@@ -2095,6 +2095,194 @@ mod cost_modifier_receiving_owner_tests {
 
     const UPGRADE: &str = "Upgrade_OwnedCostModifier";
 
+    #[test]
+    fn authored_portable_capture_runs_child_callbacks_on_new_controllers_default_team() {
+        use crate::presentation_frame::PresentationFrame;
+        use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+
+        fn world(contain_class: &str) -> (GameLogic, u32) {
+            let mut world = GameLogic::new();
+            for (id, color) in [(1, (255, 0, 0)), (2, (0, 0, 255))] {
+                let mut player = Player::new(id, Team::USA, "PortableOwner", true);
+                player.color_rgb = color;
+                player.color_night_rgb = color;
+                world.add_player(player);
+            }
+            const UPGRADE: &str = "Upgrade_CapturePortableCost";
+            crate::game_logic::host_upgrade_rules::register_test_upgrade(
+                &mut world, UPGRADE, "OBJECT", 0, 1,
+            );
+            let hull_admission = if contain_class == "HelixContain" {
+                "INFANTRY"
+            } else {
+                "PORTABLE_STRUCTURE"
+            };
+            let hull_team = {
+                let mut factory = world.team_factory.lock().unwrap();
+                let (_, actions) = factory
+                    .init_team_owned_with_effects(
+                        "CapturedHullTeam".into(),
+                        "RustPlayer2".into(),
+                        false,
+                        Some(&game_engine::common::dict::Dict::new()),
+                        Some(2),
+                    )
+                    .unwrap();
+                assert!(actions.is_empty());
+                let (team, actions) = factory
+                    .find_team_with_owned_effects("CapturedHullTeam")
+                    .unwrap();
+                assert!(actions.is_empty());
+                let id = team.read().unwrap().get_id();
+                id
+            };
+            world
+                .admit_object_ini_sources([(
+                    "portable-capture.ini".to_owned(),
+                    format!(r#"
+Object CaptureHull
+ KindOf = VEHICLE SELECTABLE
+ Body = ActiveBody HullBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = {contain_class} PayloadContain
+  Slots = 1
+  AllowInsideKindOf = {hull_admission}
+  PayloadTemplateName = CapturePayload CapturePassenger
+ End
+End
+Object CapturePayload
+ KindOf = VEHICLE PORTABLE_STRUCTURE SELECTABLE
+ TransportSlotCount = 1
+ Body = ActiveBody PayloadBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = GrantUpgradeCreate GrantCost
+  UpgradeToGrant = {UPGRADE}
+  ExemptStatus = UNDER_CONSTRUCTION
+ End
+ Behavior = CostModifierUpgrade PayloadCost
+  TriggeredBy = {UPGRADE}
+  EffectKindOf = VEHICLE
+  Percentage = -25%
+ End
+ Behavior = TransportContain PassengerContain
+  Slots = 1
+  AllowInsideKindOf = INFANTRY
+ End
+End
+Object CapturePassenger
+ KindOf = INFANTRY
+ TransportSlotCount = 1
+ Body = ActiveBody PassengerBody
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+End
+"#),
+                )])
+                .unwrap();
+            (world, hull_team)
+        }
+
+        fn spawn(world: &mut GameLogic) -> (ObjectId, ObjectId) {
+            let hull = world
+                .create_object_for_player("CaptureHull", 1, glam::Vec3::ZERO)
+                .unwrap();
+            let payload = world
+                .overlord_helix_portable_occupant_id(hull)
+                .expect("payload installed by the authored hull factory");
+            assert_eq!(
+                world.host_object(payload).unwrap().cost_modifier_upgrade_executed,
+                [true]
+            );
+            (hull, payload)
+        }
+
+        fn quote(world: &GameLogic) -> [u32; 2] {
+            [1, 2].map(|player| world.modified_build_cost_supplies(player, "CaptureHull", 800))
+        }
+
+        for contain_class in ["HelixContain", "OverlordContain"] {
+            let (mut receiver, hull_team) = world(contain_class);
+            let (mut peer, peer_hull_team) = world(contain_class);
+            assert_eq!(peer_hull_team, hull_team);
+            let (hull, payload) = spawn(&mut receiver);
+            assert_eq!(spawn(&mut peer), (hull, payload));
+            let passenger_carrier = if contain_class == "HelixContain" { hull } else { payload };
+            let [passenger] = receiver
+                .host_object(passenger_carrier)
+                .unwrap()
+                .contained_unit_ids()
+            else {
+                panic!("ordinary passenger in the authored physical carrier");
+            };
+            let passenger = *passenger;
+            let original_team = receiver.host_default_team_id(1).unwrap();
+            let capture_default = receiver.host_default_team_id(2).unwrap();
+            assert_ne!(hull_team, capture_default);
+            assert_eq!(quote(&receiver), [600, 800]);
+            assert!(receiver.set_host_object_team(hull, hull_team).unwrap());
+
+            assert_eq!(quote(&receiver), [800, 600], "{contain_class}");
+            assert_eq!(quote(&peer), [600, 800], "same ObjectIds in the peer");
+            let child = receiver.host_object(payload).unwrap();
+            assert_eq!(child.team_instance_id, Some(capture_default));
+            assert_eq!(child.contained_by, Some(hull));
+            assert_eq!(
+                receiver.host_object(passenger).unwrap().contained_by,
+                Some(passenger_carrier),
+                "the outer onCapture never eagerly ejects either roster"
+            );
+            assert_eq!(
+                receiver.host_object(passenger).unwrap().owner_player_id,
+                Some(1),
+                "an ordinary rider is not captured with the portable payload"
+            );
+            assert_eq!(
+                receiver.host_object(passenger_carrier).unwrap().pending_evacuate_on_stop,
+                contain_class == "OverlordContain",
+                "only the Overlord payload's own TransportContain orders its passenger to exit"
+            );
+            assert_eq!(
+                receiver.host_object(hull).unwrap().team_instance_id,
+                Some(hull_team)
+            );
+            {
+                let factory = receiver.team_factory.lock().unwrap();
+                for (team, member, expected) in [
+                    (original_team, payload, false),
+                    (capture_default, payload, true),
+                    (hull_team, hull, true),
+                    (hull_team, payload, false),
+                ] {
+                    let team = factory.find_team_by_id(team).unwrap();
+                    assert_eq!(team.read().unwrap().has_member(member.0), expected);
+                }
+            }
+            let frame = PresentationFrame::build_from_logic(&mut receiver, 2);
+            let drawable = frame.objects.iter().find(|object| object.id == payload).unwrap();
+            assert_eq!(drawable.owner_player_id, Some(2));
+            assert_eq!(drawable.team_color, [0.0, 0.0, 1.0, 1.0]);
+
+            let builder = SnapshotBuilder::new();
+            let saved = builder.create_world_snapshot(&receiver).unwrap();
+            let bytes = bincode_legacy::serialize(&saved).unwrap();
+            let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+            let (mut restored, restored_hull_team) = world(contain_class);
+            assert_eq!(restored_hull_team, hull_team);
+            builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+            assert_eq!(quote(&restored), [800, 600]);
+            assert_eq!(
+                restored.host_object(payload).unwrap().team_instance_id,
+                Some(capture_default)
+            );
+        }
+    }
+
+
     const STOCK_REFINERY: &str = "TechOilRefinery";
     const STOCK_CRUSADER: &str = "AmericaTankCrusader";
     const STOCK_PRICE: u32 = 900;

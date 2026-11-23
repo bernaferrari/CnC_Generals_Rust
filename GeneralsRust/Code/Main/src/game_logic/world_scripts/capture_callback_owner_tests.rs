@@ -119,10 +119,10 @@ fn same_owner_unit_team_callback_preserves_orders_without_scoring_or_evacuation(
 #[test]
 fn defect_post_voice_phase_ejects_immediately_after_capture_walk_order() {
     let (mut world, transport, passenger) = transport_world();
-    world.on_capture_kick_passengers_owned(transport, Team::USA, true);
+    world.on_capture_kick_passengers_owned(transport, true);
     assert!(world.objects[&transport].pending_evacuate_on_stop);
     assert_eq!(world.objects[&passenger].contained_by, Some(transport));
-    world.on_defect_kick_passengers_owned(transport, Team::USA);
+    world.on_defect_kick_passengers_owned(transport);
     assert_eq!(world.objects[&passenger].contained_by, None);
     assert!(
         !world.objects[&transport]
@@ -143,7 +143,7 @@ fn ordinary_garrison_on_capture_keeps_occupants_but_defect_kicks_them_immediatel
 
     // Object::defect separately checks isKickOutOnCapture (OpenContain's
     // default is TRUE) and calls removeAllContained immediately.
-    world.on_defect_kick_passengers_owned(garrison, Team::USA);
+    world.on_defect_kick_passengers_owned(garrison);
     assert!(world.objects[&garrison].contained_units().is_empty());
     assert_eq!(world.objects[&passenger].contained_by, None);
 }

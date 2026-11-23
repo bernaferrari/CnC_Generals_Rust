@@ -507,21 +507,23 @@ impl GameLogic {
         // receiving-side capture callback residuals below. The receipt keeps
         // this transition tied to the original object birth and owners if
         // either earlier phase reenters the world.
-        if let Some((birth, old_owner, new_owner)) = capture_context {
-            self.cost_modifier_on_capture(object_id, &birth, old_owner, new_owner);
-            self.capture_plant_power_bonuses(object_id, &birth, old_owner, new_owner);
+        if let Some((birth, old_owner, new_owner)) = &capture_context {
+            self.cost_modifier_on_capture(object_id, birth, *old_owner, *new_owner);
+            self.capture_plant_power_bonuses(object_id, birth, *old_owner, *new_owner);
         }
 
         // Module callbacks run even for different teams controlled by one player.
         self.on_capture_tunnel_network_residual_with_effects(
             object_id, old_team, new_team, effects,
         );
-        self.on_capture_kick_passengers_owned_with_effects(
-            object_id,
-            new_team,
-            owner_changed,
-            effects,
-        );
+        self.on_capture_kick_passengers_owned_with_effects(object_id, owner_changed, effects)?;
+        if capture_context.as_ref().is_some_and(|(birth, _, owner)| {
+            !self.object_birth_matches(object_id, birth)
+                || self.objects.get(&object_id).and_then(|object| object.owner_player_id)
+                    != *owner
+        }) {
+            return Ok(());
+        }
         self.capture_authored_radar_provider_with_effects(object_id, effects);
 
         // C++ Player::becomingTeamMember → awardInitialCaptureBonus always
@@ -599,79 +601,65 @@ impl GameLogic {
         Ok(())
     }
 
-    /// C++ TransportContain/OpenContain::onCapture residual.
-    ///
-    /// Default containers kick passengers on capture (tunnels/caves do not).
-    /// Unmanned vehicles eject instantly (residual: same eject path).
-    /// Overlord/Helix portable addon is `setTeam`'d and stays attached
-    /// (`OverlordContain.cpp:227-235` / `HelixContain.cpp:217-222`). Infantry
-    /// inside the addon still eject (`Object.cpp:6187-6191` removeAllContained).
+    /// C++ TransportContain::onCapture and the Helix/Overlord overrides.
     pub fn on_capture_kick_passengers(
         &mut self,
         container_id: ObjectId,
         old_team: Team,
         new_team: Team,
     ) {
-        self.on_capture_kick_passengers_owned(container_id, new_team, old_team != new_team);
+        self.on_capture_kick_passengers_owned(container_id, old_team != new_team);
     }
 
-    /// Module capture handling uses concrete owner identity, not faction equality.
+    /// Module capture handling uses concrete owner identity, independently of faction.
     pub(in crate::game_logic) fn on_capture_kick_passengers_owned(
         &mut self,
         container_id: ObjectId,
-        new_team: Team,
         owner_changed: bool,
     ) {
         self.on_capture_kick_passengers_owned_with_effects(
             container_id,
-            new_team,
             owner_changed,
             &mut Default::default(),
-        );
+        )
+        .expect("capture passengers fixture requires a receiving Team");
     }
-    pub(in crate::game_logic) fn on_capture_kick_passengers_owned_with_effects(
+
+    fn on_capture_kick_passengers_owned_with_effects(
         &mut self,
         container_id: ObjectId,
-        new_team: Team,
         owner_changed: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.capture_passengers_owned_with_effects(
-            container_id,
-            new_team,
-            owner_changed,
-            false,
-            effects,
-        );
+    ) -> gamelogic::GameLogicResult<()> {
+        if self.objects.get(&container_id).is_some_and(|container| {
+            container.is_helix_transport || container.is_overlord_style_container()
+        }) {
+            // Neither override calls TransportContain::onCapture for the hull.
+            // The nested transfer may call it on the payload itself.
+            return self.capture_overlord_helix_payload_with_effects(container_id, effects);
+        }
+        self.capture_passengers_owned_with_effects(container_id, owner_changed, false, effects);
+        Ok(())
     }
 
     /// Object::defect's post-voice removeAllContained(TRUE) phase, independent
     /// of whether the owners differ. The earlier onCapture already transferred
     /// any portable rider, so do not invoke that rider's capture callbacks again.
-    pub(in crate::game_logic) fn on_defect_kick_passengers_owned(
-        &mut self,
-        container_id: ObjectId,
-        new_team: Team,
-    ) {
-        self.on_defect_kick_passengers_owned_with_effects(
-            container_id,
-            new_team,
-            &mut Default::default(),
-        );
+    pub(in crate::game_logic) fn on_defect_kick_passengers_owned(&mut self, container_id: ObjectId) {
+        self.on_defect_kick_passengers_owned_with_effects(container_id, &mut Default::default());
     }
+
     pub(in crate::game_logic) fn on_defect_kick_passengers_owned_with_effects(
         &mut self,
         container_id: ObjectId,
-        new_team: Team,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        self.capture_passengers_owned_with_effects(container_id, new_team, true, true, effects);
+        self.capture_passengers_owned_with_effects(container_id, true, true, effects);
     }
 
     fn capture_passengers_owned_with_effects(
         &mut self,
         container_id: ObjectId,
-        new_team: Team,
         owner_changed: bool,
         immediate: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
@@ -694,20 +682,11 @@ impl GameLogic {
             return;
         }
 
-        // C++ OverlordContain/HelixContain::onCapture: setTeam portable rider.
-        let portable_id = if immediate {
-            container.overlord_portable_occupant
-        } else {
-            self.on_capture_overlord_helix_portable_addon(container_id, new_team)
-        };
-
         if !owner_changed {
             return;
         }
 
-        let Some(container) = self.objects.get(&container_id) else {
-            return;
-        };
+        let portable_id = container.overlord_portable_occupant;
         // C++ OverlordContain::isKickOutOnCapture: FALSE unless redirected bunker.
         let overlord_no_redirect = container.is_overlord_style_container()
             && !container.is_helix_transport
@@ -738,7 +717,6 @@ impl GameLogic {
                     || template_lc.contains("outpost")
                     || template_lc.contains("helix")
             });
-        let portable_id = portable_id.or(container.overlord_portable_occupant);
         let mut occupants: Vec<ObjectId> = container
             .contained_units()
             .into_iter()

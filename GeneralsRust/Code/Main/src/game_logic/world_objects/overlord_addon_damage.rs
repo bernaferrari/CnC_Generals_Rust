@@ -145,26 +145,45 @@ impl GameLogic {
             .map(|_| id)
     }
 
-    /// C++ OverlordContain.cpp:227-235 / HelixContain.cpp:217-222 `onCapture`.
-    /// `setTeam` the portable rider to the capturer default team; keep attached.
-    pub(crate) fn on_capture_overlord_helix_portable_addon(
+    /// OverlordContain.cpp:227–235 / HelixContain.cpp:217–222 use the
+    /// receiving controller's default Team. A Helix has a separate portable
+    /// slot, whereas an Overlord picks the first physical rider.
+    pub(in crate::game_logic) fn capture_overlord_helix_payload_with_effects(
         &mut self,
         host_id: ObjectId,
-        new_team: Team,
-    ) -> Option<ObjectId> {
-        let addon_id = self.overlord_helix_portable_occupant_id(host_id)?;
-        let owner = self
-            .objects
-            .get(&host_id)
-            .and_then(|host| host.owner_player_id);
-        if let Some(addon) = self.objects.get_mut(&addon_id) {
-            addon.set_team_and_owner_with_partition_owner(
-                new_team,
-                owner,
-                &mut self.ownership_events,
-                &mut self.partition_manager,
-            );
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(host) = self.objects.get(&host_id) else {
+            return Ok(());
+        };
+        let payload = if host.is_helix_transport {
+            host.overlord_portable_occupant
+        } else {
+            host.occupants.first().copied()
+        };
+        let Some(payload) = payload.filter(|payload| {
+            self.objects
+                .get(payload)
+                .is_some_and(|rider| rider.contained_by == Some(host_id))
+        }) else {
+            return Ok(());
+        };
+        let Some(owner) = host.owner_player_id else {
+            return Ok(());
+        };
+        let destination = self.host_default_team_id(owner).ok_or_else(|| {
+            gamelogic::GameLogicError::Configuration(
+                "captured portable payload requires its controller's default Team".into(),
+            )
+        })?;
+        // Neither the host Object nor a Team guard is borrowed into the
+        // child transfer. Object::setTeam runs the child's capture callbacks
+        // synchronously and keeps the physical attachment.
+        if !self.set_host_object_team_with_effects(payload, destination, effects)? {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "captured portable payload could not enter its controller's default Team".into(),
+            ));
         }
-        Some(addon_id)
+        Ok(())
     }
 }

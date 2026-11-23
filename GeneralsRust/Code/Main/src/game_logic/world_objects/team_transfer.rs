@@ -365,8 +365,14 @@ impl GameLogic {
                 faction,
                 old_owner != Some(owner),
                 effects,
-                Some((old_birth, old_owner, Some(owner))),
+                Some((old_birth.clone(), old_owner, Some(owner))),
             )?;
+            if !self.object_birth_matches(id, &old_birth)
+                || self.objects.get(&id).and_then(|object| object.team_instance_id)
+                    != Some(destination)
+            {
+                return Ok(true);
+            }
         }
         if self.radar.contains_object(id.0) {
             self.host_radar_remove_object(id);
@@ -482,8 +488,7 @@ impl GameLogic {
             .with_position(position)
             .with_priority(160),
         );
-        let faction = self.objects.get(&id).expect("receiving defector").team;
-        self.on_defect_kick_passengers_owned_with_effects(id, faction, effects);
+        self.on_defect_kick_passengers_owned_with_effects(id, effects);
         self.defect_parked_units_owned_with_effects(id, destination, frames, effects)?;
         // Object.cpp:6203 visits produced mines in the canonical Object list.
         let mines: Vec<_> = self
