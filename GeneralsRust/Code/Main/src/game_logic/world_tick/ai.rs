@@ -132,15 +132,21 @@ impl GameLogic {
             let (height_die_terrain, frenzy_expired) = self.objects.get(&object_id).map_or(
                 (None, false),
                 |object| {
-                    // The authored lifecycle samples its own pose below. Keep
-                    // the pre-callback terrain observation for the legacy tick.
-                    let height_die_terrain = object.native_lifecycle.is_none().then(|| {
-                        self.height_die_terrain_at(
-                            object.get_position(),
-                            &object.template_name,
-                            object.ground_height,
-                        )
-                    });
+                    // Only a legacy HeightDie module needs this pre-callback
+                    // sample. Authored lifecycle modules sample at their own update.
+                    let height_die_terrain = if object.native_lifecycle.is_none() {
+                        let ini = object.legacy_height_die_ini();
+                        (object.height_die.is_some() || ini.is_some()).then(|| {
+                            let terrain = self.height_die_terrain_at(
+                                object.get_position(),
+                                ini,
+                                object.ground_height,
+                            );
+                            (terrain, ini)
+                        })
+                    } else {
+                        None
+                    };
                     let frenzy_expired = object.weapon_bonus_frenzy
                         && object.weapon_bonus_frenzy_until_frame > 0
                         && self.frame >= object.weapon_bonus_frenzy_until_frame;
@@ -450,8 +456,8 @@ impl GameLogic {
                 // C++ HeightDieUpdate residual (bombs/missiles).
                 // Apply the receiving object's height-death result.
                 if !topple_kill
-                    && let Some(terrain) = height_die_terrain
-                    && obj.tick_height_die(self.frame, terrain)
+                    && let Some((terrain, ini)) = height_die_terrain
+                    && obj.tick_height_die_with_ini(self.frame, terrain, ini)
                 {
                     topple_kill = true;
                 }

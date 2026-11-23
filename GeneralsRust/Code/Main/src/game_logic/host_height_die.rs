@@ -78,18 +78,6 @@ pub struct HeightDieIni {
     pub includes_structures: bool,
 }
 
-/// Common peels (target height, only_descending, initial delay msec).
-/// Values are retail INI `TargetHeight` / `OnlyWhenMovingDown` / `InitialDelay`.
-pub fn height_die_config_for_template(name: &str) -> Option<(f32, bool, u32)> {
-    height_die_ini_for_template(name).map(|ini| {
-        (
-            ini.target_height,
-            ini.only_when_descending,
-            ini.initial_delay_ms,
-        )
-    })
-}
-
 /// C++ HeightDieUpdate INI lookup (TargetHeight + structures flag).
 pub fn height_die_ini_for_template(name: &str) -> Option<HeightDieIni> {
     // Every accepting branch below needs one of these substrings; this runs

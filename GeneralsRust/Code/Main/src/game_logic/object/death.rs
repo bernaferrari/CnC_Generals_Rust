@@ -335,26 +335,39 @@ impl Object {
         true
     }
 
-    /// Attach FireWeaponWhenDamaged residual when template peels match.
-
+    /// Install the fallback HeightDie state for a detached template.
     pub fn ensure_height_die(&mut self, current_frame: u32) {
+        self.ensure_height_die_with_ini(current_frame, self.legacy_height_die_ini());
+    }
+
+    pub(in crate::game_logic) fn legacy_height_die_ini(
+        &self,
+    ) -> Option<crate::game_logic::host_height_die::HeightDieIni> {
+        (self.height_die.is_some()
+            || (self.native_lifecycle.is_none()
+                && self.thing.template.native_lifecycle_definitions.is_none()))
+        .then(|| crate::game_logic::host_height_die::height_die_ini_for_template(&self.template_name))
+        .flatten()
+    }
+
+    fn ensure_height_die_with_ini(
+        &mut self,
+        current_frame: u32,
+        ini: Option<crate::game_logic::host_height_die::HeightDieIni>,
+    ) {
         if self.native_lifecycle.is_some()
             || self.thing.template.native_lifecycle_definitions.is_some()
+            || self.height_die.is_some()
         {
             return;
         }
-        if self.height_die.is_some() {
-            return;
-        }
-        if let Some((h, desc, delay_ms)) =
-            crate::game_logic::host_height_die::height_die_config_for_template(&self.template_name)
-        {
-            let delay_f = ((delay_ms as f32) * 30.0 / 1000.0).round() as u32;
+        if let Some(ini) = ini {
+            let delay = (ini.initial_delay_ms as f32 * 30.0 / 1000.0).round() as u32;
             self.height_die = Some(
                 crate::game_logic::host_height_die::HostHeightDieData::with_target(
-                    h,
-                    desc,
-                    current_frame.saturating_add(delay_f),
+                    ini.target_height,
+                    ini.only_when_descending,
+                    current_frame.saturating_add(delay),
                 ),
             );
         }
@@ -411,10 +424,19 @@ impl Object {
     }
 
     pub fn tick_height_die(&mut self, current_frame: u32, terrain_height: f32) -> bool {
+        self.tick_height_die_with_ini(current_frame, terrain_height, self.legacy_height_die_ini())
+    }
+
+    pub(in crate::game_logic) fn tick_height_die_with_ini(
+        &mut self,
+        current_frame: u32,
+        terrain_height: f32,
+        ini: Option<crate::game_logic::host_height_die::HeightDieIni>,
+    ) -> bool {
         if self.native_lifecycle.is_some() {
             return false;
         }
-        self.ensure_height_die(current_frame);
+        self.ensure_height_die_with_ini(current_frame, ini);
         let pos = self.get_position();
         let hat = pos.y - terrain_height;
         let contained = self.contained_by.is_some();
