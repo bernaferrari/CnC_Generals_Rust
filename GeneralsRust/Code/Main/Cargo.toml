@@ -127,6 +127,7 @@ bincode = {workspace = true}
 crc32fast = {workspace = true}
 thiserror = {workspace = true}
 serde_json = { workspace = true }
+hex = { workspace = true }
 parking_lot = { workspace = true }
 once_cell = {workspace = true}
 

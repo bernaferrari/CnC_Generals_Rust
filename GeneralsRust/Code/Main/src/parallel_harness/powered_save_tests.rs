@@ -140,10 +140,11 @@ fn check_power_plant_save() {
         receiving.logic.host_object(site).unwrap().health.current,
         next_health
     );
-    let resumed_tick = receiving.observe();
-    let original_tick = game.observe();
-    assert_eq!(resumed_tick.players, original_tick.players);
-    assert_eq!(resumed_tick.world_digest, original_tick.world_digest);
+    assert_eq!(
+        receiving.observe(),
+        game.observe(),
+        "first resumed logic tick"
+    );
 
     let finished = (0..900).any(|_| {
         receiving.advance();

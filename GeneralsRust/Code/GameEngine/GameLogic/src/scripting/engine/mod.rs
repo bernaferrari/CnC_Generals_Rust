@@ -48,6 +48,9 @@ include!("update.rs");
 include!("named_trackers.rs");
 include!("leftover.rs");
 
+mod list_continuation;
+pub use list_continuation::SideScriptContinuation;
+
 #[cfg(test)]
 mod sequence_control_tests;
 #[cfg(test)]

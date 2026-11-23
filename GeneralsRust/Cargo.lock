@@ -4513,6 +4513,7 @@ dependencies = [
  "generals_map",
  "generals_presentation",
  "glam 0.33.7",
+ "hex",
  "image",
  "integration",
  "lazy_static",

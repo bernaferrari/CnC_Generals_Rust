@@ -551,16 +551,6 @@ fn capture_persist_v18_bound(
         persist.script_engine_tail = Some(tail);
     }
 
-    persist.script_actives = game_logic
-        .snapshot_script_actives()
-        .into_iter()
-        .map(|(name, is_group, is_active)| ScriptActivePersist {
-            name,
-            is_group,
-            is_active,
-        })
-        .collect();
-
     if let Ok(terrain) = game_logic.world_services.terrain().read() {
         persist.terrain_active_boundary = terrain.get_active_boundary();
         persist.water_updates = terrain

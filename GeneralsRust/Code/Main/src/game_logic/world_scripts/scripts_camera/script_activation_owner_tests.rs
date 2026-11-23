@@ -67,6 +67,119 @@ fn messages(world: &GameLogic) -> Vec<&str> {
 }
 
 #[test]
+fn saved_side_scripts_keep_independent_one_shots_with_the_same_name() {
+    use crate::save_load::snapshot::{SnapshotBuilder, WorldSnapshot};
+
+    fn timed_list(script_name: &str, timer: &str, needs_flag: bool) -> ScriptList {
+        let mut action = ScriptAction::new(ScriptActionType::SetRandomMsecTimer);
+        for parameter in [
+            Parameter::with_string(ParameterType::Counter, timer.into()),
+            Parameter::with_real(ParameterType::Real, 15.0),
+            Parameter::with_real(ParameterType::Real, 120.0),
+        ] {
+            action.add_parameter(parameter).unwrap();
+        }
+        let mut member = script(script_name, vec![Box::new(action)], true);
+        if needs_flag {
+            let mut condition = Condition::new(ConditionType::Flag);
+            condition
+                .add_parameter(Parameter::with_string(ParameterType::Flag, "Second".into()))
+                .unwrap();
+            condition
+                .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+                .unwrap();
+            let mut group = OrCondition::new();
+            group.set_first_and_condition(Some(Box::new(condition)));
+            member.condition = Some(Box::new(group));
+        }
+        let mut group = ScriptGroup::new();
+        group.set_name("Expansion".into());
+        group.append_script(member);
+        let mut list = ScriptList::new();
+        list.append_group(Box::new(group));
+        list
+    }
+
+    let make_world = |second_name| {
+        let mut world = GameLogic::new();
+        // A valid script name can also be a historical lifecycle tag.
+        install(&mut world, timed_list("BPPL", "FirstTimer", false));
+        let second = timed_list(second_name, "SecondTimer", true);
+        world
+            .owned_script_engine
+            .as_ref()
+            .unwrap()
+            .set_script_list_for_player(1, Some(Box::new(second.clone())))
+            .unwrap();
+        world.loaded_script_lists.push(second);
+        world
+    };
+    let counter = |world: &GameLogic, name: &str| {
+        world
+            .owned_script_engine
+            .as_ref()
+            .unwrap()
+            .get_counter(name)
+            .map(|counter| counter.value)
+    };
+
+    let mut source = make_world("BPPL");
+    source.with_own_services_mut(GameLogic::update);
+    let first = counter(&source, "FirstTimer").unwrap();
+    assert!(first > 1);
+    assert_eq!(counter(&source, "SecondTimer"), None);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let saved: WorldSnapshot =
+        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
+    let mut mismatched = make_world("Different");
+    mismatched.frame = 17;
+    let error = builder
+        .restore_from_snapshot(&saved, &mut mismatched)
+        .unwrap_err();
+    assert!(error.to_string().contains("side slot 1"));
+    assert_eq!(mismatched.frame, 17);
+    assert_eq!(counter(&mismatched, "FirstTimer"), None);
+    let empty = builder.create_world_snapshot(&GameLogic::new()).unwrap();
+    let error = builder
+        .restore_from_snapshot(&empty, &mut mismatched)
+        .unwrap_err();
+    assert!(error.to_string().contains("side slot 0"));
+    assert_eq!(mismatched.frame, 17);
+
+    let mut receiving = make_world("BPPL");
+    builder
+        .restore_from_snapshot(&saved, &mut receiving)
+        .unwrap();
+    assert_eq!(counter(&receiving, "FirstTimer"), Some(first));
+    assert_eq!(
+        receiving.logic_random.seed_words(),
+        source.logic_random.seed_words()
+    );
+    for world in [&mut source, &mut receiving] {
+        world
+            .owned_script_engine
+            .as_ref()
+            .unwrap()
+            .set_flag("Second", true)
+            .unwrap();
+        world.with_own_services_mut(GameLogic::update);
+    }
+    assert_eq!(counter(&receiving, "FirstTimer"), Some(first - 1));
+    assert_eq!(counter(&source, "FirstTimer"), Some(first - 1));
+    assert!(counter(&receiving, "SecondTimer").unwrap() > 1);
+    assert_eq!(
+        counter(&receiving, "SecondTimer"),
+        counter(&source, "SecondTimer")
+    );
+    assert_eq!(
+        receiving.logic_random.seed_words(),
+        source.logic_random.seed_words()
+    );
+}
+
+#[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn actual_main_dense_scripts_keep_immediate_activation_case_and_entered_group_order() {
     super::sequential_actor_tests::isolated(

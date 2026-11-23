@@ -34,7 +34,7 @@ pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
 }
 
 pub(super) fn own_suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
-    let bytes = super::player_team_chunks::lifecycle_prefix(bytes)?;
+    let bytes = super::script_lists_persist::lifecycle_prefix(bytes)?;
     if !bytes.ends_with(MAGIC) {
         return Ok(bytes.len());
     }
@@ -49,7 +49,7 @@ pub(super) fn own_suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
 }
 
 pub fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoadResult<()> {
-    let bytes = super::player_team_chunks::lifecycle_prefix(bytes)?;
+    let bytes = super::script_lists_persist::lifecycle_prefix(bytes)?;
     if !bytes.ends_with(MAGIC) {
         // Historical saves do not prove admission. Never infer it from
         // transient factory percent or invoke completion while loading.

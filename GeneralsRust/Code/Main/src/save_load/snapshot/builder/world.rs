@@ -328,6 +328,7 @@ impl SnapshotBuilder {
                 super::super::construction_completion_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
+                super::super::script_lists_persist::append(&mut bytes, game_logic)?;
                 bytes
             },
             player_ranks: self.snapshot_player_ranks(game_logic)?,
@@ -476,6 +477,9 @@ impl SnapshotBuilder {
             encoded_script_tail.as_ref(),
         )?;
         let script_tail = direct_script_tail.or(encoded_script_tail.as_ref());
+        let side_scripts = super::super::script_lists_persist::prepare(
+            &snapshot.lifecycle_tail, game_logic,
+        )?;
         let legacy_names =
             super::super::named_unit_history_persist::read_projection(&snapshot.lifecycle_tail)?;
         match script_tail {
@@ -1200,6 +1204,9 @@ impl SnapshotBuilder {
             game_logic,
             snapshot.version < 30,
         )?;
+        if let Some(saved) = &side_scripts {
+            super::super::script_lists_persist::restore(saved, game_logic)?;
+        }
         // Terrain's saved active boundary is restored after the shroud grid.
         // Preserve saved object bits while making future pose changes use it.
         game_logic.sync_receiving_map_extent();

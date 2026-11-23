@@ -995,32 +995,6 @@ impl GameLogic {
         self.radar_forced = forced;
     }
 
-    pub fn snapshot_script_actives(&self) -> Vec<(String, bool, bool)> {
-        let mut entries = Vec::new();
-        for list in &self.loaded_script_lists {
-            let mut script = list.get_script();
-            while let Some(node) = script {
-                entries.push((node.get_name().to_string(), false, node.is_active()));
-                script = node.get_next();
-            }
-            let mut group = list.get_script_group();
-            while let Some(node) = group {
-                entries.push((node.get_name().to_string(), true, node.is_active()));
-                let mut inner = node.get_script();
-                while let Some(script_node) = inner {
-                    entries.push((
-                        script_node.get_name().to_string(),
-                        false,
-                        script_node.is_active(),
-                    ));
-                    inner = script_node.get_next();
-                }
-                group = node.get_next();
-            }
-        }
-        entries
-    }
-
     pub fn restore_script_actives(&mut self, entries: &[(String, bool, bool)]) {
         for (name, is_group, active) in entries {
             for list in &mut self.loaded_script_lists {
