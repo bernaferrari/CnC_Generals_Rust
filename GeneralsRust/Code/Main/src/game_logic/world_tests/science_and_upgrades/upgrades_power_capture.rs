@@ -3156,3 +3156,68 @@ fn gattling_building_chain_guns_keys_on_authored_weapon_not_template_name() {
     assert!(!logic.apply_gattling_chain_guns_upgrade(foreign));
     assert!(logic.apply_gattling_chain_guns_upgrade(authored));
 }
+
+#[test]
+fn infantry_recrew_preserves_hacked_until_its_own_deadline() {
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::object::DamageHitContext;
+    use crate::game_logic::PlayerSideRole;
+
+    for via_enter in [false, true] {
+        let mut world = GameLogic::new();
+        admit_fixture_objects(
+            &mut world,
+            &[
+                FixtureObject::new("RecrewPowerHull")
+                    .kind_of("VEHICLE SELECTABLE")
+                    .health(100.0)
+                    .energy(20),
+                FixtureObject::new("RecrewCapturingInfantry")
+                    .kind_of("INFANTRY SELECTABLE")
+                    .health(100.0)
+                    .walker(),
+            ],
+        );
+        let mut neutral = Player::new(0, Team::Neutral, "Neutral", false);
+        neutral.map_side.role = PlayerSideRole::Neutral;
+        neutral.map_side.map_player_name.clear();
+        world.add_player(neutral);
+        world.add_player(Player::new(1, Team::USA, "Original owner", true));
+        world.add_player(Player::new(2, Team::GLA, "Claimant", true));
+        world.frame = 10;
+        let hull = world
+            .create_object_for_player("RecrewPowerHull", 1, Vec3::ZERO)
+            .unwrap();
+        let infantry = world
+            .create_object_for_player("RecrewCapturingInfantry", 2, Vec3::X)
+            .unwrap();
+        assert_eq!(world.get_player(1).unwrap().power_produced, 20);
+        world.apply_owned_damage(
+            hull, 1.0, Some(infantry), DamageType::KillPilot, HostDeathType::Normal,
+            None, &DamageHitContext::default(),
+        ).unwrap();
+        assert!(world.apply_owned_hacked_disabled(hull, 50));
+        assert!(world.can_execute_infantry_unmanned_recrew(infantry, hull));
+        if via_enter {
+            assert!(world.unit_command_order_enter(infantry, hull));
+            world.update_support_states(&[infantry, hull], 1.0 / 30.0).unwrap();
+        } else {
+            assert!(world.try_infantry_unmanned_reclaim(infantry, hull));
+        }
+
+        let crewed = world.host_object(hull).unwrap();
+        assert!(!crewed.is_unmanned());
+        assert!(crewed.status.disabled_hacked, "recrew through Enter={via_enter}");
+        assert_eq!(crewed.status.disabled_hacked_until_frame, 50);
+        assert_eq!(crewed.owner_player_id, Some(2));
+        assert_eq!(world.get_player(2).unwrap().power_produced, 0);
+        assert!(world.host_object(infantry).is_none_or(|object| object.status.destroyed));
+
+        world.frame = 50;
+        world.expire_owned_disabled_statuses();
+        assert!(!world.host_object(hull).unwrap().status.disabled_hacked);
+        assert_eq!(world.get_player(2).unwrap().power_produced, 20);
+    }
+}

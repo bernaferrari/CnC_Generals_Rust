@@ -106,7 +106,7 @@ impl GameLogic {
             infantry_id,
             vehicle_id,
             &mut Default::default(),
-        )
+        ).expect("receiving infantry recrew must complete")
     }
 
     pub(crate) fn try_infantry_unmanned_reclaim_with_effects(
@@ -114,7 +114,7 @@ impl GameLogic {
         infantry_id: ObjectId,
         vehicle_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let (inf_team, inf_owner_player_id, inf_level, is_pilot) =
             match self.objects.get(&infantry_id) {
                 Some(inf) => (
@@ -129,7 +129,7 @@ impl GameLogic {
                             .as_ref()
                             .is_some_and(|metadata| metadata.supports_pilot_recrew()),
                 ),
-                None => return false,
+                None => return Ok(false),
             };
         if is_pilot && self.can_execute_pilot_recrew(infantry_id, vehicle_id) {
             let health_bonus = self.veterancy_health_bonus;
@@ -151,44 +151,76 @@ impl GameLogic {
             );
             self.admit_host_radar_disabled_edges(vehicle_id);
             let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
-            self.destroy_object_with_effects(infantry_id, effects);
+            self.destroy_object_with_effects(infantry_id, effects)?;
             self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
-            return true;
+            return Ok(true);
         }
         if !self.can_execute_infantry_unmanned_recrew(infantry_id, vehicle_id) {
-            return false;
+            return Ok(false);
         }
-        if let Some(veh) = self.objects.get_mut(&vehicle_id) {
-            if veh.status.disabled_unmanned {
-                veh.set_status_disabled_unmanned(false);
-                veh.status.unmanned_owner_team = None;
-                veh.status.unmanned_owner_player_id = None;
-                veh.set_status_disabled_hacked(false);
-                veh.status.disabled_hacked_until_frame = 0;
-                veh.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
-                    &mut self.queued_audio_events,
-                ));
-                veh.target = None;
-                veh.set_ai_state(
-                    crate::game_logic::AIState::Idle,
-                    self.frame,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+        self.complete_infantry_unmanned_recrew(infantry_id, vehicle_id, effects)
+    }
+
+    /// PhysicsUpdate.cpp:1182-1205. The hull re-enables its original
+    /// UNMANNED reason before defection and the infantry's direct deletion.
+    pub(in crate::game_logic) fn complete_infantry_unmanned_recrew(
+        &mut self,
+        infantry_id: ObjectId,
+        vehicle_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        use crate::game_logic::object::TimedDisable;
+
+        let Some(infantry) = self.objects.get(&infantry_id) else {
+            return Ok(false);
+        };
+        let infantry_birth = std::sync::Arc::downgrade(&infantry.visual_draw_identity_token);
+        let Some(hull) = self.objects.get(&vehicle_id).filter(|object| object.is_unmanned()) else {
+            return Ok(false);
+        };
+        let hull_birth = std::sync::Arc::downgrade(&hull.visual_draw_identity_token);
+
+        self.clear_owned_disabled(vehicle_id, TimedDisable::Unmanned);
+        if !self.object_birth_matches(vehicle_id, &hull_birth)
+            || !self.object_birth_matches(infantry_id, &infantry_birth)
+        {
+            return Ok(false);
+        }
+        // ClearDisabled callbacks may change the claimant's team, so read
+        // the same installed infantry again at the defection boundary.
+        let infantry = &self.objects[&infantry_id];
+        let faction = infantry.team;
+        let owner = infantry.owner_player_id;
+        let team = infantry
+            .team_instance_id
+            .or_else(|| owner.and_then(|id| self.host_default_team_id(id)));
+        let hull = self.objects.get_mut(&vehicle_id).expect("receiving hull birth");
+        hull.status.unmanned_owner_team = None;
+        hull.status.unmanned_owner_player_id = None;
+        hull.set_private_captured(true);
+
+        match team {
+            Some(destination) if hull.owner_player_id.is_some() => {
+                self.defect_host_object_with_effects(vehicle_id, destination, 0, effects)?;
+            }
+            Some(destination) => {
+                self.set_host_object_team_with_effects(vehicle_id, destination, effects)?;
+            }
+            None => {
+                hull.set_team_and_owner_with_partition_owner(
+                    faction, owner, &mut self.ownership_events, &mut self.partition_manager,
                 );
-                veh.set_team_and_owner_with_partition_owner(
-                    inf_team,
-                    inf_owner_player_id,
-                    &mut self.ownership_events,
-                    &mut self.partition_manager,
-                );
-                veh.set_private_captured(true);
             }
         }
-        self.admit_host_radar_disabled_edges(vehicle_id);
+        if !self.object_birth_matches(vehicle_id, &hull_birth)
+            || !self.object_birth_matches(infantry_id, &infantry_birth)
+        {
+            return Ok(false);
+        }
         let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
-        self.destroy_object_with_effects(infantry_id, effects);
-        // PhysicsUpdate1205 queues physical deletion after immediate onDelete.
+        self.destroy_object_with_effects(infantry_id, effects)?;
         self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
-        true
+        Ok(true)
     }
 
     /// C++ TunnelContain::onCapture residual.

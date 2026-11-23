@@ -144,8 +144,6 @@ impl GameLogic {
         if self.can_execute_infantry_unmanned_recrew(object_id, container_id) {
             let infantry_snapshot = self.objects.get(&object_id).map(|o| {
                 (
-                    o.team,
-                    o.owner_player_id,
                     o.get_position(),
                     o.selection_radius,
                     o.can_move(),
@@ -156,7 +154,7 @@ impl GameLogic {
                 .get(&container_id)
                 .map(|v| (v.get_position(), v.selection_radius));
             if let (
-                Some((inf_team, inf_owner, inf_pos, inf_radius, inf_can_move)),
+                Some((inf_pos, inf_radius, inf_can_move)),
                 Some((vehicle_pos, vehicle_radius)),
             ) = (infantry_snapshot, vehicle_snapshot)
             {
@@ -173,42 +171,7 @@ impl GameLogic {
                     );
                     return Ok(());
                 }
-                let was_unmanned = self
-                    .objects
-                    .get(&container_id)
-                    .is_some_and(|veh| veh.status.disabled_unmanned);
-                if was_unmanned {
-                    if let Some(veh) = self.objects.get_mut(&container_id) {
-                        veh.set_status_disabled_unmanned(false);
-                        veh.status.unmanned_owner_team = None;
-                        veh.status.unmanned_owner_player_id = None;
-                        veh.set_status_disabled_hacked(false);
-                        veh.status.disabled_hacked_until_frame = 0;
-                        veh.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
-                            &mut self.queued_audio_events,
-                        ));
-                        veh.target = None;
-                    }
-                    self.set_ai_state_decision_aware_with_effects(
-                        container_id,
-                        AIState::Idle,
-                        effects,
-                    )?;
-                    if let Some(veh) = self.objects.get_mut(&container_id) {
-                        veh.set_team_and_owner_with_partition_owner(
-                            inf_team,
-                            inf_owner,
-                            &mut self.ownership_events,
-                            &mut self.partition_manager,
-                        );
-                        veh.set_private_captured(true);
-                    }
-                }
-                self.admit_host_radar_disabled_edges(container_id);
-                let _ = self.transfer_script_object_name(object_id, container_id);
-                self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
-                self.mark_destroyed_authority_aware(object_id, None);
-                self.mark_object_for_destruction_with_effects(object_id, Some(inf_team), effects)?;
+                self.complete_infantry_unmanned_recrew(object_id, container_id, effects)?;
                 return Ok(());
             }
         }

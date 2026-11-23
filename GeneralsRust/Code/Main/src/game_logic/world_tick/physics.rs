@@ -288,7 +288,7 @@ impl GameLogic {
         if a_ignore_obs {
             if a_infantry
                 && b_unmanned
-                && self.try_infantry_unmanned_reclaim_with_effects(a_id, b_id, presentation_effects)
+                && self.try_infantry_unmanned_reclaim_with_effects(a_id, b_id, presentation_effects)?
             {
                 if let Some(a) = self.objects.get_mut(&a_id) {
                     a.last_collidee = Some(b_id);
@@ -309,7 +309,7 @@ impl GameLogic {
                 .unwrap_or(false);
             if b_inf
                 && a_unm
-                && self.try_infantry_unmanned_reclaim_with_effects(b_id, a_id, presentation_effects)
+                && self.try_infantry_unmanned_reclaim_with_effects(b_id, a_id, presentation_effects)?
             {
                 if let Some(a) = self.objects.get_mut(&a_id) {
                     a.last_collidee = Some(b_id);
