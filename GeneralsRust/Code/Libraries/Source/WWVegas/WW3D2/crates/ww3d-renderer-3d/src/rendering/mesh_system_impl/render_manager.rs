@@ -215,6 +215,39 @@ pub struct RenderPassResources {
     buffers: Vec<Arc<wgpu::Buffer>>,
     bind_groups: Vec<Arc<wgpu::BindGroup>>,
     pipelines: Vec<Arc<wgpu::RenderPipeline>>,
+    command_state: ConsecutiveCommandState,
+    // Keep the identity keys alive across per-mesh `clear()` calls. RenderPass
+    // state itself is pass-scoped, so releasing these Arcs could allow an
+    // address to be reused before the next adjacent draw.
+    bound_pipeline: Option<Arc<wgpu::RenderPipeline>>,
+    bound_camera_group: Option<Arc<wgpu::BindGroup>>,
+}
+
+#[derive(Default)]
+struct ConsecutiveCommandState {
+    pipeline: Option<usize>,
+    camera_group: Option<usize>,
+}
+
+impl ConsecutiveCommandState {
+    fn pipeline_needs_set(&mut self, pipeline: usize) -> bool {
+        if self.pipeline == Some(pipeline) {
+            return false;
+        }
+        self.pipeline = Some(pipeline);
+        // A pipeline transition can invalidate group compatibility. Be
+        // conservative and require a fresh camera bind after every transition.
+        self.camera_group = None;
+        true
+    }
+
+    fn camera_group_needs_set(&mut self, group: usize) -> bool {
+        if self.camera_group == Some(group) {
+            return false;
+        }
+        self.camera_group = Some(group);
+        true
+    }
 }
 
 impl RenderPassResources {
@@ -222,6 +255,12 @@ impl RenderPassResources {
         self.buffers.clear();
         self.bind_groups.clear();
         self.pipelines.clear();
+    }
+
+    fn invalidate_command_state(&mut self) {
+        self.command_state = ConsecutiveCommandState::default();
+        self.bound_pipeline = None;
+        self.bound_camera_group = None;
     }
 
     fn set_vertex_buffer(
@@ -255,7 +294,21 @@ impl RenderPassResources {
         bind_group: Arc<wgpu::BindGroup>,
         offsets: &[u32],
     ) {
-        render_pass.set_bind_group(slot, bind_group.as_ref(), offsets);
+        let group_identity = Arc::as_ptr(&bind_group) as usize;
+        let is_redundant_camera_bind = slot == 0
+            && offsets.is_empty()
+            && !self.command_state.camera_group_needs_set(group_identity);
+        if !is_redundant_camera_bind {
+            render_pass.set_bind_group(slot, bind_group.as_ref(), offsets);
+            if slot == 0 {
+                if offsets.is_empty() {
+                    self.bound_camera_group = Some(Arc::clone(&bind_group));
+                } else {
+                    self.command_state.camera_group = None;
+                    self.bound_camera_group = None;
+                }
+            }
+        }
         self.bind_groups.push(bind_group);
     }
 
@@ -274,7 +327,12 @@ impl RenderPassResources {
         render_pass: &mut wgpu::RenderPass<'_>,
         pipeline: Arc<wgpu::RenderPipeline>,
     ) {
-        render_pass.set_pipeline(pipeline.as_ref());
+        let pipeline_identity = Arc::as_ptr(&pipeline) as usize;
+        if self.command_state.pipeline_needs_set(pipeline_identity) {
+            render_pass.set_pipeline(pipeline.as_ref());
+            self.bound_pipeline = Some(Arc::clone(&pipeline));
+            self.bound_camera_group = None;
+        }
         self.pipelines.push(pipeline);
     }
 }
@@ -672,6 +730,9 @@ impl MeshRenderManager {
             }
             if !shadow_casters.is_empty() && self.stencil_available() {
                 self.record_shadow_volumes(render_pass, shadow_casters, render_info);
+                // This pass writes pipeline and group state directly, outside
+                // RenderPassResources' tracked setters.
+                pass_resources.invalidate_command_state();
             }
             for mesh in blended_meshes {
                 self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
@@ -1933,6 +1994,21 @@ mod per_mesh_lighting_tests {
     use super::*;
     use crate::rendering::camera_system::CameraClass;
     use crate::rendering::lighting_system::LightEnvironmentClass;
+
+    #[test]
+    fn consecutive_command_state_skips_only_same_pipeline_and_camera_group() {
+        let mut state = ConsecutiveCommandState::default();
+        assert!(state.pipeline_needs_set(11));
+        assert!(!state.pipeline_needs_set(11));
+        assert!(state.camera_group_needs_set(21));
+        assert!(!state.camera_group_needs_set(21));
+
+        // A pipeline transition forces both a pipeline write and a new
+        // camera-group write, even when the same group identity is reused.
+        assert!(state.pipeline_needs_set(12));
+        assert!(state.camera_group_needs_set(21));
+        assert!(!state.camera_group_needs_set(21));
+    }
 
     #[test]
     fn replacement_changes_pixels_through_real_mesh_draw() {
