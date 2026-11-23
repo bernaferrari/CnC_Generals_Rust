@@ -189,16 +189,33 @@ impl GameLogic {
     /// membership, then the new controller after admitting its membership.
     pub(super) fn adjust_object_team_energy(&mut self, id: ObjectId, incoming: bool) {
         let Some((owner, energy)) = self.objects.get(&id).and_then(|object| {
-            let owner = object.owner_player_id?;
-            let energy = object.thing().template.energy_production.unwrap_or(0);
-            if object.status.under_construction || (energy > 0 && object.is_disabled()) {
-                return None;
-            }
-            self.players.contains_key(&owner).then_some((owner, energy))
+            object.owner_player_id.zip(Self::team_membership_energy(object))
         }) else {
             return;
         };
-        let player = self.players.get_mut(&owner).unwrap();
+        self.adjust_team_member_energy(owner, energy, incoming);
+    }
+
+    pub(super) fn admit_retiring_object_energy(&mut self, object: &Object, owner: u32) {
+        if let Some(energy) = Self::team_membership_energy(object) {
+            self.adjust_team_member_energy(owner, energy, false);
+            self.record_power_projection(owner);
+        }
+    }
+
+    /// Player.cpp:1028–1037 and Object.cpp:3770–3784. Disabled producers
+    /// already left the grid, but a disabled consumer still draws power.
+    fn team_membership_energy(object: &Object) -> Option<i32> {
+        let energy = object.get_template().energy_production?;
+        (!object.status.under_construction
+            && (energy < 0 || (energy > 0 && !object.has_disabled_type())))
+            .then_some(energy)
+    }
+
+    fn adjust_team_member_energy(&mut self, owner: u32, energy: i32, incoming: bool) {
+        let Some(player) = self.players.get_mut(&owner) else {
+            return;
+        };
         let brownout = if incoming {
             player.add_template_energy(energy, self.frame)
         } else {
@@ -483,7 +500,21 @@ End
 
     fn power_scaffold_world() -> (GameLogic, ObjectId, ObjectId) {
         let mut world = GameLogic::new();
-        let source = "Object PeriodicPlant\nKindOf = STRUCTURE\nEnergyProduction = 20\nEnd\nObject PeriodicPowered\nKindOf = STRUCTURE POWERED\nEnergyProduction = -10\nEnd\n";
+        let source = "
+Object PeriodicPlant
+  KindOf = STRUCTURE
+  EnergyProduction = 20
+  Body = ActiveBody BodyTag
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = DestroyDie DeathTag
+  End
+End
+Object PeriodicPowered
+  KindOf = STRUCTURE POWERED
+  EnergyProduction = -10
+End";
         world
             .admit_receiving_module_content(
                 crate::assets::ReceivingObjectContent::from_sources([(
@@ -504,6 +535,91 @@ End
             .create_object_under_construction_for_player("PeriodicPowered", 1, Vec3::ZERO, 0.)
             .unwrap().expect("ObjectId");
         (world, plant, scaffold)
+    }
+
+    #[test]
+    fn physical_retirement_delivers_the_resident_players_energy_change_once() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use crate::game_logic::object::DamageHitContext;
+
+        for lethal_damage in [false, true] {
+            let (mut world, plant, scaffold) = power_scaffold_world();
+            let (peer, peer_plant, peer_scaffold) = power_scaffold_world();
+            assert_eq!((plant, scaffold), (peer_plant, peer_scaffold));
+            let consumer = world
+                .create_object_for_player("PeriodicPowered", 1, Vec3::X)
+                .unwrap();
+            assert_eq!(world.players[&1].power_available, 10);
+
+            if lethal_damage {
+                world
+                    .apply_owned_damage(
+                        plant,
+                        150.,
+                        None,
+                        DamageType::Unresistable,
+                        HostDeathType::Normal,
+                        None,
+                        &DamageHitContext::default(),
+                    )
+                    .unwrap();
+            } else {
+                world.destroy_object(plant).unwrap();
+            }
+            assert!(world.objects.contains_key(&plant));
+            assert_eq!(world.players[&1].power_produced, 20);
+            world.update_player_resources(0.);
+            assert_eq!(
+                world.players[&1].power_produced, 20,
+                "onDelete keeps the Team contribution installed"
+            );
+
+            world.process_destroy_list();
+            assert!(!world.objects.contains_key(&plant));
+            assert_eq!(
+                world.players[&1].power_produced, 0,
+                "team removal applies the delta"
+            );
+            assert_eq!(world.players[&1].power_available, -10);
+            assert!(!world.players[&1].has_radar());
+            assert!(world.objects[&scaffold].status.disabled_underpowered);
+            world.economy_events.complete_boundary();
+            let receipts = world.economy_events.take_completed();
+            assert_eq!(receipts.last().unwrap().power_available, -10);
+
+            world.destroy_object(consumer).unwrap();
+            world.process_destroy_list();
+            world.process_destroy_list();
+            assert_eq!(
+                world.players[&1].power_consumed, 0,
+                "a disabled consumer leaves once"
+            );
+            assert_eq!(world.players[&1].power_available, 0);
+            assert!(world.players[&1].has_radar());
+            assert!(!world.objects[&scaffold].status.disabled_underpowered);
+
+            assert!(peer.players[&1].has_radar());
+            assert_eq!(peer.players[&1].power_produced, 20);
+            assert!(!peer.objects[&scaffold].status.disabled_underpowered);
+        }
+
+        let (mut world, plant, _) = power_scaffold_world();
+        let unfinished = world
+            .create_object_under_construction_for_player("PeriodicPlant", 1, Vec3::X, 0.)
+            .unwrap()
+            .unwrap();
+        world.destroy_object(unfinished).unwrap();
+        world.process_destroy_list();
+        assert_eq!(world.players[&1].power_produced, 20);
+        assert!(world.apply_owned_emp_disabled(plant, 100));
+        assert_eq!(world.players[&1].power_produced, 0);
+        world.destroy_object(plant).unwrap();
+        world.process_destroy_list();
+        assert_eq!(
+            world.players[&1].power_produced, 0,
+            "EMP already removed this output"
+        );
     }
 
     #[test]

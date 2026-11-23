@@ -64,7 +64,11 @@ impl GameLogic {
                 .retain_failed_retirement(object, reason.clone());
             return Err(gamelogic::GameLogicError::Configuration(reason));
         }
-        self.unlink_retiring_team_host_member(id, object.team_instance_id);
+        if let Some(owner) = self.unlink_retiring_team_host_member(id, object.team_instance_id) {
+            // setTeam(NULL) invokes becomingTeamMember after unlinking, while
+            // the detached Object still carries its original template and status.
+            self.admit_retiring_object_energy(&object, owner);
+        }
         // Original SightingInfo destruction does not undo remaining values.
         // Live direct-deletion residual stays in this owner grid until reset.
         object.forget_retired_partition_scalar_receipt();

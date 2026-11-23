@@ -134,26 +134,23 @@ impl GameLogic {
     }
 
     /// C++ Object destructor unlinks only its retained resident team pointer.
-    /// A missing identity never selects a same-name sibling or creates a team.
+    /// Return the actual controller if the Team contained the retiring Object.
     pub(in crate::game_logic) fn unlink_retiring_team_host_member(
         &self,
         id: ObjectId,
         identity: Option<u32>,
-    ) {
-        let Some(identity) = identity else {
-            return;
-        };
-        let factory = self
+    ) -> Option<u32> {
+        let team = self
             .team_factory
             .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let Some(team) = factory.find_team_by_id(identity) else {
-            return;
-        };
+            .unwrap_or_else(|error| error.into_inner())
+            .find_team_by_id(identity?)?;
         let mut guard = team.write().unwrap_or_else(|error| error.into_inner());
-        if guard.has_member(id.0) {
-            guard.remove_member(id.0);
+        if !guard.has_member(id.0) {
+            return None;
         }
+        guard.remove_member(id.0);
+        guard.get_controlling_player_id()
     }
 
     pub(crate) fn merge_owned_script_team(
