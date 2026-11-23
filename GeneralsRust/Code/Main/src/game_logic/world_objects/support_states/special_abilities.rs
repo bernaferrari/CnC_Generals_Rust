@@ -2652,10 +2652,8 @@ impl GameLogic {
         Ok(true)
     }
 
-    /// C++ `RiderChangeContain::onRemoving` for an ordinary player Exit (or
-    /// moving a rider to a different container).  This is deliberately
-    /// separate from replacement above: only ordinary removal starts the
-    /// delayed scuttle and transfers selected state back to the rider.
+    /// C++ `RiderChangeContain::onRemoving` outside of rider replacement.
+    /// Explicit exit and teardown of an installed rider share this callback.
     pub(in super::super::super) fn rider_change_remove_occupant(
         &mut self,
         container_id: ObjectId,
@@ -2673,34 +2671,36 @@ impl GameLogic {
         rider_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
-        let tree_move_frame = self.frame;
         let veterancy_health_bonus = self.veterancy_health_bonus;
         let Some((
+            container_birth,
+            rider_birth,
             rider_metadata,
-            position,
             bike_veterancy,
             rider_has_controller,
             payload_created,
             was_moving,
             transfer_selection,
         )) = self.objects.get(&container_id).and_then(|container| {
-            if !container.supports_authored_rider_change_normal_enter()
-                || !container.contained_units().contains(&rider_id)
+            if container.get_template().contain_module.kind != ContainModuleKind::RiderChange
+                || container.status.effectively_dead
+                || !container.contained_unit_ids().contains(&rider_id)
             {
                 return None;
             }
             let rider = self.objects.get(&rider_id)?;
-            if rider.contained_by != Some(container_id) || !rider.is_alive() {
+            if rider.contained_by != Some(container_id) {
                 return None;
             }
-            let rider_metadata = self.equivalent_rider_change_row(container, rider)?.clone();
+            let rider_metadata = self.equivalent_rider_change_row(container, rider).cloned();
             let transfer_selection = container.selected
                 && container
                     .owner_player_id
                     .is_some_and(|player_id| self.is_local_player(player_id));
             Some((
+                std::sync::Arc::downgrade(&container.visual_draw_identity_token),
+                std::sync::Arc::downgrade(&rider.visual_draw_identity_token),
                 rider_metadata,
-                container.get_position(),
                 container.experience.level,
                 rider.owner_player_id.is_some(),
                 container.initial_transport_payload_created,
@@ -2710,35 +2710,6 @@ impl GameLogic {
         })
         else {
             return false;
-        };
-
-        let rider_birth = std::sync::Arc::downgrade(
-            &self
-                .objects
-                .get(&rider_id)
-                .expect("preflight rider")
-                .visual_draw_identity_token,
-        );
-        let container_birth = std::sync::Arc::downgrade(
-            &self
-                .objects
-                .get(&container_id)
-                .expect("preflight container")
-                .visual_draw_identity_token,
-        );
-        let same_rider = |world: &Self| {
-            world.objects.get(&rider_id).is_some_and(|object| {
-                rider_birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
-            })
-        };
-        let same_container = |world: &Self| {
-            world.objects.get(&container_id).is_some_and(|object| {
-                container_birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &object.visual_draw_identity_token,
-                ))
-            })
         };
 
         let removed = self
@@ -2755,41 +2726,51 @@ impl GameLogic {
             return false;
         }
 
-        self.change_owned_containment_world_membership(rider_id, true);
-        if !self.set_owned_object_position_with_effects(
-            rider_id,
-            position,
-            tree_move_frame,
-            effects,
-        ) || !same_rider(self)
-            || !same_container(self)
-        {
+        if !self.prepare_open_contain_removal(container_id, rider_id, effects) {
             return false;
         }
+        self.play_container_exit_sound(container_id, effects);
         if payload_created {
+            self.play_container_on_removing_template_sounds(container_id, rider_id, effects);
             self.set_owned_passenger_held(rider_id, false, effects);
-            if !same_rider(self) || !same_container(self) {
+            if !self.object_birth_matches(rider_id, &rider_birth)
+                || !self.object_birth_matches(container_id, &container_birth)
+            {
                 return false;
             }
+            let container = &self.objects[&container_id];
+            let airborne = container.is_above_terrain_for_exit();
+            let velocity = container.transport_keep_container_velocity_on_exit()
+                .then_some(container.movement.velocity);
+            let aggressive = container.transport_go_aggressive_on_exit();
+            let delay = container.transport_exit_delay_frames();
+            let rider = self.objects.get_mut(&rider_id).unwrap();
+            if airborne {
+                rider.allow_to_fall = true;
+            }
+            if let Some(velocity) = velocity {
+                rider.apply_motive_force(velocity * rider.physics_get_mass(), self.frame);
+            }
+            if aggressive && rider.has_ai_update_interface() {
+                rider.set_ai_attitude(crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive);
+            }
+            self.reset_rider_mood_check_on_exit(container_id, rider_id);
+            let container = self.objects.get_mut(&container_id).unwrap();
+            container.frame_exit_not_busy = self.frame.wrapping_add(delay);
+            if container.contained_unit_ids().is_empty() {
+                container.model_condition_bits &=
+                    !(1u128 << crate::game_logic::host_enum_table_residual::loaded_model_bit());
+            }
+            self.refresh_battle_bus_armed_riders_weapon_set(container_id);
+            self.transfer_kell_snipe_reload_from_bike(container_id, rider_id);
         }
         if let Some(rider) = self.objects.get_mut(&rider_id) {
-            let containment_actor_id = rider.id;
-            Self::set_owned_containment_in_parts(
-                &mut self.objects,
-                &mut self.partition_manager,
-                &mut self.ai_groups,
-                &mut self.pathfinding_system,
-                containment_actor_id,
-                None,
-                true,
+            rider.finish_containment_reference_with_partition_owner(
+                None, true, &mut self.partition_manager,
             );
-            let rider = self
-                .objects
-                .get_mut(&containment_actor_id)
-                .expect("containment operation preserves this birth");
             // CPP RiderChangeContain::onRemoving does not issue an AI order.
             // AIExitState and the exit interface own the rider's continuation.
-            if rider_has_controller {
+            if rider_has_controller && rider_metadata.is_some() {
                 rider.set_rider_change_veterancy_level_with_health_bonus_table(
                     bike_veterancy,
                     &veterancy_health_bonus,
@@ -2799,14 +2780,16 @@ impl GameLogic {
             }
         }
         if let Some(container) = self.objects.get_mut(&container_id) {
-            clear_rider_change_runtime_state(container, Some(&rider_metadata), self.frame);
-            if rider_has_controller {
-                container.set_rider_change_veterancy_level_with_health_bonus_table(
-                    VeterancyLevel::Rookie,
-                    &veterancy_health_bonus,
-                    self.locomotor_definitions.receiving(),
-                    self.frame,
-                );
+            if let Some(row) = rider_metadata.as_ref() {
+                clear_rider_change_runtime_state(container, Some(row), self.frame);
+                if rider_has_controller {
+                    container.set_rider_change_veterancy_level_with_health_bonus_table(
+                        VeterancyLevel::Rookie,
+                        &veterancy_health_bonus,
+                        self.locomotor_definitions.receiving(),
+                        self.frame,
+                    );
+                }
             }
             container.rider_change_scuttled_on_frame = self.frame.max(1);
             container.set_status_unselectable(true);

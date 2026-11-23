@@ -142,6 +142,83 @@ End
 }
 
 #[test]
+fn direct_bike_rider_removal_obeys_the_payload_gate_for_held() {
+    let make_world = |initialized| {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("rider-direct-release.ini".into(), r#"
+Object OwnedReleaseCycle
+ KindOf = SELECTABLE VEHICLE
+ Locomotor = SET_NORMAL CombatBikeGroundLocomotor CombatBikeCliffLocomotor
+ Behavior = RiderChangeContain RiderModule
+  Slots = 1
+  AllowInsideKindOf = INFANTRY
+  InitialPayload = OwnedReleaseRider
+  Rider2 = OwnedReleaseRider RIDER2 WEAPON_RIDER2 STATUS_RIDER2 CustomCommands SET_NORMAL
+ End
+End
+Object OwnedReleaseRider
+ KindOf = SELECTABLE INFANTRY
+ TransportSlotCount = 1
+ EnergyProduction = 20
+End
+"#.into())]).unwrap();
+        world.add_player(Player::new(1, Team::GLA, "Cycle owner", true));
+        let bike = world.create_object_for_player("OwnedReleaseCycle", 1, Vec3::ZERO).unwrap();
+        world.frame = 1;
+        let rider = if initialized {
+            world.update_initial_transport_payloads_with_effects(&mut Default::default()).unwrap();
+            world.objects[&bike].occupants[0]
+        } else {
+            let rider = world.create_object_for_player("OwnedReleaseRider", 1, Vec3::ZERO).unwrap();
+            assert!(world.rider_change_initial_payload_with_effects(
+                rider, bike, &mut Default::default(),
+            ).unwrap());
+            // A hold from another source survives when the inherited transport
+            // callback is skipped during payload initialization.
+            world.set_owned_passenger_held(rider, true, &mut Default::default());
+            rider
+        };
+        assert_eq!(world.objects[&bike].initial_transport_payload_created, initialized);
+        assert_eq!(world.objects[&rider].contained_by, Some(bike));
+        assert!(world.objects[&rider].is_held_disabled());
+        assert_eq!(world.players[&1].power_produced, 0);
+        (world, bike, rider)
+    };
+    let (mut owner, bike, rider) = make_world(true);
+    let (mut peer, peer_bike, peer_rider) = make_world(false);
+    assert_eq!((bike, rider), (peer_bike, peer_rider));
+
+    owner.remove_direct_contained_child(bike, rider).unwrap();
+    assert_eq!(owner.objects[&rider].contained_by, None);
+    assert!(!owner.objects[&rider].is_held_disabled());
+    assert_eq!(owner.players[&1].power_produced, 20);
+    assert_eq!(owner.objects[&bike].rider_change_active_slot, None);
+    assert_eq!(owner.objects[&bike].rider_change_scuttled_on_frame, owner.frame);
+    assert_eq!(peer.objects[&rider].contained_by, Some(bike));
+    assert_eq!(peer.players[&1].power_produced, 0);
+
+    peer.remove_direct_contained_child(bike, rider).unwrap();
+    assert_eq!(peer.objects[&rider].contained_by, None);
+    assert!(peer.objects[&rider].is_held_disabled());
+    assert_eq!(peer.players[&1].power_produced, 0);
+    assert_eq!(owner.players[&1].power_produced, 20);
+
+    for resetting in [false, true] {
+        let (mut owner, bike, rider) = make_world(true);
+        if resetting {
+            owner.objects.suspend_ordinary_lookup_for_reset();
+            assert!(owner.host_object(rider).is_none());
+        }
+        owner.destroy_object(rider).unwrap();
+        assert!(owner.objects[&rider].status.destroyed);
+        assert_eq!(owner.objects[&rider].contained_by, None);
+        assert!(!owner.objects[&rider].is_held_disabled());
+        assert_eq!(owner.objects[&bike].rider_change_active_slot, None);
+        assert_eq!(owner.objects[&bike].rider_change_scuttled_on_frame, owner.frame);
+    }
+}
+
+#[test]
 fn authored_payload_and_replacement_select_their_real_weapon_sets() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

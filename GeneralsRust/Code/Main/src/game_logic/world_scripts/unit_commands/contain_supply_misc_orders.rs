@@ -430,8 +430,6 @@ impl GameLogic {
             return self.railed_remove_contained_with_effects(container_id, occupant_id, effects)
                 .map_err(gamelogic::GameLogicError::Configuration);
         }
-        // C++ TransportContain onRemoving: bike secondary → Kell secondary.
-        self.transfer_kell_snipe_reload_from_bike(container_id, occupant_id);
         let is_rider_change = self.objects.get(&container_id).is_some_and(|container| {
             container.thing().template.contain_module.kind
                 == crate::game_logic::ContainModuleKind::RiderChange

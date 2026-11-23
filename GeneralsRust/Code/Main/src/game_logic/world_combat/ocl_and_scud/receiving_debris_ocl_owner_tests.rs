@@ -120,6 +120,65 @@ End
 }
 
 #[test]
+fn deleting_a_redirected_overlord_restores_its_portable_riders_power_and_radar() {
+    let world = || {
+        let mut world = GameLogic::new();
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &mut world, "Upgrade_PortableRadar", "OBJECT", 0, 1,
+        );
+        world.admit_object_ini_sources([("portable-release.ini".into(), r#"
+Object PortableReleaseHull
+ KindOf = VEHICLE
+ Behavior = OverlordContain Contain
+  Slots = 1
+  AllowInsideKindOf = PORTABLE_STRUCTURE
+  PayloadTemplateName = PortableReleaseAddon
+ End
+End
+Object PortableReleaseAddon
+ KindOf = PORTABLE_STRUCTURE VEHICLE
+ TransportSlotCount = 1
+ EnergyProduction = 20
+ Behavior = TransportContain Cargo
+  Slots = 2
+  AllowInsideKindOf = INFANTRY
+ End
+ Behavior = RadarUpgrade Radar
+  TriggeredBy = Upgrade_PortableRadar
+ End
+ Behavior = GrantUpgradeCreate Grant
+  UpgradeToGrant = Upgrade_PortableRadar
+ End
+End
+"#.into())]).unwrap();
+        world.add_player(Player::new(1, Team::China, "Portable owner", true));
+        let hull = world.create_object_for_player("PortableReleaseHull", 1, Vec3::ZERO).unwrap();
+        let addon = world.host_object(hull).unwrap().overlord_portable_occupant.unwrap();
+        assert_eq!(world.redirected_containment_owner(hull), addon);
+        assert!(world.objects[&addon].is_held_disabled());
+        assert_eq!(world.players[&1].power_produced, 0);
+        assert_eq!(world.players[&1].radar_count, 0);
+        (world, hull, addon)
+    };
+    let (mut owner, hull, addon) = world();
+    let (peer, peer_hull, peer_addon) = world();
+    assert_eq!((hull, addon), (peer_hull, peer_addon));
+
+    owner.destroy_object(hull).unwrap();
+
+    let survivor = owner.host_object(addon).unwrap();
+    assert!(survivor.is_alive());
+    assert_eq!(survivor.contained_by, None);
+    assert!(!survivor.is_held_disabled());
+    assert_eq!(owner.players[&1].power_produced, 20);
+    assert_eq!(owner.players[&1].radar_count, 1);
+    assert_eq!(peer.objects[&addon].contained_by, Some(hull));
+    assert!(peer.objects[&addon].is_held_disabled());
+    assert_eq!(peer.players[&1].power_produced, 0);
+    assert_eq!(peer.players[&1].radar_count, 0);
+}
+
+#[test]
 fn retail_helix_contain_inside_source_ocl_attaches_in_each_receiving_world() {
     let (mut left, left_source) = helix_portable_world(Vec3::new(10.0, 0.0, 20.0));
     let (mut right, right_source) = helix_portable_world(Vec3::new(100.0, 0.0, 200.0));

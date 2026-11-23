@@ -122,23 +122,25 @@ impl GameLogic {
 
     /// OpenContain::removeFromContainViaIterator exposes/repositions the
     /// rider and changes its layer before the derived onRemoving callback.
-    fn prepare_open_contain_removal(
+    pub(in crate::game_logic) fn prepare_open_contain_removal(
         &mut self, container_id: ObjectId, rider: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let Some(container) = self.objects.get(&container_id) else { return false };
         let Some(object) = self.objects.get(&rider) else { return false };
-        let birth = object.visual_object_generation;
-        let container_birth = container.visual_object_generation;
+        let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
+        let container_birth = std::sync::Arc::downgrade(&container.visual_draw_identity_token);
         let enclosing = container.is_enclosing_container_for(object);
         let position = container.get_position();
         let layer = container.pathfind_layer;
         if enclosing {
             self.change_owned_containment_world_membership(rider, true);
-            self.set_owned_object_position_with_effects(rider, position, self.frame, effects);
+            if !self.set_owned_object_position_with_effects(rider, position, self.frame, effects) {
+                return false;
+            }
         }
-        if !self.objects.get(&rider).is_some_and(|object| object.visual_object_generation == birth)
-            || !self.objects.get(&container_id).is_some_and(|object| object.visual_object_generation == container_birth)
+        if !self.object_birth_matches(rider, &birth)
+            || !self.object_birth_matches(container_id, &container_birth)
         {
             return false;
         }

@@ -207,35 +207,37 @@ impl GameLogic {
         let Some(container) = self.teardown_object(container_id) else {
             return Ok(());
         };
-        if !container.contained_units().contains(&child_id)
-            || !self
-                .teardown_object(child_id)
-                .is_some_and(|child| child.contained_by == Some(container_id))
+        let Some(child) = self.teardown_object(child_id) else { return Ok(()) };
+        if !container.contained_unit_ids().contains(&child_id)
+            || child.contained_by != Some(container_id)
         {
             return Ok(());
         }
-        if container.thing().template.contain_module.kind == ContainModuleKind::RailedTransport {
+        let kind = container.get_template().contain_module.kind;
+        if kind == ContainModuleKind::RailedTransport {
             self.railed_remove_contained_with_effects(container_id, child_id, effects)
                 .map_err(gamelogic::GameLogicError::Configuration)?;
             return Ok(());
         }
-        if container.thing().template.contain_module.kind == ContainModuleKind::Parachute {
+        if kind == ContainModuleKind::Parachute {
             return self.remove_parachute_rider_owned(container_id, child_id, effects);
         }
-        if container.thing().template.contain_module.kind == ContainModuleKind::RiderChange
-            && !container.is_alive()
-        {
-            // CPP RiderChangeContain245 destroys its hidden rider during onRemoving.
-            self.destroy_object_with_effects(child_id, effects)?;
+        if kind == ContainModuleKind::RiderChange {
+            if container.status.effectively_dead {
+                // RiderChangeContain::onRemoving destroys a dead bike's hidden rider.
+                self.destroy_object_with_effects(child_id, effects)?;
+            } else {
+                self.rider_change_remove_occupant_with_effects(container_id, child_id, effects);
+            }
             return Ok(());
         }
+        let container_birth = std::sync::Arc::downgrade(&container.visual_draw_identity_token);
+        let child_birth = std::sync::Arc::downgrade(&child.visual_draw_identity_token);
         let garrison = container.is_garrison_contain();
         let helix = container.is_helix_transport;
         let transport = matches!(
-            container.thing().template.contain_module.kind,
+            kind,
             ContainModuleKind::Transport
-                | ContainModuleKind::RiderChange
-                | ContainModuleKind::RailedTransport
                 | ContainModuleKind::InternetHack
         ) || container.is_overlord_style_container();
         let airborne = container.is_above_terrain_for_exit();
@@ -244,7 +246,12 @@ impl GameLogic {
             .then_some(container.movement.velocity);
         let aggressive = container.transport_go_aggressive_on_exit();
         let delay = container.transport_exit_delay_frames();
-        self.remove_owned_occupant_with_bonus_callback(container_id, child_id, effects);
+        if !self.remove_owned_occupant_with_bonus_callback(container_id, child_id, effects)
+            || !self.object_birth_matches(container_id, &container_birth)
+            || !self.object_birth_matches(child_id, &child_birth)
+        {
+            return Ok(());
+        }
         if let Some(container) = self.objects.get_mut(&container_id) {
             if container.overlord_portable_occupant == Some(child_id) {
                 container.overlord_portable_occupant = None;
@@ -253,7 +260,6 @@ impl GameLogic {
         if !garrison && !helix {
             self.play_container_removing_template_sounds(container_id, child_id, effects);
         }
-        let _ = self.teardown_object_mut(child_id);
         if self.objects.contains_key(&child_id) {
             Self::set_owned_containment_in_parts(
                 &mut self.objects,
@@ -269,7 +275,6 @@ impl GameLogic {
                 .get_mut(&child_id)
                 .expect("installed detached child");
             if transport && !helix {
-                child.set_held_mask_without_callbacks(false);
                 if airborne {
                     child.allow_to_fall = true;
                 }
@@ -410,6 +415,13 @@ impl GameLogic {
             }) {
                 self.railed_remove_contained_with_effects(cid, id, effects)
                     .map_err(gamelogic::GameLogicError::Configuration)?;
+                return Ok(());
+            }
+            if self.objects.get(&cid).is_some_and(|container| {
+                container.get_template().contain_module.kind == ContainModuleKind::RiderChange
+                    && !container.status.effectively_dead
+            }) {
+                self.rider_change_remove_occupant_with_effects(cid, id, effects);
                 return Ok(());
             }
             let garrison = self
