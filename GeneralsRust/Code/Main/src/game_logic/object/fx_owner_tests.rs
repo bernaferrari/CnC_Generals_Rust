@@ -491,6 +491,7 @@ fn flame_damage_ignition_finishes_inline_in_the_receiving_world() {
     for world in [&mut owner, &mut peer] {
         let mut fire = crate::game_logic::host_fire_spread::HostFireSpreadData::tree_default();
         fire.flame_damage_limit = 1.0;
+        fire.flame_damage_limit_data = 1.0;
         let object = world.objects.get_mut(&id).unwrap();
         object.fire_spread = Some(fire);
         stale.push(world.combat_particles.spawn(
@@ -531,6 +532,91 @@ fn flame_damage_ignition_finishes_inline_in_the_receiving_world() {
     );
     assert!(owner.queued_audio_event_count_for_test() > 0);
     assert_eq!(peer.queued_audio_event_count_for_test(), 0);
+}
+
+#[test]
+fn opening_flame_damage_and_object_status_use_original_expiration() {
+    let catalog = game_client::fx_list::FXListStore::new();
+    let id = ObjectId(9417);
+    let mut owner = world(id, Vec3::ZERO, &catalog);
+    let mut peer = world(id, Vec3::ZERO, &catalog);
+    for world in [&mut owner, &mut peer] {
+        let fire = crate::game_logic::host_fire_spread::HostFireSpreadData::tree_default();
+        world.objects.get_mut(&id).unwrap().fire_spread = Some(fire);
+    }
+
+    fn hit(
+        world: &mut GameLogic,
+        id: ObjectId,
+        frame: u32,
+        damage_type: crate::game_logic::combat::DamageType,
+    ) {
+        world.set_current_frame(frame.into());
+        world
+            .apply_owned_damage_with_effects(
+                id,
+                1.0,
+                None,
+                damage_type,
+                crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+                None,
+                &DamageHitContext::default(),
+                &mut crate::game_logic::ScriptPresentationEffects::default(),
+            )
+            .unwrap();
+    }
+
+    // C++ compares an unsigned `frame - expiration`: before the first 60-frame
+    // window elapses the difference underflows, so every early hit resets the
+    // authored threshold instead of accumulating.
+    hit(&mut owner, id, 1, crate::game_logic::combat::DamageType::Flame);
+    hit(&mut owner, id, 2, crate::game_logic::combat::DamageType::ParticleBeam);
+    {
+        let fire = owner.objects[&id].fire_spread.as_ref().unwrap();
+        assert!(!owner.objects[&id].has_object_status_bit("AFLAME"));
+        assert!(!fire.is_aflame());
+        assert_eq!(fire.flame_damage_limit, 1.0);
+        assert_eq!(fire.last_flame_damage_dealt, 2);
+    }
+    {
+        let fire = peer.objects[&id].fire_spread.as_ref().unwrap();
+        assert_eq!(fire.flame_damage_limit, 2.0);
+        assert_eq!(fire.last_flame_damage_dealt, 0);
+    }
+
+    // Object BURNED status (not the private module state) blocks
+    // accumulation; the hit still records the timestamp and never ignites.
+    let _ = peer
+        .objects
+        .get_mut(&id)
+        .unwrap()
+        .apply_status_bits_upgrade_masks(&["BURNED"], &[]);
+    hit(&mut peer, id, 60, crate::game_logic::combat::DamageType::Flame);
+    hit(&mut peer, id, 61, crate::game_logic::combat::DamageType::Flame);
+    {
+        let fire = peer.objects[&id].fire_spread.as_ref().unwrap();
+        assert!(!peer.objects[&id].has_object_status_bit("AFLAME"));
+        assert_eq!(fire.flame_damage_limit, 2.0);
+        assert_eq!(fire.last_flame_damage_dealt, 61);
+    }
+
+    // At frame 60 `60 - 60 == 0 <= last(2)`: no reset, so the prior residue
+    // plus this hit finishes the authored threshold and ignites.
+    hit(&mut owner, id, 60, crate::game_logic::combat::DamageType::Flame);
+    assert!(owner.objects[&id].has_object_status_bit("AFLAME"));
+    {
+        let fire = owner.objects[&id].fire_spread.as_ref().unwrap();
+        assert!(fire.is_aflame());
+        assert_eq!(fire.flame_damage_limit, 0.0);
+    }
+
+    // Already AFLAME: the hit timestamps but cannot subtract the limit.
+    hit(&mut owner, id, 61, crate::game_logic::combat::DamageType::Flame);
+    {
+        let fire = owner.objects[&id].fire_spread.as_ref().unwrap();
+        assert_eq!(fire.last_flame_damage_dealt, 61);
+        assert_eq!(fire.flame_damage_limit, 0.0);
+    }
 }
 
 #[test]

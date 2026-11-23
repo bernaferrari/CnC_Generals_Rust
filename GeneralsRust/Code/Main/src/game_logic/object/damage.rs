@@ -1087,8 +1087,12 @@ impl Object {
                     | crate::game_logic::combat::DamageType::ParticleBeam
             )
         {
+            // C++ FlammableUpdate.cpp:88-91 gates accumulation on the
+            // Object's status bits after the expiration reset + timestamp.
+            let can_accumulate = !self.has_object_status_bit("AFLAME")
+                && !self.has_object_status_bit("BURNED");
             if let Some(fs) = self.fire_spread.as_mut() {
-                if fs.apply_flame_damage_before_ignite(actual_damage, frame) {
+                if fs.apply_flame_damage_before_ignite(actual_damage, frame, can_accumulate) {
                     self.apply_flammable_ignite_visuals_with_body_fx(
                         context.source(),
                         frame,

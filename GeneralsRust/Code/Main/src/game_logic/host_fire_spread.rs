@@ -281,7 +281,8 @@ impl HostFireSpreadData {
     /// Standalone convenience API. Production Object damage uses
     /// `apply_flame_damage_before_ignite` and the receiving Body callback.
     pub fn apply_flame_damage(&mut self, amount: f32, current_frame: u32) -> bool {
-        if self.apply_flame_damage_before_ignite(amount, current_frame) {
+        let can_accumulate = self.would_ignite();
+        if self.apply_flame_damage_before_ignite(amount, current_frame, can_accumulate) {
             return self.try_to_ignite(current_frame);
         }
         false
@@ -289,20 +290,25 @@ impl HostFireSpreadData {
 
     /// Update flame accumulation without committing FS_AFLAME. The receiving
     /// Object must run status/Body/model/audio callbacks before finalization.
-    pub fn apply_flame_damage_before_ignite(&mut self, amount: f32, current_frame: u32) -> bool {
-        if matches!(
-            self.state,
-            HostFlammableState::Burned | HostFlammableState::Aflame
-        ) {
-            return false;
-        }
-        // C++: `if (now - expiration > last) reset remaining to authored`.
-        if current_frame.saturating_sub(self.flame_damage_expiration) > self.last_flame_damage_dealt
-        {
+    /// `can_accumulate` carries the caller's Object status check: C++ tests
+    /// OBJECT_STATUS_AFLAME/BURNED after the threshold reset and timestamp,
+    /// so a status-burned object still records the hit without accumulating.
+    pub(in crate::game_logic) fn apply_flame_damage_before_ignite(
+        &mut self,
+        amount: f32,
+        current_frame: u32,
+        can_accumulate: bool,
+    ) -> bool {
+        // The original compares an unsigned frame difference, including
+        // before the first expiration window has elapsed.
+        if current_frame.wrapping_sub(self.flame_damage_expiration) > self.last_flame_damage_dealt {
             self.flame_damage_limit = self.flame_damage_limit_data;
             self.flame_damage_accum = 0.0;
         }
         self.last_flame_damage_dealt = current_frame;
+        if !can_accumulate {
+            return false;
+        }
         let dealt = amount.max(0.0);
         self.flame_damage_accum += dealt;
         self.flame_damage_limit -= dealt;
@@ -525,8 +531,9 @@ mod tests {
     fn flame_damage_ignites_and_spreads() {
         let mut d = HostFireSpreadData::tree_default();
         assert!(d.would_ignite());
-        assert!(!d.apply_flame_damage(1.0, 0));
-        assert!(d.apply_flame_damage(1.0, 0)); // limit 2
+        // Frame 60: `60 - expiration(60) == 0 <= last`, so neither hit resets.
+        assert!(!d.apply_flame_damage(1.0, 60));
+        assert!(d.apply_flame_damage(1.0, 60)); // limit 2
         assert!(d.is_aflame());
         assert!(!d.would_ignite());
         d.next_spread_frame = 10;
