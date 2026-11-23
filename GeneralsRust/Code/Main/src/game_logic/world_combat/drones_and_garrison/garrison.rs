@@ -73,17 +73,43 @@ impl GameLogic {
         rider: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        self.remove_owned_open_contain_occupant(container_id, rider, false, effects)
+    }
+
+    /// OpenContain::killAllContained unlinks the entry and runs onRemoving,
+    /// skipping the ordinary world re-admission and unload sound.
+    pub(super) fn unlink_owned_passenger_for_kill(
+        &mut self,
+        container_id: ObjectId,
+        rider: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.remove_owned_open_contain_occupant(container_id, rider, true, effects)
+    }
+
+    fn remove_owned_open_contain_occupant(
+        &mut self,
+        container_id: ObjectId,
+        rider: ObjectId,
+        killing_passenger: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let transport = self.uses_owned_transport_contain_callback(container_id);
         let Some(container) = self.objects.get_mut(&container_id) else { return false };
         if container.is_helix_transport {
-            return self.remove_owned_helix_occupant(container_id, rider, effects);
+            return self.remove_owned_helix_occupant(container_id, rider, killing_passenger, effects);
         }
         if transport || !container.is_garrison_contain() {
             let removed = container.remove_occupant_with_partition_owner(
                 rider, &mut self.ownership_events, &mut self.partition_manager,
             );
-            if removed && transport && self.prepare_open_contain_removal(container_id, rider, effects) {
-                self.set_owned_passenger_held(rider, false, effects);
+            if removed {
+                if killing_passenger {
+                    self.play_container_on_removing_template_sounds(container_id, rider, effects);
+                }
+                if transport && (killing_passenger || self.prepare_open_contain_removal(container_id, rider, effects)) {
+                    self.set_owned_passenger_held(rider, false, effects);
+                }
             }
             return removed;
         }
@@ -91,10 +117,14 @@ impl GameLogic {
         if !container.unlink_occupant_with_partition_context(rider, Some(&self.partition_manager)) {
             return false;
         }
-        if !self.prepare_open_contain_removal(container_id, rider, effects) {
-            return true;
+        if killing_passenger {
+            self.play_container_on_removing_template_sounds(container_id, rider, effects);
+        } else {
+            if !self.prepare_open_contain_removal(container_id, rider, effects) {
+                return true;
+            }
+            self.play_container_removing_template_sounds(container_id, rider, effects);
         }
-        self.play_container_removing_template_sounds(container_id, rider, effects);
         if let Some(building) = self.objects.get_mut(&container_id).and_then(|object| object.building_data.as_mut()) {
             building.free_garrison_point_for(rider);
         }
@@ -153,6 +183,7 @@ impl GameLogic {
     /// contained_by remains installed until the caller finishes removal.
     fn remove_owned_helix_occupant(
         &mut self, container_id: ObjectId, rider: ObjectId,
+        killing_passenger: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         use gamelogic::contain_module_overrides::ContainModuleDataKind;
@@ -196,10 +227,14 @@ impl GameLogic {
         });
         self.objects.get_mut(&container_id).unwrap()
             .unlink_occupant_with_partition_context(rider, Some(&self.partition_manager));
-        if !self.prepare_open_contain_removal(container_id, rider, effects) {
-            return true;
+        if killing_passenger {
+            self.play_container_on_removing_template_sounds(container_id, rider, effects);
+        } else {
+            if !self.prepare_open_contain_removal(container_id, rider, effects) {
+                return true;
+            }
+            self.play_container_removing_template_sounds(container_id, rider, effects);
         }
-        self.play_container_removing_template_sounds(container_id, rider, effects);
         self.set_owned_passenger_held(rider, false, effects);
         if !self.spawn_identity_matches(container_id, container_birth, epoch)
             || !self.spawn_identity_matches(rider, birth, epoch)

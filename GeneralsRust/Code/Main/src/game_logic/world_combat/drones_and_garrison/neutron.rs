@@ -1,46 +1,122 @@
 use super::super::super::*;
+use crate::game_logic::combat::DamageType;
+use crate::game_logic::host_neutron_shell::{
+    HOST_NEUTRON_BLAST_RADIUS, NEUTRON_SHELL_AUDIO, NeutronEffect, in_neutron_blast_radius_2d,
+    is_legal_neutron_blast_target, neutron_effect_for_target,
+};
+use crate::game_logic::host_usa_pilot::HostDeathType;
 
 impl GameLogic {
     pub fn honesty_neutron_shell_projectile_ok(&self) -> bool {
         self.neutron_shells_spawned > 0
     }
 
-    fn neutron_kill_railed_contained(
-        &mut self, container_id: ObjectId, destroy_ids: &mut Vec<ObjectId>,
+    fn kill_neutron_target(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        // NeutronBlastBehavior calls Object::kill() without an attacker.
+        Ok(self
+            .apply_owned_kill_with_effects(
+                id,
+                DamageType::Unresistable,
+                HostDeathType::Normal,
+                effects,
+            )?
+            .is_some_and(|result| result.destroyed()))
+    }
+
+    fn kill_neutron_passengers(
+        &mut self,
+        target: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<u32> {
-        let Some(birth) = self.objects.get(&container_id).and_then(|container| {
-            (container.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport)
-                .then_some(container.visual_object_generation)
-        }) else { return Ok(0) };
+        let Some(object) = self.objects.get(&target) else {
+            return Ok(0);
+        };
+        let container_id = if object.is_overlord_style_container() {
+            // OverlordContain delegates to the bunker, leaving the portable
+            // payload itself out of the passenger-kill operation.
+            let redirected = self.redirected_containment_owner(target);
+            if redirected == target {
+                return Ok(0);
+            }
+            redirected
+        } else {
+            target
+        };
+        let Some(container) = self.objects.get(&container_id) else {
+            return Ok(0);
+        };
+        let container_birth = std::sync::Arc::downgrade(&container.visual_draw_identity_token);
+        let kind = container.get_template().contain_module.kind;
+        let tunnel = container.is_tunnel_network_style_container();
+        let ids = if tunnel {
+            self.tunnel_network
+                .contained_for_player(container.tunnel_system_key())
+        } else {
+            container.contained_units()
+        };
+        let riders: Vec<_> = ids
+            .into_iter()
+            .filter_map(|id| {
+                let rider = self.objects.get(&id)?;
+                Some((
+                    id,
+                    std::sync::Arc::downgrade(&rider.visual_draw_identity_token),
+                ))
+            })
+            .collect();
+
         let mut killed = 0u32;
-        loop {
-            let Some(rider) = self.objects.get(&container_id)
-                .filter(|container| container.visual_object_generation == birth)
-                .and_then(|container| container.contained_unit_ids().first().copied()) else { break };
-            let Some(rider_birth) = self.objects.get(&rider).map(|object| object.visual_object_generation) else { break };
-            if !self.railed_kill_contained_with_effects(container_id, rider, effects)
-                .map_err(gamelogic::GameLogicError::Configuration)?
-            {
+        for (rider, birth) in riders {
+            if !self.object_birth_matches(container_id, &container_birth) {
                 break;
             }
-            if !self.objects.get(&rider).is_some_and(|object| object.visual_object_generation == rider_birth) {
+            if !self.object_birth_matches(rider, &birth) {
                 continue;
             }
-            self.apply_owned_kill_with_effects(
-                rider, crate::game_logic::combat::DamageType::Unresistable,
-                crate::game_logic::host_usa_pilot::HostDeathType::Normal, effects,
-            )?;
-            if self.objects.get(&rider).is_some_and(|object| object.visual_object_generation == rider_birth) {
-                destroy_ids.push(rider);
+            let unlinked = if tunnel {
+                self.exit_tunnel_network_unit_with_effects(rider, container_id, effects)
+            } else {
+                if self.objects[&rider].contained_by != Some(container_id) {
+                    continue;
+                }
+                match kind {
+                    ContainModuleKind::RailedTransport => self
+                        .railed_kill_contained_with_effects(container_id, rider, effects)
+                        .map_err(gamelogic::GameLogicError::Configuration)?,
+                    ContainModuleKind::RiderChange => {
+                        self.unlink_owned_cycle_rider_for_kill(container_id, rider, effects)
+                    }
+                    ContainModuleKind::Parachute => {
+                        self.remove_parachute_rider_owned(container_id, rider, effects)?;
+                        true
+                    }
+                    _ => self.unlink_owned_passenger_for_kill(container_id, rider, effects),
+                }
+            };
+            if !unlinked || !self.object_birth_matches(rider, &birth) {
+                continue;
             }
-            killed = killed.saturating_add(1);
+            if let Some(object) = self.objects.get_mut(&rider) {
+                if object.contained_by == Some(container_id) {
+                    object.finish_containment_reference_with_partition_owner(
+                        None,
+                        false,
+                        &mut self.partition_manager,
+                    );
+                }
+            }
+            if self.kill_neutron_target(rider, effects)? {
+                killed = killed.saturating_add(1);
+            }
         }
         Ok(killed)
     }
 
-    /// Apply NeutronBlast residual: kill infantry, unman vehicles, and
-    /// `killAllContained` on every in-radius container (including structures).
+    /// Kill infantry and passengers, then disable or kill the vehicle.
     /// Returns (infantry_kills, vehicles_unmanned, vehicle_kills).
     pub fn apply_neutron_blast_at(
         &mut self,
@@ -54,7 +130,7 @@ impl GameLogic {
             caster_team,
             caster_id,
             affect_allies,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
+            &mut Default::default(),
         )
     }
 
@@ -64,295 +140,115 @@ impl GameLogic {
         caster_team: Team,
         caster_id: Option<ObjectId>,
         affect_allies: bool,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<(u32, u32, u32)> {
-        use crate::game_logic::host_neutron_shell::{
-            HOST_NEUTRON_BLAST_RADIUS, NEUTRON_SHELL_AUDIO, NeutronEffect,
-            in_neutron_blast_radius_2d, is_legal_neutron_blast_target, neutron_effect_for_target,
-        };
-
         let center = (impact.x, impact.z);
-        let radius = HOST_NEUTRON_BLAST_RADIUS;
-        let mut infantry_kills = 0u32;
-        let mut vehicles_unmanned = 0u32;
-        let mut vehicle_kills = 0u32;
-        let mut passengers_killed = 0u32;
-        let mut destroy_ids: Vec<ObjectId> = Vec::new();
-        let mut unmanned_ids: Vec<ObjectId> = Vec::new();
-
-        let candidates: Vec<ObjectId> = self
+        let candidates: Vec<_> = self
             .objects
             .registered()
-            .filter_map(|(id, obj)| {
-                if caster_id == Some(*id) {
+            .filter_map(|(&id, object)| {
+                // Enclosed passengers have left the C++ partition. They are hit
+                // through their container even if their registration comes first.
+                if caster_id == Some(id)
+                    || !object.is_alive()
+                    || (object.contained_by.is_some() && object.status.masked)
+                {
                     return None;
                 }
-                if !obj.is_alive() {
+                let pos = object.get_position();
+                if !in_neutron_blast_radius_2d(center, (pos.x, pos.z), HOST_NEUTRON_BLAST_RADIUS) {
                     return None;
                 }
-                let pos = obj.get_position();
-                if !in_neutron_blast_radius_2d(center, (pos.x, pos.z), radius) {
-                    return None;
-                }
-                let same_team = obj.team == caster_team;
-                if !is_legal_neutron_blast_target(
-                    obj.is_alive(),
-                    obj.is_kind_of(KindOf::Infantry),
-                    obj.is_kind_of(KindOf::Vehicle),
-                    obj.is_kind_of(KindOf::Aircraft),
-                    obj.is_kind_of(KindOf::Structure),
-                    obj.is_kind_of(KindOf::Drone),
-                    obj.status.airborne_target,
-                    false, // AffectAirborne = No for NeutronCannonShell residual
-                    same_team,
-                    affect_allies,
-                ) {
-                    return None;
-                }
-                Some(*id)
+                Some((
+                    id,
+                    std::sync::Arc::downgrade(&object.visual_draw_identity_token),
+                ))
             })
             .collect();
 
-        // C++ neutronBlastToObject: if contain → killAllContained, even on
-        // structures / transports / drones that are otherwise not unmanned.
-        // TunnelContain iterates the shared TunnelTracker pool, not the local door list.
-        let contain_pairs: Vec<(ObjectId, Vec<ObjectId>)> = candidates
-            .iter()
-            .filter_map(|id| {
-                let obj = self.objects.get(id)?;
-                if obj.thing().template.contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport {
-                    return None;
-                }
-                let mut occupants = obj.contained_units();
-                let is_tunnel = obj.is_tunnel_network_style_container();
-                if is_tunnel {
-                    for uid in self
-                        .tunnel_network
-                        .contained_for_player(obj.tunnel_system_key())
-                    {
-                        if !occupants.contains(&uid) {
-                            occupants.push(uid);
-                        }
-                    }
-                }
-                if occupants.is_empty() {
-                    None
-                } else {
-                    Some((*id, occupants))
-                }
-            })
-            .collect();
-
-        for id in candidates {
-            let Some(obj) = self.objects.get_mut(&id) else {
+        let (mut infantry_kills, mut vehicles_unmanned, mut vehicle_kills) = (0u32, 0u32, 0u32);
+        for (id, birth) in candidates {
+            if !self.object_birth_matches(id, &birth) {
                 continue;
-            };
-            let effect = neutron_effect_for_target(
-                obj.is_kind_of(KindOf::Infantry),
-                obj.is_kind_of(KindOf::Vehicle),
-                obj.is_kind_of(KindOf::Drone),
-                &obj.template_name,
-            );
-            let birth = obj.visual_object_generation;
-            let _ = obj;
-            if !matches!(effect, NeutronEffect::KillInfantry) {
-                let count = self.neutron_kill_railed_contained(id, &mut destroy_ids, presentation_effects)?;
-                passengers_killed = passengers_killed.saturating_add(count);
-                infantry_kills = infantry_kills.saturating_add(count);
             }
-            let Some(obj) = self.objects.get_mut(&id)
-                .filter(|obj| obj.visual_object_generation == birth) else { continue };
-            match effect {
-                NeutronEffect::KillInfantry => {
-                    // Residual: kill infantry (take full health damage).
-                    let receiving_damage_id = obj.id;
-                    let receiving_damage_argument_1 = obj.health.current.max(1.0) * 10.0;
-                    self.apply_residual_damage_owned_with_effects(
-                        receiving_damage_id,
-                        receiving_damage_argument_1,
-                        caster_id,
-                        crate::game_logic::combat::DamageType::Unresistable,
-                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                            crate::game_logic::combat::DamageType::Unresistable,
-                        ),
-                        None,
-                        presentation_effects,
-                    )?;
-                    let obj = self
-                        .objects
-                        .get_mut(&receiving_damage_id)
-                        .expect("bounded residual victim remains installed");
-                    if !obj.is_alive() || obj.health.current <= 0.0 {
-                        infantry_kills = infantry_kills.saturating_add(1);
-                        destroy_ids.push(id);
-                    } else {
-                        // Force kill residual.
-                        let receiving_damage_id = obj.id;
-                        self.apply_residual_damage_owned_with_effects(
-                            receiving_damage_id,
-                            999_999.0,
-                            caster_id,
-                            crate::game_logic::combat::DamageType::Unresistable,
-                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                                crate::game_logic::combat::DamageType::Unresistable,
-                            ),
-                            None,
-                            presentation_effects,
-                        )?;
-                        let obj = self
-                            .objects
-                            .get_mut(&receiving_damage_id)
-                            .expect("bounded residual victim remains installed");
-                        infantry_kills = infantry_kills.saturating_add(1);
-                        destroy_ids.push(id);
+            let object = &self.objects[&id];
+            let source = caster_id.and_then(|id| self.objects.get(&id));
+            if source.is_some_and(|source| source.status.off_map != object.status.off_map) {
+                continue;
+            }
+            let allied = !affect_allies
+                && source.map_or(object.team == caster_team, |source| {
+                    self.object_relationship(source, object)
+                        == gamelogic::common::Relationship::Allies
+                });
+            let infantry = object.is_kind_of(KindOf::Infantry);
+            let vehicle = object.is_kind_of(KindOf::Vehicle);
+            let drone = object.is_kind_of(KindOf::Drone);
+            if !is_legal_neutron_blast_target(
+                object.is_alive(),
+                infantry,
+                vehicle,
+                object.is_kind_of(KindOf::Aircraft),
+                object.is_kind_of(KindOf::Structure),
+                drone,
+                object.status.airborne_target,
+                false,
+                allied,
+                affect_allies,
+            ) {
+                continue;
+            }
+
+            // The original infantry and vehicle tests are independent. The
+            // contains callback runs between them for this same target.
+            let vehicle_effect = neutron_effect_for_target(
+                false,
+                vehicle,
+                drone,
+                object.is_kind_of(KindOf::CliffJumper),
+            );
+            if infantry && self.kill_neutron_target(id, effects)? {
+                infantry_kills = infantry_kills.saturating_add(1);
+            }
+            if !self.object_birth_matches(id, &birth) {
+                continue;
+            }
+            infantry_kills =
+                infantry_kills.saturating_add(self.kill_neutron_passengers(id, effects)?);
+            if !self.object_birth_matches(id, &birth) {
+                continue;
+            }
+            match vehicle_effect {
+                NeutronEffect::KillVehicle => {
+                    if self.kill_neutron_target(id, effects)? {
+                        vehicle_kills = vehicle_kills.saturating_add(1);
                     }
-                    let count = self.neutron_kill_railed_contained(id, &mut destroy_ids, presentation_effects)?;
-                    passengers_killed = passengers_killed.saturating_add(count);
-                    infantry_kills = infantry_kills.saturating_add(count);
                 }
                 NeutronEffect::UnmanVehicle => {
-                    let dead_man = !obj.is_kind_of(crate::game_logic::KindOf::Drone)
-                        && obj.authors_carbomb_weapon_set();
-                    if dead_man {
-                        // setDisabled kills synchronously before the neutron
-                        // behavior idles and neutralizes the object.
-                        drop(obj);
-                        self.maybe_detonate_carbomb_on_unmanned_with_effects(id, presentation_effects)?;
-                    } else {
-                        obj.apply_kill_pilot_unmanned_at_frame(
-                            &mut self.health_events,
-                            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                            self.frame,
-                        );
+                    let object = self.objects.get_mut(&id).unwrap();
+                    if !object.is_unmanned() {
+                        object.status.unmanned_owner_team = Some(object.team);
+                        object.status.unmanned_owner_player_id = object.owner_player_id;
                     }
-                    if let Some(obj) = self.objects.get_mut(&id)
-                        .filter(|obj| obj.visual_object_generation == birth)
-                    {
-                        obj.set_ai_state(
-                            AIState::Idle,
-                            self.frame,
-                            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                        );
-                        obj.deselect();
-                        obj.set_team_with_partition_owner(
-                            Team::Neutral,
-                            &mut self.ownership_events,
-                            &mut self.partition_manager,
-                        );
-                        vehicles_unmanned = vehicles_unmanned.saturating_add(1);
-                        unmanned_ids.push(id);
+                    self.set_owned_unmanned(id, effects)?;
+                    if !self.object_birth_matches(id, &birth) {
+                        continue;
                     }
+                    if self.objects[&id].has_ai_update_interface() {
+                        self.unit_command_ai_idle_owned_with_effects(id, effects)?;
+                        if !self.object_birth_matches(id, &birth) {
+                            continue;
+                        }
+                    }
+                    self.deselect_drawable(id);
+                    self.objects.get_mut(&id).unwrap().set_terrain_decal(
+                        crate::game_logic::host_battlemaster::TERRAIN_DECAL_NONE,
+                    );
+                    self.transfer_unmanned_to_neutral_team(id, effects)?;
+                    vehicles_unmanned = vehicles_unmanned.saturating_add(1);
                 }
-                NeutronEffect::KillVehicle => {
-                    let receiving_damage_target_id = obj.id;
-                    let receiving_damage_argument_1 = obj.health.current.max(1.0) * 10.0;
-                    self.apply_residual_damage_owned_with_effects(
-                        receiving_damage_target_id,
-                        receiving_damage_argument_1,
-                        caster_id,
-                        crate::game_logic::combat::DamageType::Unresistable,
-                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                            crate::game_logic::combat::DamageType::Unresistable,
-                        ),
-                        None,
-                        presentation_effects,
-                    )?;
-                    vehicle_kills = vehicle_kills.saturating_add(1);
-                    destroy_ids.push(id);
-                }
-                NeutronEffect::None => {}
+                NeutronEffect::None | NeutronEffect::KillInfantry => {}
             }
-        }
-
-        for (container_id, occupants) in contain_pairs {
-            for &occ_id in &occupants {
-                self.remove_owned_occupant_with_bonus_callback(container_id, occ_id, presentation_effects);
-            }
-            for occ_id in occupants {
-                if destroy_ids.contains(&occ_id) {
-                    continue;
-                }
-                let Some(occ) = self.objects.get_mut(&occ_id) else {
-                    continue;
-                };
-                if !occ.is_alive() {
-                    continue;
-                }
-                let containment_actor_id = occ.id;
-                Self::set_owned_containment_in_parts(
-                    &mut self.objects,
-                    &mut self.partition_manager,
-                    &mut self.ai_groups,
-                    &mut self.pathfinding_system,
-                    containment_actor_id,
-                    None,
-                    true,
-                );
-                let occ = self
-                    .objects
-                    .get_mut(&containment_actor_id)
-                    .expect("containment operation preserves this birth");
-                occ.set_ai_state(
-                    AIState::Idle,
-                    self.frame,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                );
-                let receiving_damage_id = occ.id;
-                let receiving_damage_argument_1 = occ.health.current.max(1.0) * 10.0;
-                self.apply_residual_damage_owned_with_effects(
-                    receiving_damage_id,
-                    receiving_damage_argument_1,
-                    caster_id,
-                    crate::game_logic::combat::DamageType::Unresistable,
-                    crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                        crate::game_logic::combat::DamageType::Unresistable,
-                    ),
-                    None,
-                    presentation_effects,
-                )?;
-                let occ = self
-                    .objects
-                    .get_mut(&receiving_damage_id)
-                    .expect("bounded residual victim remains installed");
-                if occ.is_alive() && occ.health.current > 0.0 && !occ.status.destroyed {
-                    let receiving_damage_target_id = occ.id;
-                    self.apply_residual_damage_owned_with_effects(
-                        receiving_damage_target_id,
-                        999_999.0,
-                        caster_id,
-                        crate::game_logic::combat::DamageType::Unresistable,
-                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                            crate::game_logic::combat::DamageType::Unresistable,
-                        ),
-                        None,
-                        presentation_effects,
-                    )?;
-                }
-                passengers_killed = passengers_killed.saturating_add(1);
-                infantry_kills = infantry_kills.saturating_add(1);
-                destroy_ids.push(occ_id);
-            }
-        }
-
-        // C++ deselectObject(PLAYERMASK_ALL): drop unmanned husks from every
-        // selection roster so they cannot keep player/AI orders.
-        if !unmanned_ids.is_empty() {
-            for &id in &unmanned_ids {
-                self.admit_local_drawable_deselected(id);
-            }
-            for player in self.players.values_mut() {
-                player
-                    .selected_objects
-                    .retain(|sid| !unmanned_ids.contains(sid));
-            }
-        }
-
-        for id in destroy_ids {
-            self.mark_object_for_destruction_with_effects(
-                id,
-                Some(caster_team),
-                presentation_effects,
-            )?;
         }
 
         self.neutron_shell_residual_blasts = self.neutron_shell_residual_blasts.saturating_add(1);
@@ -362,16 +258,13 @@ impl GameLogic {
         self.neutron_shell_residual_vehicles_unmanned = self
             .neutron_shell_residual_vehicles_unmanned
             .saturating_add(vehicles_unmanned);
-        let _ = passengers_killed;
 
         self.queue_audio_event(
             AudioEventRequest::new(NEUTRON_SHELL_AUDIO)
                 .with_position(impact)
                 .with_priority(155),
         );
-        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
-        // impact uses ProjectileDetonateFX, never a muzzle flash.
-
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle).
         Ok((infantry_kills, vehicles_unmanned, vehicle_kills))
     }
 }

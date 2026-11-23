@@ -139,13 +139,6 @@ pub fn is_nuke_cannon_template(template_name: &str) -> bool {
     n.contains("nukecannon") || n.contains("nuke_cannon")
 }
 
-/// True when residual target is a combat-bike style vehicle that dies to neutron
-/// instead of going unmanned (C++ KINDOF_CLIFF_JUMPER residual).
-pub fn is_neutron_kill_vehicle_name(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    n.contains("combatbike") || n.contains("combat_bike") || n.contains("cliffjumper")
-}
-
 /// Whether residual target receives neutron blast effects.
 ///
 /// C++ `neutronBlastToObject` is invoked for every alive same-map object in
@@ -194,13 +187,13 @@ pub fn neutron_effect_for_target(
     is_infantry: bool,
     is_vehicle: bool,
     is_drone: bool,
-    template_name: &str,
+    is_cliff_jumper: bool,
 ) -> NeutronEffect {
     if is_infantry {
         return NeutronEffect::KillInfantry;
     }
     if is_vehicle && !is_drone {
-        if is_neutron_kill_vehicle_name(template_name) {
+        if is_cliff_jumper {
             return NeutronEffect::KillVehicle;
         }
         return NeutronEffect::UnmanVehicle;
@@ -426,9 +419,9 @@ pub fn honesty_neutron_shell_projectile_residual_ok() -> bool {
 
 /// Kill infantry residual (effect enum + legal-target + upgrade gate).
 pub fn honesty_neutron_kill_infantry_residual_ok() -> bool {
-    neutron_effect_for_target(true, false, false, "USA_Ranger") == NeutronEffect::KillInfantry
-        && neutron_effect_for_target(false, true, false, "TestTank") == NeutronEffect::UnmanVehicle
-        && neutron_effect_for_target(false, true, false, "GLACombatBike")
+    neutron_effect_for_target(true, false, false, false) == NeutronEffect::KillInfantry
+        && neutron_effect_for_target(false, true, false, false) == NeutronEffect::UnmanVehicle
+        && neutron_effect_for_target(false, true, false, true)
             == NeutronEffect::KillVehicle
         && is_legal_neutron_blast_target(
             true, true, false, false, false, false, false, NEUTRON_AFFECT_AIRBORNE, false,
@@ -567,19 +560,19 @@ mod tests {
     #[test]
     fn neutron_effect_matrix() {
         assert_eq!(
-            neutron_effect_for_target(true, false, false, "USA_Ranger"),
+            neutron_effect_for_target(true, false, false, false),
             NeutronEffect::KillInfantry
         );
         assert_eq!(
-            neutron_effect_for_target(false, true, false, "TestTank"),
+            neutron_effect_for_target(false, true, false, false),
             NeutronEffect::UnmanVehicle
         );
         assert_eq!(
-            neutron_effect_for_target(false, true, false, "GLACombatBike"),
+            neutron_effect_for_target(false, true, false, true),
             NeutronEffect::KillVehicle
         );
         assert_eq!(
-            neutron_effect_for_target(false, false, false, "USA_CommandCenter"),
+            neutron_effect_for_target(false, false, false, false),
             NeutronEffect::None
         );
     }

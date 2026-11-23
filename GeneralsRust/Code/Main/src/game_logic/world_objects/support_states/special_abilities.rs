@@ -2671,6 +2671,25 @@ impl GameLogic {
         rider_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        self.remove_owned_cycle_rider(container_id, rider_id, false, effects)
+    }
+
+    pub(in crate::game_logic) fn unlink_owned_cycle_rider_for_kill(
+        &mut self,
+        container_id: ObjectId,
+        rider_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        self.remove_owned_cycle_rider(container_id, rider_id, true, effects)
+    }
+
+    fn remove_owned_cycle_rider(
+        &mut self,
+        container_id: ObjectId,
+        rider_id: ObjectId,
+        killing_passenger: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let veterancy_health_bonus = self.veterancy_health_bonus;
         let Some((
             container_birth,
@@ -2726,10 +2745,12 @@ impl GameLogic {
             return false;
         }
 
-        if !self.prepare_open_contain_removal(container_id, rider_id, effects) {
-            return false;
+        if !killing_passenger {
+            if !self.prepare_open_contain_removal(container_id, rider_id, effects) {
+                return false;
+            }
+            self.play_container_exit_sound(container_id, effects);
         }
-        self.play_container_exit_sound(container_id, effects);
         if payload_created {
             self.play_container_on_removing_template_sounds(container_id, rider_id, effects);
             self.set_owned_passenger_held(rider_id, false, effects);
@@ -2766,7 +2787,7 @@ impl GameLogic {
         }
         if let Some(rider) = self.objects.get_mut(&rider_id) {
             rider.finish_containment_reference_with_partition_owner(
-                None, true, &mut self.partition_manager,
+                None, !killing_passenger, &mut self.partition_manager,
             );
             // CPP RiderChangeContain::onRemoving does not issue an AI order.
             // AIExitState and the exit interface own the rider's continuation.

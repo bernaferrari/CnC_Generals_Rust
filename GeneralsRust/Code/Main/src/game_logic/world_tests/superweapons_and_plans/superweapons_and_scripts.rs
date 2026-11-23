@@ -1135,6 +1135,107 @@ fn kill_pilot_and_neutron_preserve_other_disables_until_their_deadlines() {
     }
 }
 
+fn neutron_husk_world(kinds: &str) -> (GameLogic, ObjectId, u32) {
+    use crate::fixture_content::{FixtureObject, admit_fixture_content};
+    use crate::game_logic::game_logic::PlayerSideRole;
+    let mut world = GameLogic::new();
+    admit_fixture_content(
+        &mut world,
+        &[FixtureObject::new("NeutronPowerChassis")
+            .kind_of(kinds)
+            .health(100.0)
+            .energy(20)],
+        &[],
+    );
+    world.add_player(Player::new(1, Team::GLA, "Vehicle owner", true));
+    let mut neutral = Player::new(9, Team::Neutral, "Neutral", false);
+    neutral.map_side.role = PlayerSideRole::Neutral;
+    world.add_player(neutral);
+    let neutral_team = world.host_default_team_id(9).expect("registered neutral default Team");
+    let id = world
+        .create_object_for_player("NeutronPowerChassis", 1, Vec3::ZERO)
+        .unwrap();
+    (world, id, neutral_team)
+}
+
+#[test]
+fn neutron_blast_debits_power_before_capturing_the_husk() {
+    let (mut owner, target, neutral_team) = neutron_husk_world("VEHICLE SELECTABLE");
+    let (peer, peer_target, _) = neutron_husk_world("VEHICLE SELECTABLE");
+    assert_eq!(target, peer_target);
+    assert_eq!(owner.get_player(1).unwrap().power_produced, 20);
+    assert_eq!(
+        owner.apply_neutron_blast_at(Vec3::ZERO, Team::USA, None, false).unwrap(),
+        (0, 1, 0)
+    );
+    let husk = owner.host_object(target).unwrap();
+    assert!(husk.is_alive() && husk.is_unmanned());
+    assert_eq!(owner.get_player(1).unwrap().power_produced, 0);
+    assert_eq!(husk.owner_player_id, Some(9));
+    assert_eq!(husk.team_instance_id, Some(neutral_team));
+    assert_eq!(owner.get_player(9).unwrap().power_produced, 0);
+    assert_eq!(peer.get_player(1).unwrap().power_produced, 20);
+    assert!(!peer.host_object(peer_target).unwrap().is_unmanned());
+}
+
+#[test]
+fn neutron_blast_kills_an_authored_cliff_jumper_regardless_of_template_name() {
+    let (mut owner, target, _) = neutron_husk_world("VEHICLE SELECTABLE CLIFF_JUMPER");
+    assert_eq!(
+        owner.apply_neutron_blast_at(Vec3::ZERO, Team::USA, None, false).unwrap(),
+        (0, 0, 1)
+    );
+    assert!(owner.host_object(target).is_none_or(|object| !object.is_alive()));
+}
+
+#[test]
+fn neutron_blast_kills_transport_passengers_before_unmanning_the_hull() {
+    use crate::fixture_content::{FixtureObject, admit_fixture_content};
+    let mut world = GameLogic::new();
+    admit_fixture_content(
+        &mut world,
+        &[
+            FixtureObject::new("NeutronCrew")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(100.0)
+                .energy(7)
+                .field("TransportSlotCount = 1")
+                .walker(),
+            FixtureObject::new("NeutronCarrier")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(100.0)
+                .energy(20)
+                .module("Behavior = TransportContain Carrier\nSlots = 2\nAllowInsideKindOf = INFANTRY\nEnd"),
+        ],
+        &[],
+    );
+    world.add_player(Player::new(1, Team::GLA, "Vehicle owner", true));
+    // The crew is registered first. Its partition entry disappears on boarding.
+    let crew = world.create_object_for_player("NeutronCrew", 1, Vec3::ZERO).unwrap();
+    let hull = world.create_object_for_player("NeutronCarrier", 1, Vec3::ZERO).unwrap();
+    assert!(world.unit_command_order_enter(crew, hull));
+    world.update_support_states(&[crew], 1.0 / 30.0).unwrap();
+    assert_eq!(world.host_object(crew).unwrap().contained_by, Some(hull));
+    assert_eq!(world.get_player(1).unwrap().power_produced, 20);
+    assert!(!world.partition_manager.is_registered(crew.0));
+    world.economy_events.clear();
+
+    assert_eq!(
+        world.apply_neutron_blast_at(Vec3::ZERO, Team::USA, None, false).unwrap(),
+        (1, 1, 0)
+    );
+
+    world.economy_events.complete_boundary();
+    let power: Vec<_> = world.economy_events.take_completed().into_iter()
+        .filter(|event| event.player_id == 1)
+        .map(|event| event.power_available)
+        .collect();
+    assert_eq!(power.first(), Some(&27), "crew HELD clears while the hull supplies power");
+    assert!(power.contains(&7), "the hull's UNMANNED edge removes its 20 power");
+    assert!(world.host_object(hull).unwrap().contained_unit_ids().is_empty());
+    assert!(world.host_object(crew).is_none_or(|object| !object.is_alive() && object.contained_by.is_none()));
+}
+
 #[test]
 fn attack_order_chases_target_when_out_of_range() {
     let mut game_logic = GameLogic::new();

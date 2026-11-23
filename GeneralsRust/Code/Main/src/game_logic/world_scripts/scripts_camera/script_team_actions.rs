@@ -458,27 +458,8 @@ impl GameLogic {
         if !self.object_birth_matches(id, &birth) {
             return Ok(());
         }
-        self.objects.get_mut(&id).unwrap().deselect();
-        self.admit_local_drawable_deselected(id);
-        for player in self.players.values_mut() {
-            player.selected_objects.retain(|sid| *sid != id);
-        }
-        if let Some(neutral) = self.players.values()
-            .filter(|player| player.is_reserved_neutral())
-            .map(|player| player.id)
-            .min()
-        {
-            let team = self.host_default_team_id(neutral).ok_or_else(|| {
-                gamelogic::GameLogicError::Configuration("Neutral player has no default Team".into())
-            })?;
-            self.set_host_object_team_with_effects(id, team, effects)?;
-        } else {
-            // Detached fixtures can run actions before any map-side Team exists.
-            self.objects.get_mut(&id).unwrap().set_team_with_partition_owner(
-                Team::Neutral, &mut self.ownership_events, &mut self.partition_manager,
-            );
-        }
-        Ok(())
+        self.deselect_drawable(id);
+        self.transfer_unmanned_to_neutral_team(id, effects)
     }
 
     /// C++ `doObjectRadarCreateEvent` / `doTeamRadarCreateEvent`.

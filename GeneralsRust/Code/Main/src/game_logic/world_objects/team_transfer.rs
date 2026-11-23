@@ -11,6 +11,31 @@ pub(super) struct HostNeutralTeam {
 }
 
 impl GameLogic {
+    /// ScriptActions and NeutronBlastBehavior hand an unmanned object to the
+    /// receiving Neutral Team after finishing their own disable callbacks.
+    pub(in crate::game_logic) fn transfer_unmanned_to_neutral_team(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        if let Some(neutral) = self.players.values()
+            .filter(|player| player.is_reserved_neutral())
+            .map(|player| player.id)
+            .min()
+        {
+            let team = self.host_default_team_id(neutral).ok_or_else(|| {
+                gamelogic::GameLogicError::Configuration("Neutral player has no default Team".into())
+            })?;
+            self.set_host_object_team_with_effects(id, team, effects)?;
+        } else if let Some(object) = self.objects.get_mut(&id) {
+            // Detached fixtures can run before map-side Teams are admitted.
+            object.set_team_with_partition_owner(
+                Team::Neutral, &mut self.ownership_events, &mut self.partition_manager,
+            );
+        }
+        Ok(())
+    }
+
     /// Validate the receiving-world team identities used by GarrisonContain's
     /// owner recalculation before OpenContain commits the occupant relationship.
     /// The actual transfer runs later, after GarrisonContain::onContaining has

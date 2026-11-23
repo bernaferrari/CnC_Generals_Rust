@@ -118,12 +118,15 @@ fn neutron_unman_deselects_and_idles_ai() {
         .players
         .insert(0, Player::new(0, Team::USA, "USA", true));
 
-    let mut tank = ThingTemplate::new("NeutronUnmanTank");
-    tank.add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(250.0);
-    logic.templates.insert("NeutronUnmanTank".to_string(), tank);
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+
+    admit_fixture_objects(
+        &mut logic,
+        &[FixtureObject::new("NeutronUnmanTank")
+            .kind_of("VEHICLE SELECTABLE CAN_ATTACK")
+            .health(250.0)
+            .module("Behavior = AIUpdateInterface TankAI\nEnd")],
+    );
 
     let tank_id = logic
         .create_object("NeutronUnmanTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -136,7 +139,9 @@ fn neutron_unman_deselects_and_idles_ai() {
             0,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        obj.target_location = Some(Vec3::new(80.0, 0.0, 0.0));
+        let goal = Vec3::new(80.0, 0.0, 0.0);
+        obj.unit_ai_runtime.set_machine_goal_position(goal);
+        obj.unit_ai_runtime.enter_normal_move_body(goal);
         obj.set_status_moving(true);
         assert!(obj.selected || obj.status.selected);
         assert!(matches!(obj.ai_state(), AIState::Moving));
@@ -171,9 +176,15 @@ fn neutron_unman_deselects_and_idles_ai() {
         matches!(obj.ai_state(), AIState::Idle),
         "C++ aiIdle(CMD_FROM_AI) must idle the husk"
     );
-    assert!(
-        obj.target_location.is_none(),
-        "idle unman must drop pending move orders"
+    assert_eq!(
+        obj.unit_ai_runtime.machine().goals.position,
+        Vec3::ZERO,
+        "idle unman must clear the state machine goal"
+    );
+    assert!(!obj.status.moving);
+    assert_eq!(
+        obj.last_command_source,
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
     );
     assert!(
         !logic
