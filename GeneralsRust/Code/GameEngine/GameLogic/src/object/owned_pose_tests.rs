@@ -334,30 +334,29 @@ fn compatibility_position_caches_height_from_the_receiving_map() {
     }
 }
 
+fn flat_pose_world(height: u8, active_cells: i32) -> Arc<crate::system::engine_stores::EngineStores> {
+    let stores = crate::system::engine_stores::new_for_world();
+    let mut map = crate::system::map_loader::MapData::new();
+    map.width = 10;
+    map.height = 10;
+    map.heightmap = vec![height; 100];
+    map.boundaries = vec![
+        crate::common::ICoord2D::new(10, 10),
+        crate::common::ICoord2D::new(active_cells, active_cells),
+    ];
+    let mut terrain = stores.services().terrain().write().unwrap();
+    terrain.load_map_data(map);
+    terrain.restore_active_boundary_from_snapshot(1);
+    drop(terrain);
+    stores
+}
+
 #[test]
 fn compatibility_matrix_observes_owner_height_and_rejects_borrow_conflicts() {
-    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
-    use crate::system::map_loader::MapData;
+    use crate::system::engine_stores::with_active_stores;
 
-    fn populated(height: u8, active_cells: i32) -> Arc<EngineStores> {
-        let stores = new_for_world();
-        let mut map = MapData::new();
-        map.width = 10;
-        map.height = 10;
-        map.heightmap = vec![height; 100];
-        map.boundaries = vec![
-            crate::common::ICoord2D::new(10, 10),
-            crate::common::ICoord2D::new(active_cells, active_cells),
-        ];
-        let mut terrain = stores.services().terrain().write().unwrap();
-        terrain.load_map_data(map);
-        terrain.restore_active_boundary_from_snapshot(1);
-        drop(terrain);
-        stores
-    }
-
-    let owner = populated(40, 5);
-    let peer = populated(0, 10);
+    let owner = flat_pose_world(40, 5);
+    let peer = flat_pose_world(0, 10);
     let mut object = inert_object();
     object.bind_owner_world_for_test(owner.services());
     let inside = Coord3D::new(30.0, 25.0, 100.0);
@@ -386,5 +385,35 @@ fn compatibility_matrix_observes_owner_height_and_rejects_borrow_conflicts() {
         assert_eq!(*object.get_position(), outside);
         assert_eq!(object.get_height_above_terrain(), 75.0);
         assert!(object.is_off_map());
+    });
+}
+
+#[test]
+fn live_altitude_reads_its_world_and_uses_accepted_height_during_a_terrain_callback() {
+    use crate::system::engine_stores::with_active_stores;
+
+    let owner = flat_pose_world(40, 10);
+    let peer = flat_pose_world(0, 10);
+    let mut grounded = inert_object();
+    let mut flying = inert_object();
+    grounded.bind_owner_world_for_test(owner.services());
+    flying.bind_owner_world_for_test(peer.services());
+    let pos = Coord3D::new(30.0, 25.0, 25.0);
+
+    with_active_stores(&peer, || {
+        grounded.set_position(&pos).unwrap();
+        flying.set_position(&pos).unwrap();
+        assert_eq!(grounded.calculate_height_above_terrain(), 0.0);
+        assert!(!grounded.is_above_terrain());
+        assert!(flying.is_above_terrain());
+
+        let blocked = owner.services().terrain().write().unwrap();
+        assert_eq!(grounded.calculate_height_above_terrain(), 0.0);
+        assert!(!grounded.is_above_terrain());
+        drop(blocked);
+
+        grounded.set_position(&Coord3D::new(30.0, 25.0, 26.0)).unwrap();
+        assert_eq!(grounded.calculate_height_above_terrain(), 1.0);
+        assert!(grounded.is_above_terrain());
     });
 }

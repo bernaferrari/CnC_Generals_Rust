@@ -671,23 +671,24 @@ impl Object {
         self.geometry_info.height_above_terrain = height;
     }
 
-    /// C++ parity: Object::calculateHeightAboveTerrain() (Object.cpp line 2751)
+    /// C++ Object::calculateHeightAboveTerrain (Object.cpp:2751).
     pub fn calculate_height_above_terrain(&self) -> Real {
         let pos = self.get_position();
-        pos.z - self.ground_height_for_above_terrain()
-    }
-
-    /// Ground/layer height used by [`Self::is_above_terrain`].
-    ///
-    /// C++ Object::calculateHeightAboveTerrain uses `TheTerrainLogic->getLayerHeight`.
-    /// Missing terrain (unit tests) stubs ground height as 0.
-    pub(super) fn ground_height_for_above_terrain(&self) -> Real {
-        let pos = self.get_position();
-        if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
-            terrain.get_layer_height(pos.x, pos.y, self.layer)
-        } else {
-            0.0
-        }
+        let Some(world) = self
+            .owning_world_services()
+            .or_else(crate::system::engine_stores::try_active_services)
+        else {
+            return pos.z;
+        };
+        let Ok(terrain) = world.terrain().try_read() else {
+            // A terrain callback can hold this world's write loan. Reuse the
+            // actor's last accepted sample until that callback releases it.
+            return self.get_height_above_terrain();
+        };
+        let ground = crate::helpers::TheTerrainLogic::get_layer_height_in(
+            &terrain, pos.x, pos.y, self.layer,
+        );
+        pos.z - ground
     }
 
     /// Returns true if the object is well above the ground plane. Matches the C++ helper used
@@ -1232,10 +1233,7 @@ impl Object {
     /// C++ Thing.h: `isAboveTerrain() { return getHeightAboveTerrain() > 0.0f; }`
     /// Object overrides height via layer (bridges): `z > ground/layer height + slop`.
     pub fn is_above_terrain(&self) -> bool {
-        Self::is_above_terrain_height(
-            self.get_position().z,
-            self.ground_height_for_above_terrain(),
-        )
+        self.calculate_height_above_terrain() > Self::ABOVE_TERRAIN_SLOP
     }
 
     /// Get the transform matrix for this object
