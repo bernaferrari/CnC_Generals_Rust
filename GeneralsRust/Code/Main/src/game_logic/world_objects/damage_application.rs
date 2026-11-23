@@ -2092,6 +2092,9 @@ impl GameLogic {
         let projectile = self.combat_system.get_projectiles().get(&id);
         let birth = projectile.and_then(|projectile| projectile.projectile_actor_birth);
         let detonate_calls_kill = projectile.is_some_and(|projectile| projectile.detonate_calls_kill());
+        let missile_calls_on_die = projectile
+            .is_some_and(|p| p.missile_motion.is_some() && p.die_on_detonate);
+        let self_damage_on_detonation = detonate_calls_kill || missile_calls_on_die;
         if let Some(birth) = birth {
             if !self.spawn_identity_matches(id, birth.0, birth.1) {
                 return (Some(RetiredProjectileActor::Destroy), Ok(()));
@@ -2188,7 +2191,10 @@ impl GameLogic {
             &mut (),
         );
 
-        if detonate_calls_kill && birth.is_some() {
+        if self_damage_on_detonation
+            && let Some((generation, epoch)) = birth
+            && self.spawn_identity_matches(id, generation, epoch)
+        {
             if let Some(projectile) = self.combat_system.get_projectiles().get(&id) {
                 let actor = self.objects.get_mut(&id).expect("validated projectile birth");
                 let position = detonation_pose.unwrap_or(projectile.position);
@@ -2201,24 +2207,29 @@ impl GameLogic {
         }
         let mut retirement = retired.contains(&id).then_some(RetiredProjectileActor::Destroy);
         // Weapon::handleProjectileDetonation runs FX/OCL and Body damage first.
-        // DumbProjectileBehavior then submits DEATH_DETONATED to its own Body.
+        // The flight behavior then submits DEATH_DETONATED to its own Body.
         let result = self.flush_projectile_impact_fx_with_effects(effects).and_then(|()| {
             for event in events {
                 self.apply_owned_combat_damage_with_effects(&event, effects)?;
             }
-            if detonate_calls_kill && detonation_pose.is_some()
+            if self_damage_on_detonation && detonation_pose.is_some()
                 && let Some((generation, epoch)) = birth
                 && self.spawn_identity_matches(id, generation, epoch)
             {
-                retirement = Some(RetiredProjectileActor::KeepAfterDeath);
-                self.apply_dumb_projectile_detonated_damage(id, (generation, epoch), effects)?;
+                if detonate_calls_kill {
+                    retirement = Some(RetiredProjectileActor::KeepAfterDeath);
+                }
+                self.apply_projectile_detonated_damage(id, (generation, epoch), effects)?;
+                if !self.spawn_identity_matches(id, generation, epoch) {
+                    retirement = Some(RetiredProjectileActor::KeepAfterDeath);
+                }
             }
             Ok(())
         });
         (retirement, result)
     }
 
-    fn apply_dumb_projectile_detonated_damage(
+    fn apply_projectile_detonated_damage(
         &mut self,
         id: ObjectId,
         birth: (u64, u64),

@@ -26,13 +26,24 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
 }
 
 fn world_for(weapon_name: &str, projectile_name: &str, locomotor_name: &str) -> (GameLogic, ObjectId, ObjectId) {
+    world_for_with(weapon_name, projectile_name, locomotor_name, |_, _, _| {})
+}
+
+fn world_for_with(
+    weapon_name: &str,
+    projectile_name: &str,
+    locomotor_name: &str,
+    configure: impl FnOnce(&mut String, &mut String, &mut String),
+) -> (GameLogic, ObjectId, ObjectId) {
     use crate::assets::ini_template_loader::{parse_weapon_definitions_ini_into, WeaponDefinitionLoadType};
-    let weapon_ini = single_block(&retail_ini("Weapon.ini"), &format!("Weapon {weapon_name}"));
+    let mut weapon_ini = single_block(&retail_ini("Weapon.ini"), &format!("Weapon {weapon_name}"));
+    let mut projectile_ini = single_block(&retail_ini("Object/WeaponObjects.ini"), &format!("Object {projectile_name}"));
+    let mut objects_ini = format!("Object PatriotRegressionCarrier\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nWeaponSet\nConditions = None\nWeapon = PRIMARY {weapon_name}\nEnd\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nEnd\nObject PatriotRegressionTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n");
+    configure(&mut weapon_ini, &mut projectile_ini, &mut objects_ini);
     let mut weapons = HashMap::new();
     assert_eq!(parse_weapon_definitions_ini_into(&mut weapons, &weapon_ini, WeaponDefinitionLoadType::Normal), 1);
     assert_eq!(weapons[&weapon_name.to_ascii_lowercase()].projectile_name, projectile_name);
 
-    let projectile_ini = single_block(&retail_ini("Object/WeaponObjects.ini"), &format!("Object {projectile_name}"));
     let mut parser = crate::assets::IniParser::new();
     parser.parse_ini_content(
         &projectile_ini,
@@ -59,7 +70,7 @@ fn world_for(weapon_name: &str, projectile_name: &str, locomotor_name: &str) -> 
         world.add_player(player);
     }
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([
-        ("missile-regression.ini".into(), format!("Object PatriotRegressionCarrier\nKindOf = VEHICLE SELECTABLE CAN_ATTACK\nWeaponSet\nConditions = None\nWeapon = PRIMARY {weapon_name}\nEnd\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nEnd\nObject PatriotRegressionTarget\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = AIUpdateInterface AI\nEnd\nGeometry = Sphere\nGeometryMajorRadius = 0\nEnd\n")),
+        ("missile-regression.ini".into(), objects_ini),
         ("WeaponObjects.ini".into(), projectile_ini),
     ]).unwrap()).unwrap();
     world.admit_weapon_content_snapshot(weapons.into_values().map(|w| (w.name.clone(), w)).collect(), &objects).unwrap();
@@ -440,4 +451,74 @@ fn retail_tomahawk_lock_transition_skips_attack_dive() {
             "distance {distance}"
         );
     }
+}
+
+/// MissileAIUpdate.cpp:364-399 detonate() runs handleProjectileDetonation —
+/// the warhead's victim Body damage — before the MissileCallsOnDie self-hit.
+/// A lethal victim's CreateObjectDie child must be allocated before the
+/// missile's own die child, and that child's producer is the dying missile.
+#[test]
+fn missile_calls_on_die_body_damage_follows_warhead_victim_die() {
+    let (mut world, source, target) = world_for_with(
+        "PatriotMissileWeapon",
+        "PatriotMissile",
+        "PatriotMissileLocomotor",
+        |weapon_ini, projectile_ini, objects_ini| {
+            let at = weapon_ini.rfind("End").expect("weapon End");
+            weapon_ini.insert_str(at, "MissileCallsOnDie = Yes\n");
+            let at = projectile_ini.rfind("End").expect("missile object End");
+            projectile_ini.insert_str(
+                at,
+                "Behavior = CreateObjectDie MissileOrderTag\nCreationList = OCL_MissileDieOrderChild\nDeathTypes = NONE +DETONATED\nEnd\n",
+            );
+            let at = objects_ini.rfind("End").expect("target object End");
+            objects_ini.insert_str(
+                at,
+                "Behavior = CreateObjectDie VictimOrderTag\nCreationList = OCL_VictimDieOrderChild\nEnd\n",
+            );
+            objects_ini.push_str(
+                "Object MissileDieOrderChild\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 10\nInitialHealth = 10\nEnd\nEnd\nObject VictimDieOrderChild\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 10\nInitialHealth = 10\nEnd\nEnd\n",
+            );
+        },
+    );
+    world.admit_ocl_application_sources(&[
+        "ObjectCreationList OCL_VictimDieOrderChild\nCreateObject\nObjectNames = VictimDieOrderChild\nCount = 1\nEnd\nEnd\n".into(),
+        "ObjectCreationList OCL_MissileDieOrderChild\nCreateObject\nObjectNames = MissileDieOrderChild\nCount = 1\nEnd\nEnd\n".into(),
+    ]).unwrap();
+
+    launch(&mut world, source, target);
+    let missile_id = world.combat_system.projectiles_snapshot()[0].id;
+    // A 10hp victim dies to the stock 30-damage warhead.
+    world.objects.get_mut(&target).unwrap().health.current = 10.0;
+    for _ in 0..300 {
+        if world.combat_system.projectile_count() == 0 {
+            break;
+        }
+        let _ = world.update_with_dt(1.0 / 30.0);
+    }
+    assert_eq!(world.combat_system.projectile_count(), 0, "missile reaches its target");
+
+    let born_ids = |name: &str| -> Vec<ObjectId> {
+        world
+            .objects
+            .registered_values()
+            .filter(|object| object.template_name == name)
+            .map(|object| object.id)
+            .collect()
+    };
+    let victim_children = born_ids("VictimDieOrderChild");
+    let missile_children = born_ids("MissileDieOrderChild");
+    assert_eq!(victim_children.len(), 1, "victim die child born exactly once");
+    assert_eq!(missile_children.len(), 1, "missile die child born exactly once");
+    assert!(
+        victim_children[0] < missile_children[0],
+        "victim child {} born before missile child {}",
+        victim_children[0],
+        missile_children[0],
+    );
+    assert_eq!(
+        world.objects.get(&missile_children[0]).unwrap().producer_id,
+        Some(missile_id),
+        "the dying missile is the OCL source, not the launcher",
+    );
 }

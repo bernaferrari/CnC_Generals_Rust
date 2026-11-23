@@ -439,7 +439,9 @@ impl CombatSystem {
         projectile: &Projectile,
         receiving_objects: Option<&crate::assets::ReceivingObjectDefinitions>,
     ) {
-        if !projectile.die_on_detonate {
+        // Canonical objects finish their own death through the world Body
+        // path; this shim is only for virtual projectiles.
+        if !projectile.die_on_detonate || projectile.projectile_actor_birth.is_some() {
             return;
         }
         let name = projectile.projectile_object_name.trim();
