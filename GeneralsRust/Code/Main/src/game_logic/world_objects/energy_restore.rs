@@ -38,13 +38,14 @@ impl GameLogic {
             let power_timers = std::mem::take(&mut object.authored_special_power_timers);
             let output = object.power_provided;
             object.power_provided = energy.max(0);
-            // GameLogic::xfer constructs on the neutral default Team. Its
-            // contribution happens before the saved UNDER_CONSTRUCTION flag.
+            // The temporary neutral binding must skip unfinished structures.
+            // Restoring UNDER_CONSTRUCTION after this binding would credit
+            // Neutral and then suppress the matching debit on transfer.
+            object.status.under_construction = saved_status.under_construction;
             if let Some(neutral) = neutral_team {
                 self.bind_loaded_team_for_energy(id, neutral)?;
             }
             let status = &mut self.objects.get_mut(&id).unwrap().status;
-            status.under_construction = saved_status.under_construction;
             status.script_status_disabled = saved_status.script_status_disabled;
             status.script_status_underpowered = saved_status.script_status_underpowered;
             // Object::xfer changes Team before it transfers m_disabledMask.

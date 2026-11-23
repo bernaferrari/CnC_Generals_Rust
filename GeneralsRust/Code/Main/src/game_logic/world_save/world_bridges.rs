@@ -149,10 +149,13 @@ impl GameLogic {
                     }
                 });
         }
-        let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
-        self.reclassify_pathfinding_from_terrain(&terrain);
-        drop(terrain);
-        self.refresh_owned_bridge_pathfinder_states();
+        // GameLogic::xfer calls Pathfinder::newMap after restoring the map
+        // water and Objects. Classify both terrain and restored footprints.
+        if self.map_loaded && self.terrain.is_some() {
+            self.sync_structure_path_blocks();
+        } else {
+            self.refresh_owned_bridge_pathfinder_states();
+        }
     }
 
     /// Terrain phase reads canonical bodies/scaffolds; no extra behavior tick.

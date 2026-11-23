@@ -45,6 +45,16 @@ fn check_power_plant_save() {
         |world: &HeadlessSkirmish| world.logic.get_player(human).unwrap().power_produced;
     let saved_power = production(&game);
     let saved_frame = game.frame();
+    let saved_observation = game.observe();
+    let neutral = game
+        .logic
+        .get_players()
+        .values()
+        .find(|player| player.is_reserved_neutral())
+        .expect("retail Neutral player");
+    let neutral_id = neutral.id;
+    let neutral_power = neutral.power_produced;
+    let saved_passability = game.logic.snapshot_pathfinding_passability();
 
     let directory = tempfile::tempdir().unwrap();
     let mut archive = SaveFileManager::with_save_directory(directory.path());
@@ -75,6 +85,20 @@ fn check_power_plant_save() {
         Some(dock)
     );
     assert_eq!(production(&receiving), saved_power);
+    assert_eq!(
+        receiving
+            .logic
+            .get_player(neutral_id)
+            .unwrap()
+            .power_produced,
+        neutral_power,
+        "loading an unfinished scaffold must not grant Neutral power"
+    );
+    assert!(
+        receiving.logic.snapshot_pathfinding_passability() == saved_passability,
+        "map reclassification must restore the saved structures' pathfinding footprints"
+    );
+    assert_eq!(receiving.observe(), saved_observation);
 
     let finished = (0..900).any(|_| {
         receiving.advance();
