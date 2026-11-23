@@ -2,10 +2,7 @@ use super::*;
 use glam::Mat4;
 use std::time::Duration;
 use ww3d_core::w3d_format::{W3dTriangleStruct, W3dVectorStruct};
-use ww3d_renderer_3d::rendering::{
-    camera_system::CameraClass,
-    mesh_system::MeshModelClass,
-};
+use ww3d_renderer_3d::rendering::{camera_system::CameraClass, mesh_system::MeshModelClass};
 
 fn mesh(name: &str, positions: &[[f32; 3]], faces: &[[u32; 3]]) -> Arc<MeshClass> {
     let mut model = MeshModelClass::new(name);
@@ -57,6 +54,7 @@ fn native_building_marker_tints_only_the_occluded_unit_mesh() {
         color,
         depth,
     ));
+    let mut color_bindings = OcclusionColorBindGroupCache::default();
     let mut renderer = WgpuMainRenderer::from_engine(engine, Default::default()).unwrap();
     let primitive = [[0, 1, 2], [0, 2, 3]];
     let terrain_back = mesh(
@@ -124,7 +122,38 @@ fn native_building_marker_tints_only_the_occluded_unit_mesh() {
                 }],
                 gpu: Arc::clone(&gpu),
             }
-            .enqueue(&mut renderer);
+            .enqueue(&mut renderer, &mut color_bindings);
+        } else {
+            // Accepted unit meshes without a building, then a building without
+            // accepted unit meshes, must both fail before binding allocation.
+            for (buildings, units) in [
+                (
+                    Vec::new(),
+                    vec![Unit {
+                        id: ObjectId(2),
+                        distance: 1.0,
+                        color: [0., 0., 1., 0.5],
+                        meshes: vec![Arc::clone(&unit)],
+                    }],
+                ),
+                (
+                    vec![Arc::clone(&building)],
+                    vec![Unit {
+                        id: ObjectId(2),
+                        distance: 1.0,
+                        color: [0., 0., 1., 0.5],
+                        meshes: Vec::new(),
+                    }],
+                ),
+            ] {
+                OcclusionFrame {
+                    roles: HashMap::new(),
+                    buildings,
+                    units,
+                    gpu: Arc::clone(&gpu),
+                }
+                .enqueue(&mut renderer, &mut color_bindings);
+            }
         }
 
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -172,10 +201,36 @@ fn native_building_marker_tints_only_the_occluded_unit_mesh() {
             .unwrap();
         let pixels = slice.get_mapped_range().unwrap().to_vec();
         readback.unmap();
-        pixels
+        (pixels, color_bindings.creation_count())
     };
-    let baseline = paint(false);
-    let marked = paint(true);
+    let (baseline, creations_after_baseline) = paint(false);
+    assert_eq!(
+        creations_after_baseline, 0,
+        "empty marker frames allocate no color bindings"
+    );
+    let (marked, creations_after_first_marked_frame) = paint(true);
+    assert_eq!(creations_after_first_marked_frame, 1);
+    let (marked_again, creations_after_second_marked_frame) = paint(true);
+    assert_eq!(
+        creations_after_second_marked_frame, 1,
+        "same typed player color reuses its cached uniform binding"
+    );
+    assert_eq!(
+        marked, marked_again,
+        "cached binding preserves exact pixels"
+    );
+    for index in 0..=MAX_CACHED_OCCLUSION_COLORS {
+        color_bindings.get_or_create(
+            &gpu.device,
+            &gpu.color_layout,
+            [index as f32 / 32.0, 0.25, 0.75, OCCLUDED_COLOR_ALPHA],
+        );
+    }
+    assert_eq!(
+        color_bindings.entry_count(),
+        MAX_CACHED_OCCLUSION_COLORS,
+        "color bindings remain bounded under changing typed colors"
+    );
     let at = |pixels: &[u8], x: usize, y: usize| -> [u8; 4] {
         let offset = y * ROW as usize + x * 4;
         pixels[offset..offset + 4].try_into().unwrap()

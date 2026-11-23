@@ -937,6 +937,8 @@ pub struct ForwardPass {
     /// Immutable native UI input for this render handoff; never a camera owner.
     native_radar_frame: Option<crate::graphics::ui_radar::NativeRadarFrame>,
     pub(super) pending_occlusion: Option<crate::graphics::occlusion_bridge::OcclusionFrame>,
+    pub(super) occlusion_color_bindings:
+        crate::graphics::occlusion_bridge::OcclusionColorBindGroupCache,
     tactical_viewport: crate::presentation_frame::camera::viewport::TacticalViewport,
     /// Live SegLine vertex buffer (created on first laser upload).
     laser_vertex_buffer: Option<Arc<wgpu::Buffer>>,

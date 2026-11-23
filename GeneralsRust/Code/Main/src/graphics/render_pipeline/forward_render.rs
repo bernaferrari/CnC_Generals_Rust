@@ -189,6 +189,7 @@ impl ForwardPass {
             tactical_viewport: Default::default(),
             native_radar_frame: None,
             pending_occlusion: None,
+            occlusion_color_bindings: Default::default(),
             laser_vertex_buffer: None,
             laser_vertex_capacity: 0,
             laser_vertices_uploaded: 0,
@@ -760,7 +761,7 @@ impl ForwardPass {
         } // Mutex lock released here
 
         if let Some(occlusion) = occlusion {
-            occlusion.enqueue(&mut self.renderer);
+            occlusion.enqueue(&mut self.renderer, &mut self.occlusion_color_bindings);
         }
 
         #[cfg(feature = "game_client")]
