@@ -168,19 +168,21 @@ impl GameLogic {
             .get(&master_id)
             .filter(|o| !o.status.effectively_dead && !o.is_unmanned())
         else {
-            state.master = None;
-            state.guard_offset = Vec3::ZERO;
-            if let Some(drone) = self.objects.get_mut(&id) {
-                drone.status.unselectable = false;
-                drone.set_status_disabled_held(false);
-                drone.set_status_disabled_unmanned(true);
+            let birth = self.objects[&id].visual_object_generation;
+            let epoch = self.visual_world_epoch;
+            self.store_slave_state(id, state);
+            self.stop_owned_slaved_effects(id, presentation_effects);
+            if !self.spawn_identity_matches(id, birth, epoch) {
+                return Ok(());
+            }
+            self.set_owned_unmanned(id, presentation_effects)?;
+            if self.spawn_identity_matches(id, birth, epoch) {
+                let drone = self.objects.get_mut(&id).unwrap();
                 drone.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
+                self.set_ai_state_decision_aware_with_effects(id, AIState::Idle, presentation_effects)?;
             }
-            self.set_ai_state_decision_aware_with_effects(id, AIState::Idle, presentation_effects)?;
-            self.admit_host_radar_disabled_edges(id);
-            self.store_slave_state(id, state);
             return Ok(());
         };
         let mpos = master.get_position();

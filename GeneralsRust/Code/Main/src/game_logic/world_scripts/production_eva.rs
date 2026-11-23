@@ -1271,9 +1271,6 @@ impl GameLogic {
         if !dead_man {
             return Ok(false);
         }
-        let birth = self.objects.get(&vehicle_id)
-            .map(|object| std::sync::Arc::downgrade(&object.visual_draw_identity_token));
-        let source = self.objects.get(&vehicle_id).and_then(|object| object.last_damage_source);
         if let Some(object) = self.objects.get_mut(&vehicle_id) {
             if !object.status.disabled_unmanned {
                 object.apply_kill_pilot_unmanned_at_frame(
@@ -1284,16 +1281,23 @@ impl GameLogic {
             }
         }
         self.admit_host_radar_disabled_edges(vehicle_id);
-        if let Some(source) = source.filter(|id| self.objects.get(id).is_some()) {
+        self.detonate_unmanned_carbomb_with_effects(vehicle_id, effects)
+    }
+
+    /// Object::setDisabledUntil invokes the dead-man switch before onDisabledEdge.
+    pub(in crate::game_logic) fn detonate_unmanned_carbomb_with_effects(
+        &mut self,
+        vehicle_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let Some(object) = self.objects.get(&vehicle_id) else { return Ok(false) };
+        let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
+        if let Some(source) = object.last_damage_source.filter(|id| self.objects.get(id).is_some()) {
             self.score_the_kill_experience_with_effects_and_interpreter(
                 source, vehicle_id, None, effects,
             )?;
         }
-        if !self.objects.get(&vehicle_id).is_some_and(|object| {
-            birth.as_ref().is_some_and(|birth| std::sync::Weak::ptr_eq(
-                birth, &std::sync::Arc::downgrade(&object.visual_draw_identity_token),
-            ))
-        }) {
+        if !self.object_birth_matches(vehicle_id, &birth) {
             return Ok(false);
         }
         let ok = self.apply_owned_kill_with_effects(

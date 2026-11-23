@@ -6,6 +6,7 @@ pub(in crate::game_logic) enum TimedDisable {
     Hacked,
     Held,
     Paralyzed,
+    Unmanned,
     Underpowered,
     Awestruck,
     Brainwashed,
@@ -41,8 +42,8 @@ impl TimedDisable {
         matches!(self, Self::Emp | Self::Hacked | Self::Underpowered)
     }
 
-    fn state_mut(self, status: &mut ObjectStatus) -> (&mut bool, &mut u32) {
-        match self {
+    fn state_mut(self, status: &mut ObjectStatus) -> (&mut bool, Option<&mut u32>) {
+        let (active, deadline) = match self {
             Self::Emp => (&mut status.disabled_emp, &mut status.disabled_emp_until_frame),
             Self::Hacked => (
                 &mut status.disabled_hacked,
@@ -56,6 +57,8 @@ impl TimedDisable {
                 &mut status.disabled_paralyzed,
                 &mut status.disabled_paralyzed_until_frame,
             ),
+            // The owned UNMANNED entry points use setDisabled (FOREVER).
+            Self::Unmanned => return (&mut status.disabled_unmanned, None),
             Self::Underpowered => (
                 &mut status.disabled_underpowered,
                 &mut status.disabled_underpowered_until_frame,
@@ -76,7 +79,8 @@ impl TimedDisable {
                 &mut status.disabled_script_underpowered,
                 &mut status.disabled_script_underpowered_until_frame,
             ),
-        }
+        };
+        (active, Some(deadline))
     }
 }
 
@@ -123,7 +127,7 @@ impl Object {
     }
 
     /// C++ Object.cpp:2062-2067 SplatterVehiclePilotsBrain on UNMANNED enter.
-    fn queue_unmanned_splatter_audio(
+    pub(in crate::game_logic) fn queue_unmanned_splatter_audio(
         &self,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
@@ -403,13 +407,14 @@ impl Object {
         // C++ Object.cpp:2145-2179 non-drone unmanned enter:
         // carbomb detonates elsewhere; else wipe XP and undo AutoHeal.
         if !self.is_kind_of(KindOf::Drone) && !self.authors_carbomb_weapon_set() {
-            self.set_rider_change_veterancy_level_at_frame(
-                crate::game_logic::VeterancyLevel::Rookie,
-                frame,
-            );
-            if let Some(heal) = self.default_auto_heal.as_mut() {
-                heal.undo_upgrade();
-            }
+            self.reset_unmanned_veterancy_and_healing(frame);
+        }
+    }
+
+    pub(in crate::game_logic) fn reset_unmanned_veterancy_and_healing(&mut self, frame: u32) {
+        self.set_rider_change_veterancy_level_at_frame(VeterancyLevel::Rookie, frame);
+        if let Some(heal) = self.default_auto_heal.as_mut() {
+            heal.undo_upgrade();
         }
     }
 
@@ -974,6 +979,7 @@ impl Object {
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
         let (active, deadline) = effect.state_mut(&mut self.status);
+        let deadline = deadline.expect("the standalone timed setter needs a stored deadline");
         if *deadline == until_frame {
             return false;
         }
@@ -999,6 +1005,10 @@ impl Object {
             TimedDisable::Paralyzed => (
                 self.status.disabled_paralyzed,
                 self.status.disabled_paralyzed_until_frame,
+            ),
+            TimedDisable::Unmanned => (
+                self.status.disabled_unmanned,
+                game_engine::common::game_common::FOREVER,
             ),
             TimedDisable::Underpowered => (
                 self.status.disabled_underpowered,
@@ -1059,7 +1069,9 @@ impl Object {
             return false;
         }
         *active = false;
-        *deadline = 0;
+        if let Some(deadline) = deadline {
+            *deadline = 0;
+        }
         true
     }
 
@@ -1097,13 +1109,18 @@ impl Object {
     ) -> bool {
         let (was_active, stored_deadline) = {
             let (active, deadline) = effect.state_mut(&mut self.status);
-            (*active, *deadline)
+            (*active, deadline.map_or(0, |deadline| *deadline))
         };
         let stored_deadline = match effect {
             TimedDisable::Held => self.held_disable_deadline(),
             TimedDisable::Underpowered => self.underpowered_disable_deadline(),
             TimedDisable::ScriptDisabled => self.script_disable_deadline(ScriptDisable::Disabled),
             TimedDisable::ScriptUnderpowered => self.script_disable_deadline(ScriptDisable::Underpowered),
+            TimedDisable::Unmanned => {
+                use game_engine::common::game_common::{FOREVER, NEVER};
+                debug_assert_eq!(deadline, FOREVER);
+                if was_active { FOREVER } else { NEVER }
+            }
             _ => stored_deadline,
         };
         if stored_deadline == deadline {
@@ -1114,7 +1131,9 @@ impl Object {
         }
         let (active, stored_deadline) = effect.state_mut(&mut self.status);
         *active = frame < deadline;
-        *stored_deadline = deadline;
+        if let Some(stored_deadline) = stored_deadline {
+            *stored_deadline = deadline;
+        }
         true
     }
 

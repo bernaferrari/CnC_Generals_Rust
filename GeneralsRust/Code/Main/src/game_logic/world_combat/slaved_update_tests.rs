@@ -207,14 +207,13 @@ fn slaver_death_release_restores_owned_power_before_spawn_teardown() {
 #[test]
 fn missing_master_stops_slave_effects_before_unmanned_idle() {
     let (mut game, master, drone) = world();
-    game.host_object_mut(drone)
-        .unwrap()
-        .set_status_disabled_held(true);
+    game.set_owned_passenger_held(drone, true, &mut Default::default());
     // Remove the physical member as well; keep the slave's saved secondary
     // reference untouched to exercise missing-master resolution on update.
     game.take_object_for_physical_retirement(master, &mut Default::default())
         .unwrap()
         .expect("installed master at physical removal");
+    game.economy_events.clear();
     game.update_owned_slaved_object(drone)
         .expect("valid slaved fixture");
     let owner = game.host_object(drone).unwrap();
@@ -227,6 +226,40 @@ fn missing_master_stops_slave_effects_before_unmanned_idle() {
         owner.slaved_update.as_ref().unwrap().guard_offset,
         Vec3::ZERO
     );
+    game.economy_events.complete_boundary();
+    let power: Vec<_> = game.economy_events.take_completed().into_iter()
+        .filter(|event| event.player_id == 0)
+        .map(|event| event.power_available)
+        .collect();
+    assert_eq!(power, [20, 0], "HELD release restores power before UNMANNED removes it");
+}
+
+#[test]
+fn missing_master_unmanned_debits_live_power_before_the_next_tick() {
+    let (mut owner, master, drone) = world();
+    let (peer, peer_master, peer_drone) = world();
+    assert_eq!((master, drone), (peer_master, peer_drone));
+    assert_eq!(owner.get_player(0).unwrap().power_produced, 20);
+    owner.host_object_mut(master).unwrap().status.effectively_dead = true;
+    let slave = owner.host_object_mut(drone).unwrap();
+    slave.experience.level = crate::game_logic::VeterancyLevel::Elite;
+    slave.experience.current = 200.0;
+    slave.default_auto_heal = Some(crate::game_logic::host_heal::HostDefaultAutoHealData::new());
+
+    owner.update_owned_slaved_object(drone).unwrap();
+
+    let slave = owner.host_object(drone).unwrap();
+    assert!(slave.status.disabled_unmanned);
+    assert!(slave.slaved_update.as_ref().unwrap().master.is_none());
+    assert_eq!(slave.ai_state(), crate::game_logic::AIState::Idle);
+    assert_eq!(owner.get_player(0).unwrap().power_produced, 0);
+    assert_eq!(slave.experience.level, crate::game_logic::VeterancyLevel::Rookie);
+    assert_eq!(slave.experience.current, 0.0);
+    assert!(!slave.default_auto_heal.as_ref().unwrap().upgrade_active);
+    let cues = owner.health_events.take_disable_audio();
+    assert!(cues.iter().any(|cue| cue.object == drone && cue.token == "SplatterVehiclePilotsBrain"));
+    assert_eq!(peer.get_player(0).unwrap().power_produced, 20);
+    assert!(!peer.host_object(peer_drone).unwrap().status.disabled_unmanned);
 }
 
 #[test]

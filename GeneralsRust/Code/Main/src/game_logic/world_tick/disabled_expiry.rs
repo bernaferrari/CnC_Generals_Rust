@@ -3,11 +3,12 @@ use super::super::*;
 use crate::game_logic::object::TimedDisable;
 
 // Relative order from C++ DisabledTypes.h for the modeled deadlines.
-const TIMED_DISABLE_ORDER: [TimedDisable; 9] = [
+const TIMED_DISABLE_ORDER: [TimedDisable; 10] = [
     TimedDisable::Hacked,
     TimedDisable::Emp,
     TimedDisable::Held,
     TimedDisable::Paralyzed,
+    TimedDisable::Unmanned,
     TimedDisable::Underpowered,
     TimedDisable::Awestruck,
     TimedDisable::Brainwashed,

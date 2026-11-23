@@ -83,6 +83,24 @@ impl GameLogic {
         }
     }
 
+    /// Object::setDisabled(DISABLED_UNMANNED) does not change team or AI state.
+    /// Its caller owns those separate operations.
+    pub(in crate::game_logic) fn set_owned_unmanned(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.apply_owned_disable_until(
+            id,
+            DisableUntil {
+                effect: TimedDisable::Unmanned,
+                deadline: game_engine::common::game_common::FOREVER,
+            },
+            effects,
+        )?;
+        Ok(())
+    }
+
     pub(in crate::game_logic) fn set_owned_script_disable(
         &mut self,
         id: ObjectId,
@@ -163,14 +181,26 @@ impl GameLogic {
         request: DisableUntil,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
+        self.apply_owned_disable_until(id, request, effects)
+            .expect("the timed disable does not invoke the unmanned death callback")
+    }
+
+    fn apply_owned_disable_until(
+        &mut self,
+        id: ObjectId,
+        request: DisableUntil,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
         let epoch = self.visual_world_epoch;
         let (birth, disable_callback, deadline_changed, fold_adjustment) = {
             let Some(object) = self.objects.get_mut(&id) else {
-                return false;
+                return Ok(false);
             };
             let was_disabled = object.has_disabled_type();
             let before = Self::folded_enabled_production(object);
-            if request.effect.is_power_style() && !object.is_power_style_disabled() {
+            if request.effect == TimedDisable::Unmanned {
+                object.queue_unmanned_splatter_audio(&mut self.health_events);
+            } else if request.effect.is_power_style() && !object.is_power_style_disabled() {
                 object.queue_power_disable_misc_audio(true, &mut self.health_events);
             }
             let changed = object.begin_owned_timed_disable(request.effect, request.deadline, self.frame);
@@ -191,29 +221,26 @@ impl GameLogic {
             player.power_production_adjustment =
                 player.power_production_adjustment.wrapping_add(adjustment);
         }
-        if deadline_changed {
-            // C++ ContainModuleInterface::friend_getRider precedes SpawnBehavior.
-            if let Some(rider) = self.containment_disable_rider(id) {
-                self.apply_owned_initial_disabled_with_effects(rider, request, effects);
-                if !self.spawn_identity_matches(id, birth, epoch) {
-                    return true;
-                }
-            }
-            if let Some(children) = self
-                .host_object(id)
-                .filter(|object| object.is_spawns_are_the_weapons())
-                .map(Object::spawn_behavior_children)
-                .filter(|children| !children.is_empty())
-            {
-                self.apply_owned_spawn_children_disabled_until(
-                    id, birth, epoch, children, request, effects,
-                );
-                if !self.spawn_identity_matches(id, birth, epoch) {
-                    return true;
-                }
-            }
+        let propagation = if deadline_changed {
+            self.propagate_owned_disable_until(id, birth, epoch, request, effects)
+        } else {
+            Ok(())
+        };
+        if !self.spawn_identity_matches(id, birth, epoch) {
+            return propagation.map(|()| true);
         }
 
+        // The non-drone UNMANNED consequences run after inherited masks and
+        // before the aggregate disabled edge, even when the deadline is unchanged.
+        let unmanned = if request.effect == TimedDisable::Unmanned {
+            self.finish_owned_unmanned(id, effects)
+        } else {
+            Ok(())
+        };
+        let outcome = propagation.and(unmanned);
+        if request.effect == TimedDisable::Unmanned && !self.spawn_identity_matches(id, birth, epoch) {
+            return outcome.map(|()| true);
+        }
         // Object::setDisabledUntil calls onDisabledEdge after the children.
         // An earlier queued edge could be drained by a child's brownout.
         if disable_callback {
@@ -230,7 +257,7 @@ impl GameLogic {
             if let Some(task) = dozer_task {
                 let cancel = self.dozer_cancel_task_owned(id, task);
                 if !self.spawn_identity_matches(id, birth, epoch) {
-                    return true;
+                    return outcome.map(|()| true);
                 }
                 if let Err(error) = cancel {
                     // The task request is already cleared. Keep the primary
@@ -247,7 +274,51 @@ impl GameLogic {
         if disable_callback {
             self.admit_producer_energy_without_mask_change(id, true);
         }
-        true
+        outcome.map(|()| true)
+    }
+
+    fn propagate_owned_disable_until(
+        &mut self,
+        id: ObjectId,
+        birth: u64,
+        epoch: u64,
+        request: DisableUntil,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        // C++ ContainModuleInterface::friend_getRider precedes SpawnBehavior.
+        if let Some(rider) = self.containment_disable_rider(id) {
+            self.apply_owned_disable_until(rider, request, effects)?;
+            if !self.spawn_identity_matches(id, birth, epoch) {
+                return Ok(());
+            }
+        }
+        if let Some(children) = self.host_object(id)
+            .filter(|object| object.is_spawns_are_the_weapons())
+            .map(Object::spawn_behavior_children)
+            .filter(|children| !children.is_empty())
+        {
+            self.apply_owned_spawn_children_disabled_until(
+                id, birth, epoch, children, request, effects,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn finish_owned_unmanned(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(object) = self.objects.get_mut(&id).filter(|object| !object.is_kind_of(KindOf::Drone))
+        else {
+            return Ok(());
+        };
+        if object.authors_carbomb_weapon_set() {
+            self.detonate_unmanned_carbomb_with_effects(id, effects)?;
+        } else {
+            object.reset_unmanned_veterancy_and_healing(self.frame);
+        }
+        Ok(())
     }
 
     fn folded_enabled_production(object: &Object) -> i32 {
@@ -300,10 +371,10 @@ impl GameLogic {
         children: Vec<(ObjectId, u64)>,
         request: DisableUntil,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         for (child_id, child_birth) in children {
             if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
-                return;
+                return Ok(());
             }
             let still_exact_child = |world: &Self| {
                 world.spawn_identity_matches(child_id, child_birth, epoch)
@@ -320,13 +391,14 @@ impl GameLogic {
                 log::error!("Spawned Object {child_id:?} failed its Idle callback: {error}");
             }
             if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
-                return;
+                return Ok(());
             }
             if !still_exact_child(self) {
                 continue;
             }
-            self.apply_owned_initial_disabled_with_effects(child_id, request, effects);
+            self.apply_owned_disable_until(child_id, request, effects)?;
         }
+        Ok(())
     }
 
     /// Original constructor setTeam -> becomingTeamMember, before onCreate.
