@@ -44,6 +44,7 @@ fn world(child: &str) -> (GameLogic, ObjectId) {
     projectile.projectile_lifecycle = Some(
         generals_main::game_logic::weapon_bootstrap::HostProjectileLifecycle::DumbProjectile {
             max_lifespan_frames: 1,
+            detonate_calls_kill: false,
         },
     );
     (world, target)
