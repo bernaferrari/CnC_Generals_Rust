@@ -607,13 +607,14 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         ai_data: &AiDataView,
     ) -> bool {
-        if !self.has_skirmish_new_map_definition(ai_data) {
+        let Some(entries) = self.authored_skirmish_build_pads(game_logic, ai_data) else {
             return false;
-        }
+        };
         let start_pos = self
             .destroy_owned_command_center(game_logic)
             .unwrap_or(self.base_center);
-        let Some(pads) = self.prepare_skirmish_new_map(game_logic, ai_data, start_pos) else {
+        let Some(pads) = self.prepare_skirmish_new_map(game_logic, ai_data, start_pos, entries)
+        else {
             return false;
         };
         for (mut building, initially_built) in pads {
@@ -631,10 +632,15 @@ impl AIPlayer {
         true
     }
 
-    pub(super) fn has_skirmish_new_map_definition(&self, data: &AiDataView) -> bool {
-        self.side_info_name()
-            .and_then(|side| Self::aidata_side_build_entries(data, side))
-            .is_some_and(|entries| !entries.is_empty())
+    /// AISkirmishPlayer.cpp:1055 uses Player::getSide, including the
+    /// selected general. The base team alone cannot select its build list.
+    pub(super) fn authored_skirmish_build_pads(
+        &self,
+        game_logic: &GameLogic,
+        data: &AiDataView,
+    ) -> Option<Vec<SideBuildPad>> {
+        let side = self.live_player_side(game_logic)?;
+        Self::aidata_side_build_entries(data, &side)
     }
 
     pub(super) fn prepare_skirmish_new_map(
@@ -642,31 +648,18 @@ impl AIPlayer {
         game_logic: &GameLogic,
         ai_data: &AiDataView,
         start_pos: Vec3,
+        mut entries: Vec<SideBuildPad>,
     ) -> Option<Vec<(AIBuildingInfo, bool)>> {
-        let Some(side) = self.side_info_name() else {
-            return None;
-        };
-        let Some(entries) = Self::aidata_side_build_entries(ai_data, side) else {
-            return None;
-        };
-        if entries.is_empty() {
-            return None;
-        }
-
         let mut list_cc: Option<Vec3> = None;
-        let mut marked: Vec<SideBuildPad> = Vec::new();
-        for mut entry in entries {
+        for entry in &mut entries {
             if Self::template_is_command_center(game_logic, &entry.template) {
                 entry.initially_built = true;
                 if list_cc.is_none() {
                     list_cc = Some(entry.position);
                 }
             }
-            marked.push(entry);
         }
-        let Some(build_pos) = list_cc else {
-            return None;
-        };
+        let build_pos = list_cc?;
 
         let rotate = Self::aidata_rotate_skirmish_bases(ai_data);
         let (lo, hi) = game_logic.world_bounds();
@@ -706,8 +699,8 @@ impl AIPlayer {
 
         self.building_queue.clear();
         self.reset_base_defense_fan();
-        let mut pads = Vec::new();
-        for entry in marked {
+        let mut pads = Vec::with_capacity(entries.len());
+        for entry in entries {
             let mut pos = entry.position;
             pos.x -= build_pos.x;
             pos.z -= build_pos.z;
@@ -722,7 +715,7 @@ impl AIPlayer {
             } else {
                 entry.rebuilds as u32
             };
-            let mut building = AIBuildingInfo::new(entry.template.clone(), pos, rebuilds);
+            let mut building = AIBuildingInfo::new(entry.template, pos, rebuilds);
             building.automatic_build = entry.automatically_build;
             building.is_priority = false;
             if !entry.initially_built {
@@ -823,7 +816,7 @@ impl AIPlayer {
             catalog
                 .side_build_lists
                 .iter()
-                .find(|list| list.side.eq_ignore_ascii_case(side))
+                .find(|list| list.side == side)
                 .filter(|list| !list.entries.is_empty())
         }) {
             return Some(

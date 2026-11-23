@@ -3901,3 +3901,71 @@ mod queue_lifecycle;
 mod safety;
 
 mod factory_delivery;
+
+#[test]
+fn stock_laser_skirmish_new_map_uses_bound_general_build_list() {
+    use crate::game_logic::Player;
+    use crate::parallel_harness::{RetailWorldDefinitions, explicit_retail_install};
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "stock_laser_skirmish_new_map_uses_bound_general_build_list",
+        || {
+            let install = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
+                .map(std::path::PathBuf::from)
+                .or_else(crate::map_frame_scenario::find_lone_eagle_retail_install)
+                .expect("a mounted retail install is required");
+            let install = explicit_retail_install(&install).unwrap();
+            let definitions = RetailWorldDefinitions::load_from_install(Some(&install)).unwrap();
+            let mut logic = crate::game_logic::GameLogic::new();
+            definitions.admit(&mut logic).unwrap();
+            let data = super::world_view::AiDataView::from_world(&logic);
+            let laser = data
+                .catalog()
+                .unwrap()
+                .side_build_lists
+                .iter()
+                .find(|list| list.side == "AmericaLaserGeneral")
+                .expect("stock Laser general's AIData list");
+            const LASER_CENTER: &str = "Lazr_AmericaCommandCenter";
+            const LASER_POWER: &str = "Lazr_AmericaPowerPlant";
+            assert_eq!(laser.entries[0].template_name, LASER_CENTER);
+            assert!(laser.entries[0].automatically_build);
+            assert!(laser.entries.iter().any(|row| row.template_name == LASER_POWER));
+
+            logic.add_player(Player::new(1, Team::USA, "Laser AI", false));
+            let identity = logic
+                .player_template_identity_from_name("FactionAmericaLaserGeneral")
+                .expect("stock Laser PlayerTemplate");
+            assert!(logic.bind_player_template_identity(1, identity));
+            // Admit both stock center definitions so the fixture distinguishes
+            // the original base-faction selection from the selected general.
+            assert!(logic.ensure_host_spawn_template("AmericaCommandCenter"));
+            let start = logic
+                .create_object_for_player(LASER_CENTER, 1, Vec3::new(180.0, 0.0, 220.0))
+                .expect("initial stock Laser command center");
+            logic.ai_manager.add_ai_player(1, Team::USA, AIDifficulty::Hard);
+
+            logic.new_map_owned_ai_with_effects(&mut Default::default()).unwrap();
+            logic.process_destroy_list();
+
+            let ai = &logic.ai_manager.ai_players[&1];
+            assert!(ai.skirmish_new_map_applied);
+            let center = ai
+                .building_queue
+                .iter()
+                .find(|row| row.template_name == LASER_CENTER)
+                .expect("Laser center in the selected build list");
+            let rebuilt = center.object_id.expect("stock rebuilt command center");
+            assert_ne!(rebuilt, start);
+            assert!(center.is_built);
+            assert!(logic.host_object(start).is_none());
+            assert_eq!(logic.host_object(rebuilt).unwrap().owner_player_id, Some(1));
+            assert!(ai.building_queue.iter().any(|row| row.template_name == LASER_POWER));
+            assert!(ai.building_queue.iter().all(|row| {
+                row.template_name != "AmericaCommandCenter"
+                    && row.template_name != "AmericaPowerPlant"
+            }));
+        },
+    );
+}

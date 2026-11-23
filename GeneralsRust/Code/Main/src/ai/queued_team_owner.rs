@@ -98,7 +98,6 @@ impl GameLogic {
         }
         ai.skirmish_new_map_applied = true;
         let fallback = ai.base_center;
-        let has_definition = ai.has_skirmish_new_map_definition(data);
         if self
             .get_player(player)
             .is_some_and(|p| !p.map_side.build_list.is_empty())
@@ -106,9 +105,14 @@ impl GameLogic {
             self.compute_owned_ai_base_extent(player);
             return;
         }
-        if !has_definition {
+        let Some(entries) = self
+            .ai_manager
+            .ai_players
+            .get(&player)
+            .and_then(|ai| ai.authored_skirmish_build_pads(self, data))
+        else {
             return;
-        }
+        };
         let center = self.host_objects().registered().find_map(|(&id, object)| {
             (object.is_alive()
                 && object.is_kind_of(KindOf::CommandCenter)
@@ -126,7 +130,7 @@ impl GameLogic {
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return;
         };
-        let pads = ai.prepare_skirmish_new_map(self, data, start);
+        let pads = ai.prepare_skirmish_new_map(self, data, start, entries);
         self.ai_manager.ai_players.insert(player, ai);
         let Some(pads) = pads else {
             return;
