@@ -1,11 +1,9 @@
-//! Original FASTER_GCO cell-candidate acceptance, not iterator or Object filtering.
+//! Original FASTER_GCO cell-candidate acceptance.
 //! CPP PartitionManager.cpp3067–3156/3228–3316. No copied pose or index owner.
 
 const HUGE_DIST: f32 = 1_000_000.;
 
-/// One immutable operation over existing owned COIs. Scanning occupied cells
-/// gives the original bucket's candidate set; the caller retains its existing
-/// sorted-ID policy instead of claiming original radius/offset/COI visit order.
+/// One immutable operation over existing owned COIs and RadiusVec bounds.
 pub(super) struct RadiusCellQuery {
     center: [i32; 2],
     cell_size: f32,
@@ -36,6 +34,42 @@ impl RadiusCellQuery {
             dimensions,
             maximum_bucket,
         }
+    }
+
+    /// A small rectangle containing every cell that could pass traversal_key.
+    /// Each occupied cell found inside still needs the original acceptance test.
+    pub(super) fn local_lookup_bounds(&self, occupied: usize) -> Option<([i32; 2], [i32; 2])> {
+        const MAX_LOCAL_BUCKET: i32 = 8;
+
+        let maximum = self.maximum_bucket?;
+        if occupied <= 9
+            || !(0..=MAX_LOCAL_BUCKET).contains(&maximum)
+            || !self.cell_size.is_finite()
+            || self.cell_size < 1.0
+        {
+            return None;
+        }
+
+        // Outside the adjacent cells, nearest-corner separation increases
+        // with absolute offset along either axis. The rounded distance and
+        // 1e12 squared cap in minimum_bucket preserve that monotonicity. Use
+        // the actual axis bucket to account for both rounding and the cap.
+        let edge = i64::from(maximum) + 1;
+        let half_width = if minimum_bucket([edge, 0], self.cell_size) > maximum {
+            maximum
+        } else if minimum_bucket([edge + 1, 0], self.cell_size) > maximum {
+            maximum + 1
+        } else {
+            return None;
+        };
+        let width = (2 * half_width + 1) as usize;
+        if width * width >= occupied {
+            return None;
+        }
+        Some((
+            self.center.map(|axis| axis.saturating_sub(half_width)),
+            self.center.map(|axis| axis.saturating_add(half_width)),
+        ))
     }
 
     /// One accepted RadiusVec bucket and its original y/x insertion order.
@@ -139,6 +173,61 @@ mod tests {
         // Scaling both worlds leaves the original relative cell buckets.
         assert!(RadiusCellQuery::new([2, 0], 64., Some([7, 7]), 24.).accepts([1, 0]));
         assert!(!RadiusCellQuery::new([2, 0], 64., Some([7, 7]), 24.).accepts([0, 0]));
+    }
+
+    #[test]
+    fn local_lookup_respects_rounding_the_distance_cap_and_coordinate_limits() {
+        let nine = RadiusCellQuery::new([4, -9], 40., None, 5.);
+        assert_eq!(nine.local_lookup_bounds(10), Some(([3, -10], [5, -8])));
+        assert_eq!(nine.local_lookup_bounds(9), None);
+        let saturated = RadiusCellQuery::new([i32::MAX, i32::MIN], 40., None, 0.);
+        assert_eq!(
+            saturated.local_lookup_bounds(10),
+            Some(([i32::MAX - 1, i32::MIN], [i32::MAX, i32::MIN + 1])),
+        );
+        let capped = RadiusCellQuery::new([0, 0], 700_000., None, HUGE_DIST - 1.);
+        assert!(capped.accepts([80, 80]));
+        assert_eq!(capped.local_lookup_bounds(1_000), None);
+        for radius in [HUGE_DIST, f32::INFINITY, f32::NAN, -100.] {
+            assert_eq!(
+                RadiusCellQuery::new([0, 0], 40., None, radius).local_lookup_bounds(1_000),
+                None,
+            );
+        }
+
+        for size in [1., 2.2, 40., 45.6, 63.999, 700_000., f32::MAX] {
+            for radius in [0., size / 8., size, size * 2., 800_000.] {
+                let query = RadiusCellQuery::new([0, 0], size, None, radius);
+                let Some(([min_x, min_z], [max_x, max_z])) = query.local_lookup_bounds(1_000)
+                else {
+                    continue;
+                };
+                let offsets = [
+                    i32::MIN,
+                    -26,
+                    -11,
+                    -10,
+                    -2,
+                    -1,
+                    0,
+                    1,
+                    2,
+                    10,
+                    11,
+                    26,
+                    i32::MAX,
+                ];
+                for x in offsets {
+                    for z in offsets {
+                        let inside = (min_x..=max_x).contains(&x) && (min_z..=max_z).contains(&z);
+                        assert!(
+                            inside || !query.accepts([x, z]),
+                            "{size} {radius} ({x}, {z})"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

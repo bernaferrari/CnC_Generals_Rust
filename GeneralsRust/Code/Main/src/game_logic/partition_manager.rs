@@ -439,23 +439,62 @@ impl PartitionManager {
         if self.object_cells.is_empty() {
             return Vec::new();
         }
+        let query = self.radius_cell_query(x, z, radius.max(0.0));
+        let mut out = Vec::new();
+        self.visit_occupied_radius_candidates(&query, |cell, objects| {
+            if query.accepts(cell) {
+                out.extend(objects.iter().copied());
+            }
+        });
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    fn radius_cell_query(&self, x: f32, z: f32, radius: f32) -> radius_query::RadiusCellQuery {
         let (cx, cz) = self.receiving_cell_coords(x, z);
-        let query = radius_query::RadiusCellQuery::new(
+        radius_query::RadiusCellQuery::new(
             [cx, cz],
             self.grid
                 .map_or(PARTITION_CELL_SIZE_RESIDUAL, |grid| grid.cell_size),
             self.grid.map(|grid| grid.dimensions),
-            radius.max(0.0),
-        );
-        let mut out = Vec::new();
-        for (&(cell_x, cell_z), objects) in &self.cells {
-            if query.accepts([cell_x, cell_z]) {
-                out.extend(objects.iter().copied());
+            radius,
+        )
+    }
+
+    fn visit_occupied_radius_candidates<'a>(
+        &'a self,
+        query: &radius_query::RadiusCellQuery,
+        mut visit: impl FnMut([i32; 2], &'a [u32]),
+    ) {
+        if let Some(([min_x, min_z], [max_x, max_z])) = query.local_lookup_bounds(self.cells.len())
+        {
+            for z in min_z..=max_z {
+                for x in min_x..=max_x {
+                    if let Some(objects) = self.cells.get(&(x, z)) {
+                        visit([x, z], objects);
+                    }
+                }
+            }
+        } else {
+            for (&(x, z), objects) in &self.cells {
+                visit([x, z], objects);
             }
         }
-        out.sort_unstable();
-        out.dedup();
-        out
+    }
+
+    fn occupied_cells_in_radius_order(
+        &self,
+        query: &radius_query::RadiusCellQuery,
+    ) -> Vec<((i32, i64, i64), &[u32])> {
+        let mut cells = Vec::new();
+        self.visit_occupied_radius_candidates(query, |cell, occupants| {
+            if let Some(key) = query.traversal_key(cell) {
+                cells.push((key, occupants));
+            }
+        });
+        cells.sort_unstable_by_key(|(key, _)| *key);
+        cells
     }
 
     /// C++ getClosestObjects -> SimpleObjectIterator(ITER_FASTEST).
@@ -490,22 +529,8 @@ impl PartitionManager {
         radius: f32,
         mut visit: impl FnMut(u32),
     ) {
-        let (cx, cz) = self.receiving_cell_coords(x, z);
-        let query = radius_query::RadiusCellQuery::new(
-            [cx, cz],
-            self.grid
-                .map_or(PARTITION_CELL_SIZE_RESIDUAL, |grid| grid.cell_size),
-            self.grid.map(|grid| grid.dimensions),
-            radius,
-        );
-        let mut cells: Vec<_> = self
-            .cells
-            .iter()
-            .filter_map(|(&(x, z), occupants)| {
-                Some((query.traversal_key([x, z])?, occupants))
-            })
-            .collect();
-        cells.sort_unstable_by_key(|(key, _)| *key);
+        let query = self.radius_cell_query(x, z, radius);
+        let cells = self.occupied_cells_in_radius_order(&query);
         let mut seen = HashSet::new();
         for (_, occupants) in cells {
             for id in occupants.iter().rev().copied() {
@@ -525,22 +550,8 @@ impl PartitionManager {
         radius: f32,
         mut distance_if_allowed: impl FnMut(u32) -> Option<f32>,
     ) -> Option<u32> {
-        let (cx, cz) = self.receiving_cell_coords(x, z);
-        let query = radius_query::RadiusCellQuery::new(
-            [cx, cz],
-            self.grid
-                .map_or(PARTITION_CELL_SIZE_RESIDUAL, |grid| grid.cell_size),
-            self.grid.map(|grid| grid.dimensions),
-            radius,
-        );
-        let mut cells: Vec<_> = self
-            .cells
-            .iter()
-            .filter_map(|(&(x, z), occupants)| {
-                Some((query.traversal_key([x, z])?, occupants))
-            })
-            .collect();
-        cells.sort_unstable_by_key(|(key, _)| *key);
+        let query = self.radius_cell_query(x, z, radius);
+        let cells = self.occupied_cells_in_radius_order(&query);
         let mut seen = HashSet::new();
         let mut closest = None;
         let mut best_distance = radius * radius;
@@ -710,6 +721,122 @@ mod tests {
             vec![90, 70, 2]
         );
         assert_eq!(partition.ids_in_radius(10., 10., 0.), vec![2, 70, 90]);
+    }
+
+    #[test]
+    fn local_radius_queries_match_the_full_occupied_cell_scan() {
+        for (origin, size, bounded) in [([0., 0.], 40., false), ([100.25, -60.5], 45.6, true)] {
+            let mut partition = PartitionManager::new();
+            if bounded {
+                let mut shroud = gamelogic::system::shroud_manager::ShroudManager::new();
+                shroud
+                    .init_shroud_grid_at_origin_with_cell_size(origin, size * 28., size * 28., size)
+                    .unwrap();
+                partition.configure_grid_from_shroud(&shroud);
+            }
+            let location = |x: f32, z: f32| (origin[0] + size * x, origin[1] + size * z);
+            for row in 0..24 {
+                for column in 0..24 {
+                    let (x, z) = location(column as f32 + 0.25, row as f32 + 0.25);
+                    partition.register_object_at(1 + row * 24 + column, x, z);
+                }
+            }
+            let (x, z) = location(8.25, 8.25);
+            partition.register_object_footprint(800, x, z, size * 1.4);
+            partition.register_object_at(801, x, z);
+            assert!(
+                partition
+                    .radius_cell_query(x, z, 0.)
+                    .local_lookup_bounds(partition.cell_count())
+                    .is_some()
+            );
+
+            for (cx, cz) in [(8.25, 8.25), (0.25, 0.25), (-0.75, 1.25), (28.25, 28.25)] {
+                let (x, z) = location(cx, cz);
+                for radius in [
+                    0.,
+                    size / 7.,
+                    size,
+                    size * 2.,
+                    size * 20.,
+                    1_000_000.,
+                    -0.25,
+                    f32::NAN,
+                ] {
+                    let query = partition.radius_cell_query(x, z, radius);
+                    let query_sorted = partition.radius_cell_query(x, z, radius.max(0.0));
+                    let mut ids: Vec<_> = partition
+                        .cells
+                        .iter()
+                        .filter(|(cell, _)| query_sorted.accepts([cell.0, cell.1]))
+                        .flat_map(|(_, occupants)| occupants.iter().copied())
+                        .collect();
+                    ids.sort_unstable();
+                    ids.dedup();
+                    assert_eq!(partition.ids_in_radius(x, z, radius), ids);
+
+                    let mut buckets: Vec<_> = partition
+                        .cells
+                        .iter()
+                        .filter_map(|(&(x, z), occupants)| {
+                            Some((query.traversal_key([x, z])?, occupants))
+                        })
+                        .collect();
+                    buckets.sort_unstable_by_key(|(key, _)| *key);
+                    let mut seen = HashSet::new();
+                    let mut encounters = Vec::new();
+                    for ((ring, _, _), occupants) in buckets {
+                        encounters.extend(
+                            occupants
+                                .iter()
+                                .rev()
+                                .copied()
+                                .filter(|&id| seen.insert(id))
+                                .map(|id| (ring, id)),
+                        );
+                    }
+                    let mut visited = Vec::new();
+                    partition.visit_radius_coi_order(x, z, radius, |id| visited.push(id));
+                    assert_eq!(
+                        visited,
+                        encounters.iter().map(|&(_, id)| id).collect::<Vec<_>>()
+                    );
+                    assert_eq!(
+                        partition.ids_in_radius_iterator_order(x, z, radius, |id| id % 3 != 0),
+                        visited
+                            .iter()
+                            .rev()
+                            .copied()
+                            .filter(|id| id % 3 != 0)
+                            .collect::<Vec<_>>(),
+                    );
+
+                    let distance = |id: u32| (id % 5 != 0).then_some((id % 3) as f32);
+                    let mut expected_probes = Vec::new();
+                    let mut best = radius * radius;
+                    let mut chosen = None;
+                    let mut found_bucket = None;
+                    for (ring, id) in encounters {
+                        if found_bucket.is_some_and(|found| ring > found) {
+                            break;
+                        }
+                        expected_probes.push(id);
+                        if let Some(d) = distance(id).filter(|&d| d < best) {
+                            best = d;
+                            chosen = Some(id);
+                            found_bucket = Some(ring);
+                        }
+                    }
+                    let mut probes = Vec::new();
+                    let closest = partition.closest_in_radius(x, z, radius, |id| {
+                        probes.push(id);
+                        distance(id)
+                    });
+                    assert_eq!(probes, expected_probes);
+                    assert_eq!(closest, chosen);
+                }
+            }
+        }
     }
 
     #[test]
