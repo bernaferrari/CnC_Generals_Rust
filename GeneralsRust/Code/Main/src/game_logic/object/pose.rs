@@ -1551,35 +1551,6 @@ impl Object {
                 _ => {}
             }
         }
-        // C++ FlammableUpdate tryToIgnite / update: MODELCONDITION_AFLAME / SMOLDERING.
-        {
-            use crate::game_logic::host_enum_table_residual::{
-                aflame_model_bit, smoldering_model_bit,
-            };
-            let aflame_b = aflame_model_bit();
-            let smolder_b = smoldering_model_bit();
-            bits &= !(1u128 << aflame_b);
-            bits &= !(1u128 << smolder_b);
-            let live_aflame = self.has_object_status_bit("AFLAME")
-                || self
-                    .fire_spread
-                    .as_ref()
-                    .map(|f| f.is_aflame())
-                    .unwrap_or(false);
-            let live_smolder = self
-                .fire_spread
-                .as_ref()
-                .map(|f| f.smoldering)
-                .unwrap_or(false)
-                || (self.has_object_status_bit("BURNED") && live_aflame)
-                || (self.has_object_status_bit("BURNED") && !live_aflame);
-            if live_aflame {
-                bits |= 1u128 << aflame_b;
-            }
-            if live_smolder {
-                bits |= 1u128 << smolder_b;
-            }
-        }
         // C++ W3DModelDraw::updateDrawModuleSupplyStatus — CARRYING while boxes > 0.
         {
             use crate::game_logic::host_enum_table_residual::carrying_model_bit;

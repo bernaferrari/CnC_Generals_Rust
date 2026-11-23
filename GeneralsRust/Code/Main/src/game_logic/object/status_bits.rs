@@ -339,81 +339,34 @@ impl Object {
         crate::game_logic::host_status_bits_upgrade::status_bits_has(self.object_status_bits, name)
     }
 
-    /// C++ FlammableUpdate tryToIgnite / update status + model + body setAflame.
-    pub fn apply_flammable_visuals(
-        &mut self,
-        aflame: bool,
-        smoldering: bool,
-        burned: bool,
-        frame: u32,
-    ) {
-        self.apply_flammable_visuals_with_source(aflame, smoldering, burned, None, frame);
+    fn set_flammable_model_condition(&mut self, bit: u32, active: bool) {
+        let mask = 1u128 << bit;
+        let next = if active {
+            self.model_condition_bits | mask
+        } else {
+            self.model_condition_bits & !mask
+        };
+        if next != self.model_condition_bits {
+            self.model_condition_bits = next;
+            self.visual_draw_state_revision =
+                self.visual_draw_state_revision.saturating_add(1).max(1);
+        }
     }
 
-    fn apply_flammable_visuals_with_source(
+    fn apply_flammable_ignition_visuals(
         &mut self,
-        aflame: bool,
-        smoldering: bool,
-        burned: bool,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
-        frame: u32,
-    ) {
-        self.apply_flammable_visuals_with_body_fx(
-            aflame,
-            smoldering,
-            burned,
-            false,
-            source,
-            frame,
-            &mut Object::standalone_body_fx,
-        );
-    }
-
-    pub(in crate::game_logic) fn apply_flammable_visuals_with_body_fx(
-        &mut self,
-        aflame: bool,
-        smoldering: bool,
-        burned: bool,
-        force_body_particle_update: bool,
-        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
-        frame: u32,
         body_fx: &mut BodyStateFxReceiver<'_>,
     ) {
-        // C++ tests ObjectStatus::AFLAME here. FlammableUpdate may already
-        // have advanced its private state before this Body visual callback.
-        let was_aflame = self.has_object_status_bit("AFLAME");
-        if aflame {
-            let _ = self.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
-        } else if burned {
-            let _ = self.apply_status_bits_upgrade_masks(&["BURNED"], &["AFLAME"]);
-        } else {
-            let _ = self.apply_status_bits_upgrade_masks(&[], &["AFLAME", "BURNED"]);
+        self.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+        if let Some(fire) = self.fire_spread.as_mut() {
+            fire.body_aflame = true;
         }
-        if smoldering {
-            let _ = self.apply_status_bits_upgrade_masks(&["BURNED"], &[]);
-        }
-        if let Some(fs) = self.fire_spread.as_mut() {
-            fs.body_aflame = aflame;
-            if !aflame {
-                fs.smoldering = burned;
-            } else if smoldering {
-                fs.smoldering = true;
-            }
-        }
-        // tryToIgnite and extinction call Body::setAflame even if the status
-        // bit was already changed elsewhere. Smolder-only updates do not.
-        if force_body_particle_update || was_aflame != aflame {
-            body_fx(self, BodyStateFx::BodyParticleState, source);
-        }
-        self.refresh_model_condition_bits_with_body_fx(source, frame, body_fx);
-    }
-
-    pub(super) fn apply_flammable_ignite_visuals_with_source(
-        &mut self,
-        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
-        frame: u32,
-    ) {
-        self.apply_flammable_visuals_with_source(true, false, false, source, frame);
+        body_fx(self, BodyStateFx::BodyParticleState, source);
+        self.set_flammable_model_condition(
+            crate::game_logic::host_enum_table_residual::aflame_model_bit(),
+            true,
+        );
     }
 
     pub(super) fn apply_flammable_ignite_visuals_with_body_fx(
@@ -422,28 +375,41 @@ impl Object {
         frame: u32,
         body_fx: &mut BodyStateFxReceiver<'_>,
     ) {
-        self.apply_flammable_visuals_with_body_fx(true, false, false, true, source, frame, body_fx);
-        // C++ tryToIgnite starts audio and FireSpreadUpdate only after status,
-        // Body::setAflame and model-condition callbacks have completed.
+        self.apply_flammable_ignition_visuals(source, body_fx);
+        // FlammableUpdate::tryToIgnite starts sound and spreading before
+        // committing the private status and wake timers.
         body_fx(self, BodyStateFx::FlammableIgnition { frame }, source);
         if let Some(fire) = self.fire_spread.as_mut() {
             fire.finish_ignition(frame);
         }
     }
 
-    /// C++ tryToIgnite: AFLAME status, body setAflame, MODELCONDITION_AFLAME.
-    pub fn apply_flammable_ignite_visuals(&mut self, frame: u32) {
-        self.apply_flammable_visuals(true, false, false, frame);
+    #[cfg(test)]
+    pub(super) fn apply_flammable_ignite_visuals(&mut self) {
+        self.apply_flammable_ignition_visuals(None, &mut Object::standalone_body_fx);
     }
 
-    /// C++ burned timer: BURNED + SMOLDERING while still AFLAME.
-    pub fn apply_flammable_smoldering_visuals(&mut self, frame: u32) {
-        self.apply_flammable_visuals(true, true, false, frame);
+    /// FlammableUpdate.cpp:119–123 sets the Object and model burn bits.
+    pub(in crate::game_logic) fn apply_flammable_smoldering_visuals(&mut self) {
+        self.apply_status_bits_upgrade_masks(&["BURNED"], &[]);
+        self.set_flammable_model_condition(
+            crate::game_logic::host_enum_table_residual::smoldering_model_bit(),
+            true,
+        );
     }
 
-    /// C++ aflame_end: clear AFLAME / setAflame(FALSE); keep BURNED if already burned.
-    pub fn apply_flammable_extinguish_visuals(&mut self, burned: bool, frame: u32) {
-        self.apply_flammable_visuals(false, burned, burned, frame);
+    /// FlammableUpdate.cpp:139–142 clears Object AFLAME, updates Body
+    /// particles, then clears the model condition.
+    pub(in crate::game_logic) fn apply_flammable_extinguish_visuals_with_body_fx(
+        &mut self,
+        body_fx: &mut BodyStateFxReceiver<'_>,
+    ) {
+        self.apply_status_bits_upgrade_masks(&[], &["AFLAME"]);
+        body_fx(self, BodyStateFx::BodyParticleState, None);
+        self.set_flammable_model_condition(
+            crate::game_logic::host_enum_table_residual::aflame_model_bit(),
+            false,
+        );
     }
 
     /// C++ `Object::isScriptUnsellable`.

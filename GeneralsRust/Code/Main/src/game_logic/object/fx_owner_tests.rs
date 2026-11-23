@@ -635,7 +635,7 @@ fn fire_spread_timer_extinguishes_particles_synchronously_for_owner_only() {
         fire.burning_sound_active = false;
         let object = world.objects.get_mut(&id).unwrap();
         object.fire_spread = Some(fire);
-        object.apply_flammable_ignite_visuals(0);
+        object.apply_flammable_ignite_visuals();
         stale.push(world.combat_particles.spawn(
             crate::game_logic::CombatParticleKind::BodyFire,
             Vec3::ZERO,

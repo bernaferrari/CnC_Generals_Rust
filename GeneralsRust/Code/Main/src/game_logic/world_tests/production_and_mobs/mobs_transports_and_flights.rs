@@ -2901,6 +2901,164 @@ fn tree_smolders_while_still_aflame() {
 }
 
 #[test]
+fn flammable_expiry_observes_an_externally_set_object_burned_bit() {
+    use crate::game_logic::host_enum_table_residual::smoldering_model_bit;
+    use crate::game_logic::host_fire_spread::{admit_fire_fixture, HostFlammableState};
+
+    let mut logic = GameLogic::new();
+    admit_fire_fixture(&mut logic, &["DogwoodTreeA"], &[]);
+    let id = logic
+        .create_object("DogwoodTreeA", Team::Neutral, Vec3::ZERO)
+        .expect("tree");
+    assert!(logic.ignite_object_fire_spread(id, &mut crate::game_logic::ScriptPresentationEffects::default()));
+    {
+        let object = logic.host_object_mut(id).unwrap();
+        assert!(!object.fire_spread.as_ref().unwrap().smoldering);
+        object.apply_status_bits_upgrade_masks(&["BURNED"], &[]);
+        object.fire_spread.as_mut().unwrap().aflame_end_frame = 1;
+    }
+
+    logic.set_current_frame(1);
+    logic.update_fire_spread().unwrap();
+
+    logic.host_object_mut(id).unwrap().refresh_model_condition_bits();
+    let object = logic.host_object(id).unwrap();
+    assert!(matches!(
+        object.fire_spread.as_ref().unwrap().state,
+        HostFlammableState::Burned
+    ));
+    assert!(object.has_object_status_bit("BURNED"));
+    assert!(!object.has_object_status_bit("AFLAME"));
+    assert_eq!(object.model_condition_bits & (1u128 << smoldering_model_bit()), 0);
+}
+
+#[test]
+fn an_expired_burned_timer_reasserts_only_on_a_later_module_wake() {
+    use crate::game_logic::host_fire_spread::admit_fire_fixture;
+
+    let mut logic = GameLogic::new();
+    admit_fire_fixture(&mut logic, &["DogwoodTreeA"], &[]);
+    let id = logic
+        .create_object("DogwoodTreeA", Team::Neutral, Vec3::ZERO)
+        .expect("tree");
+    assert!(logic.ignite_object_fire_spread(
+        id,
+        &mut crate::game_logic::ScriptPresentationEffects::default()
+    ));
+    {
+        let object = logic.host_object_mut(id).unwrap();
+        let fire = object.fire_spread.as_mut().unwrap();
+        fire.spread_enabled = false;
+        fire.next_spread_frame = u32::MAX;
+        fire.burned_end_frame = 1;
+        fire.damage_end_frame = 3;
+        fire.aflame_end_frame = 10;
+    }
+
+    logic.set_current_frame(1);
+    logic.update_fire_spread().unwrap();
+    assert!(logic.host_object(id).unwrap().has_object_status_bit("BURNED"));
+    logic
+        .host_object_mut(id)
+        .unwrap()
+        .apply_status_bits_upgrade_masks(&[], &["BURNED"]);
+
+    logic.set_current_frame(2);
+    logic.update_fire_spread().unwrap();
+    assert!(!logic.host_object(id).unwrap().has_object_status_bit("BURNED"));
+
+    logic.set_current_frame(3);
+    logic.update_fire_spread().unwrap();
+    let object = logic.host_object(id).unwrap();
+    assert!(object.has_object_status_bit("BURNED"));
+    assert!(object.model_condition_bits
+        & (1u128 << crate::game_logic::host_enum_table_residual::smoldering_model_bit())
+        != 0);
+}
+
+#[test]
+fn smolder_timer_preserves_externally_cleared_aflame_until_extinction() {
+    use crate::game_logic::host_enum_table_residual::{aflame_model_bit, smoldering_model_bit};
+    use crate::game_logic::host_fire_spread::admit_fire_fixture;
+
+    let mut logic = GameLogic::new();
+    admit_fire_fixture(&mut logic, &["DogwoodTreeA"], &[]);
+    let id = logic
+        .create_object("DogwoodTreeA", Team::Neutral, Vec3::ZERO)
+        .expect("tree");
+    assert!(logic.ignite_object_fire_spread(
+        id,
+        &mut crate::game_logic::ScriptPresentationEffects::default()
+    ));
+    {
+        let object = logic.host_object_mut(id).unwrap();
+        object.apply_status_bits_upgrade_masks(&[], &["AFLAME"]);
+        let fire = object.fire_spread.as_mut().unwrap();
+        fire.spread_enabled = false;
+        fire.next_spread_frame = u32::MAX;
+        fire.burned_end_frame = 1;
+        fire.aflame_end_frame = 10;
+    }
+
+    logic.set_current_frame(1);
+    logic.update_fire_spread().unwrap();
+    {
+        let object = logic.host_object(id).unwrap();
+        let fire = object.fire_spread.as_ref().unwrap();
+        assert!(!object.has_object_status_bit("AFLAME"));
+        assert!(object.has_object_status_bit("BURNED"));
+        assert!(fire.body_aflame, "burned timer does not call Body::setAflame");
+        assert_ne!(object.model_condition_bits & (1u128 << aflame_model_bit()), 0);
+        assert_ne!(object.model_condition_bits & (1u128 << smoldering_model_bit()), 0);
+    }
+
+    logic.set_current_frame(10);
+    logic.update_fire_spread().unwrap();
+    let object = logic.host_object(id).unwrap();
+    let fire = object.fire_spread.as_ref().unwrap();
+    assert!(!object.has_object_status_bit("AFLAME"));
+    assert!(object.has_object_status_bit("BURNED"));
+    assert!(!fire.body_aflame);
+    assert_eq!(object.model_condition_bits & (1u128 << aflame_model_bit()), 0);
+    assert_ne!(object.model_condition_bits & (1u128 << smoldering_model_bit()), 0);
+}
+
+#[test]
+fn zero_duration_flammable_module_stays_asleep_in_world_updates() {
+    use crate::game_logic::host_fire_spread::admit_fire_fixture;
+
+    let mut logic = GameLogic::new();
+    admit_fire_fixture(&mut logic, &[], &["TechOilDerrick"]);
+    let id = logic
+        .create_object("TechOilDerrick", Team::Neutral, Vec3::ZERO)
+        .expect("oil derrick");
+    {
+        let fire = logic
+            .host_object_mut(id)
+            .unwrap()
+            .fire_spread
+            .as_mut()
+            .unwrap();
+        fire.aflame_duration = 0;
+        fire.burned_delay = 4;
+        fire.aflame_damage_delay = 3;
+    }
+    assert!(logic.ignite_object_fire_spread(
+        id,
+        &mut crate::game_logic::ScriptPresentationEffects::default()
+    ));
+
+    logic.set_current_frame(20);
+    logic.update_fire_spread().unwrap();
+
+    let object = logic.host_object(id).unwrap();
+    let fire = object.fire_spread.as_ref().unwrap();
+    assert!(fire.is_aflame());
+    assert!(!object.has_object_status_bit("BURNED"));
+    assert!(object.has_object_status_bit("AFLAME"));
+}
+
+#[test]
 fn status_bits_upgrade_booby_trap_sets_bit() {
     use crate::game_logic::host_status_bits_upgrade::honesty_status_bits_upgrade_residual_ok;
     assert!(honesty_status_bits_upgrade_residual_ok());

@@ -140,24 +140,6 @@ impl GameLogic {
         }
     }
 
-    /// C++ FlammableUpdate::setAflame visual callback with this world owner.
-    fn apply_flammable_visuals_with_receiving_particles(
-        &mut self,
-        id: ObjectId,
-        aflame: bool,
-        smoldering: bool,
-        burned: bool,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> bool {
-        let frame = self.frame as u32;
-        self.with_receiving_flammable_body_fx(id, effects, |object, body_fx| {
-            object.apply_flammable_visuals_with_body_fx(
-                aflame, smoldering, burned, !aflame, None, frame, body_fx,
-            );
-        })
-        .is_some()
-    }
-
     /// C++ FireSpreadUpdate selects and immediately ignites its closest target.
     pub(in crate::game_logic) fn ignite_object_fire_spread(
         &mut self,
@@ -273,11 +255,12 @@ impl GameLogic {
                 }) else {
                     continue;
                 };
+                let object_burned = object.has_object_status_bit("BURNED");
                 let Some(fire) = object.fire_spread.as_mut() else {
                     continue;
                 };
                 let tail = if flammable_due {
-                    fire.finish_tick_flammable(frame)
+                    fire.finish_tick_flammable_with_burned_status(frame, object_burned)
                 } else {
                     crate::game_logic::host_fire_spread::FlammableTickResult::default()
                 };
@@ -287,14 +270,10 @@ impl GameLogic {
                 (tail, stop_sound)
             };
 
-            if tail.became_smoldering {
-                let _ = self.apply_flammable_visuals_with_receiving_particles(
-                    id,
-                    true,
-                    true,
-                    false,
-                    presentation_effects,
-                );
+            if tail.smoldering {
+                if let Some(object) = self.objects.get_mut(&id) {
+                    object.apply_flammable_smoldering_visuals();
+                }
             }
             // FlammableUpdate::update handles the burned timer first, then
             // stops audio before clearing AFLAME and invoking Body::setAflame.
@@ -303,21 +282,11 @@ impl GameLogic {
             }
             if tail.became_burned {
                 self.fire_spread_reg.record_burned();
-                let _ = self.apply_flammable_visuals_with_receiving_particles(
-                    id,
-                    false,
-                    true,
-                    true,
-                    presentation_effects,
-                );
-            } else if tail.returned_to_normal {
-                let _ = self.apply_flammable_visuals_with_receiving_particles(
-                    id,
-                    false,
-                    false,
-                    false,
-                    presentation_effects,
-                );
+            }
+            if tail.became_burned || tail.returned_to_normal {
+                self.with_receiving_flammable_body_fx(id, presentation_effects, |object, body_fx| {
+                    object.apply_flammable_extinguish_visuals_with_body_fx(body_fx);
+                });
             }
             // After the flammable callbacks the slot may hold a new
             // incarnation; only the exact owner still owes its spread clock.

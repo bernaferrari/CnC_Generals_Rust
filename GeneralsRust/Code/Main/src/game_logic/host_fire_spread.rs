@@ -363,6 +363,17 @@ impl HostFireSpreadData {
 
     /// C++ FlammableUpdate::update burned/end timer phase, after doAflameDamage.
     pub fn finish_tick_flammable(&mut self, current_frame: u32) -> FlammableTickResult {
+        let object_burned = self.smoldering;
+        self.finish_tick_flammable_with_burned_status(current_frame, object_burned)
+    }
+
+    /// The C++ expiry branch reads Object::BURNED independently of the
+    /// FlammableUpdate module's private state.
+    pub(in crate::game_logic) fn finish_tick_flammable_with_burned_status(
+        &mut self,
+        current_frame: u32,
+        object_burned: bool,
+    ) -> FlammableTickResult {
         let mut r = FlammableTickResult::default();
         match self.state {
             HostFlammableState::Normal => {}
@@ -383,7 +394,7 @@ impl HostFireSpreadData {
                         self.burning_sound_active = false;
                     }
                     r.aflame = false;
-                    if self.smoldering {
+                    if r.smoldering || object_burned {
                         self.state = HostFlammableState::Burned;
                         r.became_burned = true;
                         r.burned = true;
@@ -435,7 +446,11 @@ impl HostFireSpreadData {
     /// (`Object::complete_flammable_ignition`), so a sleeping sound is not
     /// part of the predicate.
     pub(in crate::game_logic) fn flammable_due(&self, frame: u32) -> bool {
+        // C++ calcSleepTime gates every timer behind a future nonzero aflame
+        // end frame. At zero duration the module sleeps forever, even when
+        // DOT or BurnedDelay deadlines were also authored.
         self.is_aflame()
+            && self.aflame_duration > 0
             && ((self.damage_end_frame != 0 && frame >= self.damage_end_frame)
                 || (!self.smoldering
                     && self.burned_end_frame != 0
@@ -569,6 +584,33 @@ mod tests {
         assert!(!r.became_burned);
         assert!(matches!(d.state, HostFlammableState::Normal));
         assert!(d.would_ignite());
+    }
+
+    #[test]
+    fn zero_duration_end_sleeps_forever_even_with_other_timer_deadlines() {
+        let mut sleeping = HostFireSpreadData::tree_default();
+        sleeping.aflame_duration = 0;
+        sleeping.burned_delay = 4;
+        sleeping.aflame_damage_delay = 3;
+        assert!(sleeping.try_to_ignite(17));
+        assert_eq!(sleeping.aflame_end_frame, 17);
+        assert!(!sleeping.flammable_due(17));
+        assert!(!sleeping.flammable_due(18));
+        assert!(!sleeping.flammable_due(20));
+        assert!(!sleeping.flammable_due(21));
+        assert!(sleeping.is_aflame());
+    }
+
+    #[test]
+    fn aflame_expiry_uses_object_burned_bit_even_without_private_smoldering() {
+        let mut d = HostFireSpreadData::tree_default();
+        assert!(d.try_to_ignite(0));
+        d.aflame_end_frame = 5;
+        assert!(!d.smoldering);
+        let r = d.finish_tick_flammable_with_burned_status(5, true);
+        assert!(r.became_burned);
+        assert!(!r.returned_to_normal);
+        assert!(matches!(d.state, HostFlammableState::Burned));
     }
 
     #[test]
