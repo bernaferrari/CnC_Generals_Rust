@@ -1018,11 +1018,9 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
     let replacement_id = logic
         .create_object("TestDozer", Team::USA, Vec3::new(44.0, 0.0, 64.0))
         .expect("replacement dozer");
-    logic
-        .host_object_mut(dozer_id)
-        .expect("original dozer")
-        .health
-        .current = 0.0;
+    logic.destroy_object(dozer_id).unwrap();
+    logic.process_destroy_list();
+    assert!(logic.host_object(dozer_id).is_none());
     ai.process_building_queue(&mut logic, 0.1);
     let replacement = logic
         .host_object(replacement_id)
@@ -1033,9 +1031,8 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
 
     // C++ DozerAIUpdate.cpp:497-503 transitions DOZER_DO_BUILD_AT_DOCK when
     // the dozer AI goes idle at its ACTION dock, not on geometric arrival
-    // alone. The retasked replacement must walk its construct path to the
-    // stored dock (speed 10 wu/s over ~7wu), so run fixed frames until the
-    // scaffold reports an exclusive idle builder.
+    // alone. The replacement first selects Build, then moves to its dock.
+    // The primary may still be idle on an intermediate frame.
     let before = logic
         .host_object(structure_id)
         .expect("under-construction scaffold")
@@ -1044,13 +1041,7 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
         logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
         if logic
             .host_object(structure_id)
-            .and_then(|s| s.builder_id)
-            .map(|builder| {
-                logic.host_object(builder).is_some_and(|d| {
-                    !d.status.moving && d.ai_state() == crate::game_logic::AIState::Idle
-                })
-            })
-            .unwrap_or(false)
+            .is_some_and(|scaffold| scaffold.construction_percent > before)
         {
             break;
         }

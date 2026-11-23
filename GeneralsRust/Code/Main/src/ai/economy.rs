@@ -210,7 +210,10 @@ impl AIPlayer {
     pub(super) fn dozer_already_queued(&self, world: &GameLogic) -> bool {
         self.team_queue.iter().any(|team| {
             team.work_orders.iter().any(|order| {
-                Self::is_dozer_work_order_template(world, &order.template_name)
+                // AIPlayer.cpp:3523–3534: GLA Workers bought for a supply
+                // assignment do not count as pending builder replacements.
+                !order.is_resource_gatherer
+                    && Self::is_dozer_work_order_template(world, &order.template_name)
             })
         })
     }
@@ -237,11 +240,17 @@ impl AIPlayer {
         })
     }
 
-    /// C++ `AIPlayer::queueDozer` (AIPlayer.cpp:3128-3171): prepend a priority
-    /// dozer work order and startTraining immediately when no KINDOF_DOZER exists.
+    /// C++ `AIPlayer::queueDozer` (AIPlayer.cpp:3128–3171): start a priority
+    /// Dozer work order once the caller has requested a builder.
     pub(super) fn queue_dozer(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        if let Some(attempt) = self.prepare_dozer_queue(game_logic) {
-            let queued = attempt.execute(game_logic);
+        use super::economic_owner::DozerQueueAttempt;
+        if self.dozer_already_queued(game_logic) {
+            return;
+        }
+        let started = DozerQueueAttempt::start(game_logic, self.player_id, |world| {
+            self.prepare_dozer_queue(world)
+        });
+        if let Some((attempt, queued)) = started {
             self.finish_dozer_queue(attempt, queued, current_time);
         }
     }
@@ -250,9 +259,6 @@ impl AIPlayer {
         &self,
         world: &GameLogic,
     ) -> Option<super::economic_owner::DozerQueueAttempt> {
-        if self.dozer_already_queued(world) {
-            return None;
-        }
         let (template, factory) = self.first_dozer_template_with_factory(world)?;
         let mut preexisting: Vec<_> = world
             .host_objects()
@@ -266,7 +272,6 @@ impl AIPlayer {
             .collect();
         preexisting.sort_by_key(|id| id.0);
         Some(super::economic_owner::DozerQueueAttempt {
-            player: self.player_id,
             template,
             factory,
             preexisting,
@@ -295,37 +300,6 @@ impl AIPlayer {
         if queued {
             self.activity_count = self.activity_count.saturating_add(1);
         }
-    }
-
-    /// Reattach a live dozer to every queued scaffold that lost its builder.
-    ///
-    /// C++ refreshes existing `BuildListInfo` entries before considering a new
-    /// structure, and calls `aiResumeConstruction` whenever the remembered
-    /// dozer was killed/captured or no longer has a build task.  Without this,
-    /// one interrupted construction permanently blocks its planned base slot.
-    pub(super) fn resume_interrupted_construction(
-        &self,
-        game_logic: &mut GameLogic,
-    ) -> gamelogic::GameLogicResult<()> {
-        let unfinished: Vec<(ObjectId, Vec3)> = self
-            .building_queue
-            .iter()
-            .filter_map(|building| {
-                let object_id = building.object_id?;
-                let object = game_logic.host_object(object_id)?;
-                (game_logic.object_owned_by_player(object, self.player_id)
-                    && object.is_alive()
-                    && object.status.under_construction)
-                    .then_some((object_id, object.get_position()))
-            })
-            .collect();
-
-        game_logic.resume_owned_ai_construction(
-            self.player_id,
-            self.repair_dozer,
-            unfinished,
-        )?;
-        Ok(())
     }
 
     /// C++ `AIPlayer::buildStructureWithDozer` position wiggle
@@ -411,7 +385,10 @@ impl AIPlayer {
         current_time: f32,
         ai_data: &AiDataView,
     ) -> gamelogic::GameLogicResult<()> {
-        self.resume_interrupted_construction(game_logic)?;
+        let sites = self.building_queue.iter().filter_map(|pad| pad.object_id).collect();
+        game_logic.resume_owned_ai_construction(self.player_id, self.repair_dozer, sites, |world| {
+            self.queue_dozer(world, current_time);
+        })?;
         if !Self::player_has_any_dozer(game_logic, self.player_id) {
             self.queue_dozer(game_logic, current_time);
         }

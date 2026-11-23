@@ -3396,30 +3396,35 @@ impl Object {
 impl Object {
 
     pub fn dozer_task_build_target(&self) -> Option<ObjectId> {
-        self.dozer_tasks.requests[0].target
+        self.dozer_tasks.requests[dozer_tasks::DozerTask::Build as usize].target
     }
 
     pub fn set_dozer_task_build_target(&mut self, target: Option<ObjectId>) {
-        self.dozer_tasks.requests[0].target = target;
+        self.dozer_tasks.requests[dozer_tasks::DozerTask::Build as usize].target = target;
     }
 
     pub fn dozer_task_repair_target(&self) -> Option<ObjectId> {
-        self.dozer_tasks.requests[1].target
+        self.dozer_tasks.requests[dozer_tasks::DozerTask::Repair as usize].target
     }
 
     pub fn set_dozer_task_repair_target(&mut self, target: Option<ObjectId>) {
-        self.dozer_tasks.requests[1].target = target;
+        self.dozer_tasks.requests[dozer_tasks::DozerTask::Repair as usize].target = target;
     }
 
     /// Action dock location for the current/build task (legacy `dozer_dock_action`).
     pub fn dozer_dock_action(&self) -> Option<glam::Vec3> {
-        let dock = &self.dozer_tasks.docks[0][1];
+        use gamelogic::object::update::ai_update::dozer_ai_update::DozerDockPoint;
+
+        let dock = &self.dozer_tasks.docks[dozer_tasks::DozerTask::Build as usize]
+            [DozerDockPoint::Action as usize];
         dock.point().map(|c| glam::Vec3::new(c.x, c.y, c.z))
     }
 
     pub fn set_dozer_dock_action(&mut self, pos: Option<glam::Vec3>) {
-        use gamelogic::object::update::ai_update::dozer_ai_update::DozerDockPointInfo;
-        self.dozer_tasks.docks[0][1] = match pos {
+        use gamelogic::object::update::ai_update::dozer_ai_update::{DozerDockPoint, DozerDockPointInfo};
+
+        self.dozer_tasks.docks[dozer_tasks::DozerTask::Build as usize]
+            [DozerDockPoint::Action as usize] = match pos {
             Some(p) => DozerDockPointInfo::from_position(p),
             None => DozerDockPointInfo::default(),
         };

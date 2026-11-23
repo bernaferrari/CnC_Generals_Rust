@@ -1,5 +1,6 @@
 //! Original base-building effects run with the canonical AI roster installed.
 use super::*;
+#[cfg(test)]
 use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
 
 pub(super) struct ScaffoldAttempt {
@@ -69,15 +70,22 @@ impl ScaffoldAttempt {
 }
 
 pub(super) struct DozerQueueAttempt {
-    pub player: u32,
     pub template: String,
     pub factory: ObjectId,
     pub preexisting: Vec<ObjectId>,
 }
 impl DozerQueueAttempt {
-    pub(super) fn execute(&self, world: &mut GameLogic) -> bool {
-        AIPlayer::with_can_build_units(world, self.player, true, |world| {
-            world.enqueue_production(self.factory, self.template.clone())
+    pub(super) fn start(
+        world: &mut GameLogic,
+        player: u32,
+        prepare: impl FnOnce(&GameLogic) -> Option<Self>,
+    ) -> Option<(Self, bool)> {
+        // AIPlayer.cpp:3134–3170 enables unit building for both the
+        // isPossibleToMakeUnit factory probe and the paid production order.
+        AIPlayer::with_can_build_units(world, player, true, |world| {
+            let attempt = prepare(world)?;
+            let queued = world.enqueue_production(attempt.factory, attempt.template.clone());
+            Some((attempt, queued))
         })
     }
 }
@@ -110,19 +118,10 @@ impl GameLogic {
             return Ok(());
         }
         let repair = ai.repair_dozer;
-        let unfinished: Vec<_> = ai
-            .building_queue
-            .iter()
-            .filter_map(|pad| {
-                let id = pad.object_id?;
-                let object = self.host_object(id)?;
-                (self.object_owned_by_player(object, player)
-                    && object.is_alive()
-                    && object.status.under_construction)
-                    .then_some((id, object.get_position()))
-            })
-            .collect();
-        self.resume_owned_ai_construction(player, repair, unfinished)?;
+        let sites = ai.building_queue.iter().filter_map(|pad| pad.object_id).collect();
+        self.resume_owned_ai_construction(player, repair, sites, |world| {
+            world.admit_owned_ai_dozer(player, now);
+        })?;
         self.queue_owned_ai_dozer(player, now);
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return Ok(());
@@ -150,19 +149,35 @@ impl GameLogic {
         &mut self,
         player: u32,
         repair: Option<ObjectId>,
-        unfinished: Vec<(ObjectId, Vec3)>,
+        sites: Vec<ObjectId>,
+        mut queue_dozer: impl FnMut(&mut Self),
     ) -> gamelogic::GameLogicResult<()> {
-        for (id, position) in unfinished {
-            let builder = self.host_objects().registered_values().any(|object| {
-                self.object_owned_by_player(object, player)
-                    && object.is_alive()
-                    && object.can_construct()
-                    && object.dozer_tasks.requests[DozerTask::Build as usize].target == Some(id)
-            });
-            if !builder {
-                if let Some(dozer) = AIPlayer::find_available_dozer(self, player, position, repair) {
-                    let _ = self.resume_construction(&[dozer], id)?;
+        for id in sites {
+            let Some(site) = self.host_object(id).filter(|site| {
+                self.object_owned_by_player(site, player)
+                    && site.is_alive()
+                    && site.status.under_construction
+            }) else {
+                continue;
+            };
+            let position = site.get_position();
+            if let Some(builder) = site.builder_id.and_then(|builder| self.host_object(builder)) {
+                if self.object_owned_by_player(builder, player) && !builder.status.disabled_unmanned {
+                    let builder_id = builder.id;
+                    // The original also sends Resume to the recorded builder.
+                    // The action gate rejects a builder already executing Build.
+                    let _ = self.resume_construction(&[builder_id], id)?;
+                    continue;
                 }
+                // AISkirmishPlayer.cpp:137–140 releases a captured or unmanned
+                // builder even if its old Build task still points to the site.
+                self.host_object_mut(id).expect("live AI scaffold").builder_id = None;
+            }
+            // CPP143–150 starts training before it looks for someone to take
+            // over. An available substitute does not cancel the paid order.
+            queue_dozer(self);
+            if let Some(dozer) = AIPlayer::find_available_dozer(self, player, position, repair) {
+                let _ = self.resume_construction(&[dozer], id)?;
             }
         }
         Ok(())
@@ -180,9 +195,13 @@ impl GameLogic {
         let Some(ai) = self.ai_manager.ai_players.get(&player) else {
             return;
         };
-        let attempt = ai.prepare_dozer_queue(self);
-        if let Some(attempt) = attempt {
-            let queued = attempt.execute(self);
+        if ai.dozer_already_queued(self) {
+            return;
+        }
+        let started = DozerQueueAttempt::start(self, player, |world| {
+            world.ai_manager.ai_players.get(&player)?.prepare_dozer_queue(world)
+        });
+        if let Some((attempt, queued)) = started {
             if let Some(ai) = self.ai_manager.ai_players.get_mut(&player) {
                 ai.finish_dozer_queue(attempt, queued, now);
             }
@@ -194,26 +213,39 @@ impl GameLogic {
 mod tests {
     use super::*;
     fn world() -> (GameLogic, ObjectId) {
-        use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+        use crate::fixture_content::{FixtureObject, admit_fixture_content_with_actions};
         let mut world = GameLogic::new();
         // AIPlayer::findDozer hands work only to a DOZER with an AIUpdate and
         // its DozerAIInterface; both Objects are authored before NewGame
         // (GameEngine.cpp:428-458).
-        admit_fixture_objects(
+        admit_fixture_content_with_actions(
             &mut world,
             &[
                 FixtureObject::new("OwnedEconomyDozer")
-                    .kind_of("DOZER SELECTABLE")
+                    .kind_of("VEHICLE DOZER SELECTABLE")
+                    .build_cost(500)
                     .walker()
                     .dozer(),
                 FixtureObject::new("OwnedEconomyWorker")
                     .kind_of("INFANTRY DOZER HARVESTER SELECTABLE")
+                    .build_cost(200)
                     .walker()
                     .module("Behavior = WorkerAIUpdate FixtureWorkerAI\nEnd"),
                 FixtureObject::new("OwnedEconomyPad")
                     .kind_of("STRUCTURE")
                     .build_cost(100),
+                FixtureObject::new("OwnedEconomyCommandCenter")
+                    .kind_of("STRUCTURE COMMANDCENTER")
+                    .health(1000.0)
+                    .field("CommandSet = OwnedEconomyCommandSet")
+                    .module("Behavior = ProductionUpdate Factory\nEnd")
+                    .module("Behavior = DefaultProductionExitUpdate Exit\nEnd"),
             ],
+            &[],
+            "CommandButton OwnedEconomyTrainDozer\n Command = UNIT_BUILD\n Object = OwnedEconomyDozer\nEnd\n\
+             CommandButton OwnedEconomyTrainWorker\n Command = UNIT_BUILD\n Object = OwnedEconomyWorker\nEnd\n\
+             CommandSet OwnedEconomyCommandSet\n 1 = OwnedEconomyTrainDozer\nEnd\n\
+             CommandSet OwnedEconomyWorkerCommandSet\n 1 = OwnedEconomyTrainWorker\nEnd\n",
         );
         for (id, name) in [(1, "BuilderOwner"), (2, "PeerOwner")] {
             let mut player = Player::new(id, Team::USA, name, false);
@@ -238,6 +270,116 @@ mod tests {
             .unwrap()
             .add_building("OwnedEconomyPad", Vec3::new(100.0, 0.0, 100.0), 1);
         (world, dozer)
+    }
+
+    fn attach_factory(world: &mut GameLogic) -> ObjectId {
+        let position = Vec3::new(30.0, 0.0, 160.0);
+        let factory = world
+            .create_object_for_player("OwnedEconomyCommandCenter", 1, position)
+            .unwrap();
+        let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+        ai.add_building("OwnedEconomyCommandCenter", position, 1);
+        ai.building_queue.last_mut().unwrap().object_id = Some(factory);
+        factory
+    }
+
+    #[test]
+    fn owned_economic_pass_trains_a_replacement_while_a_survivor_resumes_construction() {
+        let (mut world, original) = world();
+        let factory = attach_factory(&mut world);
+        world.frame = 1;
+        let data = AiDataView::from_world(&world);
+        world.update_owned_ai_economy(1, 0.0, &data).unwrap();
+        let scaffold = world.ai_manager.ai_players[&1].building_queue[0].object_id.unwrap();
+        assert_eq!(world.host_object(scaffold).unwrap().builder_id, Some(original));
+        assert_eq!(world.get_player(1).unwrap().resources.supplies, 9900);
+
+        let survivor = world
+            .create_object_for_player("OwnedEconomyDozer", 1, Vec3::new(50.0, 0.0, 120.0))
+            .unwrap();
+        world.destroy_object(original).unwrap();
+        world.process_destroy_list();
+        assert!(world.host_object(original).is_none());
+        let now = world.ai_manager.ai_players[&1].next_building_time;
+        world.frame += 1;
+        world.update_owned_ai_economy(1, now, &data).unwrap();
+        assert_eq!(
+            world.host_object(scaffold).unwrap().builder_id,
+            Some(survivor)
+        );
+        let queue = &world
+            .host_object(factory)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue;
+        assert_eq!(queue.len(), 1, "a survivor taking over still triggers a replacement");
+        assert_eq!(queue[0].template_name, "OwnedEconomyDozer");
+        assert_eq!(world.get_player(1).unwrap().resources.supplies, 9400);
+
+        let next = world.ai_manager.ai_players[&1].next_building_time;
+        world.frame += 1;
+        world.update_owned_ai_economy(1, next, &data).unwrap();
+        assert_eq!(
+            world.host_object(factory).unwrap().building_data.as_ref().unwrap()
+                .production_queue.len(),
+            1
+        );
+        assert_eq!(world.get_player(1).unwrap().resources.supplies, 9400);
+    }
+
+    #[test]
+    fn owned_dozer_queue_discovers_and_uses_factory_with_unit_building_temporarily_enabled() {
+        let (mut world, _) = world();
+        world.frame = 1;
+        for player in [1, 2] {
+            world.get_player_mut(player).unwrap().set_can_build_units(false);
+        }
+        world.admit_owned_ai_dozer(1, 0.0);
+        assert!(!world.get_player(1).unwrap().can_build_units);
+        assert!(world.ai_manager.ai_players[&1].team_queue.is_empty());
+
+        let factory = attach_factory(&mut world);
+        assert!(!world.constructor_can_build_template(factory, "OwnedEconomyDozer"));
+        world.admit_owned_ai_dozer(1, 0.0);
+
+        let building = world.host_object(factory).unwrap().building_data.as_ref().unwrap();
+        assert_eq!(building.production_queue.len(), 1);
+        assert_eq!(building.production_queue[0].template_name, "OwnedEconomyDozer");
+        assert_eq!(world.get_player(1).unwrap().resources.supplies, 9500);
+        assert_eq!(world.get_player(2).unwrap().resources.supplies, 10_000);
+        assert!(!world.get_player(1).unwrap().can_build_units);
+        assert!(!world.get_player(2).unwrap().can_build_units);
+    }
+
+    #[test]
+    fn owned_dozer_queue_does_not_count_a_paid_supply_worker_as_a_builder() {
+        let (mut world, _) = world();
+        world.frame = 1;
+        let factory = attach_factory(&mut world);
+        world.host_object_mut(factory).unwrap().set_command_set_override(
+            Some("OwnedEconomyWorkerCommandSet".into()),
+        );
+        assert!(world.enqueue_production(factory, "OwnedEconomyWorker".into()));
+        let mut gatherer = AIWorkOrder::new("OwnedEconomyWorker".into(), 1, 100);
+        gatherer.is_resource_gatherer = true;
+        gatherer.factory_id = Some(factory);
+        gatherer.queued_count = 1;
+        let request = AITeamQueue::new("Supply gatherer".into(), vec![gatherer], true, world.frame);
+        world.ai_manager.ai_players.get_mut(&1).unwrap().team_queue.push_back(request);
+        world.admit_owned_ai_dozer(1, 0.0);
+        world.admit_owned_ai_dozer(1, 0.0);
+
+        let team_queue = &world.ai_manager.ai_players[&1].team_queue;
+        assert_eq!(team_queue.len(), 2);
+        assert!(!team_queue[0].work_orders[0].is_resource_gatherer);
+        assert!(team_queue[1].work_orders[0].is_resource_gatherer);
+        let building = world.host_object(factory).unwrap().building_data.as_ref().unwrap();
+        assert_eq!(building.production_queue.len(), 2);
+        assert_eq!(building.production_queue[0].template_name, "OwnedEconomyWorker");
+        assert_eq!(building.production_queue[1].template_name, "OwnedEconomyWorker");
+        assert_eq!(world.get_player(1).unwrap().resources.supplies, 9600);
     }
 
     #[test]
