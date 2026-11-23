@@ -843,6 +843,70 @@ fn supply_deposit_fixture_ini(
 }
 
 #[test]
+fn supply_dropoff_grants_authored_dock_stealth_and_preserves_permanent_grants() {
+    use crate::game_logic::SupplyTruckState;
+
+    const DEPOT: &str = "CloakedDepot";
+    const STOCK_LOOKING_DEPOT: &str = "GLASupplyStash";
+    const TRUCK: &str = "CloakedDepotCollector";
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::GLA, "Dock owner", true));
+    let grant = supply_deposit_fixture_ini(TRUCK, DEPOT, 100, None)
+        .replace(
+            " Behavior = SupplyCenterDockUpdate DockTag\n",
+            " Behavior = SupplyCenterDockUpdate DockTag\n GrantTemporaryStealth = 1400\n",
+        )
+        .replace(
+            "  SupplyCenterActionDelay = 0\n End\n",
+            "  SupplyCenterActionDelay = 0\n End\n Behavior = StealthUpdate StealthTag\n InnateStealth = No\n End\n",
+        );
+    let no_grant = supply_deposit_fixture_ini("PlainCollector", STOCK_LOOKING_DEPOT, 100, None);
+    logic.admit_object_ini_sources([("dock-grants.ini".into(), grant + no_grant.as_str())]).unwrap();
+
+    let start_cash = logic.get_player(1).unwrap().resources.supplies;
+    let placements = [
+        (DEPOT, false, None, 0),
+        (DEPOT, true, None, 42),
+        (DEPOT, true, Some(12), 42),
+        (DEPOT, true, Some(0), 0),
+        (STOCK_LOOKING_DEPOT, true, None, 0),
+    ];
+    let mut ids = Vec::new();
+    for (i, (template, cloaked, initial_grant, expected)) in placements.into_iter().enumerate() {
+        let site = Vec3::new(0.0, 0.0, i as f32 * 48.0);
+        let center = logic.create_object_for_player(template, 1, site).unwrap();
+        logic.host_object_mut(center).unwrap().status.stealthed = cloaked;
+        let truck = logic.create_object_for_player(TRUCK, 1, site + Vec3::X * 12.5).unwrap();
+        if let Some(frames) = initial_grant {
+            logic.receive_stealth_grant(truck, true, frames);
+        }
+        let collector = logic.host_object_mut(truck).unwrap();
+        collector.set_stored_supplies(75);
+        collector.set_ai_state(
+            AIState::ReturningResources,
+            0,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        collector.supply_truck_state = SupplyTruckState::DockingCenter;
+        collector.supply_truck_next_dock_action_frame = 0;
+        collector.preferred_dock_id = Some(center);
+
+        logic.update_support_states(&[truck, center], 1.0 / 30.0).unwrap();
+        let collector = logic.host_object(truck).unwrap();
+        assert_eq!(collector.stored_resources.supplies, 0, "{template}");
+        assert_eq!(collector.stealth_frames_granted, expected, "{template}");
+        assert_eq!(collector.status.stealthed, expected != 0 || initial_grant == Some(0), "{template}");
+        ids.push(truck);
+    }
+
+    assert_eq!(logic.get_player(1).unwrap().resources.supplies, start_cash + 5 * 75);
+    assert_eq!(
+        logic.take_supply_dropoff_events().iter().map(|event| event.carrier_id).collect::<Vec<_>>(),
+        ids,
+    );
+}
+
+#[test]
 fn supply_center_deposits_credit_center_owner_and_reject_allies() {
     use crate::game_logic::SupplyTruckState;
 

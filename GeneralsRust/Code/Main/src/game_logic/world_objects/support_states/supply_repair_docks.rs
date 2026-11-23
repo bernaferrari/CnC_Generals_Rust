@@ -1029,10 +1029,7 @@ impl GameLogic {
         let Some(center) = self.objects.get(&center_id) else {
             return;
         };
-        let grant_frames =
-            crate::game_logic::host_supply_gather::grant_temporary_stealth_frames_for_center(
-                &center.template_name,
-            );
+        let grant_frames = center.thing().template.dock_temporary_stealth_frames;
         self.apply_temporary_stealth_grant(center_id, docker_id, grant_frames);
     }
 

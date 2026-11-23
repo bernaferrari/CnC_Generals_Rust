@@ -447,6 +447,7 @@ impl GameLogic {
         }
 
         let mut dock_kind = DockKind::None;
+        template.dock_temporary_stealth_frames = 0;
         template.dock_starting_boxes = None;
         template.repair_dock_frames_for_full_heal = None;
         template.dock_delete_when_empty = false;
@@ -509,10 +510,19 @@ impl GameLogic {
                 // malformed/custom combinations rather than guessing priority.
                 if dock_kind != DockKind::None && dock_kind != candidate {
                     template.dock_kind = DockKind::None;
+                    template.dock_temporary_stealth_frames = 0;
                     template.dock_starting_boxes = None;
                     return;
                 }
                 dock_kind = candidate;
+                if candidate == DockKind::SupplyCenter {
+                    template.dock_temporary_stealth_frames = module
+                        .attribute("GrantTemporaryStealth")
+                        .and_then(|value| {
+                            game_engine::common::ini::INI::parse_duration_unsigned_int(value).ok()
+                        })
+                        .unwrap_or(0);
+                }
                 if candidate == DockKind::SupplyWarehouse {
                     template.dock_starting_boxes = module
                         .attribute("StartingBoxes")

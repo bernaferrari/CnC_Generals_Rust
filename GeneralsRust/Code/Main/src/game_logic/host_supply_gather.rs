@@ -1053,17 +1053,6 @@ pub fn warehouse_crippling_heal_amount(
     SUPPLY_WAREHOUSE_SELF_HEAL_AMOUNT
 }
 
-/// Retail GLA SupplyCenterDock `GrantTemporaryStealth = 20000` ms → 600 frames.
-/// America / China omit the field → module default 0.
-pub fn grant_temporary_stealth_frames_for_center(template_name: &str) -> u32 {
-    let n = template_name.to_ascii_lowercase();
-    if n.contains("gla") && (n.contains("supply") || n.contains("stash")) {
-        crate::game_logic::host_dock_contain_exit_heal_residual::SUPPLY_CENTER_DOCK_GLA_GRANT_STEALTH_FRAMES
-    } else {
-        crate::game_logic::host_dock_contain_exit_heal_residual::SUPPLY_CENTER_DOCK_DEFAULT_GRANT_STEALTH_FRAMES
-    }
-}
-
 /// C++ `SupplyCenterDockUpdate::action` stealth grant gate:
 /// center STEALTHED and (`isTemporaryGrant` or docker lacks `CAN_STEALTH`).
 pub fn should_grant_temporary_stealth(
@@ -1337,15 +1326,7 @@ mod tests {
     }
 
     #[test]
-    fn gla_stash_grants_temporary_stealth_america_does_not() {
-        assert_eq!(
-            grant_temporary_stealth_frames_for_center("GLASupplyStash"),
-            600
-        );
-        assert_eq!(
-            grant_temporary_stealth_frames_for_center("AmericaSupplyCenter"),
-            0
-        );
+    fn temporary_stealth_grant_preserves_permanent_stealth() {
         assert!(should_grant_temporary_stealth(true, 600, false, false));
         assert!(!should_grant_temporary_stealth(true, 600, false, true));
         assert!(should_grant_temporary_stealth(true, 600, true, true));

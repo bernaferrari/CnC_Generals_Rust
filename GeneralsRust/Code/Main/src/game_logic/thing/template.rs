@@ -780,6 +780,8 @@ pub struct ThingTemplate {
     /// Authored DockUpdate family.  Never infer this from a template name.
     #[serde(default)]
     pub dock_kind: DockKind,
+    /// SupplyCenterDockUpdate::m_grantTemporaryStealthFrames.
+    pub dock_temporary_stealth_frames: u32,
     /// `SupplyWarehouseDockUpdate::StartingBoxes`, when authored.  `Some(0)`
     /// is meaningful and must remain distinct from no warehouse module.
     #[serde(default)]
@@ -1509,6 +1511,7 @@ impl ThingTemplate {
             texture_name: None,
             asset_scale: default_asset_scale(),
             dock_kind: DockKind::None,
+            dock_temporary_stealth_frames: 0,
             dock_starting_boxes: None,
             repair_dock_frames_for_full_heal: None,
             dock_delete_when_empty: false,
