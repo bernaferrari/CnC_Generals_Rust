@@ -636,17 +636,13 @@ impl GameClient {
             .clone()
     }
 
-    pub fn ensure_video_player_slot(
-        &mut self,
-    ) -> std::sync::Arc<std::sync::Mutex<Option<crate::video_player::VideoPlayer>>> {
+    pub fn ensure_video_player_slot(&mut self) -> crate::video_player::VideoPlayerHandle {
         self.video_player_slot
             .get_or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
             .clone()
     }
 
-    pub fn video_player_slot_opt(
-        &self,
-    ) -> Option<std::sync::Arc<std::sync::Mutex<Option<crate::video_player::VideoPlayer>>>> {
+    pub fn video_player_slot_opt(&self) -> Option<crate::video_player::VideoPlayerHandle> {
         self.video_player_slot.clone()
     }
 

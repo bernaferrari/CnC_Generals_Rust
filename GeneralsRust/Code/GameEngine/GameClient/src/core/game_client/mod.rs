@@ -86,8 +86,7 @@ use crate::system::{
     BeaconNotification, Coord3D, GameMessageResult, SubsystemInterface, TimeOfDay,
 };
 use crate::video_player::{
-    VideoPlayerInterface as GlobalVideoPlayerInterface, get_video_player, init_video_player,
-    shutdown_video_player,
+    VideoPlayerInterface as GlobalVideoPlayerInterface, get_video_player, shutdown_video_player,
 };
 use game_engine::System::{
     register_save_load_campaign_hooks, register_save_load_mission_hooks,

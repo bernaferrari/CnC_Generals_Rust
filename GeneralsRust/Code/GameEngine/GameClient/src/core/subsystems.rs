@@ -28,9 +28,7 @@ use crate::{
         TREE_RADIUS_APPROX, TerrainError, TerrainVisual, TreeModuleData, TreeSaveRecord,
         TreeSphere, W3DToppleState, W3DTreeBuffer,
     },
-    video_player::{
-        VideoPlayerInterface as GlobalVideoPlayerInterface, get_video_player, init_video_player,
-    },
+    video_player::{VideoPlayerHandle, VideoPlayerInterface as GlobalVideoPlayerInterface},
 };
 use game_engine::System::XferVersion;
 use game_engine::common::ascii_string::AsciiString;
@@ -2435,34 +2433,43 @@ impl TerrainVisual for TerrainVisualStub {
 }
 
 /// Video player subsystem state.
-#[derive(Default)]
-pub struct VideoPlayerSubsystem;
+pub struct VideoPlayerSubsystem {
+    slot: VideoPlayerHandle,
+    search_paths: crate::video_player::VideoSearchPaths,
+}
+
+impl VideoPlayerSubsystem {
+    pub fn new(slot: VideoPlayerHandle, search_paths: crate::video_player::VideoSearchPaths) -> Self {
+        Self { slot, search_paths }
+    }
+}
 
 impl SubsystemInterface for VideoPlayerSubsystem {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        init_video_player();
-        if let Some(player) = get_video_player() {
-            if let Ok(mut guard) = player.lock() {
+        let initialized = self.slot.lock().map(|guard| guard.is_some()).unwrap_or(false);
+        if initialized {
+            if let Ok(mut guard) = self.slot.lock() {
                 if let Some(player) = guard.as_mut() {
-                    player.init();
+                    player.set_search_paths(self.search_paths.clone());
                 }
             }
+        } else {
+            let catalogs = crate::video_player::VideoIniCatalogSources::from_game_file_system();
+            crate::video_player::init_video_player_slot(&self.slot, &self.search_paths, &catalogs);
         }
         Ok(())
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Decoder pool is application-owned; client window/display handles retire themselves.
+        if let Ok(mut guard) = self.slot.lock() {
+            if let Some(player) = guard.as_mut() { player.reset(); }
+        }
         Ok(())
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(player) = get_video_player() {
-            if let Ok(mut guard) = player.lock() {
-                if let Some(player) = guard.as_mut() {
-                    player.update();
-                }
-            }
+        if let Ok(mut guard) = self.slot.lock() {
+            if let Some(player) = guard.as_mut() { player.update(); }
         }
         Ok(())
     }

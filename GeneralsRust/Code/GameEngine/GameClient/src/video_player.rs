@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex, Weak};
 
 use crate::bink::BuiltInBinkVideoProvider;
 use crate::video_stream::{PlaybackState, VideoStream, VideoStreamInterface};
+#[cfg(test)]
 use game_engine::common::ini::get_global_data;
+#[cfg(test)]
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use log::warn;
 
@@ -107,6 +109,63 @@ pub trait VideoStreamProvider: Send + Sync {
     }
 }
 
+pub type VideoPlayerHandle = Arc<Mutex<Option<VideoPlayer>>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VideoSearchPaths {
+    pub mod_dir: Option<PathBuf>,
+    pub game_root: PathBuf,
+    pub language: String,
+}
+
+impl VideoSearchPaths {
+    pub fn new(mod_dir: Option<PathBuf>, game_root: PathBuf, language: impl Into<String>) -> Self {
+        Self {
+            mod_dir,
+            game_root,
+            language: language.into(),
+        }
+    }
+
+    fn movie_candidates<'a>(&'a self, filename: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
+        let language = self.language.trim();
+        let game_root = self.game_root.as_path();
+        let mod_root = self.mod_dir.as_deref().filter(|path| !path.as_os_str().is_empty());
+        [
+            mod_root.map(|root| (root, None)),
+            (!language.is_empty()).then_some((game_root, Some(language))),
+            Some((game_root, None)),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(move |(root, language)| {
+            let dir = match language {
+                Some(language) => resolve_case_insensitive_dir(root, &["Data", language, "Movies"]),
+                None => resolve_case_insensitive_dir(root, &["Data", "Movies"]),
+            }?;
+            find_movie_file_in_dir(&dir, filename)
+        })
+    }
+}
+
+/// The two exact virtual Video.ini sources consumed by C++ VideoPlayer::init.
+/// Main's FileSystemSubsystem and stand-alone GameClient both feed this existing
+/// Common FileSystem owner; each virtual path selects one local/archive source.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VideoIniCatalogSources {
+    pub default_catalog: Option<Vec<u8>>,
+    pub overlay_catalog: Option<Vec<u8>>,
+}
+
+impl VideoIniCatalogSources {
+    pub fn from_game_file_system() -> Self {
+        Self {
+            default_catalog: crate::terrain::tree_buffer::read_game_fs_bytes("Data/INI/Default/Video.ini"),
+            overlay_catalog: crate::terrain::tree_buffer::read_game_fs_bytes("Data/INI/Video.ini"),
+        }
+    }
+}
+
 pub struct VideoPlayer {
     videos_available_for_play: Vec<Video>,
     first_stream: Option<Box<VideoStream>>,
@@ -114,6 +173,7 @@ pub struct VideoPlayer {
     provider: Option<Box<dyn VideoStreamProvider>>,
     provider_is_valid: Bool,
     has_focus: Bool,
+    search_paths: Option<VideoSearchPaths>,
 }
 
 impl VideoPlayer {
@@ -125,6 +185,7 @@ impl VideoPlayer {
             provider: None,
             provider_is_valid: false,
             has_focus: true,
+            search_paths: None,
         }
     }
 
@@ -168,64 +229,42 @@ impl VideoPlayer {
         }
     }
 
-    fn load_known_video_registry_files(&mut self) {
-        // C++ FileSystem opens Data/INI/Video.ini from INIZH.big. Some worktree
-        // loose/extract trees contain binary/misnamed "Video.ini" placeholders
-        // (BIG directory fragments) that must not shadow the archive.
-        let mut loaded_any = false;
-        for path in resolved_video_ini_paths() {
-            if self.load_video_registry_file(&path) {
-                loaded_any = true;
-            }
-        }
-        if loaded_any {
-            return;
-        }
-        for relative in ["Data/INI/Default/Video.ini", "Data/INI/Video.ini"] {
-            let Some(bytes) = crate::terrain::tree_buffer::read_game_fs_bytes(relative) else {
-                continue;
-            };
-            if !looks_like_video_ini_bytes(&bytes) {
-                continue;
-            }
-            let Ok(contents) = std::str::from_utf8(&bytes) else {
-                continue;
-            };
+    fn load_video_catalog_sources(&mut self, sources: &VideoIniCatalogSources) {
+        for bytes in [&sources.default_catalog, &sources.overlay_catalog].into_iter().flatten() {
+            if !looks_like_video_ini_bytes(bytes) { continue; }
+            let Ok(contents) = std::str::from_utf8(bytes) else { continue; };
             for video in parse_video_ini_contents(contents) {
                 self.add_video(video);
             }
         }
     }
 
-    fn load_video_registry_file(&mut self, path: &Path) -> bool {
-        let Ok(bytes) = fs::read(path) else {
-            return false;
-        };
-        if !looks_like_video_ini_bytes(&bytes) {
-            warn!(
-                "Ignoring non-video loose INI '{}' (corrupt extract or wrong file)",
-                path.display()
-            );
-            return false;
+    pub(crate) fn init_with_video_ini_sources(&mut self, sources: &VideoIniCatalogSources) {
+        self.videos_available_for_play.clear();
+        self.load_video_catalog_sources(sources);
+        if self.provider.is_none() {
+            self.register_video_stream_provider(Box::new(BuiltInBinkVideoProvider));
         }
-        let Ok(contents) = std::str::from_utf8(&bytes) else {
-            return false;
-        };
+        self.provider_is_valid = self.provider.is_some();
+        self.has_focus = true;
+    }
 
-        let before = self.videos_available_for_play.len();
-        for video in parse_video_ini_contents(contents) {
-            self.add_video(video);
-        }
-        self.videos_available_for_play.len() > before
+    pub fn set_search_paths(&mut self, paths: VideoSearchPaths) {
+        self.search_paths = Some(paths);
+    }
+
+    pub fn resolve_movie_paths(&self, movie_title: &str) -> Vec<PathBuf> {
+        self.search_paths
+            .as_ref()
+            .zip(self.get_video_by_name(movie_title))
+            .map_or_else(Vec::new, |(paths, video)| {
+                paths.movie_candidates(&video.filename).collect()
+            })
     }
 
     pub fn resolve_movie_path(&self, movie_title: &str) -> Option<PathBuf> {
-        if let Some(video) = self.get_video_by_name(movie_title) {
-            if let Some(path) = resolve_movie_asset_path(&video.filename) {
-                return Some(path);
-            }
-        }
-        resolve_movie_asset_path(movie_title)
+        let video = self.get_video_by_name(movie_title)?;
+        self.search_paths.as_ref()?.movie_candidates(&video.filename).next()
     }
 
     fn track_stream(
@@ -282,13 +321,8 @@ impl Default for VideoPlayer {
 
 impl VideoPlayerInterface for VideoPlayer {
     fn init(&mut self) {
-        self.videos_available_for_play.clear();
-        self.load_known_video_registry_files();
-        if self.provider.is_none() {
-            self.register_video_stream_provider(Box::new(BuiltInBinkVideoProvider));
-        }
-        self.provider_is_valid = self.provider.is_some();
-        self.has_focus = true;
+        let sources = VideoIniCatalogSources::from_game_file_system();
+        self.init_with_video_ini_sources(&sources);
     }
 
     fn reset(&mut self) {
@@ -321,37 +355,21 @@ impl VideoPlayerInterface for VideoPlayer {
     }
 
     fn open(&mut self, movie_title: String) -> Option<Box<dyn VideoStreamInterface>> {
-        let resolved_path = self.resolve_movie_path(&movie_title)?;
-        let provider = match self.provider.as_ref() {
-            Some(p) => p,
-            None => {
-                warn!(
-                    "cutscene skipped (no video stream provider registered): {}",
-                    movie_title
-                );
-                return None;
-            }
+        let Some(video) = self.get_video_by_name(&movie_title) else {
+            warn!("cutscene skipped (unknown registered video title): {movie_title}");
+            return None;
         };
-        provider
-            .open(&movie_title, &resolved_path)
-            .map(|stream| self.track_stream(stream))
+        let provider = self.provider.as_ref()?;
+        let stream = self
+            .search_paths
+            .as_ref()?
+            .movie_candidates(&video.filename)
+            .find_map(|path| provider.open(&movie_title, &path))?;
+        Some(self.track_stream(stream))
     }
 
     fn load(&mut self, movie_title: String) -> Option<Box<dyn VideoStreamInterface>> {
-        let resolved_path = self.resolve_movie_path(&movie_title)?;
-        let provider = match self.provider.as_ref() {
-            Some(p) => p,
-            None => {
-                warn!(
-                    "video load skipped (no video stream provider registered): {}",
-                    movie_title
-                );
-                return None;
-            }
-        };
-        provider
-            .load(&movie_title, &resolved_path)
-            .map(|stream| self.track_stream(stream))
+        self.open(movie_title)
     }
 
     fn first_stream(&self) -> Option<&dyn VideoStreamInterface> {
@@ -483,6 +501,23 @@ fn video_player_handle() -> Option<Arc<Mutex<Option<VideoPlayer>>>> {
     }
 }
 
+
+pub fn init_video_player_slot(
+    slot: &VideoPlayerHandle,
+    paths: &VideoSearchPaths,
+    catalogs: &VideoIniCatalogSources,
+) {
+    if let Ok(mut guard) = slot.lock() {
+        if guard.is_none() {
+            let mut player = VideoPlayer::new();
+            player.set_search_paths(paths.clone());
+            player.init_with_video_ini_sources(catalogs);
+            *guard = Some(player);
+        } else if let Some(player) = guard.as_mut() {
+            player.set_search_paths(paths.clone());
+        }
+    }
+}
 
 pub fn init_video_player() {
     let Some(player) = video_player_handle() else { return };
@@ -701,45 +736,8 @@ impl VideoStreamInterface for ManagedVideoStreamHandle {
     }
 }
 
-fn resolved_video_ini_paths() -> Vec<PathBuf> {
-    // C++ FileSystem opens Data/INI/Video.ini via mounted BIG archives (INIZH.big)
-    // and loose/extracted overlays. Keep the retail relative names first, then the
-    // worktree extract layouts (v2 nests under INIZH/Data/...).
-    let mut paths = vec![
-        PathBuf::from("Data/INI/Default/Video.ini"),
-        PathBuf::from("Data/INI/Video.ini"),
-        PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/Default/Video.ini"),
-        PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/Video.ini"),
-        PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/Video.ini"),
-        PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/Video.ini"),
-        PathBuf::from("windows_game/extracted_big_files_v2/INI/Default/Video.ini"),
-        PathBuf::from("windows_game/extracted_big_files_v2/INI/Video.ini"),
-    ];
 
-    if let Ok(assets) = std::env::var("GENERALS_ASSETS_DIR") {
-        let assets = PathBuf::from(assets);
-        // Sibling extract next to the retail install root.
-        if let Some(parent) = assets.parent() {
-            paths.push(parent.join("extracted_big_files_v2/INIZH/Data/INI/Default/Video.ini"));
-            paths.push(parent.join("extracted_big_files_v2/INIZH/Data/INI/Video.ini"));
-            paths.push(parent.join("extracted_big_files/INIZH/Data/INI/Default/Video.ini"));
-            paths.push(parent.join("extracted_big_files/INIZH/Data/INI/Video.ini"));
-        }
-    }
-
-    if let Some(global_data) = get_global_data() {
-        let guard = global_data.read();
-        let mod_dir = guard.mod_dir.trim();
-        if !mod_dir.is_empty() {
-            let mod_root = PathBuf::from(mod_dir);
-            paths.push(mod_root.join("Data/INI/Default/Video.ini"));
-            paths.push(mod_root.join("Data/INI/Video.ini"));
-        }
-    }
-
-    paths.into_iter().filter(|path| path.is_file()).collect()
-}
-
+#[cfg(test)]
 fn resolve_movie_asset_path(movie_filename: &str) -> Option<PathBuf> {
     let movie_filename = movie_filename.trim();
     if movie_filename.is_empty() {
@@ -771,25 +769,45 @@ fn resolve_movie_asset_path(movie_filename: &str) -> Option<PathBuf> {
     }
 
     for root in candidate_roots {
-        let localized_dir = if language.is_empty() {
-            None
-        } else {
-            Some(root.join("Data").join(&language).join("Movies"))
-        };
-
-        if let Some(dir) = localized_dir {
+        if !language.is_empty() {
+            if let Some(dir) = resolve_case_insensitive_dir(&root, &["Data", &language, "Movies"]) {
+                if let Some(path) = find_movie_file_in_dir(&dir, movie_filename) {
+                    return Some(path);
+                }
+            }
+        }
+        if let Some(dir) = resolve_case_insensitive_dir(&root, &["Data", "Movies"]) {
             if let Some(path) = find_movie_file_in_dir(&dir, movie_filename) {
                 return Some(path);
             }
         }
-
-        let shared_dir = root.join("Data").join("Movies");
-        if let Some(path) = find_movie_file_in_dir(&shared_dir, movie_filename) {
-            return Some(path);
-        }
     }
 
     None
+}
+
+fn resolve_case_insensitive_dir(root: &Path, components: &[&str]) -> Option<PathBuf> {
+    let mut current = if root.as_os_str().is_empty() { PathBuf::from(".") } else { root.to_path_buf() };
+    for component in components {
+        let requested = component.trim();
+        let exact = current.join(requested);
+        if exact.is_dir() {
+            current = exact;
+            continue;
+        }
+        current = fs::read_dir(&current)
+            .ok()?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case(requested))
+                    && path.is_dir()
+            })
+            .min()?;
+    }
+    Some(current)
 }
 
 fn find_movie_file_in_dir(dir: &Path, movie_filename: &str) -> Option<PathBuf> {
@@ -843,8 +861,9 @@ fn looks_like_video_ini_bytes(bytes: &[u8]) -> bool {
     };
     text.lines().any(|line| {
         let trimmed = line.split(';').next().unwrap_or("").trim();
-        trimmed.len() >= 6
-            && trimmed[..6].eq_ignore_ascii_case("video ")
+        trimmed
+            .get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("video "))
     })
 }
 
@@ -933,9 +952,7 @@ fn strip_ini_comment(value: &str) -> &str {
 mod tests {
     use super::*;
     use crate::video_buffer::{SoftwareVideoBuffer, VideoBuffer as _, VideoBufferType};
-    use game_engine::common::ini::get_global_data;
-    use game_engine::common::ini::ini_game_data::init_global_data;
-    use std::fs::{self, File};
+    use std::fs;
     use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -954,6 +971,21 @@ mod tests {
                 Arc::clone(&self.updates),
                 Arc::clone(&self.closes),
             )))
+        }
+    }
+
+    struct OrderedProvider {
+        attempts: Arc<Mutex<Vec<PathBuf>>>,
+        reject_before: usize,
+        updates: Arc<AtomicUsize>,
+        closes: Arc<AtomicUsize>,
+    }
+    impl VideoStreamProvider for OrderedProvider {
+        fn open(&self, _title: &str, path: &Path) -> Option<Box<dyn VideoStreamInterface>> {
+            let mut attempts = self.attempts.lock().unwrap();
+            attempts.push(path.to_path_buf());
+            if attempts.len() <= self.reject_before { return None; }
+            Some(Box::new(MockStream::new(self.updates.clone(), self.closes.clone())))
         }
     }
 
@@ -1039,6 +1071,37 @@ mod tests {
     }
 
     #[test]
+    fn stock_bink_provider_decodes_mounted_retail_movie_when_requested() {
+        crate::test_support::ensure_ambient_host();
+        let Some(root) = std::env::var_os("GENERALS_RETAIL_VIDEO_ROOT").map(PathBuf::from) else {
+            return;
+        };
+        let movie_dir = resolve_case_insensitive_dir(&root, &["Data", "English", "Movies"])
+            .expect("GENERALS_RETAIL_VIDEO_ROOT must contain Data/English/Movies");
+        let path = find_movie_file_in_dir(&movie_dir, "EA_LOGO.BIK")
+            .expect("GENERALS_RETAIL_VIDEO_ROOT requires mounted EA_LOGO.BIK");
+        let mut player = VideoPlayer::new();
+        player.set_search_paths(VideoSearchPaths::new(None, root, "English"));
+        player.init();
+        player.add_video(Video::new("EA_LOGO".into(), "EALogoMovie".into(), String::new()));
+        let mut stream = player.open("EALogoMovie".to_string())
+            .expect("registered stock title should open through Bink provider");
+        assert!(stream.width() > 0 && stream.height() > 0 && stream.frame_count() > 0);
+        stream.frame_decompress();
+        let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8);
+        assert!(buffer.allocate(stream.width() as u32, stream.height() as u32));
+        buffer.lock().unwrap().fill(0x55);
+        buffer.unlock();
+        stream.frame_render(&mut buffer);
+        assert_ne!(&buffer.lock().unwrap()[..4], &[0x55; 4]);
+        buffer.unlock();
+        let first_frame = stream.frame_index();
+        stream.frame_next();
+        assert_eq!(stream.frame_index(), first_frame + 1);
+        assert!(path.is_file());
+    }
+
+    #[test]
     fn video_player_init_loads_known_video_registry_entries() {
         crate::test_support::ensure_ambient_host();
         let mut player = VideoPlayer::new();
@@ -1082,7 +1145,7 @@ mod tests {
         let path = resolve_movie_asset_path("EA_LOGO").expect("expected movie file to resolve");
         let normalized = path.to_string_lossy().replace('\\', "/");
 
-        assert!(normalized.ends_with("Data/English/Movies/EA_LOGO.BIK"));
+        assert!(normalized.to_ascii_lowercase().ends_with("data/english/movies/ea_logo.bik"));
     }
 
     #[test]
@@ -1091,7 +1154,11 @@ mod tests {
         if !retail_movie_asset_available() {
             return;
         }
+        let movie = resolve_movie_asset_path("EA_LOGO").expect("mounted movie");
+        let game_root = movie.parent().and_then(Path::parent).and_then(Path::parent)
+            .and_then(Path::parent).expect("movie under Data/<lang>/Movies").to_path_buf();
         let mut player = VideoPlayer::new();
+        player.set_search_paths(VideoSearchPaths::new(None, game_root, "English"));
         player.init();
 
         let path = player
@@ -1099,7 +1166,7 @@ mod tests {
             .expect("expected registry-backed movie path");
         let normalized = path.to_string_lossy().replace('\\', "/");
 
-        assert!(normalized.ends_with("Data/English/Movies/EA_LOGO.BIK"));
+        assert!(normalized.to_ascii_lowercase().ends_with("data/english/movies/ea_logo.bik"));
     }
 
     #[test]
@@ -1112,22 +1179,16 @@ mod tests {
             resolve_movie_asset_path("EA_LOGO.BIK").expect("expected .bik movie file to resolve");
         let normalized = path.to_string_lossy().replace('\\', "/");
 
-        assert!(normalized.ends_with("Data/English/Movies/EA_LOGO.BIK"));
+        assert!(normalized.to_ascii_lowercase().ends_with("data/english/movies/ea_logo.bik"));
     }
 
     #[test]
-    fn resolve_movie_path_falls_back_to_direct_movie_name() {
+    fn resolve_movie_path_rejects_unregistered_raw_names() {
         crate::test_support::ensure_ambient_host();
-        if !retail_movie_asset_available() {
-            return;
-        }
-        let player = VideoPlayer::new();
-        let path = player
-            .resolve_movie_path("EA_LOGO.BIK")
-            .expect("expected direct movie filename fallback");
-        let normalized = path.to_string_lossy().replace('\\', "/");
-
-        assert!(normalized.ends_with("Data/English/Movies/EA_LOGO.BIK"));
+        let mut player = VideoPlayer::new();
+        player.set_search_paths(VideoSearchPaths::new(None, PathBuf::from("."), "English"));
+        assert!(player.resolve_movie_path("EA_LOGO.BIK").is_none());
+        assert!(player.open("EA_LOGO.BIK".to_string()).is_none());
     }
 
     #[test]
@@ -1147,53 +1208,64 @@ mod tests {
     }
 
     #[test]
-    fn resolved_video_ini_paths_include_mod_overlay_files() {
+    fn two_receiving_video_catalogs_apply_default_then_overlay_independently() {
         crate::test_support::ensure_ambient_host();
-        init_global_data();
-        let temp_root = std::env::temp_dir().join("generalsrust_video_ini_overlay_test");
-        let default_dir = temp_root.join("Data/INI/Default");
-        let video_dir = temp_root.join("Data/INI");
-        fs::create_dir_all(&default_dir).expect("default ini dir should be created");
-        fs::create_dir_all(&video_dir).expect("video ini dir should be created");
-        File::create(default_dir.join("Video.ini")).expect("default Video.ini should be created");
-        File::create(video_dir.join("Video.ini")).expect("overlay Video.ini should be created");
-
-        let global = get_global_data().expect("global data should be initialized");
-        let old_mod_dir = {
-            let mut guard = global.write();
-            let old = guard.mod_dir.clone();
-            guard.mod_dir = temp_root.to_string_lossy().to_string();
-            old
-        };
-
-        let resolved = resolved_video_ini_paths();
-        let normalized: Vec<String> = resolved
-            .iter()
-            .map(|path| path.to_string_lossy().replace('\\', "/"))
-            .collect();
-
-        {
-            let mut guard = global.write();
-            guard.mod_dir = old_mod_dir;
+        let catalogs = [
+            VideoIniCatalogSources {
+                default_catalog: Some(b"Video Shared\n Filename = A_Default\nEnd\nVideo DefaultOnly\n Filename = A_Only\nEnd\n".to_vec()),
+                overlay_catalog: Some(b"Video Shared\n Filename = A_Overlay\nEnd\n".to_vec()),
+            },
+            VideoIniCatalogSources {
+                default_catalog: Some(b"Video Shared\n Filename = B_Default\nEnd\nVideo DefaultOnly\n Filename = B_Only\nEnd\n".to_vec()),
+                overlay_catalog: Some(b"Video Shared\n Filename = B_Overlay\nEnd\n".to_vec()),
+            },
+        ];
+        let mut players = [VideoPlayer::new(), VideoPlayer::new()];
+        for (player, sources) in players.iter_mut().zip(&catalogs) {
+            player.init_with_video_ini_sources(sources);
         }
-        let _ = fs::remove_dir_all(&temp_root);
-
-        assert!(
-            normalized
-                .iter()
-                .any(|path| path.ends_with("Data/INI/Default/Video.ini"))
-        );
-        assert!(
-            normalized
-                .iter()
-                .any(|path| path.ends_with("Data/INI/Video.ini"))
-        );
+        assert_eq!(players[0].get_video_by_name("Shared").unwrap().filename, "A_Overlay");
+        assert_eq!(players[0].get_video_by_name("DefaultOnly").unwrap().filename, "A_Only");
+        assert_eq!(players[1].get_video_by_name("Shared").unwrap().filename, "B_Overlay");
+        assert_eq!(players[1].get_video_by_name("DefaultOnly").unwrap().filename, "B_Only");
+        assert_eq!(players[0].get_num_videos(), 2);
+        assert_eq!(players[1].get_num_videos(), 2);
     }
 
     fn movie_fixture(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("generals_video_{}_{}.bik", name, std::process::id()));
+        let path = std::env::temp_dir().join(format!("generals_video_{}_{}", name, std::process::id()))
+            .join("mod/Data/Movies/CLIP.BIK");
+        fs::create_dir_all(path.parent().unwrap()).expect("create mod movie directory");
         fs::write(&path, b"fixture for custom provider").expect("write movie fixture");
         path
+    }
+
+
+    #[test]
+    fn registered_title_tries_mod_then_language_then_shared_until_provider_accepts() {
+        crate::test_support::ensure_ambient_host();
+        let root = std::env::temp_dir().join(format!("video-order-{}", std::process::id()));
+        let mod_root = root.join("mod");
+        let mod_file = mod_root.join("Data/Movies/CLIP.BIK");
+        let localized = root.join("install/Data/English/Movies/CLIP.BIK");
+        let shared = root.join("install/Data/Movies/CLIP.BIK");
+        for file in [&mod_file, &localized, &shared] {
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, b"fixture").unwrap();
+        }
+        let attempts = Arc::new(Mutex::new(Vec::new()));
+        let mut player = VideoPlayer::new();
+        player.set_search_paths(VideoSearchPaths::new(Some(mod_root), root.join("install"), "English"));
+        player.add_video(Video::new("CLIP".into(), "RegisteredClip".into(), String::new()));
+        player.register_video_stream_provider(Box::new(OrderedProvider {
+            attempts: attempts.clone(), reject_before: 2,
+            updates: Arc::new(AtomicUsize::new(0)), closes: Arc::new(AtomicUsize::new(0)),
+        }));
+        let stream = player.open("RegisteredClip".into()).expect("shared candidate accepted");
+        assert_eq!(*attempts.lock().unwrap(), vec![mod_file, localized, shared]);
+        assert!(player.open("CLIP".into()).is_none(), "filename is not a registered title");
+        drop(stream);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1203,12 +1275,15 @@ mod tests {
         let updates = Arc::new(AtomicUsize::new(0));
         let closes = Arc::new(AtomicUsize::new(0));
         let mut player = VideoPlayer::new();
+        let mod_root = path.parent().unwrap().parent().unwrap().parent().unwrap().to_path_buf();
+        player.set_search_paths(VideoSearchPaths::new(Some(mod_root), std::env::temp_dir().join("generals_video_tracked_install"), "English"));
         player.register_video_stream_provider(Box::new(MockProvider {
             updates: Arc::clone(&updates),
             closes: Arc::clone(&closes),
         }));
         player.init();
-        let mut stream = player.open(path.to_string_lossy().into_owned()).expect("open custom stream");
+        player.add_video(Video::new("CLIP".into(), "TrackedClip".into(), String::new()));
+        let mut stream = player.open("TrackedClip".to_string()).expect("open custom stream");
         player.update();
         assert_eq!(updates.load(Ordering::SeqCst), 1);
         let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8);
@@ -1216,20 +1291,24 @@ mod tests {
         stream.frame_render(&mut buffer);
         player.close_all_streams();
         assert_eq!(closes.load(Ordering::SeqCst), 1);
-        fs::remove_file(path).expect("remove fixture");
+        fs::remove_dir_all(path.parent().unwrap().parent().unwrap().parent().unwrap().parent().unwrap())
+            .expect("remove fixture tree");
     }
 
     #[test]
     fn custom_providers_and_streams_are_isolated_across_players() {
         crate::test_support::ensure_ambient_host();
         let path = movie_fixture("isolated");
-        let movie = path.to_string_lossy().into_owned();
         let first_updates = Arc::new(AtomicUsize::new(0));
         let second_updates = Arc::new(AtomicUsize::new(0));
         let first_closes = Arc::new(AtomicUsize::new(0));
         let second_closes = Arc::new(AtomicUsize::new(0));
         let mut first = VideoPlayer::new();
         let mut second = VideoPlayer::new();
+        for player in [&mut first, &mut second] {
+            let mod_root = path.parent().unwrap().parent().unwrap().parent().unwrap().to_path_buf();
+            player.set_search_paths(VideoSearchPaths::new(Some(mod_root), std::env::temp_dir().join("generals_video_isolated_install"), "English"));
+        }
         first.register_video_stream_provider(Box::new(MockProvider {
             updates: Arc::clone(&first_updates), closes: Arc::clone(&first_closes),
         }));
@@ -1238,8 +1317,10 @@ mod tests {
         }));
         second.init();
         first.init();
-        let _first_stream = first.open(movie.clone()).expect("first provider opens");
-        let _second_stream = second.open(movie.clone()).expect("second provider opens");
+        first.add_video(Video::new("CLIP".into(), "FirstClip".into(), String::new()));
+        second.add_video(Video::new("CLIP".into(), "SecondClip".into(), String::new()));
+        let _first_stream = first.open("FirstClip".into()).expect("first provider opens");
+        let _second_stream = second.open("SecondClip".into()).expect("second provider opens");
         first.update();
         assert_eq!(first_updates.load(Ordering::SeqCst), 1);
         assert_eq!(second_updates.load(Ordering::SeqCst), 0);
@@ -1249,10 +1330,11 @@ mod tests {
         assert_eq!(first_closes.load(Ordering::SeqCst), 1);
         second.update();
         assert_eq!(second_updates.load(Ordering::SeqCst), 1);
-        assert!(second.open(movie).is_some());
+        assert!(second.open("SecondClip".into()).is_some());
         second.deinit();
         assert!(second_closes.load(Ordering::SeqCst) >= 1);
-        fs::remove_file(path).expect("remove fixture");
+        fs::remove_dir_all(path.parent().unwrap().parent().unwrap().parent().unwrap().parent().unwrap())
+            .expect("remove fixture tree");
     }
 
     #[test]

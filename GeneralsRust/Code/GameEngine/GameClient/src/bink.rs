@@ -485,7 +485,8 @@ fn extract_frame_packets(
 
     let raw_offsets: Vec<usize> = bytes[table_offset..table_end]
         .chunks_exact(4)
-        .map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize)
+        // Bink stores the keyframe flag in bit zero of each file offset.
+        .map(|chunk| (u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) & !1) as usize)
         .collect();
 
     let mut packets = Vec::new();
@@ -694,34 +695,46 @@ mod tests {
     }
 
     #[test]
+    fn packet_boundaries_exclude_keyframe_flag() {
+        let mut bytes = make_bink_blob(*b"BIKi");
+        bytes[44] |= 1;
+        bytes[48] |= 1;
+        let decoder = BinkDecoder::from_bytes(bytes).unwrap();
+        let first = &decoder.frame_packets[0];
+        let second = &decoder.frame_packets[1];
+        assert_eq!((first.offset, first.size), (52, 16));
+        assert_eq!((second.offset, second.size), (68, 16));
+    }
+
+    #[test]
     fn independently_initialized_players_open_movies_after_peer_reset_and_drop() {
-        use crate::video_player::{VideoPlayer, VideoPlayerInterface};
+        use crate::video_player::{Video, VideoPlayer, VideoPlayerInterface, VideoSearchPaths};
 
         crate::test_support::ensure_ambient_host();
-        let path = std::env::temp_dir().join(format!("bink_two_players_{}.bik", std::process::id()));
+        let root = std::env::temp_dir().join(format!("bink_two_players_{}", std::process::id()));
+        let mod_root = root.join("mod");
+        let path = mod_root.join("Data/Movies/CLIP.BIK");
+        fs::create_dir_all(path.parent().unwrap()).expect("create mod movie path");
         fs::write(&path, make_bink_blob(*b"BIKi")).expect("write Bink fixture");
-        let movie = path.to_str().expect("fixture path is UTF-8").to_owned();
+        let paths = VideoSearchPaths::new(Some(mod_root), root.join("install"), "English");
         for reverse in [false, true] {
             let mut first = VideoPlayer::new();
             let mut second = VideoPlayer::new();
-            if reverse {
-                second.init();
-                first.init();
-            } else {
-                first.init();
-                second.init();
-            }
-            let mut first_stream = first.open(movie.clone()).expect("first player opens Bink");
-            let mut second_stream = second.open(movie.clone()).expect("second player opens Bink");
+            for player in [&mut first, &mut second] { player.set_search_paths(paths.clone()); }
+            if reverse { second.init(); first.init(); } else { first.init(); second.init(); }
+            first.add_video(Video::new("CLIP".into(), "FixtureMovie".into(), String::new()));
+            second.add_video(Video::new("CLIP".into(), "FixtureMovie".into(), String::new()));
+            let mut first_stream = first.open("FixtureMovie".into()).expect("first player opens Bink");
+            let mut second_stream = second.open("FixtureMovie".into()).expect("second player opens Bink");
             first_stream.play();
             second_stream.play();
             first.reset();
             drop(first);
             second_stream.frame_next();
             assert_eq!(second_stream.frame_index(), 1);
-            assert!(second.open(movie.clone()).is_some(), "peer still opens movies");
+            let _peer_stream = second.open("FixtureMovie".into()).expect("peer still opens movies");
         }
-        fs::remove_file(path).expect("remove Bink fixture");
+        fs::remove_dir_all(root).expect("remove Bink fixture root");
     }
 
     #[test]

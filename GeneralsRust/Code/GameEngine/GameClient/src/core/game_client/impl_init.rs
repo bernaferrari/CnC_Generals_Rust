@@ -352,8 +352,6 @@ impl GameClient {
         ));
         Self::register_w3d_ghost_snapshot_bridges();
 
-        init_video_player();
-
         // Set expected frame rate
         self.set_frame_rate(Duration::from_millis(33))?; // ~30 FPS
 
@@ -809,11 +807,40 @@ impl GameClient {
         }
     }
 
+    fn video_search_paths(&self) -> crate::video_player::VideoSearchPaths {
+        let game_root = self.subsystem_manager.asset_manager.as_ref()
+            .map(|assets| assets.base_path().to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let game_root = if game_root.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("Data")) {
+            game_root.parent().map(PathBuf::from).unwrap_or(game_root)
+        } else { game_root };
+        let mod_dir = get_global_data().and_then(|data| {
+            let data = data.read();
+            let value = data.mod_dir.trim();
+            (!value.is_empty()).then(|| PathBuf::from(value))
+        });
+        crate::video_player::VideoSearchPaths::new(
+            mod_dir,
+            game_root,
+            game_engine::common::ini::ini_webpage_url::get_registry_language().to_string(),
+        )
+    }
+
     fn init_display_subsystems_with_replay_menu_scoped(
         &mut self,
         replay_menu: Option<crate::gui::shell::replay_menu::ReplayMenuInputs>,
     ) -> GameClientResult<()> {
         log::info!("init_display_subsystems: starting");
+        // C++ initializes TheVideoPlayer before Shell can request menu movies.
+        let video_player_slot = self.ensure_video_player_slot();
+        let video_search_paths = self.video_search_paths();
+        let video_ini_catalogs = crate::video_player::VideoIniCatalogSources::from_game_file_system();
+        crate::video_player::init_video_player_slot(
+            &video_player_slot,
+            &video_search_paths,
+            &video_ini_catalogs,
+        );
+        self.window_videos.bind_video_player_slot(video_player_slot);
         // Definitions have been loaded; construction itself publishes nothing.
         if !self.menu_host.shell_map_is_configured() {
             if let Some(global) = get_global_data() {
@@ -855,6 +882,7 @@ impl GameClient {
                 };
 
             let mut display = GraphicsDisplay::new(graphics_context);
+            display.bind_video_player_slot(self.ensure_video_player_slot());
             display.init()?;
             if let Some(data) = get_global_data() {
                 self.script_display
@@ -1211,7 +1239,10 @@ impl GameClient {
             });
 
         if self.subsystem_manager.video_player.is_none() {
-            let mut video_player = VideoPlayerSubsystem;
+            let mut video_player = VideoPlayerSubsystem::new(
+                self.ensure_video_player_slot(),
+                self.video_search_paths(),
+            );
             video_player.init()?;
             self.subsystem_manager.video_player = Some(Arc::new(Mutex::new(video_player)));
         }

@@ -478,9 +478,12 @@ impl Tree {
         } else if br.read_bool()? {
             let len = br.read(3)? as usize;
             let mut present: [bool; 16] = [false; 16];
-            for i in 0..=len {
-                self.syms[i] = br.read(4)? as u8;
-                present[self.syms[i] as usize] = true;
+            for slot in self.syms.iter_mut().take(len + 1) {
+                let symbol = br.read(4)? as u8;
+                if std::mem::replace(&mut present[usize::from(symbol)], true) {
+                    return Err("bink: repeated symbol in tree description".to_owned());
+                }
+                *slot = symbol;
             }
             let mut idx = len + 1;
             for i in 0..16 {
@@ -1884,8 +1887,12 @@ impl BinkVideoDecoder {
 
         let w = self.width;
         let h = self.height;
-        let cw = w / 2;
-        let ch = h / 2;
+        // Chroma has its own 8x8 block grid. Halving the padded luma
+        // stride/height can leave a 4-sample-short final chroma block.
+        let chroma_width = self.orig_width.div_ceil(2);
+        let chroma_height = self.orig_height.div_ceil(2);
+        let cw = (chroma_width + 7) & !7;
+        let ch = (chroma_height + 7) & !7;
 
         self.key_frame = self.prev_y.is_none();
 
@@ -1907,15 +1914,33 @@ impl BinkVideoDecoder {
                 match plane {
                     0 => {
                         self.cur_plane = 0;
-                        self.decode_plane_binkb(&mut br, &mut y_plane, w, w, h)?;
+                        self.decode_plane_binkb(
+                            &mut br,
+                            &mut y_plane,
+                            w,
+                            self.orig_width,
+                            self.orig_height,
+                        )?;
                     }
                     1 => {
                         self.cur_plane = 1;
-                        self.decode_plane_binkb(&mut br, &mut u_plane, cw, cw, ch)?;
+                        self.decode_plane_binkb(
+                            &mut br,
+                            &mut u_plane,
+                            cw,
+                            chroma_width,
+                            chroma_height,
+                        )?;
                     }
                     2 => {
                         self.cur_plane = 2;
-                        self.decode_plane_binkb(&mut br, &mut v_plane, cw, cw, ch)?;
+                        self.decode_plane_binkb(
+                            &mut br,
+                            &mut v_plane,
+                            cw,
+                            chroma_width,
+                            chroma_height,
+                        )?;
                     }
                     _ => {}
                 }
@@ -1928,15 +1953,33 @@ impl BinkVideoDecoder {
                 match plane_idx {
                     0 => {
                         self.cur_plane = 0;
-                        self.decode_plane(&mut br, &mut y_plane, w, w, h)?;
+                        self.decode_plane(
+                            &mut br,
+                            &mut y_plane,
+                            w,
+                            self.orig_width,
+                            self.orig_height,
+                        )?;
                     }
                     1 => {
                         self.cur_plane = 1;
-                        self.decode_plane(&mut br, &mut u_plane, cw, cw, ch)?;
+                        self.decode_plane(
+                            &mut br,
+                            &mut u_plane,
+                            cw,
+                            chroma_width,
+                            chroma_height,
+                        )?;
                     }
                     2 => {
                         self.cur_plane = 2;
-                        self.decode_plane(&mut br, &mut v_plane, cw, cw, ch)?;
+                        self.decode_plane(
+                            &mut br,
+                            &mut v_plane,
+                            cw,
+                            chroma_width,
+                            chroma_height,
+                        )?;
                     }
                     _ => {}
                 }
@@ -1965,5 +2008,63 @@ impl BinkVideoDecoder {
             }
         }
         Ok(rgba)
+    }
+}
+
+#[cfg(test)]
+mod video_plane_tests {
+    use super::*;
+
+    fn write_bits(bytes: &mut Vec<u8>, position: &mut usize, width: usize, value: usize) {
+        for bit in 0..width {
+            if *position % 8 == 0 {
+                bytes.push(0);
+            }
+            bytes[*position / 8] |= (((value >> bit) & 1) as u8) << (*position % 8);
+            *position += 1;
+        }
+    }
+
+    // BIKi 8x8 FILL blocks and identity Huffman tables. Each nonempty bundle
+    // supplies the entire tiny plane in its first row.
+    fn filled_plane(colors: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let mut position = 0;
+        let mut push = |width, value| write_bits(&mut bytes, &mut position, width, value);
+        for _ in 0..23 {
+            push(4, 0);
+        }
+        push(10, colors.len());
+        push(1, 1);
+        push(4, usize::from(FILL_BLOCK));
+        push(10, 0); // Scaled block bundle.
+        push(10, colors.len());
+        push(1, 0);
+        for &color in colors {
+            push(4, usize::from(color >> 4));
+            push(4, usize::from(color & 0xf));
+        }
+        for _ in 0..6 {
+            push(10, 0); // Pattern, motion, DC and run bundles terminate.
+        }
+        bytes.resize(bytes.len().next_multiple_of(4), 0);
+        bytes
+    }
+
+    #[test]
+    fn binki_pads_each_chroma_plane_and_crops_visible_pixels() {
+        let mut packet = vec![0; 4]; // BIKi plane-end marker.
+        packet.extend(filled_plane(&[82, 86, 90, 94, 98, 102, 106, 110, 114]));
+        packet.extend(filled_plane(&[148, 149, 150, 151])); // V precedes U.
+        packet.extend(filled_plane(&[101, 102, 103, 104]));
+        let rgba = BinkVideoDecoder::new(b'i', 0, 18, 18)
+            .decode_frame(&packet)
+            .unwrap();
+        let pixel = |x: usize, y: usize| &rgba[(y * 18 + x) * 4..(y * 18 + x + 1) * 4];
+        assert_eq!(rgba.len(), 18 * 18 * 4);
+        assert_eq!(pixel(0, 0), &[110, 77, 34, 255]);
+        assert_eq!(pixel(17, 0), &[119, 83, 43, 255]);
+        assert_eq!(pixel(0, 17), &[136, 98, 61, 255]);
+        assert_eq!(pixel(17, 17), &[146, 105, 71, 255]);
     }
 }

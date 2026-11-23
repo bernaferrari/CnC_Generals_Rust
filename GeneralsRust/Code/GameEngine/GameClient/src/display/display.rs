@@ -27,7 +27,9 @@ use crate::system::debug_display::DebugDisplay;
 use crate::terrain::TerrainVisual;
 use crate::terrain::terrain_visual::get_terrain_visual;
 use crate::video_buffer::{SoftwareVideoBuffer, VideoBuffer, VideoBufferType};
-use crate::video_player::{VideoPlayerInterface, get_video_player};
+use crate::video_player::{VideoPlayerHandle, VideoPlayerInterface};
+#[cfg(test)]
+use crate::video_player::get_video_player;
 use crate::video_stream::VideoStreamInterface;
 #[cfg(feature = "w3d_support")]
 use crate::w3d::W3DParticleSystemBridge;
@@ -166,6 +168,7 @@ pub struct Display {
     shader_filter_resources: crate::display::shader_filter::ShaderFilterResources,
     video_buffer: Option<Box<dyn VideoBuffer + Send>>,
     video_stream: Option<Box<dyn VideoStreamInterface>>,
+    video_player_slot: Option<VideoPlayerHandle>,
     currently_playing_movie: String,
     movie_hold_time_ms: i32,
     copyright_hold_time_ms: i32,
@@ -255,6 +258,7 @@ impl Display {
             ),
             video_buffer: None,
             video_stream: None,
+            video_player_slot: None,
             currently_playing_movie: String::new(),
             movie_hold_time_ms: -1,
             copyright_hold_time_ms: -1,
@@ -753,11 +757,18 @@ impl Display {
         self.debug_display_callback
     }
 
+    pub fn bind_video_player_slot(&mut self, slot: VideoPlayerHandle) {
+        self.video_player_slot = Some(slot);
+    }
+
     fn open_video_stream(&self, movie_title: String) -> Option<Box<dyn VideoStreamInterface>> {
-        let player = get_video_player()?;
-        let mut guard = player.lock().ok()?;
-        let player = guard.as_mut()?;
-        player.open(movie_title)
+        if let Some(slot) = self.video_player_slot.as_ref() {
+            return slot.lock().ok()?.as_mut()?.open(movie_title);
+        }
+        #[cfg(test)]
+        { return get_video_player()?.lock().ok()?.as_mut()?.open(movie_title); }
+        #[cfg(not(test))]
+        { None }
     }
 
     fn ensure_copyright_display_string(&mut self, fx: &mut display_fx::DisplayFxState) {

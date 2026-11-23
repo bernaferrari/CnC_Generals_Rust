@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use crate::video_buffer::{SoftwareVideoBuffer, VideoBufferHandle, VideoBufferType};
-use crate::video_player::{VideoPlayerInterface, get_video_player};
+use crate::video_player::VideoPlayerInterface;
+#[cfg(test)]
+use crate::video_player::get_video_player;
 use crate::video_stream::VideoStreamInterface;
 
 use super::game_window::GameWindow;
@@ -146,6 +148,7 @@ pub struct WindowVideoManager {
     pause_all_movies: bool,
     objective_movie_index: u8,
     residual_action: ResidualWindowVideoAction,
+    video_player_slot: Option<crate::video_player::VideoPlayerHandle>,
 }
 
 impl Default for WindowVideoManager {
@@ -162,6 +165,7 @@ impl WindowVideoManager {
             pause_all_movies: false,
             objective_movie_index: 0,
             residual_action: ResidualWindowVideoAction::None,
+            video_player_slot: None,
         }
     }
 
@@ -289,7 +293,7 @@ impl WindowVideoManager {
     ) -> bool {
         self.stop_and_remove_movie(&window);
 
-        let mut stream = open_stream(movie_name.clone());
+        let mut stream = self.open_stream(movie_name.clone());
         let Some(stream_ref) = stream.as_ref() else {
             return false;
         };
@@ -419,18 +423,22 @@ fn window_key(window: &Rc<RefCell<GameWindow>>) -> usize {
     Rc::as_ptr(window) as usize
 }
 
-fn open_stream(movie_name: String) -> Option<Box<dyn VideoStreamInterface>> {
-    if let Some(player) = get_video_player() {
-        if let Ok(mut guard) = player.lock() {
-            if let Some(ref mut player) = *guard {
-                if let Some(stream) = player.open(movie_name.clone()) {
-                    return Some(stream);
-                }
-            }
+impl WindowVideoManager {
+    fn open_stream(&self, movie_name: String) -> Option<Box<dyn VideoStreamInterface>> {
+        if let Some(slot) = self.video_player_slot.as_ref() {
+            return slot.lock().ok()?.as_mut()?.open(movie_name);
         }
+        #[cfg(test)]
+        if let Some(slot) = get_video_player() {
+            return slot.lock().ok()?.as_mut()?.open(movie_name);
+        }
+        log::warn!("window video skipped (no receiving video provider): {}", movie_name);
+        None
     }
-    log::warn!("window video skipped (no video provider): {}", movie_name);
-    None
+
+    pub fn bind_video_player_slot(&mut self, slot: crate::video_player::VideoPlayerHandle) {
+        self.video_player_slot = Some(slot);
+    }
 }
 
 /// Residual: last WindowVideoManager action requested by residual peels.
@@ -553,6 +561,81 @@ mod tests {
 
     fn make_window() -> Rc<RefCell<GameWindow>> {
         Rc::new(RefCell::new(GameWindow::new()))
+    }
+
+    struct ClientStreamProbe { updates: std::sync::Arc<std::sync::atomic::AtomicUsize>, closes: std::sync::Arc<std::sync::atomic::AtomicUsize> }
+    impl Drop for ClientStreamProbe { fn drop(&mut self) { self.closes.fetch_add(1, std::sync::atomic::Ordering::SeqCst); } }
+    impl VideoStreamInterface for ClientStreamProbe {
+        fn next(&self) -> Option<&dyn VideoStreamInterface> { None }
+        fn next_mut(&mut self) -> Option<&mut dyn VideoStreamInterface> { None }
+        fn update(&mut self) { self.updates.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
+        fn close(self: Box<Self>) { drop(self); }
+        fn is_frame_ready(&self) -> bool { true }
+        fn frame_decompress(&mut self) {}
+        fn frame_render(&mut self, _buffer: &mut dyn crate::video_buffer::VideoBuffer) {}
+        fn frame_next(&mut self) {}
+        fn frame_index(&self) -> i32 { 0 }
+        fn frame_count(&self) -> i32 { 1 }
+        fn frame_goto(&mut self, _index: i32) {}
+        fn height(&self) -> i32 { 4 }
+        fn width(&self) -> i32 { 4 }
+    }
+    struct ClientProviderProbe { updates: std::sync::Arc<std::sync::atomic::AtomicUsize>, closes: std::sync::Arc<std::sync::atomic::AtomicUsize> }
+    impl crate::video_player::VideoStreamProvider for ClientProviderProbe {
+        fn open(&self, _title: &str, _path: &std::path::Path) -> Option<Box<dyn VideoStreamInterface>> {
+            Some(Box::new(ClientStreamProbe { updates: self.updates.clone(), closes: self.closes.clone() }))
+        }
+    }
+
+    #[test]
+    fn bound_window_video_and_subsystem_lifecycles_are_client_local() {
+        use crate::system::SubsystemInterface;
+        use crate::video_player::{Video, VideoPlayer, VideoPlayerHandle, VideoSearchPaths, VideoPlayerInterface};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        crate::test_support::ensure_ambient_host();
+        let root = std::env::temp_dir().join(format!("bound-window-video-{}", std::process::id()));
+        let mod_root = root.join("mod");
+        let path = mod_root.join("Data/Movies/CLIP.BIK");
+        std::fs::create_dir_all(path.parent().unwrap()).expect("fixture directory");
+        std::fs::write(&path, b"fixture").expect("fixture path");
+        let movie = "ClientMovie".to_string();
+        let search_paths = VideoSearchPaths::new(Some(mod_root), root.join("install"), "English");
+        let updates_a = std::sync::Arc::new(AtomicUsize::new(0));
+        let closes_a = std::sync::Arc::new(AtomicUsize::new(0));
+        let updates_b = std::sync::Arc::new(AtomicUsize::new(0));
+        let closes_b = std::sync::Arc::new(AtomicUsize::new(0));
+        let make_slot = |updates, closes| {
+            let mut player = VideoPlayer::new();
+            player.set_search_paths(search_paths.clone());
+            player.add_video(Video::new("CLIP".into(), "ClientMovie".into(), String::new()));
+            player.register_video_stream_provider(Box::new(ClientProviderProbe { updates, closes }));
+            std::sync::Arc::new(std::sync::Mutex::new(Some(player))) as VideoPlayerHandle
+        };
+        let slot_a = make_slot(updates_a.clone(), closes_a.clone());
+        let slot_b = make_slot(updates_b.clone(), closes_b.clone());
+        let mut manager_a = WindowVideoManager::new();
+        let mut manager_b = WindowVideoManager::new();
+        manager_a.bind_video_player_slot(slot_a.clone());
+        manager_b.bind_video_player_slot(slot_b.clone());
+        let window_a = make_window();
+        let window_b = make_window();
+        assert!(manager_a.play_movie(window_a, movie.clone(), WindowVideoPlayType::Loop));
+        assert!(manager_b.play_movie(window_b, movie, WindowVideoPlayType::Loop));
+
+        let mut subsystem_a = crate::core::subsystems::VideoPlayerSubsystem::new(slot_a, search_paths.clone());
+        let mut subsystem_b = crate::core::subsystems::VideoPlayerSubsystem::new(slot_b, search_paths);
+        subsystem_a.update().unwrap();
+        manager_b.reset();
+        subsystem_b.reset().unwrap();
+        assert_eq!(updates_a.load(Ordering::SeqCst), 1);
+        assert_eq!(updates_b.load(Ordering::SeqCst), 0);
+        assert_eq!(closes_a.load(Ordering::SeqCst), 0);
+        assert_eq!(closes_b.load(Ordering::SeqCst), 1);
+        manager_a.reset();
+        subsystem_a.reset().unwrap();
+        assert_eq!(closes_a.load(Ordering::SeqCst), 1);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1025,6 +1108,12 @@ pub struct ClientWindowVideos {
 impl ClientWindowVideos {
     pub fn new() -> Self {
         Self::default()
+    }
+    pub fn bind_video_player_slot(&mut self, slot: crate::video_player::VideoPlayerHandle) {
+        self.loading.bind_video_player_slot(slot.clone());
+        self.challenge.bind_video_player_slot(slot.clone());
+        self.control_bar.bind_video_player_slot(slot.clone());
+        self.in_game.bind_video_player_slot(slot);
     }
     pub fn reset(&mut self) {
         self.loading.reset();
