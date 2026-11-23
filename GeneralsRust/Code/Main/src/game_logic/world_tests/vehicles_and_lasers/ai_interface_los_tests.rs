@@ -397,6 +397,8 @@ fn authored_ai_interface_metadata_survives_clone_restore_and_equal_id_worlds() {
 
 #[test]
 fn unknown_ai_behavior_is_rejected_by_actual_receiving_module_factory() {
+    use game_engine::common::thing::module_factory::ReceivingModuleError;
+
     let (projection, text) =
         parsed_template("AiPresenceUnknown", Some("DecorationAIUpdate"), false);
     assert_eq!(projection.authored_ai_update_interface(), None);
@@ -406,9 +408,15 @@ fn unknown_ai_behavior_is_rejected_by_actual_receiving_module_factory() {
     )])
     .err()
     .expect("C++ ModuleFactory has no DecorationAIUpdate registration");
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("unknown-ai-module.ini"));
+    assert!(diagnostic.contains("Object AiPresenceUnknown"));
+    let mut cause = &error;
+    while let ReceivingModuleError::Context(_, inner) = cause {
+        cause = inner;
+    }
     assert!(matches!(
-        &error,
-        game_engine::common::thing::module_factory::ReceivingModuleError::Context(_, inner)
-            if matches!(inner.as_ref(), game_engine::common::thing::module_factory::ReceivingModuleError::Message(message) if message.contains("DecorationAIUpdate"))
+        cause,
+        ReceivingModuleError::Message(message) if message.contains("DecorationAIUpdate")
     ));
 }

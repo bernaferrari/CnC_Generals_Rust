@@ -435,11 +435,15 @@ fn receiving_map_solo_and_reset_rebuild_only_the_effective_projectile_catalog() 
             .collect::<Vec<_>>()
     );
     let error = owner.apply_receiving_module_overrides(&["Object MapProjectile\nReplaceModule FlightTag\nBehavior = MissileAIUpdate BrokenFlight\nFuelLifetime = invalid\nEnd\nEnd\nEnd".into()]).unwrap_err();
+    use game_engine::common::thing::module_factory::ReceivingModuleError;
+    assert!(error.to_string().contains("Object MapProjectile at line 1"));
+    let mut cause = &error;
+    while let ReceivingModuleError::Context(_, inner) = cause {
+        cause = inner;
+    }
     assert!(matches!(
-        error,
-        game_engine::common::thing::module_factory::ReceivingModuleError::Ini(
-            game_engine::common::ini::INIError::InvalidData
-        )
+        cause,
+        ReceivingModuleError::Ini(game_engine::common::ini::INIError::InvalidData)
     ));
     assert_eq!(fuel(&owner), 90);
     assert_eq!(fuel(&peer), 300);
