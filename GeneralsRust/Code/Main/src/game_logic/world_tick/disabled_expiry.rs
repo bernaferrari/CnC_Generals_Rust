@@ -3,16 +3,21 @@ use super::super::*;
 use crate::game_logic::object::TimedDisable;
 
 // Relative order from C++ DisabledTypes.h for the modeled deadlines.
-const TIMED_DISABLE_ORDER: [TimedDisable; 6] = [
+const TIMED_DISABLE_ORDER: [TimedDisable; 7] = [
     TimedDisable::Hacked,
     TimedDisable::Emp,
     TimedDisable::Held,
     TimedDisable::Paralyzed,
+    TimedDisable::Underpowered,
     TimedDisable::Awestruck,
     TimedDisable::Brainwashed,
 ];
 
 impl GameLogic {
+    pub(in crate::game_logic) fn clear_owned_underpowered(&mut self, id: ObjectId) {
+        self.clear_owned_timed_disable(id, TimedDisable::Underpowered, &mut Vec::new());
+    }
+
     pub(in super::super) fn expire_owned_disabled_statuses(&mut self) {
         self.expire_owned_disabled_statuses_with_effects(&mut Default::default())
     }
@@ -83,13 +88,16 @@ impl GameLogic {
         }
         let epoch = self.visual_world_epoch;
         let (birth, deadline) = {
-            let Some(object) = self.objects.get(&id) else {
+            let Some(object) = self.objects.get_mut(&id) else {
                 return;
             };
             let Some(deadline) = object.timed_disable_deadline(effect) else {
                 return;
             };
             object.queue_timed_disable_reenabled_audio(effect, &mut self.health_events);
+            if effect == TimedDisable::Underpowered {
+                object.pause_authored_powers_for_disable(false);
+            }
             (object.visual_object_generation, deadline)
         };
         if deadline == game_engine::common::game_common::FOREVER
@@ -128,10 +136,9 @@ impl GameLogic {
         }
         let mask_became_clear = {
             let object = self.objects.get_mut(&id).unwrap();
-            if !object.clear_timed_disable_mask(effect) {
-                return;
-            }
-            !object.has_disabled_type()
+            // A child's recovery can reenter the parent and clear it while
+            // this invocation is suspended. C++ still runs the outer edge.
+            object.clear_timed_disable_mask(effect) && !object.has_disabled_type()
         };
         // Object.cpp:2304–2308 checks from the start again after each clear.
         // An inner clear can dispatch an enable callback before this one.

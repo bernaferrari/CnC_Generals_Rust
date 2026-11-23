@@ -35,6 +35,7 @@ impl GameLogic {
             }
             let saved_status = std::mem::take(&mut object.status);
             let radar_upgrades = std::mem::take(&mut object.radar_upgrade_executed);
+            let power_timers = std::mem::take(&mut object.authored_special_power_timers);
             let output = object.power_provided;
             object.power_provided = energy.max(0);
             // GameLogic::xfer constructs on the neutral default Team. Its
@@ -50,6 +51,7 @@ impl GameLogic {
             let object = self.objects.get_mut(&id).unwrap();
             object.status = saved_status;
             object.radar_upgrade_executed = radar_upgrades;
+            object.authored_special_power_timers = power_timers;
             object.power_provided = output;
         }
 

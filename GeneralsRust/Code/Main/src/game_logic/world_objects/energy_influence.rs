@@ -67,7 +67,7 @@ impl GameLogic {
         request: DisableUntil,
     ) -> bool {
         let epoch = self.visual_world_epoch;
-        let (birth, disable_callback, deadline_changed, held_power) = {
+        let (birth, disable_callback, deadline_changed, held_power, mask_changed) = {
             let Some(object) = self.objects.get_mut(&id) else {
                 return false;
             };
@@ -77,10 +77,15 @@ impl GameLogic {
                     if effect.is_power_style() && !object.is_power_style_disabled() {
                         object.queue_power_disable_misc_audio(true, &mut self.health_events);
                     }
-                    let mut audio =
-                        crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
-                    let changed = object.begin_timed_disable(effect, deadline, &mut audio);
-                    (changed, !was_disabled && object.has_disabled_type(), None)
+                    if effect == TimedDisable::Underpowered {
+                        let changed = object.begin_underpowered_disable(deadline, self.frame);
+                        (changed, !was_disabled, None)
+                    } else {
+                        let mut audio =
+                            crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events);
+                        let changed = object.begin_timed_disable(effect, deadline, &mut audio);
+                        (changed, !was_disabled && object.has_disabled_type(), None)
+                    }
                 }
                 DisableUntil::NamedHeld { deadline } => {
                     let before = Self::folded_named_held_production(object);
@@ -95,7 +100,13 @@ impl GameLogic {
                     (changed, !was_disabled, held_power)
                 }
             };
-            (object.visual_object_generation, disable_callback, changed, held_power)
+            (
+                object.visual_object_generation,
+                disable_callback,
+                changed,
+                held_power,
+                !was_disabled && object.has_disabled_type(),
+            )
         };
         if let Some((owner, adjustment)) = held_power
             && adjustment != 0
@@ -160,7 +171,7 @@ impl GameLogic {
 
         self.admit_host_radar_disabled_edges(id);
         if disable_callback {
-            if matches!(request, DisableUntil::NamedHeld { .. }) {
+            if !mask_changed || matches!(request, DisableUntil::NamedHeld { .. }) {
                 self.admit_producer_energy_without_mask_change(id, true);
             } else {
                 self.admit_owned_producer_energy_edge(id, true);
@@ -453,40 +464,24 @@ impl GameLogic {
             };
             for id in ids {
                 let id = ObjectId(id);
-                let Some(object) = self.objects.get_mut(&id).filter(|object| {
+                let powered_member = self.objects.get(&id).is_some_and(|object| {
                     object.owner_player_id == Some(owner)
                         && object.team_instance_id == Some(team_id)
                         && object.is_kind_of(KindOf::Powered)
-                }) else {
+                });
+                if !powered_member {
                     continue;
-                };
-                let was_disabled = object.has_disabled_type();
-                let was_power = object.status.disabled_underpowered;
-                if brownout && !was_power && !object.is_power_style_disabled() {
-                    object.queue_power_disable_misc_audio(true, &mut self.health_events);
-                } else if !brownout
-                    && was_power
-                    && !(object.status.disabled_emp
-                        || object.status.disabled_subdued
-                        || object.status.disabled_hacked)
-                {
-                    object.queue_power_disable_misc_audio(false, &mut self.health_events);
                 }
-                object.set_status_disabled_underpowered(brownout);
-                let now_disabled = object.has_disabled_type();
-                let producer_edge = if was_disabled != now_disabled {
-                    object
-                        .producer_energy_on_disabled_edge()
-                        .map(|power| (power, Self::folded_producer_output(object, power)))
+                if brownout {
+                    self.apply_owned_initial_disabled(
+                        id,
+                        DisableUntil::Timed {
+                            effect: TimedDisable::Underpowered,
+                            deadline: game_engine::common::game_common::FOREVER,
+                        },
+                    );
                 } else {
-                    None
-                };
-                self.admit_host_radar_disabled_edges(id);
-                // Object::onDisabledEdge immediately adjusts a positive producer,
-                // which synchronously reenters this Player callback before the
-                // outer member traversal continues. Consumers never feed back.
-                if let Some((power, folded_output)) = producer_edge {
-                    self.signal_producer_energy_edge(owner, power, folded_output, !now_disabled);
+                    self.clear_owned_underpowered(id);
                 }
             }
         }
@@ -601,9 +596,13 @@ End";
     }
 
     fn spawned_radar_world() -> (GameLogic, [ObjectId; 3]) {
-        let source = r#"
+        spawned_radar_world_with_parent_kind("")
+    }
+
+    fn spawned_radar_world_with_parent_kind(parent_kind: &str) -> (GameLogic, [ObjectId; 3]) {
+        let source = format!(r#"
 Object DisableNest
- KindOf = STRUCTURE SPAWNS_ARE_THE_WEAPONS
+ KindOf = STRUCTURE SPAWNS_ARE_THE_WEAPONS {parent_kind}
  Behavior = DefaultProductionExitUpdate Exit
  End
  Behavior = SpawnBehavior Spawn
@@ -633,7 +632,7 @@ End
 Object DisableGrandchild
  KindOf = INFANTRY
 End
-"#;
+"#);
         let mut world = GameLogic::new();
         crate::game_logic::host_upgrade_rules::register_test_upgrade(
             &mut world, "Upgrade_TestSpawnRadar", "OBJECT", 0, 1,
@@ -667,6 +666,60 @@ End
         assert_eq!(world.players[&1].power_produced, 20);
         assert_eq!(world.players[&1].radar_count, 1);
         (world, [parent, child.0, grandchild.0])
+    }
+
+    #[test]
+    fn brownout_reaches_spawn_descendants_before_the_parent_returns() {
+        let fixture = || spawned_radar_world_with_parent_kind("POWERED");
+        let (mut world, ids) = fixture();
+        let (mut restored, peer_ids) = fixture();
+        assert_eq!(ids, peer_ids);
+        world.set_current_frame(4);
+        world.sabotage_player_power(1, 20);
+        assert!(ids.iter().all(|id| world.objects[id].status.disabled_underpowered));
+        assert_eq!(world.players[&1].power_produced, 0, "child producer callback");
+        assert_eq!(world.players[&1].radar_count, 0, "child radar callback");
+        assert!(ids.iter().all(|id| !restored.objects[id].status.disabled_underpowered));
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+        for (owner, credited_base) in [(&mut world, 0), (&mut restored, 20)] {
+            assert!(ids.iter().all(|id| owner.objects[id].status.disabled_underpowered));
+            owner.set_current_frame(21);
+            owner.expire_player_power_sabotage(1);
+            assert!(ids.iter().all(|id| !owner.objects[id].status.disabled_underpowered));
+            assert_eq!(owner.players[&1].power_produced, credited_base + 20);
+            assert_eq!(owner.players[&1].radar_count, 1);
+            owner.update_player_resources(0.0);
+            assert_eq!(owner.players[&1].power_produced, credited_base + 20);
+        }
+    }
+
+    #[test]
+    fn brownout_saves_the_inactive_deadline_at_forever_equality() {
+        use game_engine::common::game_common::FOREVER;
+        let fixture = || spawned_radar_world_with_parent_kind("POWERED");
+        let (mut world, ids) = fixture();
+        world.set_current_frame(u64::from(FOREVER));
+        world.sabotage_player_power(1, FOREVER + 10);
+        let assert_deadlines = |owner: &GameLogic| {
+            for id in ids {
+                let object = &owner.objects[&id];
+                assert!(!object.status.disabled_underpowered);
+                assert_eq!(object.underpowered_disable_deadline(), FOREVER);
+            }
+        };
+        assert_deadlines(&world);
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let (mut restored, _) = fixture();
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+        assert_deadlines(&restored);
     }
 
     #[test]

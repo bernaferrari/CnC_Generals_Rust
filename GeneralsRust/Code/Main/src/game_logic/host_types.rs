@@ -570,6 +570,9 @@ pub struct ObjectStatus {
     pub detected: bool,
     /// C++ DISABLED_UNDERPOWERED: set when player's power supply < demand.
     pub disabled_underpowered: bool,
+    /// Object::setDisabled stores FOREVER even when frame equality leaves the bit clear.
+    #[serde(skip)]
+    pub(crate) disabled_underpowered_until_frame: u32,
     /// C++ DISABLED_DEFAULT residual (WaveGuide starts disabled until DamDie).
     #[serde(default)]
     pub disabled_default: bool,

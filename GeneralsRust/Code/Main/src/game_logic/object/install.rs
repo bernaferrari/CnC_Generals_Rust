@@ -6,13 +6,14 @@ pub(in crate::game_logic) enum TimedDisable {
     Hacked,
     Held,
     Paralyzed,
+    Underpowered,
     Awestruck,
     Brainwashed,
 }
 
 impl TimedDisable {
     pub(in crate::game_logic) fn is_power_style(self) -> bool {
-        matches!(self, Self::Emp | Self::Hacked)
+        matches!(self, Self::Emp | Self::Hacked | Self::Underpowered)
     }
 
     fn state_mut(self, status: &mut ObjectStatus) -> (&mut bool, &mut u32) {
@@ -29,6 +30,10 @@ impl TimedDisable {
             Self::Paralyzed => (
                 &mut status.disabled_paralyzed,
                 &mut status.disabled_paralyzed_until_frame,
+            ),
+            Self::Underpowered => (
+                &mut status.disabled_underpowered,
+                &mut status.disabled_underpowered_until_frame,
             ),
             Self::Awestruck => (
                 &mut status.disabled_awestruck,
@@ -962,6 +967,10 @@ impl Object {
                 self.status.disabled_paralyzed,
                 self.status.disabled_paralyzed_until_frame,
             ),
+            TimedDisable::Underpowered => (
+                self.status.disabled_underpowered,
+                self.underpowered_disable_deadline(),
+            ),
             TimedDisable::Awestruck => (
                 self.status.disabled_awestruck,
                 self.status.disabled_awestruck_until_frame,
@@ -992,7 +1001,7 @@ impl Object {
         effect: TimedDisable,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
-        let other_power_disable = self.status.disabled_underpowered
+        let other_power_disable = (self.status.disabled_underpowered && effect != TimedDisable::Underpowered)
             || self.status.disabled_subdued
             || (self.status.disabled_emp && !matches!(effect, TimedDisable::Emp))
             || (self.status.disabled_hacked && !matches!(effect, TimedDisable::Hacked));
@@ -1011,6 +1020,40 @@ impl Object {
         *active = false;
         *deadline = 0;
         true
+    }
+
+    pub(crate) fn underpowered_disable_deadline(&self) -> u32 {
+        use game_engine::common::game_common::{FOREVER, NEVER};
+        let deadline = self.status.disabled_underpowered_until_frame;
+        if deadline == NEVER && self.status.disabled_underpowered {
+            return FOREVER;
+        }
+        deadline
+    }
+
+    /// Object::setDisabledUntil updates the mask and module pause count
+    /// before dispatching contained and spawned objects.
+    pub(in crate::game_logic) fn begin_underpowered_disable(&mut self, deadline: u32, frame: u32) -> bool {
+        if self.underpowered_disable_deadline() == deadline {
+            return false;
+        }
+        if !self.status.disabled_underpowered {
+            self.pause_authored_powers_for_disable(true);
+        }
+        self.status.disabled_underpowered_until_frame = deadline;
+        self.status.disabled_underpowered = frame < deadline;
+        true
+    }
+
+    pub(in crate::game_logic) fn pause_authored_powers_for_disable(&mut self, pause: bool) {
+        for module in &self.thing.template.special_power_modules {
+            let state = self.authored_special_power_timers.entry(module.source_index).or_default();
+            if pause {
+                state.1 = state.1.saturating_add(1);
+            } else {
+                state.1 = state.1.saturating_sub(1);
+            }
+        }
     }
 
     fn clear_timed_disable(&mut self, effect: TimedDisable) {

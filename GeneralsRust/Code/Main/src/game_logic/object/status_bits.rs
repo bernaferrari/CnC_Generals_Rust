@@ -826,8 +826,10 @@ impl Object {
         self.set_status_repulsor(true);
     }
     pub fn set_status_disabled_underpowered(&mut self, v: bool) {
+        use game_engine::common::game_common::{FOREVER, NEVER};
         let was_disabled = self.has_disabled_type();
         self.status.disabled_underpowered = v;
+        self.status.disabled_underpowered_until_frame = if v { FOREVER } else { NEVER };
         self.note_disabled_status_transition(was_disabled);
     }
     pub fn set_status_disabled_freefall(&mut self, v: bool) {

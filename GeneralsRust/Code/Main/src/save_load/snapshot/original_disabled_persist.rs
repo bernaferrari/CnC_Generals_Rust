@@ -7,7 +7,8 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 const TAG: &[u8; 4] = b"ODIS";
 const VERSION_WITH_SCRIPT_STATUS: u32 = 2;
-const VERSION: u32 = 3;
+const VERSION_WITH_HELD_DEADLINES: u32 = 3;
+const VERSION: u32 = 4;
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Record {
     object_id: u32,
@@ -37,9 +38,16 @@ struct RecordPayload {
     held_deadlines: Vec<HeldDeadline>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct RecordPayloadWithUnderpoweredDeadline {
+    disabled: RecordPayload,
+    inactive_underpowered: Vec<u32>,
+}
+
 pub(super) struct Decoded<'a> {
     pub records: Option<Vec<Record>>,
     pub held_deadlines: Vec<HeldDeadline>,
+    pub inactive_underpowered: Vec<u32>,
     pub legacy_tail: Cow<'a, [u8]>,
 }
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
@@ -47,6 +55,7 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
 
     let mut records = Vec::with_capacity(world.host_objects().registered_len());
     let mut held_deadlines = Vec::new();
+    let mut inactive_underpowered = Vec::new();
     for (id, object) in world.host_objects().registered() {
         records.push(Record {
             object_id: id.0,
@@ -64,15 +73,27 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
                 deadline,
             });
         }
+        if !object.status.disabled_underpowered && object.underpowered_disable_deadline() == FOREVER {
+            inactive_underpowered.push(id.0);
+        }
     }
     records.sort_by_key(|entry| entry.object_id);
+    held_deadlines.sort_by_key(|entry| entry.object_id);
     // Most HELD deadlines follow directly from the saved mask bit.
-    let (version, payload) = if held_deadlines.is_empty() {
-        (VERSION_WITH_SCRIPT_STATUS, bincode_legacy::serialize(&records))
-    } else {
-        held_deadlines.sort_by_key(|entry| entry.object_id);
+    let (version, payload) = if !inactive_underpowered.is_empty() {
+        inactive_underpowered.sort_unstable();
         (
             VERSION,
+            bincode_legacy::serialize(&RecordPayloadWithUnderpoweredDeadline {
+                disabled: RecordPayload { records, held_deadlines },
+                inactive_underpowered,
+            }),
+        )
+    } else if held_deadlines.is_empty() {
+        (VERSION_WITH_SCRIPT_STATUS, bincode_legacy::serialize(&records))
+    } else {
+        (
+            VERSION_WITH_HELD_DEADLINES,
             bincode_legacy::serialize(&RecordPayload {
                 records,
                 held_deadlines,
@@ -98,6 +119,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
         return Ok(Decoded {
             records: None,
             held_deadlines: Vec::new(),
+            inactive_underpowered: Vec::new(),
             legacy_tail: Cow::Borrowed(bytes),
         });
     }
@@ -106,7 +128,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     }
     let version = u32::from_le_bytes(suffix[4..8].try_into().unwrap());
     let length = u32::from_le_bytes(suffix[8..12].try_into().unwrap()) as usize;
-    if !matches!(version, 1 | VERSION_WITH_SCRIPT_STATUS | VERSION) {
+    if !matches!(version, 1 | VERSION_WITH_SCRIPT_STATUS | VERSION_WITH_HELD_DEADLINES | VERSION) {
         return Err(corrupted("unknown version"));
     }
     let end = 12usize
@@ -116,7 +138,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
         .get(12..end)
         .ok_or_else(|| corrupted("truncated records"))?;
     let payload_length = payload.len();
-    let (records, held_deadlines, consumed) = match version {
+    let (records, held_deadlines, inactive_underpowered, consumed) = match version {
         1 => {
             let (old, consumed): (Vec<RecordV1>, usize) =
                 bincode::serde::decode_from_slice(payload, bincode::config::legacy())
@@ -132,19 +154,30 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
                     script_status_disabled: None,
                 })
                 .collect();
-            (records, Vec::new(), consumed)
+            (records, Vec::new(), Vec::new(), consumed)
         }
         VERSION_WITH_SCRIPT_STATUS => {
             let (records, consumed) =
                 bincode::serde::decode_from_slice(payload, bincode::config::legacy())
                     .map_err(corrupted)?;
-            (records, Vec::new(), consumed)
+            (records, Vec::new(), Vec::new(), consumed)
         }
-        VERSION => {
+        VERSION_WITH_HELD_DEADLINES => {
             let (decoded, consumed): (RecordPayload, usize) =
                 bincode::serde::decode_from_slice(payload, bincode::config::legacy())
                     .map_err(corrupted)?;
-            (decoded.records, decoded.held_deadlines, consumed)
+            (decoded.records, decoded.held_deadlines, Vec::new(), consumed)
+        }
+        VERSION => {
+            let (decoded, consumed): (RecordPayloadWithUnderpoweredDeadline, usize) =
+                bincode::serde::decode_from_slice(payload, bincode::config::legacy())
+                    .map_err(corrupted)?;
+            (
+                decoded.disabled.records,
+                decoded.disabled.held_deadlines,
+                decoded.inactive_underpowered,
+                consumed,
+            )
         }
         _ => unreachable!("disabled continuation version checked above"),
     };
@@ -163,6 +196,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     Ok(Decoded {
         records: Some(records),
         held_deadlines,
+        inactive_underpowered,
         legacy_tail: Cow::Owned(tail),
     })
 }
@@ -203,6 +237,32 @@ pub(super) fn apply_held_deadlines(held_deadlines: &[HeldDeadline], world: &mut 
     for entry in held_deadlines {
         if let Some(object) = world.objects.get_mut(&ObjectId(entry.object_id)) {
             object.status.disabled_held_until_frame = entry.deadline;
+        }
+    }
+}
+
+pub(super) fn validate_inactive_underpowered_deadlines(
+    ids: &[u32],
+    objects: &HashMap<ObjectId, ObjectSnapshot>,
+) -> SaveLoadResult<()> {
+    let mut seen = HashSet::new();
+    for &id in ids {
+        if objects
+            .get(&ObjectId(id))
+            .is_none_or(|object| object.status.disabled_underpowered)
+            || !seen.insert(id)
+        {
+            return Err(corrupted("invalid or duplicate inactive UNDERPOWERED deadline owner"));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn apply_inactive_underpowered_deadlines(ids: &[u32], world: &mut GameLogic) {
+    for &id in ids {
+        if let Some(object) = world.objects.get_mut(&ObjectId(id)) {
+            object.status.disabled_underpowered_until_frame =
+                game_engine::common::game_common::FOREVER;
         }
     }
 }
