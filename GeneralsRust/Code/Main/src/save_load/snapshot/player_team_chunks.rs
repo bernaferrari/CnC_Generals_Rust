@@ -674,9 +674,9 @@ pub(super) fn apply_members(
     world: &mut GameLogic,
     chunks: &PlayerTeamChunks,
     object_load_order: Option<&[ObjectId]>,
-) -> SaveLoadResult<()> {
+) -> SaveLoadResult<bool> {
     let Some(teams) = &chunks.teams else {
-        return Ok(());
+        return Ok(false);
     };
     // Resolve all secondary references before changing any host membership.
     let mut bindings = FxHashMap::default();
@@ -689,6 +689,29 @@ pub(super) fn apply_members(
                 )));
             }
         }
+    }
+    if let Some(order) = object_load_order
+        && teams.persist_roster
+    {
+        // A complete TeamFactory continuation has the exact destination of
+        // every recorded member. Start with the empty post-reset member lists.
+        let factory = world
+            .team_factory
+            .lock()
+            .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?;
+        for saved in &teams.teams {
+            let team = factory
+                .find_team_by_id(saved.team_id)
+                .ok_or_else(|| SaveLoadError::Corrupted("Restored team is absent".into()))?;
+            team.write()
+                .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?
+                .restore_owned_members(&[]);
+        }
+        drop(factory);
+        world
+            .restore_saved_team_energy(order, |id| bindings.get(&id).map(|team| team.team_id))
+            .map_err(SaveLoadError::Corrupted)?;
+        return Ok(true);
     }
     // Object.cpp:853 prepends as each record is read. Team::loadPostProcess
     // validates membership and leaves that order in place. Team rows still
@@ -726,7 +749,7 @@ pub(super) fn apply_members(
         object.team_instance_name.clone_from(&team.team_name);
         object.team_instance_id = Some(team.team_id);
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Explicit standalone application. Production snapshots use the two bounded
@@ -734,7 +757,7 @@ pub(super) fn apply_members(
 pub fn apply_pending(world: &mut GameLogic, chunks: &PlayerTeamChunks) -> SaveLoadResult<()> {
     validate_definitions(world, chunks)?;
     apply_before_objects(world, chunks)?;
-    apply_members(world, chunks, None)
+    apply_members(world, chunks, None).map(|_| ())
 }
 
 #[cfg(test)]

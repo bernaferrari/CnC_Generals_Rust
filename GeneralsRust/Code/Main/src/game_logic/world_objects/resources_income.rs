@@ -3,6 +3,13 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+#[derive(Default)]
+struct RestoredPowerFold {
+    tick: (i32, i32),
+    legacy: (i32, i32),
+    legacy_bonus: i32,
+}
+
 impl GameLogic {
     /// Object::getControllingPlayer reads its actual Team's controller. A
     /// missing owner stays missing; faction labels never create ownership.
@@ -150,6 +157,49 @@ impl GameLogic {
             }
         }
         self.rebuild_player_power();
+    }
+
+    pub(super) fn reconcile_loaded_power_with_tick_fold(
+        &mut self,
+        saved_team: impl Fn(ObjectId) -> Option<u32>,
+    ) {
+        let mut totals: game_engine::common::fast_hash::FxHashMap<_, RestoredPowerFold> =
+            self.players.keys().map(|&id| (id, Default::default())).collect();
+        for object in self.objects.registered_values() {
+            let Some(totals) = object.owner_player_id.and_then(|id| totals.get_mut(&id)) else {
+                continue;
+            };
+            let constructed = Self::object_contributes_power(object);
+            if constructed {
+                let (produced, consumed) = &mut totals.tick;
+                Self::accumulate_object_power(produced, consumed, object);
+            }
+            if saved_team(object.id).is_some() && object.get_template().energy_production.is_some() {
+                continue;
+            }
+            if constructed {
+                let (produced, consumed) = &mut totals.legacy;
+                Self::accumulate_object_power(produced, consumed, object);
+            }
+            if Self::omit_disabled_production_from_grid(object) {
+                totals.legacy_bonus = totals
+                    .legacy_bonus
+                    .wrapping_add(object.active_plant_power_bonus_output());
+            }
+        }
+        for (id, player) in &mut self.players {
+            let totals = &totals[id];
+            // Transfer the replay's result into the transitional tick fold.
+            // Physical disable edges may still change the grid after load.
+            player.power_produced = player
+                .power_produced
+                .wrapping_add(totals.legacy.0)
+                .wrapping_add(totals.legacy_bonus);
+            player.power_consumed = player.power_consumed.wrapping_add(totals.legacy.1);
+            player.power_production_adjustment = player.power_produced.wrapping_sub(totals.tick.0);
+            player.power_consumption_adjustment = player.power_consumed.wrapping_sub(totals.tick.1);
+            player.refresh_energy_projection_at(self.frame);
+        }
     }
 
     pub(super) fn record_power_projection(&mut self, player_id: u32) {

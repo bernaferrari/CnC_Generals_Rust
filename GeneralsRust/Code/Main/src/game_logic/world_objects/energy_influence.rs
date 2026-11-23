@@ -498,6 +498,79 @@ mod tests {
     use super::*;
 
     #[test]
+    fn object_load_credits_emp_producer_before_restoring_its_disabled_mask() {
+        let fixture = || {
+            let mut world = GameLogic::new();
+            let source = "
+Object LoadOrderPlant
+ KindOf = STRUCTURE
+ EnergyProduction = 20
+ EnergyBonus = 5
+ Behavior = OverchargeBehavior Overcharge
+  HealthPercentToDrainPerSecond = 0%
+  NotAllowedWhenHealthBelowPercent = 0%
+ End
+End
+Object LoadOrderConsumer
+ KindOf = STRUCTURE POWERED
+ EnergyProduction = -10
+End";
+            world
+                .admit_receiving_module_content(
+                    crate::assets::ReceivingObjectContent::from_sources([(
+                        "energy-load-order.ini".into(),
+                        source.into(),
+                    )])
+                    .unwrap(),
+                )
+                .unwrap();
+            world.add_player(Player::new(1, Team::USA, "LoadOrder", true));
+            world
+        };
+
+        for (plant_loaded_last, overcharge) in [(true, false), (false, false), (false, true)] {
+            let mut world = fixture();
+            let names = if plant_loaded_last {
+                ["LoadOrderPlant", "LoadOrderConsumer"]
+            } else {
+                ["LoadOrderConsumer", "LoadOrderPlant"]
+            };
+            let ids = names.map(|name| world.create_object_for_player(name, 1, Vec3::ZERO).unwrap());
+            let (plant, consumer) = if plant_loaded_last {
+                (ids[0], ids[1])
+            } else {
+                (ids[1], ids[0])
+            };
+            world.set_current_frame(8);
+            if overcharge {
+                assert!(world.toggle_overcharge_object(plant));
+            }
+            assert!(world.apply_owned_emp_disabled(plant, 30));
+            assert!(world.objects[&consumer].status.disabled_underpowered);
+            assert_eq!(world.players[&1].power_produced, 0);
+
+            let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+            let snapshot = builder.create_world_snapshot(&world).unwrap();
+            let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+            let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+            let mut restored = fixture();
+            builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+            for _ in 0..2 {
+                assert!(restored.objects[&plant].status.disabled_emp);
+                assert_eq!(restored.players[&1].power_produced, if overcharge { 25 } else { 20 });
+                assert_eq!(restored.players[&1].power_consumed, 10);
+                assert_eq!(
+                    restored.objects[&consumer].status.disabled_underpowered,
+                    !plant_loaded_last && !overcharge,
+                    "the last relevant Team, mask, or upgrade post-process step wins"
+                );
+                restored.update_player_resources(0.0);
+            }
+            assert!(world.objects[&consumer].status.disabled_underpowered);
+        }
+    }
+
+    #[test]
     fn rebuilding_grid_keeps_signed_power_in_registration_order() {
         let mut world = GameLogic::new();
         world.add_player(Player::new(1, Team::USA, "Grid", true));
@@ -699,15 +772,16 @@ End
         let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
         builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
 
-        for owner in [&mut world, &mut restored] {
+        for (owner, credited_base) in [(&mut world, 0), (&mut restored, 20)] {
             owner.expire_owned_disabled_statuses();
             assert!(ids.iter().all(|id| owner.objects[id].is_held_disabled()));
+            assert_eq!(owner.players[&1].power_produced, credited_base);
             owner.set_current_frame(u64::from(FOREVER));
             owner.expire_owned_disabled_statuses();
             assert!(ids.iter().all(|id| !owner.objects[id].has_disabled_type()));
             // HELD clears before PARALYZED, whose recursive recovery is
             // followed by the suspended HELD recovery on the same object.
-            assert_eq!(owner.players[&1].power_produced, 40);
+            assert_eq!(owner.players[&1].power_produced, credited_base + 40);
             assert_eq!(owner.players[&1].radar_count, 2);
         }
     }
@@ -762,10 +836,10 @@ End
         let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
         builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
 
-        for owner in [&mut world, &mut restored] {
+        for (owner, credited_base) in [(&mut world, 0), (&mut restored, 20)] {
             owner.set_current_frame(5);
             owner.expire_owned_disabled_statuses();
-            assert_eq!(owner.players[&1].power_produced, 0);
+            assert_eq!(owner.players[&1].power_produced, credited_base);
             assert_eq!(owner.players[&1].radar_count, 0);
             owner.set_current_frame(6);
             owner.expire_owned_disabled_statuses();
@@ -774,11 +848,11 @@ End
             }
             // Clear HACKED -> checkDisabledStatus -> clear EMP -> enable,
             // then the suspended HACKED clear observes the empty mask too.
-            assert_eq!(owner.players[&1].power_produced, 40);
+            assert_eq!(owner.players[&1].power_produced, credited_base + 40);
             assert_eq!(owner.players[&1].radar_count, 2);
             owner.update_player_resources(0.);
             owner.expire_owned_disabled_statuses();
-            assert_eq!(owner.players[&1].power_produced, 40);
+            assert_eq!(owner.players[&1].power_produced, credited_base + 40);
             assert_eq!(owner.players[&1].radar_count, 2);
         }
 
@@ -805,11 +879,11 @@ End
         assert_eq!(ids, [parent, child, grandchild]);
         builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
 
-        for receiver in [&mut world, &mut restored] {
+        for (receiver, credited_base) in [(&mut world, 0), (&mut restored, 20)] {
             receiver.set_current_frame(99);
             receiver.expire_owned_disabled_statuses();
             assert!(receiver.host_object(child).unwrap().status.disabled_emp);
-            assert_eq!(receiver.players[&1].power_produced, 0);
+            assert_eq!(receiver.players[&1].power_produced, credited_base);
 
             receiver.set_current_frame(100);
             receiver.expire_owned_disabled_statuses();
@@ -817,7 +891,7 @@ End
                 assert!(!receiver.host_object(id).unwrap().status.disabled_emp);
             }
             assert!(receiver.host_object(grandchild).unwrap().status.disabled_hacked);
-            assert_eq!(receiver.players[&1].power_produced, 20);
+            assert_eq!(receiver.players[&1].power_produced, credited_base + 20);
             assert_eq!(receiver.players[&1].radar_count, 1);
         }
     }
@@ -1136,8 +1210,8 @@ End";
             let (mut restored, _, _) = power_scaffold_world();
             builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
 
-            for owner in [&mut world, &mut restored] {
-                assert_eq!(owner.players[&1].power_produced, 0);
+            for (owner, credited_base) in [(&mut world, 0), (&mut restored, 20)] {
+                assert_eq!(owner.players[&1].power_produced, credited_base);
                 assert!(owner.objects[&plant].status.disabled_subdued);
                 for frame in 6..=15 {
                     owner.set_current_frame(frame);
@@ -1145,24 +1219,25 @@ End";
                     if !owner.objects[&plant].status.disabled_subdued {
                         break;
                     }
-                    assert_eq!(owner.players[&1].power_produced, 0);
+                    assert_eq!(owner.players[&1].power_produced, credited_base);
                 }
                 assert!(!owner.objects[&plant].status.disabled_subdued);
                 assert_eq!(
                     owner.players[&1].power_produced,
-                    if emp_overlaps_decay { 0 } else { 20 },
+                    credited_base + if emp_overlaps_decay { 0 } else { 20 },
                     "decay frame"
                 );
-                assert_eq!(owner.players[&1].has_radar(), !emp_overlaps_decay);
+                let brownout = emp_overlaps_decay && credited_base == 0;
+                assert_eq!(owner.players[&1].has_radar(), !brownout);
                 assert_eq!(
                     owner.objects[&consumer].status.disabled_underpowered,
-                    emp_overlaps_decay
+                    brownout
                 );
                 if emp_overlaps_decay {
                     assert!(owner.objects[&plant].status.disabled_emp);
                     owner.set_current_frame(30);
                     owner.expire_owned_disabled_statuses();
-                    assert_eq!(owner.players[&1].power_produced, 20);
+                    assert_eq!(owner.players[&1].power_produced, credited_base + 20);
                     assert!(owner.players[&1].has_radar());
                     assert!(!owner.objects[&consumer].status.disabled_underpowered);
                 }
@@ -1231,26 +1306,28 @@ End";
         let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
         builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
 
-        for owner in [&mut world, &mut restored] {
-            assert_eq!(energy(owner), (-25, 10, -35));
+        // The release C++ Energy path reconstructs the base 20 during Team
+        // transfer, before the saved EMP mask, then reapplies the signed bonus.
+        for (owner, production) in [(&mut world, -25), (&mut restored, -5)] {
+            assert_eq!(energy(owner), (production, 10, production - 10));
             owner.set_current_frame(5);
             owner.expire_owned_disabled_statuses();
-            assert_eq!(energy(owner), (-25, 10, -35));
+            assert_eq!(energy(owner), (production, 10, production - 10));
             owner.set_current_frame(6);
             owner.expire_owned_disabled_statuses();
             assert!(!owner.objects[&plant].status.disabled_emp);
             assert_eq!(
                 energy(owner),
-                (-25, 15, -40),
+                (production, 15, production - 15),
                 "C++ Energy::adjustPower(-5, true)"
             );
             owner.update_player_resources(0.);
-            assert_eq!(energy(owner), (-25, 15, -40));
+            assert_eq!(energy(owner), (production, 15, production - 15));
 
             assert!(owner.apply_owned_hacked_disabled(plant, 8));
-            assert_eq!(energy(owner), (-25, 10, -35));
+            assert_eq!(energy(owner), (production, 10, production - 10));
             owner.update_player_resources(0.);
-            assert_eq!(energy(owner), (-25, 10, -35));
+            assert_eq!(energy(owner), (production, 10, production - 10));
         }
     }
 
@@ -1273,12 +1350,12 @@ End";
         let (mut restored, _, _) = power_scaffold_world();
         builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
 
-        for owner in [&mut world, &mut restored] {
+        for (owner, credited_base) in [(&mut world, 0), (&mut restored, 20)] {
             owner.set_current_frame(6);
             owner.players.get_mut(&1).unwrap().power_available = 999;
             owner.expire_owned_disabled_statuses();
             assert!(!owner.objects[&plant].status.disabled_emp);
-            assert_eq!(owner.players[&1].power_produced, 20);
+            assert_eq!(owner.players[&1].power_produced, credited_base + 20);
             assert_eq!(owner.players[&1].energy_production_at(6), 0);
             assert_eq!(owner.players[&1].power_available, 0);
             assert!(!owner.players[&1].has_radar());
@@ -1291,7 +1368,7 @@ End";
             owner.set_current_frame(11);
             owner.expire_player_power_sabotage(1);
             assert!(!owner.objects[&scaffold].status.disabled_underpowered);
-            assert_eq!(owner.players[&1].power_produced, 20);
+            assert_eq!(owner.players[&1].power_produced, credited_base + 20);
         }
         assert!(peer.players[&1].has_radar());
         assert_eq!(peer.players[&1].power_produced, 20);

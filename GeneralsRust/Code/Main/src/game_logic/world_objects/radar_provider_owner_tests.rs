@@ -513,13 +513,7 @@ fn disabled_grant_capture_and_future_callbacks_preserve_exact_contributors() {
     );
     world.update_player_radar();
     assert_eq!(world.players[&1].radar_count, 1);
-    {
-        let (object, events, partition) = world.host_object_ownership_partition_mut(id).unwrap();
-        object.set_team_and_owner_with_partition_owner(Team::GLA, Some(2), events, partition);
-    }
-    world
-        .on_capture_object_residual(id, Team::GLA, Team::GLA)
-        .expect("valid capture test fixture");
+    assert!(world.transfer_object_to_player(id, 2).unwrap());
     assert_eq!(
         world.players[&1].radar_count, 1,
         "disabled onCapture returns without moving contribution"

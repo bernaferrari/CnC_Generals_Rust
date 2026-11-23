@@ -1221,10 +1221,6 @@ impl SnapshotBuilder {
         // Runtime birth tokens belong to this receiving world, not the saved world.
         game_logic.rebind_missile_actor_births();
 
-        // Energy::xfer deliberately omits derived production/consumption.
-        // Rebuild only after all object/status tails (including disabled_held)
-        // are transferred, before the first script/construction observer.
-        game_logic.restore_player_power();
         if map_bridge_bindings.is_none() {
             let mut has_source_bridges = false;
             game_logic.world_services.terrain().read().unwrap_or_else(|e| e.into_inner())
@@ -1268,6 +1264,14 @@ impl SnapshotBuilder {
         }
         transport_projection.validate(game_logic)?;
 
+        let restored_team_energy = super::super::player_team_chunks::apply_members(
+            game_logic,
+            &player_team_chunks,
+            object_order.saved_order.as_deref(),
+        )?;
+        if !restored_team_energy {
+            game_logic.restore_player_power();
+        }
         // Recreating objects may consume random values; install the saved
         // continuation only after every restore operation succeeds. This is
         // instance state, including for callers of the direct builder API.
@@ -1281,16 +1285,10 @@ impl SnapshotBuilder {
                 .set_seed_words(snapshot.logic_rng_seed_words);
         }
 
-        super::super::player_team_chunks::apply_members(
-            game_logic,
-            &player_team_chunks,
-            object_order.saved_order.as_deref(),
-        )?;
         // Saved destinations and paths are canonical state, not fresh movement
         // cues. Discard only this receiver's transient restore observations.
         game_logic.movement_events.clear();
-        // Player's saved counts are canonical. Reconstruct only the derived
-        // lifecycle admission map before a resumed capture/delete can observe it.
+        // Rebuild the derived provider roster after all load-time radar edges.
         game_logic.rebuild_host_radar_provider_admission();
         // All saved status/HP overlays are installed. Keep the exact restored
         // Body enum and any positive-HP AI-dead flag; zero HP is always dead.
