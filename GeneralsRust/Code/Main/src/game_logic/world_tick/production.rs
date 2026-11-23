@@ -183,69 +183,46 @@ impl GameLogic {
         }
     }
 
-    /// C++ ProductionUpdate::update (ProductionUpdate.cpp:671-682):
-    /// scripts can disallow unit types mid-queue; cancel the unit head unless
-    /// it is a dozer. Called every live production tick.
-    pub(crate) fn cancel_script_disallowed_production_queue_heads(&mut self) {
-        let mut cancelled: Vec<(
-            ObjectId,
-            Option<u32>,
-            Team,
-            crate::game_logic::buildings::ProductionItem,
-        )> = Vec::new();
-        let mut producers: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
-        producers.sort_by_key(|id| id.0);
-        for producer_id in producers {
-            let Some(obj) = self.objects.get(&producer_id) else {
-                continue;
-            };
-            if !obj.is_constructed() || !obj.is_alive() || obj.status.sold {
-                continue;
+    /// ProductionUpdate and AI work orders retain the master ThingTemplate.
+    /// Live objects instead receive the template's final Map.ini override.
+    pub(crate) fn production_template_is_dozer(&self, name: &str) -> bool {
+        use game_engine::common::system::kind_of::KindOfMask;
+
+        if let Some(content) = &self.receiving_module_content {
+            if let Some(master) = content.master_template(name) {
+                return master.template().is_kind_of_mask(KindOfMask::DOZER.bits());
             }
-            let Some(building) = obj.building_data.as_ref() else {
-                continue;
-            };
-            let Some(head) = building.production_queue.first() else {
-                continue;
-            };
-            if head.is_upgrade() {
-                continue;
-            }
-            let template_name = head.template_name.clone();
-            let is_dozer = self
-                .templates
-                .get(&template_name)
-                .is_some_and(|t| t.is_kind_of(KindOf::Dozer));
-            if is_dozer {
-                continue;
-            }
-            let is_structure = self
-                .templates
-                .get(&template_name)
-                .is_some_and(|t| t.is_kind_of(KindOf::Structure));
-            let owner_player_id = obj.owner_player_id;
-            let owner_id = self.player_owner_for_host_object(obj);
-            let team = obj.team;
-            let allowed = match owner_id.and_then(|pid| self.get_player(pid)) {
-                Some(player) => player.allowed_to_build(is_structure),
-                None => true,
-            };
-            if allowed {
-                continue;
-            }
-            if let Some(building) = self
-                .objects
-                .get_mut(&producer_id)
-                .and_then(|o| o.building_data.as_mut())
-            {
-                if let Some(item) = building.cancel_production(0) {
-                    cancelled.push((producer_id, owner_player_id, team, item));
-                }
+            if self.map_definition_source.is_some() {
+                return false;
             }
         }
-        for (producer_id, owner_player_id, team, item) in cancelled {
-            self.refund_cancelled_production_item(owner_player_id, team, &item);
+        self.templates
+            .get(name)
+            .is_some_and(|template| template.is_kind_of(KindOf::Dozer))
+    }
+
+    /// Player::allowedToBuild reads the original master template's structure bit.
+    fn script_disallows_production_unit(&self, producer: &Object, name: &str) -> bool {
+        use game_engine::common::system::kind_of::KindOfMask;
+
+        let Some(player) = self
+            .player_owner_for_host_object(producer)
+            .and_then(|owner| self.get_player(owner))
+        else {
+            return false;
+        };
+        if player.can_build_base && player.can_build_units {
+            return false;
         }
+        let is_structure = self
+            .receiving_module_content
+            .as_ref()
+            .and_then(|content| content.master_template(name))
+            .map_or_else(
+                || self.templates.get(name).is_some_and(|t| t.is_kind_of(KindOf::Structure)),
+                |master| master.template().is_kind_of_mask(KindOfMask::STRUCTURE.bits()),
+            );
+        !player.allowed_to_build(is_structure) && !self.production_template_is_dozer(name)
     }
 
     pub(crate) fn update_production(&mut self, dt: f32) {
@@ -258,8 +235,6 @@ impl GameLogic {
         dt: f32,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        // C++ ProductionUpdate.cpp:671 — re-check allowedToBuild on queue head.
-        self.cancel_script_disallowed_production_queue_heads();
         // Wave 613: production complete collect + apply via host helpers.
         // Under PRODUCTION_AUTHORITY sole-tick, GameWorld advances queue progress
         // and writeback finishes heads; host try_complete + spawn runs after
@@ -297,13 +272,13 @@ impl GameLogic {
             };
             // Door and construction-complete timers tick separately. Queue
             // admission is read here because an earlier completion can change it.
-            if obj
+            let Some(head) = obj
                 .building_data
                 .as_ref()
-                .is_none_or(|building| building.production_queue.is_empty())
-            {
+                .and_then(|building| building.production_queue.first())
+            else {
                 continue;
-            }
+            };
             if !obj.is_constructed() || !obj.is_alive() {
                 continue;
             }
@@ -314,6 +289,13 @@ impl GameLogic {
                 continue;
             }
             if obj.status.sold {
+                continue;
+            }
+            // ProductionUpdate.cpp:671–682 cancels one head and returns
+            // before advancing the next one. The normal cancellation path
+            // releases any reserved exit and refunds the controlling player.
+            if !head.is_upgrade() && self.script_disallows_production_unit(obj, &head.template_name) {
+                self.cancel_production_at_index(id, 0);
                 continue;
             }
             let power_factor = obj

@@ -2576,6 +2576,37 @@ fn can_make_aircraft_blocked_when_airfield_parking_full() {
         CANMAKE_PARKING_PLACES_FULL,
         "ParkingPlaceBehavior must win over the generic queue-full status"
     );
+
+    let queue_state = |world: &GameLogic| {
+        let queue = &world.host_object(queued_airfield).unwrap()
+            .building_data.as_ref().unwrap().production_queue;
+        (queue.len(), queue[0].construction_frames)
+    };
+    let reserved_exits = |world: &GameLogic| {
+        world.airfield_parking_spaces[&queued_airfield]
+            .iter()
+            .filter(|space| space.reserved_for_exit)
+            .count()
+    };
+    let paid_reservations = reserved_exits(&logic);
+    assert_eq!(paid_reservations, DEFAULT_PRODUCTION_QUEUE_LIMIT);
+    let paid_cash = logic.get_player(0).unwrap().resources.supplies;
+    logic.get_player_mut(0).unwrap().set_can_build_units(false);
+    let (airfield, partition) = logic.host_object_and_partition_mut(queued_airfield).unwrap();
+    airfield.set_script_disabled_with_partition_owner(true, partition);
+    logic.update_production(1.0 / 30.0);
+    assert_eq!(queue_state(&logic), (DEFAULT_PRODUCTION_QUEUE_LIMIT, 0));
+    assert_eq!(reserved_exits(&logic), paid_reservations);
+
+    let (airfield, partition) = logic.host_object_and_partition_mut(queued_airfield).unwrap();
+    airfield.set_script_disabled_with_partition_owner(false, partition);
+    logic.update_production(1.0 / 30.0);
+    assert_eq!(queue_state(&logic), (DEFAULT_PRODUCTION_QUEUE_LIMIT - 1, 0));
+    assert_eq!(reserved_exits(&logic), paid_reservations - 1);
+    assert_eq!(
+        logic.get_player(0).unwrap().resources.supplies,
+        paid_cash + logic.templates["TestRaptor"].build_cost.supplies,
+    );
 }
 
 #[test]

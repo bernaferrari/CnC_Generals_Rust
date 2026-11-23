@@ -2934,9 +2934,13 @@ impl GameLogic {
         };
         use crate::game_logic::host_stealth_fighter::requires_stealth_fighter_science;
 
-        let template = match self.templates.get(&template_name) {
-            Some(t) => t.clone(),
-            None => return false,
+        let Some(template) = self.templates.get(&template_name) else {
+            return false;
+        };
+        let Some(producer) = self.objects.get(&producer_id).filter(|producer| {
+            producer.building_data.is_some() && host_object_has_production_update(self, producer)
+        }) else {
+            return false;
         };
         let science_gated = requires_stealth_fighter_science(&template_name);
         // C++ BuildAssistant::canMakeUnit residual gate (before charging).
@@ -2982,36 +2986,32 @@ impl GameLogic {
             }
             return false;
         }
-        let science_ok = science_gated; // residual already validated via can_make
-
         // C++ ThingTemplate::calcCostToBuild / calcTimeToBuild are evaluated
         // for the actual controlling Player.  Resolve that identity before a
         // mutable player borrow so an exact General's name-key modifiers stay
         // coupled to the charged queue entry (including cancellation refunds).
-        let (player_id, charged_cost, total_time) = {
-            let Some(producer) = self.objects.get(&producer_id) else {
-                return false;
-            };
-            let Some(player_id) = producer.owner_player_id.or_else(|| {
-                self.get_player_by_team(producer.team)
-                    .map(|player| player.id)
-            }) else {
-                return false;
-            };
-            let mut cost = template.build_cost;
-            cost.supplies = self.modified_build_cost_supplies(
-                player_id,
-                &template_name,
-                template.build_cost.supplies,
-            );
-            let total_time =
-                self.modified_build_time_seconds(player_id, &template_name, template.build_time);
-            (player_id, cost, total_time)
+        let Some(player_id) = producer.owner_player_id.or_else(|| {
+            self.get_player_by_team(producer.team)
+                .map(|player| player.id)
+        }) else {
+            return false;
         };
+        let mut charged_cost = template.build_cost;
+        charged_cost.supplies = self.modified_build_cost_supplies(
+            player_id,
+            &template_name,
+            charged_cost.supplies,
+        );
+        let total_time =
+            self.modified_build_time_seconds(player_id, &template_name, template.build_time);
+        let quantity = crate::game_logic::host_production_buildable_command_residual::production_quantity_modifier(
+            &producer.template_name,
+            &template_name,
+        );
 
         // C++ ProductionUpdate::queueCreateUnit reserveDoorForExit before charge.
         let reserved_exit_door =
-            if self.should_reserve_airfield_door_when_queued(producer_id, &template) {
+            if self.should_reserve_airfield_door_when_queued(producer_id, template) {
                 match self.reserve_airfield_door_for_exit(producer_id) {
                     Some(door) => Some(door),
                     None => return false,
@@ -3035,40 +3035,17 @@ impl GameLogic {
             return false;
         }
 
-        let producer_template_name = self
+        // Door reservation and the money debit leave the validated queue in place.
+        self
             .objects
-            .get(&producer_id)
-            .map(|o| o.template_name.clone())
-            .unwrap_or_default();
-        let quantity = crate::game_logic::host_production_buildable_command_residual::production_quantity_modifier(
-            &producer_template_name,
-            &template_name,
-        );
-        if let Some(producer) = self.objects.get_mut(&producer_id) {
-            if let Some(building) = producer.building_data.as_mut() {
-                if building.add_to_queue_with_quantity_and_terms(
-                    template_name.clone(),
-                    &template,
-                    quantity,
-                    total_time,
-                    charged_cost,
-                ) {
-                    if science_gated && science_ok {
-                        self.stealth_fighter_science.record_production_enqueue();
-                    }
-
-                    return true;
-                }
-                if let Some(door) = reserved_exit_door {
-                    self.unreserve_airfield_door_for_exit(producer_id, door);
-                }
-                return false;
-            }
+            .get_mut(&producer_id)
+            .and_then(|producer| producer.building_data.as_mut())
+            .expect("validated production queue")
+            .push_authorized_unit(template_name, quantity, total_time, charged_cost);
+        if science_gated {
+            self.stealth_fighter_science.record_production_enqueue();
         }
-        if let Some(door) = reserved_exit_door {
-            self.unreserve_airfield_door_for_exit(producer_id, door);
-        }
-        false
+        true
     }
 
     /// Unlock a science for a team and record residual honesty hooks.

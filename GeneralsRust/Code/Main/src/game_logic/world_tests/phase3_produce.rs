@@ -482,7 +482,7 @@ fn queue_head_allowed_to_build_recheck_cancels_script_disallowed_unit() {
     if let Some(p) = logic.get_player_mut(0) {
         p.set_can_build_units(false);
     }
-    logic.cancel_script_disallowed_production_queue_heads();
+    logic.update_production(1.0 / 30.0);
     let qlen = logic
         .host_object(bid)
         .and_then(|o| o.building_data.as_ref())
@@ -509,7 +509,7 @@ fn queue_head_allowed_to_build_recheck_cancels_script_disallowed_unit() {
     if let Some(p) = logic.get_player_mut(0) {
         p.set_can_build_units(false);
     }
-    logic.cancel_script_disallowed_production_queue_heads();
+    logic.update_production(1.0 / 30.0);
     let qlen = logic
         .host_object(cc)
         .and_then(|o| o.building_data.as_ref())

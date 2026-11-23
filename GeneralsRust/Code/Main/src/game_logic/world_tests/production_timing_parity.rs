@@ -346,7 +346,7 @@ fn admit_production_fixture_content(world: &mut GameLogic) {
     // from the saved live roster or a foreign application's ThingFactory.
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
         "production-timing.ini".into(),
-        "Object TestBarracks\nKindOf = STRUCTURE FS_BARRACKS SELECTABLE\nBuildCost = 600\nBody = ActiveBody BarracksBody\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nEnd\nObject TestInfantry\nKindOf = INFANTRY SELECTABLE SCORE\nBuildCost = 101\nBuildTime = 2.099\nTransportSlotCount = 1\nBody = ActiveBody InfantryBody\nMaxHealth = 80\nInitialHealth = 80\nEnd\nEnd\n".into(),
+        "Object TestBarracks\nKindOf = STRUCTURE FS_BARRACKS SELECTABLE\nBuildCost = 600\nBody = ActiveBody BarracksBody\nMaxHealth = 1000\nInitialHealth = 1000\nEnd\nBehavior = ProductionUpdate FixtureProduction\nEnd\nEnd\nObject TestInfantry\nKindOf = INFANTRY SELECTABLE SCORE\nBuildCost = 101\nBuildTime = 2.099\nTransportSlotCount = 1\nBody = ActiveBody InfantryBody\nMaxHealth = 80\nInitialHealth = 80\nEnd\nEnd\n".into(),
     )]).unwrap()).unwrap();
 }
 

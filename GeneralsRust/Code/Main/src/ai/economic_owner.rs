@@ -489,6 +489,137 @@ mod tests {
     }
 
     #[test]
+    fn typed_dozer_order_uses_master_head_and_keeps_its_paid_identity_through_map_override() {
+        use crate::fixture_content::{FixtureObject, admit_fixture_content_with_actions};
+        use game_engine::common::system::kind_of::KindOfMask;
+        use game_engine::common::system::DataChunkOutput;
+
+        const FIRST_DECLARED: &str = "AardvarkMasterBuilder";
+        const LAST_DECLARED: &str = "ZebraMasterBuilder";
+        const FACTORY: &str = "MasterBuilderFactory";
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "typed_dozer_order_uses_master_head_and_keeps_its_paid_identity_through_map_override",
+            || {
+                for override_dozer_flag in [false, true] {
+                    let dir = tempfile::tempdir().unwrap();
+                    let file = dir.path().join("MasterBuilderOrder.map");
+                    let mut map = DataChunkOutput::new();
+                    map.open_data_chunk("HeightMapData", 3);
+                    for word in [41, 41, 0, 1681] {
+                        map.write_int(word);
+                    }
+                    for _ in 0..1681 {
+                        map.write_byte(0);
+                    }
+                    map.close_data_chunk();
+                    std::fs::write(&file, map.into_ckmp_bytes()).unwrap();
+                    if override_dozer_flag {
+                        std::fs::write(
+                            dir.path().join("Map.ini"),
+                            format!("Object {LAST_DECLARED}\nKindOf = -DOZER\nEnd\n"),
+                        )
+                        .unwrap();
+                    }
+
+                    let mut world = GameLogic::new();
+                    admit_fixture_content_with_actions(
+                        &mut world,
+                        &[
+                            FixtureObject::new(FIRST_DECLARED)
+                                .kind_of("VEHICLE DOZER SELECTABLE")
+                                .walker()
+                                .dozer()
+                                .build_cost(350),
+                            FixtureObject::new(LAST_DECLARED)
+                                .kind_of("VEHICLE DOZER SELECTABLE")
+                                .walker()
+                                .dozer()
+                                .build_cost(425),
+                            FixtureObject::new(FACTORY)
+                                .kind_of("STRUCTURE IMMOBILE")
+                                .health(1_000.0)
+                                .field("CommandSet = MasterBuilderCommands")
+                                .module("Behavior = ProductionUpdate Producer\nEnd")
+                                .module("Behavior = DefaultProductionExitUpdate Exit\nEnd"),
+                        ],
+                        &[],
+                        &format!(
+                            "CommandButton BuildAardvark\n Command = UNIT_BUILD\n Object = {FIRST_DECLARED}\nEnd\n\
+                             CommandButton BuildZebra\n Command = UNIT_BUILD\n Object = {LAST_DECLARED}\nEnd\n\
+                             CommandSet MasterBuilderCommands\n 1 = BuildAardvark\n 2 = BuildZebra\nEnd\n",
+                        ),
+                    );
+                    world.start_new_game(GameMode::SinglePlayer).unwrap();
+                    assert!(world.load_map(file.to_str().unwrap()));
+                    let catalog = world.receiving_module_content.as_ref().unwrap();
+                    let master = catalog.master_template(LAST_DECLARED).unwrap();
+                    let effective = catalog.admitted_template(LAST_DECLARED).unwrap();
+                    assert!(master.template().is_kind_of_mask(KindOfMask::DOZER.bits()));
+                    assert_eq!(
+                        effective.template().is_kind_of_mask(KindOfMask::DOZER.bits()),
+                        !override_dozer_flag,
+                    );
+                    assert_eq!(
+                        world.templates[LAST_DECLARED].is_kind_of(KindOf::Dozer),
+                        !override_dozer_flag,
+                    );
+
+                    let mut player = Player::new(1, Team::USA, "Master Builder Owner", false);
+                    player.resources.supplies = 3_000;
+                    world.add_player(player);
+                    world.add_ai_opponent(1, Team::USA, AIDifficulty::Medium);
+                    let position = Vec3::new(120.0, 0.0, 160.0);
+                    let factory = world
+                        .create_object_for_player(FACTORY, 1, position)
+                        .unwrap();
+                    let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+                    ai.building_queue.clear();
+                    ai.add_building(FACTORY, position, 0);
+                    ai.building_queue[0].object_id = Some(factory);
+                    assert!(world.constructor_can_build_template(factory, FIRST_DECLARED));
+                    assert!(world.constructor_can_build_template(factory, LAST_DECLARED));
+
+                    world.get_player_mut(1).unwrap().set_can_build_units(false);
+                    world.admit_owned_ai_dozer(1, 1.0);
+                    world.admit_owned_ai_dozer(1, 1.0);
+                    let ai = &world.ai_manager.ai_players[&1];
+                    assert_eq!(ai.team_queue.len(), 1);
+                    let order = &ai.team_queue[0].work_orders[0];
+                    assert_eq!(order.template_name, LAST_DECLARED);
+                    assert_eq!(order.factory_id, Some(factory));
+                    assert_eq!(order.queued_count, 1);
+                    assert!(!order.is_resource_gatherer);
+                    let production = &world
+                        .host_object(factory)
+                        .unwrap()
+                        .building_data
+                        .as_ref()
+                        .unwrap()
+                        .production_queue;
+                    assert_eq!(production.len(), 1);
+                    assert_eq!(production[0].template_name, LAST_DECLARED);
+                    assert_eq!(world.get_player(1).unwrap().resources.supplies, 2575);
+                    assert!(!world.get_player(1).unwrap().can_build_units);
+
+                    world.frame += 1;
+                    world.update_production(1.0 / LOGIC_FRAMES_PER_SECOND);
+                    let production = &world
+                        .host_object(factory)
+                        .unwrap()
+                        .building_data
+                        .as_ref()
+                        .unwrap()
+                        .production_queue;
+                    assert_eq!(production.len(), 1);
+                    assert_eq!(production[0].construction_frames, 1);
+                    assert_eq!(world.get_player(1).unwrap().resources.supplies, 2575);
+                }
+            },
+        );
+    }
+
+    #[test]
     fn owned_dozer_queue_discovers_and_uses_factory_with_unit_building_temporarily_enabled() {
         let (mut world, _) = world();
         world.frame = 1;

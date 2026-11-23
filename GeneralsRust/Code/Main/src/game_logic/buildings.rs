@@ -365,26 +365,37 @@ impl BuildingData {
         if self.can_produce(template)
             && self.production_queue.len() < DEFAULT_PRODUCTION_QUEUE_LIMIT
         {
-            self.next_production_entry_identity = self
-                .next_production_entry_identity
-                .checked_add(1)
-                .expect("production entry identity exhausted");
-            let item = ProductionItem {
-                runtime_entry_identity: self.next_production_entry_identity,
-                template_name,
-                progress: 0.0,
-                total_time: total_time.max(0.0),
-                construction_frames: 0,
-                cost,
-                quantity_total: quantity.max(1),
-                quantity_produced: 0,
-                kind: ProductionKind::Unit,
-            };
-            self.production_queue.push(item);
+            self.push_authorized_unit(template_name, quantity, total_time, cost);
             true
         } else {
             false
         }
+    }
+
+    /// ProductionUpdate receives an order after BuildAssistant validates the
+    /// CommandSet and queue capacity.
+    pub(super) fn push_authorized_unit(
+        &mut self,
+        template_name: String,
+        quantity: u32,
+        total_time: f32,
+        cost: Resources,
+    ) {
+        self.next_production_entry_identity = self
+            .next_production_entry_identity
+            .checked_add(1)
+            .expect("production entry identity exhausted");
+        self.production_queue.push(ProductionItem {
+            runtime_entry_identity: self.next_production_entry_identity,
+            template_name,
+            progress: 0.0,
+            total_time: total_time.max(0.0),
+            construction_frames: 0,
+            cost,
+            quantity_total: quantity.max(1),
+            quantity_produced: 0,
+            kind: ProductionKind::Unit,
+        });
     }
 
     /// Queue a PRODUCTION_UPGRADE residual entry (research on this producer).

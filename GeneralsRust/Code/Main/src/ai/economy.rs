@@ -1,4 +1,5 @@
 use super::*;
+use game_engine::common::system::kind_of::KindOfMask;
 use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
 
 struct DozerReadiness {
@@ -224,24 +225,13 @@ impl AIPlayer {
         }
     }
 
-    /// C++ queueDozer / work-order gates use KINDOF_DOZER, never a name peel.
-    pub(super) fn is_dozer_work_order_template(
-        world: &GameLogic,
-        template_name: &str,
-    ) -> bool {
-        world
-            .templates
-            .get(template_name)
-            .is_some_and(|template| template.is_kind_of(crate::game_logic::KindOf::Dozer))
-    }
-
     pub(super) fn dozer_already_queued(&self, world: &GameLogic) -> bool {
         self.team_queue.iter().any(|team| {
             team.work_orders.iter().any(|order| {
                 // AIPlayer.cpp:3523–3534: GLA Workers bought for a supply
                 // assignment do not count as pending builder replacements.
                 !order.is_resource_gatherer
-                    && Self::is_dozer_work_order_template(world, &order.template_name)
+                    && world.production_template_is_dozer(&order.template_name)
             })
         })
     }
@@ -254,19 +244,33 @@ impl AIPlayer {
         world: &GameLogic,
         mut capture: impl FnMut(usize),
     ) -> Option<(String, crate::game_logic::ObjectId)> {
+        let mut find = |name: &str| {
+            self.find_factory_visiting_captures(world, name, true, &mut capture)
+                .map(|factory| (name.to_owned(), factory))
+        };
+        let content = world.receiving_module_content.as_ref();
+        if let Some(content) = content {
+            let authored = content
+                .master_templates()
+                .filter(|master| master.template().is_kind_of_mask(KindOfMask::DOZER.bits()))
+                .find_map(|master| find(master.name()));
+            if authored.is_some() || world.map_definition_source.is_some() {
+                return authored;
+            }
+        }
+
+        // Standalone synthetic templates have no receiving master-list node.
         let mut names: Vec<_> = world
             .templates
             .iter()
-            .filter(|(_, template)| template.is_kind_of(KindOf::Dozer))
+            .filter(|(name, template)| {
+                template.is_kind_of(KindOf::Dozer)
+                    && content.is_none_or(|content| content.master_template(name).is_none())
+            })
             .map(|(name, _)| name.as_str())
             .collect();
-        // HashMap has no INI chain; name order keeps the empty/present outcome
-        // stable across runs when several Dozer kinds share one catalog.
         names.sort_unstable();
-        names.into_iter().find_map(|name| {
-            self.find_factory_visiting_captures(world, name, true, &mut capture)
-                .map(|factory| (name.to_owned(), factory))
-        })
+        names.into_iter().find_map(find)
     }
 
     /// C++ `AIPlayer::queueDozer` (AIPlayer.cpp:3128–3171): start a priority

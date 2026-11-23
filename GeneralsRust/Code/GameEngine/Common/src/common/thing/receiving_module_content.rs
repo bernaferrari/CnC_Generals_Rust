@@ -334,6 +334,20 @@ impl ReceivingModuleContent {
         })
     }
 
+    /// Borrow the same master node that ThingFactory::findTemplate returns.
+    pub fn master_template(&self, name: &str) -> Option<&AdmittedReceivingTemplate> {
+        self.templates.get(name).map(|entry| entry.master.as_ref())
+    }
+
+    /// ThingFactory::firstTemplate / nextTemplate order. New names prepend,
+    /// including map-only roots. Overrides of existing names stay off the list.
+    pub fn master_templates(&self) -> impl Iterator<Item = &AdmittedReceivingTemplate> {
+        self.declaration_order
+            .iter()
+            .rev()
+            .filter_map(|name| self.master_template(name))
+    }
+
     /// Completed hidden overrides in declaration order, excluding the master.
     /// The borrow is scoped to this catalog so reset cannot leave a stale chain.
     pub fn template_override_chain(

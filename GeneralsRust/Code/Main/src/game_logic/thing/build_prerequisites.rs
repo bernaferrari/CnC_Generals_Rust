@@ -132,6 +132,7 @@ impl ThingTemplate {
         plan: &game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
         content: &game_engine::common::thing::receiving_module_content::ReceivingModuleContent,
     ) -> Result<(), String> {
+        use game_engine::common::system::kind_of::KindOfMask;
         use gamelogic::object::collide::crate_collide::sabotage_power_plant_crate_collide::PowerPlantSabotageRule;
 
         let sabotage_rules =
@@ -144,6 +145,13 @@ impl ThingTemplate {
         self.buildable_status = plan.buildable_status();
         self.reskinned_from = plan.reskin_name().map(str::to_owned);
         self.build_variations = plan.build_variations().map(str::to_owned).collect();
+        // Construction uses the effective template. A Map.ini override can
+        // remove DOZER even when the base factory node still has that flag.
+        if plan.template().is_kind_of_mask(KindOfMask::DOZER.bits()) {
+            self.kind_of.insert(crate::game_logic::KindOf::Dozer);
+        } else {
+            self.kind_of.remove(&crate::game_logic::KindOf::Dozer);
+        }
         // ThingTemplate.cpp initializes this field to zero before the factory
         // copies any defaults or applies authored overrides.
         self.energy_production = Some(plan.template().get_energy_production());

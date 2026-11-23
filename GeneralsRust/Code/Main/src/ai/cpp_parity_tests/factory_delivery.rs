@@ -361,13 +361,15 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
     // NewGame (GameEngine.cpp:428-458).  The free Chinook comes from the
     // supply center's SpawnBehavior through its ProductionExit.
     {
-        use crate::fixture_content::{admit_fixture_objects, FixtureObject};
-        admit_fixture_objects(
+        use crate::fixture_content::{admit_fixture_content_with_actions, FixtureObject};
+        admit_fixture_content_with_actions(
             &mut logic,
             &[
                 FixtureObject::new("AmericaSupplyCenter")
                     .kind_of("STRUCTURE FS_SUPPLY_CENTER SELECTABLE")
                     .build_cost(2_000)
+                    .field("CommandSet = AmericaSupplyCenterCommandSet")
+                    .module("Behavior = ProductionUpdate FactoryTag\nEnd")
                     .module("Behavior = SpawnBehavior SpawnTag\n OneShot = Yes\n SpawnNumber = 1\n SpawnTemplateName = AmericaVehicleChinook\nEnd")
                     .module("Behavior = SupplyCenterProductionExitUpdate ExitTag\n UnitCreatePoint = X:0 Y:0 Z:0\n NaturalRallyPoint = X:30 Y:0 Z:0\nEnd"),
                 // Keep the focused test on the real production completion
@@ -379,6 +381,9 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
                     .module("Behavior = SupplyTruckAIUpdate TruckAI\nEnd"),
                 FixtureObject::new("TestSupplySource").kind_of("SUPPLY_SOURCE"),
             ],
+            &[],
+            "CommandButton TestTrainChinook\n Command = UNIT_BUILD\n Object = AmericaVehicleChinook\nEnd\n\
+             CommandSet AmericaSupplyCenterCommandSet\n 1 = TestTrainChinook\nEnd\n",
         );
     }
     let source_id = logic
