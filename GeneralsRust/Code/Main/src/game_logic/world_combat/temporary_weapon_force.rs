@@ -154,7 +154,7 @@ impl GameLogic {
 
     /// Fire a fresh PRIMARY weapon at a world position using only this world's
     /// admitted template. A position target is not an object target.
-    pub(crate) fn fire_ocl_temporary_weapon_at(
+    pub(crate) fn fire_owned_temporary_weapon_at(
         &mut self,
         source: ObjectId,
         weapon_name: &str,

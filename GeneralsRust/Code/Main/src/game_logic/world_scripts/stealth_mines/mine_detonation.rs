@@ -3,6 +3,31 @@
 use super::*;
 
 impl GameLogic {
+    fn fire_authored_stationary_mine_weapon(
+        &mut self,
+        mine: ObjectId,
+        position: Vec3,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let Some(weapon_name) = self.objects.get(&mine)
+            .and_then(|object| object.thing().template.receiving_object_definition.as_deref())
+            .and_then(|definition| definition.behavior_modules.iter()
+                .find(|module| module.class_name.eq_ignore_ascii_case("MinefieldBehavior")))
+            .and_then(|module| module.attribute("DetonationWeapon"))
+        else {
+            return Ok(false);
+        };
+        let stationary = self.weapon_definitions.as_ref()
+            .and_then(|definitions| definitions.get(&weapon_name.trim().to_ascii_lowercase()))
+            .is_some_and(|weapon| self.receives_stationary_projectile(&weapon.projectile_name));
+        if !stationary {
+            return Ok(false);
+        }
+        let weapon_name = weapon_name.to_owned();
+        self.fire_owned_temporary_weapon_at(mine, &weapon_name, position, effects)?;
+        Ok(true)
+    }
+
     /// Safely disarm/clear a residual mine without detonation or area damage.
     /// C++ Weapon DAMAGE_DISARM → LandMineInterface::disarm / destroyObject residual.
     /// Demo traps (KINDOF_DEMOTRAP) are disarmed the same way — no explosion.
@@ -253,9 +278,10 @@ impl GameLogic {
 
         let mut destroy_ids: Vec<(ObjectId, Team, std::sync::Weak<()>)> = Vec::new();
         let mut chain_ids: Vec<ObjectId> = Vec::new();
-        if neutron_blast {
+        let fired = self.fire_authored_stationary_mine_weapon(mine_id, blast_pos, effects)?;
+        if !fired && neutron_blast {
             destroy_ids = self.apply_neutron_mine_blast(mine_id, blast_pos, mine_team);
-        } else {
+        } else if !fired {
             let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
             for vid in victim_ids {
                 if vid == mine_id {
@@ -336,20 +362,22 @@ impl GameLogic {
             );
         }
 
-        // Audio + particle residual.
-        self.queue_audio_event(
-            AudioEventRequest::new(kind.detonate_audio())
-                .with_object(mine_id)
-                .with_position(blast_pos)
-                .with_priority(190),
-        );
-        let _ = self.combat_particles.spawn(
-            CombatParticleKind::WeaponImpact,
-            blast_pos,
-            self.frame,
-            Some(mine_id),
-            None,
-        );
+        if !fired {
+            // Audio + particle residual.
+            self.queue_audio_event(
+                AudioEventRequest::new(kind.detonate_audio())
+                    .with_object(mine_id)
+                    .with_position(blast_pos)
+                    .with_priority(190),
+            );
+            let _ = self.combat_particles.spawn(
+                CombatParticleKind::WeaponImpact,
+                blast_pos,
+                self.frame,
+                Some(mine_id),
+                None,
+            );
+        }
 
         // Destroy the mine/trap itself.
         self.mark_object_for_destruction_with_effects(
@@ -415,6 +443,9 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_mines::damage_at_distance;
+        if self.fire_authored_stationary_mine_weapon(mine_id, blast_pos, effects)? {
+            return Ok(());
+        }
         let neutron_blast = self
             .objects
             .get(&mine_id)

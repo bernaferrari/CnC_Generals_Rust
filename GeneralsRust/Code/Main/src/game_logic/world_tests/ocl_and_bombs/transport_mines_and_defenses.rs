@@ -2914,3 +2914,87 @@ fn stinger_hive_gates_key_on_spawns_are_the_weapons_not_template_name() {
         assert_eq!(game_logic.apply_stinger_ap_rockets_upgrade(site), spawns_are_weapons, "{name}");
     }
 }
+
+#[test]
+fn authored_virtual_mine_places_neutron_emitter_before_charge_is_consumed() {
+    use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
+
+    let mut world = GameLogic::new();
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![0; 1024];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
+    world.initialize_receiving_partition_grid().unwrap();
+    admit_fixture_content(
+        &mut world,
+        &[
+            FixtureObject::new("RenamedVirtualPad")
+                .kind_of("MINE IMMOBILE")
+                .health(100.0)
+                .field("Geometry = Cylinder")
+                .field("GeometryMajorRadius = 30.0")
+                .module(
+                    "Behavior = MinefieldBehavior Mine\nDetonationWeapon = PadPulseWeapon\n\
+                     NumVirtualMines = 2\nRegenerates = Yes\nEnd",
+                ),
+            FixtureObject::new("RenamedGroundPulse")
+                .kind_of("UNATTACKABLE")
+                .health(1000.0)
+                .module(
+                    "Behavior = HeightDieUpdate Height\nTargetHeight = 100.0\n\
+                     OnlyWhenMovingDown = No\nSnapToGroundOnDeath = Yes\nEnd",
+                )
+                .module(
+                    "Behavior = NeutronBlastBehavior Pulse\nBlastRadius = 20.0\n\
+                     AffectAirborne = No\nAffectAllies = No\nEnd",
+                ),
+            FixtureObject::new("PadPulseTarget")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(400.0),
+        ],
+        &[FixtureWeapon::new("PadPulseWeapon")
+            .damage(1.0)
+            .radius(10.0)
+            .damage_type("EXPLOSION")
+            .field("ProjectileObject = RenamedGroundPulse")
+            .field("WeaponSpeed = 0.01")
+            .field("RadiusDamageAffects = ENEMIES NEUTRALS")],
+    );
+    use crate::game_logic::{Player, PlayerSideRole};
+    let mut neutral = Player::new(0, Team::Neutral, "Neutral", false);
+    neutral.map_side.role = PlayerSideRole::Neutral;
+    neutral.map_side.map_player_name.clear();
+    world.add_player(neutral);
+    for (id, team) in [(1, Team::China), (2, Team::USA)] {
+        let mut player = Player::new(id, team, "mine fixture", id == 1);
+        player.alliance_team = id as i32;
+        world.add_player(player);
+    }
+    let pad_pos = Vec3::new(100.0, 0.0, 100.0);
+    let target_pos = pad_pos + Vec3::new(3.0, 0.0, 0.0);
+    let pad = world.create_object_for_player("RenamedVirtualPad", 1, pad_pos).unwrap();
+    let target = world.create_object_for_player("PadPulseTarget", 2, target_pos).unwrap();
+    world.update_mines_and_demo_traps().unwrap();
+
+    let mine = world.host_object(pad).unwrap().mine_data.as_ref().unwrap();
+    assert_eq!(mine.virtual_mines_remaining, 1);
+    let emitters: Vec<_> = world.host_objects().registered_values()
+        .filter(|object| object.template_name == "RenamedGroundPulse")
+        .map(|object| (object.id, object.get_position(), object.producer_id))
+        .collect();
+    assert_eq!(emitters.len(), 1, "authored temporary weapon must create its no-flight projectile");
+    assert_eq!(emitters[0].1, target_pos);
+    assert_eq!(emitters[0].2, Some(pad));
+    assert_eq!(world.host_object(target).unwrap().health.current, 400.0);
+    assert!(!world.host_object(target).unwrap().is_unmanned());
+
+    world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+    for _ in 0..3 {
+        let _ = world.update_with_dt(1.0 / 30.0);
+    }
+    assert_eq!(world.host_object(target).unwrap().health.current, 400.0);
+    assert!(world.host_object(target).unwrap().is_unmanned());
+    assert_eq!(world.host_object(target).unwrap().team, Team::Neutral);
+}

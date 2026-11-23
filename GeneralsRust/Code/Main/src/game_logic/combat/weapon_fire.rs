@@ -633,7 +633,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
         let projectile_actor_id = is_missile.then(|| {
             crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
         });
-        if let Some(immediate) = materialize_accepted_projectile(
+        if let Some(MaterializedWeaponShot::ImmediateDamage(immediate)) = materialize_accepted_projectile(
             combat,
             objects,
             frame,
@@ -643,7 +643,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
             geometry,
             partition,
             next_object_id,
-            projectile_actor_id,
+            ProjectilePlacement::Flight { actor_id: projectile_actor_id },
             random,
         ) {
             combat.projectileless_delayed.push(immediate);
@@ -651,11 +651,21 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
     }
 }
 
+pub(in crate::game_logic) enum ProjectilePlacement {
+    Flight { actor_id: Option<ObjectId> },
+    AtDestination,
+}
+
+pub(in crate::game_logic) enum MaterializedWeaponShot {
+    ImmediateDamage(LiveProjectilelessDelayedDamage),
+    PlaceProjectile(Vec3),
+}
+
 /// Materialize exactly one already accepted shot in its receiving match.
 /// This does not read, drain, or rearrange that match's previously queued shots.
 /// The ordinary queued phase and synchronous passive-fire route share this body.
-/// Return only this shot's immediate projectileless damage; future delayed shots
-/// are installed directly. The queued caller retains its original apply phase.
+/// Return work that requires the owning match: immediate Body damage or a
+/// stationary projectile Object. Later delayed shots are installed directly.
 pub(in crate::game_logic) fn materialize_accepted_projectile(
     combat: &mut CombatSystem,
     objects: HostObjectRead<'_>,
@@ -666,9 +676,9 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     geometry: Option<crate::game_logic::HostGeometryInfo>,
     partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
     next_object_id: &mut ObjectId,
-    projectile_actor_id: Option<ObjectId>,
+    placement: ProjectilePlacement,
     random: &game_engine::common::random_value::SessionRandom,
-) -> Option<LiveProjectilelessDelayedDamage> {
+) -> Option<MaterializedWeaponShot> {
     // Accepted records retain their captured lifecycle. Otherwise resolve only
     // the already-borrowed effective profile of this same receiving session.
     let projectile_lifecycle = p
@@ -812,6 +822,12 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         }
     }
 
+    let ProjectilePlacement::Flight { actor_id } = placement else {
+        // Weapon.cpp:1137 places Objects with no ProjectileUpdateInterface at
+        // the accepted destination. Their own Update/Die modules drive them.
+        return Some(MaterializedWeaponShot::PlaceProjectile(target_pos));
+    };
+
     // The firing owner captured any self-damage source position separately
     // from the target used for travel and projectile flight.
 
@@ -858,7 +874,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
             fire_target_id,
             rolled_radius,
             frame,
-        );
+        ).map(MaterializedWeaponShot::ImmediateDamage);
     }
 
     // C++ WeaponSpeed is distance per logic frame. CombatSystem integrates
@@ -900,7 +916,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     );
     let id = if requires_actor {
         // The accepted flight must share the receiving Object's identity.
-        projectile_actor_id?
+        actor_id?
     } else {
         crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
     };

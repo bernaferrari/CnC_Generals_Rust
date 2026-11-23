@@ -1748,16 +1748,64 @@ impl GameLogic {
         Ok(())
     }
 
+    /// The receiving content currently supports at-destination flight for a
+    /// HeightDie emitter. MissileAIUpdate and DumbProjectileBehavior keep
+    /// their own flight profiles.
+    pub(in crate::game_logic) fn receives_stationary_projectile(&self, name: &str) -> bool {
+        let name = name.trim();
+        !name.is_empty()
+            && !name.eq_ignore_ascii_case("none")
+            && self.projectile_definitions.get(name).is_none()
+            && self.receiving_object_definitions.as_ref()
+                .and_then(|definitions| definitions.get(name))
+                .is_some_and(|definition| {
+                    let declares = |class: &str| {
+                        definition.behavior_modules.iter()
+                            .any(|module| module.class_name.eq_ignore_ascii_case(class))
+                    };
+                    declares("HeightDieUpdate") && declares("NeutronBlastBehavior")
+                })
+    }
+
+    fn create_accepted_projectile_actor(
+        &mut self,
+        name: &str,
+        team: Team,
+        owner: Option<u32>,
+        position: Vec3,
+        team_id: Option<u32>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<(ObjectId, (u64, u64))> {
+        match self.create_projectile_with_birth_checked(name, team, owner, position, team_id, effects) {
+            Ok(Some(birth)) => Ok(birth),
+            Ok(None) => Err(gamelogic::GameLogicError::Configuration(format!(
+                "Could not create projectile {name}"
+            ))),
+            Err(error) => {
+                if let Some((id, birth)) = error.committed
+                    && self.spawn_identity_matches(id, birth.0, birth.1)
+                {
+                    self.destroy_object_with_effects(id, effects)?;
+                }
+                Err(error.error)
+            }
+        }
+    }
+
     fn materialize_owned_shot_with_effects(
         &mut self,
         pending: crate::game_logic::combat::PendingProjectile,
         stream_binding: Option<crate::game_logic::combat::ProjectileStreamBinding>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<crate::game_logic::combat::LiveProjectilelessDelayedDamage>> {
+        use crate::game_logic::combat::{MaterializedWeaponShot, ProjectilePlacement};
+        use crate::game_logic::weapon_bootstrap::HostProjectileFlight;
+
         let projectile_name = pending.projectile_object_name.clone();
-        let missile = self.projectile_definitions.get(&projectile_name).is_some_and(|profile| {
-            matches!(profile.flight, crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_))
-        });
+        let profile = self.projectile_definitions.get(&projectile_name);
+        let missile = profile.is_some_and(|profile| matches!(profile.flight, HostProjectileFlight::Missile(_)));
+        let at_destination = profile.is_none() && self.receives_stationary_projectile(&projectile_name);
+        let profile_lifecycle = profile.map(|profile| profile.lifecycle);
         if !missile && matches!(
             pending.projectile_lifecycle,
             Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
@@ -1792,7 +1840,7 @@ impl GameLogic {
         let has_aim = pending.target_pos.is_some()
             || pending.target_id.is_some_and(|id| self.objects.lookup(&id).is_some());
         let detonate_calls_kill = pending.projectile_lifecycle
-            .or_else(|| self.projectile_definitions.get(&projectile_name).map(|profile| profile.lifecycle))
+            .or(profile_lifecycle)
             .is_some_and(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::detonate_calls_kill);
         let shooter_id = pending.shooter_id;
         let birth = if (missile || detonate_calls_kill) && has_aim {
@@ -1801,27 +1849,19 @@ impl GameLogic {
                     "Missile {projectile_name} has no launch transform"
                 )));
             }
-            match self.create_projectile_with_birth_checked(
+            Some(self.create_accepted_projectile_actor(
                 &projectile_name, team, owner, position,
                 source.and_then(|context| context.projectile_team_id), effects,
-            ) {
-                Ok(Some(birth)) => Some(birth),
-                Ok(None) => return Err(gamelogic::GameLogicError::Configuration(format!(
-                    "Could not create projectile {projectile_name}"
-                ))),
-                Err(error) => {
-                    if let Some((id, birth)) = error.committed {
-                        if self.spawn_identity_matches(id, birth.0, birth.1) {
-                            self.destroy_object_with_effects(id, effects)?;
-                        }
-                    }
-                    return Err(error.error);
-                }
-            }
+            )?)
         } else {
             None
         };
-        let ready = crate::game_logic::combat::materialize_accepted_projectile(
+        let placement = if at_destination {
+            ProjectilePlacement::AtDestination
+        } else {
+            ProjectilePlacement::Flight { actor_id: birth.map(|(id, _)| id) }
+        };
+        let accepted = crate::game_logic::combat::materialize_accepted_projectile(
             &mut self.combat_system,
             self.objects.read(),
             self.frame,
@@ -1831,9 +1871,27 @@ impl GameLogic {
             self.projectile_definitions.geometry(&projectile_name),
             Some(&self.partition_manager),
             &mut self.next_object_id,
-            birth.map(|(id, _)| id),
+            placement,
             &self.logic_random,
         );
+        let ready = match accepted {
+            Some(MaterializedWeaponShot::ImmediateDamage(damage)) => Some(damage),
+            Some(MaterializedWeaponShot::PlaceProjectile(at)) => {
+                let (id, birth) = self.create_accepted_projectile_actor(
+                    &projectile_name, team, owner, Vec3::ZERO,
+                    source.and_then(|context| context.projectile_team_id), effects,
+                )?;
+                if self.spawn_identity_matches(id, birth.0, birth.1) {
+                    let actor = self.objects.get_mut(&id).expect("receiving projectile birth");
+                    actor.producer_id = Some(shooter_id);
+                    actor.set_position_with_partition_owner(
+                        at, self.frame, effects, &mut self.partition_manager,
+                    );
+                }
+                return Ok(None);
+            }
+            None => None,
+        };
         if let Some((id, birth)) = birth {
             let valid = self.spawn_identity_matches(id, birth.0, birth.1);
             if detonate_calls_kill && !missile && valid {

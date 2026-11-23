@@ -289,7 +289,7 @@ impl GameLogic {
                 if let (Some(source), Some(position), Some(weapon)) =
                     (source_id, position, fire.weapon.as_deref())
                 {
-                    if let Err(error) = self.fire_ocl_temporary_weapon_at(source, weapon, position, presentation_effects) {
+                    if let Err(error) = self.fire_owned_temporary_weapon_at(source, weapon, position, presentation_effects) {
                         return OclExecutionOutcome::failure(created, error);
                     }
                 }
