@@ -275,6 +275,7 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
 
             let mut source = GameLogic::new();
             admit_retail_boot(&mut source);
+            let retail_upgrades = source.upgrade_definition_base.clone();
             const CATALOG_PROBE: &str = "Upgrade_HostRestoreCatalogProbe";
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
                 &mut source,
@@ -351,6 +352,7 @@ fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
             // the source save's catalog. Same-name definitions make accidental
             // Core/peer selection visible without adding upgrade data to saves.
             let mut receiving_rules = GameLogic::new();
+            receiving_rules.upgrade_definitions = retail_upgrades;
             crate::game_logic::host_upgrade_rules::register_test_upgrade(
                 &mut receiving_rules,
                 CATALOG_PROBE,
