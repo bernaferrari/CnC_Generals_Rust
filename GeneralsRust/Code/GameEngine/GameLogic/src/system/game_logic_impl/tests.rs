@@ -2362,6 +2362,81 @@ mod tests {
     }
 
     #[test]
+    fn normal_tick_drains_queued_path_for_its_own_object_and_terrain() {
+        use crate::ai::pathfind_complete::PathfindingSystem;
+        use crate::common::ICoord2D;
+        use crate::modules::AIUpdateInterface;
+        use crate::system::engine_stores::{new_for_world, with_active_stores};
+        use crate::system::map_loader::MapData;
+
+        #[derive(Debug)]
+        struct QueuedAi(Arc<Mutex<Vec<(ICoord2D, ICoord2D)>>>);
+
+        impl AIUpdateInterface for QueuedAi {
+            fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                Ok(())
+            }
+            fn is_moving(&self) -> bool {
+                false
+            }
+            fn is_idle(&self) -> bool {
+                true
+            }
+            fn set_movement_target(&mut self, _: &Coord3D) -> Result<(), String> {
+                Ok(())
+            }
+            fn do_pathfind_with_pathfinder(&mut self, pathfinder: &mut PathfindingSystem) {
+                self.0.lock().unwrap().push(pathfinder.logical_extent());
+            }
+        }
+
+        let _fixture = test_state_lock();
+        const ID: ObjectID = 0xD1F2;
+        let world = |size: usize| {
+            let owner = new_for_world();
+            let pathfinder = owner.ai().read().unwrap().pathfinder().unwrap();
+            let mut map = MapData::new();
+            map.width = size as u32;
+            map.height = size as u32;
+            map.heightmap = vec![0; size * size];
+            map.boundaries = vec![ICoord2D::new(size as i32, size as i32)];
+            owner.services().terrain().write().unwrap().try_load_map_geometry(map).unwrap();
+            {
+                let mut pathfinder = pathfinder.write().unwrap();
+                pathfinder.reset_with_size(size, size);
+                pathfinder.mark_current_map_ready();
+            }
+            let mut logic = GameLogic::new_with_engine_stores(Arc::clone(&owner));
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let mut object = Object::new_test(ID, 100.0);
+            object.set_ai_update_interface(Some(Arc::new(Mutex::new(QueuedAi(Arc::clone(&calls))))));
+            with_active_stores(&owner, || {
+                logic.register_object(Arc::new(RwLock::new(object))).unwrap();
+            });
+            (owner, logic, pathfinder, calls)
+        };
+
+        let (receiver, mut logic, receiver_pathfinder, receiver_calls) = world(8);
+        let (peer, mut peer_logic, peer_pathfinder, peer_calls) = world(4);
+        assert!(receiver_pathfinder.write().unwrap().queue_for_path(ID));
+        assert!(peer_pathfinder.write().unwrap().queue_for_path(ID));
+        with_active_stores(&peer, || {
+            logic.update(30, || None).unwrap();
+            logic.update(31, || None).unwrap();
+            assert!(crate::system::engine_stores::is_active(&peer));
+        });
+        assert_eq!(*receiver_calls.lock().unwrap(), [(ICoord2D::new(0, 0), ICoord2D::new(7, 7))]);
+        assert!(peer_calls.lock().unwrap().is_empty());
+        with_active_stores(&receiver, || {
+            peer_logic.update(40, || None).unwrap();
+            peer_logic.update(41, || None).unwrap();
+            assert!(crate::system::engine_stores::is_active(&receiver));
+        });
+        assert_eq!(*peer_calls.lock().unwrap(), [(ICoord2D::new(0, 0), ICoord2D::new(3, 3))]);
+        assert_eq!(receiver_calls.lock().unwrap().len(), 1);
+    }
+
+    #[test]
     fn destruction_uses_receiving_engine_stores_pathfinder_for_same_id_worlds() {
         let _fixture = test_state_lock();
         const ID: ObjectID = 0xD1F1;

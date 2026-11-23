@@ -726,11 +726,8 @@ impl GameLogic {
             let pathfinder = owner.ai().read()
                 .map_err(|_| GameLogicError::AIError("AI system lock poisoned".into()))?
                 .pathfinder();
-            if let Some(pathfinder) = pathfinder
-                && let Ok(mut pathfinder) = pathfinder.write()
-            {
-                pathfinder.process_pathfind_queue()
-                    .map_err(|error| GameLogicError::AIError(format!("AI update failed: {error}")))?;
+            if let Some(pathfinder) = pathfinder {
+                self.drain_owned_pathfinder(owner, &pathfinder)?;
             }
             crate::player::PlayerList::update_core_sabotage_at(owner.services(), frame);
         } else {
@@ -748,6 +745,54 @@ impl GameLogic {
         }
 
         Ok(())
+    }
+
+    fn drain_owned_pathfinder(
+        &self,
+        owner: &Arc<crate::system::engine_stores::EngineStores>,
+        pathfinder: &RwLock<crate::ai::Pathfinder>,
+    ) -> Result<(), GameLogicError> {
+        use crate::ai::pathfind_complete::PATHFIND_CELLS_PER_FRAME;
+        use crate::system::engine_stores::{is_active, with_active_stores};
+
+        let extent = owner
+            .services()
+            .terrain()
+            .read()
+            .map_err(|_| GameLogicError::AIError("pathfinding terrain lock poisoned".into()))?
+            .get_extent();
+        let Ok(mut pathfinder) = pathfinder.write() else {
+            return Ok(());
+        };
+        let mut drain = || {
+            pathfinder.pathfinding_system_mut().process_queue_with_owner(
+                PATHFIND_CELLS_PER_FRAME,
+                Some(extent),
+                |id, pathfinder| {
+                    // AIPathfind.cpp:5907 resolves this GameLogic's live Object.
+                    // Release the Object borrow before running its AI callback.
+                    let Some(ai) = self
+                        .objects
+                        .get(&id)
+                        .and_then(|object| object.read().ok()?.get_ai_update_interface())
+                    else {
+                        return Ok(false);
+                    };
+                    if let Ok(mut ai) = ai.lock() {
+                        ai.do_pathfind_with_pathfinder(pathfinder);
+                    }
+                    Ok(true)
+                },
+            )
+        };
+        // Remaining legacy path families can still consult Core helpers.
+        // Bind them to the same receiver for this synchronous queue phase.
+        let result = if is_active(owner) {
+            drain()
+        } else {
+            with_active_stores(owner, drain)
+        };
+        result.map(|_| ()).map_err(GameLogicError::AIError)
     }
 
     /// Phase 3: Process command queue
