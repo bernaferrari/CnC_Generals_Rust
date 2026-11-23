@@ -377,10 +377,7 @@ impl OverchargeBehaviorInterface for OverchargeBehavior {
                 self.next_call_frame_and_phase = UPDATE_SLEEP_FOREVER.to_u32();
                 if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id) {
                     if let Ok(guard) = obj.read() {
-                        let module_tag = self.module_data.read().get_module_tag_name_key();
-                        if !guard.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
-                            guard.reschedule_named_update("OverchargeBehavior", self.next_call_frame_and_phase);
-                        }
+                        guard.reschedule_installed_update(&self.module_data, self.next_call_frame_and_phase);
                     }
                 }
             }
@@ -392,10 +389,7 @@ impl OverchargeBehaviorInterface for OverchargeBehavior {
             self.next_call_frame_and_phase = now.saturating_add(1);
             if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id) {
                 if let Ok(guard) = obj.read() {
-                    let module_tag = self.module_data.read().get_module_tag_name_key();
-                    if !guard.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
-                        guard.reschedule_named_update("OverchargeBehavior", self.next_call_frame_and_phase);
-                    }
+                    guard.reschedule_installed_update(&self.module_data, self.next_call_frame_and_phase);
                 }
             }
         }

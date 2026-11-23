@@ -347,10 +347,7 @@ impl StructureCollapseUpdate {
         }
         let forever = UpdateSleepTime::Forever.to_u32();
         if let Ok(obj) = object.read() {
-            let module_tag = module_data.read().get_module_tag_name_key();
-            if !obj.reschedule_tagged_update(module_tag, forever) {
-                obj.reschedule_named_update("StructureCollapseUpdate", forever);
-            }
+            obj.reschedule_installed_update(&module_data, forever);
         }
 
         Ok(Self {
@@ -505,10 +502,7 @@ impl StructureCollapseUpdate {
         }) {
             if let Ok(obj) = object_arc.read() {
                 self.next_call_frame_and_phase = current_frame.saturating_add(1);
-                let module_tag = self.module_data.read().get_module_tag_name_key();
-                if !obj.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
-                    obj.reschedule_named_update("StructureCollapseUpdate", self.next_call_frame_and_phase);
-                }
+                obj.reschedule_installed_update(&self.module_data, self.next_call_frame_and_phase);
                 let pos = *obj.get_position();
                 self.do_phase_stuff(StructureCollapsePhaseType::Initial, &pos);
             }

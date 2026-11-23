@@ -180,10 +180,7 @@ impl StickyBombUpdate {
 
         let forever = UpdateSleepTime::Forever.to_u32();
         if let Ok(obj) = object.read() {
-            let module_tag = module_data.read().get_module_tag_name_key();
-            if !obj.reschedule_tagged_update(module_tag, forever) {
-                obj.reschedule_named_update("StickyBombUpdate", forever);
-            }
+            obj.reschedule_installed_update(module_data.handle(), forever);
         }
 
         Ok(Self {
@@ -254,10 +251,7 @@ impl StickyBombUpdate {
                     self.next_ping_frame = now.wrapping_add(LOGICFRAMES_PER_SECOND);
                 }
                 self.next_call_frame_and_phase = now.saturating_add(1);
-                let module_tag = self.module_data.read().get_module_tag_name_key();
-                if !obj.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
-                    obj.reschedule_named_update("StickyBombUpdate", self.next_call_frame_and_phase);
-                }
+                obj.reschedule_installed_update(self.module_data.handle(), self.next_call_frame_and_phase);
 
                 if let Some(target) = target {
                     let mut pos = *target.get_position();

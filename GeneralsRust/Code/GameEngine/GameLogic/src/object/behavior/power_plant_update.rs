@@ -169,10 +169,7 @@ impl PowerPlantUpdate {
             return;
         };
         if let Ok(guard) = object.read() {
-            let module_tag = self.module_data.read().get_module_tag_name_key();
-            if !guard.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
-                guard.reschedule_named_update("PowerPlantUpdate", self.next_call_frame_and_phase);
-            }
+            guard.reschedule_installed_update(self.module_data.handle(), self.next_call_frame_and_phase);
         }
     }
 
@@ -450,9 +447,10 @@ mod tests {
     }
     /// C++ `UpdateModule::setWakeFrame` wakes `this` only. Two differently
     /// tagged PowerPlantUpdate instances on one Object must schedule
-    /// independently through `reschedule_tagged_update`.
+    /// independently through `reschedule_installed_update`, and a same-tag
+    /// uninstalled handle must not fall back to class or tag selection.
     #[test]
-    fn tagged_power_plant_wake_hits_only_the_matching_installed_entry() {
+    fn installed_power_plant_wake_never_falls_back_to_class() {
         use crate::modules::UpdateModulePtr;
         use crate::object::ModuleUpdateProxy;
 
@@ -460,7 +458,10 @@ mod tests {
             owner: &Arc<RwLock<GameObject>>,
             register: &mut dyn FnMut(ObjectID, UpdateModulePtr, UnsignedInt),
             tag: NameKeyType,
-        ) -> UpdateModulePtr {
+        ) -> (
+            UpdateModulePtr,
+            game_engine::common::thing::module::ModuleDataHandle,
+        ) {
             let data = game_engine::common::thing::module::ModuleDataHandle::new(
                 PowerPlantUpdateModuleData {
                     module_tag_name_key: tag,
@@ -477,7 +478,7 @@ mod tests {
             owner.write().unwrap().install_update_module(
                 "PowerPlantUpdate",
                 Box::new(module),
-                data,
+                data.clone(),
             );
             let (id, entry) = {
                 let object = owner.read().unwrap();
@@ -491,7 +492,7 @@ mod tests {
                 .attach_update_module_registration(proxy.clone(), Some(&entry))
                 .unwrap();
             register(id, proxy.clone(), 40);
-            proxy
+            (proxy, data)
         }
 
         let _serial = crate::test_sync::lock();
@@ -509,8 +510,8 @@ mod tests {
                         .unwrap()
                         .register_sleepy_update_module(id, proxy, wake);
                 };
-                let first = install(&owner, &mut register, 1);
-                let second = install(&owner, &mut register, 2);
+                let (first, first_data) = install(&owner, &mut register, 1);
+                let (second, second_data) = install(&owner, &mut register, 2);
 
                 // Install order is preserved and each entry keeps its own tag.
                 {
@@ -521,13 +522,29 @@ mod tests {
                         .map(|entry| entry.module_tag_key())
                         .collect();
                     assert_eq!(tags, vec![1, 2]);
-                    assert!(!object.reschedule_tagged_update(0, 99));
-                    assert!(!object.reschedule_tagged_update(77, 99));
+                }
+
+                // A fresh uninstalled handle sharing the first module's tag
+                // wakes nothing: identity, not class or tag, selects the entry.
+                let uninstalled = game_engine::common::thing::module::ModuleDataHandle::new(
+                    PowerPlantUpdateModuleData {
+                        module_tag_name_key: 1,
+                        ..Default::default()
+                    },
+                );
+                {
+                    let object = owner.read().unwrap();
+                    object.reschedule_installed_update(&uninstalled, 99);
+                }
+                {
+                    let scheduler = ambient.lock().unwrap();
+                    assert_eq!(scheduler.sleepy_entry_for(&first).unwrap().1, 40);
+                    assert_eq!(scheduler.sleepy_entry_for(&second).unwrap().1, 40);
                 }
 
                 {
                     let object = owner.read().unwrap();
-                    assert!(object.reschedule_tagged_update(1, 17));
+                    object.reschedule_installed_update(&first_data, 17);
                 }
                 {
                     let scheduler = ambient.lock().unwrap();
@@ -543,7 +560,7 @@ mod tests {
 
                 {
                     let object = owner.read().unwrap();
-                    assert!(object.reschedule_tagged_update(2, 55));
+                    object.reschedule_installed_update(&second_data, 55);
                 }
                 {
                     let mut scheduler = ambient.lock().unwrap();

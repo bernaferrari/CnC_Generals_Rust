@@ -305,47 +305,26 @@ impl Object {
         Some((wake, registrations))
     }
 
-    /// Re-register only the update entry installed under `tag_key`.
+    /// Re-register only the update entry installed for this exact module
+    /// data handle.
     ///
-    /// C++ `UpdateModule::setWakeFrame` wakes `this` only; authored module
-    /// tags disambiguate duplicate class instances on one Object. The tag
-    /// resolves through the module entry's data handle (no module borrow, so
-    /// it is safe from inside the module's own update). Returns false when
-    /// the tag is invalid or matches no installed entry, so callers can
-    /// decide the fallback.
-    pub fn reschedule_tagged_update(&self, tag_key: NameKeyType, wake_frame: UnsignedInt) -> bool {
-        if tag_key == 0 {
-            return false;
-        }
-        let Some(module_index) = self.modules.iter().position(|entry| {
-            entry.data().read().get_module_tag_name_key() == tag_key
-        }) else {
-            return false;
-        };
-        let mut found = false;
-        for registration in &self.update_module_registrations {
-            if registration.module_index == Some(module_index) {
-                let _ = crate::helpers::TheGameLogic::register_update_module(
-                    self.id,
-                    registration.module.clone(),
-                    wake_frame,
-                );
-                found = true;
-            }
-        }
-        found
-    }
-
-    /// Re-register one already-attached update module. C++ `setWakeFrame` does not touch the others.
-    pub fn reschedule_named_update(&self, module_name: &str, wake_frame: UnsignedInt) {
-        for registration in &self.update_module_registrations {
-            if registration.module_name == module_name {
-                let _ = crate::helpers::TheGameLogic::register_update_module(
-                    self.id,
-                    registration.module.clone(),
-                    wake_frame,
-                );
-            }
+    /// C++ `UpdateModule::setWakeFrame` wakes `this` only; the installed
+    /// module entry's data handle is that same instance identity, resolved
+    /// without borrowing module data (safe from inside the module's own
+    /// update). A missing or ambiguous identity is a deliberate no-op: only
+    /// the exact installed instance may be woken, never a same-class or
+    /// same-tag sibling selected by fallback.
+    pub(crate) fn reschedule_installed_update(
+        &self,
+        data: &ModuleDataHandle,
+        wake_frame: UnsignedInt,
+    ) {
+        if let Some(module) = self.find_update_registration_by_data(data) {
+            let _ = crate::helpers::TheGameLogic::register_update_module(
+                self.id,
+                module,
+                wake_frame,
+            );
         }
     }
     /// C++ `AIUpdateInterface::wakeUpNow` wakes that AI module, including subclasses.

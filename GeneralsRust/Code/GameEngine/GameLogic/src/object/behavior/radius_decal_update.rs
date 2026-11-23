@@ -155,10 +155,7 @@ impl RadiusDecalUpdate {
                 } else {
                     now.saturating_add(1)
                 };
-                let module_tag = self.module_data.read().get_module_tag_name_key();
-                if !obj.reschedule_tagged_update(module_tag, wake_frame) {
-                    obj.reschedule_named_update("RadiusDecalUpdate", wake_frame);
-                }
+                obj.reschedule_installed_update(&self.module_data, wake_frame);
             }
         }
     }
@@ -184,10 +181,7 @@ impl RadiusDecalUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = obj_arc.read() {
-                let module_tag = self.module_data.read().get_module_tag_name_key();
-                if !obj.reschedule_tagged_update(module_tag, UpdateSleepTime::Forever.to_u32()) {
-                    obj.reschedule_named_update("RadiusDecalUpdate", UpdateSleepTime::Forever.to_u32());
-                }
+                obj.reschedule_installed_update(&self.module_data, UpdateSleepTime::Forever.to_u32());
             }
         }
     }

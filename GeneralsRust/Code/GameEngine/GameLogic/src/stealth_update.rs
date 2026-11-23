@@ -915,10 +915,7 @@ impl StealthController {
                 .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
             {
                 if let Ok(guard) = object.read() {
-                    let module_tag = self.data.read().get_module_tag_name_key();
-                    if !guard.reschedule_tagged_update(module_tag, now.saturating_add(1)) {
-                        guard.reschedule_named_update("StealthUpdate", now.saturating_add(1));
-                    }
+                    guard.reschedule_installed_update(self.data.handle(), now.saturating_add(1));
                 }
             }
         } else if self.disguised || self.disguise_as_template_name.is_some() {
@@ -1136,10 +1133,7 @@ impl StealthController {
                 .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
             {
                 if let Ok(guard) = object.read() {
-                    let module_tag = self.data.read().get_module_tag_name_key();
-                    if !guard.reschedule_tagged_update(module_tag, current_frame.saturating_add(1)) {
-                        guard.reschedule_named_update("StealthUpdate", current_frame.saturating_add(1));
-                    }
+                    guard.reschedule_installed_update(self.data.handle(), current_frame.saturating_add(1));
                 }
             }
             self.set_status_flag(ObjectStatusMaskType::CAN_STEALTH, true)?;

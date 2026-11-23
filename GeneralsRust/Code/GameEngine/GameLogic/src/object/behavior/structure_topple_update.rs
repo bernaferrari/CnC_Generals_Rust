@@ -551,10 +551,7 @@ impl StructureToppleUpdate {
         let module_data = game_engine::common::thing::module::ModuleDataView::new(handle, |data| data.as_any().downcast_ref::<StructureToppleUpdateModuleData>().expect("StructureToppleUpdate module data"));
         let forever = UpdateSleepTime::Forever.to_u32();
         if let Ok(building) = object.read() {
-            let module_tag = module_data.read().get_module_tag_name_key();
-            if !building.reschedule_tagged_update(module_tag, forever) {
-                building.reschedule_named_update("StructureToppleUpdate", forever);
-            }
+            building.reschedule_installed_update(module_data.handle(), forever);
         }
 
         let building_height = object
@@ -732,10 +729,7 @@ impl StructureToppleUpdate {
         self.next_burst_frame = (now as i32).wrapping_add(burst_delay);
         self.topple_state = StructureToppleStateType::WaitingForToppleStart;
         self.next_call_frame_and_phase = now.saturating_add(1);
-        let module_tag = self.module_data.read().get_module_tag_name_key();
-        if !building.reschedule_tagged_update(module_tag, self.next_call_frame_and_phase) {
-            building.reschedule_named_update("StructureToppleUpdate", self.next_call_frame_and_phase);
-        }
+        building.reschedule_installed_update(self.module_data.handle(), self.next_call_frame_and_phase);
     }
 
     fn do_topple_start_fx(&self, building: &GameObject) {
