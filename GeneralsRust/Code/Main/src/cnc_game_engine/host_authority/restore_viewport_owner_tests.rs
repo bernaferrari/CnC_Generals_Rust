@@ -97,6 +97,23 @@ fn complete_owned_restore_keeps_saved_camera_but_receiving_window_viewport() {
 }
 
 #[test]
+fn startup_and_save_handoffs_keep_the_receiving_radar_cues() {
+    use crate::game_logic::presentation_definitions::PresentationDefinitions;
+
+    let mut live = receiving_view();
+    live.definitions = PresentationDefinitions::with_radar_cues("LocalRadarUp", "NoSound");
+    let mut startup = SessionView::default();
+    CnCGameEngine::admit_startup_candidate_view(&mut live, &mut startup);
+    let mut legacy = SessionView::default();
+    admit_staged_session_view(&mut startup, &mut legacy, false);
+    let mut restored = SessionView::default();
+    restored.definitions = PresentationDefinitions::with_radar_cues("PeerRadarUp", "PeerRadarDown");
+    admit_staged_session_view(&mut legacy, &mut restored, true);
+    assert_eq!(restored.definitions.radar_edge_sound(true), Some("LocalRadarUp"));
+    assert_eq!(restored.definitions.radar_edge_sound(false), None);
+}
+
+#[test]
 fn unavailable_map_staging_preserves_actual_receiver_and_peer_viewports() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

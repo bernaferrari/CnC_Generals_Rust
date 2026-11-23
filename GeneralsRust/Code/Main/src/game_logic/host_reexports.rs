@@ -320,7 +320,7 @@ pub use super::host_propaganda::{
     HOST_PROPAGANDA_UPGRADED_HEAL_PERCENT_PER_SEC, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
     is_legal_propaganda_target, is_propaganda_tower, propaganda_heal_amount,
 };
-pub use super::host_radar::{HostRadarRegistry, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO};
+pub use super::host_radar::HostRadarRegistry;
 pub use super::host_radar_scan::{
     HostRadarScan, HostRadarScanRegistry, RADAR_SCAN_ACTIVATE_AUDIO, RADAR_SCAN_DURATION_FRAMES,
     RADAR_SCAN_RADIUS, RADAR_SCAN_SHRINK_DELAY_FRAMES, RADAR_SCAN_SHRINK_TIME_FRAMES,

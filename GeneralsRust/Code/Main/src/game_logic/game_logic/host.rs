@@ -20,8 +20,6 @@ pub enum CampaignSessionKind {
 pub struct GameLogic {
     /// Single logical camera target and native impulse, shared by client input
     /// and synchronous FX. Construction never publishes this session state.
-    pub(crate) promotion_definitions:
-        crate::game_logic::promotion_definitions::PromotionDefinitions,
     pub(crate) session_view: crate::presentation_frame::SessionView,
     pub(crate) projected_shroud_cache: crate::fow_rendering::ProjectedShroudCache,
     pub(crate) cached_coarse_height_grid: Option<crate::presentation_frame::CachedCoarseHeightGrid>,

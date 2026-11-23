@@ -432,6 +432,7 @@ fn ordinary_disabled_producer_resumes_only_after_the_expiry_frame() {
 }
 
 fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_case() {
+    use crate::game_logic::presentation_definitions::PresentationDefinitions;
     use crate::subsystem_manager::AudioManagerSubsystem;
     let mut audio_manager = crate::subsystem_manager::SubsystemManager::new();
     AudioManagerSubsystem::install_test_queue(&mut audio_manager);
@@ -446,6 +447,9 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
                 FixtureObject::new("OwnedExpiryPoweredConsumer").kind_of("STRUCTURE POWERED").energy(-5).health(1000.0),
             ],
         );
+        let radar_on = "ExpiryRadarOn";
+        let radar_off = "ExpiryRadarOff";
+        logic.session_view.definitions = PresentationDefinitions::with_radar_cues(radar_on, radar_off);
         let owner = logic.get_player_by_team(Team::USA).unwrap().id;
         let other = logic
             .get_player(1)
@@ -527,19 +531,15 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
         assert_eq!(logic.host_radar.online_transitions, 2);
         assert_eq!(logic.host_radar.offline_transitions, 1);
         let delivered_audio = AudioManagerSubsystem::take_test_queue(&mut audio_manager);
-        for sound in [
-            crate::game_logic::host_radar::RADAR_OFFLINE_AUDIO,
-            crate::game_logic::host_radar::RADAR_ONLINE_AUDIO,
-        ] {
-            assert_eq!(
-                delivered_audio
-                    .iter()
-                    .filter(|event| event.event_type == sound)
-                    .count(),
-                1,
-                "exactly one expiry-frame radar sound {sound}"
-            );
-        }
+        let radar_requests: Vec<_> = delivered_audio
+            .iter()
+            .filter(|event| [radar_off, radar_on].contains(&event.event_type.as_str()))
+            .map(|event| (event.event_type.as_str(), event.player_index))
+            .collect();
+        assert_eq!(
+            radar_requests,
+            [(radar_off, Some(owner as i32)), (radar_on, Some(owner as i32))]
+        );
         advance_owned_with_test_audio(&mut logic, Some(&mut shadow), &mut audio_manager);
         assert_eq!(logic.get_player(owner).unwrap().radar_count, 1);
         assert_eq!(
@@ -551,8 +551,7 @@ fn ordinary_expiry_restores_radar_and_generation_in_the_same_completed_frame_cas
             AudioManagerSubsystem::take_test_queue(&mut audio_manager)
                 .iter()
                 .all(|event| {
-                    event.event_type != crate::game_logic::host_radar::RADAR_OFFLINE_AUDIO
-                        && event.event_type != crate::game_logic::host_radar::RADAR_ONLINE_AUDIO
+                    ![radar_off, radar_on].contains(&event.event_type.as_str())
                 }),
             "no deferred radar audio replay"
         );

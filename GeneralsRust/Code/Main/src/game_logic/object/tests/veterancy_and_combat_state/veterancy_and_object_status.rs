@@ -141,9 +141,9 @@ fn level_up_scales_current_max_health_not_template() {
 }
 
 pub(super) fn promotion_world() -> crate::game_logic::GameLogic {
-    use crate::game_logic::promotion_definitions::PromotionDefinitions;
+    use crate::game_logic::presentation_definitions::PresentationDefinitions;
     let mut world = crate::game_logic::GameLogic::new();
-    let mut definitions = PromotionDefinitions::from_ordered_sources(
+    let mut definitions = PresentationDefinitions::from_ordered_sources(
         &[],
         &[("fixture-misc.ini", "MiscAudio\nUnitPromoted = UnitPromoted\nEnd\n".to_string())],
         &[("fixture-anims.ini", "Animation LevelGain\nNumberImages = 1\nImage = LevelGainImage\nAnimationMode = LOOP\nEnd\n".to_string())],
@@ -152,7 +152,7 @@ pub(super) fn promotion_world() -> crate::game_logic::GameLogic {
     definitions.rules.animation_name = "LevelGain".into();
     definitions.rules.display_seconds = 2.0;
     definitions.rules.rise_per_second = 15.0;
-    world.admit_promotion_definitions(definitions).unwrap();
+    world.admit_presentation_definitions(definitions).unwrap();
     world.add_player(crate::game_logic::Player::new(
         0,
         Team::USA,

@@ -582,7 +582,7 @@ fn local_player_two_stealth_visibility_does_not_assume_player_zero() {
 #[test]
 fn missing_animation_does_not_suppress_receiving_misc_audio() {
     let mut owner = promotion_world();
-    owner.promotion_definitions.rules.animation_name = "NotAdmitted".into();
+    owner.session_view.definitions.rules.animation_name = "NotAdmitted".into();
     let object = make_test_object();
     let id = object.id;
     owner.objects.insert(id, object);
@@ -607,7 +607,7 @@ fn missing_animation_does_not_suppress_receiving_misc_audio() {
 #[test]
 fn zero_frame_animation_expires_only_in_unpaused_receiving_ui_phase() {
     let mut owner = promotion_world();
-    owner.promotion_definitions.rules.display_seconds = 0.01;
+    owner.session_view.definitions.rules.display_seconds = 0.01;
     let object = make_test_object();
     let id = object.id;
     owner.objects.insert(id, object);

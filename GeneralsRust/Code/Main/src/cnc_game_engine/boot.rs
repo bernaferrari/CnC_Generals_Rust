@@ -58,11 +58,11 @@ impl CnCGameEngine {
 
     /// Called after this application's mapped images have been admitted.
     /// GameData texts are the already captured default/retail/debug startup order.
-    pub(super) async fn load_promotion_definitions(
+    pub(super) async fn load_presentation_definitions(
         game_data: &[(&str, String)],
         image_exists: &dyn Fn(&str) -> bool,
         assets: &StartupAssets,
-    ) -> Result<crate::game_logic::promotion_definitions::PromotionDefinitions, String> {
+    ) -> Result<crate::game_logic::presentation_definitions::PresentationDefinitions, String> {
         // Original GameAudio::init loads MiscAudio.ini; Anim2DCollection::init
         // loads Animation2D.ini. No runtime global collection is consulted.
         let misc = Self::load_startup_ini_texts(&["Data/INI/MiscAudio.ini"], Some(assets)).await?;
@@ -71,7 +71,7 @@ impl CnCGameEngine {
             Self::load_startup_ini_texts(&["Data/INI/Animation2D.ini"], Some(assets)).await?;
         #[cfg(not(feature = "game_client"))]
         let animations = Vec::new(); // No native Anim2D collection in this configuration.
-        crate::game_logic::promotion_definitions::PromotionDefinitions::from_ordered_sources(
+        crate::game_logic::presentation_definitions::PresentationDefinitions::from_ordered_sources(
             game_data,
             &misc,
             &animations,
@@ -1401,7 +1401,7 @@ impl CnCGameEngine {
                     )
                 })
                 .unwrap_or_default();
-        let promotion_definitions = Self::load_promotion_definitions(
+        let presentation_definitions = Self::load_presentation_definitions(
             &startup_sources,
             &|name| promotion_images.find(name).is_some(),
             &engine.application_assets,
@@ -1418,12 +1418,12 @@ impl CnCGameEngine {
             .admit_receiving_ui_images(&promotion_images);
         #[cfg(feature = "game_client")]
         engine.game_client.admit_owned_world_animations(
-            promotion_definitions.animation_templates(),
+            presentation_definitions.animation_templates(),
             &promotion_images,
         );
         engine
             .game_logic
-            .admit_promotion_definitions(promotion_definitions)
+            .admit_presentation_definitions(presentation_definitions)
             .map_err(anyhow::Error::msg)?;
 
         #[cfg(feature = "game_client")]

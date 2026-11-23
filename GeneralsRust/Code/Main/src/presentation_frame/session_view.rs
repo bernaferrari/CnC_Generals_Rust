@@ -17,6 +17,8 @@ use glam::Vec3;
 
 #[derive(Debug, Default)]
 pub(crate) struct SessionView {
+    /// Immutable application INI content, carried across match replacements.
+    pub(crate) definitions: crate::game_logic::presentation_definitions::PresentationDefinitions,
     pub(crate) client_random: game_engine::common::random_value::RandomState,
     pub(crate) audio_random: game_engine::common::random_value::RandomState,
     #[cfg(feature = "game_client")]

@@ -1321,7 +1321,7 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
     // Actual private Anim2D parser admission. The CPU fixture owns the image
     // metadata name that resolves this frame; no global collection is installed.
     let image_names = ["FixtureMoneyPickUpFrame"];
-    let definitions = crate::game_logic::promotion_definitions::PromotionDefinitions::from_ordered_sources(
+    let definitions = crate::game_logic::presentation_definitions::PresentationDefinitions::from_ordered_sources(
         &[], &[],
         &[("fixture-money-animation.ini", "Animation MoneyPickUp\nNumberImages = 1\nImage = FixtureMoneyPickUpFrame\nAnimationMode = LOOP\nAnimationDelay = 1\nEnd\n".to_string())],
         &|name| image_names.contains(&name),
@@ -1335,7 +1335,7 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
         1
     );
     logic
-        .admit_promotion_definitions(definitions)
+        .admit_presentation_definitions(definitions)
         .expect("inert definition admission");
     let cfg = golden_skirmish_config("FloatPres");
     logic.admit_object_ini_sources(std::iter::empty()).expect("fixture Object content admitted before NewGame");

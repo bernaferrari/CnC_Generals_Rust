@@ -15,7 +15,7 @@ fn promotion_catalog_world(body_cue: &str) -> GameLogic {
     )])
     .unwrap();
     world.admit_receiving_module_content(content).unwrap();
-    let mut definitions = crate::game_logic::promotion_definitions::PromotionDefinitions::from_ordered_sources(
+    let mut definitions = crate::game_logic::presentation_definitions::PresentationDefinitions::from_ordered_sources(
         &[],
         &[("owned-promotion-misc.ini", "MiscAudio\nUnitPromoted = ReceivingMisc\nEnd\n".to_string())],
         &[("owned-promotion-animation.ini", "Animation OwnedLevelGain\nNumberImages = 1\nImage = OwnedLevelGainImage\nAnimationMode = LOOP\nEnd\n".to_string())],
@@ -23,7 +23,7 @@ fn promotion_catalog_world(body_cue: &str) -> GameLogic {
     ).unwrap();
     definitions.rules.animation_name = "OwnedLevelGain".into();
     definitions.rules.display_seconds = 2.0;
-    world.admit_promotion_definitions(definitions).unwrap();
+    world.admit_presentation_definitions(definitions).unwrap();
     world
 }
 

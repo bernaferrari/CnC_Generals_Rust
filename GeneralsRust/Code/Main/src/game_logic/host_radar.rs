@@ -100,12 +100,6 @@ impl RadarUpgradeRules {
 /// Logic frames per second (host fixed step).
 pub const RADAR_LOGIC_FPS: f32 = 30.0;
 
-/// Audio residual when radar comes online (MiscAudio RadarNotifyOnlineSound = RadarOn).
-pub const RADAR_ONLINE_AUDIO: &str = "RadarOn";
-
-/// Audio residual when radar goes offline (MiscAudio RadarNotifyOfflineSound = RadarOff).
-pub const RADAR_OFFLINE_AUDIO: &str = "RadarOff";
-
 /// Retail GrantUpgradeCreate / RadarUpgrade trigger residual.
 pub const UPGRADE_GLA_RADAR: &str = "Upgrade_GLARadar";
 /// Retail Radar Van Scan unlock residual.
@@ -306,13 +300,5 @@ mod tests {
         assert!(!on2);
         assert!(off2);
         assert_eq!(reg.offline_transitions, 1);
-    }
-
-    #[test]
-    fn radar_edge_audio_uses_retail_misc_audio_event_names() {
-        // Retail MiscAudio.ini: RadarNotifyOnlineSound = RadarOn, Offline = RadarOff.
-        // SoundEffects.ini defines AudioEvent RadarOn / RadarOff; no RadarOnline/Offline.
-        assert_eq!(RADAR_ONLINE_AUDIO, "RadarOn");
-        assert_eq!(RADAR_OFFLINE_AUDIO, "RadarOff");
     }
 }

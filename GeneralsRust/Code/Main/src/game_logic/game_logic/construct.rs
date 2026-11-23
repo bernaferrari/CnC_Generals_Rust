@@ -565,7 +565,6 @@ impl GameLogic {
             // Inert default; match/replay setup admits its selected seed.
             // Construction never consumes or adopts another world's stream.
             native_hulk_max_lifetime_override: -1,
-            promotion_definitions: Default::default(),
             session_view: crate::presentation_frame::SessionView::default(),
             projected_shroud_cache: Default::default(),
             cached_coarse_height_grid: None,

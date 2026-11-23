@@ -1,4 +1,5 @@
 use super::*;
+use crate::game_logic::presentation_definitions::PresentationDefinitions;
 
 fn set_radar_fixture_owner(
     world: &mut GameLogic,
@@ -14,7 +15,14 @@ fn set_radar_fixture_owner(
 /// Radar provision comes only from an authored RadarUpgrade module
 /// (RadarUpgrade.cpp:72-96), granted here by GrantUpgradeCreate.
 fn radar_world() -> (GameLogic, ObjectId) {
+    radar_world_with_cues("RadarOn", "RadarOff")
+}
+
+fn radar_world_with_cues(online: &str, offline: &str) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
+    world
+        .admit_presentation_definitions(PresentationDefinitions::with_radar_cues(online, offline))
+        .unwrap();
     world.add_player(Player::new(1, Team::GLA, "First", true));
     world.add_player(Player::new(2, Team::GLA, "Second", true));
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
@@ -205,16 +213,39 @@ fn capture_emits_remove_then_add_at_the_actual_logic_boundary() {
             .expect("valid capture test fixture");
     });
     assert_eq!(world.queued_audio_events.len(), 2);
-    assert_eq!(
-        world.queued_audio_events[0].event_type,
-        crate::game_logic::host_radar::RADAR_OFFLINE_AUDIO
-    );
-    assert_eq!(
-        world.queued_audio_events[1].event_type,
-        crate::game_logic::host_radar::RADAR_ONLINE_AUDIO
-    );
+    assert_eq!(world.queued_audio_events[0].event_type, "RadarOff");
+    assert_eq!(world.queued_audio_events[1].event_type, "RadarOn");
     assert_eq!(world.players[&1].radar_count, 0);
     assert_eq!(world.players[&2].radar_count, 1);
+}
+
+#[test]
+fn radar_capture_uses_the_receiving_ini_cues_and_attaches_both_players() {
+    let (mut world, id) = radar_world_with_cues("FirstRadarUp", "FirstRadarDown");
+    let (mut peer, peer_id) = radar_world_with_cues("PeerRadarUp", "PeerRadarDown");
+    assert_eq!(id, peer_id);
+    let mut ownership = crate::game_logic::host_owner_log::OwnershipEvents::default();
+    for (world, offline, online) in [
+        (&mut world, "FirstRadarDown", "FirstRadarUp"),
+        (&mut peer, "PeerRadarDown", "PeerRadarUp"),
+    ] {
+        world.frame = 12;
+        world
+            .victory_conditions
+            .set_victory_conditions(crate::game_logic::victory_conditions::VictoryType::empty());
+        world.with_host_logic_step(|world| {
+            set_radar_fixture_owner(world, id, Team::GLA, Some(2), &mut ownership);
+            world
+                .on_capture_object_residual(id, Team::GLA, Team::GLA)
+                .unwrap();
+        });
+        let cues: Vec<_> = world
+            .queued_audio_events
+            .iter()
+            .map(|event| (event.event_type.as_str(), event.player_index))
+            .collect();
+        assert_eq!(cues, [(offline, Some(1)), (online, Some(2))]);
+    }
 }
 
 fn authored_template(world: &mut GameLogic, name: &str, modules: &str) -> ThingTemplate {
@@ -255,6 +286,11 @@ fn authored_world() -> (GameLogic, ObjectId) {
 
 fn authored_world_with_initial_health(initial_health: Option<f32>) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
+    world
+        .admit_presentation_definitions(PresentationDefinitions::with_radar_cues(
+            "RadarOn", "RadarOff",
+        ))
+        .unwrap();
     world.add_player(Player::new(1, Team::GLA, "First", true));
     world.add_player(Player::new(2, Team::GLA, "Second", true));
     crate::game_logic::host_upgrade_rules::register_test_upgrade(
@@ -371,13 +407,7 @@ fn owned_disabled_operations_are_observable_before_the_next_operation() {
         .iter()
         .map(|event| event.event_type.as_str())
         .collect();
-    assert_eq!(
-        edges,
-        [
-            crate::game_logic::host_radar::RADAR_OFFLINE_AUDIO,
-            crate::game_logic::host_radar::RADAR_ONLINE_AUDIO
-        ]
-    );
+    assert_eq!(edges, ["RadarOff", "RadarOn"]);
 }
 
 #[test]
@@ -581,7 +611,9 @@ fn actual_emp_field_admits_radar_before_impact_presentation_and_next_operation()
         assert!(world.objects[&id].status.disabled_emp);
         assert_eq!(world.players[&1].radar_count, 0);
         assert_eq!(peer.players[&1].radar_count, 1);
-        assert!(world.queued_audio_events.iter().any(|event| event.event_type == crate::game_logic::host_radar::RADAR_OFFLINE_AUDIO));
+        assert!(
+            world.queued_audio_events.iter().any(|event| event.event_type == "RadarOff")
+        );
     });
 }
 

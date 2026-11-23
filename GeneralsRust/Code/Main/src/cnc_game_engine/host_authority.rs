@@ -122,6 +122,10 @@ fn admit_staged_session_view(
         {
             candidate.filter = candidate_filter;
         }
+    } else {
+        // Native saves can replace camera continuation. INI content still
+        // belongs to the receiving application.
+        candidate.definitions = std::mem::take(&mut receiver.definitions);
     }
     // View dimensions belong to the receiving window, never to a saved world.
     // V2 may replace the complete camera continuation but not its viewport.

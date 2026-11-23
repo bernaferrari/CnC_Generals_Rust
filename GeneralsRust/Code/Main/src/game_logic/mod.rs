@@ -140,7 +140,7 @@ pub use host_mods_structures::host_sub_objects_upgrade;
 pub mod locomotor_bootstrap;
 pub mod mission_scripts;
 mod object_audio;
-pub(crate) mod promotion_definitions;
+pub(crate) mod presentation_definitions;
 mod veterancy_feedback;
 pub use veterancy_feedback::VeterancyFeedback;
 pub mod object;

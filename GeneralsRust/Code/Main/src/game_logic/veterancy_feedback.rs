@@ -11,7 +11,7 @@ pub struct VeterancyFeedback<'a> {
     frame: u32,
     local_player: Option<u32>,
     draw_icon_ui: bool,
-    definitions: Option<&'a super::promotion_definitions::PromotionDefinitions>,
+    definitions: Option<&'a super::presentation_definitions::PresentationDefinitions>,
     animations: Option<&'a mut WorldAnimations>,
     /// The session's GameClientRandomValue stream (Anim2D randomized start frame).
     client_random: Option<&'a mut game_engine::common::random_value::RandomState>,
@@ -37,7 +37,7 @@ impl<'a> VeterancyFeedback<'a> {
         frame: u32,
         local_player: Option<u32>,
         draw_icon_ui: bool,
-        definitions: &'a super::promotion_definitions::PromotionDefinitions,
+        definitions: &'a super::presentation_definitions::PresentationDefinitions,
         animations: &'a mut WorldAnimations,
         client_random: &'a mut game_engine::common::random_value::RandomState,
     ) -> Self {
@@ -162,7 +162,7 @@ impl super::GameLogic {
             self.frame,
             local,
             draw_icon_ui,
-            &self.promotion_definitions,
+            &self.session_view.definitions,
             &mut self.session_view.world_animations,
             &mut self.session_view.client_random,
         );
@@ -231,7 +231,7 @@ impl super::GameLogic {
             self.frame,
             local,
             draw_icon_ui,
-            &self.promotion_definitions,
+            &self.session_view.definitions,
             &mut self.session_view.world_animations,
             &mut self.session_view.client_random,
         );
@@ -424,12 +424,12 @@ impl super::GameLogic {
         &mut self,
         animation: super::host_money_crate::HostMoneyPickUpAnim,
     ) {
-        if let Some(template) = self
-            .promotion_definitions
+        let view = &mut self.session_view;
+        if let Some(template) = view
+            .definitions
             .animation_templates()
             .find(&animation.template)
         {
-            let view = &mut self.session_view;
             view.world_animations.admit(
                 crate::presentation_frame::PresentationWorldAnim::from_money_pickup(&animation),
                 template,
@@ -459,7 +459,7 @@ impl super::GameLogic {
             self.frame,
             local,
             draw_icon_ui,
-            &self.promotion_definitions,
+            &self.session_view.definitions,
             &mut self.session_view.world_animations,
             &mut self.session_view.client_random,
         );

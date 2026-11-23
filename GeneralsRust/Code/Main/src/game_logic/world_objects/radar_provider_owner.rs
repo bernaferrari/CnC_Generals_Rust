@@ -371,32 +371,32 @@ impl GameLogic {
         has: bool,
     ) {
         let (online, offline) = self.host_radar.record_player_radar(count, had, has);
-        let allowed = self.host_logic_step_active
-            && self.frame > 0
-            && !self.host_radar.client_quiet
-            && self.players.get(&owner).is_some_and(|player| {
-                player.is_alive
-                    && !self
-                        .victory_conditions
-                        .has_single_player_been_defeated_owned(
-                            player,
-                            &self.players,
-                            self.objects.read(),
-                            self.player_template_definitions.as_ref(),
-                        )
-            });
-        if !allowed {
+        if (!online && !offline)
+            || !self.host_logic_step_active
+            || self.frame == 0
+            || self.host_radar.client_quiet
+        {
             return;
         }
-        let sound = if online {
-            Some(crate::game_logic::host_radar::RADAR_ONLINE_AUDIO)
-        } else if offline {
-            Some(crate::game_logic::host_radar::RADAR_OFFLINE_AUDIO)
-        } else {
-            None
+        let Some(sound) = self.session_view.definitions.radar_edge_sound(online) else {
+            return;
         };
-        if let Some(sound) = sound {
-            self.queue_audio_event(AudioEventRequest::new(sound).with_priority(130));
+        if self.players.get(&owner).is_some_and(|player| {
+            player.is_alive
+                && !self
+                    .victory_conditions
+                    .has_single_player_been_defeated_owned(
+                        player,
+                        &self.players,
+                        self.objects.read(),
+                        self.player_template_definitions.as_ref(),
+                    )
+        }) {
+            self.queue_audio_event(
+                AudioEventRequest::new(sound)
+                    .with_player_index(owner as i32)
+                    .with_priority(130),
+            );
         }
     }
 }
