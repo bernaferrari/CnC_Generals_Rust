@@ -556,6 +556,7 @@ impl GameLogic {
             Self::apply_authored_horde_and_visual_upgrade_metadata(&mut template, definition);
             Self::apply_authored_production_exit_metadata(&mut template, definition);
             Self::apply_authored_pilot_veterancy_metadata(&mut template, definition);
+            Self::apply_authored_pilot_find_vehicle(&mut template, definition);
             Self::apply_authored_eject_pilot_die_metadata(&mut template, definition);
             Self::apply_authored_rebuild_hole_expose_die_metadata(&mut template, definition);
             Self::apply_authored_hack_internet_metadata(&mut template, definition);

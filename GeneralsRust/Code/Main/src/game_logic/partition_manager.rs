@@ -471,6 +471,25 @@ impl PartitionManager {
         radius: f32,
         mut accept: impl FnMut(u32) -> bool,
     ) -> Vec<u32> {
+        let mut result = Vec::new();
+        self.visit_radius_coi_order(x, z, radius, |id| {
+            if accept(id) {
+                result.push(id);
+            }
+        });
+        result.reverse();
+        result
+    }
+
+    /// Visits the first COI encounter of each object before the original
+    /// iterator prepends its accepted objects.
+    pub(in crate::game_logic) fn visit_radius_coi_order(
+        &self,
+        x: f32,
+        z: f32,
+        radius: f32,
+        mut visit: impl FnMut(u32),
+    ) {
         let (cx, cz) = self.receiving_cell_coords(x, z);
         let query = radius_query::RadiusCellQuery::new(
             [cx, cz],
@@ -488,16 +507,13 @@ impl PartitionManager {
             .collect();
         cells.sort_unstable_by_key(|(key, _)| *key);
         let mut seen = HashSet::new();
-        let mut result = Vec::new();
         for (_, occupants) in cells {
             for id in occupants.iter().rev().copied() {
-                if seen.insert(id) && accept(id) {
-                    result.push(id);
+                if seen.insert(id) {
+                    visit(id);
                 }
             }
         }
-        result.reverse();
-        result
     }
 
     /// CPP getClosestObject scans the closest occupied radius first, visits

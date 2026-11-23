@@ -878,6 +878,14 @@ impl VeterancyCrateCollideMetadata {
     }
 }
 
+/// Authored scan parameters from `PilotFindVehicleUpdateModuleData`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PilotFindVehicleMetadata {
+    pub scan_frames: u32,
+    pub scan_range: f32,
+    pub min_health: f32,
+}
+
 /// C++ `VeterancyGainCreateModuleData` — StartingLevel + optional ScienceRequired.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VeterancyGainCreateMetadata {

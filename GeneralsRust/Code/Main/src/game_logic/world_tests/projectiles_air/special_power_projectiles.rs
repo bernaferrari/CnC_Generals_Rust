@@ -3284,190 +3284,52 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
 #[test]
 fn pilot_find_vehicle_collide_module_would_like_residual() {
     let _env_guard = host_state_residual_test_env_lock();
-    // Authority channels default off on the fresh GameLogic context —
-    // host-state residual honesty without shadow writeback.
-
-    use crate::game_logic::VeterancyLevel;
     use crate::game_logic::host_usa_pilot::{
         PILOT_FIND_VEHICLE_SCAN_FRAMES, significantly_above_terrain_threshold,
     };
 
-    let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    // CPP VeterancyCrateCollide requires the receiving vehicle's authored
-    // IsTrainable fact; the generic TestTank fixture deliberately omits it.
-    game_logic
-        .templates
-        .get_mut("TestTank")
-        .expect("TestTank definition")
-        .is_trainable = true;
-
-    game_logic.add_player(Player::new(0, Team::USA, "USA AI", false));
-
-    let mut pilot_tpl = ThingTemplate::new("AmericaInfantryPilot");
-    pilot_tpl
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
-    // C++ PilotFindVehicleUpdate gates the scan on the authored
-    // VeterancyCrateCollide pilot module, not the basename.
-    author_pilot_recrew_module(&mut pilot_tpl);
-    pilot_tpl.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
-    game_logic
-        .templates
-        .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
-
-    let pilot_id = game_logic
-        .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("pilot");
-    {
-        let ai_entry_frame = game_logic.frame;
-        let p = game_logic.host_object_mut(pilot_id).expect("pilot");
-        p.experience.level = VeterancyLevel::Veteran; // levels_to_gain = 1
-        p.set_ai_state(
-            AIState::Idle,
-            ai_entry_frame,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-    }
-
-    // Keep the path to the eligible target open.
-    // Closer Heroic unmanned tank — CollideModule canGainExp residual rejects.
-    // Spawn USA then Neutral so PartitionFilterPlayer residual keeps owner.
-    let heroic_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 12.0))
-        .expect("heroic tank");
-    {
-        let (t, health_events, ownership_events, partition_manager) = {
-            let crate::game_logic::GameLogic {
-                objects,
-                health_events,
-                ownership_events,
-                partition_manager,
-                ..
-            } = &mut game_logic;
-            (
-                objects.get_mut(&heroic_id).expect("heroic"),
-                health_events,
-                ownership_events,
-                partition_manager,
-            )
-        };
-        t.apply_kill_pilot_unmanned(
-            health_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
-        t.experience.level = VeterancyLevel::Heroic;
-        t.health.current = t.max_health;
-    }
-
-    // Elevated unmanned tank further out — isSignificantlyAboveTerrain residual rejects.
-    // Do not set airborne_target: recrewable path still treats it as ground vehicle,
-    // but CollideModule residual blocks via height gate alone.
-    let elevated_id = game_logic
-        .create_object(
+    let (mut world, pilot) = pilot_find_vehicle_test_world(false);
+    let heroic = world
+        .create_object_for_player("TestTank", 0, Vec3::new(0.0, 0.0, 12.0))
+        .unwrap();
+    world.host_object_mut(heroic).unwrap().experience.level = VeterancyLevel::Heroic;
+    let elevated = world
+        .create_object_for_player(
             "TestTank",
-            Team::USA,
+            0,
             Vec3::new(0.0, significantly_above_terrain_threshold() + 10.0, 16.0),
         )
-        .expect("elevated tank");
-    {
-        let (t, health_events, ownership_events, partition_manager) = {
-            let crate::game_logic::GameLogic {
-                objects,
-                health_events,
-                ownership_events,
-                partition_manager,
-                ..
-            } = &mut game_logic;
-            (
-                objects.get_mut(&elevated_id).expect("elevated"),
-                health_events,
-                ownership_events,
-                partition_manager,
-            )
-        };
-        t.apply_kill_pilot_unmanned(
-            health_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
-        t.experience.level = VeterancyLevel::Rookie;
-        t.health.current = t.max_health;
-    }
+        .unwrap();
+    let eligible = world
+        .create_object_for_player("TestTank", 0, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
 
-    // Valid Rookie unmanned tank within Enter residual range (~selection radii + 4).
-    let ok_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
-        .expect("ok tank");
-    {
-        let (t, health_events, ownership_events, partition_manager) = {
-            let crate::game_logic::GameLogic {
-                objects,
-                health_events,
-                ownership_events,
-                partition_manager,
-                ..
-            } = &mut game_logic;
-            (
-                objects.get_mut(&ok_id).expect("ok"),
-                health_events,
-                ownership_events,
-                partition_manager,
-            )
-        };
-        t.apply_kill_pilot_unmanned(
-            health_events,
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
-        t.set_team_with_partition_owner(Team::Neutral, ownership_events, partition_manager);
-        t.experience.level = VeterancyLevel::Rookie;
-        t.health.current = t.max_health;
-    }
+    world.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
+    world
+        .update_ai(&[pilot, heroic, elevated, eligible], 1.0 / 30.0)
+        .unwrap();
+    assert_eq!(world.usa_pilot_residual().find_vehicle_collide_rejects, 2);
+    assert_eq!(
+        world.host_object(pilot).unwrap().ai_state(),
+        AIState::Entering
+    );
+    assert_eq!(world.host_object(pilot).unwrap().target, Some(eligible));
 
-    assert!(!game_logic.honesty_pilot_find_vehicle_ok());
-    game_logic.frame = PILOT_FIND_VEHICLE_SCAN_FRAMES;
-    game_logic
-        .update_ai(&[pilot_id, heroic_id, elevated_id, ok_id], 1.0 / 30.0)
-        .expect("receiving AI operation succeeds");
-
-    assert!(
-        game_logic.honesty_pilot_find_vehicle_collide_ok(),
-        "CollideModule residual must reject Heroic / elevated candidates"
+    drive_pilot_to_vehicle(&mut world, pilot, eligible);
+    assert_eq!(
+        world.host_object(eligible).unwrap().experience.level,
+        VeterancyLevel::Veteran
     );
-    assert!(
-        game_logic.usa_pilot_residual().find_vehicle_collide_rejects >= 2,
-        "expect ≥2 CollideModule residual rejects (heroic + elevated), got {}",
-        game_logic.usa_pilot_residual().find_vehicle_collide_rejects
+    assert_eq!(
+        world.host_object(heroic).unwrap().experience.level,
+        VeterancyLevel::Heroic
     );
-    assert!(
-        game_logic.honesty_pilot_find_vehicle_ok(),
-        "PilotFindVehicle residual must still Enter valid Rookie vehicle"
-    );
-
-    let pilot = game_logic.host_object(pilot_id).expect("pilot after scan");
-    assert_eq!(pilot.ai_state(), AIState::Entering);
-    assert_eq!(pilot.target, Some(ok_id), "must target valid Rookie vehicle (Heroic and elevated candidates are excluded)");
-    drive_pilot_to_vehicle(&mut game_logic, pilot_id, ok_id);
-
-    let ok = game_logic.host_object(ok_id).expect("ok after recrew");
-    assert!(!ok.is_unmanned(), "valid vehicle must be recrewed");
-    assert_eq!(ok.team, Team::USA, "recrew transfers pilot team");
-    assert!(
-        game_logic.host_object(heroic_id).unwrap().is_unmanned(),
-        "Heroic residual must remain unmanned (CollideModule reject)"
-    );
-    assert!(
-        game_logic.host_object(elevated_id).unwrap().is_unmanned(),
-        "elevated residual must remain unmanned (CollideModule reject)"
-    );
-    assert!(
-        game_logic
-            .host_object(pilot_id)
-            .map(|p| p.status.destroyed)
-            .unwrap_or(true),
-        "pilot consumed after CollideModule-gated auto-recrew residual"
+    assert_eq!(
+        world.host_object(elevated).unwrap().experience.level,
+        VeterancyLevel::Rookie
     );
 }
 

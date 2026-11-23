@@ -1527,6 +1527,37 @@ impl GameLogic {
         template.veterancy_crate_collide = Some(metadata);
     }
 
+    pub(super) fn apply_authored_pilot_find_vehicle(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use game_engine::common::ini::INI;
+
+        let mut modules = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("PilotFindVehicleUpdate"));
+        template.pilot_find_vehicle = (|| {
+            let module = modules.next()?;
+            if modules.next().is_some() {
+                return None;
+            }
+            let scan_frames = module.attribute("ScanRate").map_or(Some(0), |value| {
+                INI::parse_duration_unsigned_int(value.trim()).ok()
+            })?;
+            let read_real = |name, default| {
+                module.attribute(name).map_or(Some(default), |value| {
+                    INI::parse_real(value.trim()).ok().filter(|value| value.is_finite())
+                })
+            };
+            Some(crate::game_logic::PilotFindVehicleMetadata {
+                scan_frames,
+                scan_range: read_real("ScanRange", 0.0)?,
+                min_health: read_real("MinHealth", 0.5)?,
+            })
+        })();
+    }
+
     /// C++ `VeterancyGainCreate` modules: StartingLevel + optional ScienceRequired.
     pub(super) fn apply_authored_veterancy_gain_create(
         template: &mut ThingTemplate,

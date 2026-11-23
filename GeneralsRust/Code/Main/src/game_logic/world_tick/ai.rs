@@ -1036,10 +1036,7 @@ impl GameLogic {
             }
             // C++ AIRappelState: combat-drop rappel dest Z / kill-2 / addToContain.
             self.tick_rappel_into_with_effects(object_id, presentation_effects)?;
-            // PilotFindVehicleUpdate residual: AI idle pilot auto-scan for
-            // recrewable unmanned vehicles (ScanRate 1000ms / range 300 / MinHealth 0.5).
-            // C++ human players sleep forever — host residual: is_local → skip.
-            // Base-center fallback residual when no vehicle found (m_didMoveToBase).
+            // PilotFindVehicleUpdate checks the actor's authored scan and controller.
             self.try_pilot_find_vehicle_residual(object_id);
             // AutoFindHealingUpdate residual: AI idle injured infantry → HealPad.
             // C++ AutoFindHealingUpdate.cpp:78-123 any template with the module.

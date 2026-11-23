@@ -1059,12 +1059,51 @@ pub(super) fn author_pilot_recrew_module(template: &mut ThingTemplate) {
     });
 }
 
+pub(super) fn author_pilot_find_vehicle(template: &mut ThingTemplate) {
+    use crate::game_logic::host_usa_pilot::{
+        PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_FRAMES,
+        PILOT_FIND_VEHICLE_SCAN_RANGE,
+    };
+
+    author_pilot_recrew_module(template);
+    template.pilot_find_vehicle = Some(PilotFindVehicleMetadata {
+        scan_frames: PILOT_FIND_VEHICLE_SCAN_FRAMES,
+        scan_range: PILOT_FIND_VEHICLE_SCAN_RANGE,
+        min_health: PILOT_FIND_VEHICLE_MIN_HEALTH,
+    });
+}
+
+pub(super) fn pilot_find_vehicle_test_world(human: bool) -> (GameLogic, ObjectId) {
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "PilotOwner", human));
+    ensure_test_tank_template(&mut world);
+    world.templates.get_mut("TestTank").unwrap().is_trainable = true;
+
+    let mut pilot = ThingTemplate::new("AuthoredPilot");
+    pilot
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    author_pilot_find_vehicle(&mut pilot);
+    pilot.is_trainable = true;
+    pilot.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
+    world.templates.insert("AuthoredPilot".into(), pilot);
+    let id = world
+        .create_object_for_player("AuthoredPilot", 0, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(
+        world.host_object(id).unwrap().experience.level,
+        VeterancyLevel::Veteran
+    );
+    (world, id)
+}
+
 /// Advance the normal AI, pathfinding and locomotor phases after aiEnter.
 pub(super) fn drive_pilot_to_vehicle(logic: &mut GameLogic, pilot: ObjectId, vehicle: ObjectId) {
     for _ in 0..120 {
         assert_eq!(logic.host_object(pilot).unwrap().target, Some(vehicle));
         logic.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
-        if logic.host_object(vehicle).is_some_and(|vehicle| !vehicle.is_unmanned()) {
+        if logic.host_object(pilot).is_none_or(|pilot| !pilot.is_alive()) {
             return;
         }
     }

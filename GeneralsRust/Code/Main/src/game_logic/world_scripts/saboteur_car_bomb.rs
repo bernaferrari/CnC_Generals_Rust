@@ -149,135 +149,86 @@ impl GameLogic {
         self.usa_pilot.honesty_pilot_ok()
     }
 
-    /// PilotFindVehicleUpdate residual: AI idle pilot auto-scan for recrewable
-    /// unmanned vehicles (ScanRate 1000ms → 30 frames, ScanRange 300, MinHealth 0.5).
-    ///
-    /// C++ PilotFindVehicleUpdate: human players sleep forever; AI issues
-    /// `aiEnter` on closest valid target. Host residual maps valid targets onto
-    /// the recrewable-unmanned path + VeterancyCrateCollide wouldLikeToCollideWith
-    /// gates (not above terrain / not airborne / trainable / can gain exp) +
-    /// PartitionFilterPlayer residual (same team / Neutral with matching owner).
-    /// When no vehicle found: one-shot base-center fallback (`m_didMoveToBase`).
-    /// Fail-closed: not full same-map PartitionFilterSameMapStatus.
+    /// C++ PilotFindVehicleUpdate::scanClosestTarget, receiving partition.
     pub(in super::super) fn try_pilot_find_vehicle_residual(&mut self, pilot_id: ObjectId) {
-        use crate::game_logic::host_usa_pilot::{
-            PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_RANGE,
-            is_pilot_find_vehicle_collide_target, is_recrewable_unmanned_vehicle,
-            pilot_collide_would_like_to_collide_with, pilot_find_vehicle_scan_eligible,
-            pilot_find_vehicle_scan_frame, pilot_levels_to_gain, should_pilot_base_center_fallback,
-            vehicle_can_gain_exp_for_levels, vehicle_meets_pilot_find_min_health,
-        };
+        use crate::game_logic::host_usa_pilot::should_pilot_base_center_fallback;
 
-        if !pilot_find_vehicle_scan_frame(self.frame) {
+        let Some(pilot) = self.objects.get(&pilot_id) else {
+            return;
+        };
+        let Some(scan) = pilot.get_template().pilot_find_vehicle else {
+            return;
+        };
+        if !self.frame.is_multiple_of(scan.scan_frames.max(1)) || pilot.ai_state() != AIState::Idle {
             return;
         }
-
-        let snapshot = match self.objects.get(&pilot_id) {
-            Some(obj) if obj.is_alive() => {
-                let is_pilot = obj
-                    .thing()
-                    .template
-                    .veterancy_crate_collide
-                    .as_ref()
-                    .is_some_and(|metadata| metadata.supports_pilot_recrew());
-                let is_idle = matches!(obj.ai_state(), AIState::Idle);
-                // C++ PLAYER_HUMAN → no scan. Host residual: local player is human.
-                // No mapped player → fail-closed treat as non-AI (no auto-scan).
-                let is_ai = self
-                    .player_owner_for_host_object(obj)
-                    .map(|pid| !self.is_local_player(pid))
-                    .unwrap_or(false);
-                if !pilot_find_vehicle_scan_eligible(is_pilot, true, is_idle, is_ai) {
-                    return;
-                }
-                (
-                    obj.get_position(),
-                    obj.team,
-                    obj.selection_radius,
-                    obj.status.pilot_did_move_to_base,
-                    obj.experience.level,
-                )
-            }
-            _ => return,
+        let Some(owner) = self.player_owner_for_host_object(pilot) else {
+            return;
         };
-        let (pilot_pos, pilot_team, pilot_radius, did_move_to_base, pilot_level) = snapshot;
-        let levels_to_gain = pilot_levels_to_gain(pilot_level);
+        if !pilot.is_alive() || !pilot.has_ai_update_interface() || self.player_is_human(owner) {
+            return;
+        }
+        let pilot_pos = pilot.get_position();
+        let pilot_team = pilot.team;
+        let pilot_off_map = pilot.status.off_map;
+        let did_move_to_base = pilot.status.pilot_did_move_to_base;
 
-        // Pure residual pilot-vehicle acquire (recrew choice phase).
-        let candidates: Vec<_> = self
-            .objects
-            .registered()
-            .map(|(&vid, vehicle)| {
-                // RequiredKindOf/ForbiddenKindOf use the authored KindOf
-                // bank, not an ObjectType or basename approximation.
-                let is_vehicle = vehicle.is_kind_of(KindOf::Vehicle);
-                let is_air = vehicle.selected_locomotor_is_airborne();
-                let under_construction =
-                    vehicle.status.under_construction || vehicle.construction_percent + 0.001 < 1.0;
-                let is_dozer = vehicle.is_kind_of(KindOf::Dozer);
-                let recrewable = is_recrewable_unmanned_vehicle(
-                    vehicle.is_alive(),
-                    is_vehicle,
-                    is_air,
-                    vehicle.is_unmanned(),
-                    under_construction,
-                    is_dozer,
-                );
-                let health_ok = vehicle_meets_pilot_find_min_health(
-                    vehicle.health.current,
-                    vehicle.max_health.max(vehicle.health.maximum),
-                    PILOT_FIND_VEHICLE_MIN_HEALTH,
-                );
-                let vpos = vehicle.get_position();
-                let same_player_ok = self.pilot_recrew_controller_matches(pilot_id, vid);
-                let terrain_y = self.terrain_height_at(vpos).unwrap_or(0.0);
-                let above_terrain =
-                    crate::game_logic::host_usa_pilot::is_significantly_above_terrain(
-                        vpos.y - terrain_y,
-                    );
-                let airborne_locomotor = is_air;
-                let is_trainable = vehicle.is_trainable();
-                let can_gain =
-                    vehicle_can_gain_exp_for_levels(vehicle.experience.level, levels_to_gain);
-                let collide_ok = pilot_collide_would_like_to_collide_with(
-                    vehicle.is_alive(),
-                    is_vehicle,
-                    is_dozer,
-                    above_terrain,
-                    airborne_locomotor,
-                    is_trainable,
-                    can_gain,
-                );
-                crate::game_logic::host_residual_acquire::PilotVehicleCandidate {
-                    id: vid,
-                    position: vpos,
-                    recrewable,
-                    health_ok,
-                    same_player_ok,
-                    collide_ok,
-                }
-            })
-            .collect();
-        let (best, player_rejects, collide_rejects) =
-            crate::game_logic::host_residual_acquire::pick_nearest_pilot_vehicle_target(
-                pilot_id,
-                pilot_pos,
-                candidates,
-                PILOT_FIND_VEHICLE_SCAN_RANGE,
+        let mut best = None;
+        let range_sq = scan.scan_range * scan.scan_range;
+        let mut best_distance_sq = range_sq;
+        let mut player_rejects = 0;
+        let mut collide_rejects = 0;
+        if scan.scan_range > 0.0 && self.pilot_promotion_source_owner(pilot).is_some() {
+            self.partition_manager.visit_radius_coi_order(
+                pilot_pos.x, pilot_pos.z, scan.scan_range, |raw| {
+                    let vehicle_id = ObjectId(raw);
+                    let Some(vehicle) = self.objects.get_registered(&vehicle_id) else {
+                        return;
+                    };
+                    if vehicle_id == pilot_id
+                        || !vehicle.is_kind_of(KindOf::Vehicle)
+                        || !vehicle.is_alive()
+                        || vehicle.status.off_map != pilot_off_map
+                    {
+                        return;
+                    }
+                    let position = vehicle.get_position();
+                    let dx = position.x - pilot_pos.x;
+                    let dz = position.z - pilot_pos.z;
+                    let distance_sq = dx * dx + dz * dz;
+                    if distance_sq >= range_sq
+                        || vehicle.health.current < vehicle.health.maximum * scan.min_health
+                    {
+                        return;
+                    }
+                    if self.player_owner_for_host_object(vehicle) != Some(owner) {
+                        player_rejects += 1;
+                        return;
+                    }
+                    if self.pilot_promotion_target_controller(vehicle) != Some(owner)
+                        || !self.vehicle_is_grounded_for_pilot(vehicle)
+                    {
+                        collide_rejects += 1;
+                        return;
+                    }
+                    // SimpleObjectIterator prepends each COI candidate and its
+                    // sorted mode preserves the resulting order at equal distance.
+                    if distance_sq <= best_distance_sq {
+                        best_distance_sq = distance_sq;
+                        best = Some((vehicle_id, position));
+                    }
+                },
             );
-        if collide_rejects > 0 {
-            for _ in 0..collide_rejects {
-                self.usa_pilot.record_find_vehicle_collide_reject();
-            }
         }
-        if player_rejects > 0 {
-            for _ in 0..player_rejects {
-                self.usa_pilot.record_find_vehicle_player_reject();
-            }
+        for _ in 0..collide_rejects {
+            self.usa_pilot.record_find_vehicle_collide_reject();
+        }
+        for _ in 0..player_rejects {
+            self.usa_pilot.record_find_vehicle_player_reject();
         }
 
-        if let Some((vehicle_id, _, vehicle_pos)) = best {
-            // Issue Enter residual (matches player Enter command → recrew path).
+        if let Some((vehicle_id, vehicle_pos)) = best {
+            // The actual Enter arrival revalidates the pilot's collision action.
             // C++ clears m_didMoveToBase when a vehicle target is found.
             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
                 pilot.set_target_with_operation(
@@ -295,8 +246,6 @@ impl GameLogic {
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
                 pilot.ignored_obstacle_id = Some(vehicle_id);
-                let _ = pilot_radius;
-                let _ = pilot_team;
             }
             self.path_approach_with_state_ignoring(
                 pilot_id,

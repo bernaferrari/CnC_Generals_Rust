@@ -3,7 +3,7 @@ use glam::{Mat4, Vec3};
 use serde::{Deserialize, Serialize};
 
 mod template_metadata;
-pub(crate) use template_metadata::RallyPointExitOwner;
+pub(crate) use template_metadata::{PilotFindVehicleMetadata, RallyPointExitOwner};
 pub(crate) use template_metadata::vary_pack_unpack_duration_ms;
 pub use template_metadata::{
     CapturePowerKind, ChargePlantAbilityMetadata, ContainAdmission, ContainDeathRules,

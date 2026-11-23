@@ -54,6 +54,11 @@ Object OwnedPilot
   EffectRange = 0
   AddsOwnerVeterancy = Yes
  End
+ Behavior = PilotFindVehicleUpdate PilotScan
+  ScanRate = 1000
+  ScanRange = 300
+  MinHealth = 0.5
+ End
 End
 Object OwnedVehicle
  IsTrainable = {trainable}
@@ -106,8 +111,12 @@ fn pilot_admission_and_acquisition_observe_selected_air_not_targeting_status() {
     );
     assert!(ground.can_execute_pilot_recrew(pilot, vehicle));
     assert!(!air.can_execute_pilot_recrew(peer_pilot, peer_vehicle));
-    ground.frame = 30;
-    air.frame = 30;
+    ground.host_object_mut(vehicle).unwrap().status.disabled_unmanned = false;
+    air.host_object_mut(peer_vehicle).unwrap().status.disabled_unmanned = false;
+    for world in [&mut ground, &mut air] {
+        world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
+        world.frame = 30;
+    }
     air.try_pilot_find_vehicle_residual(peer_pilot);
     ground.try_pilot_find_vehicle_residual(pilot);
     assert_eq!(ground.host_object(pilot).unwrap().target, Some(vehicle));
@@ -336,4 +345,41 @@ fn pilot_crate_collision_requires_a_matching_goal_and_exact_controller() {
             .host_object(pilot)
             .is_none_or(|object| object.status.destroyed)
     );
+}
+
+#[test]
+fn ai_pilot_selects_closest_eligible_occupied_vehicle() {
+    let mut world = admitted_world("CrusaderLocomotor", "VEHICLE SELECTABLE", "Yes");
+    world.add_player(Player::new(2, Team::USA, "DifferentController", false));
+    let pilot = world
+        .create_object_for_player("OwnedPilot", 1, Vec3::ZERO)
+        .unwrap();
+    let enemy_owner = world
+        .create_object_for_player("OwnedVehicle", 2, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    let off_map = world
+        .create_object_for_player("OwnedVehicle", 1, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    let damaged = world
+        .create_object_for_player("OwnedVehicle", 1, Vec3::new(30.0, 0.0, 0.0))
+        .unwrap();
+    let nearest = world
+        .create_object_for_player("OwnedVehicle", 1, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    let farther = world
+        .create_object_for_player("OwnedVehicle", 1, Vec3::new(80.0, 0.0, 0.0))
+        .unwrap();
+    assert_eq!(world.host_object(enemy_owner).unwrap().team, Team::USA);
+    world.host_object_mut(off_map).unwrap().status.off_map = true;
+    let wounded = world.host_object_mut(damaged).unwrap();
+    wounded.health.current = wounded.health.maximum * 0.25;
+    assert!(!world.host_object(nearest).unwrap().is_unmanned());
+    assert!(!world.host_object(farther).unwrap().is_unmanned());
+
+    world
+        .update_owned_partition_with_effects(&mut Default::default())
+        .unwrap();
+    world.frame = 30;
+    world.try_pilot_find_vehicle_residual(pilot);
+    assert_eq!(world.host_object(pilot).unwrap().target, Some(nearest));
 }

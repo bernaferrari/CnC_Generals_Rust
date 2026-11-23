@@ -417,6 +417,7 @@ impl GameLogic {
                 // silently falls back to the legacy/no-interface production
                 // path solely because it already existed in the template map.
                 Self::apply_authored_production_exit_metadata(template, &definition);
+                Self::apply_authored_pilot_find_vehicle(template, &definition);
                 Self::apply_authored_eject_pilot_die_metadata(template, &definition);
                 Self::apply_authored_rebuild_hole_expose_die_metadata(template, &definition);
                 Self::apply_authored_hack_internet_metadata(template, &definition);
@@ -784,6 +785,7 @@ impl GameLogic {
         Self::apply_authored_stealth_upgrade_metadata(template, definition);
         Self::apply_authored_horde_and_visual_upgrade_metadata(template, definition);
         Self::apply_authored_production_exit_metadata(template, definition);
+        Self::apply_authored_pilot_find_vehicle(template, definition);
         Self::apply_authored_eject_pilot_die_metadata(template, definition);
         Self::apply_authored_rebuild_hole_expose_die_metadata(template, definition);
         Self::apply_authored_hack_internet_metadata(template, definition);

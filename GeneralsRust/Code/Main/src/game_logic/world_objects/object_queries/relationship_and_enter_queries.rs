@@ -552,7 +552,7 @@ impl GameLogic {
             && !vehicle.selected_locomotor_is_airborne()
     }
 
-    fn vehicle_is_grounded_for_pilot(&self, vehicle: &Object) -> bool {
+    pub(in crate::game_logic) fn vehicle_is_grounded_for_pilot(&self, vehicle: &Object) -> bool {
         let position = vehicle.get_position();
         let terrain_y = self.terrain_height_at(position).unwrap_or(0.0);
         !crate::game_logic::host_usa_pilot::is_significantly_above_terrain(position.y - terrain_y)
@@ -570,7 +570,10 @@ impl GameLogic {
         self.player_owner_for_host_object(pilot)
     }
 
-    fn pilot_promotion_target_controller(&self, vehicle: &Object) -> Option<u32> {
+    pub(in crate::game_logic) fn pilot_promotion_target_controller(
+        &self,
+        vehicle: &Object,
+    ) -> Option<u32> {
         if !Self::can_receive_pilot_veterancy(vehicle)
             || vehicle.is_unmanned()
             || vehicle.team == Team::Neutral

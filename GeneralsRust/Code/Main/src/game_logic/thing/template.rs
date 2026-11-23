@@ -874,6 +874,8 @@ pub struct ThingTemplate {
     /// corresponding behavior module.
     #[serde(default)]
     pub veterancy_crate_collide: Option<VeterancyCrateCollideMetadata>,
+    #[serde(default)]
+    pub(crate) pilot_find_vehicle: Option<PilotFindVehicleMetadata>,
     /// Exact `EjectPilotDie` module data.  Presence records the C++ die
     /// interface for Hijacker behavior; active death spawning separately
     /// rejects unrepresentable filters or OCLs.
@@ -1501,6 +1503,7 @@ impl ThingTemplate {
             wave_guide_audio: None,
             authored_structure_collapse: false,
             veterancy_crate_collide: None,
+            pilot_find_vehicle: None,
             eject_pilot_die: None,
             hijacker_parachute_name: None,
             rebuild_hole_expose: None,
