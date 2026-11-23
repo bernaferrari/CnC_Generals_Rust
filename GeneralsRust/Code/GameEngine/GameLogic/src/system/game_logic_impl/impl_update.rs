@@ -246,7 +246,8 @@ impl GameLogic {
         // Scoped in-update frame: every frame read inside this update (script
         // engine Phase 1, object helpers Phase 6b, evaluators) resolves THIS
         // frame without re-locking the singleton (self-deadlock otherwise).
-        let _in_update_frame = crate::system::game_logic::enter_update_frame(frame);
+        let _in_update_frame =
+            enter_update_frame_for(self.owning_world_services().unwrap_or_else(session_flags), frame);
 
         trace!("GameLogic::update(frame={}) - Begin update cycle", frame);
 
@@ -721,21 +722,23 @@ impl GameLogic {
     pub fn update_ai_players(&mut self, frame: UnsignedInt) -> Result<(), GameLogicError> {
         trace!("GameLogic::update_ai_players(frame={})", frame);
 
-        // Core instances with an explicit owner drive that world's AI and
-        // pathfinder. The process singleton remains on the legacy fallback.
-        let ai_store = self
-            .pathfinding_owner
-            .as_ref()
-            .map(|owner| Arc::clone(owner.ai()))
-            .unwrap_or_else(the_ai);
-        if let Ok(mut ai) = ai_store.write() {
-            if let Err(e) = ai.update(frame) {
-                return Err(GameLogicError::AIError(format!("AI update failed: {}", e)));
+        if let Some(owner) = self.pathfinding_owner.as_ref() {
+            let pathfinder = owner.ai().read()
+                .map_err(|_| GameLogicError::AIError("AI system lock poisoned".into()))?
+                .pathfinder();
+            if let Some(pathfinder) = pathfinder
+                && let Ok(mut pathfinder) = pathfinder.write()
+            {
+                pathfinder.process_pathfind_queue()
+                    .map_err(|error| GameLogicError::AIError(format!("AI update failed: {error}")))?;
             }
+            crate::player::PlayerList::update_core_sabotage_at(owner.services(), frame);
         } else {
-            return Err(GameLogicError::AIError(
-                "AI system lock poisoned".to_string(),
-            ));
+            let ai = the_ai();
+            ai.write()
+                .map_err(|_| GameLogicError::AIError("AI system lock poisoned".into()))?
+                .update(frame)
+                .map_err(|error| GameLogicError::AIError(format!("AI update failed: {error}")))?;
         }
 
         if let Some(result) = with_ai_integration_mut(|manager| manager.update_ai_players_only()) {

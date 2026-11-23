@@ -2909,6 +2909,72 @@ mod tests {
     }
 
     #[test]
+    fn core_frame_stamps_the_driving_clock_while_a_peer_is_published() {
+        use crate::system::engine_stores::{new_for_world, with_active_stores};
+        use std::sync::atomic::Ordering;
+
+        let driving = new_for_world();
+        let peer = new_for_world();
+        let clock_marker = |world: &crate::system::engine_stores::EngineStores| {
+            world.services().session_flags().in_update_frame_plus_one.load(Ordering::Relaxed)
+        };
+        let mut observed_camera = false;
+        with_active_stores(&peer, || {
+            let _peer_frame = enter_update_frame(81);
+            let mut logic = driving.game_logic_mutex().lock().unwrap();
+            logic.game_paused = true;
+            logic.update(37, || {
+                // Check the marker first so a regression fails before the
+                // receiver's frame lookup could try to reacquire GameLogic.
+                assert_eq!(clock_marker(&driving), 38);
+                assert_eq!(driving.services().logic_frame(), 37);
+                assert_eq!(peer.services().logic_frame(), 81);
+                observed_camera = true;
+                None
+            }).unwrap();
+            assert_eq!(clock_marker(&driving), 0);
+            assert_eq!(peer.services().logic_frame(), 81);
+        });
+        assert!(observed_camera);
+        assert_eq!(clock_marker(&peer), 0);
+    }
+
+    #[test]
+    fn core_ai_phase_expires_only_the_driving_players_sabotage() {
+        use crate::system::engine_stores::{new_for_world, with_active_stores};
+
+        let driving = new_for_world();
+        let peer = new_for_world();
+        let add_player = |world: &crate::system::engine_stores::EngineStores, until| {
+            let mut player = Player::new_for_world(0, world.services());
+            player.get_energy_mut().add_power_production(2);
+            player.get_energy_mut().set_power_sabotaged_till_frame(until);
+            player.add_radar(false);
+            player.disable_radar();
+            let player = Arc::new(RwLock::new(player));
+            world.services().players().write().unwrap().add_player(Arc::clone(&player));
+            player
+        };
+        let first = add_player(&driving, 25);
+        let second = add_player(&peer, 31);
+        let state = |player: &Arc<RwLock<Player>>| {
+            let player = player.read().unwrap();
+            (player.get_energy().get_power_sabotaged_till_frame(), player.has_radar())
+        };
+        with_active_stores(&peer, || {
+            let _peer_frame = enter_update_frame(81);
+            let mut logic = driving.game_logic_mutex().lock().unwrap();
+            logic.update(25, || None).unwrap();
+            assert_eq!(state(&first), (25, false));
+            assert_eq!(state(&second), (31, false));
+
+            logic.update(26, || None).unwrap();
+            assert_eq!(state(&first), (0, true));
+            assert_eq!(state(&second), (31, false));
+        });
+    }
+
+    #[test]
     fn core_partition_reads_its_own_world_collision_geometry() {
         use crate::object::collide::{Coord3D, GeometryInfo};
         use crate::system::engine_stores::{with_active_stores, EngineStores};

@@ -231,27 +231,8 @@ impl BorrowedAiWorld<'_> {
             .write()
             .map_err(|_| "construction player poisoned")?
             .apply_construction_power_influence(power, disabled);
-        if let Some((index, enabled)) = brownout {
-            // Resolve each object after the previous synchronous disable edge.
-            for id in self
-                .services
-                .spatial_objects
-                .get_objects_owned_by_player(index as u32)
-            {
-                let Some(object) = self.object(id) else {
-                    continue;
-                };
-                let mut object = object
-                    .write()
-                    .map_err(|_| "powered construction object poisoned")?;
-                if object.is_kind_of(KindOf::Powered) {
-                    if enabled {
-                        object.set_disabled(crate::common::DisabledType::DisabledUnderpowered);
-                    } else {
-                        object.clear_disabled(crate::common::DisabledType::DisabledUnderpowered);
-                    }
-                }
-            }
+        if let Some((index, is_brownout)) = brownout {
+            self.apply_native_player_brownout(index, is_brownout)?;
         }
         if let Some(world) = world.as_ref() {
             if let Some(manager) = world
@@ -281,6 +262,18 @@ impl BorrowedAiWorld<'_> {
             for event in events {
                 let _ = crate::helpers::TheEva::set_should_play_from(world.as_ref(), event);
             }
+        }
+        Ok(())
+    }
+
+    pub(super) fn apply_native_player_brownout(&self, index: i32, is_brownout: bool) -> Result<(), String> {
+        // Resolve each object after the preceding synchronous disable edge.
+        for id in self.services.spatial_objects.get_objects_owned_by_player(index as u32) {
+            let Some(object) = self.object(id) else {
+                continue;
+            };
+            let mut object = object.write().map_err(|_| "powered object poisoned")?;
+            Player::apply_brownout_to_powered_object(&mut object, is_brownout);
         }
         Ok(())
     }

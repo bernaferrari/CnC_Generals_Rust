@@ -331,6 +331,7 @@ fn session_flags() -> std::sync::Arc<crate::system::engine_stores::WorldServices
 
 pub(crate) struct InUpdateFrameGuard {
     services: std::sync::Arc<crate::system::engine_stores::WorldServices>,
+    previous: u32,
 }
 
 impl Drop for InUpdateFrameGuard {
@@ -338,19 +339,25 @@ impl Drop for InUpdateFrameGuard {
         let flags = self.services.session_flags();
         flags
             .in_update_frame_plus_one
-            .store(0, std::sync::atomic::Ordering::Relaxed);
+            .store(self.previous, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
-/// Publish `frame` on the bound world services for the duration of the guard.
-/// Private to the update path. Avoids locking GAME_LOGIC from within update.
+#[cfg(test)]
 pub(crate) fn enter_update_frame(frame: UnsignedInt) -> InUpdateFrameGuard {
-    let services = session_flags();
-    services.session_flags().in_update_frame_plus_one.store(
+    enter_update_frame_for(session_flags(), frame)
+}
+
+/// Publish the driving world's frame while its GameLogic is already borrowed.
+fn enter_update_frame_for(
+    services: std::sync::Arc<crate::system::engine_stores::WorldServices>,
+    frame: UnsignedInt,
+) -> InUpdateFrameGuard {
+    let previous = services.session_flags().in_update_frame_plus_one.swap(
         frame.saturating_add(1),
         std::sync::atomic::Ordering::Relaxed,
     );
-    InUpdateFrameGuard { services }
+    InUpdateFrameGuard { services, previous }
 }
 
 /// Try to fetch the current simulation frame from the global GameLogic instance.

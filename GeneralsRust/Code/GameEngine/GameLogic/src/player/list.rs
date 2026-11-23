@@ -26,6 +26,24 @@ impl PlayerList {
         }
     }
 
+    /// AI.cpp:332–342 / PlayerList.cpp:221–230. Visit the driving
+    /// roster in slot order and release its loans before object callbacks.
+    pub(crate) fn update_core_sabotage_at(
+        world: &crate::system::engine_stores::WorldServices,
+        frame: u32,
+    ) {
+        let roster = world.players().read().map(|list| list.players.clone()).unwrap_or_default();
+        for player in roster.into_iter().flatten() {
+            let change = player.write().ok().and_then(|mut player| {
+                let brownout = player.expire_power_sabotage_at(frame)?;
+                Some((player.get_player_index(), brownout))
+            });
+            if let Some((index, brownout)) = change {
+                Player::apply_power_brownout_in_object_manager(world.objects(), index, brownout);
+            }
+        }
+    }
+
     /// C++ `GameLogic::getRankLevelLimit`.
     pub fn rank_level_limit(&self) -> Int {
         self.rank_level_limit

@@ -55,14 +55,13 @@ impl Player {
     /// Brown-out occurs when power consumption exceeds production
     /// Matches C++ Player::onPowerBrownOutChange
     pub fn on_power_brown_out_change(&mut self, is_brown_out: bool) -> Result<(), GameError> {
-        if is_brown_out {
-            self.disable_radar();
-        } else {
-            self.enable_radar();
-        }
-
+        self.set_brownout_radar(is_brown_out);
         Self::apply_power_brownout_to_owned_objects(self.player_index, is_brown_out);
         Ok(())
+    }
+
+    pub(super) fn set_brownout_radar(&mut self, is_brown_out: bool) {
+        self.radar_disabled = is_brown_out;
     }
 
     /// Execute the object phase of C++ Player::onPowerBrownOutChange.
@@ -72,7 +71,16 @@ impl Player {
         player_index: PlayerIndex,
         is_brown_out: bool,
     ) {
-        let manager = get_object_manager();
+        Self::apply_power_brownout_in_object_manager(
+            &get_object_manager(), player_index, is_brown_out,
+        );
+    }
+
+    pub(super) fn apply_power_brownout_in_object_manager(
+        manager: &std::sync::RwLock<crate::object_manager::ObjectManager>,
+        player_index: PlayerIndex,
+        is_brown_out: bool,
+    ) {
         let object_ids = manager
             .read()
             .ok()
@@ -92,13 +100,18 @@ impl Player {
             let Ok(mut object) = object.write() else {
                 continue;
             };
-            if object.is_kind_of(KindOf::Powered) {
-                if is_brown_out {
-                    object.set_disabled(DisabledType::DisabledUnderpowered);
-                } else {
-                    object.clear_disabled(DisabledType::DisabledUnderpowered);
-                }
-            }
+            Self::apply_brownout_to_powered_object(&mut object, is_brown_out);
+        }
+    }
+
+    pub(crate) fn apply_brownout_to_powered_object(object: &mut Object, is_brown_out: bool) {
+        if !object.is_kind_of(KindOf::Powered) {
+            return;
+        }
+        if is_brown_out {
+            object.set_disabled(DisabledType::DisabledUnderpowered);
+        } else {
+            object.clear_disabled(DisabledType::DisabledUnderpowered);
         }
     }
 

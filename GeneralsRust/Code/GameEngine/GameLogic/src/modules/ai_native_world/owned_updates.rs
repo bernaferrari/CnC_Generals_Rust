@@ -53,20 +53,28 @@ impl NativeFrameDriver for ReceivingNativeFrame<'_, '_> {
     }
 
     fn update_ai_phase(&mut self, scheduler: &mut GameLogic) -> Result<(), String> {
-        self.borrow_world(scheduler)
-            .process_enter_path_queue(crate::ai::pathfind_complete::PATHFIND_CELLS_PER_FRAME)?;
+        let mut world = self.borrow_world(scheduler);
+        world.process_enter_path_queue(crate::ai::pathfind_complete::PATHFIND_CELLS_PER_FRAME)?;
         // C++ AI.cpp:332–342 updates the actual player list after its queue.
-        for player in self.players.iter() {
-            player
-                .write()
-                .map_err(|_| "receiving AI player poisoned")?
-                .update();
-        }
-        Ok(())
+        world.update_player_power_sabotage()
     }
 }
 
 impl BorrowedAiWorld<'_> {
+    fn update_player_power_sabotage(&self) -> Result<(), String> {
+        for player in self.players.iter() {
+            let change = {
+                let mut player = player.write().map_err(|_| "receiving AI player poisoned")?;
+                player.expire_power_sabotage_at(self.services.frame)
+                    .map(|brownout| (player.get_player_index(), brownout))
+            };
+            if let Some((index, brownout)) = change {
+                self.apply_native_player_brownout(index, brownout)?;
+            }
+        }
+        Ok(())
+    }
+
     fn dispatch_native_callback(
         &mut self,
         update: &NativeScheduledUpdate,
