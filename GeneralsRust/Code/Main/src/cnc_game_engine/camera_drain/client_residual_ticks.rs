@@ -73,13 +73,9 @@ impl CnCGameEngine {
             }
             if let Some(ref name) = pres.pending_radar_movie {
                 // Radar movies use InGameUI path when available.
-                let started = self.game_client.play_radar_movie(name);
-                if !started {
-                    let _ = game_client::core::script_action_handler::play_script_display_movie(
-                        self.game_client.script_display_receiver(),
-                        name,
-                    );
-                }
+                // C++ doMoviePlayRadar only attempts the receiving InGameUI
+                // radar path; a missing window or media title is silently ignored.
+                let _ = self.game_client.play_radar_movie(name);
             }
         }
         // Wave 900: no live pending-movie drain dual-read after presentation apply.

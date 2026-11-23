@@ -834,7 +834,7 @@ impl Display {
             }
             stream.frame_render(buffer.as_mut());
             if let Some((w, h, rgba)) = display_fx::video_buffer_rgba_mut(buffer.as_mut()) {
-                fx.store_movie_frame(w, h, rgba.clone());
+                fx.store_movie_frame(w, h, rgba);
             }
 
             if stream.frame_index() != stream.frame_count() - 1 {

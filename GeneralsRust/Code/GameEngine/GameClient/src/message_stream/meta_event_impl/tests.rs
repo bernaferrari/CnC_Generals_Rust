@@ -1296,6 +1296,191 @@ mod tests {
     }
 
     #[test]
+    fn demo_movie_aliases_dispatch_to_each_receivers_video_owner() {
+        use crate::video_player::{
+            Video, VideoPlayer, VideoPlayerHandle, VideoPlayerInterface, VideoSearchPaths,
+            VideoStreamProvider,
+        };
+        use crate::video_stream::VideoStreamInterface;
+        use std::path::Path;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct FiniteProbe {
+            closes: Arc<AtomicUsize>,
+            frame: i32,
+        }
+        impl VideoStreamInterface for FiniteProbe {
+            fn next(&self) -> Option<&dyn VideoStreamInterface> { None }
+            fn next_mut(&mut self) -> Option<&mut dyn VideoStreamInterface> { None }
+            fn update(&mut self) {}
+            fn close(self: Box<Self>) { self.closes.fetch_add(1, Ordering::SeqCst); }
+            fn is_frame_ready(&self) -> bool { true }
+            fn frame_decompress(&mut self) {}
+            fn frame_render(&mut self, _buffer: &mut dyn crate::video_buffer::VideoBuffer) {}
+            fn frame_next(&mut self) { self.frame = (self.frame + 1) % 2; }
+            fn frame_index(&self) -> i32 { self.frame }
+            fn frame_count(&self) -> i32 { 2 }
+            fn frame_goto(&mut self, index: i32) { self.frame = index.rem_euclid(2); }
+            fn height(&self) -> i32 { 4 }
+            fn width(&self) -> i32 { 4 }
+        }
+        struct ProbeProvider(Arc<AtomicUsize>);
+        impl VideoStreamProvider for ProbeProvider {
+            fn open(&self, _title: &str, _path: &Path) -> Option<Box<dyn VideoStreamInterface>> {
+                Some(Box::new(FiniteProbe { closes: self.0.clone(), frame: 1 }))
+            }
+            fn file_extension(&self) -> &str { "bik" }
+        }
+
+        fn make_receiver(
+            movie_file: &Path,
+            close_count: Arc<AtomicUsize>,
+        ) -> (
+            crate::gui::window_manager::WindowManagerOwner,
+            crate::gui::window_video_manager::WindowVideoManager,
+        ) {
+            let owner = crate::gui::window_manager::WindowManagerOwner::new();
+            owner.with_manager(|manager| {
+                for name in ["ControlBar.wnd:LeftHUD", "ControlBar.wnd:RightHUD"] {
+                    let window = manager.test_create_window(None, 0, 0, 64, 64).unwrap();
+                    window.borrow_mut().set_name(name);
+                }
+            });
+            let mut player = VideoPlayer::new();
+            player.set_search_paths(VideoSearchPaths::new(
+                None,
+                movie_file.parent().unwrap().parent().unwrap().parent().unwrap().to_path_buf(),
+                "English",
+            ));
+            for title in ["DemoObjective04", "CameoMovie"] {
+                player.add_video(Video::new(
+                    "CLIP".into(),
+                    title.into(),
+                    String::new(),
+                ));
+            }
+            player.register_video_stream_provider(Box::new(ProbeProvider(close_count)));
+            let slot = Arc::new(std::sync::Mutex::new(Some(player))) as VideoPlayerHandle;
+            let mut videos = crate::gui::window_video_manager::WindowVideoManager::new();
+            videos.bind_video_player_slot(slot);
+            (owner, videos)
+        }
+
+        fn window_has_video_buffer(
+            owner: &crate::gui::window_manager::WindowManagerOwner,
+            window_name: &str,
+        ) -> bool {
+            owner.with_manager(|manager| {
+                manager
+                    .find_window_by_name(window_name)
+                    .is_some_and(|window| window.borrow().video_buffer().is_some())
+            })
+        }
+
+        fn dispatch_video_alias(
+            record: &MetaMapRec,
+            owner: &crate::gui::window_manager::WindowManagerOwner,
+            videos: &mut crate::gui::window_video_manager::WindowVideoManager,
+        ) -> Option<GameMessageDisposition> {
+            with_receiving_ui(|ui| {
+                let mut emitted = Vec::new();
+                let mut display = crate::core::script_action_handler::ScriptDisplayReceiver::default();
+                let mut dispatch = |request,
+                                    _emitted: &mut Vec<crate::message_stream::GameMessage>,
+                                    _client_ui: &mut dyn std::any::Any| {
+                    if let game_engine::common::message_stream::WindowInputDispatch::Display(action) = request {
+                        return crate::message_stream::meta_event::execute_display_input_action(
+                            action, &mut display, owner, Some(&mut *videos),
+                        ).map(game_engine::common::message_stream::WindowInputDispatchResult::Display);
+                    }
+                    None
+                };
+                let world = gamelogic::system::engine_stores::active_services();
+                ui.with_emission_sink(&mut emitted, |ui| {
+                    dispatch_map_entry(
+                        record,
+                        &mut dispatch,
+                        Some(&world),
+                        false,
+                        false,
+                        0,
+                        ui,
+                    )
+                })
+            })
+        }
+
+        crate::test_support::ensure_ambient_host();
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_SINGLE_PLAYER);
+        }
+
+        let root = std::env::temp_dir().join(format!(
+            "ingame-movie-dispatch-{}",
+            std::process::id()
+        ));
+        let movie_file = root.join("Data/Movies/CLIP.BIK");
+        fs::create_dir_all(movie_file.parent().unwrap()).unwrap();
+        fs::write(&movie_file, b"fixture").unwrap();
+        let closes_a = Arc::new(AtomicUsize::new(0));
+        let closes_b = Arc::new(AtomicUsize::new(0));
+        let (owner_a, mut videos_a) = make_receiver(&movie_file, closes_a.clone());
+        let (owner_b, mut videos_b) = make_receiver(&movie_file, closes_b.clone());
+
+        assert_eq!(
+            dispatch_video_alias(&alias_record("DEMO_PLAY_OBJECTIVE_MOVIE4"), &owner_a, &mut videos_a),
+            Some(GameMessageDisposition::DestroyMessage),
+        );
+        assert_eq!(
+            dispatch_video_alias(&alias_record("DEMO_PLAY_OBJECTIVE_MOVIE4"), &owner_b, &mut videos_b),
+            Some(GameMessageDisposition::DestroyMessage),
+        );
+        assert!(videos_a.is_movie_playing("DemoObjective04"));
+        assert!(videos_b.is_movie_playing("DemoObjective04"));
+        assert!(window_has_video_buffer(&owner_a, "ControlBar.wnd:LeftHUD"));
+        assert!(window_has_video_buffer(&owner_b, "ControlBar.wnd:LeftHUD"));
+        assert!(!window_has_video_buffer(&owner_a, "ControlBar.wnd:RightHUD"));
+
+        videos_a.pause_all_movies();
+        videos_a.update_in_game_movies();
+        assert_eq!(closes_a.load(Ordering::SeqCst), 0, "pause must not advance to terminal wrap");
+        videos_a.resume_all_movies();
+        videos_a.update_in_game_movies();
+        videos_a.update_in_game_movies();
+        assert!(
+            !videos_a.is_movie_playing("DemoObjective04"),
+            "radar one-shot closes at frame wrap",
+        );
+        assert_eq!(closes_a.load(Ordering::SeqCst), 1);
+        assert!(!window_has_video_buffer(&owner_a, "ControlBar.wnd:LeftHUD"));
+        assert!(videos_b.is_movie_playing("DemoObjective04"), "peer playback is independent");
+        assert_eq!(closes_b.load(Ordering::SeqCst), 0);
+
+        assert_eq!(
+            dispatch_video_alias(&alias_record("DEMO_PLAY_CAMEO_MOVIE"), &owner_a, &mut videos_a),
+            Some(GameMessageDisposition::DestroyMessage),
+        );
+        assert!(videos_a.is_movie_playing("CameoMovie"));
+        assert!(window_has_video_buffer(&owner_a, "ControlBar.wnd:RightHUD"));
+        videos_a.update_in_game_movies();
+        videos_a.update_in_game_movies();
+        assert!(
+            videos_a.is_movie_playing("CameoMovie"),
+            "C++ cameo wrap-stop is intentionally disabled",
+        );
+        dispatch_video_alias(&alias_record("DEMO_PLAY_CAMEO_MOVIE"), &owner_a, &mut videos_a);
+        assert!(!videos_a.is_movie_playing("CameoMovie"), "second toggle closes cameo");
+        assert!(!window_has_video_buffer(&owner_a, "ControlBar.wnd:RightHUD"));
+        assert_eq!(closes_a.load(Ordering::SeqCst), 2);
+
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.set_game_mode(GAME_NONE);
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn test_switch_team_aliases_cycle_or_swap_local_player_index() {
         crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
