@@ -832,13 +832,18 @@ fn latch_status_residuals(
 }
 
 fn live_main_menu_wnd_ready(snap: &StatusSnap) -> bool {
+    live_shell_wnd_ready(snap, "MainMenu.wnd")
+}
+
+fn live_shell_wnd_ready(snap: &StatusSnap, filename: &str) -> bool {
     snap.state == "Menu"
         && snap.shell_active
         && snap.shell_screen_count > 0
         && snap
             .shell_top_wnd
-            .to_ascii_lowercase()
-            .ends_with("mainmenu.wnd")
+            .rsplit(['/', '\\'])
+            .next()
+            .is_some_and(|name| name.eq_ignore_ascii_case(filename))
 }
 
 /// Phase 0 (asset/bootstrap wait): wait for the live MainMenu WND when the
@@ -917,7 +922,10 @@ fn smoke_phase_windowed_inject(
     // only (inject_winit_equivalent_named_gadget_click /
     // inject_winit_equivalent_gameplay_order_click → handle_mouse_button_input).
     // Never drive_os_wnd_* for evidence, never note_* forge, never cheats.
-    if st.saw_wnd_widget_tree_nav && st.saw_interactive_gameplay && result.reached_ingame
+    // The presentation runner supplies its own selection and camera commands.
+    if result.reached_ingame
+        && (st.present_frame_goal
+            || (st.saw_wnd_widget_tree_nav && st.saw_interactive_gameplay))
     {
         st.phase = 2;
         st.gameplay_step = 0;
@@ -931,7 +939,9 @@ fn smoke_phase_windowed_inject(
         let shell_ready = live_main_menu_wnd_ready(snap);
         let nav_ok = snap.wnd_widget_tree_nav
             || snap.last_gameplay_cmd.starts_with("winit_menu_nav_ok")
-            || st.saw_wnd_widget_tree_nav;
+            || st.saw_wnd_widget_tree_nav
+            || (st.present_frame_goal
+                && live_shell_wnd_ready(snap, "SkirmishGameOptionsMenu.wnd"));
         let nav_miss = snap.last_gameplay_cmd.starts_with("winit_menu_nav_miss")
             || snap.last_gameplay_cmd.starts_with("winit_menu_nav_partial");
         let navigation_wait = st.windowed_menu_nav_started.map_or(NavigationWait::Wait, |start| {

@@ -475,6 +475,47 @@ mod tests {
         );
     }
 
+    #[test]
+    fn windowed_presentation_uses_live_screens_without_physical_input_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = dir.path().join("control.txt");
+        let mut st = SmokeRunState {
+            phase: 20,
+            present_frame_goal: true,
+            ..Default::default()
+        };
+        let mut result = ExecutableSmokeResult::default();
+        let mut snap = StatusSnap {
+            state: "Menu".into(),
+            shell_active: true,
+            shell_top_wnd: "Menus/MainMenu.wnd".into(),
+            shell_screen_count: 1,
+            live_frame_ok: true,
+            ..Default::default()
+        };
+        let map = "Maps/Lone Eagle/Lone Eagle.map";
+
+        smoke_phase_windowed_inject(&mut st, &mut result, &snap, &control, map);
+        assert_eq!(fs::read_to_string(&control).unwrap().trim(), "winit_menu_nav");
+
+        snap.shell_top_wnd = "Menus/SkirmishGameOptionsMenu.wnd".into();
+        snap.shell_screen_count = 2;
+        snap.last_gameplay_cmd = "winit_menu_nav_partial".into();
+        st.commanded_at = Some(Instant::now() - Duration::from_secs(1));
+        smoke_phase_windowed_inject(&mut st, &mut result, &snap, &control, map);
+        assert!(fs::read_to_string(&control).unwrap().starts_with("start_game|"));
+
+        snap.state = "InGame".into();
+        result.reached_ingame = true;
+        smoke_phase_windowed_inject(&mut st, &mut result, &snap, &control, map);
+        assert_eq!(st.phase, 2);
+        assert_eq!(st.gameplay_step, 0);
+        assert!(!st.saw_wnd_widget_tree_nav);
+        assert!(!st.saw_interactive_gameplay);
+        assert!(!st.windowed_gameplay_order_sent);
+        assert!(!result.playable_claim);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn resolve_runtime_exe_honors_general_runtime_exe_override() {
