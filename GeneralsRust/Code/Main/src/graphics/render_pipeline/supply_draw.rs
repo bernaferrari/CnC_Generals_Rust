@@ -17,6 +17,7 @@ pub(super) struct SupplyBoneLatch {
 }
 
 impl NativeInstalledPoseLoan<'_> {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn receive_supply_status(
         &mut self,
         source: &NativeSlaveSource,
@@ -25,11 +26,14 @@ impl NativeInstalledPoseLoan<'_> {
         global_data: &parking_lot::RwLock<game_engine::common::global_data::GlobalData>,
         max: i32,
         current: i32,
+        condition_bits: u128,
+        graphics: &mut GraphicsSystem,
+        mut flush_first_drawable_bone_query: impl FnMut() -> Result<(), String>,
     ) -> Result<(), String> {
         self.validate_object_retirement(&source.identity, binding)
             .map_err(str::to_owned)?;
         let owner = NativeDrawOwnerId::Actor(source.identity.object_id());
-        let condition = ModelConditionFlags::from_bits_retain(source.condition_bits);
+        let condition = ModelConditionFlags::from_bits_retain(condition_bits);
         for (index, entry) in declarations.iter().enumerate() {
             if !entry.name.as_str().eq_ignore_ascii_case("W3DSupplyDraw") {
                 continue;
@@ -41,6 +45,14 @@ impl NativeInstalledPoseLoan<'_> {
                 return Err("receiving supply Draw module has no installed lifetime".into());
             };
             if module.supply_bones.is_none() {
+                // W3DSupplyDraw.cpp:55 and Drawable.cpp:747. The first
+                // pristine query consumes the just-written CARRYING row.
+                // A later range still targets the current RenderObj.
+                flush_first_drawable_bone_query()?;
+                self.consume_native_camera_conditions(
+                    crate::game_logic::ObjectId(source.identity.object_id()),
+                    graphics,
+                );
                 let prefix = {
                     let data = entry.data.read();
                     let supply = data

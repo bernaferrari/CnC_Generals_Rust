@@ -482,6 +482,23 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         }
     }
 
+    /// Mirror the directly borrowed Drawable flags into this object's native
+    /// Draw modules for the next explicit dirty-condition consumer.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn mark_receiving_drawable_conditions(
+        &mut self,
+        source: &crate::game_logic::NativeSlaveSource,
+        bits: u128,
+        graphics: &mut GraphicsSystem,
+    ) {
+        self.receive_native_mutation_for_owner(
+            NativeDrawOwnerId::Actor(source.identity.object_id()),
+            NativeDrawMutation::ConditionsMarked { bits },
+            Some(NativeDrawSource::current(source)),
+            graphics,
+        );
+    }
+
     /// Source getDrawModules: consume dirty selections only for the actual
     /// named camera target. This does not run Draw pause/completion/recoil.
     pub(crate) fn consume_native_camera_conditions(
@@ -489,21 +506,17 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
         id: crate::game_logic::ObjectId,
         graphics: &mut GraphicsSystem,
     ) {
+        let owner = NativeDrawOwnerId::Actor(id.0);
+        // The owner range is already in module declaration order.
         let modules: Vec<_> = self
             .drawable_visual_states
-            .range(native_draw_world::owner_module_keys(NativeDrawOwnerId::Actor(id.0)))
-            .filter_map(|((object, index), state)| {
-                (*object == NativeDrawOwnerId::Actor(id.0)
-                    && state.native_pending_condition.is_some())
-                .then_some(*index)
-            })
+            .range(native_draw_world::owner_module_keys(owner))
+            .filter_map(|((_, index), state)| state.native_pending_condition.is_some().then_some(*index))
             .collect();
-        let mut modules = modules;
-        modules.sort_unstable();
         for index in modules {
             let world = match self
                 .drawable_visual_states
-                .get(&(NativeDrawOwnerId::Actor(id.0), index))
+                .get(&(owner, index))
                 .map(|s| &s.installed_draw_pose)
             {
                 Some(InstalledDrawObject::Ready(pose)) => pose.world,
@@ -511,7 +524,7 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 // Drawable transform must remain available for recreation.
                 _ => self
                     .drawable_visual_states
-                    .get(&(NativeDrawOwnerId::Actor(id.0), index))
+                    .get(&(owner, index))
                     .map(|s| s.native_drawable_transform)
                     .unwrap_or(Mat4::IDENTITY),
             };

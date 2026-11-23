@@ -396,28 +396,63 @@ impl NativeDrawableOwner<'_> {
         Ok(drawable.get_model_condition_flags().low_bits())
     }
 
-    /// C++ W3DModelDraw::updateDrawModuleSupplyStatus sets the logical
-    /// Drawable condition. It does not force a new RenderObj to install.
-    pub fn set_supply_carrying(
+    /// Read the actual Drawable flags after C++ getDrawModules' dirty flush.
+    pub fn flush_supply_draw_conditions(
         &mut self,
         key: PresentationDirectDrawableBindingKey,
-        carrying: bool,
-    ) -> GameClientResult<()> {
+    ) -> GameClientResult<u128> {
         if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
             return Err(GameClientError::InvalidOperation(
                 "native supply Drawable has a stale binding".into(),
             ));
         }
-        let drawable = self.drawables.drawable_map.get_mut(&key.drawable_id)
-            .and_then(|drawable| drawable.as_any_mut().downcast_mut::<crate::drawable::drawable::BasicDrawable>())
-            .ok_or_else(|| GameClientError::InvalidOperation("native supply Drawable missing".into()))?;
+        let drawable = self
+            .drawables
+            .drawable_map
+            .get_mut(&key.drawable_id)
+            .and_then(|drawable| {
+                drawable
+                    .as_any_mut()
+                    .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
+            })
+            .ok_or_else(|| {
+                GameClientError::InvalidOperation("native supply Drawable missing".into())
+            })?;
+        drawable.get_draw_modules_mut();
+        Ok(drawable.get_model_condition_flags().low_bits())
+    }
+
+    /// C++ W3DModelDraw::updateDrawModuleSupplyStatus sets the logical
+    /// Drawable condition without flushing it to the installed RenderObj.
+    pub fn set_supply_carrying(
+        &mut self,
+        key: PresentationDirectDrawableBindingKey,
+        carrying: bool,
+    ) -> GameClientResult<u128> {
+        if self.binding_key(key.host_epoch, key.object_id) != Some(key) {
+            return Err(GameClientError::InvalidOperation(
+                "native supply Drawable has a stale binding".into(),
+            ));
+        }
+        let drawable = self
+            .drawables
+            .drawable_map
+            .get_mut(&key.drawable_id)
+            .and_then(|drawable| {
+                drawable
+                    .as_any_mut()
+                    .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
+            })
+            .ok_or_else(|| {
+                GameClientError::InvalidOperation("native supply Drawable missing".into())
+            })?;
         let bit = game_engine::common::bit_flags::ModelConditionFlags::CARRYING;
         if carrying {
             drawable.set_model_condition_state(bit);
         } else {
             drawable.clear_model_condition_state(bit);
         }
-        Ok(())
+        Ok(drawable.get_model_condition_flags().low_bits())
     }
 
     /// Adopt the empty-epoch Client Xfer association before a saved-load

@@ -528,17 +528,37 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
         if self.poses.validate_object_retirement(&source.identity, key).is_err() {
             return false;
         }
-        // Drawable.cpp:4668 broadcasts through getDrawModules(), which
-        // consumes an already dirty model before this status writes CARRYING.
+        // Drawable.cpp:4668 consumes preceding dirt before the broadcast.
+        let Ok(previous) = self.drawables.flush_supply_draw_conditions(key) else {
+            return false;
+        };
+        self.poses.mark_receiving_drawable_conditions(source, previous, self.graphics);
         self.poses.consume_native_camera_conditions(
             crate::game_logic::ObjectId(source.identity.object_id()),
             self.graphics,
         );
-        if self.drawables.set_supply_carrying(key, current > 0).is_err() {
+        let Ok(bits) = self.drawables.set_supply_carrying(key, current > 0) else {
             return false;
+        };
+        if bits != previous {
+            self.poses.mark_receiving_drawable_conditions(source, bits, self.graphics);
         }
+        let drawables = &mut self.drawables;
         if let Err(error) = self.poses.receive_supply_status(
-            source, key, declarations, global_data, maximum, current,
+            source,
+            key,
+            declarations,
+            global_data,
+            maximum,
+            current,
+            bits,
+            self.graphics,
+            || {
+                drawables
+                    .flush_supply_draw_conditions(key)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            },
         ) {
             log::debug!("Supply Draw update unavailable for {}: {error}", source.template_name);
         }

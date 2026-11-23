@@ -2741,4 +2741,110 @@ fn mounted_supply_draw_latches_stock_pristine_children_only_at_real_status() {
         assert_eq!(read(&pipelines[1]).0, Some((35, 9)));
         assert_eq!(worlds[1].host_object(id).unwrap().warehouse_boxes(), 100);
     }
+
+    // Use real warehouse and dock prototypes to distinguish the active
+    // RenderObj from the logical CARRYING selection on the same Drawable.
+    let mut swapping_world = GameLogic::new();
+    swapping_world.admit_object_ini_sources([(
+        "supply-swap.ini".into(),
+        r#"
+Object SupplySwapWarehouse
+    KindOf = STRUCTURE SUPPLY_SOURCE
+    Body = ActiveBody BodyTag
+        MaxHealth = 100
+        InitialHealth = 100
+    End
+    Behavior = SupplyWarehouseDockUpdate DockTag
+        StartingBoxes = 400
+    End
+    Draw = W3DSupplyDraw SupplyDrawTag
+        DefaultConditionState
+            Model = ZBSupplyDK_B
+        End
+        ConditionState = CARRYING
+            Model = ZBSupplyWH_B
+        End
+        ExtraPublicBone = SUP
+        SupplyBonePrefix = SUP
+    End
+End
+"#.into(),
+    )]).unwrap();
+    swapping_world.add_player(Player::new(0, Team::USA, "Local", true));
+    let mut swapping_client = GameClient::new().unwrap();
+    // Keep the actual app asset service and native WGPU owner. Retire existing
+    // test bindings before this separate scenario reuses the same engine.
+    pipelines[0].install_native_draw_world(Default::default());
+    let pipeline = &mut pipelines[0];
+    let swapping_id = {
+        let (_, _, drawables) = swapping_client.split_frame_snow_and_drawable_owner();
+        let mut view = NativeRendererViewEffects::new(
+            pipeline.borrow_native_installed_poses(),
+            &mut graphics,
+            drawables,
+            EPOCH,
+            0,
+            receiving_native_drawable_policy(),
+            &mut retirement,
+        );
+        swapping_world
+            .create_object_with_script_effects_checked(
+                "SupplySwapWarehouse",
+                Team::Neutral,
+                Vec3::new(100., 0., 100.),
+                None,
+                &mut ScriptPresentationEffects {
+                    view: Some(&mut view),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .unwrap()
+    };
+    let observe = |pipeline: &RenderPipeline| pipeline.observe_native_supply_draw(swapping_id, 0).unwrap();
+    assert!(observe(pipeline).0.is_none());
+    assert_eq!(observe(pipeline).1.len(), 64);
+    let status = |boxes: i32,
+                  world: &mut GameLogic,
+                  client: &mut GameClient,
+                  pipeline: &mut RenderPipeline,
+                  graphics: &mut GraphicsSystem,
+                  retirement: &mut game_client::core::game_client::NativeParticleRetirementService| {
+        let (_, _, drawables) = client.split_frame_snow_and_drawable_owner();
+        let mut view = NativeRendererViewEffects::new(
+            pipeline.borrow_native_installed_poses(),
+            graphics,
+            drawables,
+            EPOCH,
+            0,
+            receiving_native_drawable_policy(),
+            retirement,
+        );
+        assert!(world.apply_warehouse_set_value_to_object_with_effects(
+            swapping_id,
+            boxes * world.supply_box_value(),
+            &mut ScriptPresentationEffects {
+                view: Some(&mut view),
+                ..Default::default()
+            }
+        ));
+    };
+    status(200, &mut swapping_world, &mut swapping_client, pipeline, &mut graphics, &mut retirement);
+    let (latch, visible, writes) = observe(pipeline);
+    assert_eq!(latch, Some((35, 18)));
+    assert_eq!(visible.len(), 18);
+    assert_eq!(writes.len(), 17, "first latch edits the new 35-child RenderObj");
+    assert!(visible.contains(&"SUP18".to_owned()));
+    assert!(!visible.contains(&"SUP19".to_owned()));
+
+    status(0, &mut swapping_world, &mut swapping_client, pipeline, &mut graphics, &mut retirement);
+    let (latch, visible, writes) = observe(pipeline);
+    assert_eq!(latch, Some((35, 0)));
+    assert!(visible.is_empty());
+    assert_eq!(writes.len(), 35, "later decrement still edits the old 35-child RenderObj");
+    pipeline.borrow_native_installed_poses().consume_native_camera_conditions(swapping_id, &mut graphics);
+    let (latch, visible, writes) = observe(pipeline);
+    assert_eq!(latch, Some((35, 0)));
+    assert_eq!(visible.len(), 64);
+    assert!(writes.is_empty(), "replacement inherits no writes from the retired RenderObj");
 }
