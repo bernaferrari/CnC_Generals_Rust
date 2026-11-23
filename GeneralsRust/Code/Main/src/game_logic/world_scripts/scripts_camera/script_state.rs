@@ -1477,17 +1477,19 @@ impl GameLogic {
         });
         if original_parent {
             let parent = self.objects.get_mut(&id).unwrap();
-            if disabled {
-                if !was_disabled {
-                    parent.on_disabled_edge(true);
-                }
+            let aggregate_edge = if disabled {
+                !was_disabled
             } else {
                 parent.status.disabled_script_disabled = false;
-                if !parent.has_disabled_type() {
-                    parent.on_disabled_edge(false);
-                }
+                !parent.has_disabled_type()
+            };
+            if aggregate_edge {
+                parent.on_disabled_edge(disabled);
             }
             self.admit_host_radar_disabled_edges(id);
+            if aggregate_edge {
+                self.admit_owned_producer_energy_edge(id, disabled);
+            }
         }
         visiting.pop();
         Ok(())

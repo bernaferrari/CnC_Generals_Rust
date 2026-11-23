@@ -675,6 +675,32 @@ fn disabled_plant_callbacks_keep_signed_credits_through_capture_and_recovery() {
 }
 
 #[test]
+fn zero_base_bonus_emp_expiry_does_not_signal_energy() {
+    let (mut world, _, _) = plant_bonus_world(false);
+    let auxiliary = world
+        .create_object_for_player("CallbackAuxiliary", 1, Vec3::Y)
+        .unwrap();
+    world.set_current_frame(4);
+    assert!(world.apply_owned_emp_disabled(auxiliary, 6));
+    assert!(world.toggle_overcharge_object(auxiliary));
+    assert_eq!(world.players[&1].power_produced, 5);
+    world.sabotage_player_power(1, 6);
+    assert!(!world.players[&1].has_radar());
+
+    world.set_current_frame(6);
+    world.expire_owned_disabled_statuses();
+    assert!(!world.objects[&auxiliary].status.disabled_emp);
+    assert!(world.players[&1].has_sufficient_energy_at(6));
+    assert!(
+        !world.players[&1].has_radar(),
+        "bonus-only output does not make EMP expiry an Energy signal"
+    );
+    world.set_current_frame(7);
+    world.expire_player_power_sabotage(1);
+    assert!(world.players[&1].has_radar());
+}
+
+#[test]
 fn completed_player_upgrade_reaches_power_plant_built_afterwards() {
     use crate::game_logic::Team;
     // C++ Object::initObject -> updateUpgradeModules: a plant created while

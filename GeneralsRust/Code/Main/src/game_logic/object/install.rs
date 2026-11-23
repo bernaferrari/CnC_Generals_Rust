@@ -1044,6 +1044,16 @@ impl Object {
         }
     }
 
+    /// Object.cpp:3826–3854. Only a positive authored base invokes the
+    /// Energy edge, even if another module has given this object a bonus.
+    pub(in crate::game_logic) fn producer_energy_on_disabled_edge(&self) -> Option<i32> {
+        self.get_template()
+            .energy_production
+            .filter(|&base| base > 0)
+            .map(|_| self.power_provided)
+            .filter(|&delta| delta != 0)
+    }
+
     /// leftover `Object::on_disabled_edge` (object_upgrade.rs:278-319).
     /// Applied RadarUpgrade calls Player::removeRadar/addRadar. Disable does
     /// not turn Overcharge off; EnergyBonus is folded out of the live power

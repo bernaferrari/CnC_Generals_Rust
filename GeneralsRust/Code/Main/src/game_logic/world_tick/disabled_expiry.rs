@@ -48,7 +48,8 @@ impl GameLogic {
                 continue;
             };
             let was_disabled = object.is_disabled();
-            let producer = object.owner_player_id.filter(|_| object.power_provided > 0);
+            let producer = object.owner_player_id
+                .filter(|_| object.producer_energy_on_disabled_edge().is_some());
             let object = self.objects.get_mut(&id).unwrap();
             object.tick_remaining_disabled(self.frame);
             let reenabled = was_disabled && !object.is_disabled();
@@ -110,7 +111,9 @@ impl GameLogic {
             if !object.clear_timed_disable(effect) {
                 return;
             }
-            object.owner_player_id.filter(|_| !object.is_disabled() && object.power_provided > 0)
+            object.owner_player_id.filter(|_| {
+                !object.is_disabled() && object.producer_energy_on_disabled_edge().is_some()
+            })
         };
         self.admit_host_radar_disabled_edges(id);
         if let Some(owner) = producer {

@@ -2709,6 +2709,89 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
 }
 
 #[test]
+fn script_disable_applies_producer_energy_before_the_next_action() {
+    use crate::game_logic::{Player, Team};
+    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptActionType, THIS_PLAYER};
+
+    let fixture = || {
+        let mut world = GameLogic::new();
+        let ini = "
+Object ScriptPowerPlant
+ KindOf = STRUCTURE FS_POWER
+ EnergyProduction = 20
+End
+Object ScriptPowerConsumer
+ KindOf = STRUCTURE POWERED
+ EnergyProduction = -12
+End";
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "script-power.ini".into(),
+                    ini.into(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        let mut player = Player::new(0, Team::USA, "ScriptPowerOwner", true);
+        player.add_radar(false);
+        world.add_player(player);
+        let plant = world
+            .create_object_for_player("ScriptPowerPlant", 0, glam::Vec3::ZERO)
+            .unwrap();
+        let consumer = world
+            .create_object_for_player("ScriptPowerConsumer", 0, glam::Vec3::X)
+            .unwrap();
+        (world, plant, consumer)
+    };
+    let run = |world: &mut GameLogic, action| {
+        execute_owned_fixture_action(
+            world,
+            action,
+            vec![
+                Parameter::with_string(ParameterType::Side, THIS_PLAYER.into()),
+                Parameter::with_string(ParameterType::ObjectType, "ScriptPowerPlant".into()),
+            ],
+        );
+    };
+    let (mut world, plant, consumer) = fixture();
+    let (peer, peer_plant, peer_consumer) = fixture();
+    assert_eq!((plant, consumer), (peer_plant, peer_consumer));
+    assert_eq!(world.players[&0].power_produced, 20);
+
+    run(&mut world, ScriptActionType::PlayerDisableFactories);
+    assert!(world.objects[&plant].is_script_disabled());
+    assert_eq!(
+        world.players[&0].power_produced, 0,
+        "SCRIPT_DISABLED withdraws the producer before returning"
+    );
+    assert!(!world.players[&0].has_radar());
+    assert!(world.objects[&consumer].status.disabled_underpowered);
+    run(&mut world, ScriptActionType::PlayerDisableFactories);
+    assert_eq!(world.players[&0].power_produced, 0);
+
+    world.set_current_frame(4);
+    assert!(world.apply_owned_emp_disabled(plant, 6));
+    run(&mut world, ScriptActionType::PlayerEnableFactories);
+    assert!(!world.objects[&plant].is_script_disabled());
+    assert!(world.objects[&plant].status.disabled_emp);
+    assert_eq!(world.players[&0].power_produced, 0);
+    world.set_current_frame(6);
+    world.expire_owned_disabled_statuses();
+    assert_eq!(world.players[&0].power_produced, 20);
+    assert!(world.players[&0].has_radar());
+
+    run(&mut world, ScriptActionType::PlayerDisableFactories);
+    assert_eq!(world.players[&0].power_produced, 0);
+    run(&mut world, ScriptActionType::PlayerEnableFactories);
+    assert_eq!(world.players[&0].power_produced, 20);
+    assert!(!world.objects[&consumer].status.disabled_underpowered);
+    assert_eq!(peer.players[&0].power_produced, 20);
+    assert!(peer.players[&0].has_radar());
+    assert!(!peer.objects[&peer_consumer].status.disabled_underpowered);
+}
+
+#[test]
 fn script_named_receive_upgrade_writes_live_object() {
     use gamelogic::scripting::core::{
         Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,

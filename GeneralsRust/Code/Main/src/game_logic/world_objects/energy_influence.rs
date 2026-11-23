@@ -76,7 +76,7 @@ impl GameLogic {
 
         // Object::setDisabledUntil calls onDisabledEdge after the children.
         // An earlier queued edge could be drained by a child's brownout.
-        let producer = if became_disabled {
+        if became_disabled {
             // Object::onDisabledEdge cancels an entered Dozer task before Radar and Energy.
             use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
             let dozer_task = self.host_object(id).and_then(|object| {
@@ -101,21 +101,11 @@ impl GameLogic {
             }
             let object = self.objects.get_mut(&id).unwrap();
             object.on_disabled_edge(true);
-            (object.thing().template.energy_production.unwrap_or(0) > 0)
-                .then_some((object.owner_player_id, object.power_provided))
-        } else {
-            None
-        };
+        }
 
         self.admit_host_radar_disabled_edges(id);
-        if let Some((Some(owner), power)) = producer {
-            let brownout = self
-                .players
-                .get_mut(&owner)
-                .and_then(|player| player.remove_template_energy(power, self.frame));
-            if let Some(brownout) = brownout {
-                self.admit_player_energy_brownout(owner, brownout);
-            }
+        if became_disabled {
+            self.admit_owned_producer_energy_edge(id, true);
         }
         true
     }
@@ -193,12 +183,12 @@ impl GameLogic {
         }) else {
             return;
         };
-        self.adjust_team_member_energy(owner, energy, incoming);
+        self.signal_template_energy_delta(owner, energy, incoming);
     }
 
     pub(super) fn admit_retiring_object_energy(&mut self, object: &Object, owner: u32) {
         if let Some(energy) = Self::team_membership_energy(object) {
-            self.adjust_team_member_energy(owner, energy, false);
+            self.signal_template_energy_delta(owner, energy, false);
             self.record_power_projection(owner);
         }
     }
@@ -212,7 +202,7 @@ impl GameLogic {
             .then_some(energy)
     }
 
-    fn adjust_team_member_energy(&mut self, owner: u32, energy: i32, incoming: bool) {
+    fn signal_template_energy_delta(&mut self, owner: u32, energy: i32, incoming: bool) {
         let Some(player) = self.players.get_mut(&owner) else {
             return;
         };
@@ -224,6 +214,24 @@ impl GameLogic {
         if let Some(brownout) = brownout {
             self.admit_player_energy_brownout(owner, brownout);
         }
+    }
+
+    /// Apply the Energy part of Object::onDisabledEdge after the caller has
+    /// finished the object's module and radar callbacks.
+    pub(in crate::game_logic) fn admit_owned_producer_energy_edge(
+        &mut self,
+        id: ObjectId,
+        disabled: bool,
+    ) {
+        let Some((owner, power)) = self.objects.get(&id).and_then(|object| {
+            object
+                .owner_player_id
+                .zip(object.producer_energy_on_disabled_edge())
+        }) else {
+            return;
+        };
+        self.signal_template_energy_delta(owner, power, !disabled);
+        self.record_power_projection(owner);
     }
 
     /// Admit a signed EnergyBonus to its exact Player, then settle radar and
@@ -342,24 +350,17 @@ impl GameLogic {
                 }
                 object.set_status_disabled_underpowered(brownout);
                 let now_disabled = object.is_disabled();
-                let producer_edge = (was_disabled != now_disabled
-                    && object.thing().template.energy_production.unwrap_or(0) > 0)
-                    .then_some((object.power_provided, now_disabled));
+                let producer_edge = if was_disabled != now_disabled {
+                    object.producer_energy_on_disabled_edge()
+                } else {
+                    None
+                };
                 self.admit_host_radar_disabled_edges(id);
                 // Object::onDisabledEdge immediately adjusts a positive producer,
                 // which synchronously reenters this Player callback before the
                 // outer member traversal continues. Consumers never feed back.
-                if let Some((power, disabled)) = producer_edge {
-                    let next = self.players.get_mut(&owner).and_then(|player| {
-                        if disabled {
-                            player.remove_template_energy(power, self.frame)
-                        } else {
-                            player.add_template_energy(power, self.frame)
-                        }
-                    });
-                    if let Some(next) = next {
-                        self.admit_player_energy_brownout(owner, next);
-                    }
+                if let Some(power) = producer_edge {
+                    self.signal_template_energy_delta(owner, power, !now_disabled);
                 }
             }
         }
