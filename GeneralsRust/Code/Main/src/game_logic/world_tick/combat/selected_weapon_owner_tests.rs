@@ -1025,3 +1025,126 @@ End
         );
     });
 }
+
+/// C++ Weapon.cpp:601-608 — the DISARM estimate reads exactly the authored
+/// KINDOF_MINE / KINDOF_BOOBY_TRAP / KINDOF_DEMOTRAP bits, reached here
+/// through GameLogic::chooseBestWeaponForTarget ->
+/// selectAuthoredCombatWeaponSlot -> estimateWeaponTemplateDamage. Template
+/// name substrings are not mine identity.
+#[test]
+fn disarm_weapon_choice_uses_kindof_bits_not_template_names() {
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+
+    let mut world = GameLogic::new();
+    for (id, team, name) in [(1, Team::USA, "Owner"), (2, Team::GLA, "Victim")] {
+        let mut player = Player::new(id, team, name, id == 1);
+        player.alliance_team = id as i32;
+        world.add_player(player);
+    }
+    // The flag objects carry the authored bits under names with no
+    // mine/booby/demotrap substring; LaundryMineCart's name contains "mine"
+    // while its authored mask is a plain VEHICLE.
+    let objects = r#"
+Object DisarmChooser
+    KindOf = VEHICLE CAN_ATTACK
+    Body = ActiveBody BodyTag
+        MaxHealth = 200
+        InitialHealth = 200
+    End
+    WeaponSet
+        Conditions = None
+        Weapon = PRIMARY BoundDisarm
+    End
+End
+Object FieldCharge
+    KindOf = MINE SELECTABLE
+    Body = ActiveBody BodyTag
+        MaxHealth = 10
+        InitialHealth = 10
+    End
+End
+Object HiddenPackage
+    KindOf = BOOBY_TRAP SELECTABLE
+    Body = ActiveBody BodyTag
+        MaxHealth = 10
+        InitialHealth = 10
+    End
+End
+Object TimedBundle
+    KindOf = DEMOTRAP SELECTABLE
+    Body = ActiveBody BodyTag
+        MaxHealth = 10
+        InitialHealth = 10
+    End
+End
+Object LaundryMineCart
+    KindOf = VEHICLE SELECTABLE
+    Body = ActiveBody BodyTag
+        MaxHealth = 100
+        InitialHealth = 100
+    End
+End
+"#;
+    world
+        .admit_object_ini_sources([("disarm-choice.ini".into(), objects.into())])
+        .unwrap();
+    let mut weapons = HashMap::new();
+    assert_eq!(
+        parse_weapon_definitions_ini_into(
+            &mut weapons,
+            "Weapon BoundDisarm\n PrimaryDamage = 1\n AttackRange = 100\n \
+             DamageType = DISARM\n DeathType = NORMAL\n ClipSize = 0\n \
+             ProjectileObject = NONE\n AntiGround = Yes\n AntiMine = Yes\nEnd\n",
+            WeaponDefinitionLoadType::Normal,
+        ),
+        1
+    );
+    world
+        .admit_weapon_content_snapshot(
+            weapons
+                .into_values()
+                .map(|weapon| (weapon.name.clone(), weapon))
+                .collect(),
+            &[],
+        )
+        .unwrap();
+    let chooser = world
+        .create_object_for_player("DisarmChooser", 1, Vec3::ZERO)
+        .unwrap();
+    let flagged = [
+        ("FieldCharge", KindOf::Mine),
+        ("HiddenPackage", KindOf::BoobyTrap),
+        ("TimedBundle", KindOf::DemoTrap),
+    ]
+    .map(|(name, kind)| {
+        let id = world
+            .create_object_for_player(name, 2, Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+        // INI KindOf text must land as actual authored bits.
+        assert!(world.host_object(id).unwrap().is_kind_of(kind));
+        // None of these names trips the legacy name-substring heuristic, so
+        // the fixture can only pass through the authored bits.
+        assert!(!world.host_object(id).unwrap().is_disarmable_mine());
+        id
+    });
+    let prop = world
+        .create_object_for_player("LaundryMineCart", 2, Vec3::new(30.0, 0.0, 30.0))
+        .unwrap();
+    // The legacy heuristic still flags the name; the authored-bit estimate
+    // must not.
+    assert!(world.host_object(prop).unwrap().is_disarmable_mine());
+    let accepts: Vec<bool> = flagged
+        .iter()
+        .map(|&target| world.choose_best_weapon_for_target(chooser, Some(target), 3.0))
+        .collect();
+    let prop_accepted = world.choose_best_weapon_for_target(chooser, Some(prop), 3.0);
+    // One assertion keeps the whole verdict in the failure message.
+    assert_eq!(
+        (accepts, prop_accepted),
+        (vec![true, true, true], false),
+        "authored MINE / BOOBY_TRAP / DEMOTRAP bits admit DISARM; a \
+         mine-sounding template name alone must not"
+    );
+}

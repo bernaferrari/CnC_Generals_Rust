@@ -133,9 +133,12 @@ pub fn host_estimate_victim_from_object(
     HostEstimateVictim {
         kind_structure: v.is_kind_of(KindOf::Structure),
         kind_shrubbery: v.template_name.to_ascii_lowercase().contains("shrub"),
-        kind_mine: v.is_kind_of(KindOf::Mine) || v.is_disarmable_mine(),
-        kind_booby_trap: v.is_disarmable_mine(),
-        kind_demo_trap: v.is_kind_of(KindOf::Mine) || v.is_disarmable_mine(),
+        // C++ Weapon.cpp:601-608 reads exactly the authored KINDOF_MINE /
+        // KINDOF_BOOBY_TRAP / KINDOF_DEMOTRAP bits, not template-name
+        // substrings.
+        kind_mine: v.is_kind_of(KindOf::Mine),
+        kind_booby_trap: v.is_kind_of(KindOf::BoobyTrap),
+        kind_demo_trap: v.is_kind_of(KindOf::DemoTrap),
         under_construction: v.status.under_construction,
         contain_count: (v.thing().template.contain_module.kind != crate::game_logic::ContainModuleKind::None)
             .then_some(contain_count),
