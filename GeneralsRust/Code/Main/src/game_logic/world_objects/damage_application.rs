@@ -2095,6 +2095,15 @@ impl GameLogic {
         let missile_calls_on_die = projectile
             .is_some_and(|p| p.missile_motion.is_some() && p.die_on_detonate);
         let self_damage_on_detonation = detonate_calls_kill || missile_calls_on_die;
+        let kill_at_missile_retirement = projectile.is_some_and(|projectile| {
+            projectile.missile_motion.is_some()
+                && projectile.is_missile_kill_self_holding()
+                && self
+                    .projectile_definitions
+                    .get(&projectile.projectile_object_name)
+                    .and_then(|definition| definition.missile_launch)
+                    .is_some_and(|policy| policy.detonate_calls_kill)
+        });
         if let Some(birth) = birth {
             if !self.spawn_identity_matches(id, birth.0, birth.1) {
                 return (Some(RetiredProjectileActor::Destroy), Ok(()));
@@ -2223,6 +2232,28 @@ impl GameLogic {
                 if !self.spawn_identity_matches(id, generation, epoch) {
                     retirement = Some(RetiredProjectileActor::KeepAfterDeath);
                 }
+            }
+            // MissileAIUpdate::doKillSelfState — an authored DetonateCallsKill
+            // retirement chooses Object::kill (forced NORMAL death) instead of
+            // destroy so the actor's Die modules own corpse/removal. This is
+            // distinct from the detonation-time DEATH_DETONATED self-hit.
+            if kill_at_missile_retirement
+                && matches!(retirement, Some(RetiredProjectileActor::Destroy))
+                && let Some((generation, epoch)) = birth
+                && self.spawn_identity_matches(id, generation, epoch)
+            {
+                retirement = Some(RetiredProjectileActor::KeepAfterDeath);
+                let maximum = self.objects[&id].health.maximum;
+                self.apply_owned_damage_with_effects(
+                    id,
+                    maximum,
+                    None,
+                    crate::game_logic::combat::DamageType::Unresistable,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                    None,
+                    &DamageHitContext::for_kill(),
+                    effects,
+                )?;
             }
             Ok(())
         });

@@ -522,3 +522,112 @@ fn missile_calls_on_die_body_damage_follows_warhead_victim_die() {
         "the dying missile is the OCL source, not the launcher",
     );
 }
+
+/// MissileAIUpdate.cpp:413-430 doKillSelfState — at KILL_SELF timeout an
+/// authored DetonateCallsKill picks Object::kill (forced NORMAL death, so Die
+/// modules run) over destroyObject. DetonateCallsKill = No keeps raw removal.
+#[test]
+fn missile_detonate_calls_kill_retirement_uses_kill_not_destroy() {
+    for detonate_calls_kill in [true, false] {
+        let (mut world, source, target) = world_for_with(
+            "PatriotMissileWeapon",
+            "PatriotMissile",
+            "PatriotMissileLocomotor",
+            |_, projectile_ini, objects_ini| {
+                let module_at = projectile_ini
+                    .find("MissileAIUpdate")
+                    .expect("retail MissileAIUpdate");
+                let end_at = module_at
+                    + projectile_ini[module_at..]
+                        .find("End")
+                        .expect("MissileAIUpdate End");
+                let authored = if detonate_calls_kill {
+                    "DetonateCallsKill = Yes\nKillSelfDelay = 200\n"
+                } else {
+                    "DetonateCallsKill = No\nKillSelfDelay = 200\n"
+                };
+                projectile_ini.insert_str(end_at, authored);
+                let at = projectile_ini.rfind("End").expect("missile object End");
+                projectile_ini.insert_str(
+                    at,
+                    "Behavior = CreateObjectDie RetirementTag\nDeathTypes = NONE +NORMAL\nCreationList = OCL_MissileRetirementChild\nEnd\n",
+                );
+                objects_ini.push_str(
+                    "Object MissileRetirementChild\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 10\nInitialHealth = 10\nEnd\nEnd\n",
+                );
+            },
+        );
+        world.admit_ocl_application_sources(&[
+            "ObjectCreationList OCL_MissileRetirementChild\nCreateObject\nObjectNames = MissileRetirementChild\nCount = 1\nEnd\nEnd\n".into(),
+        ]).unwrap();
+
+        launch(&mut world, source, target);
+        let missile_id = world.combat_system.projectiles_snapshot()[0].id;
+        let born_ids = |world: &GameLogic| -> Vec<ObjectId> {
+            world
+                .objects
+                .registered_values()
+                .filter(|object| object.template_name == "MissileRetirementChild")
+                .map(|object| object.id)
+                .collect()
+        };
+
+        // Ordinary warhead impact holds the missile in KILL_SELF; nothing dies.
+        let mut hold_step = None;
+        for step in 0..300 {
+            if world.combat_system.projectile_count() == 0 {
+                break;
+            }
+            let _ = world.update_with_dt(1.0 / 30.0);
+            if world
+                .combat_system
+                .projectiles_snapshot()
+                .first()
+                .is_some_and(|shot| shot.is_missile_kill_self_holding())
+            {
+                hold_step = Some(step);
+                break;
+            }
+        }
+        let hold_step = hold_step.expect("detonated missile enters KILL_SELF hold");
+        assert_eq!(world.objects[&target].health.current, 970.0);
+        assert!(world.host_object(missile_id).is_some());
+        assert!(born_ids(&world).is_empty(), "impact itself does not kill");
+
+        // KILL_SELF retires the authored 200ms = 6 logic frames after the hold.
+        let mut retire_step = None;
+        for step in (hold_step + 1)..(hold_step + 40) {
+            let _ = world.update_with_dt(1.0 / 30.0);
+            if world.combat_system.projectile_count() == 0 {
+                retire_step = Some(step);
+                break;
+            }
+            assert!(
+                born_ids(&world).is_empty(),
+                "retirement child not born before the KILL_SELF deadline",
+            );
+        }
+        let retire_step = retire_step.expect("KILL_SELF retires the missile");
+        assert_eq!(retire_step - hold_step, 6, "KillSelfDelay = 200ms");
+
+        let children = born_ids(&world);
+        if detonate_calls_kill {
+            assert_eq!(children.len(), 1, "kill runs the authored die OCL once");
+            assert_eq!(
+                world.objects.get(&children[0]).unwrap().producer_id,
+                Some(missile_id),
+            );
+            for _ in 0..10 {
+                let _ = world.update_with_dt(1.0 / 30.0);
+            }
+            assert_eq!(
+                born_ids(&world).len(),
+                1,
+                "the forced kill fires the die OCL exactly once",
+            );
+        } else {
+            assert!(children.is_empty(), "destroy does not run die modules");
+            assert!(world.host_object(missile_id).is_none());
+        }
+    }
+}

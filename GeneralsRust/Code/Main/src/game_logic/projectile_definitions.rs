@@ -21,6 +21,7 @@ pub(in crate::game_logic) struct ProjectileLocomotorSet {
 pub(in crate::game_logic) struct ProjectileMissileLaunch {
     pub(in crate::game_logic) initial_velocity_per_frame: f32,
     pub(in crate::game_logic) use_weapon_speed: bool,
+    pub(in crate::game_logic) detonate_calls_kill: bool,
     pub(in crate::game_logic) distance_before_turning: f32,
     pub(in crate::game_logic) distance_before_diving: f32,
 }
@@ -167,15 +168,18 @@ impl ProjectileDefinitions {
                     if !parsed.is_finite() { return Err(format!("{name}: invalid MissileAIUpdate {field}")); }
                     Ok(parsed)
                 };
-                let use_weapon_speed = match module.attribute("UseWeaponSpeed").map(str::trim) {
-                    None => false,
-                    Some(value) if value.eq_ignore_ascii_case("yes") || value.eq_ignore_ascii_case("true") || value == "1" => true,
-                    Some(value) if value.eq_ignore_ascii_case("no") || value.eq_ignore_ascii_case("false") || value == "0" => false,
-                    Some(_) => return Err(format!("{name}: invalid MissileAIUpdate UseWeaponSpeed")),
+                let boolean = |field: &str| -> Result<bool, String> {
+                    match module.attribute(field).map(str::trim) {
+                        None => Ok(false),
+                        Some(value) if value.eq_ignore_ascii_case("yes") || value.eq_ignore_ascii_case("true") || value == "1" => Ok(true),
+                        Some(value) if value.eq_ignore_ascii_case("no") || value.eq_ignore_ascii_case("false") || value == "0" => Ok(false),
+                        Some(_) => Err(format!("{name}: invalid MissileAIUpdate {field}")),
+                    }
                 };
                 missile_launch = Some(ProjectileMissileLaunch {
                     initial_velocity_per_frame: real("InitialVelocity")? / 30.0,
-                    use_weapon_speed,
+                    use_weapon_speed: boolean("UseWeaponSpeed")?,
+                    detonate_calls_kill: boolean("DetonateCallsKill")?,
                     distance_before_turning: real("DistanceToTravelBeforeTurning")?,
                     distance_before_diving: real("DistanceToTargetBeforeDiving")?,
                 });
