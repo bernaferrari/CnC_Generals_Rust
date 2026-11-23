@@ -10,14 +10,35 @@ use std::path::{Path, PathBuf};
 
 const DEFAULT_OBJECT_INI: &str = "Data/INI/Default/Object.ini";
 const OBJECT_INI_DIR: &str = "Data/INI/Object";
+const CRATE_INI_PATHS: [&str; 2] = ["Data/INI/Default/Crate.ini", "Data/INI/Crate.ini"];
 
 /// Immutable selected sources handed to the worker; no GPU/service handle.
 pub(super) struct ObjectSourceSnapshot {
     sources: Vec<(String, String)>,
+    /// GameEngine.cpp:483 reads these mixed files in the CrateSystem phase.
+    /// Their Object declarations follow the initial ThingFactory directory.
+    crate_sources: Vec<(String, String)>,
 }
 impl ObjectSourceSnapshot {
+    /// Only the C++ ThingFactory-phase sources. CRC feeds Crate.ini later.
     pub(super) fn sources(&self) -> &[(String, String)] {
         &self.sources
+    }
+
+    pub(super) fn crate_sources(&self) -> &[(String, String)] {
+        &self.crate_sources
+    }
+
+    fn capture_crate_sources(
+        &mut self,
+        mut read: impl FnMut(&str) -> Result<Option<String>, String>,
+    ) -> Result<(), String> {
+        for path in CRATE_INI_PATHS {
+            let text =
+                read(path)?.ok_or_else(|| format!("Required receiving Crate source '{path}' is missing"))?;
+            self.crate_sources.push((path.to_owned(), text));
+        }
+        Ok(())
     }
     pub(super) fn admit_with_catalogs(
         &self,
@@ -27,19 +48,21 @@ impl ObjectSourceSnapshot {
         >,
     ) -> Result<crate::assets::ReceivingObjectContent, String> {
         crate::assets::ReceivingObjectContent::from_sources_with_catalogs(
-            self.sources.iter().cloned(),
+            self.sources.iter().chain(&self.crate_sources).cloned(),
             sciences,
             actions,
-        ).map_err(|error| error.to_string())
+        )
+        .map_err(|error| error.to_string())
     }
     pub(super) fn admit(
         &self,
         sciences: std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts>,
     ) -> Result<crate::assets::ReceivingObjectContent, String> {
         crate::assets::ReceivingObjectContent::from_sources_with_sciences(
-            self.sources.iter().cloned(),
+            self.sources.iter().chain(&self.crate_sources).cloned(),
             sciences,
-        ).map_err(|error| error.to_string())
+        )
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -77,14 +100,20 @@ fn capture_receiving_object_sources_with_inventory(
     filesystem_paths: Vec<String>,
 ) -> Result<ObjectSourceSnapshot, String> {
     let paths = ordered_object_source_paths(filesystem_paths, manager.list_all_files(), roots);
-    capture_object_sources(&paths, |path| {
-        let text = read_receiving_object_source(path, roots, |path| {
+    let mut read = |path: &str| {
+        read_receiving_object_source(path, roots, |path| {
             manager
                 .read_optional_definition_source(path)
                 .map_err(|error| format!("Receiving Object source '{path}': {error}"))
-        })?;
-        text.map(Some).ok_or_else(|| format!("Required receiving Object source '{path}' is missing"))
-    })
+        })
+    };
+    let mut snapshot = capture_object_sources(&paths, |path| {
+        let text =
+            read(path)?.ok_or_else(|| format!("Required receiving Object source '{path}' is missing"))?;
+        Ok(Some(text))
+    })?;
+    snapshot.capture_crate_sources(read)?;
+    Ok(snapshot)
 }
 
 fn ordered_object_source_paths(
@@ -120,7 +149,10 @@ fn capture_object_sources(
             sources.push((path.clone(), text));
         }
     }
-    Ok(ObjectSourceSnapshot { sources })
+    Ok(ObjectSourceSnapshot {
+        sources,
+        crate_sources: Vec::new(),
+    })
 }
 
 /// Load a standalone world's definitions from the same ordered archive and loose
@@ -290,9 +322,10 @@ fn capture_standalone_startup_sources(
             return Err(format!("Startup requires {label}.ini definitions"));
         }
     }
-    let sources = capture_object_sources(&paths, |path| {
+    let mut sources = capture_object_sources(&paths, |path| {
         read(path)?.map(Some).ok_or_else(|| format!("Required receiving Object source '{path}' is missing"))
     })?;
+    sources.capture_crate_sources(&mut read)?;
     let mut definitions = Vec::new();
     for path in STANDALONE_DEFINITION_PATHS {
         if let Some(text) = read(path)? {
@@ -301,7 +334,12 @@ fn capture_standalone_startup_sources(
     }
     Ok(StandaloneStartupSources {
         definitions: definitions.into(),
-        objects: sources.sources.into(),
+        objects: sources
+            .sources
+            .into_iter()
+            .chain(sources.crate_sources)
+            .collect::<Vec<_>>()
+            .into(),
         sciences,
         actions: Arc::new(actions),
         weapons: weapons.into(),
@@ -931,6 +969,16 @@ mod detached_source_tests {
             "Object SnapshotNested\nScale = 4\nEnd\nObject SnapshotOverride\nScale = 4\nEnd",
         )
         .unwrap();
+        std::fs::write(
+            base.join("Crate.ini"),
+            "CrateData DefaultCrate\nCreationChance = 0\nEnd\nObject SnapshotCrateDefault\nScale = 5\nEnd",
+        )
+        .unwrap();
+        std::fs::write(
+            base.parent().unwrap().join("Crate.ini"),
+            "CrateData Reward\nCreationChance = 1\nCrateObject = SnapshotCrateDefault 1\nEnd\nObject SnapshotCrateDefault\nScale = 6\nEnd\nObject SnapshotOverride\nScale = 7\nEnd",
+        )
+        .unwrap();
         let manager = std::sync::Mutex::new(crate::assets::manager::AssetManager::new().unwrap());
         let mut guard = manager.lock().unwrap();
         let snapshot = capture_receiving_object_sources_with_inventory(
@@ -951,6 +999,15 @@ mod detached_source_tests {
         ]
         .map(|path| names.iter().position(|value| value == path).unwrap());
         assert!(positions[0] < positions[1] && positions[1] < positions[2]);
+        assert!(names.iter().all(|name| !name.ends_with("Crate.ini")));
+        assert_eq!(
+            snapshot
+                .crate_sources()
+                .iter()
+                .map(|(path, _)| path.as_str())
+                .collect::<Vec<_>>(),
+            CRATE_INI_PATHS,
+        );
         assert!(manager.try_lock().is_err());
         std::thread::spawn(move || {
             let content = snapshot
@@ -962,7 +1019,8 @@ mod detached_source_tests {
                 ("SnapshotDefault", 2.0),
                 ("SnapshotCurrent", 3.0),
                 ("SnapshotNested", 4.0),
-                ("SnapshotOverride", 4.0),
+                ("SnapshotCrateDefault", 6.0),
+                ("SnapshotOverride", 7.0),
             ] {
                 assert!(content.module_content().admitted_template(name).is_some());
                 assert_eq!(content.projections().get(name).unwrap().scale, scale);

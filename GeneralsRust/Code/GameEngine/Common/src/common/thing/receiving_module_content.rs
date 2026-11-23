@@ -488,8 +488,11 @@ impl ReceivingModuleContent {
                 .get(1)
                 .ok_or_else(|| format!("Missing receiving Object name at line {}", index + 1))?;
             let parent = tokens.get(2).copied();
-            let (properties, next) = try_parse_object_block_properties(&lines, index + 1)?;
-            self.admit_source_in_place(name, parent, kind, &properties, load_type)?;
+            let declaration = || format!("{header} {name} at line {}", index + 1);
+            let (properties, next) = try_parse_object_block_properties(&lines, index + 1)
+                .map_err(|error| ReceivingModuleError::from(error).context(declaration()))?;
+            self.admit_source_in_place(name, parent, kind, &properties, load_type)
+                .map_err(|error| error.context(declaration()))?;
             loaded += 1;
             index = next;
         }

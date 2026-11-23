@@ -1670,25 +1670,13 @@ impl CnCGameEngine {
                         baseline
                     };
 
-                    // C++ parity: GameEngine.cpp:483 — load Crate.ini (Default + override) into ParsedCrateSystem.
-                    {
-                        for crate_ini_path in &[
-                            "Data/INI/Default/Crate.ini",
-                            "Data/INI/Crate.ini",
-                        ] {
-                            if let Some(content) = extract_ini_text_from_archives(crate_ini_path)? {
-                                let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
-                                    Ok(()) => {
-                                        info!("Loaded crate definitions from '{}'", crate_ini_path);
-                                    }
-                                    Err(err) => {
-                                        warn!("Failed parsing '{}': {}", crate_ini_path, err);
-                                    }
-                                }
-                            } else {
-                                warn!("'{}' not found in archives — skipping crate definitions from this file", crate_ini_path);
-                            }
+                    // GameEngine.cpp:483, default then retail in overwrite mode.
+                    // The receiving Object admission below reads these same bytes.
+                    for (path, content) in receiving_object_sources.crate_sources() {
+                        let mut ini = game_engine::common::ini::INI::new();
+                        match ini.with_inline_source(content, |ini| ini.parse_current_file()) {
+                            Ok(()) => info!("Loaded crate definitions from '{path}'"),
+                            Err(error) => warn!("Failed parsing '{path}': {error}"),
                         }
                     }
 
@@ -1705,11 +1693,20 @@ impl CnCGameEngine {
                     {
                         let mut read_error = None;
                         let crc = super::ini_crc_boot::calculate_game_engine_ini_crc_with_object_sources(
-                            |path| match extract_ini_text_from_archives(path) {
-                                Ok(text) => text,
-                                Err(error) => {
-                                    read_error.get_or_insert(error);
-                                    None
+                            |path| {
+                                if let Some((_, text)) = receiving_object_sources
+                                    .crate_sources()
+                                    .iter()
+                                    .find(|(source, _)| source == path)
+                                {
+                                    return Some(text.clone());
+                                }
+                                match extract_ini_text_from_archives(path) {
+                                    Ok(text) => text,
+                                    Err(error) => {
+                                        read_error.get_or_insert(error);
+                                        None
+                                    }
                                 }
                             },
                             receiving_object_sources.sources(),

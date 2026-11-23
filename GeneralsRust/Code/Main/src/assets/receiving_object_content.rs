@@ -329,6 +329,7 @@ mod tests {
             "Object Bad\nClientUpdate = SwayClientUpdate ClientTag\nUnknownField = 7\nEnd\nEnd".into(),
         )]).err().unwrap();
         assert!(error.to_string().contains("bad-native.ini"));
+        assert!(error.to_string().contains("Object Bad at line 1"));
         let mut cause = &error;
         while let ReceivingModuleError::Context(_, inner) = cause {
             cause = inner;

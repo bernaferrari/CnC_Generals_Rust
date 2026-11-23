@@ -38,7 +38,7 @@ pub use self::crate_collide::*;
 
 use super::*;
 pub use super::{CollisionError, Coord3D, GameObject};
-use game_engine::common::ini::INIError;
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::rts::science::{SCIENCE_INVALID, get_science_store};
 use std::sync::{Arc, RwLock};
 
@@ -81,16 +81,18 @@ impl AudioEvent {
 }
 
 pub(crate) fn parse_crate_pickup_science(
+    ini: &INI,
     data: &mut CrateCollideModuleData,
     science_name: &str,
 ) -> Result<(), INIError> {
-    let science = get_science_store()
-        .map(|store| store.get_science_from_internal_name(science_name))
-        .unwrap_or(SCIENCE_INVALID);
-    if science == SCIENCE_INVALID {
-        return Err(INIError::InvalidData);
+    data.pickup_science = match ini.receiving_science_names() {
+        Some(sciences) => sciences.science(science_name),
+        None => get_science_store()
+            .map(|store| store.get_science_from_internal_name(science_name))
+            .filter(|&science| science != SCIENCE_INVALID)
+            .map(|science| science as crate::common::science::ScienceType),
     }
-    data.pickup_science = science as crate::common::science::ScienceType;
+    .ok_or(INIError::InvalidData)?;
     Ok(())
 }
 

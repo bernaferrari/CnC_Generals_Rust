@@ -165,11 +165,11 @@ fn parse_human_only(
 }
 
 fn parse_pickup_science(
-    _ini: &mut INI,
+    ini: &mut INI,
     data: &mut MoneyCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    super::parse_crate_pickup_science(&mut data.base, first_token(tokens)?)
+    super::parse_crate_pickup_science(ini, &mut data.base, first_token(tokens)?)
 }
 
 fn parse_execute_fx(

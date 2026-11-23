@@ -315,6 +315,67 @@ fn authored_crate_births_use_one_object_clock_or_none() {
 }
 
 #[test]
+fn mounted_crate_ini_objects_keep_their_authored_birth_and_lifetime() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "mounted_crate_ini_objects_keep_their_authored_birth_and_lifetime",
+        || {
+            let startup = crate::parallel_harness::RetailWorldDefinitions::load().unwrap();
+            let mut world = GameLogic::new();
+            startup.admit(&mut world).unwrap();
+            world.frame = 40;
+            let mut expected = world.logic_random.snapshot();
+
+            // INIZH.big Data/INI/Crate.ini:182,209–211. Only SalvageCrate
+            // carries DeletionUpdate. Its body can be destroyed by the module.
+            let salvage = world
+                .create_object_with_script_effects_checked(
+                    "SalvageCrate", Team::Neutral, Vec3::ZERO, None, &mut Default::default(),
+                )
+                .unwrap()
+                .expect("stock SalvageCrate is a receiving ThingFactory birth");
+            let due = 40 + expected.next_int(900, 1050) as u32;
+            let object = world.host_object(salvage).unwrap();
+            assert!(object.is_kind_of(KindOf::Selectable));
+            assert!(!object.is_kind_of(KindOf::Crate));
+            assert_eq!(
+                object.native_lifecycle.as_ref().unwrap().states.as_ref(),
+                &[NativeLifecycleState::Deletion { die_frame: due, active: true }],
+            );
+
+            // Stock 200DollarCrate and SupplyDropZoneCrate have an explicitly
+            // empty native lifecycle and consume no lifetime RNG draws.
+            let cash = ["200DollarCrate", "SupplyDropZoneCrate"].map(|name| {
+                let id = world
+                    .create_object_with_script_effects_checked(
+                        name, Team::Neutral, Vec3::ZERO, None, &mut Default::default(),
+                    )
+                    .unwrap()
+                    .expect("stock money crate is a receiving ThingFactory birth");
+                let object = world.host_object(id).unwrap();
+                assert!(object.is_kind_of(KindOf::Crate));
+                assert!(object.native_lifecycle.as_ref().unwrap().states.is_empty());
+                id
+            });
+            assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+            let ids = [salvage, cash[0], cash[1]];
+            world.frame = due - 1;
+            world.update_ai(&ids, 1. / 30.).unwrap();
+            assert!(!world.host_object(salvage).unwrap().status.destroyed);
+            world.frame = due;
+            world.update_ai(&ids, 1. / 30.).unwrap();
+            let object = world.host_object(salvage).unwrap();
+            assert!(object.status.destroyed && !object.status.on_die_started);
+            world.process_destroy_list();
+            assert!(world.host_object(salvage).is_none());
+            for id in cash {
+                assert!(world.host_object(id).is_some_and(|object| !object.status.destroyed));
+            }
+        },
+    );
+}
+
+#[test]
 fn authored_height_die_uses_its_own_clock_and_sample_through_ai() {
     let (mut world, id) = authored(
         "NativeAltitudeOwner",

@@ -201,12 +201,7 @@ fn parse_pickup_science(
     data: &mut SabotagePowerPlantCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let name = first_token(tokens)?;
-    if let Some(sciences) = ini.receiving_science_names() {
-        data.base.pickup_science = sciences.science(name).ok_or(INIError::InvalidData)?;
-        return Ok(());
-    }
-    super::parse_crate_pickup_science(&mut data.base, name)
+    super::parse_crate_pickup_science(ini, &mut data.base, first_token(tokens)?)
 }
 
 fn parse_execute_fx(
