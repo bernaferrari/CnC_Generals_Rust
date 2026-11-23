@@ -1188,6 +1188,16 @@ impl CnCGameEngine {
                 log::error!("camera transform: {error}");
             }
         }
+        if log::log_enabled!(log::Level::Info) {
+            let misses = self
+                .application_assets
+                .lock()
+                .ok()
+                .map(|assets| assets.startup_asset_miss_summary());
+            if let Some(misses) = misses {
+                info!("Startup asset requests unresolved before first scene draw of '{loaded_map_name}': {misses}");
+            }
+        }
         Ok(())
     }
 

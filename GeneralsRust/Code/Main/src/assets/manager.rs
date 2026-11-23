@@ -21,7 +21,7 @@ use crate::localization;
 use anyhow::{Result, anyhow};
 use log::{debug, error, info, warn};
 use std::cmp::Ordering as CmpOrdering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -69,8 +69,8 @@ pub struct AssetManager {
     /// prewarm so render collection neither retries archive I/O nor selects a
     /// local clip by ordinal.
     companion_animation_cache: HashMap<CompanionAnimationCacheKey, Option<Arc<W3dAnimation>>>,
-    /// Known-missing model keys to keep repeated lookups O(1) like C++ hash misses.
-    missing_model_keys: HashSet<String>,
+    /// Negative lookup keys and their attempted W3D names. Aliases can refer to the same miss.
+    missing_model_keys: HashMap<String, Arc<str>>,
     /// Initialization status
     initialized: bool,
     /// Active localization language
@@ -746,7 +746,7 @@ impl AssetManager {
             w3d_render_object_prototypes: W3dRenderObjectPrototypeRegistry::default(),
             weapon_barrel_count_cache: HashMap::new(),
             companion_animation_cache: HashMap::new(),
-            missing_model_keys: HashSet::new(),
+            missing_model_keys: HashMap::new(),
             initialized: false,
             language,
             active_mod_path,
@@ -1608,8 +1608,8 @@ impl AssetManager {
             match self.load_w3d_model(&model_key) {
                 Ok(_) => stats.resolved += 1,
                 Err(error) => {
-                    self.missing_model_keys
-                        .insert(model_key.to_ascii_lowercase());
+                    let resolved_name = self.resolve_available_model_name(&model_key);
+                    self.remember_missing_w3d_request(model_key.to_ascii_lowercase(), &resolved_name);
                     warn!(
                         "Failed to prewarm exact W3D model '{}' for cached barrel topology: {}",
                         model_key, error
@@ -2072,10 +2072,15 @@ impl AssetManager {
                     stats.resolved += 1;
                 }
                 Err(err) => {
-                    self.missing_model_keys
-                        .insert(object_name.to_ascii_lowercase());
-                    self.missing_model_keys
-                        .insert(resolved_name.to_ascii_lowercase());
+                    let attempted_name = self.resolve_available_model_name(&resolved_name);
+                    self.remember_missing_w3d_request(
+                        resolved_name.to_ascii_lowercase(),
+                        &attempted_name,
+                    );
+                    self.remember_missing_w3d_request(
+                        object_name.to_ascii_lowercase(),
+                        &attempted_name,
+                    );
                     warn!(
                         "Failed to prewarm W3D model '{}' (resolved '{}'): {}",
                         object_name, resolved_name, err
@@ -2106,12 +2111,44 @@ impl AssetManager {
 
     pub(crate) fn w3d_model_known_missing(&self, model_name: &str) -> bool {
         self.missing_model_keys
-            .contains(&model_name.to_ascii_lowercase())
+            .contains_key(&model_name.to_ascii_lowercase())
     }
 
     pub(crate) fn remember_missing_w3d_model(&mut self, model_name: &str) {
-        self.missing_model_keys
-            .insert(model_name.to_ascii_lowercase());
+        self.remember_missing_w3d_request(model_name.to_ascii_lowercase(), model_name);
+    }
+
+    fn remember_missing_w3d_request(&mut self, key: String, attempted_name: &str) {
+        let name = self
+            .missing_model_keys
+            .get(&attempted_name.to_ascii_lowercase())
+            .cloned()
+            .unwrap_or_else(|| Arc::from(attempted_name));
+        self.missing_model_keys.entry(key).or_insert(name);
+    }
+
+    /// Current negative-cache contents at startup, without resolving more assets.
+    /// Whole-file W3D and raw texture requests enter these caches on load failure.
+    pub(crate) fn startup_asset_miss_summary(&self) -> String {
+        const DISPLAY_LIMIT: usize = 8;
+
+        fn summary<'a>(names: impl Iterator<Item = &'a str>) -> (usize, Vec<&'a str>) {
+            let mut sorted = BTreeMap::new();
+            for name in names {
+                sorted.entry(name.to_ascii_lowercase()).or_insert(name);
+            }
+            (
+                sorted.len(),
+                sorted.into_values().take(DISPLAY_LIMIT).collect(),
+            )
+        }
+
+        let (model_count, models) = summary(self.missing_model_keys.values().map(AsRef::as_ref));
+        let (texture_count, textures) = summary(self.texture_manager.known_missing_texture_names());
+        format!(
+            "W3D requests: {model_count} {models:?}, texture requests: {texture_count} {textures:?} \
+            (up to {DISPLAY_LIMIT} per kind; only requests that reached these loaders)"
+        )
     }
 
     pub fn get_cached_model_ref(&self, unit_name: &str) -> Option<&W3DModel> {
@@ -2323,8 +2360,8 @@ impl AssetManager {
             }
         }
 
-        if self.missing_model_keys.contains(&model_key)
-            || self.missing_model_keys.contains(&resolved_key)
+        if self.missing_model_keys.contains_key(&model_key)
+            || self.missing_model_keys.contains_key(&resolved_key)
         {
             return Err(anyhow!(
                 "W3D load skipped for known-missing model '{}'",
@@ -2342,8 +2379,8 @@ impl AssetManager {
         {
             Ok(model) => model,
             Err(e) => {
-                self.missing_model_keys.insert(model_key.clone());
-                self.missing_model_keys.insert(resolved_key.clone());
+                self.remember_missing_w3d_request(resolved_key, &resolved_name);
+                self.remember_missing_w3d_request(model_key, &resolved_name);
                 self.mesh_resolve.missing_assets.note_missing_w3d(model_name);
                 warn!("W3D loader failed for '{}': {}", model_name, e);
                 return Err(anyhow!("W3D load failed for '{}': {e}", model_name));
@@ -2392,8 +2429,8 @@ impl AssetManager {
             }
         }
 
-        if self.missing_model_keys.contains(&model_key)
-            || self.missing_model_keys.contains(&resolved_key)
+        if self.missing_model_keys.contains_key(&model_key)
+            || self.missing_model_keys.contains_key(&resolved_key)
         {
             return Err(anyhow!(
                 "Synchronous W3D load skipped for known-missing model '{}'",
@@ -2408,8 +2445,8 @@ impl AssetManager {
         let model = match model {
             Ok(model) => model,
             Err(err) => {
-                self.missing_model_keys.insert(model_key.clone());
-                self.missing_model_keys.insert(resolved_key.clone());
+                self.remember_missing_w3d_request(resolved_key, &resolved_name);
+                self.remember_missing_w3d_request(model_key, &resolved_name);
                 self.mesh_resolve.missing_assets.note_missing_w3d(&resolved_name);
                 warn!(
                     "Synchronous W3D load failed for '{}': {}",
@@ -3098,6 +3135,33 @@ mod tests {
             manager.prime_texture_raw_blocking("zzz_current_thread_missing_texture.tga");
         });
         assert!(manager.is_known_missing_texture("zzz_current_thread_missing_texture.tga"));
+    }
+
+    #[test]
+    fn startup_misses_report_only_recorded_requests_in_receiving_owner() {
+        let mut manager = AssetManager::new().unwrap();
+        let peer = AssetManager::new().unwrap();
+        let empty = "W3D requests: 0 [], texture requests: 0 [] \
+                     (up to 8 per kind; only requests that reached these loaders)";
+        assert_eq!(manager.startup_asset_miss_summary(), empty);
+
+        assert!(manager.load_w3d_model("Art/W3D/ZZZ_ReportModel.w3d").is_err());
+        assert!(manager.load_w3d_model("zzz_reportmodel").is_err());
+        for index in (0..10).rev() {
+            manager.prime_texture_raw_blocking(&format!("ZZZ_ReportTexture{index}.tga"));
+        }
+        manager.prime_texture_raw_blocking("zzz_reporttexture0.tga");
+        manager.prime_texture_raw_blocking("NONE");
+
+        let report = manager.startup_asset_miss_summary();
+        assert!(report.contains(r#"W3D requests: 1 ["ZZZ_ReportModel"]"#));
+        let expected_names: Vec<_> = (0..8)
+            .map(|index| format!("ZZZ_ReportTexture{index}.tga"))
+            .collect();
+        assert!(report.contains(&format!("texture requests: 10 {expected_names:?}")));
+        assert_eq!(peer.startup_asset_miss_summary(), empty);
+        manager.clear_caches();
+        assert_eq!(manager.startup_asset_miss_summary(), empty);
     }
 
     #[test]

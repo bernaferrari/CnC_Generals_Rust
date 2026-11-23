@@ -182,8 +182,8 @@ pub struct TextureManager {
     /// Compact diagnostics for unresolved texture lookups.
     missing_texture_total: usize,
     missing_texture_counts: HashMap<String, usize>,
-    /// Known-missing texture keys to avoid repeated archive probing.
-    known_missing_textures: HashSet<String>,
+    /// Negative lookup keys with the original texture request names.
+    known_missing_textures: HashMap<String, String>,
 }
 
 pub fn texture_candidate_paths(requested_name: &str) -> Vec<String> {
@@ -282,7 +282,7 @@ impl TextureManager {
             missing_assets: Default::default(),
             missing_texture_total: 0,
             missing_texture_counts: HashMap::new(),
-            known_missing_textures: HashSet::new(),
+            known_missing_textures: HashMap::new(),
         }
     }
 
@@ -365,7 +365,7 @@ impl TextureManager {
             return Ok(self.get_default_texture());
         }
 
-        if self.known_missing_textures.contains(&texture_key) {
+        if self.known_missing_textures.contains_key(&texture_key) {
             return Ok(self.get_default_texture());
         }
 
@@ -380,7 +380,9 @@ impl TextureManager {
         texture_name: &str,
     ) -> Result<&GPUTexture> {
         let texture_key = self.resolved_cache_key_for_lookup(texture_name);
-        if self.known_missing_textures.contains(&texture_key) || !self.raw_cache.contains_key(&texture_key) {
+        if self.known_missing_textures.contains_key(&texture_key)
+            || !self.raw_cache.contains_key(&texture_key)
+        {
             return Err(anyhow!("Raw texture '{}' is not cached", texture_name));
         }
         // Return cached texture if available.
@@ -450,7 +452,7 @@ impl TextureManager {
 
         let texture_key = Self::normalize_texture_lookup_key(requested_name);
         if self.raw_cache.contains_key(&texture_key)
-            || self.known_missing_textures.contains(&texture_key)
+            || self.known_missing_textures.contains_key(&texture_key)
         {
             return Ok(texture_key);
         }
@@ -526,9 +528,9 @@ impl TextureManager {
     }
 
     fn cache_missing_fallback(&mut self, texture_key: &str, requested_name: &str) {
-        let already_known = self.known_missing_textures.contains(texture_key);
-        self.known_missing_textures.insert(texture_key.to_string());
-        if !already_known {
+        if !self.known_missing_textures.contains_key(texture_key) {
+            self.known_missing_textures
+                .insert(texture_key.to_owned(), requested_name.to_owned());
             self.record_missing_texture(requested_name);
         }
     }
@@ -709,7 +711,11 @@ impl TextureManager {
 
     pub fn is_known_missing_texture(&self, texture_name: &str) -> bool {
         let texture_key = self.resolved_cache_key_for_lookup(texture_name);
-        self.known_missing_textures.contains(&texture_key)
+        self.known_missing_textures.contains_key(&texture_key)
+    }
+
+    pub(crate) fn known_missing_texture_names(&self) -> impl Iterator<Item = &str> {
+        self.known_missing_textures.values().map(String::as_str)
     }
 
     /// Total times a missing texture fallback was recorded (production diagnostic).
