@@ -242,8 +242,6 @@ pub struct TerrainVisualImpl {
     tree_buffer: W3DTreeBuffer,
     /// Last CPU→GPU tree VB filled with `doLighting` (every draw/update).
     last_tree_gpu_vertices: Vec<TreeGpuVertex>,
-    /// CPU mips actually uploaded (after SetLOD skip), BGRA A8R8G8B8.
-    last_tree_atlas_mips: Vec<Vec<u8>>,
     /// Cached GPU meshes for W3D trees.
     tree_meshes: Vec<GpuTreeMesh>,
     tree_atlas_texture: Option<wgpu::Texture>,

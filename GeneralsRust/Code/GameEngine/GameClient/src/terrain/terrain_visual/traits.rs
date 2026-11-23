@@ -92,7 +92,6 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.flat_lod_meshes.clear();
         self.tree_meshes.clear();
         self.last_tree_gpu_vertices.clear();
-        self.last_tree_atlas_mips.clear();
         self.tree_atlas_texture = None;
         self.tree_atlas_bind_group = None;
         self.tree_buffer.clear_all_trees();
@@ -197,6 +196,11 @@ impl TerrainVisualImpl {
             receipt.ok_or("enabled native tree draw requires its completion receipt")?,
         )
     }
+    /// Observes the effective native Y-up camera before its terrain draw.
+    pub fn observe_native_tree_view(&mut self, view: &Mat4, projection: &Mat4) {
+        self.tree_buffer.observe_native_view(*view, *projection);
+    }
+
     pub fn begin_owned_tree_cpu_draw(
         &mut self,
         motion: TerrainVisualMotion,
@@ -211,6 +215,7 @@ impl TerrainVisualImpl {
             self.tree_buffer.update_sway(motion.breeze, rng);
             self.overlay.last_sway_version = motion.breeze.breeze_version;
         }
+        self.tree_buffer.cull_pending_native_view();
         Some(self.tree_buffer.begin_cpu_draw(motion.paused))
     }
 

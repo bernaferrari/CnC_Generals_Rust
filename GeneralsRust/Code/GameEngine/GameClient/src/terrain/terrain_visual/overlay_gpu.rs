@@ -92,6 +92,20 @@ impl TerrainVisualImpl {
         );
     }
 
+    /// Admit one native W3DTreeDraw instance into the receiving terrain.
+    pub fn admit_authored_tree(
+        &mut self,
+        request: gamelogic::object::draw::w3d_tree_draw::TerrainTreeAddRequest,
+        load_model: impl FnOnce(&str) -> Option<(crate::terrain::TreeTypeMesh, Vec3, Option<f32>)>,
+        rng: &mut impl crate::terrain::TreeRandom,
+    ) {
+        let data = crate::core::subsystems::tree_module_data_from_w3d(&request.module_data);
+        let position = Vec3::new(request.position.x, request.position.y, request.position.z);
+        self.tree_buffer.add_tree_from_model(
+            request.drawable_id, position, request.scale, request.angle, data, load_model, rng,
+        );
+    }
+
     /// C++ `W3DShroud::setShroudLevel` updates the projected texture.
     pub fn set_shroud_level(&mut self, cell_x: i32, cell_y: i32, alpha: u8) {
         if self.overlay.shroud_width <= 0 || self.overlay.shroud_height <= 0 {

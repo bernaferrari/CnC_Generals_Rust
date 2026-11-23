@@ -5,6 +5,174 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_tree_view_cull_matches_cpp() {
+        use crate::terrain::tree_buffer::{
+            TREE_TILE_DATA_LEN, TreeModuleData, TreeRandom, TreeSphere, TreeTgaHeader,
+            TreeTileImageSpec, TreeTypeMesh,
+        };
+
+        struct FixedTreeRandom;
+        impl TreeRandom for FixedTreeRandom {
+            fn int_range(&mut self, min: i32, _: i32) -> i32 {
+                min
+            }
+
+            fn real_range(&mut self, min: f32, max: f32) -> f32 {
+                (min + max) * 0.5
+            }
+        }
+
+        crate::test_support::ensure_ambient_host();
+        let mut visual = TerrainVisualImpl::new();
+        let data = TreeModuleData {
+            model_name: "CullWitness".into(),
+            texture_name: "CullWitness.tga".into(),
+            ..TreeModuleData::default()
+        };
+        let bounds = TreeSphere {
+            center: Vec3::ZERO,
+            radius: 0.25,
+        };
+        let tree_type = visual
+            .tree_buffer
+            .add_tree_type(data.clone(), bounds)
+            .unwrap();
+        assert!(visual.tree_buffer.set_tree_type_mesh(
+            tree_type,
+            TreeTypeMesh {
+                positions: vec![[0., 0., 0.], [0.125, 0., 0.], [0., 0., 0.125]],
+                normals: None,
+                uvs: vec![[0., 0.]; 3],
+                colors: None,
+                polygons: vec![[0, 1, 2]],
+                emissive: [0.; 3],
+            },
+        ));
+        visual.tree_buffer.update_texture(&[TreeTileImageSpec {
+            texture_name: data.texture_name.clone(),
+            header: TreeTgaHeader::truecolor(64, 64),
+        }]);
+        assert!(
+            visual
+                .tree_buffer
+                .set_source_tile_bgra(0, &vec![255; TREE_TILE_DATA_LEN])
+        );
+        let add = |visual: &mut TerrainVisualImpl, id, position| {
+            visual
+                .tree_buffer
+                .add_tree(id, position, 1., 0., 0., data.clone(), bounds)
+                .unwrap();
+        };
+        for (id, depth) in [(11, 9.), (12, 5.), (13, -7.), (14, 0.5), (15, 0.75)] {
+            add(&mut visual, id, Vec3::new(0., -depth, 0.));
+        }
+
+        let projection =
+            glam::camera::rh::proj::directx::perspective(std::f32::consts::FRAC_PI_2, 1., 1., 40.);
+        let motion = TerrainVisualMotion {
+            paused: true,
+            frame: 0,
+            breeze: Default::default(),
+            gravity: 0.,
+        };
+        let snow = crate::snow::SnowRenderState {
+            manager: Default::default(),
+            definition: Default::default(),
+        };
+        let draw = |visual: &mut TerrainVisualImpl, view| {
+            visual.observe_native_tree_view(&view, &projection);
+            let cursor = visual
+                .begin_owned_tree_cpu_draw(motion, &mut FixedTreeRandom)
+                .unwrap();
+            let receipt = visual.tree_buffer.finish_cpu_draw(cursor).unwrap();
+            visual
+                .render_native_y_up_after_tree_cpu(
+                    &view,
+                    &projection,
+                    0.,
+                    &snow,
+                    motion,
+                    Some(&receipt),
+                )
+                .unwrap();
+        };
+        let entries = |visual: &TerrainVisualImpl| {
+            visual
+                .tree_buffer
+                .trees()
+                .iter()
+                .map(|tree| (tree.visible, tree.sort_key))
+                .collect::<Vec<_>>()
+        };
+        let triangle_depths = |visual: &TerrainVisualImpl| {
+            visual
+                .last_tree_gpu_vertices()
+                .chunks_exact(3)
+                .map(|triangle| triangle[0].position[2])
+                .collect::<Vec<_>>()
+        };
+
+        // W3DTreeBuffer::cull and WWMath::Overlap_Test. A near tangent survives
+        // and the disabled C++ sort leaves trees in their original order.
+        draw(&mut visual, Mat4::IDENTITY);
+        assert_eq!(
+            entries(&visual),
+            [
+                (true, 9.),
+                (true, 5.),
+                (false, 0.),
+                (false, 0.),
+                (true, 0.75)
+            ]
+        );
+        assert_eq!(triangle_depths(&visual), [-9., -5., -0.75]);
+        let resident = visual.last_tree_gpu_vertices().as_ptr();
+        draw(&mut visual, Mat4::IDENTITY);
+        assert_eq!(visual.last_tree_gpu_vertices().as_ptr(), resident);
+
+        let reverse = Mat4::from_cols(-glam::Vec4::X, glam::Vec4::Y, -glam::Vec4::Z, glam::Vec4::W);
+        draw(&mut visual, reverse);
+        assert_eq!(
+            entries(&visual),
+            [
+                (false, 9.),
+                (false, 5.),
+                (true, 7.),
+                (false, 0.),
+                (false, 0.75)
+            ]
+        );
+        assert_eq!(triangle_depths(&visual), [7.]);
+
+        let raised = Mat4::from_translation(-100. * Vec3::Y);
+        draw(&mut visual, raised);
+        assert!(triangle_depths(&visual).is_empty());
+        draw(&mut visual, raised);
+        assert!(triangle_depths(&visual).is_empty());
+
+        // In C++ both a moved tree and a new tree wait for the next terrain
+        // view refresh before changing visibility.
+        assert!(
+            visual
+                .tree_buffer
+                .update_tree_position(11, Vec3::new(0., -9., 100.), 0.)
+        );
+        add(&mut visual, 16, Vec3::new(0., -6., 100.));
+        draw(&mut visual, raised);
+        assert!(!entries(&visual)[0].0);
+        assert!(triangle_depths(&visual).is_empty());
+
+        visual.reset_draw_area_state();
+        draw(&mut visual, raised);
+        assert_eq!(triangle_depths(&visual), [-9., -6.]);
+        let records = visual.tree_buffer.save_records();
+        visual.tree_buffer.load_records(&records);
+        assert!(entries(&visual).iter().all(|(visible, _)| !visible));
+        draw(&mut visual, raised);
+        assert_eq!(triangle_depths(&visual), [-9., -6.]);
+    }
+
+    #[test]
     fn receiver_terrain_art_is_registered_for_gpu_without_ambient_filesystem() {
         crate::test_support::ensure_ambient_host();
         let class = TerrainSourceTileClass {

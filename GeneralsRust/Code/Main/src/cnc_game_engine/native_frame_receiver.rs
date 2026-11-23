@@ -230,9 +230,11 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
         graphics: &mut GraphicsSystem,
         motion: game_client::terrain::terrain_visual::TerrainVisualMotion,
     ) -> std::result::Result<Option<game_client::terrain::TreeCpuDrawReceipt>, String> {
+        let mut tree_random = ReceivingTreeRandom(&mut self.world.session_view.client_random);
+        poses.admit_pending_native_trees(terrain, &mut tree_random);
         let Some(mut cursor) = terrain.begin_owned_tree_cpu_draw(
             motion,
-            &mut ReceivingTreeRandom(&mut self.world.session_view.client_random),
+            &mut tree_random,
         ) else {
             return Ok(None);
         };

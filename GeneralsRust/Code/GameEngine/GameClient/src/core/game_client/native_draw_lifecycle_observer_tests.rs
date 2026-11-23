@@ -17,7 +17,8 @@ fn native_mirror_observer_admits_creation_and_both_transform_phases_before_first
     let mut phases = Vec::new();
     let result = client
         .sync_presentation_drawables_observed([entry.clone()], 321, |event| match event {
-            PresentationDrawableMutation::TerrainPropAdded { .. } => {}
+            PresentationDrawableMutation::TerrainPropAdded { .. }
+            | PresentationDrawableMutation::TerrainTreeAdded { .. } => {}
             PresentationDrawableMutation::Creating {
                 initial_transform,
                 sync_ms,

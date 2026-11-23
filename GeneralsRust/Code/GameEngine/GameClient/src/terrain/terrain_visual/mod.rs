@@ -87,3 +87,5 @@ mod snow_camera;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod water_tracks_gpu_tests;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tree_material_gpu_tests;

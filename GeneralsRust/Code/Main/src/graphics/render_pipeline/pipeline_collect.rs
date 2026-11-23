@@ -553,10 +553,20 @@ impl RenderPipeline {
                 }
             };
 
-            let expected_ghost_models = draw_models.len();
+            let mut expected_ghost_models = 0;
             let mut ghost_render_objects = Vec::new();
             for draw_model in draw_models.iter() {
                 let draw_module_index = draw_model.module_index;
+                #[cfg(feature = "game_client")]
+                if u.receiving_draw_models.as_ref().is_some_and(|models| {
+                    models.module_class_name(draw_module_index)
+                        .is_some_and(|class| class.eq_ignore_ascii_case("W3DTreeDraw"))
+                }) {
+                    // C++ W3DTreeDraw::doDrawModule is empty. Its authored
+                    // texture and exact source mesh are owned by terrain.
+                    continue;
+                }
+                expected_ghost_models += 1;
                 // A queued v4 visual record is a one-shot candidate. Remove
                 // it before culling/model resolution so an unavailable mesh
                 // cannot retain stale saved playback for a later retry.
@@ -2675,7 +2685,7 @@ impl RenderPipeline {
         &mut self,
         graphics: &mut GraphicsSystem,
         object: u32,
-    ) -> usize {
+    ) -> (usize, usize) {
         let eye = Vec3::new(0., 30., 60.);
         let view = Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Y);
         let projection = Mat4::perspective_rh(1.2, 1., 0.1, 1000.);
@@ -2696,12 +2706,17 @@ impl RenderPipeline {
             None,
         )
         .unwrap();
-        self.native_draw_world
+        let installed = self.native_draw_world
             .drawable_visual_states
             .iter()
             .filter(|((id, _), state)| {
                 *id == NativeDrawOwnerId::Actor(object) && state.identity.is_some()
             })
-            .count()
+            .count();
+        let items = self.render_items
+            .iter()
+            .filter(|item| item.owner == RenderItemOwner::Object(ObjectID(object)))
+            .count();
+        (installed, items)
     }
 }

@@ -814,8 +814,8 @@ impl NativeDrawableOwner<'_> {
                 source: e,
                 transform: drawable.native_base_transform(),
             })?;
-            for request in GameClient::take_owned_prop_requests(drawable, e) {
-                observe(PresentationDrawableMutation::TerrainPropAdded { source: e, request })?;
+            for mutation in GameClient::owned_terrain_draw_mutations(drawable, e) {
+                observe(mutation)?;
             }
             GameClient::stamp_presentation_object_residual(drawable, e, !semantic_lifetime);
             observe(PresentationDrawableMutation::ConditionsMarked {
@@ -1032,6 +1032,96 @@ mod semantic_admission_tests {
             .unwrap()
             .tread_animation_rate
     }
+    #[test]
+    fn owned_tree_registration_uses_each_drawables_first_nonzero_ground_pose() {
+        use gamelogic::object::draw::w3d_tree_draw::TerrainTreeAddRequest;
+
+        crate::test_support::ensure_ambient_host();
+        let prepare = |model: &str, texture: &str| {
+            let mut factory = ModuleFactory::new_receiving(NameKeyNamespace::new());
+            gamelogic::contain_module_overrides::register_native_module_overrides(&mut factory)
+                .unwrap();
+            let ini = format!(
+                "Draw = W3DTreeDraw TreeTag\nModelName = {model}\nTextureName = {texture}\nEnd\nEnd"
+            );
+            let lines = ini.lines().collect::<Vec<_>>();
+            let fields = ObjectIniFields::capture_body(&lines, 0).0;
+            let plan = ThingTemplate::new()
+                .admit_named_receiving_module_source(
+                    "SemanticTree",
+                    &fields,
+                    INILoadType::Overwrite,
+                    ReceivingTemplateKind::Object,
+                    &mut factory,
+                )
+                .unwrap();
+            let mut source = entry(42, Arc::new(plan));
+            source.template_name = "SemanticTree".into();
+            source.resident = true;
+            (factory, source)
+        };
+        let sync = |client: &mut GameClient, factory: &mut ModuleFactory, source| {
+            let mut trees: Vec<TerrainTreeAddRequest> = Vec::new();
+            client
+                .sync_presentation_drawables_observed_with_content(
+                    [source],
+                    0,
+                    factory,
+                    policy(),
+                    |event| {
+                        if let PresentationDrawableMutation::TerrainTreeAdded { source, request } =
+                            event
+                        {
+                            assert_eq!(source.object_id, 42);
+                            trees.push(request);
+                        }
+                    },
+                )
+                .unwrap();
+            trees
+        };
+
+        let (mut catalog, mut source) = prepare("PTDogwodHI1", "PTDogwod01.tga");
+        let (mut peer_catalog, mut peer_source) = prepare("PTDogwodHI2", "PTDogwod02.tga");
+        let mut client = GameClient::new().unwrap();
+        let mut peer = GameClient::new().unwrap();
+        source.position = [0.0, 12.0, 0.0];
+        assert!(sync(&mut client, &mut catalog, source.clone()).is_empty());
+        let drawable_id = client.get_drawable_for_object(42).unwrap();
+        client
+            .drawables
+            .drawable_map
+            .get_mut(&drawable_id)
+            .unwrap()
+            .set_instance_scale(1.5);
+
+        peer_source.position = [21.0, 13.0, 7.0];
+        peer_source.orientation = -0.75;
+        let fresh = sync(&mut peer, &mut peer_catalog, peer_source.clone());
+        source.position = [0.0, 12.0, 4.0];
+        source.orientation = 0.375;
+        let retained = sync(&mut client, &mut catalog, source.clone());
+
+        assert_eq!((retained.len(), fresh.len()), (1, 1));
+        let retained = &retained[0];
+        let fresh = &fresh[0];
+        assert_eq!(retained.drawable_id, drawable_id.0);
+        assert_eq!(retained.drawable_id, fresh.drawable_id);
+        assert_eq!(retained.position, gamelogic::common::Coord3D::new(0.0, 4.0, 12.0));
+        assert_eq!(fresh.position, gamelogic::common::Coord3D::new(21.0, 7.0, 13.0));
+        assert_eq!((retained.angle, retained.scale), (0.375, 1.5));
+        assert_eq!((fresh.angle, fresh.scale), (-0.75, 1.0));
+        assert_eq!(retained.module_data.model_name.as_str(), "PTDogwodHI1");
+        assert_eq!(retained.module_data.texture_name.as_str(), "PTDogwod01.tga");
+        assert_eq!(fresh.module_data.model_name.as_str(), "PTDogwodHI2");
+        assert_eq!(fresh.module_data.texture_name.as_str(), "PTDogwod02.tga");
+
+        source.position = [27.0, 14.0, 6.0];
+        peer_source.position = [18.0, 17.0, 5.0];
+        assert!(sync(&mut client, &mut catalog, source).is_empty());
+        assert!(sync(&mut peer, &mut peer_catalog, peer_source).is_empty());
+    }
+
     #[test]
     fn semantic_cpu_birth_preserves_same_id_peers_order_and_nonresident_lifetime() {
         crate::test_support::ensure_ambient_host();

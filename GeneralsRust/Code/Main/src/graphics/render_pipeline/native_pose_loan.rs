@@ -6,6 +6,8 @@ use installed_draw_pose::{NativeCameraPoseUnavailable, ObjectVisualState};
 pub struct NativeInstalledPoseLoan<'a> {
     #[cfg(feature = "game_client")]
     pub(super) pending_native_props: &'a mut game_client::terrain::terrain_visual::TerrainPropQueue,
+    #[cfg(feature = "game_client")]
+    pub(super) pending_native_trees: &'a mut game_client::terrain::terrain_visual::TerrainTreeQueue,
     pub(super) native_drawable_lifetimes:
         &'a mut game_engine::common::fast_hash::FxHashMap<NativeDrawOwnerId, native_draw_world::NativeDrawableLifetime>,
     pub(super) live_draw_playback:
@@ -60,12 +62,39 @@ impl NativeInstalledPoseLoan<'_> {
     #[cfg(feature = "game_client")]
     pub(crate) fn bind_native_prop_epoch(&mut self, epoch: u64) {
         self.pending_native_props.bind_epoch(epoch);
+        self.pending_native_trees.bind_epoch(epoch);
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn admit_pending_native_trees(
+        &mut self,
+        terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+        rng: &mut impl game_client::terrain::TreeRandom,
+    ) {
+        let Some(assets) = self.application_assets.as_ref() else {
+            return;
+        };
+        for request in self.pending_native_trees.drain() {
+            terrain.admit_authored_tree(request, |name| {
+                let mut assets = assets.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                super::native_tree_mesh::load_native_tree_mesh(&mut assets, name)
+            }, rng);
+        }
+        let trees = terrain.tree_buffer_mut();
+        if trees.need_to_update_texture() {
+            let mut assets = assets.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            trees.hydrate_tree_texture_sources(|path| {
+                assets.archive_file_system_mut().open_file_sync(path).ok()
+            });
+        }
     }
 
     pub(crate) fn reborrow(&mut self) -> NativeInstalledPoseLoan<'_> {
         NativeInstalledPoseLoan {
             #[cfg(feature = "game_client")]
             pending_native_props: &mut *self.pending_native_props,
+            #[cfg(feature = "game_client")]
+            pending_native_trees: &mut *self.pending_native_trees,
             native_drawable_lifetimes: &mut *self.native_drawable_lifetimes,
             live_draw_playback: &mut *self.live_draw_playback,
             drawable_visual_states: &mut *self.drawable_visual_states,

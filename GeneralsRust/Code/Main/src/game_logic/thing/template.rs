@@ -128,6 +128,11 @@ impl ReceivingDrawModels {
         std::sync::Arc::clone(&self.module_class_names)
     }
 
+    #[cfg(feature = "game_client")]
+    pub(crate) fn module_class_name(&self, index: u32) -> Option<&str> {
+        self.module_class_names.get(index as usize).map(String::as_str)
+    }
+
     pub(crate) fn object_draws(
         &self,
         bits: u128,

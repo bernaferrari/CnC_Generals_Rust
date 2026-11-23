@@ -490,6 +490,7 @@ impl RenderPipeline {
                 match terrain {
                     Some(terrain) => {
                         terrain.set_skybox_view(view_matrix);
+                        terrain.observe_native_tree_view(view_matrix, projection_matrix);
                         native_receiver
                             .complete_tree_cpu_draw(terrain, poses, graphics_system, motion)
                             .map_err(anyhow::Error::msg)?

@@ -10,6 +10,18 @@ use super::w3d_mesh_build::*;
 use super::*;
 
 impl W3DModel {
+    /// Constructor HTree pose for the exact HLOD, in source coordinates.
+    pub(crate) fn tree_hlod_source_bind_pose(&self, hlod_index: usize) -> Option<Vec<[f32; 16]>> {
+        let hlod = self.hlods.get(hlod_index)?;
+        if self.hlod_parse_failed || hlod.has_invalid_trailing_records {
+            return None;
+        }
+        match self.source_hierarchy_for_hlod(hlod) {
+            Some(hierarchy) => compute_bind_pose_global_transforms(hierarchy),
+            None => Some(vec![Mat4::IDENTITY.to_cols_array()]),
+        }
+    }
+
     pub fn new(name: String) -> Self {
         Self {
             name,

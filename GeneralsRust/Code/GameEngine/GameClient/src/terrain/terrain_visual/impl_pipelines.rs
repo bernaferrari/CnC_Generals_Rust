@@ -574,13 +574,23 @@ impl TerrainVisualImpl {
     fn create_tree_pipeline(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Tree Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/tree.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                concat!(
+                    include_str!("../shaders/projected_shroud_sample.wgsl"),
+                    include_str!("../../shaders/tree.wgsl"),
+                ).into(),
+            ),
         });
 
         let Some(camera_layout) = self.terrain_camera_bind_group_layout.as_ref() else {
             return Err(TerrainError::InitializationError(
                 "Terrain camera bind group layout must exist before tree pipeline creation"
                     .to_string(),
+            ));
+        };
+        let Some(shroud_layout) = self.shroud_gpu.bind_layout.as_ref() else {
+            return Err(TerrainError::InitializationError(
+                "A projected shroud layout is required for tree materials".to_owned(),
             ));
         };
 
@@ -611,7 +621,11 @@ impl TerrainVisualImpl {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Tree Pipeline Layout"),
-            bind_group_layouts: &[Some(camera_layout.as_ref()), Some(atlas_layout.as_ref())],
+            bind_group_layouts: &[
+                Some(camera_layout.as_ref()),
+                Some(atlas_layout.as_ref()),
+                Some(shroud_layout.as_ref()),
+            ],
             immediate_size: 0,
         });
         self.tree_atlas_bind_group_layout = Some(atlas_layout);
@@ -632,7 +646,7 @@ impl TerrainVisualImpl {
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Bgra8Unorm,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),

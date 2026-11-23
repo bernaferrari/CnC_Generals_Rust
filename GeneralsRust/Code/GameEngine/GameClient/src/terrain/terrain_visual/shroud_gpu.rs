@@ -133,11 +133,6 @@ impl TerrainVisualImpl {
             std::mem::size_of::<OverlayGpuVertex>() as u64,
             wgpu::CompareFunction::LessEqual,
         ));
-        self.shroud_gpu.tree_pipeline = Some(make(
-            "ST_SHROUD trees",
-            std::mem::size_of::<TreeGpuVertex>() as u64,
-            wgpu::CompareFunction::LessEqual,
-        ));
         self.shroud_gpu.params = Some(device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ST_SHROUD params"),
             size: 48,
@@ -368,30 +363,6 @@ impl TerrainVisualImpl {
         pass.set_bind_group(1, shroud, &[]);
         for mesh in meshes {
             pass.set_vertex_buffer(0, mesh.vertex_slice());
-            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-        }
-    }
-
-    fn record_shroud_tree_pass(&self, pass: &mut RenderPass<'_>) {
-        if self.overlay.shroud_cells.is_empty() {
-            return;
-        }
-        let (Some(pipeline), Some(camera), Some(shroud)) = (
-            self.shroud_gpu.tree_pipeline.as_ref(),
-            self.terrain_camera_bind_group.as_ref(),
-            self.shroud_gpu.bind_group.as_ref(),
-        ) else {
-            return;
-        };
-        if self.tree_meshes.is_empty() {
-            return;
-        }
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, camera, &[]);
-        pass.set_bind_group(1, shroud, &[]);
-        for mesh in &self.tree_meshes {
-            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }

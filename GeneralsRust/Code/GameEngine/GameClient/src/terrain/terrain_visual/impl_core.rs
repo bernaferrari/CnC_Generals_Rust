@@ -221,7 +221,6 @@ impl TerrainVisualImpl {
 
             tree_buffer: W3DTreeBuffer::new(),
             last_tree_gpu_vertices: Vec::new(),
-            last_tree_atlas_mips: Vec::new(),
             tree_meshes: Vec::new(),
             tree_atlas_texture: None,
             tree_atlas_bind_group_layout: None,
@@ -333,6 +332,7 @@ impl TerrainVisualImpl {
 
     fn reset_draw_area_state(&mut self) {
         self.invalidate_projected_unit_shadow_meshes();
+        self.tree_buffer.do_full_update();
         self.oversize_amount = 0;
 
         if let Some((map_width, map_height)) = self.map_sample_dimensions() {

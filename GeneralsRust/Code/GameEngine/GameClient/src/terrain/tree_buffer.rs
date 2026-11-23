@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use game_engine::common::system::file_system::get_file_system;
-use glam::{Mat4, Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 
 pub const MAX_TREE_VERTEX: usize = 30_000;
 pub const MAX_TREE_INDEX: usize = 60_000;
@@ -424,6 +424,28 @@ pub struct TreeMoveCursor {
     frame: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct NativeTreeView {
+    view: Mat4,
+    projection: Mat4,
+}
+
+impl NativeTreeView {
+    fn inward_planes(self) -> [Vec4; 6] {
+        let rows = (self.projection * self.view).transpose();
+        let [x, y, z, w] = [rows.x_axis, rows.y_axis, rows.z_axis, rows.w_axis];
+        // Native W3D uses D3D depth: 0 <= clip z <= clip w.
+        [w + x, w - x, w + y, w - y, z, w - z].map(|plane| {
+            let length = plane.truncate().length();
+            if length > 0.0 {
+                plane / length
+            } else {
+                plane
+            }
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct W3DTreeBuffer {
     area_partition: Vec<i16>,
@@ -438,6 +460,7 @@ pub struct W3DTreeBuffer {
     need_to_update_texture: bool,
     num_tiles: i32,
     camera_look_at_vector: Vec3,
+    native_view: Option<NativeTreeView>,
     sway_offsets: [Vec3; NUM_SWAY_ENTRIES],
     cur_sway_version: i32,
     cur_sway_offset: [f32; MAX_SWAY_TYPES],
@@ -479,6 +502,7 @@ impl W3DTreeBuffer {
             need_to_update_texture: false,
             num_tiles: 0,
             camera_look_at_vector: Vec3::ZERO,
+            native_view: None,
             sway_offsets: [Vec3::ZERO; NUM_SWAY_ENTRIES],
             cur_sway_version: -1,
             cur_sway_offset: [0.0; MAX_SWAY_TYPES],
@@ -744,6 +768,17 @@ impl W3DTreeBuffer {
         }
     }
 
+    /// Resolve this tree buffer's dirty atlas sources with the receiving
+    /// application's mounted filesystem.
+    pub fn hydrate_tree_texture_sources(
+        &mut self,
+        mut read_virtual_file: impl FnMut(&str) -> Option<Vec<u8>>,
+    ) {
+        if self.need_to_update_texture {
+            self.refresh_tree_texture_sources(&mut read_virtual_file);
+        }
+    }
+
     pub fn atlas_mips(&self) -> &[Vec<u8>] {
         &self.atlas_mips
     }
@@ -808,6 +843,42 @@ impl W3DTreeBuffer {
         self.update_all_keys = true;
     }
 
+    pub(super) fn observe_native_view(&mut self, view: Mat4, projection: Mat4) {
+        if self
+            .native_view
+            .is_some_and(|current| current.view == view && current.projection == projection)
+        {
+            return;
+        }
+        self.native_view = Some(NativeTreeView { view, projection });
+        self.do_full_update();
+    }
+
+    pub(super) fn has_native_view(&self) -> bool {
+        self.native_view.is_some()
+    }
+
+    pub(super) fn cull_pending_native_view(&mut self) {
+        let Some(camera) = self.native_view else {
+            return;
+        };
+        // C++ drawTrees culls only for a pending full view update. A late
+        // registration starts invisible and waits for the next refresh.
+        if !self.update_all_keys {
+            return;
+        }
+
+        let inward_planes = camera.inward_planes();
+        let look = -camera.view.inverse().z_axis.truncate();
+        // Tree spheres and sort keys stay in source Z-up coordinates.
+        self.cull_trees(Vec3::new(look.x, look.z, look.y), |sphere| {
+            let center = Vec4::new(sphere.center.x, sphere.center.z, sphere.center.y, 1.0);
+            !inward_planes
+                .iter()
+                .any(|plane| plane.dot(center) < -sphere.radius)
+        });
+    }
+
     pub fn cull_trees(
         &mut self,
         camera_look_at_vector: Vec3,
@@ -840,6 +911,7 @@ impl W3DTreeBuffer {
     }
 
     pub fn clear_all_trees(&mut self) {
+        self.native_view = None;
         self.cpu_draw_generation = self.cpu_draw_generation.wrapping_add(1);
         self.trees.clear();
         self.bounds = TreeRegion2D::default();
@@ -906,7 +978,61 @@ impl W3DTreeBuffer {
             return None;
         }
 
-        let tree_type = self
+        let tree_type = self.tree_type_for(&data)
+            .or_else(|| self.add_tree_type(data.clone(), base_bounds))?;
+        self.add_tree_instance(
+            drawable_id, location, scale, angle, random_scale_amount, tree_type, &data, rng,
+        )
+    }
+
+    /// C++ addTreeType resolves the exact model before publishing a type.
+    /// A model failure can use the first existing type. An empty buffer has
+    /// no source mesh to draw.
+    pub fn add_tree_from_model(
+        &mut self,
+        drawable_id: u32,
+        location: Vec3,
+        scale: f32,
+        angle: f32,
+        data: TreeModuleData,
+        load_model: impl FnOnce(&str) -> Option<(TreeTypeMesh, Vec3, Option<f32>)>,
+        rng: &mut impl TreeRandom,
+    ) -> Option<usize> {
+        if self.trees.len() >= MAX_TREES || !self.initialized {
+            return None;
+        }
+        let tree_type = if let Some(index) = self.tree_type_for(&data) {
+            index
+        } else if self.tree_types.len() >= MAX_TYPES {
+            0
+        } else if let Some((mesh, offset, shadow_size)) = load_model(&data.model_name) {
+            let points: Vec<_> = mesh.positions.iter()
+                .map(|&[x, y, z]| wwmath::Vector3::new(x, y, z))
+                .collect();
+            let sphere = wwmath::Sphere::from_points(&points);
+            let bounds = TreeSphere {
+                center: offset + Vec3::new(sphere.center.x, sphere.center.y, sphere.center.z),
+                radius: sphere.radius,
+            };
+            let index = self.add_tree_type(data.clone(), bounds)?;
+            let tree_type = &mut self.tree_types[index];
+            tree_type.mesh = Some(mesh);
+            tree_type.offset = offset;
+            if let Some(shadow_size) = shadow_size {
+                tree_type.shadow_size = shadow_size;
+            }
+            index
+        } else {
+            log::warn!("Unable to resolve tree model '{}'", data.model_name);
+            let first = self.tree_types.first()?;
+            first.mesh.as_ref()?;
+            0
+        };
+        self.add_tree_instance(drawable_id, location, scale, angle, 0.0, tree_type, &data, rng)
+    }
+
+    fn tree_type_for(&self, data: &TreeModuleData) -> Option<usize> {
+        self
             .tree_types
             .iter()
             .position(|existing| {
@@ -919,8 +1045,19 @@ impl W3DTreeBuffer {
                         .texture_name
                         .eq_ignore_ascii_case(&data.texture_name)
             })
-            .or_else(|| self.add_tree_type(data.clone(), base_bounds))?;
+    }
 
+    fn add_tree_instance(
+        &mut self,
+        drawable_id: u32,
+        location: Vec3,
+        scale: f32,
+        angle: f32,
+        random_scale_amount: f32,
+        tree_type: usize,
+        data: &TreeModuleData,
+        rng: &mut impl TreeRandom,
+    ) -> Option<usize> {
         let random_scale = rng.real_range(1.0 - random_scale_amount, 1.0 + random_scale_amount);
         let final_scale = if random_scale_amount > 0.0 {
             scale * random_scale
@@ -956,6 +1093,7 @@ impl W3DTreeBuffer {
         }
 
         self.trees.push(entry);
+        self.anything_changed = true;
         Some(self.trees.len() - 1)
     }
 
@@ -1473,6 +1611,7 @@ impl W3DTreeBuffer {
     }
 
     pub fn load_records(&mut self, records: &[TreeSaveRecord]) {
+        self.do_full_update();
         self.cpu_draw_generation = self.cpu_draw_generation.wrapping_add(1);
         self.trees.clear();
         self.area_partition.fill(END_OF_PARTITION);
@@ -1562,14 +1701,9 @@ impl W3DTreeBuffer {
                     cur_tree += 1;
                     continue;
                 };
-                let stand_in;
-                let mesh = if let Some(mesh) = tree_type.mesh.as_ref() {
-                    mesh
-                } else {
-                    // Live types often have no WW3D mesh snapshot yet. A crossed
-                    // card still consumes the atlas UVs so W3DTreeBuffer entries draw.
-                    stand_in = stand_in_tree_type_mesh(&tree_type.bounds);
-                    &stand_in
+                let Some(mesh) = tree_type.mesh.as_ref() else {
+                    cur_tree += 1;
+                    continue;
                 };
 
                 let scale = self.trees[cur_tree].scale;
@@ -1577,7 +1711,7 @@ impl W3DTreeBuffer {
                 let the_sin = self.trees[cur_tree].sin;
                 let the_cos = self.trees[cur_tree].cos;
                 let offset = tree_type.offset;
-                let tile_width = tree_type.tile_width.max(1);
+                let tile_width = tree_type.tile_width;
                 let half_tile = tree_type.half_tile;
                 let texture_origin = tree_type.texture_origin;
                 let darkening = tree_type.data.darkening;
@@ -2366,46 +2500,6 @@ pub fn do_lighting(
 }
 
 /// Crossed card used when `addTreeType` has no WW3D mesh snapshot.
-fn stand_in_tree_type_mesh(bounds: &TreeSphere) -> TreeTypeMesh {
-    let radius = bounds.radius.max(TREE_RADIUS_APPROX * 0.5);
-    let height = radius * 2.0;
-    TreeTypeMesh {
-        positions: vec![
-            [-radius, 0.0, 0.0],
-            [radius, 0.0, 0.0],
-            [radius, 0.0, height],
-            [-radius, 0.0, height],
-            [0.0, -radius, 0.0],
-            [0.0, radius, 0.0],
-            [0.0, radius, height],
-            [0.0, -radius, height],
-        ],
-        normals: Some(vec![
-            [0.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-        ]),
-        uvs: vec![
-            [0.0, 1.0],
-            [1.0, 1.0],
-            [1.0, 0.0],
-            [0.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 1.0],
-            [1.0, 0.0],
-            [0.0, 0.0],
-        ],
-        colors: None,
-        polygons: vec![[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]],
-        emissive: [0.0, 0.0, 0.0],
-    }
-}
-
 /// Map C++ Z-up tree VB into the shipped wgpu Y-up upload layout.
 /// `diffuse` is the exact `doLighting` packed BGRA written into the GPU VB.
 pub fn fill_tree_gpu_upload_vertices(cpu: &[TreeVertexXyznduv1]) -> Vec<TreeGpuVertex> {

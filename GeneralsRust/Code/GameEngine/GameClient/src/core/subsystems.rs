@@ -144,7 +144,7 @@ fn xfer_terrain_tree_registration(
     Ok(())
 }
 
-fn tree_module_data_from_w3d(data: &W3DTreeDrawModuleData) -> TreeModuleData {
+pub(crate) fn tree_module_data_from_w3d(data: &W3DTreeDrawModuleData) -> TreeModuleData {
     TreeModuleData {
         model_name: data.model_name.to_string(),
         texture_name: data.texture_name.to_string(),

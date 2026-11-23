@@ -323,6 +323,15 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
             }
             return;
         }
+        if let PresentationDrawableMutation::TerrainTreeAdded { source: sync, mut request } = mutation {
+            if let Some(source) = source {
+                request.scale = source.mesh_scale;
+            }
+            if !self.pending_native_trees.push(sync.host_epoch, request) {
+                warn!("rejected terrain tree from a different draw-world epoch");
+            }
+            return;
+        }
         let owner = NativeDrawOwnerId::Actor(mutation.object_id());
         let mutation = match mutation {
             PresentationDrawableMutation::Creating {
@@ -340,7 +349,8 @@ impl super::native_pose_loan::NativeInstalledPoseLoan<'_> {
                 NativeDrawMutation::ConditionsMarked { bits }
             }
             PresentationDrawableMutation::Destroyed { .. } => NativeDrawMutation::Destroyed,
-            PresentationDrawableMutation::TerrainPropAdded { .. } => unreachable!(),
+            PresentationDrawableMutation::TerrainPropAdded { .. }
+            | PresentationDrawableMutation::TerrainTreeAdded { .. } => unreachable!(),
         };
         self.receive_native_mutation_for_owner(owner, mutation, source, graphics);
     }

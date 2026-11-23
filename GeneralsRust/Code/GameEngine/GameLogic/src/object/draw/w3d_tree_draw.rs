@@ -385,10 +385,27 @@ impl Snapshotable for W3DTreeDrawModuleData {
     }
 }
 
+/// One C++ `addTree` request for the Drawable's receiving terrain.
+#[derive(Debug, Clone)]
+pub struct TerrainTreeAddRequest {
+    pub drawable_id: u32,
+    /// Original coordinates with X and Y on the ground plane.
+    pub position: Coord3D,
+    pub angle: Real,
+    pub scale: Real,
+    pub module_data: W3DTreeDrawModuleData,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TreeRegistrationOwner {
+    Compatibility,
+    ReceivingTerrain,
+}
+
 pub struct W3DTreeDraw {
     data: ModuleDataHandle,
     drawable_id: u32,
-    tree_added: bool,
+    registration: Option<TreeRegistrationOwner>,
 }
 
 impl W3DTreeDraw {
@@ -400,7 +417,7 @@ impl W3DTreeDraw {
         Self {
             data,
             drawable_id: 0,
-            tree_added: false,
+            registration: None,
         }
     }
 
@@ -409,26 +426,55 @@ impl W3DTreeDraw {
     }
 
     fn reset_runtime_state(&mut self) {
-        self.tree_added = false;
+        self.registration = None;
     }
 
     fn unregister_tree(&mut self) {
-        if !self.tree_added || self.drawable_id == INVALID_ID {
+        if self.registration.take() != Some(TreeRegistrationOwner::Compatibility)
+            || self.drawable_id == INVALID_ID
+        {
             return;
         }
         if let Some(client) = TheGameClient::get() {
             client.remove_tree(self.drawable_id);
         }
-        self.tree_added = false;
     }
 
     pub fn is_tree_added(&self) -> bool {
-        self.tree_added
+        self.registration.is_some()
+    }
+
+    /// C++ `W3DTreeDraw::reactToTransformChange` (W3DTreeDraw.cpp:107-129).
+    /// The request uses the installed pose with no additional scale randomness.
+    pub fn react_to_owned_transform(
+        &mut self,
+        drawable_id: u32,
+        position: Coord3D,
+        angle: Real,
+        scale: Real,
+    ) -> Option<TerrainTreeAddRequest> {
+        if self.is_tree_added() || (position.x == 0.0 && position.y == 0.0) {
+            return None;
+        }
+        self.registration = Some(TreeRegistrationOwner::ReceivingTerrain);
+        let data = self.data.read();
+        let module_data = data
+            .as_any()
+            .downcast_ref::<W3DTreeDrawModuleData>()
+            .expect("W3DTreeDraw module data")
+            .clone();
+        Some(TerrainTreeAddRequest {
+            drawable_id,
+            position,
+            angle,
+            scale,
+            module_data,
+        })
     }
 
     /// C++ `W3DTreeDraw::reactToTransformChange` (W3DTreeDraw.cpp:107-129).
     fn register_tree_at(&mut self, location: Coord3D, scale: Real, angle: Real) {
-        if self.tree_added {
+        if self.is_tree_added() {
             return;
         }
         if location.x == 0.0 && location.y == 0.0 {
@@ -438,14 +484,14 @@ impl W3DTreeDraw {
             return;
         };
         // C++ sets `m_treeAdded` before `addTree`.
-        self.tree_added = true;
+        self.registration = Some(TreeRegistrationOwner::Compatibility);
         let data = self.data.read();
         let data = data.as_any().downcast_ref::<W3DTreeDrawModuleData>().expect("W3DTreeDraw module data");
         client.add_tree(self.drawable_id, &location, scale, angle, 0.0, data);
     }
 
     fn register_from_current_drawable(&mut self) {
-        if self.tree_added {
+        if self.is_tree_added() {
             return;
         }
         let Some(client) = TheGameClient::get() else {
@@ -462,7 +508,6 @@ impl Module for W3DTreeDraw {
     fn on_drawable_bound_to_object(&mut self) {}
     fn on_delete(&mut self) {
         self.unregister_tree();
-        self.reset_runtime_state();
     }
     fn get_module_name_key(&self) -> NameKeyType {
         game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DTreeDraw")
@@ -491,11 +536,11 @@ impl DrawModule for W3DTreeDraw {
         // C++ `doDrawModule` returns immediately. If react never ran, register
         // from the drawable pose (`getScale` == instance scale). Do not use the
         // matrix basis scale; instance scale is no longer in that matrix.
-        if self.tree_added {
+        if self.is_tree_added() {
             return;
         }
         self.register_from_current_drawable();
-        if self.tree_added {
+        if self.is_tree_added() {
             return;
         }
         let (_, rotation, translation) = transform_mtx.to_scale_rotation_translation();
@@ -587,7 +632,7 @@ mod tests {
     #[test]
     fn hidden_shadow_shroud_and_geometry_hooks_are_noops() {
         let mut draw = W3DTreeDraw::new(W3DTreeDrawModuleData::new());
-        draw.tree_added = true;
+        draw.registration = Some(TreeRegistrationOwner::Compatibility);
 
         draw.set_hidden(true);
         draw.set_fully_obscured_by_shroud(true);
@@ -600,7 +645,7 @@ mod tests {
     #[test]
     fn delete_clears_registration_state() {
         let mut draw = W3DTreeDraw::new(W3DTreeDrawModuleData::new());
-        draw.tree_added = true;
+        draw.registration = Some(TreeRegistrationOwner::Compatibility);
 
         draw.on_delete();
 

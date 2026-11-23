@@ -53,6 +53,7 @@ impl RenderPipeline {
         self.native_draw_world
             .pending_native_props
             .bind_epoch(epoch);
+        self.native_draw_world.pending_native_trees.bind_epoch(epoch);
     }
 
     #[cfg(feature = "game_client")]
@@ -205,6 +206,7 @@ impl RenderPipeline {
     pub(crate) fn clear_native_terrain(&mut self) {
         self.native_terrain = None;
         self.native_draw_world.pending_native_props.clear();
+        self.native_draw_world.pending_native_trees.clear();
         self.radar_terrain_colors = None;
         self.radar_terrain_colors_generation =
             self.radar_terrain_colors_generation.wrapping_add(1);

@@ -116,15 +116,25 @@ impl TerrainPropRecord {
     }
 }
 
-/// One receiving draw world's not-yet-admitted prop requests. Requests from a
-/// previous host epoch cannot be replayed into a replacement terrain.
-#[derive(Default)]
-pub struct TerrainPropQueue {
+pub type TerrainPropQueue =
+    TerrainRegistrationQueue<gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest>;
+pub type TerrainTreeQueue =
+    TerrainRegistrationQueue<gamelogic::object::draw::w3d_tree_draw::TerrainTreeAddRequest>;
+
+/// Terrain registrations awaiting the receiving draw world. Requests from
+/// another host epoch cannot be replayed into a replacement terrain.
+pub struct TerrainRegistrationQueue<Request> {
     epoch: Option<u64>,
-    pending: Vec<gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest>,
+    pending: Vec<Request>,
 }
 
-impl TerrainPropQueue {
+impl<Request> Default for TerrainRegistrationQueue<Request> {
+    fn default() -> Self {
+        Self { epoch: None, pending: Vec::new() }
+    }
+}
+
+impl<Request> TerrainRegistrationQueue<Request> {
     /// Bind to the driving world's epoch before admitting its callbacks.
     pub fn bind_epoch(&mut self, epoch: u64) {
         if self.epoch != Some(epoch) {
@@ -136,7 +146,7 @@ impl TerrainPropQueue {
     pub fn push(
         &mut self,
         epoch: u64,
-        request: gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest,
+        request: Request,
     ) -> bool {
         if self.epoch.is_some_and(|bound| bound != epoch) {
             return false;
@@ -151,8 +161,14 @@ impl TerrainPropQueue {
         self.epoch = None;
     }
 
+    pub fn drain(&mut self) -> impl Iterator<Item = Request> + '_ {
+        self.pending.drain(..)
+    }
+}
+
+impl TerrainPropQueue {
     pub fn drain_into(&mut self, terrain: &mut TerrainVisualImpl) {
-        for request in self.pending.drain(..) {
+        for request in self.drain() {
             terrain.add_prop(
                 request.drawable_id,
                 [request.location.x, request.location.y, request.location.z],
@@ -462,7 +478,6 @@ struct ShroudGpuState {
     terrain_pipeline: Option<wgpu::RenderPipeline>,
     water_pipeline: Option<wgpu::RenderPipeline>,
     road_pipeline: Option<wgpu::RenderPipeline>,
-    tree_pipeline: Option<wgpu::RenderPipeline>,
     dirty: bool,
 }
 

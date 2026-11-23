@@ -341,6 +341,8 @@ impl RenderPipeline {
     pub fn invalidate_world_visual_state(&mut self) {
         #[cfg(feature = "game_client")]
         self.native_draw_world.pending_native_props.clear();
+        #[cfg(feature = "game_client")]
+        self.native_draw_world.pending_native_trees.clear();
         self.native_draw_world.native_drawable_lifetimes.clear();
         clear_visual_world_state_components(
             &mut self.native_draw_world.drawable_visual_states,

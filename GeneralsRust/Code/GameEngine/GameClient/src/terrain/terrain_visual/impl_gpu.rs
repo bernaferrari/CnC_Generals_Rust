@@ -7,17 +7,24 @@ impl TerrainVisualImpl {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
     ) -> TerrainResult<()> {
-        if self
+        let device_changed = self
             .device
             .as_ref()
-            .is_some_and(|current| !Arc::ptr_eq(current, &device))
-        {
+            .is_none_or(|current| !Arc::ptr_eq(current, &device));
+        if device_changed {
+            self.tree_buffer.force_vertex_rebuild();
+        }
+        if device_changed && self.device.is_some() {
             self.water_sampler = None;
             self.water_texture = None;
             self.water_texture_bind_group = None;
             self.water_texture_search_exhausted = false;
             self.water_named_bind_groups.clear();
             self.river_gpu = RiverGpuState::default();
+            self.tree_meshes.clear();
+            self.tree_atlas_sampler = None;
+            self.tree_atlas_texture = None;
+            self.tree_atlas_bind_group = None;
         }
         self.device = Some(Arc::clone(&device));
         self.queue = Some(Arc::clone(&queue));
@@ -66,6 +73,7 @@ impl TerrainVisualImpl {
         self.ensure_road_texture_bind_group(device.as_ref());
         self.ensure_snow_texture_bind_group(device.as_ref());
         self.create_tree_pipeline(device.as_ref())?;
+        self.bind_tree_atlas_group();
 
         self.sync_water_plane(device.as_ref())?;
         self.upload_extra_blend_overlay();
@@ -1282,7 +1290,6 @@ impl TerrainVisualImpl {
         self.record_shroud_ground_pass(pass);
         self.record_tree_draws(pass);
         self.record_shroud_water_pass(pass, true);
-        self.record_shroud_tree_pass(pass);
     }
 
     /// C++ static sort level 2: the whole water scene renders after opaque
@@ -2140,10 +2147,16 @@ impl TerrainVisualImpl {
     }
 
     fn record_tree_draws(&self, pass: &mut RenderPass<'_>) {
-        let (Some(tree_pipeline), Some(camera_bg), Some(atlas_bg)) = (
+        let shroud = self
+            .shroud_gpu
+            .bind_group
+            .as_ref()
+            .or(self.shroud_gpu.neutral_bind_group.as_ref());
+        let (Some(tree_pipeline), Some(camera_bg), Some(atlas_bg), Some(shroud)) = (
             self.tree_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
             self.tree_atlas_bind_group.as_ref(),
+            shroud,
         ) else {
             return;
         };
@@ -2155,9 +2168,10 @@ impl TerrainVisualImpl {
         pass.set_bind_group(0, camera_bg, &[]);
         // Own atlas group. Do not overwrite road/terrain bind group 1 after this pass.
         pass.set_bind_group(1, atlas_bg, &[]);
+        pass.set_bind_group(2, shroud, &[]);
         for mesh in &self.tree_meshes {
             pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
     }
@@ -2232,7 +2246,8 @@ impl TerrainVisualImpl {
                 }
             }
         }
-        if self.tree_meshes.is_empty() {
+        let native_view = sway_completed && self.tree_buffer.has_native_view();
+        if !native_view && self.tree_meshes.is_empty() {
             if self
                 .tree_buffer
                 .trees()
@@ -2249,7 +2264,7 @@ impl TerrainVisualImpl {
             }
         }
 
-        if !self.tree_meshes.is_empty()
+        if (native_view || !self.tree_meshes.is_empty())
             && !self.tree_buffer.need_to_update_texture()
             && !self.tree_buffer.anything_changed()
         {
@@ -2261,30 +2276,41 @@ impl TerrainVisualImpl {
         let lod = get_global_data()
             .map(|global_data| global_data.read().texture_reduction_factor.clamp(0, 4))
             .unwrap_or_else(|| self.tree_buffer.atlas_lod());
+        let repack_atlas = self.tree_buffer.need_to_update_texture()
+            || self.tree_buffer.atlas_mips().is_empty();
         self.tree_buffer.sync_tree_atlas_for_draw(lod);
-        let lights = self.current_tree_object_lights();
-        self.tree_buffer
-            .draw_trees_fill_vertex_buffer(&lights, Vec3::Z, |_| true);
-        let gpu_vertices = fill_tree_gpu_upload_vertices(self.tree_buffer.cpu_vertices());
-        let gpu_indices: Vec<u32> = self
-            .tree_buffer
-            .cpu_indices()
-            .iter()
-            .map(|index| *index as u32)
-            .collect();
-        self.last_tree_gpu_vertices = gpu_vertices.clone();
-        self.last_tree_atlas_mips = self.tree_buffer.atlas_upload_levels().to_vec();
-        self.upload_tree_atlas_texture();
-
-        let Some(device) = self.device.as_ref().cloned() else {
-            self.tree_meshes.clear();
-            return;
-        };
-        if gpu_vertices.is_empty() || gpu_indices.is_empty() {
-            self.tree_meshes.clear();
+        let levels = self.tree_buffer.atlas_upload_levels();
+        let (atlas_width, _) = self.tree_buffer.texture_size();
+        let first_mip = self.tree_buffer.atlas_upload_mip_index();
+        let upload_width = (atlas_width.max(1) as u32 >> first_mip).max(1);
+        if repack_atlas
+            || self.tree_atlas_texture.as_ref().is_none_or(|atlas| {
+                atlas.width() != upload_width || atlas.mip_level_count() as usize != levels.len()
+            })
+        {
+            self.upload_tree_atlas_texture();
+        }
+        if native_view && !self.tree_buffer.anything_changed() {
             return;
         }
-        self.tree_meshes = Self::upload_tree_mesh(&device, &gpu_vertices, &gpu_indices)
+        let lights = self.current_tree_object_lights();
+        if native_view {
+            self.tree_buffer.load_trees_in_vertex_and_index_buffers(&lights);
+        } else {
+            self.tree_buffer
+                .draw_trees_fill_vertex_buffer(&lights, Vec3::Z, |_| true);
+        }
+        self.last_tree_gpu_vertices = fill_tree_gpu_upload_vertices(self.tree_buffer.cpu_vertices());
+        self.tree_meshes = self
+            .device
+            .as_ref()
+            .and_then(|device| {
+                Self::upload_tree_mesh(
+                    device,
+                    &self.last_tree_gpu_vertices,
+                    self.tree_buffer.cpu_indices(),
+                )
+            })
             .into_iter()
             .collect();
     }
@@ -2292,7 +2318,7 @@ impl TerrainVisualImpl {
     fn upload_tree_mesh(
         device: &wgpu::Device,
         vertices: &[TreeGpuVertex],
-        indices: &[u32],
+        indices: &[u16],
     ) -> Option<GpuTreeMesh> {
         if vertices.is_empty() || indices.is_empty() {
             return None;
@@ -2321,7 +2347,7 @@ impl TerrainVisualImpl {
     }
 
     pub fn last_tree_atlas_mips(&self) -> &[Vec<u8>] {
-        &self.last_tree_atlas_mips
+        self.tree_buffer.atlas_upload_levels()
     }
 
     fn upload_tree_atlas_texture(&mut self) {

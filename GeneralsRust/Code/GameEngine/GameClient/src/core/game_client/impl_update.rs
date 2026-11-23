@@ -755,25 +755,32 @@ impl GameClient {
         )
     }
 
-    fn take_owned_prop_requests(
+    fn owned_terrain_draw_mutations<'a>(
         drawable: &mut BasicDrawable,
-        source: &PresentationDrawableSync,
-    ) -> Vec<gamelogic::object::draw::w3d_prop_draw::TerrainPropAddRequest> {
+        source: &'a PresentationDrawableSync,
+    ) -> Vec<PresentationDrawableMutation<'a>> {
+        use gamelogic::object::draw::{w3d_prop_draw::W3DPropDraw, w3d_tree_draw::W3DTreeDraw};
+
         let drawable_id = drawable.get_id().0;
         let scale = drawable.get_instance_scale();
+        // Presentation is Y-up. Terrain draw requests use the original X/Y
+        // ground plane and Z height.
+        let position =
+            gamelogic::common::Coord3D::new(source.position[0], source.position[2], source.position[1]);
         drawable
             .get_draw_modules_mut()
             .iter_mut()
             .filter_map(|slot| {
-                let prop = slot.logic_module_mut()?.as_any_mut().downcast_mut::<
-                    gamelogic::object::draw::w3d_prop_draw::W3DPropDraw,
-                >()?;
-                // Presentation is Y-up; the terrain-prop contract retains the
-                // original X/Y ground plane and Z height.
-                let position = gamelogic::common::Coord3D::new(
-                    source.position[0], source.position[2], source.position[1],
-                );
-                prop.react_to_owned_transform(drawable_id, position, source.orientation, scale)
+                let module = slot.logic_module_mut()?.as_any_mut();
+                if let Some(prop) = module.downcast_mut::<W3DPropDraw>() {
+                    let request =
+                        prop.react_to_owned_transform(drawable_id, position, source.orientation, scale)?;
+                    return Some(PresentationDrawableMutation::TerrainPropAdded { source, request });
+                }
+                let tree = module.downcast_mut::<W3DTreeDraw>()?;
+                let request =
+                    tree.react_to_owned_transform(drawable_id, position, source.orientation, scale)?;
+                Some(PresentationDrawableMutation::TerrainTreeAdded { source, request })
             })
             .collect()
     }
@@ -943,8 +950,8 @@ impl GameClient {
                         });
                     }
                     if let Some(basic) = drawable.downcast_mut::<BasicDrawable>() {
-                        for request in Self::take_owned_prop_requests(basic, &e) {
-                            observe(PresentationDrawableMutation::TerrainPropAdded { source: &e, request });
+                        for mutation in Self::owned_terrain_draw_mutations(basic, &e) {
+                            observe(mutation);
                         }
                         basic.admit_receiving_time_of_day(receiving_tod);
                         // retains_binding already verified the exact admitted definition.

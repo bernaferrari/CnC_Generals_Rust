@@ -1670,10 +1670,12 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
         let mut frame = PresentationFrame::build_from_logic(&mut world, 0);
         frame.fow_shell_bypass = true;
         pipeline.set_presentation_frame(Some(std::rc::Rc::new(frame)));
-        assert!(
-            pipeline.collect_native_retirement_acceptance_frame(&mut graphics, id.0) > 0,
-            "actual visible collection must install/advance a render module before retirement"
-        );
+        let (installed, items) =
+            pipeline.collect_native_retirement_acceptance_frame(&mut graphics, id.0);
+        assert!(installed > 0, "the Drawable keeps its installed registration");
+        if class == "W3DTreeDraw" {
+            assert_eq!(items, 0, "tree Draw belongs to the terrain renderer");
+        }
         with_physical_retirement_view(
             &mut client,
             &mut pipeline,
