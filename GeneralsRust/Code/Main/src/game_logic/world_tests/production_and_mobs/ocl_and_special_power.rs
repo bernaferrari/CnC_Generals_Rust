@@ -1156,6 +1156,7 @@ fn retail_stinger_w3d_spawns_held_children_from_mounted_archives() {
 End
 Object GLAInfantryStingerSoldier
  KindOf = INFANTRY SELECTABLE
+ EnergyProduction = 20
  Body = ActiveBody SoldierBody
   MaxHealth = 100
   InitialHealth = 100
@@ -1176,6 +1177,7 @@ End
         .filter(|object| object.producer_id == Some(site)).collect();
     assert_eq!(children.len(), 3, "retail W3D must expose three available SpawnPoints");
     assert!(children.iter().all(|child| child.status.disabled_held));
+    assert_eq!(world.players[&0].power_produced, 0, "SpawnPoint HELD debits power before the next tick");
     assert!(children.iter().any(|child| child.get_position().x != 0.0 || child.get_position().z != 0.0));
 }
 

@@ -116,8 +116,11 @@ impl GameLogic {
                     child.set_orientation_with_partition_owner(orientation, partition);
                 }
                 self.set_owned_pathfinder_layer(child_id, layer);
-                if let Some(child) = self.host_object_mut(child_id) {
-                    child.set_status_disabled_held(true);
+                self.set_owned_passenger_held(child_id, true, effects);
+                if !self.spawn_identity_matches(exit_owner, owner_birth, epoch)
+                    || !self.spawn_identity_matches(child_id, child_birth, epoch)
+                {
+                    return Ok(false);
                 }
             }
             SpawnExit::FlightDeck => {

@@ -2578,7 +2578,8 @@ impl GameLogic {
                     continue;
                 }
                 if attach_portable {
-                    self.attach_overlord_portable_occupant(destination, payload);
+                    self.attach_overlord_portable_with_effects(destination, payload, ui);
+                    verify_factory_birth!();
                 } else if self.objects.get_mut(&destination)
                     .is_some_and(|parent| parent.add_occupant(payload))
                 {

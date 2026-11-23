@@ -691,6 +691,7 @@ impl GameLogic {
                                     created_id,
                                     source_birth,
                                     created_birth,
+                                    presentation_effects,
                                 )
                         })
                     });
@@ -719,6 +720,7 @@ impl GameLogic {
         child_id: ObjectId,
         source_birth: (u64, u64),
         child_birth: (u64, u64),
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         if !self.spawn_identity_matches(source_id, source_birth.0, source_birth.1)
             || !self.spawn_identity_matches(child_id, child_birth.0, child_birth.1)
@@ -745,7 +747,9 @@ impl GameLogic {
         // HelixContain's portable override bypasses normal TransportContain
         // KindOf, relationship, controller, and slot-count checks; the
         // OverlordContain (Slots=1, PORTABLE_STRUCTURE) rider uses the same slot.
-        self.attach_overlord_portable_occupant(source_id, child_id);
+        if !self.attach_overlord_portable_with_effects(source_id, child_id, effects) {
+            return false;
+        }
         if self
             .objects
             .get(&source_id)

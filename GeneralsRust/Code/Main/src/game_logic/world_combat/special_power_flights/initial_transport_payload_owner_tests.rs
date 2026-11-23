@@ -180,10 +180,12 @@ End
 Object CustomRifleRider
  KindOf = SELECTABLE INFANTRY
  TransportSlotCount = 1
+ EnergyProduction = 20
 End
 Object CustomRocketRider
  KindOf = SELECTABLE INFANTRY
  TransportSlotCount = 1
+ EnergyProduction = 30
 End
 "#.into())]).unwrap();
             let mut weapons = std::collections::HashMap::new();
@@ -209,16 +211,21 @@ End
             world.update_initial_transport_payloads_with_effects(&mut Default::default()).unwrap();
             let first = world.objects[&bike].occupants[0];
             assert_eq!(world.objects[&bike].weapon.as_ref().unwrap().damage, 13.0);
+            assert_eq!(world.players[&1].power_produced, 0, "the initial rider is held");
             let replacement = world.create_object_for_player("CustomRocketRider", 1, Vec3::ZERO).unwrap();
+            assert_eq!(world.players[&1].power_produced, 30, "the replacement is still outside");
             assert!(world.rider_change_enter_at_arrival_with_effects(
                 replacement, bike, &mut Default::default(),
             ).unwrap());
             assert_eq!(world.objects[&bike].occupants, vec![replacement]);
             assert_eq!(world.objects[&first].contained_by, None);
             assert_eq!(world.objects[&replacement].contained_by, Some(bike));
+            assert_eq!(world.players[&1].power_produced, 20, "replacement releases only the first rider");
             assert_eq!(world.objects[&bike].weapon.as_ref().unwrap().damage, 47.0);
             world.refresh_combat_cycle_rider_weapon(bike);
             assert_eq!(world.objects[&bike].weapon.as_ref().unwrap().damage, 47.0);
+            assert!(world.rider_change_remove_occupant(bike, replacement));
+            assert_eq!(world.players[&1].power_produced, 50, "ordinary exit restores the second rider");
         },
     );
 }

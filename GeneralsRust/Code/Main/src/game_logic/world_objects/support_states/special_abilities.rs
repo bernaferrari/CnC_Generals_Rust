@@ -2461,6 +2461,7 @@ impl GameLogic {
                     .get(&container_id)
                     .expect("same container")
                     .get_position();
+                self.change_owned_containment_world_membership(containment_actor_id, true);
                 if !self.set_owned_object_position_with_effects(
                     previous_rider_id,
                     position,
@@ -2470,6 +2471,12 @@ impl GameLogic {
                     || !same_container(self)
                     || !same_rider(self)
                 {
+                    return Ok(false);
+                }
+                // TransportContain::onRemoving runs while onRemovedFrom has
+                // yet to clear the original bike reference.
+                self.set_owned_passenger_held(previous_rider_id, false, effects);
+                if !same_previous(self, previous_rider_id) || !same_container(self) || !same_rider(self) {
                     return Ok(false);
                 }
                 Self::set_owned_containment_in_parts(
@@ -2485,7 +2492,6 @@ impl GameLogic {
                     .objects
                     .get_mut(&containment_actor_id)
                     .expect("containment operation preserves this birth");
-                previous.set_status_disabled_held(false);
                 previous.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                     &mut self.queued_audio_events,
                 ));
@@ -2547,14 +2553,10 @@ impl GameLogic {
             rider.set_status_force_attack(false);
             rider.target = Some(container_id);
             let containment_actor_id = rider.id;
-            Self::set_owned_containment_in_parts(
-                &mut self.objects,
-                &mut self.partition_manager,
-                &mut self.ai_groups,
-                &mut self.pathfinding_system,
+            self.change_owned_containment_world_membership_with_track_effects(
                 containment_actor_id,
-                Some(container_id),
-                true,
+                false,
+                effects,
             );
             let position = self
                 .objects
@@ -2597,7 +2599,6 @@ impl GameLogic {
                 self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
-            rider.set_status_disabled_held(true);
             rider.set_status_moving(false);
             rider.set_rider_change_veterancy_level_with_health_bonus_table(
                 VeterancyLevel::Rookie,
@@ -2608,7 +2609,6 @@ impl GameLogic {
             rider.deselect();
         }
 
-        self.admit_object_drawable_deselection(rider_id);
         // The authored weapon-set condition was applied above.  The slot
         // ordinal is only a presentation mirror, never a synthetic weapon.
         self.objects.get_mut(&container_id).unwrap().combat_cycle_rider = plan.rider.slot;
@@ -2623,6 +2623,16 @@ impl GameLogic {
                 container.select();
             }
         }
+        // RiderChange applies its roster, locomotor, and experience before
+        // the TransportContain callback. OpenContain installs the link after.
+        self.set_owned_passenger_held(rider_id, true, effects);
+        if !same_rider(self) || !same_container(self) {
+            return Ok(false);
+        }
+        self.objects.get_mut(&rider_id).unwrap().finish_containment_reference_with_partition_owner(
+            Some(container_id), true, &mut self.partition_manager,
+        );
+        self.admit_object_drawable_deselection(rider_id);
         if let Some(player_id) = plan.incoming_selection_player {
             if self.is_local_selection_player(player_id) {
                 self.admit_local_drawable_selected(container_id);
@@ -2670,6 +2680,7 @@ impl GameLogic {
             position,
             bike_veterancy,
             rider_has_controller,
+            payload_created,
             was_moving,
             transfer_selection,
         )) = self.objects.get(&container_id).and_then(|container| {
@@ -2692,6 +2703,7 @@ impl GameLogic {
                 container.get_position(),
                 container.experience.level,
                 rider.owner_player_id.is_some(),
+                container.initial_transport_payload_created,
                 container.status.moving,
                 transfer_selection,
             ))
@@ -2743,6 +2755,7 @@ impl GameLogic {
             return false;
         }
 
+        self.change_owned_containment_world_membership(rider_id, true);
         if !self.set_owned_object_position_with_effects(
             rider_id,
             position,
@@ -2752,6 +2765,12 @@ impl GameLogic {
             || !same_container(self)
         {
             return false;
+        }
+        if payload_created {
+            self.set_owned_passenger_held(rider_id, false, effects);
+            if !same_rider(self) || !same_container(self) {
+                return false;
+            }
         }
         if let Some(rider) = self.objects.get_mut(&rider_id) {
             let containment_actor_id = rider.id;
@@ -2768,7 +2787,6 @@ impl GameLogic {
                 .objects
                 .get_mut(&containment_actor_id)
                 .expect("containment operation preserves this birth");
-            rider.set_status_disabled_held(false);
             // CPP RiderChangeContain::onRemoving does not issue an AI order.
             // AIExitState and the exit interface own the rider's continuation.
             if rider_has_controller {

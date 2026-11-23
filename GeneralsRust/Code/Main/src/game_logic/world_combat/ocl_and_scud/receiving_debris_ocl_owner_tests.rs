@@ -83,6 +83,43 @@ fn helix_portable_world(position: Vec3) -> (GameLogic, ObjectId) {
 }
 
 #[test]
+fn portable_constructor_applies_overlord_hold_and_preserves_the_helix_override() {
+    let fixture = |module: &str| {
+        let source = format!(r#"
+Object PortableEnergyHull
+ KindOf = VEHICLE
+ Behavior = {module} Contain
+  Slots = 1
+  AllowInsideKindOf = PORTABLE_STRUCTURE
+  PayloadTemplateName = PortableEnergyAddon
+ End
+End
+Object PortableEnergyAddon
+ KindOf = PORTABLE_STRUCTURE VEHICLE
+ TransportSlotCount = 1
+ EnergyProduction = 20
+End
+"#);
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("portable-energy.ini".into(), source)]).unwrap();
+        world.add_player(Player::new(1, Team::China, "Portable owner", true));
+        let hull = world.create_object_for_player("PortableEnergyHull", 1, Vec3::ZERO).unwrap();
+        let addon = world.host_object(hull).unwrap().overlord_portable_occupant.unwrap();
+        (world, hull, addon)
+    };
+    let (overlord, hull, addon) = fixture("OverlordContain");
+    let (helix, peer_hull, peer_addon) = fixture("HelixContain");
+    assert_eq!((hull, addon), (peer_hull, peer_addon));
+    for world in [&overlord, &helix] {
+        assert_eq!(world.objects[&addon].contained_by, Some(hull));
+    }
+    assert!(overlord.objects[&addon].is_held_disabled());
+    assert_eq!(overlord.players[&1].power_produced, 0, "Overlord portable slot enters TransportContain");
+    assert!(!helix.objects[&addon].is_held_disabled());
+    assert_eq!(helix.players[&1].power_produced, 20, "Helix portable slot bypasses TransportContain");
+}
+
+#[test]
 fn retail_helix_contain_inside_source_ocl_attaches_in_each_receiving_world() {
     let (mut left, left_source) = helix_portable_world(Vec3::new(10.0, 0.0, 20.0));
     let (mut right, right_source) = helix_portable_world(Vec3::new(100.0, 0.0, 200.0));
@@ -303,7 +340,9 @@ fn portable_containment_rejects_replaced_source_or_child_birth() {
         let replacement = world.objects.remove(&replaced_id).unwrap();
         world.try_admit_host_object(replacement).unwrap();
 
-        assert!(!world.admit_ocl_portable_structure(source, child, source_birth, child_birth));
+        assert!(!world.admit_ocl_portable_structure(
+            source, child, source_birth, child_birth, &mut Default::default(),
+        ));
         assert_eq!(
             world
                 .host_object(source)

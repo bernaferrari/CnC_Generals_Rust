@@ -6,66 +6,75 @@ use super::super::*;
 use crate::game_logic::host_overlord_addon_damage::overlord_addon_mirrored_damage_state;
 
 impl GameLogic {
+    #[cfg(test)]
     pub(crate) fn attach_overlord_portable_occupant(
         &mut self,
         host_id: ObjectId,
         occupant_id: ObjectId,
     ) {
+        assert!(self.attach_overlord_portable_with_effects(host_id, occupant_id, &mut Default::default()));
+    }
+
+    pub(crate) fn attach_overlord_portable_with_effects(
+        &mut self,
+        host_id: ObjectId,
+        occupant_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
+        let Some(host) = self.objects.get(&host_id) else { return false };
+        let Some(occupant) = self.objects.get(&occupant_id) else { return false };
+        if occupant.contained_by == Some(host_id) && host.overlord_portable_occupant == Some(occupant_id) {
+            return true;
+        }
         // HelixContain::addToContain bypasses OpenContain entirely for its
         // separate portable slot: only the ID and contained-by pointer change.
-        if self.objects.get(&host_id).is_some_and(|host| host.is_helix_transport) {
-            if let Some(occupant) = self.objects.get_mut(&occupant_id) {
-                occupant.contained_by = Some(host_id);
-            }
-            if let Some(host) = self.objects.get_mut(&host_id) {
-                host.overlord_portable_occupant = Some(occupant_id);
-            }
-            return;
+        if host.is_helix_transport {
+            self.objects.get_mut(&occupant_id).unwrap().contained_by = Some(host_id);
+            self.objects.get_mut(&host_id).unwrap().overlord_portable_occupant = Some(occupant_id);
+            return true;
         }
-        let (mut grant_stealth, experience_sink) = self.objects.get(&host_id)
-            .map(|host| (host.status.stealthed && !host.is_helix_transport,
-                host.is_overlord_style_container()
-                    && host.thing().template.contain_module.experience_sink_for_rider))
-            .unwrap_or((false, false));
-        if let Some(occ) = self.objects.get_mut(&occupant_id) {
-            let newly_contained = occ.contained_by != Some(host_id);
-            let containment_actor_id = occ.id;
-            Self::set_owned_containment_in_parts(
-                &mut self.objects,
-                &mut self.partition_manager,
-                &mut self.ai_groups,
-                &mut self.pathfinding_system,
-                containment_actor_id,
-                Some(host_id),
-                false,
-            );
-            let occ = self
-                .objects
-                .get_mut(&containment_actor_id)
-                .expect("containment operation preserves this birth");
-            occ.set_status_disabled_held(true);
-            if experience_sink {
-                occ.set_experience_sink(Some(host_id));
+        let experience_sink = host.is_overlord_style_container()
+            && host.get_template().contain_module.experience_sink_for_rider;
+        let grant_stealth = host.status.stealthed
+            && occupant.contained_by != Some(host_id)
+            && occupant.is_kind_of(KindOf::PortableStructure);
+        let (host_birth, occupant_birth) = (host.visual_object_generation, occupant.visual_object_generation);
+        let epoch = self.visual_world_epoch;
+        let host = self.objects.get_mut(&host_id).unwrap();
+        let old_index = host.occupants.iter().position(|&id| id == occupant_id);
+        if old_index != Some(0) {
+            if let Some(index) = old_index {
+                host.occupants.remove(index);
             }
-            grant_stealth &= newly_contained && occ.is_kind_of(KindOf::PortableStructure);
+            host.occupants.insert(0, occupant_id);
+        }
+        self.set_owned_passenger_held(occupant_id, true, effects);
+        if !self.spawn_identity_matches(host_id, host_birth, epoch) {
+            return false;
+        }
+        if !self.spawn_identity_matches(occupant_id, occupant_birth, epoch) {
+            // The callback can retire the new rider before onContainedBy
+            // installs its back-reference. Remove the staged roster entry.
+            if old_index.is_none() {
+                self.objects.get_mut(&host_id).unwrap().occupants.retain(|&id| id != occupant_id);
+            }
+            return false;
+        }
+        let host = self.objects.get_mut(&host_id).unwrap();
+        host.overlord_portable_occupant = Some(occupant_id);
+        let bit = crate::game_logic::host_enum_table_residual::loaded_model_bit();
+        host.model_condition_bits |= 1u128 << bit;
+        host.overlord_redirection_active = host.is_overlord_style_container();
+        if experience_sink {
+            self.objects.get_mut(&occupant_id).unwrap().set_experience_sink(Some(host_id));
         }
         if grant_stealth {
             self.receive_stealth_grant(occupant_id, true, 0);
         }
-        if let Some(host) = self.objects.get_mut(&host_id) {
-            host.overlord_portable_occupant = Some(occupant_id);
-            let bit = crate::game_logic::host_enum_table_residual::loaded_model_bit();
-            host.model_condition_bits |= 1u128 << bit;
-            host.overlord_redirection_active = host.is_overlord_style_container();
-            if let Some(pos) = host.occupants.iter().position(|&id| id == occupant_id) {
-                if pos != 0 {
-                    host.occupants.remove(pos);
-                    host.occupants.insert(0, occupant_id);
-                }
-            } else {
-                host.occupants.insert(0, occupant_id);
-            }
-        }
+        self.objects.get_mut(&occupant_id).unwrap().finish_containment_reference_with_partition_owner(
+            Some(host_id), false, &mut self.partition_manager,
+        );
+        true
     }
 
     pub(crate) fn mirror_overlord_addon_damage_to_occupant(&mut self, host_id: ObjectId) {
@@ -156,7 +165,6 @@ impl GameLogic {
                 &mut self.partition_manager,
             );
         }
-        self.attach_overlord_portable_occupant(host_id, addon_id);
         Some(addon_id)
     }
 }
