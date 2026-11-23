@@ -162,7 +162,7 @@ impl GameLogic {
     ) -> Result<(), String> {
         for (name, template) in templates {
             if let Some(plan) = content.admitted_template(name) {
-                template.bind_receiving_production_facts(&plan, content)?;
+                template.bind_receiving_template_facts(&plan, content)?;
             } else if template.receiving_object_definition.is_some() {
                 return Err(format!(
                     "Authored host production template '{name}' has no originating definition"

@@ -28,7 +28,7 @@
 //! - Not full internet-center spy-vision / contained-hacker disable iterate
 //! - Not network saboteur replication (network deferred)
 
-use super::ObjectId;
+use crate::game_logic::{GameLogic, KindOf, Object, ObjectId};
 use serde::{Deserialize, Serialize};
 
 /// Logic frames per second (host fixed step).
@@ -436,6 +436,30 @@ pub fn is_saboteur_template(template_name: &str) -> bool {
         return true;
     }
     n.contains("saboteur")
+}
+
+impl GameLogic {
+    /// SabotagePowerPlantCrateCollide.cpp:56–84 checks FS_POWER and the
+    /// source Object's relationship to the actual target. Consult the
+    /// Saboteur's admitted definition so name-compatible substitutes cannot
+    /// invent or replace an authored outage duration.
+    pub(crate) fn power_plant_sabotage_duration(
+        &self,
+        source: &Object,
+        target: &Object,
+    ) -> Option<u32> {
+        let template = source.get_template();
+        if template.receiving_client_template.is_none() {
+            return is_saboteur_template(&source.template_name)
+                .then_some(SABOTEUR_POWER_DURATION_FRAMES);
+        }
+        let frames = template.power_plant_sabotage_frames?;
+        (target.is_kind_of(KindOf::FSPower)
+            && target.is_alive()
+            && !target.status.effectively_dead
+            && self.object_relationship(source, target) == gamelogic::common::Relationship::Enemies)
+            .then_some(frames)
+    }
 }
 
 /// Classify residual sabotage effect from structure KindOf / template name.

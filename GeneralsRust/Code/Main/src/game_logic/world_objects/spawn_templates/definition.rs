@@ -170,7 +170,7 @@ impl GameLogic {
             .templates
             .get_mut(name)
             .expect("template loan ended above");
-        template.bind_receiving_production_facts(
+        template.bind_receiving_template_facts(
             &plan,
             self.receiving_module_content
                 .as_ref()

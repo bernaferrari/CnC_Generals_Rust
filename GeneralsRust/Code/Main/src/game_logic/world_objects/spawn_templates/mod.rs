@@ -144,7 +144,7 @@ fn apply_production_prerequisites_from_definition(
                 definition.name
             )
         })?;
-        return template.bind_receiving_production_facts(&plan, content);
+        return template.bind_receiving_template_facts(&plan, content);
     }
     if let Some(leftover) = leftover_thing_template_for_prereq(&template.name)
         .or_else(|| leftover_thing_template_for_prereq(&definition.name))

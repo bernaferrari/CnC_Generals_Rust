@@ -151,15 +151,22 @@ impl<'a> CommandExecutor<'a> {
             let can_issue = self
                 .game_logic
                 .host_object(unit_id)
-                .map(|unit| {
-                    unit.is_alive()
-                        && unit.can_move()
-                        && unit.team != target_team
-                        && crate::game_logic::host_saboteur::is_saboteur_template(
-                            &unit.template_name,
-                        )
-                })
-                .unwrap_or(false);
+                .zip(self.game_logic.host_object(target_id))
+                .is_some_and(|(unit, target)| {
+                    if !unit.is_alive() || !unit.can_move() {
+                        return false;
+                    }
+                    if target.is_kind_of(KindOf::FSPower)
+                        && unit.get_template().receiving_client_template.is_some()
+                    {
+                        return self
+                            .game_logic
+                            .power_plant_sabotage_duration(unit, target)
+                            .is_some();
+                    }
+                    unit.team != target_team
+                        && crate::game_logic::host_saboteur::is_saboteur_template(&unit.template_name)
+                });
             if !can_issue {
                 continue;
             }

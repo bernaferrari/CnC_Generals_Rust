@@ -525,12 +525,9 @@ impl GameLogic {
                     SABOTEUR_STEAL_CASH_AMOUNT, SABOTEUR_SUCCESS_AUDIO, SaboteurEffectKind,
                     classify_sabotage_target, is_saboteur_template,
                 };
-                let saboteur_ok = self
-                    .objects
-                    .get(&object_id)
-                    .map(|o| is_saboteur_template(&o.template_name))
-                    .unwrap_or(false);
-                let effect = self.objects.get(&special_target_id).and_then(|t| {
+                let target = self.objects.get(&special_target_id);
+                let source = self.objects.get(&object_id);
+                let effect = target.and_then(|t| {
                     classify_sabotage_target(
                         &t.template_name,
                         t.is_kind_of(KindOf::FSPower),
@@ -551,6 +548,17 @@ impl GameLogic {
                         ),
                     )
                 });
+                let power_duration = match effect {
+                    Some(SaboteurEffectKind::PowerPlant) => source.zip(target).and_then(
+                        |(source, target)| self.power_plant_sabotage_duration(source, target),
+                    ),
+                    _ => None,
+                };
+                let saboteur_ok = if effect == Some(SaboteurEffectKind::PowerPlant) {
+                    power_duration.is_some()
+                } else {
+                    source.is_some_and(|object| is_saboteur_template(&object.template_name))
+                };
                 if saboteur_ok {
                     if let Some(kind) = effect {
                         let mut cash_stolen = 0u32;
@@ -680,13 +688,13 @@ impl GameLogic {
                         }
                         // C++ doSabotageFeedbackFX residual (type audio + flash).
                         self.do_sabotage_feedback_fx(special_target_id, kind);
-                        if let Some(deadline) = kind.power_sabotage_until(self.frame)
+                        if let Some(duration) = power_duration
                             && let Some(owner) = self
                                 .objects
                                 .get(&special_target_id)
                                 .and_then(|target| self.player_owner_for_host_object(target))
                         {
-                            self.sabotage_player_power(owner, deadline);
+                            self.sabotage_player_power(owner, self.frame.wrapping_add(duration));
                         }
                         let msg =
                             localization::localize("hud.saboteur.complete", "Building sabotaged");

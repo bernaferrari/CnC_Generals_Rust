@@ -49,6 +49,27 @@ impl Default for SabotagePowerPlantCrateCollideModuleData {
 }
 
 impl SabotagePowerPlantCrateCollideModuleData {
+    /// Read the already parsed duration from the receiving module factory's
+    /// typed data. An omitted field keeps the C++ constructor default of zero.
+    pub fn admitted_duration(
+        template: &game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
+    ) -> Result<Option<u32>, String> {
+        let Some(entry) = template.behavior_modules().iter().find(|entry| {
+            entry
+                .name
+                .as_str()
+                .eq_ignore_ascii_case("SabotagePowerPlantCrateCollide")
+        }) else {
+            return Ok(None);
+        };
+        entry
+            .data
+            .read()
+            .downcast_ref::<CrateCollideDataAdapter<Self>>()
+            .map(|adapter| Some(adapter.data.power_sabotage_frames))
+            .ok_or_else(|| format!("Invalid power sabotage module data on '{}'", template.name()))
+    }
+
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, SABOTAGE_POWER_PLANT_CRATE_COLLIDE_FIELDS)
     }

@@ -38,16 +38,22 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
     use crate::fixture_content::FixtureObject;
     use crate::game_logic::presentation_definitions::PresentationDefinitions;
 
-    let fixture = || {
+    let fixture = |source_template, module: Option<&str>| {
+        let mut source = FixtureObject::new(source_template)
+            .kind_of("INFANTRY SELECTABLE")
+            .health(120.)
+            .walker()
+            .instant_death();
+        if let Some(fields) = module {
+            source = source.module(format!(
+                "Behavior = SabotagePowerPlantCrateCollide SabotagePower\n BuildingPickup = Yes\n{fields}\nEnd"
+            ));
+        }
         let (mut world, _, _) = fixture_with(
             "SabotageWitness",
             100.0,
             &[
-                FixtureObject::new("GLAInfantrySaboteur")
-                    .kind_of("INFANTRY SELECTABLE")
-                    .health(120.)
-                    .walker()
-                    .instant_death(),
+                source,
                 FixtureObject::new("AmericaPowerPlant")
                     .kind_of("STRUCTURE FS_POWER SELECTABLE")
                     .energy(20)
@@ -68,7 +74,7 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
             .create_object_for_player("SabotageConsumer", victim, Vec3::new(120., 0., 90.))
             .unwrap();
         let saboteur = world
-            .create_object_for_player("GLAInfantrySaboteur", infiltrator, Vec3::new(92., 0., 90.))
+            .create_object_for_player(source_template, infiltrator, Vec3::new(92., 0., 90.))
             .unwrap();
         world.session_view.definitions =
             PresentationDefinitions::with_radar_cues("SabotageRadarUp", "SabotageRadarDown");
@@ -76,28 +82,31 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
         assert!(world.get_player(victim).unwrap().has_radar());
         (world, victim, infiltrator, plant, consumer, saboteur)
     };
-    let (mut world, victim, infiltrator, plant, consumer, saboteur) = fixture();
-    let (mut peer, peer_victim, _, peer_plant, peer_consumer, peer_saboteur) = fixture();
+    let saboteur_template = "GLAInfantrySaboteur";
+    let (mut world, victim, infiltrator, plant, consumer, saboteur) =
+        fixture(saboteur_template, Some(" SabotagePowerDuration = 1000"));
+    let (mut peer, peer_victim, peer_infiltrator, peer_plant, peer_consumer, peer_saboteur) =
+        fixture(saboteur_template, Some(" SabotagePowerDuration = 2000"));
     assert_eq!(
         (victim, plant, consumer, saboteur),
         (peer_victim, peer_plant, peer_consumer, peer_saboteur)
     );
     let contact_frame = world.get_frame();
-    world.queue_command(GameCommand {
-        command_type: CommandType::Sabotage { target_id: plant },
-        player_id: infiltrator,
-        command_id: 1,
-        timestamp: std::time::UNIX_EPOCH,
-        selected_units: vec![saboteur],
-        modifier_keys: ModifierKeys::default(),
-    });
+    let sabotage = |world: &mut GameLogic, player_id, source, target_id| {
+        world.queue_command(GameCommand {
+            command_type: CommandType::Sabotage { target_id },
+            player_id,
+            command_id: 1,
+            timestamp: std::time::UNIX_EPOCH,
+            selected_units: vec![source],
+            modifier_keys: ModifierKeys::default(),
+        });
+    };
+    sabotage(&mut world, infiltrator, saboteur, plant);
     advance_owned(&mut world, None);
     let victim_state = world.get_player(victim).unwrap();
     let deadline = victim_state.power_sabotaged_till_frame;
-    assert_eq!(
-        deadline,
-        crate::game_logic::host_saboteur::power_sabotage_until_frame(contact_frame)
-    );
+    assert_eq!(deadline, contact_frame + 30);
     assert!(!victim_state.has_radar());
     assert_eq!(victim_state.power_available, -8);
     assert!(
@@ -177,6 +186,60 @@ fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
     );
     assert!(peer.host_object(peer_saboteur).unwrap().is_alive());
     assert_eq!(peer.host_radar.offline_transitions, 0);
+    let peer_contact = peer.get_frame();
+    sabotage(&mut peer, peer_infiltrator, peer_saboteur, peer_plant);
+    advance_owned(&mut peer, None);
+    let player = peer.get_player(peer_victim).unwrap();
+    assert_eq!(player.power_sabotaged_till_frame, peer_contact + 60);
+    assert!(!player.has_radar());
+    assert!(world.get_player(victim).unwrap().has_radar());
+
+    // An authored module with no duration starts an immediate outage with
+    // a deadline equal to the contact frame. The name grants no capability.
+    let (mut default, victim, infiltrator, plant, consumer, saboteur) =
+        fixture("MissionInfiltrator", Some(""));
+    let contact = default.get_frame();
+    sabotage(&mut default, infiltrator, saboteur, plant);
+    advance_owned(&mut default, None);
+    assert_eq!(
+        default
+            .get_player(victim)
+            .unwrap()
+            .power_sabotaged_till_frame,
+        contact
+    );
+    assert!(!default.get_player(victim).unwrap().has_radar());
+    assert!(
+        default
+            .host_object(consumer)
+            .unwrap()
+            .status
+            .disabled_underpowered
+    );
+    advance_owned(&mut default, None);
+    assert!(default.get_player(victim).unwrap().has_radar());
+
+    // A name-compatible template with the module removed leaves the grid alone.
+    let (mut absent, victim, infiltrator, plant, consumer, saboteur) =
+        fixture(saboteur_template, None);
+    sabotage(&mut absent, infiltrator, saboteur, plant);
+    advance_owned(&mut absent, None);
+    assert_eq!(
+        absent
+            .get_player(victim)
+            .unwrap()
+            .power_sabotaged_till_frame,
+        0
+    );
+    assert!(absent.get_player(victim).unwrap().has_radar());
+    assert!(
+        !absent
+            .host_object(consumer)
+            .unwrap()
+            .status
+            .disabled_underpowered
+    );
+    assert!(absent.host_object(saboteur).unwrap().is_alive());
 }
 
 #[test]
