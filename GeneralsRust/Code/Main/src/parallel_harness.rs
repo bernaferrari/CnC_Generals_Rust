@@ -783,6 +783,9 @@ impl HeadlessSkirmish {
 }
 
 #[cfg(test)]
+mod powered_save_tests;
+
+#[cfg(test)]
 mod retail_root_tests {
     use super::*;
 

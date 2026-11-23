@@ -1,0 +1,99 @@
+use super::{HeadlessSkirmish, HumanOrders, SharedSkirmishAssets};
+use crate::save_load::SaveFileManager;
+use gamelogic::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
+
+#[test]
+#[ignore = "requires retail assets"]
+fn authored_power_plant_resumes_from_a_skirmish_save_file() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(check_power_plant_save)
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+fn check_power_plant_save() {
+    let assets = SharedSkirmishAssets::load_retail().expect("retail skirmish assets");
+    let seed = 1234;
+    let human = HumanOrders::PLAYER;
+    let plant = HumanOrders::STRUCTURE;
+    let mut game = HeadlessSkirmish::start(&assets, seed).unwrap();
+    let dozer = game.owned_ids(human, HumanOrders::PRODUCED_UNIT)[0];
+    game.issue_human_orders().unwrap();
+    let (site, progress) = (0..900)
+        .find_map(|_| {
+            game.advance();
+            let sites = game.construction(human, plant);
+            match sites.as_slice() {
+                &[(site, true, progress)] if progress > 0.0 => Some((site, progress)),
+                _ => None,
+            }
+        })
+        .expect("the retail Dozer must start the authored power plant");
+    let builder = game.logic.host_object(dozer).unwrap();
+    assert_eq!(
+        builder.dozer_tasks.build_sub_task,
+        DozerBuildSubTask::DoBuildAtDock
+    );
+    let dock = builder.dozer_dock_action().unwrap();
+    let scaffold = game.logic.host_object(site).unwrap();
+    let health = scaffold.health.current;
+    let plant_output = scaffold.get_template().energy_production.unwrap();
+    assert!(plant_output > 0);
+    let production =
+        |world: &HeadlessSkirmish| world.logic.get_player(human).unwrap().power_produced;
+    let saved_power = production(&game);
+    let saved_frame = game.frame();
+
+    let directory = tempfile::tempdir().unwrap();
+    let mut archive = SaveFileManager::with_save_directory(directory.path());
+    archive.init().unwrap();
+    game.logic
+        .with_own_services(|| archive.quick_save(&game.logic))
+        .expect("write the active skirmish to a save file");
+
+    let mut receiving = HeadlessSkirmish::start(&assets, seed).unwrap();
+    receiving
+        .logic
+        .with_own_services_mut(|logic| archive.load_game("quicksave", logic))
+        .expect("load the active skirmish through the staged archive path");
+    assert_eq!(receiving.frame(), saved_frame);
+    assert_eq!(
+        receiving.construction(human, plant),
+        [(site, true, progress)]
+    );
+    let restored = receiving.logic.host_object(site).unwrap();
+    assert_eq!(restored.builder_id, Some(dozer));
+    assert_eq!(restored.health.current, health);
+    assert_eq!(
+        receiving
+            .logic
+            .host_object(dozer)
+            .unwrap()
+            .dozer_dock_action(),
+        Some(dock)
+    );
+    assert_eq!(production(&receiving), saved_power);
+
+    let finished = (0..900).any(|_| {
+        receiving.advance();
+        let sites = receiving.construction(human, plant);
+        if sites == [(site, false, 1.0)] {
+            return true;
+        }
+        assert_eq!(production(&receiving), saved_power);
+        false
+    });
+    assert!(
+        finished,
+        "the restored Dozer must finish without another order"
+    );
+    for _ in 0..30 {
+        receiving.advance();
+    }
+    assert_eq!(production(&receiving), saved_power + plant_output);
+    assert_eq!(game.frame(), saved_frame);
+    assert_eq!(game.construction(human, plant), [(site, true, progress)]);
+    assert_eq!(production(&game), saved_power);
+}
