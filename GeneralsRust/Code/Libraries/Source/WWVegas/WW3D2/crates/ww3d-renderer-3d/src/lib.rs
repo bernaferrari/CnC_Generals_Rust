@@ -672,6 +672,28 @@ impl Renderer {
         Ok(())
     }
 
+    /// Replay the installed meshes' authored coverage into the occlusion
+    /// stencil after scene depth is complete, without writing color or depth.
+    pub fn render_occlusion_mask<'mesh>(
+        &mut self,
+        frame: &mut ww3d_engine::RenderFrame,
+        meshes: impl IntoIterator<Item = &'mesh Arc<rendering::mesh_system::MeshClass>>,
+        layer: rendering::wgpu_renderer::wgpu_pipeline_manager::OcclusionMaskLayer,
+    ) -> RendererResult<()> {
+        if !self.mesh_render_manager.stencil_available() {
+            return Ok(());
+        }
+        let mut info = self.build_render_info()?;
+        info.time = frame.timing.total_seconds();
+        let arena = &mut self.frame_uniform_arenas[self.frame_uniform_index];
+        let result = self.mesh_render_manager.record_occlusion_meshes(
+            frame.scene_pass(), meshes, &info, arena, layer,
+        );
+        arena.flush(self.gpu_device.as_ref());
+        result?;
+        Ok(())
+    }
+
     /// Render the queued meshes using the engine frame lifecycle.
     pub fn render_frame(
         &mut self,

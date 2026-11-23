@@ -936,6 +936,7 @@ pub struct ForwardPass {
         game_engine::common::ini::ini_game_data::MAX_GLOBAL_LIGHTS],
     /// Immutable native UI input for this render handoff; never a camera owner.
     native_radar_frame: Option<crate::graphics::ui_radar::NativeRadarFrame>,
+    pub(super) pending_occlusion: Option<crate::graphics::occlusion_bridge::OcclusionFrame>,
     tactical_viewport: crate::presentation_frame::camera::viewport::TacticalViewport,
     /// Live SegLine vertex buffer (created on first laser upload).
     laser_vertex_buffer: Option<Arc<wgpu::Buffer>>,

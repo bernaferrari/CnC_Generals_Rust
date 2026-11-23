@@ -2016,10 +2016,23 @@ impl CnCGameEngine {
         );
         let allow_sync_model_loads = deferred_startup_model_load_budget == 0;
         let skip_world_scene = self.should_skip_world_scene_for_shell_menu();
-        #[cfg(feature = "game_client")]
-        let use_shadow_decals = !skip_world_scene
-            && self.game_logic.world_services.common().system.runtime_global_data
-                .read().writable.use_shadow_decals;
+        let (use_shadow_decals, occluded_luminance) = if skip_world_scene {
+            (false, None)
+        } else {
+            let settings = self
+                .game_logic
+                .world_services
+                .common()
+                .system
+                .runtime_global_data
+                .read();
+            (
+                settings.writable.use_shadow_decals,
+                settings
+                    .enable_behind_building_markers
+                    .then_some(settings.occluded_luminance_scale),
+            )
+        };
         #[cfg(feature = "game_client")]
         {
             let waypoints = self.game_client.in_game_ui_subsystem()
@@ -2239,12 +2252,11 @@ impl CnCGameEngine {
                 self.game_logic.session_view.camera.camera_zoom,
                 hovered_drawable,
             );
-            crate::graphics::occlusion_bridge::enqueue_occluded_player_color_pass(
+            crate::graphics::occlusion_bridge::stage_occluded_player_color_pass(
                 &mut self.render_pipeline,
-                &self.game_logic.session_view.camera.view_matrix,
-                &self.game_logic.session_view.camera.projection_matrix,
-                self.game_logic.session_view.camera.camera_position,
                 self.last_presentation_frame.as_deref(),
+                self.game_logic.session_view.camera.camera_position,
+                occluded_luminance,
             );
         }
         // C++ only refreshes Drawable::m_shroudClearFrame after the current

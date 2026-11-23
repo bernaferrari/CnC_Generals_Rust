@@ -61,6 +61,41 @@ pub enum VertexFormat {
     ProjectedShroudSkinned,
 }
 
+/// Temporary bits owned by the behind-building pass after ordinary meshes.
+pub const OCCLUSION_BUILDING_BIT: u32 = 0x80;
+pub const OCCLUSION_UNIT_BIT: u32 = 0x40;
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum OcclusionMaskLayer {
+    Building,
+    Unit,
+}
+
+impl OcclusionMaskLayer {
+    pub const fn reference(self) -> u32 {
+        match self {
+            Self::Building => OCCLUSION_BUILDING_BIT,
+            Self::Unit => OCCLUSION_BUILDING_BIT | OCCLUSION_UNIT_BIT,
+        }
+    }
+
+    fn depth_stencil(self, state: &mut wgpu::DepthStencilState) {
+        state.depth_write_enabled = Some(false);
+        let (compare, depth, read_mask, write_mask) = match self {
+            Self::Building => (wgpu::CompareFunction::Always, wgpu::CompareFunction::Equal, 0, OCCLUSION_BUILDING_BIT),
+            Self::Unit => (wgpu::CompareFunction::Equal, wgpu::CompareFunction::Greater, OCCLUSION_BUILDING_BIT, OCCLUSION_UNIT_BIT),
+        };
+        state.depth_compare = Some(depth);
+        let face = wgpu::StencilFaceState {
+            compare,
+            fail_op: wgpu::StencilOperation::Keep,
+            depth_fail_op: wgpu::StencilOperation::Keep,
+            pass_op: wgpu::StencilOperation::Replace,
+        };
+        state.stencil = wgpu::StencilState { front: face, back: face, read_mask, write_mask };
+    }
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct PipelineKey {
     pub shader_bits: u32,
@@ -73,6 +108,7 @@ pub struct PipelineKey {
     pub vertex_format: u8, // 0=basic (pos,normal,uv), 1=skinned, 2=line (pos,color)
     pub depth_bias: i32,
     pub force_two_sided: bool,
+    occlusion_mask: Option<OcclusionMaskLayer>,
 }
 
 #[derive(Debug)]
@@ -103,6 +139,27 @@ impl WgpuPipelineManager {
         depth_bias: i32,
         force_two_sided: bool,
     ) -> Arc<wgpu::RenderPipeline> {
+        self.get_or_create_with_occlusion(
+            shader, _texture_stage_mask, skinned, has_lighting, has_fog, primitive_topology,
+            vertex_format, color_format, depth_format, depth_bias, force_two_sided, None,
+        )
+    }
+
+    pub(crate) fn get_or_create_with_occlusion(
+        &mut self,
+        shader: &ShaderClass,
+        _texture_stage_mask: u8,
+        skinned: bool,
+        has_lighting: bool,
+        has_fog: bool,
+        primitive_topology: wgpu::PrimitiveTopology,
+        vertex_format: VertexFormat,
+        color_format: wgpu::TextureFormat,
+        depth_format: Option<wgpu::TextureFormat>,
+        depth_bias: i32,
+        force_two_sided: bool,
+        occlusion_mask: Option<OcclusionMaskLayer>,
+    ) -> Arc<wgpu::RenderPipeline> {
         let topology_id = match primitive_topology {
             wgpu::PrimitiveTopology::TriangleList => 0,
             wgpu::PrimitiveTopology::LineList => 1,
@@ -129,6 +186,7 @@ impl WgpuPipelineManager {
             vertex_format: vertex_format_id,
             depth_bias,
             force_two_sided,
+            occlusion_mask,
         };
         if let Some(p) = self.cache.get(&key) {
             return p.clone();
@@ -558,11 +616,10 @@ impl WgpuPipelineManager {
         };
 
         let depth_format = depth_format.unwrap_or(ww3d_gpu::SCENE_DEPTH_FORMAT);
-        let mut depth_stencil = Some(create_depth_stencil_state_from_shader(
-            shader,
-            depth_format,
-            bias_state,
-        ));
+        let mut depth_stencil = create_depth_stencil_state_from_shader(shader, depth_format, bias_state);
+        if let Some(layer) = occlusion_mask {
+            layer.depth_stencil(&mut depth_stencil);
+        }
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("WW3D Render Pipeline"),
@@ -579,7 +636,11 @@ impl WgpuPipelineManager {
                 targets: &[Some(wgpu::ColorTargetState {
                     format: color_format,
                     blend: Some(blend),
-                    write_mask: wgpu::ColorWrites::ALL,
+                    write_mask: if occlusion_mask.is_some() {
+                        wgpu::ColorWrites::empty()
+                    } else {
+                        wgpu::ColorWrites::ALL
+                    },
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
@@ -606,7 +667,7 @@ impl WgpuPipelineManager {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil,
+            depth_stencil: Some(depth_stencil),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,

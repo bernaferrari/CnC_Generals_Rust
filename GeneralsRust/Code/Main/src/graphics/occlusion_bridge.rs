@@ -1,658 +1,355 @@
-//! Live-path occluded-player color overlay.
-//!
-//! C++ `RTS3DScene::flagOccludedObjects` (`W3DScene.cpp:226-286`) ray-tests
-//! score units against structure spheres, then
-//! `flushOccludedObjects` / `renderStenciledPlayerColor` (`:1206-1291`,
-//! `:1509-1573`) paint those pixels in scaled player color. Main previously
-//! never consumed `w3d::scene` classification. This module classifies from
-//! the frozen presentation roster and issues a depth-Greater player-color
-//! silhouette after the 3D scene — a simplified flat overlay closer to ZH
-//! than an unused crate pass.
-
-use crate::game_logic::ObjectId;
-use crate::graphics::render_pipeline::RenderPipeline;
+//! Behind-building player markers from accepted W3D scene geometry.
+use crate::game_logic::{KindOf, ObjectId};
+use crate::graphics::render_item::{RenderItem, RenderItemOwner};
+use crate::graphics::render_pipeline::{RenderPass, RenderPipeline};
 use crate::presentation_frame::{PresentationFrame, RenderableObject};
-use glam::{Mat4, Vec3};
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use glam::Vec3;
+use std::{collections::HashMap, sync::Arc};
 use wgpu::util::DeviceExt;
+use ww3d_renderer_3d::rendering::{
+    mesh_system::MeshClass,
+    wgpu_main_renderer::{FramePhase, WgpuMainRenderer},
+    wgpu_renderer::wgpu_pipeline_manager::{
+        OCCLUSION_BUILDING_BIT, OCCLUSION_UNIT_BIT, OcclusionMaskLayer,
+    },
+};
 
-/// C++ `MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS` (`W3DScene.cpp:1301`).
-pub const MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS: usize = 512;
-/// C++ `NUMBER_PLAYER_COLOR_BITS` (`W3DScene.cpp:1180`).
-const NUMBER_PLAYER_COLOR_BITS: u32 = 4;
-/// C++ `GlobalData::m_occludedLuminanceScale` default (`GlobalData.cpp:746`).
-pub const OCCLUDED_LUMINANCE_SCALE: f32 = 0.5;
-/// C++ `Convert_Color(rgb, 0.5f)` alpha (`W3DScene.cpp:1383`).
-pub const OCCLUDED_COLOR_ALPHA: f32 = 0.5;
+const OCCLUSION_MASK: u32 = OCCLUSION_BUILDING_BIT | OCCLUSION_UNIT_BIT;
+const OCCLUDED_COLOR_ALPHA: f32 = 0.5;
 
-/// One unit that should receive the behind-building player-color marker.
-#[derive(Debug, Clone, PartialEq)]
-pub struct OccludedPlayerOverlay {
-    pub object_id: ObjectId,
-    pub position: Vec3,
-    pub radius: f32,
-    pub color: [f32; 4],
-    pub player_index: usize,
-    pub color_index: usize,
-    pub stencil_ref: u32,
+enum Role {
+    Building,
+    Unit(usize),
 }
 
-/// Presentation facts needed to classify occluders / occludees.
-#[derive(Debug, Clone, Copy)]
-pub struct OcclusionCandidate {
-    pub id: ObjectId,
-    pub position: Vec3,
-    pub radius: f32,
-    pub is_structure: bool,
-    pub is_occludee: bool,
-    pub destroyed: bool,
-    pub player_index: usize,
-    pub team_color: [f32; 4],
+struct Unit {
+    id: ObjectId,
+    distance: f32,
+    color: [f32; 4],
+    meshes: Vec<Arc<MeshClass>>,
 }
 
-impl OcclusionCandidate {
-    pub fn from_renderable(object: &RenderableObject, current_frame: u32) -> Self {
-        let is_structure = object.is_structure;
-        Self {
-            id: object.id,
-            position: object.position,
-            radius: object
-                .selection_radius
-                .max(if is_structure { 12.0 } else { 5.0 }),
-            is_structure,
-            // C++ requires `getObject()` plus SCORE / SCORE_CREATE /
-            // SCORE_DESTROY / MP_COUNT_FOR_VICTORY. Live host KindOf has no
-            // Score bit; combat units are the score-kind roster.
-            // C++ W3DScene.cpp:474-475: getSafeOcclusionFrame() <= currentFrame.
-            is_occludee: !is_structure
-                && (object.is_unit || object.is_mobile)
-                && object.safe_occlusion_frame <= current_frame,
-            destroyed: object.destroyed,
-            player_index: object
-                .owner_player_id
-                .map(|id| id as usize)
-                .unwrap_or_else(|| match object.team {
-                    crate::game_logic::Team::China => 0,
-                    crate::game_logic::Team::USA => 1,
-                    crate::game_logic::Team::GLA => 4,
-                    crate::game_logic::Team::Neutral => 7,
-                }),
-            team_color: object.team_color,
-        }
-    }
+pub(in crate::graphics) struct OcclusionFrame {
+    roles: HashMap<ObjectId, Role>,
+    buildings: Vec<Arc<MeshClass>>,
+    units: Vec<Unit>,
+    gpu: Arc<OcclusionOverlayPipeline>,
 }
 
-/// C++ `playerIndexToColorIndex` (`W3DScene.cpp:1181-1202`).
-pub fn player_index_to_color_index(player_index: usize) -> usize {
-    let mut result = 0usize;
-    for bit in 0..NUMBER_PLAYER_COLOR_BITS {
-        let flipped = NUMBER_PLAYER_COLOR_BITS - 1 - bit;
-        if (player_index & (1usize << bit)) != 0 {
-            result |= 1usize << flipped;
-        }
-    }
-    result
-}
-
-/// RGB luminance scale used by the crate `scale_argb_luminance` stand-in for
-/// C++ HSV-V `m_occludedLuminanceScale` (`W3DScene.cpp:1380-1382`).
-pub fn scale_player_color_luminance(rgb: [f32; 3], scale: f32) -> [f32; 3] {
-    [
-        (rgb[0] * scale).clamp(0.0, 1.0),
-        (rgb[1] * scale).clamp(0.0, 1.0),
-        (rgb[2] * scale).clamp(0.0, 1.0),
-    ]
-}
-
-/// Graphics Gems I p388 sphere reject used by C++ `flagOccludedObjects`
-/// (`W3DScene.cpp:250-265`), then a segment hit in lieu of `Cast_Ray`.
-pub fn ray_sphere_occludes(
+pub(crate) fn stage_occluded_player_color_pass(
+    pipeline: &mut RenderPipeline,
+    frame: Option<&PresentationFrame>,
     camera: Vec3,
-    target: Vec3,
-    sphere_center: Vec3,
-    sphere_radius: f32,
-) -> bool {
-    let to_target = target - camera;
-    let max_distance = to_target.length();
-    if max_distance <= f32::EPSILON {
-        return false;
-    }
-    let direction = to_target / max_distance;
-    let sphere_vector = sphere_center - camera;
-    let alpha = sphere_vector.dot(direction);
-    let beta = sphere_radius * sphere_radius - (sphere_vector.dot(sphere_vector) - alpha * alpha);
-    if beta < 0.0 {
-        return false;
-    }
-    let distance = alpha - beta.sqrt();
-    distance >= 0.0 && distance < max_distance
-}
-
-/// Classify occluded score-units behind structures.
-///
-/// Mirrors `RTS3DScene::flagOccludedObjects` plus the per-player bucket cap
-/// and stencil-ref layout from `flushOccludedObjectsIntoStencil`.
-pub fn classify_occluded_player_overlays(
-    camera_position: Vec3,
-    candidates: &[OcclusionCandidate],
-) -> Vec<OccludedPlayerOverlay> {
-    let occluders: Vec<&OcclusionCandidate> = candidates
-        .iter()
-        .filter(|c| c.is_structure && !c.destroyed)
-        .collect();
-    if occluders.is_empty() {
-        return Vec::new();
-    }
-
-    let mut buckets: BTreeMap<usize, Vec<&OcclusionCandidate>> = BTreeMap::new();
-    for candidate in candidates {
-        if candidate.destroyed || !candidate.is_occludee {
+    luminance: Option<f32>,
+) {
+    pipeline.forward_pass.pending_occlusion = None;
+    let Some((frame, luminance)) = frame.zip(luminance) else {
+        return;
+    };
+    let mut units = Vec::new();
+    let mut roles = HashMap::new();
+    for object in &frame.objects {
+        if object.destroyed {
             continue;
         }
-        let occluded = occluders.iter().any(|occluder| {
-            ray_sphere_occludes(
-                camera_position,
-                candidate.position,
-                occluder.position,
-                occluder.radius,
-            )
-        });
-        if !occluded {
-            continue;
-        }
-        let bucket = buckets.entry(candidate.player_index).or_default();
-        if bucket.len() < MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS {
-            bucket.push(candidate);
-        }
-    }
-
-    let mut overlays = Vec::new();
-    let mut visible_player_colors = 0usize;
-    for (player_index, units) in buckets {
-        visible_player_colors += 1;
-        let color_index = player_index_to_color_index(visible_player_colors);
-        let stencil_ref = ((color_index as u32) << 3) | 0x80;
-        for unit in units {
-            let rgb = scale_player_color_luminance(
-                [unit.team_color[0], unit.team_color[1], unit.team_color[2]],
-                OCCLUDED_LUMINANCE_SCALE,
-            );
-            overlays.push(OccludedPlayerOverlay {
-                object_id: unit.id,
-                position: unit.position,
-                radius: unit.radius,
-                color: [rgb[0], rgb[1], rgb[2], OCCLUDED_COLOR_ALPHA],
-                player_index,
-                color_index,
-                stencil_ref,
+        if object.is_structure {
+            roles.insert(object.id, Role::Building);
+        } else if is_potential_occludee(object, frame.frame.0) {
+            let [r, g, b, _] = object.team_color;
+            // W3DScene.cpp scales HSV value, which scales each RGB component.
+            let color = [
+                r * luminance,
+                g * luminance,
+                b * luminance,
+                OCCLUDED_COLOR_ALPHA,
+            ];
+            roles.insert(object.id, Role::Unit(units.len()));
+            units.push(Unit {
+                id: object.id,
+                distance: camera.distance_squared(object.position),
+                color,
+                meshes: Vec::new(),
             });
         }
     }
-    overlays
+    if units.is_empty() || units.len() == roles.len() {
+        return;
+    }
+    let (device, color, depth) = {
+        let engine = pipeline.forward_pass.renderer.engine.lock();
+        (
+            engine.device(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+    };
+    let Some(depth) = depth.filter(wgpu::TextureFormat::has_stencil_aspect) else {
+        return;
+    };
+    let gpu = OcclusionOverlayPipeline::get_or_create(
+        &mut pipeline.occlusion_overlay_pipeline,
+        device,
+        color,
+        depth,
+    );
+    pipeline.forward_pass.pending_occlusion = Some(OcclusionFrame {
+        roles,
+        buildings: Vec::new(),
+        units,
+        gpu,
+    });
 }
 
-pub fn classify_from_presentation(
-    camera_position: Vec3,
-    frame: &PresentationFrame,
-) -> Vec<OccludedPlayerOverlay> {
-    let current_frame = frame.frame.0;
-    let candidates: Vec<OcclusionCandidate> = frame
-        .objects
+fn is_potential_occludee(object: &RenderableObject, frame: u32) -> bool {
+    object.safe_occlusion_frame <= frame
+        && [
+            KindOf::Score,
+            KindOf::ScoreCreate,
+            KindOf::ScoreDestroy,
+            KindOf::MpCountForVictory,
+        ]
         .iter()
-        .map(|object| OcclusionCandidate::from_renderable(object, current_frame))
-        .collect();
-    classify_occluded_player_overlays(camera_position, &candidates)
+        .any(|kind| object.kind_of.contains(kind))
 }
 
-const OVERLAY_SHADER: &str = r"
-struct VertexInput {
-    @location(0) position: vec3<f32>,
-    @location(1) color: vec4<f32>,
-};
+impl OcclusionFrame {
+    pub(in crate::graphics) fn accepts(&self, item: &RenderItem, mesh: &MeshClass) -> bool {
+        item.render_pass == RenderPass::ForwardOpaque
+            && matches!(item.owner, RenderItemOwner::Object(_))
+            && self.roles.contains_key(&item.object_id)
+            && mesh.is_not_hidden_at_all()
+            && !mesh.is_disabled_by_debugger
+            && !mesh.is_alpha()
+    }
 
-struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) vertex_color: vec4<f32>,
-};
+    pub(in crate::graphics) fn push(&mut self, id: ObjectId, mesh: Arc<MeshClass>) {
+        match self.roles.get(&id) {
+            Some(Role::Building) => self.buildings.push(mesh),
+            Some(Role::Unit(index)) => self.units[*index].meshes.push(mesh),
+            None => {}
+        }
+    }
 
-@group(0) @binding(0) var<uniform> view_proj: mat4x4<f32>;
+    pub(in crate::graphics) fn enqueue(mut self, renderer: &mut WgpuMainRenderer) {
+        self.units.retain(|unit| !unit.meshes.is_empty());
+        if self.units.is_empty() || self.buildings.is_empty() {
+            return;
+        }
+        self.units
+            .sort_by(|a, b| a.distance.total_cmp(&b.distance).then(a.id.0.cmp(&b.id.0)));
+        let handle = renderer.renderer_handle();
+        renderer.enqueue_frame_work(FramePhase::OccludedStencil, move |frame| {
+            let mut renderer = handle.lock().map_err(|_| {
+                ww3d_renderer_3d::Error::InvalidOperation("mesh owner lock poisoned".into())
+            })?;
+            // The volume fill has already finished in the receiving scene
+            // mesh flush. Reuse only these bits and keep the scene depth.
+            self.gpu.clear(frame.scene_pass());
+            let result = (|| {
+                renderer.render_occlusion_mask(
+                    frame,
+                    &self.buildings,
+                    OcclusionMaskLayer::Building,
+                )?;
+                // Consecutive units with the same color may mark their union
+                // before a single fill. This avoids one full-screen draw and
+                // uniform upload per unit when one player owns the visible army.
+                for units in self.units.chunk_by(|a, b| a.color == b.color) {
+                    renderer.render_occlusion_mask(
+                        frame,
+                        units.iter().flat_map(|unit| &unit.meshes),
+                        OcclusionMaskLayer::Unit,
+                    )?;
+                    self.gpu.fill(frame.scene_pass(), units[0].color);
+                }
+                Ok(())
+            })();
+            self.gpu.clear(frame.scene_pass());
+            result
+        });
+    }
+}
+
+const FILL_SHADER: &str = r"
+@group(0) @binding(0) var<uniform> player_color: vec4<f32>;
 
 @vertex
-fn vs_main(input: VertexInput) -> VertexOutput {
-    var output: VertexOutput;
-    output.clip_position = view_proj * vec4<f32>(input.position, 1.0);
-    output.vertex_color = input.color;
-    return output;
+fn vs_fill(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let p = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+    return vec4(p[i], 0.0, 1.0);
 }
 
 @fragment
-fn fs_main(@location(0) vertex_color: vec4<f32>) -> @location(0) vec4<f32> {
-    return vertex_color;
-}
+fn fs_fill() -> @location(0) vec4<f32> { return player_color; }
+
+@fragment
+fn fs_clear() -> @location(0) vec4<f32> { return vec4(0.0); }
 ";
 
-/// Device-specific immutable resources shared by this pipeline's occlusion draws.
-pub(super) struct OcclusionOverlayPipeline {
+pub(in crate::graphics) struct OcclusionOverlayPipeline {
     device: Arc<wgpu::Device>,
+    color_format: wgpu::TextureFormat,
     depth_format: wgpu::TextureFormat,
-    uniform_bind_group_layout: wgpu::BindGroupLayout,
-    pipeline: wgpu::RenderPipeline,
+    color_layout: wgpu::BindGroupLayout,
+    fill: wgpu::RenderPipeline,
+    clear: wgpu::RenderPipeline,
 }
 
 impl OcclusionOverlayPipeline {
     fn get_or_create(
         cached: &mut Option<Arc<Self>>,
         device: Arc<wgpu::Device>,
+        color_format: wgpu::TextureFormat,
         depth_format: wgpu::TextureFormat,
     ) -> Arc<Self> {
-        if let Some(pipeline) = cached
-            && Arc::ptr_eq(&pipeline.device, &device)
-            && pipeline.depth_format == depth_format
+        if let Some(gpu) = cached
+            && Arc::ptr_eq(&device, &gpu.device)
+            && color_format == gpu.color_format
+            && depth_format == gpu.depth_format
         {
-            return Arc::clone(pipeline);
+            return Arc::clone(gpu);
         }
-
-        let pipeline = Arc::new(Self::new(device, depth_format));
-        *cached = Some(Arc::clone(&pipeline));
-        pipeline
+        let gpu = Arc::new(Self::new(device, color_format, depth_format));
+        *cached = Some(Arc::clone(&gpu));
+        gpu
     }
 
-    fn new(device: Arc<wgpu::Device>, depth_format: wgpu::TextureFormat) -> Self {
+    fn new(
+        device: Arc<wgpu::Device>,
+        color_format: wgpu::TextureFormat,
+        depth_format: wgpu::TextureFormat,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("occluded_player_color_shader"),
-            source: wgpu::ShaderSource::Wgsl(OVERLAY_SHADER.into()),
+            label: Some("behind-building player color"),
+            source: wgpu::ShaderSource::Wgsl(FILL_SHADER.into()),
         });
-        let uniform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("occluded_player_uniform_bgl"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("occluded_player_pipeline_layout"),
-            bind_group_layouts: &[Some(&uniform_bind_group_layout)],
-            immediate_size: 0,
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("occluded_player_color_pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: 28,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4],
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Bgra8Unorm,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            // Depth Greater: fragment passes only where it is *behind* already
-            // written scene depth — the ZH behind-building silhouette.
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Greater),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        Self {
-            device,
-            depth_format,
-            uniform_bind_group_layout,
-            pipeline,
-        }
-    }
-}
-
-struct OcclusionOverlayDraw {
-    gpu: Arc<OcclusionOverlayPipeline>,
-    queue: Arc<wgpu::Queue>,
-    uniform_buffer: wgpu::Buffer,
-    uniform_bind_group: wgpu::BindGroup,
-}
-
-impl OcclusionOverlayDraw {
-    fn new(gpu: Arc<OcclusionOverlayPipeline>, queue: Arc<wgpu::Queue>) -> Self {
-        // Multiple views queued for one submission must have separate uniforms.
-        let device = &gpu.device;
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("occluded_player_view_proj_ubo"),
-            size: 64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("occluded_player_uniform_bg"),
-            layout: &gpu.uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
+        let color_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("behind-building color layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(16),
+                },
+                count: None,
             }],
         });
+        let make_pipeline = |with_color: bool| {
+            let groups = [Some(&color_layout)];
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("behind-building stencil layout"),
+                bind_group_layouts: if with_color { &groups } else { &[] },
+                immediate_size: 0,
+            });
+            let face = wgpu::StencilFaceState {
+                compare: if with_color {
+                    wgpu::CompareFunction::Equal
+                } else {
+                    wgpu::CompareFunction::Always
+                },
+                pass_op: wgpu::StencilOperation::Zero,
+                fail_op: wgpu::StencilOperation::Keep,
+                depth_fail_op: wgpu::StencilOperation::Keep,
+            };
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(if with_color {
+                    "behind-building color fill"
+                } else {
+                    "behind-building clear bits"
+                }),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_fill"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(if with_color { "fs_fill" } else { "fs_clear" }),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: color_format,
+                        blend: with_color.then_some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::SrcAlpha,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::SrcAlpha,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: if with_color {
+                            wgpu::ColorWrites::ALL
+                        } else {
+                            wgpu::ColorWrites::empty()
+                        },
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: Default::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: depth_format,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: wgpu::StencilState {
+                        front: face,
+                        back: face,
+                        read_mask: OCCLUSION_MASK,
+                        write_mask: OCCLUSION_MASK,
+                    },
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let fill = make_pipeline(true);
+        let clear = make_pipeline(false);
         Self {
-            gpu,
-            queue,
-            uniform_buffer,
-            uniform_bind_group,
+            device,
+            color_format,
+            depth_format,
+            color_layout,
+            fill,
+            clear,
         }
     }
 
-    fn draw(
-        &self,
-        render_pass: &mut wgpu::RenderPass<'_>,
-        view_proj: &Mat4,
-        camera_position: Vec3,
-        overlays: &[OccludedPlayerOverlay],
-    ) {
-        if overlays.is_empty() {
-            return;
-        }
-        self.queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::cast_slice(&view_proj.to_cols_array()),
-        );
-        let mut vertices: Vec<f32> = Vec::with_capacity(overlays.len() * 6 * 7);
-        for overlay in overlays {
-            push_unit_proxy_box(
-                &mut vertices,
-                overlay.position,
-                camera_position,
-                overlay.radius,
-                overlay.color,
-            );
-        }
-        if vertices.is_empty() {
-            return;
-        }
-        let vertex_buffer = self
-            .gpu
+    fn clear(&self, pass: &mut wgpu::RenderPass<'_>) {
+        pass.set_pipeline(&self.clear);
+        pass.draw(0..3, 0..1);
+        pass.set_stencil_reference(0);
+    }
+
+    fn fill(&self, pass: &mut wgpu::RenderPass<'_>, color: [f32; 4]) {
+        let uniform = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("occluded_player_color_verts"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
+                label: Some("behind-building player color"),
+                contents: bytemuck::bytes_of(&color),
+                usage: wgpu::BufferUsages::UNIFORM,
             });
-        render_pass.set_pipeline(&self.gpu.pipeline);
-        render_pass.set_bind_group(0, Some(&self.uniform_bind_group), &[]);
-        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.draw(0..(vertices.len() / 7) as u32, 0..1);
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("behind-building player color"),
+            layout: &self.color_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform.as_entire_binding(),
+            }],
+        });
+        pass.set_pipeline(&self.fill);
+        pass.set_bind_group(0, &group, &[]);
+        pass.set_stencil_reference(OCCLUSION_MASK);
+        pass.draw(0..3, 0..1);
     }
-}
-
-/// Vertical camera-facing quad standing on the unit pose. Depth-Greater then
-/// reveals the player color only where a closer building already won the
-/// depth test.
-fn push_unit_proxy_box(
-    vertices: &mut Vec<f32>,
-    position: Vec3,
-    camera: Vec3,
-    radius: f32,
-    color: [f32; 4],
-) {
-    let to_cam = camera - position;
-    let to_cam_xz = Vec3::new(to_cam.x, 0.0, to_cam.z);
-    let forward = if to_cam_xz.length_squared() < 1e-6 {
-        Vec3::Z
-    } else {
-        to_cam_xz.normalize()
-    };
-    let right = Vec3::Y.cross(forward).normalize_or_zero();
-    let right = if right.length_squared() < 1e-6 {
-        Vec3::X
-    } else {
-        right
-    };
-    let half_w = radius.max(1.0);
-    let half_h = radius.max(1.0);
-    let center = position + Vec3::Y * half_h;
-    let corners = [
-        center - right * half_w - Vec3::Y * half_h,
-        center + right * half_w - Vec3::Y * half_h,
-        center + right * half_w + Vec3::Y * half_h,
-        center - right * half_w + Vec3::Y * half_h,
-    ];
-    let indices = [0usize, 1, 2, 0, 2, 3];
-    for index in indices {
-        let p = corners[index];
-        vertices.extend_from_slice(&[p.x, p.y, p.z, color[0], color[1], color[2], color[3]]);
-    }
-}
-
-/// Queue the overlay after the 3D scene so the depth buffer already holds
-/// buildings and units. C++ `renderStenciledPlayerColor` is a post-flush
-/// fullscreen stencil fill; this is the live wgpu stand-in.
-pub fn enqueue_occluded_player_color_pass(
-    pipeline: &mut RenderPipeline,
-    view_matrix: &Mat4,
-    projection_matrix: &Mat4,
-    camera_position: Vec3,
-    presentation: Option<&PresentationFrame>,
-) {
-    let Some(frame) = presentation else {
-        return;
-    };
-    let overlays = classify_from_presentation(camera_position, frame);
-    if overlays.is_empty() {
-        return;
-    }
-    let (device, queue, depth_format) = {
-        let engine = pipeline.forward_pass.renderer.engine.lock();
-        (
-            engine.device(),
-            engine.queue(),
-            engine
-                .depth_format()
-                .unwrap_or(ww3d_gpu::SCENE_DEPTH_FORMAT),
-        )
-    };
-    let gpu = OcclusionOverlayPipeline::get_or_create(
-        &mut pipeline.occlusion_overlay_pipeline,
-        device,
-        depth_format,
-    );
-    let draw = OcclusionOverlayDraw::new(gpu, queue);
-    let view_proj = *projection_matrix * *view_matrix;
-    pipeline.enqueue_frame_work(
-        ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::OccludedStencil,
-        move |gpu_frame| {
-            // The occlusion overlay shares the frame's scene pass (plan R12).
-            draw.draw(
-                gpu_frame.scene_pass(),
-                &view_proj,
-                camera_position,
-                &overlays,
-            );
-            Ok(())
-        },
-    );
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn candidate(
-        id: u32,
-        position: Vec3,
-        radius: f32,
-        is_structure: bool,
-        player_index: usize,
-        color: [f32; 4],
-    ) -> OcclusionCandidate {
-        OcclusionCandidate {
-            id: ObjectId(id),
-            position,
-            radius,
-            is_structure,
-            is_occludee: !is_structure,
-            destroyed: false,
-            player_index,
-            team_color: color,
-        }
-    }
-
-    #[test]
-    fn player_color_bit_flip_matches_cpp_w3d_scene() {
-        // C++ playerIndexToColorIndex (W3DScene.cpp:1181-1202).
-        assert_eq!(player_index_to_color_index(0), 0);
-        assert_eq!(player_index_to_color_index(1), 8);
-        assert_eq!(player_index_to_color_index(2), 4);
-        assert_eq!(player_index_to_color_index(3), 12);
-        assert_eq!(player_index_to_color_index(7), 14);
-        assert_eq!(player_index_to_color_index(8), 1);
-    }
-
-    #[test]
-    fn flag_occluded_objects_marks_units_hidden_by_buildings() {
-        // C++ RTS3DScene::flagOccludedObjects (W3DScene.cpp:226-286).
-        let camera = Vec3::new(0.0, 0.0, 100.0);
-        let building = candidate(
-            1,
-            Vec3::new(0.0, 0.0, 50.0),
-            10.0,
-            true,
-            0,
-            [0.2, 0.2, 0.2, 1.0],
-        );
-        let hidden = candidate(2, Vec3::ZERO, 2.0, false, 2, [0.25, 0.5, 0.25, 1.0]);
-        let clear = candidate(
-            3,
-            Vec3::new(80.0, 0.0, 0.0),
-            2.0,
-            false,
-            2,
-            [0.25, 0.5, 0.25, 1.0],
-        );
-        let overlays = classify_occluded_player_overlays(camera, &[building, hidden, clear]);
-        assert_eq!(overlays.len(), 1);
-        assert_eq!(overlays[0].object_id, ObjectId(2));
-        assert_eq!(overlays[0].player_index, 2);
-        assert_eq!(overlays[0].color_index, 8);
-        assert_eq!(overlays[0].stencil_ref, (8 << 3) | 0x80);
-        assert!((overlays[0].color[0] - 0.125).abs() < 1e-5);
-        assert!((overlays[0].color[1] - 0.25).abs() < 1e-5);
-        assert!((overlays[0].color[3] - OCCLUDED_COLOR_ALPHA).abs() < 1e-5);
-    }
-
-    #[test]
-    fn clear_line_of_sight_does_not_emit_player_color() {
-        let camera = Vec3::new(0.0, 0.0, 100.0);
-        let building = candidate(1, Vec3::new(50.0, 0.0, 0.0), 5.0, true, 0, [1.0; 4]);
-        let unit = candidate(2, Vec3::new(-50.0, 0.0, 0.0), 2.0, false, 1, [1.0; 4]);
-        assert!(classify_occluded_player_overlays(camera, &[building, unit]).is_empty());
-    }
-
-    #[test]
-    fn per_player_bucket_caps_at_cpp_max() {
-        // C++ MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS (W3DScene.cpp:1301).
-        let camera = Vec3::new(0.0, 0.0, 100.0);
-        let mut candidates = vec![candidate(
-            1,
-            Vec3::new(0.0, 0.0, 50.0),
-            20.0,
-            true,
-            0,
-            [1.0; 4],
-        )];
-        for i in 0..(MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS + 8) {
-            candidates.push(candidate(
-                10 + i as u32,
-                Vec3::new(0.1, 0.0, 0.0),
-                1.0,
-                false,
-                3,
-                [1.0, 0.0, 0.0, 1.0],
-            ));
-        }
-        let overlays = classify_occluded_player_overlays(camera, &candidates);
-        assert_eq!(overlays.len(), MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS);
-    }
-
-    #[test]
-    fn safe_occlusion_frame_skips_walk_out_unit() {
-        let mut logic = crate::game_logic::GameLogic::new();
-        let mut bunker_t = crate::game_logic::ThingTemplate::new("OccBunker");
-        bunker_t
-            .add_kind_of(crate::game_logic::KindOf::Structure)
-            .set_health(1000.0);
-        logic.templates.insert("OccBunker".into(), bunker_t);
-        let mut pax_t = crate::game_logic::ThingTemplate::new("OccRanger");
-        pax_t
-            .add_kind_of(crate::game_logic::KindOf::Infantry)
-            .add_kind_of(crate::game_logic::KindOf::Selectable)
-            .set_health(100.0);
-        logic.templates.insert("OccRanger".into(), pax_t);
-        let _bunker = logic
-            .create_object(
-                "OccBunker",
-                crate::game_logic::Team::USA,
-                Vec3::new(0.0, 0.0, 50.0),
-            )
-            .unwrap();
-        let pax = logic
-            .create_object("OccRanger", crate::game_logic::Team::USA, Vec3::ZERO)
-            .unwrap();
-        let safe_frame = logic.frame;
-        if let Some(p) = logic.host_object_mut(pax) {
-            p.stamp_safe_occlusion_frame(safe_frame);
-        }
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
-        let camera = Vec3::new(0.0, 0.0, 100.0);
-        let during = classify_from_presentation(camera, &frame);
-        assert!(
-            during.iter().all(|o| o.object_id != pax),
-            "walk-out unit must not silhouette until OcclusionDelay"
-        );
-        let mut later = frame.clone();
-        later.frame = crate::presentation_frame::LogicFrame(logic.frame + 90);
-        let after = classify_from_presentation(camera, &later);
-        assert!(
-            after.iter().any(|o| o.object_id == pax),
-            "after OcclusionDelay the unit is a potential occludee"
-        );
-    }
-}
+#[path = "occlusion_receiver_tests.rs"]
+mod tests;

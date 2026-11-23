@@ -9,6 +9,7 @@
 )]
 use super::{bind_cache::StageResources, *};
 use crate::material_system::ColorSourceType;
+use crate::rendering::wgpu_renderer::wgpu_pipeline_manager::OcclusionMaskLayer;
 use std::borrow::Cow;
 
 /// C++ `WW3DAssetManager::Get_Texture` parity (W3DAssetManager.cpp:127-225):
@@ -737,6 +738,24 @@ impl MeshRenderManager {
         }
     }
 
+    pub(crate) fn record_occlusion_meshes<'mesh>(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        meshes: impl IntoIterator<Item = &'mesh Arc<MeshClass>>,
+        render_info: &RenderInfoClass,
+        arena: &mut FrameUniformArena,
+        layer: OcclusionMaskLayer,
+    ) -> W3dResult<()> {
+        let mut resources = RenderPassResources::default();
+        render_pass.set_stencil_reference(layer.reference());
+        for mesh in meshes {
+            self.render_mesh_with_occlusion(
+                mesh, render_info, render_pass, arena, &mut resources, Some(layer),
+            )?;
+        }
+        Ok(())
+    }
+
     fn render_mesh(
         &mut self,
         mesh: &Arc<MeshClass>,
@@ -744,6 +763,18 @@ impl MeshRenderManager {
         render_pass: &mut wgpu::RenderPass<'_>,
         arena: &mut FrameUniformArena,
         resources: &mut RenderPassResources,
+    ) -> W3dResult<()> {
+        self.render_mesh_with_occlusion(mesh, render_info, render_pass, arena, resources, None)
+    }
+
+    fn render_mesh_with_occlusion(
+        &mut self,
+        mesh: &Arc<MeshClass>,
+        render_info: &RenderInfoClass,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        arena: &mut FrameUniformArena,
+        resources: &mut RenderPassResources,
+        occlusion_mask: Option<OcclusionMaskLayer>,
     ) -> W3dResult<()> {
         if mesh.model.is_none() {
             return Ok(());
@@ -780,6 +811,7 @@ impl MeshRenderManager {
                 arena,
                 resources,
                 &mut sorted_skin_positions,
+                occlusion_mask,
             )?;
         }
 
@@ -793,7 +825,13 @@ impl MeshRenderManager {
                 arena,
                 resources,
                 &mut sorted_skin_positions,
+                occlusion_mask,
             )?;
+        }
+
+        if occlusion_mask.is_some() {
+            resources.clear();
+            return Ok(());
         }
 
         // C++ W3DScene appends W3DShroudMaterialPass after the authored
@@ -1082,6 +1120,7 @@ impl MeshRenderManager {
         arena: &mut FrameUniformArena,
         resources: &mut RenderPassResources,
         sorted_skin_positions: &mut Option<Arc<[glam::Vec4]>>,
+        occlusion_mask: Option<OcclusionMaskLayer>,
     ) -> W3dResult<()> {
         let uv_override_pass = mesh
             .uv_offset_override()
@@ -1110,7 +1149,7 @@ impl MeshRenderManager {
             pipeline_shader.set_alpha_blend_enable(true);
         }
 
-        let pipeline = self.pipeline_mgr.get_or_create(
+        let pipeline = self.pipeline_mgr.get_or_create_with_occlusion(
             &pipeline_shader,
             stage_masks.mask,
             prepared.is_skinned,
@@ -1122,6 +1161,7 @@ impl MeshRenderManager {
             self.depth_format,
             0,
             force_two_sided,
+            occlusion_mask,
         );
         let pipeline_id = super::bind_cache::addr(&pipeline);
         let camera_binds = {
@@ -1268,7 +1308,7 @@ impl MeshRenderManager {
                 DX8FVFCategoryContainer::sorting_for_mesh(r3d, model.flags, mesh.get_sort_level())
             }).unwrap_or(false)
         });
-        if sorting {
+        if sorting && occlusion_mask.is_none() {
             // C++ Insert_Triangles keeps the world and view transforms the
             // node was drawn with; Flush_Sorting_Pool sorts by their product.
             let world_view = render_info.camera.get_cached_view_matrix() * mesh.transform;

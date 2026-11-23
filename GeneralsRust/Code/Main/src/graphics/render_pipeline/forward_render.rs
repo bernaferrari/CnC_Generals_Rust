@@ -35,6 +35,7 @@ impl ForwardPass {
             return;
         }
         self.renderer.discard_queued_frame_callbacks();
+        self.pending_occlusion = None;
         #[cfg(feature = "game_client")]
         self.pending_client_effects.clear();
         #[cfg(feature = "game_client")]
@@ -187,6 +188,7 @@ impl ForwardPass {
             object_scene_lights: Default::default(),
             tactical_viewport: Default::default(),
             native_radar_frame: None,
+            pending_occlusion: None,
             laser_vertex_buffer: None,
             laser_vertex_capacity: 0,
             laser_vertices_uploaded: 0,
@@ -535,6 +537,7 @@ impl ForwardPass {
         #[cfg(feature = "game_client")]
         let waypoint_overlay = std::mem::take(&mut self.pending_waypoint_overlay);
 
+        let mut occlusion = self.pending_occlusion.take().filter(|_| !skip_scene);
         let native_radar_frame = self.native_radar_frame.clone();
         // Check if renderer is ready before attempting to render
         // This prevents crashes when engine is shutting down or not initialized
@@ -715,6 +718,9 @@ impl ForwardPass {
                             locked_meshes.push(mesh);
                             continue;
                         }
+                        let occlusion_mesh = occlusion.as_ref().and_then(|frame| {
+                            frame.accepts(item, &mesh).then(|| Arc::clone(&mesh))
+                        });
                         // Queue mesh for rendering
                         if let Err(e) =
                             renderer.queue_mesh_with_shadow(mesh, item.casts_volume_shadow)
@@ -723,6 +729,9 @@ impl ForwardPass {
                             error_count += 1;
                             // Continue processing other items instead of failing entire frame
                             continue;
+                        }
+                        if let (Some(frame), Some(mesh)) = (&mut occlusion, occlusion_mesh) {
+                            frame.push(item.object_id, mesh);
                         }
                         queued_count += 1;
                     }
@@ -749,6 +758,10 @@ impl ForwardPass {
             queued_count_total = queued_count;
             queue_error_total = error_count;
         } // Mutex lock released here
+
+        if let Some(occlusion) = occlusion {
+            occlusion.enqueue(&mut self.renderer);
+        }
 
         #[cfg(feature = "game_client")]
         let prepared_waypoints = if !skip_scene && native_terrain.is_some() {
