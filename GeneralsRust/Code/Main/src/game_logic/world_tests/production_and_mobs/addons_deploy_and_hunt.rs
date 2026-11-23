@@ -1436,7 +1436,11 @@ fn battle_bus_residual_rejects_vehicle_enter() {
 #[test]
 fn battle_bus_undead_body_first_life_converts_to_second_life() {
     let mut game_logic = GameLogic::new();
+    game_logic.add_player(Player::new(1, Team::GLA, "Bus owner", true));
+    ensure_test_battle_bus_template(&mut game_logic);
+    game_logic.templates.get_mut("GLAVehicleBattleBus").unwrap().energy_production = Some(20);
     let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+    assert_eq!(game_logic.get_player(1).unwrap().power_produced, 20);
     {
         let bus = game_logic.host_object_mut(bus_id).unwrap();
         bus.health.maximum = 400.0;
@@ -1484,6 +1488,8 @@ fn battle_bus_undead_body_first_life_converts_to_second_life() {
         body.landed_hulk,
         "first death should land after ground check"
     );
+    assert!(bus.is_held_disabled());
+    assert_eq!(game_logic.get_player(1).unwrap().power_produced, 0, "landing holds the bus before the next resource tick");
     assert!(
         bus.model_condition_bits
             & (1u128 << crate::game_logic::host_battle_bus::BATTLE_BUS_MC_BIT_SECOND_LIFE)

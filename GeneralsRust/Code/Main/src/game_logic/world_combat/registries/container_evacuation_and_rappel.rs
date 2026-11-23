@@ -1109,6 +1109,18 @@ impl GameLogic {
         )? {
             return Ok(());
         }
+        let Some(rider) = self.objects.get(&pid) else { return Ok(()) };
+        if rider.contained_by.is_some() {
+            return Ok(());
+        }
+        let rider_birth = rider.visual_object_generation;
+        let Some(container) = self.objects.get(&bldg_id) else { return Ok(()) };
+        let container_birth = container.visual_object_generation;
+        let container_pos = container.get_position();
+        let enclosing = container.is_enclosing_garrison_container();
+        let garrison = container.is_garrison_contain();
+        let epoch = self.visual_world_epoch;
+        self.validate_garrison_owner_team_transfer(bldg_id, pid)?;
         let entered = self
             .objects
             .get_mut(&bldg_id)
@@ -1118,61 +1130,51 @@ impl GameLogic {
             self.rappel_scatter_at_building(pid, bldg_id, presentation_effects);
             return Ok(());
         }
-        let container_pos = self
-            .objects
-            .get(&bldg_id)
-            .map(|b| b.get_position())
-            .unwrap_or(glam::Vec3::ZERO);
-        let enclosing = self
-            .objects
-            .get(&bldg_id)
-            .map(|c| c.is_enclosing_garrison_container())
-            .unwrap_or(true);
-        let garrison = self.objects.get(&bldg_id).is_some_and(Object::is_garrison_contain);
         if let Some(obj) = self.objects.get_mut(&pid) {
             obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                 &mut self.queued_audio_events,
             ));
-            let containment_actor_id = obj.id;
-            Self::set_owned_containment_in_parts(
-                &mut self.objects,
-                &mut self.partition_manager,
-                &mut self.ai_groups,
-                &mut self.pathfinding_system,
-                containment_actor_id,
-                Some(bldg_id),
-                true,
-            );
-            let obj = self
-                .objects
-                .get_mut(&containment_actor_id)
-                .expect("containment operation preserves this birth");
             obj.target = Some(bldg_id);
-            // GarrisonContain::onContaining sets HELD before its enclosing
-            // setPosition; updatePos then removes rather than restamps a rider.
-            if garrison {
-                obj.set_status_disabled_held(true);
-            }
-            let _ = obj;
-            if enclosing && !self.set_owned_object_position_with_effects(
-                pid, container_pos, self.frame, presentation_effects,
-            ) {
-                return Ok(());
-            }
-            let Some(obj) = self.objects.get_mut(&pid) else { return Ok(()) };
+        }
+        self.stamp_player_who_entered(bldg_id, pid);
+        if enclosing {
+            self.change_owned_containment_world_membership_with_track_effects(
+                pid, false, presentation_effects,
+            );
+        }
+        self.play_container_on_containing_sound(bldg_id, presentation_effects);
+        if garrison {
+            // onContaining holds the rider before the enclosing position
+            // update, so the pathfinder removes the rider from its old cell.
+            self.apply_garrison_contain_on_enter_at(
+                bldg_id, pid, enclosing.then_some(container_pos), presentation_effects,
+            )?;
+        } else if enclosing && !self.set_owned_object_position_with_effects(
+            pid, container_pos, self.frame, presentation_effects,
+        ) {
+            return Ok(());
+        }
+        if !self.spawn_identity_matches(bldg_id, container_birth, epoch)
+            || !self.spawn_identity_matches(pid, rider_birth, epoch)
+        {
+            return Ok(());
+        }
+        if let Some(obj) = self.objects.get_mut(&pid) {
+            obj.deselect();
+            obj.finish_containment_reference_with_partition_owner(
+                Some(bldg_id), enclosing, &mut self.partition_manager,
+            );
             obj.set_ai_state(
                 AIState::Garrisoned,
                 self.frame,
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
             obj.set_status_moving(false);
-            obj.deselect();
         }
         self.admit_object_drawable_deselection(pid);
         self.record_garrison_residual_enter();
-        self.apply_garrison_contain_on_enter_with_effects(bldg_id, pid, presentation_effects);
         // C++ OpenContain::addToContain doLoadSound.
-        self.play_container_enter_sound(bldg_id, presentation_effects);
+        self.play_container_load_sound(bldg_id, presentation_effects);
         Ok(())
     }
 

@@ -173,7 +173,12 @@ impl Object {
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> (bool, bool) {
         self.advance_battle_bus_throw_with_effects(operation_frame, operation_effects);
-        self.finish_battle_bus_slow_death_with_fx(current_frame, passenger_count, dispatch, audio)
+        let (landed, empty_kill) =
+            self.finish_battle_bus_slow_death_with_fx(current_frame, passenger_count, dispatch, audio);
+        if landed {
+            self.set_status_disabled_held(true);
+        }
+        (landed, empty_kill)
     }
 
     /// Transform phase precedes every landing callback in this original tick.
@@ -228,24 +233,25 @@ impl Object {
             .map(|b| b.try_land_first_death(current_frame, above))
             .unwrap_or(false);
         if landed {
-            // C++ setModelConditionState(MODELCONDITION_SECOND_LIFE) + DISABLED_HELD.
+            // BattleBusSlowDeathBehavior::update plays hit-ground FX before
+            // SECOND_LIFE and stops movement before the caller applies HELD.
+            let fx = battle_bus_hit_ground_fx_name(&self.template_name);
+            dispatch(&fx, self, true);
             self.model_condition_bits |= 1u128 << BATTLE_BUS_MC_BIT_SECOND_LIFE;
-            self.set_status_disabled_held(true);
             self.stop_moving(audio);
             if self.ai_state() != AIState::Idle {
                 self.set_ai_state(AIState::Idle, current_frame, audio);
             }
             self.refresh_model_condition_bits();
-            // Leftover `finish_first_death` / C++ `FXList::doFXObj(m_fxHitGround, me)`.
-            let fx = battle_bus_hit_ground_fx_name(&self.template_name);
-            dispatch(&fx, self, true);
+            // The original landing branch returns before the empty-hulk check.
+            return (true, false);
         }
         let empty_kill = self
             .battle_bus_body
             .as_mut()
             .map(|b| b.tick_empty_hulk(passenger_count, current_frame))
             .unwrap_or(false);
-        (landed, empty_kill)
+        (false, empty_kill)
     }
 
     /// True when UndeadBody should intercept a lethal hit (first life only).

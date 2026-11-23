@@ -1539,6 +1539,29 @@ fn jet_slow_death_defers_destroy() {
 }
 
 #[test]
+fn helicopter_ground_hold_updates_power_during_its_live_crash_tick() {
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(1, Team::USA, "Helicopter owner", true));
+    let mut template = ThingTemplate::new("AmericaComanche");
+    template.add_kind_of(KindOf::Aircraft).set_health(200.0);
+    template.energy_production = Some(20);
+    world.templates.insert(template.name.clone(), template);
+    let id = world.create_object_for_player("AmericaComanche", 1, glam::Vec3::ZERO).unwrap();
+    assert_eq!(world.get_player(1).unwrap().power_produced, 20);
+    let start = world.host_object_mut(id).unwrap().begin_helicopter_slow_death(
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+    );
+    assert!(start.defer_destruction);
+    world.frame = 1;
+    world.update_ai(&[id], 1.0 / 30.0).unwrap();
+    let object = world.host_object(id).unwrap();
+    assert!(object.is_held_disabled());
+    assert!(object.helicopter_slow_death.as_ref().unwrap().hit_ground);
+    assert_eq!(world.get_player(1).unwrap().power_produced, 0, "ground contact disables power before the next resource tick");
+}
+
+#[test]
 fn helicopter_slow_death_defers_destroy() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();

@@ -500,7 +500,9 @@ impl GameLogic {
                         let ori = obj.get_orientation();
                         let helicopter = obj.helicopter_slow_death.as_mut().unwrap();
                         let (dx, dy, dz, dori, done, _) = helicopter.tick(self.frame, pos.y.max(0.0));
-                        let event = helicopter.take_pending_effects();
+                        let mut event = helicopter.take_pending_effects();
+                        let birth = obj.visual_object_generation;
+                        let epoch = self.visual_world_epoch;
                         let position = glam::Vec3::new(pos.x + dx, (pos.y + dy).max(0.0), pos.z + dz);
                         let _ = obj;
                         if !self.set_owned_object_position_with_effects(object_id, position, self.frame, presentation_effects) {
@@ -508,6 +510,16 @@ impl GameLogic {
                         }
                         let Some(obj) = self.objects.get_mut(&object_id) else { continue };
                         obj.set_orientation_with_effects(ori + dori, &mut presentation_effects.reborrow_for_world(&mut self.partition_manager, &self.host_trigger_world));
+                        let obj = if std::mem::take(&mut event.held) {
+                            self.set_owned_passenger_held(object_id, true, presentation_effects);
+                            if !self.spawn_identity_matches(object_id, birth, epoch) {
+                                continue;
+                            }
+                            let Some(obj) = self.objects.get_mut(&object_id) else { continue };
+                            obj
+                        } else {
+                            obj
+                        };
                         obj.apply_heli_death_phase(event);
                         topple_kill = done;
                         final_death_destroy = done;

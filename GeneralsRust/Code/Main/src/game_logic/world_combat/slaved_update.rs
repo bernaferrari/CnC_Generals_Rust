@@ -7,7 +7,11 @@ use crate::game_logic::host_slave_drones::{
 impl GameLogic {
     /// SlavedUpdate::onSlaverDie calls stopSlavedEffects synchronously,
     /// before SpawnBehavior clears the child's producer.
-    pub(in crate::game_logic) fn stop_owned_slaved_effects(&mut self, id: ObjectId) {
+    pub(in crate::game_logic) fn stop_owned_slaved_effects(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         let Some(object) = self.objects.get_mut(&id) else {
             return;
         };
@@ -17,7 +21,7 @@ impl GameLogic {
         state.master = None;
         state.guard_offset = Vec3::ZERO;
         object.set_status_unselectable(false);
-        object.set_status_disabled_held(false);
+        self.set_owned_passenger_held(id, false, effects);
     }
 
     pub(in crate::game_logic) fn enslave_owned_drone(

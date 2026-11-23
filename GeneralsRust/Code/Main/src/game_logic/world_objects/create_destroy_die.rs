@@ -722,8 +722,10 @@ impl GameLogic {
                     parent.spawn_behavior_child_birth_matches(*child_id, birth, child)
                 });
             if still_owned_birth {
-                self.stop_owned_slaved_effects(*child_id);
-                if let Some(child) = self.host_object_mut(*child_id) {
+                self.stop_owned_slaved_effects(*child_id, effects);
+                if self.spawn_identity_matches(*child_id, *birth, epoch)
+                    && let Some(child) = self.host_object_mut(*child_id)
+                {
                     child.producer_id = None;
                 }
             }

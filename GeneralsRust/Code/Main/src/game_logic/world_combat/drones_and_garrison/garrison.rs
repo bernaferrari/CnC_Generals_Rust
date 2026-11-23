@@ -756,6 +756,18 @@ impl GameLogic {
         occupant_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.apply_garrison_contain_on_enter_at(
+            container_id, occupant_id, None, presentation_effects,
+        )
+    }
+
+    pub(in crate::game_logic) fn apply_garrison_contain_on_enter_at(
+        &mut self,
+        container_id: ObjectId,
+        occupant_id: ObjectId,
+        enclosing_center: Option<glam::Vec3>,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(container) = self.objects.get(&container_id) else {
             return Ok(());
         };
@@ -777,7 +789,20 @@ impl GameLogic {
             container.set_garrison_can_attack(true);
         }
         self.set_owned_garrison_bonus(occupant_id, true);
-        self.place_occupant_at_garrison_station(container_id, occupant_id, presentation_effects);
+        if let Some(center) = enclosing_center {
+            if !self.set_owned_object_position_with_effects(
+                occupant_id, center, self.frame, presentation_effects,
+            ) {
+                return Ok(());
+            }
+        } else {
+            self.place_occupant_at_garrison_station(container_id, occupant_id, presentation_effects);
+        }
+        if !self.spawn_identity_matches(container_id, container_birth, epoch)
+            || !self.spawn_identity_matches(occupant_id, rider_birth, epoch)
+        {
+            return Ok(());
+        }
         self.stamp_player_who_entered(container_id, occupant_id);
         let occupant_owner = self
             .objects

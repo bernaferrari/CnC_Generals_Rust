@@ -74,6 +74,7 @@ Object SlaveVictim
  End
 End
 Object OwnedSlaveRepair
+ EnergyProduction = 20
  Body = ActiveBody DroneBody
   MaxHealth = 100
   InitialHealth = 100
@@ -184,6 +185,25 @@ fn receiving_repair_runs_unpack_extend_then_real_healing_once_without_peer_influ
     assert_eq!(peer.host_object(peer_master).unwrap().health.current, 100.0);
     assert_eq!(game.host_object(master).unwrap().health.current, 41.0);
 }
+#[test]
+fn slaver_death_release_restores_owned_power_before_spawn_teardown() {
+    let (mut owner, master, drone) = world();
+    let (mut peer, peer_master, peer_drone) = world();
+    assert_eq!((master, drone), (peer_master, peer_drone));
+    owner.set_owned_passenger_held(drone, true, &mut Default::default());
+    peer.set_owned_passenger_held(peer_drone, true, &mut Default::default());
+    assert_eq!(owner.get_player(0).unwrap().power_produced, 0);
+    owner.stop_owned_slaved_effects(drone, &mut Default::default());
+    let object = owner.host_object(drone).unwrap();
+    assert!(!object.is_held_disabled());
+    assert!(!object.status.unselectable);
+    assert!(object.slaved_update.as_ref().unwrap().master.is_none());
+    assert_eq!(object.producer_id, Some(master), "SpawnBehavior clears the producer after stopSlavedEffects");
+    assert_eq!(owner.get_player(0).unwrap().power_produced, 20, "release restores power now");
+    assert_eq!(peer.get_player(0).unwrap().power_produced, 0);
+    assert!(peer.host_object(peer_drone).unwrap().is_held_disabled());
+}
+
 #[test]
 fn missing_master_stops_slave_effects_before_unmanned_idle() {
     let (mut game, master, drone) = world();

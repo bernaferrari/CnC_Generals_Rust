@@ -1496,7 +1496,8 @@ impl GameLogic {
         let frame = self.frame;
 
         // Snapshot bus state without overlapping borrows.
-        let mut bus_snapshots: Vec<(ObjectId, bool, Vec<ObjectId>, usize, f32)> = Vec::new();
+        let epoch = self.visual_world_epoch;
+        let mut bus_snapshots = Vec::new();
         for (id, o) in self.objects.registered() {
             if !o.is_battle_bus_transport {
                 continue;
@@ -1506,18 +1507,15 @@ impl GameLogic {
             };
             bus_snapshots.push((
                 *id,
-                body.pending_passenger_damage,
-                o.occupants.clone(),
+                o.visual_object_generation,
+                body.pending_passenger_damage.then(|| o.occupants.clone()),
                 o.occupants.len(),
-                o.get_position().z,
             ));
         }
 
         let mut passenger_hits: Vec<(ObjectId, f32)> = Vec::new();
-        for (bus_id, pending, occupants, _count, _z) in &bus_snapshots {
-            if !*pending {
-                continue;
-            }
+        for (bus_id, _, pending, _) in &bus_snapshots {
+            let Some(occupants) = pending else { continue };
             if let Some(bus) = self.objects.get_mut(bus_id) {
                 if let Some(body) = bus.battle_bus_body.as_mut() {
                     body.pending_passenger_damage = false;
@@ -1554,11 +1552,13 @@ impl GameLogic {
             }
         }
 
-        let mut empty_kills: Vec<ObjectId> = Vec::new();
+        let mut empty_kills = Vec::new();
         #[cfg(feature = "game_client")]
         let fx_player = self.local_player_id();
-        for (bus_id, _pending, _occ, passenger_count, z) in &bus_snapshots {
-            let above = *z > 0.5;
+        for (bus_id, birth, _, passenger_count) in &bus_snapshots {
+            if !self.spawn_identity_matches(*bus_id, *birth, epoch) {
+                continue;
+            }
             #[cfg(feature = "game_client")]
             let fx_operation_environment = self.observe_object_fx_environment();
             let Some(bus) = self.objects.get_mut(bus_id) else {
@@ -1589,7 +1589,7 @@ impl GameLogic {
             }
             let Some(bus) = self.objects.get_mut(bus_id) else { continue };
             #[cfg(feature = "game_client")]
-            let (_landed, empty_kill) = Self::with_object_fx_services(
+            let (landed, empty_kill) = Self::with_object_fx_services(
                 &mut self.session_view,
                 self.queued_audio_events.policy().clone(),
                 fx_player,
@@ -1617,18 +1617,23 @@ impl GameLogic {
                 },
             );
             #[cfg(not(feature = "game_client"))]
-            let (_landed, empty_kill) = bus.finish_battle_bus_slow_death_with_fx(
+            let (landed, empty_kill) = bus.finish_battle_bus_slow_death_with_fx(
                 frame,
                 *passenger_count,
                 &mut |_name, _object, _at_object| {},
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
-            if empty_kill {
-                empty_kills.push(*bus_id);
+            if landed {
+                self.set_owned_passenger_held(*bus_id, true, presentation_effects);
+            } else if empty_kill {
+                empty_kills.push((*bus_id, *birth));
             }
         }
 
-        for bus_id in empty_kills {
+        for (bus_id, birth) in empty_kills {
+            if !self.spawn_identity_matches(bus_id, birth, epoch) {
+                continue;
+            }
             self.battle_bus.record_empty_hulk_destruction();
             if let Some(bus) = self.objects.get_mut(&bus_id) {
                 if let Some(body) = bus.battle_bus_body.as_mut() {

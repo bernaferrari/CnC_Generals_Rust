@@ -16,6 +16,7 @@ fn rappel_garrison_holds_rider_before_center_pose_in_each_world() {
             &[
                 FixtureObject::new("RappelPositionRider")
                     .kind_of("INFANTRY SELECTABLE")
+                    .energy(20)
                     .health(100.0)
                     .walker(),
                 FixtureObject::new("RappelPositionBunker")
@@ -44,8 +45,11 @@ fn rappel_garrison_holds_rider_before_center_pose_in_each_world() {
     let (mut peer, peer_building, peer_rider) = setup();
     assert_eq!((building, rider), (peer_building, peer_rider));
     assert_eq!(world.pathfinding_ground_position(GridPos::new(4, 10)), Some(rider));
+    assert_eq!(world.get_player(1).unwrap().power_produced, 20);
     world.rappel_add_to_contain(rider, building).unwrap();
     assert!(world.host_object(rider).unwrap().status.disabled_held);
+    assert_eq!(world.get_player(1).unwrap().power_produced, 0, "rappel hold updates power immediately");
+    assert_eq!(peer.get_player(1).unwrap().power_produced, 20);
     assert_eq!(world.host_object(rider).unwrap().get_position(), Vec3::new(100.0, 0.0, 100.0));
     assert_eq!(world.pathfinding_ground_position(GridPos::new(4, 10)), None);
     assert_eq!(world.pathfinding_ground_position(GridPos::new(10, 10)), None);
