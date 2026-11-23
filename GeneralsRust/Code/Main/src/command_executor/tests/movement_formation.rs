@@ -1554,6 +1554,47 @@ End
     assert!(index(children[0]) < index(parents[0]));
     assert!(index(parents[0]) < index(parents[1]));
 
+    // Player group Stop runs AIGroup::groupIdle (AIGroup.cpp:2026-2087):
+    // the member's own aiIdle, then orderSlavesToGoIdle on the exact
+    // SpawnBehavior roster regardless of SlavesHaveFreeWill. The free-will
+    // gate lives on the attack path, not the stop path.
+    {
+        // Put the free-will child in the same active attack state the
+        // parent's forwarding produces for the locked child (fixture state
+        // setup mirrors the garrisoned-occupant stop tests).
+        let frame = restored.frame;
+        let (child, attack_events) = restored
+            .host_object_and_attack_events_mut(children[1])
+            .unwrap();
+        child.set_target(
+            Some(victim),
+            frame,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        child.set_ai_state(
+            crate::game_logic::AIState::Attacking,
+            frame,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+    }
+    assert_eq!(
+        restored.host_object(children[1]).unwrap().target,
+        Some(victim)
+    );
+    order(&mut restored, CommandType::Stop, parents);
+    for id in children {
+        let child = restored.host_object(id).unwrap();
+        assert_eq!(child.target, None);
+        assert_eq!(
+            child.last_command_source,
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER
+        );
+        assert_eq!(child.ai_state(), crate::game_logic::AIState::Idle);
+    }
+    assert_eq!(peer.host_object(children[0]).unwrap().target, None);
+    assert_eq!(peer.host_object(children[1]).unwrap().target, None);
+
     order(
         &mut owner,
         CommandType::ForceAttackObject { target_id: victim },

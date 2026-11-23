@@ -32,7 +32,7 @@ impl<'a> CommandExecutor<'a> {
     ) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
         if definition.command.eq_ignore_ascii_case("STOP") {
-            return Ok(self.execute_stop(units));
+            return self.execute_stop(units);
         }
         // C++ Object::doCommandButton dispatches the authored GUI command,
         // independently of the special-power source used by the script query.

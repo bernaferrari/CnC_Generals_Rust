@@ -1145,7 +1145,7 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
         );
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(exec.execute_stop(&[a]), CommandResult::Success);
+    assert_eq!(exec.execute_stop(&[a]).unwrap(), CommandResult::Success);
     let u = logic.host_object(a).unwrap();
     assert_eq!(u.ai_state(), AIState::Idle);
     // now=100 + delay 45 + skew 0

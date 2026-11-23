@@ -148,3 +148,60 @@ fn team_attack_named_forwards_owned_passengers_then_locked_hive_in_near_to_far_o
         assert_eq!(owner.host_object(*passenger).unwrap().target, None);
     }
 }
+
+#[test]
+fn team_stop_idles_admitted_spawn_child_with_script_source() {
+    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction};
+    use gamelogic::scripting::engine::ScriptEngine;
+    // ScriptActions::doTeamStop calls groupIdle(CMD_FROM_SCRIPT)
+    // (ScriptActions.cpp:4537-4550), the same operation player S uses; its
+    // SpawnBehavior pass idles the exact spawned roster, not hive state.
+    let (mut owner, _, _) = world();
+    let hive = container(&mut owner, "ForwardStingerSite", Vec3::new(50.0, 0.0, 50.0));
+    owner.frame = 1;
+    owner
+        .update_spawn_behavior_with_effects(&mut Default::default())
+        .unwrap();
+    let children = owner.host_object(hive).unwrap().spawn_behavior_children();
+    assert_eq!(children.len(), 1, "the site spawned its slave");
+    let child = children[0].0;
+    let victim = owner
+        .create_object_for_player(
+            "ForwardStingerSoldier",
+            2,
+            Vec3::new(60.0, 0.0, 60.0),
+        )
+        .unwrap();
+    owner
+        .unit_command_force_attack_with_effects(child, victim, &mut Default::default())
+        .unwrap();
+    assert_eq!(owner.host_object(child).unwrap().target, Some(victim));
+    roster(&owner, &[hive]);
+    let mut action = ScriptAction::new(ScriptActionType::TeamStop);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "ForwardTeam".into(),
+        ))
+        .unwrap();
+    // doTeamStop queues HostScriptIdleRequest::TeamStop on the no-registry
+    // path; both engine construction and execution must run under this
+    // world's services so the queued request lands on the bag the driver
+    // drains in after_action.
+    let engine = owner
+        .with_own_services(|| ScriptEngine::new_in_published_world().unwrap());
+    owner.with_own_services_mut(|owner| {
+        engine.friend_execute_action_with_driver(
+            &action,
+            None,
+            gamelogic::scripting::executor::ScriptContext::at_frame(0),
+            &mut super::script_execution_driver::HostScriptExecutionDriver::new(owner),
+        )
+    });
+    let object = owner.host_object(child).unwrap();
+    assert_eq!(object.target, None);
+    assert_eq!(
+        object.last_command_source,
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
+    );
+}

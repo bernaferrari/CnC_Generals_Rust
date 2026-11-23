@@ -996,13 +996,11 @@ fn object_attack_skips_vehicle_transport_riders() {
 }
 
 #[test]
-fn stop_idles_garrison_occupants_and_hive_slaves() {
-    // C++ AIGroup::groupIdle (AIGroup.cpp:2066-2081): no-AI contain iterate + slaves idle.
+fn stop_idles_garrison_occupants() {
+    // C++ AIGroup::groupIdle (AIGroup.cpp:2066-2081): a selected member with no
+    // AI interface idles its contain riders instead.
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
-    use crate::game_logic::host_base_defense::{
-        init_stinger_hive_slave_roster, order_hive_slaves_to_attack_target,
-    };
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -1026,9 +1024,6 @@ fn stop_idles_garrison_occupants_and_hive_slaves() {
             b.max_garrison = 5;
         }
         let _ = s.add_occupant(occ);
-        s.hive_slaves = init_stinger_hive_slave_roster();
-        s.hive_slave_count = 3;
-        let _ = order_hive_slaves_to_attack_target(&mut s.hive_slaves, 99);
     }
     let frame = logic.frame;
     {
@@ -1042,20 +1037,12 @@ fn stop_idles_garrison_occupants_and_hive_slaves() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_stop(&[site]) == CommandResult::Success);
+        assert_eq!(exec.execute_stop(&[site]).unwrap(), CommandResult::Success);
     }
     let occ = logic.host_object(occ).unwrap();
     assert_eq!(occ.ai_state(),
         crate::game_logic::AIState::Idle,
         "S on a garrisoned structure must stop occupants"
-    );
-    let site = logic.host_object(site).unwrap();
-    assert!(
-        site.hive_slaves
-            .iter()
-            .filter(|s| s.alive)
-            .all(|s| !s.ai_attacking),
-        "S must orderSlavesToGoIdle"
     );
 }
 
@@ -1107,7 +1094,7 @@ fn stop_idles_ai_transport_occupants() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_stop(&[truck]) == CommandResult::Success);
+        assert_eq!(exec.execute_stop(&[truck]).unwrap(), CommandResult::Success);
     }
     let r = logic.host_object(rider).unwrap();
     assert_eq!(r.ai_state(), crate::game_logic::AIState::Idle);

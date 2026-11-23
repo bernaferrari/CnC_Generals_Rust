@@ -580,6 +580,78 @@ impl GameLogic {
         }
         Ok(ok)
     }
+
+    /// AIGroup::groupIdle for one selected member (AIGroup.cpp:2026-2087):
+    /// the member's own aiIdle — or its contained riders' when the member has
+    /// no AI interface — then SpawnBehavior::orderSlavesToGoIdle over the exact
+    /// admitted child roster (SpawnBehavior.cpp:338-352). Stop applies to the
+    /// children regardless of SlavesHaveFreeWill; free will is an attack-path
+    /// gate, not a stop-path one. Children receive the flat stop directly —
+    /// no recursive group handling.
+    pub(crate) fn idle_group_member_with_effects(
+        &mut self,
+        id: ObjectId,
+        source: u32,
+        stealth_mood_skew: Option<u32>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(member) = self.host_object(id) else {
+            return Ok(());
+        };
+        let birth = member.visual_object_generation;
+        let epoch = self.visual_world_epoch;
+        let member_has_ai = member.has_ai_update_interface();
+        if member_has_ai {
+            self.unit_command_stop_with_source_with_effects(id, source, effects)?;
+            if let Some(skew) = stealth_mood_skew {
+                if self.spawn_identity_matches(id, birth, epoch) {
+                    self.unit_command_apply_stealth_mood_delay(id, self.frame, skew);
+                }
+            }
+        } else {
+            for occupant in self.contained_units_for_interface(id) {
+                if !self.spawn_identity_matches(id, birth, epoch) {
+                    return Ok(());
+                }
+                if occupant != id
+                    && self
+                        .host_object(occupant)
+                        .is_some_and(Object::has_ai_update_interface)
+                {
+                    self.unit_command_stop_with_source_with_effects(occupant, source, effects)?;
+                }
+            }
+        }
+        if !self.spawn_identity_matches(id, birth, epoch) {
+            return Ok(());
+        }
+        let children = self
+            .host_object(id)
+            .map(Object::spawn_behavior_children)
+            .unwrap_or_default();
+        for (child_id, child_birth) in children {
+            if !self.spawn_identity_matches(id, birth, epoch) {
+                break;
+            }
+            let admitted = self
+                .host_object(id)
+                .zip(self.host_object(child_id))
+                .is_some_and(|(member, child)| {
+                    member.contains_spawn_behavior_child(child_id, &child_birth)
+                        && member.spawn_behavior_child_birth_matches(
+                            child_id,
+                            &child_birth,
+                            child,
+                        )
+                        && child.has_ai_update_interface()
+                });
+            if admitted && child_id != id {
+                self.unit_command_stop_with_source_with_effects(child_id, source, effects)?;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn unit_command_stop_self_with_effects(
         &mut self,
         id: ObjectId,

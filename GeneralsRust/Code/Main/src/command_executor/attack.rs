@@ -573,49 +573,29 @@ impl<'a> CommandExecutor<'a> {
         })
     }
 
-    pub(crate) fn execute_stop(&mut self, units: &[ObjectId]) -> CommandResult {
+    /// S issues the C++ groupIdle member pass for each selection entry
+    /// (AIGroup.cpp:2026-2087): member aiIdle — or its contained riders when
+    /// the member has no AI interface — then the exact SpawnBehavior child
+    /// roster, regardless of SlavesHaveFreeWill.
+    pub(crate) fn execute_stop(
+        &mut self,
+        units: &[ObjectId],
+    ) -> gamelogic::GameLogicResult<CommandResult> {
         let _bind = self.bind_services();
-        // Wave 232: stop last-writes via GameLogic unit_command_stop.
-        let mut extra_stop: Vec<ObjectId> = Vec::new();
-        let mut hive_ids = extra_stop.clone();
-        for &uid in units {
-            let Some(unit) = self.game_logic.host_object(uid) else {
-                continue;
-            };
-            let has_ai = unit.is_mobile() || unit.can_attack();
-            if !has_ai {
-                extra_stop.extend(unit.contained_units());
-            }
-            if unit.hive_slave_count > 0 {
-                hive_ids.push(uid);
-            }
+        for (index, &id) in units.iter().enumerate() {
+            // C++ GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND)
+            // (AIGroup.cpp:2059) is a live-stream draw; the deterministic host
+            // stand-in skews each member by its position in the selection.
+            let skew = index as u32
+                % crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            self.game_logic.idle_group_member_with_effects(
+                id,
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER,
+                Some(skew),
+                &mut self.ui,
+            )?;
         }
-        for &unit_id in units {
-            let has_ai = self
-                .game_logic
-                .host_object(unit_id)
-                .is_some_and(|unit| unit.is_mobile() || unit.can_attack());
-            if has_ai {
-                let _ = self
-                    .game_logic
-                    .unit_command_stop_with_effects(unit_id, &mut self.ui);
-            }
-        }
-        self.apply_player_stealth_mood_delay(units);
-        for p in extra_stop {
-            let _ = self
-                .game_logic
-                .unit_command_stop_with_effects(p, &mut self.ui);
-        }
-        // C++ SpawnBehavior::orderSlavesToGoIdle after the member idle pass.
-        for hive_id in hive_ids {
-            if let Some(site) = self.game_logic.host_object_mut(hive_id) {
-                let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_go_idle(
-                    &mut site.hive_slaves,
-                );
-            }
-        }
-        CommandResult::Success
+        Ok(CommandResult::Success)
     }
 
     pub(crate) fn execute_guard(

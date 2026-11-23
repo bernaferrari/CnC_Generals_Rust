@@ -33,16 +33,12 @@ impl GameLogic {
         };
         // groupIdle completes before setIsRecruitable and team transfer.
         for id in &members {
-            if self
-                .host_object(ObjectId(*id))
-                .is_some_and(|object| object.has_ai_update_interface() && !object.is_contained())
-            {
-                self.unit_command_stop_with_source_with_effects(
-                    ObjectId(*id),
-                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT,
-                    effects,
-                );
-            }
+            self.idle_group_member_with_effects(
+                ObjectId(*id),
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT,
+                None,
+                effects,
+            )?;
         }
         if !disband {
             return Ok(());
