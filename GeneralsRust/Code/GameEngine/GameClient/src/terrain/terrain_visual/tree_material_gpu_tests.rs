@@ -251,3 +251,85 @@ fn tree_shader_applies_cutout_shroud_darken_and_sway() {
     assert_eq!(&image[4..8], &[64, 64, 64, 96], "the upper tree moves left");
     assert_eq!(&image[12..16], &[255, 0, 0, 255], "the old pixel is clear");
 }
+
+
+#[test]
+#[ignore = "requires native WGPU validation of reused tree geometry buffers"]
+fn tree_mesh_refresh_reuses_buffers_and_accepts_odd_index_counts() {
+    use crate::terrain::{TreeModuleData, TreeRandom, TreeTypeMesh};
+    use game_engine::common::common_services::CommonServicesScope;
+
+    struct MinTreeRandom;
+    impl TreeRandom for MinTreeRandom {
+        fn int_range(&mut self, min: i32, _: i32) -> i32 {
+            min
+        }
+        fn real_range(&mut self, min: f32, _: f32) -> f32 {
+            min
+        }
+    }
+
+    let _common = CommonServicesScope::new();
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let (device, queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+    let mut visual = TerrainVisualImpl::new();
+    visual.device = Some(Arc::new(device));
+    visual.queue = Some(Arc::new(queue));
+    let data = TreeModuleData {
+        model_name: "ResidentTree".into(),
+        texture_name: "ResidentTree.tga".into(),
+        ..Default::default()
+    };
+    let place = |visual: &mut TerrainVisualImpl, id| {
+        visual
+            .tree_buffer
+            .add_tree_from_model(
+                id,
+                Vec3::new(10.0, 20.0, 2.0),
+                1.0,
+                0.0,
+                data.clone(),
+                |_| {
+                    Some((
+                        TreeTypeMesh {
+                            positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 3.0]],
+                            normals: None,
+                            uvs: vec![[0.0, 0.0]; 3],
+                            colors: None,
+                            polygons: vec![[0, 1, 2]],
+                            emissive: [0.0; 3],
+                        },
+                        Vec3::ONE,
+                        None,
+                    ))
+                },
+                &mut MinTreeRandom,
+            )
+            .unwrap();
+    };
+    place(&mut visual, 1);
+    visual.finish_tree_meshes(None, true, None);
+    let mesh = &visual.tree_meshes[0];
+    let resident = (
+        mesh.vertex_buffer.clone(),
+        mesh.dynamic_vertex_buffer.clone(),
+        mesh.index_buffer.clone(),
+    );
+    assert_eq!(mesh.index_count, 3);
+
+    visual.tree_buffer.remove_tree(1);
+    visual.finish_tree_meshes(None, true, None);
+    assert!(!visual.has_visible_tree_mesh());
+
+    place(&mut visual, 2);
+    visual.finish_tree_meshes(None, true, None);
+    let mesh = &visual.tree_meshes[0];
+    assert_eq!(mesh.index_count, 3);
+    assert_eq!(mesh.vertex_buffer, resident.0);
+    assert_eq!(mesh.dynamic_vertex_buffer, resident.1);
+    assert_eq!(mesh.index_buffer, resident.2);
+
+    visual.queue.as_ref().unwrap().submit([]);
+    visual.device.as_ref().unwrap().poll(wgpu::PollType::Poll).unwrap();
+}

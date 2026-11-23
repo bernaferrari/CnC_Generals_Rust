@@ -2206,6 +2206,10 @@ impl TerrainVisualImpl {
         }
     }
 
+    fn has_visible_tree_mesh(&self) -> bool {
+        self.tree_meshes.first().is_some_and(|mesh| mesh.index_count != 0)
+    }
+
     pub(super) fn advance_tree_sway_uniform_for_draw(&mut self, paused: bool) {
         if paused {
             return;
@@ -2287,7 +2291,7 @@ impl TerrainVisualImpl {
             }
         }
         let native_view = sway_completed && self.tree_buffer.has_native_view();
-        if !native_view && self.tree_meshes.is_empty() {
+        if !native_view && !self.has_visible_tree_mesh() {
             if self
                 .tree_buffer
                 .trees()
@@ -2304,17 +2308,13 @@ impl TerrainVisualImpl {
             }
         }
 
-        if (native_view || !self.tree_meshes.is_empty())
-            && !self.tree_buffer.need_to_update_texture()
-            && !self.tree_buffer.anything_changed()
-            && moving_vertices_changed
-        {
-            self.update_tree_motion_gpu_ranges();
-            return;
-        } else if (native_view || !self.tree_meshes.is_empty())
+        if (native_view || self.has_visible_tree_mesh())
             && !self.tree_buffer.need_to_update_texture()
             && !self.tree_buffer.anything_changed()
         {
+            if moving_vertices_changed {
+                self.update_tree_motion_gpu_ranges();
+            }
             return;
         }
 
@@ -2353,19 +2353,67 @@ impl TerrainVisualImpl {
                 .draw_trees_fill_vertex_buffer(&lights, Vec3::Z, |_| true);
         }
         self.last_tree_gpu_vertices = fill_tree_gpu_upload_vertices(self.tree_buffer.cpu_vertices());
-        self.tree_meshes = self
-            .device
-            .as_ref()
-            .and_then(|device| {
-                Self::upload_tree_mesh(
-                    device,
-                    &self.last_tree_gpu_vertices,
-                    self.tree_buffer.cpu_indices(),
-                )
-            })
-            .into_iter()
-            .collect();
+        self.write_tree_gpu_geometry();
         self.tree_buffer.discard_pending_vertex_updates();
+    }
+
+    fn write_tree_gpu_geometry(&mut self) {
+        let indices = self.tree_buffer.cpu_indices();
+        let vertices = &self.last_tree_gpu_vertices;
+        if vertices.is_empty() || indices.is_empty() {
+            if let Some(mesh) = self.tree_meshes.first_mut() {
+                mesh.index_count = 0;
+            }
+            return;
+        }
+        let (Some(device), Some(queue)) = (self.device.as_ref(), self.queue.as_ref()) else {
+            return;
+        };
+        let static_bytes = (vertices.len() * std::mem::size_of::<TreeGpuVertexStatic>()) as u64;
+        let dynamic_bytes = (vertices.len() * std::mem::size_of::<TreeGpuVertexDynamic>()) as u64;
+        let index_bytes =
+            (std::mem::size_of_val(indices) as u64).next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
+        if let Some(mesh) = self.tree_meshes.first_mut()
+            && mesh.vertex_buffer.size() >= static_bytes
+            && mesh.dynamic_vertex_buffer.size() >= dynamic_bytes
+            && mesh.index_buffer.size() >= index_bytes
+        {
+            let static_vertices: Vec<_> = vertices
+                .iter()
+                .copied()
+                .map(TreeGpuVertex::static_attributes)
+                .collect();
+            let dynamic_vertices: Vec<_> = vertices
+                .iter()
+                .copied()
+                .map(TreeGpuVertex::dynamic_attributes)
+                .collect();
+            queue.write_buffer(&mesh.vertex_buffer, 0, cast_slice(&static_vertices));
+            queue.write_buffer(&mesh.dynamic_vertex_buffer, 0, cast_slice(&dynamic_vertices));
+
+            // Uint16 triangle lists can contain an odd number of indices.
+            // WGPU copies are four-byte aligned, while only index_count is drawn.
+            let bytes = cast_slice(indices);
+            if index_bytes == bytes.len() as u64 {
+                queue.write_buffer(&mesh.index_buffer, 0, bytes);
+            } else if let Some(mut upload) = queue.write_buffer_with(
+                &mesh.index_buffer,
+                0,
+                wgpu::BufferSize::new(index_bytes).expect("nonempty tree index upload"),
+            ) {
+                upload.slice(..bytes.len()).copy_from_slice(bytes);
+                upload
+                    .slice(bytes.len()..)
+                    .copy_from_slice(bytemuck::bytes_of(&0u16));
+            } else {
+                mesh.index_count = 0;
+                return;
+            }
+            mesh.index_count = indices.len() as u32;
+            return;
+        }
+        self.tree_meshes.clear();
+        self.tree_meshes.extend(Self::upload_tree_mesh(device, vertices, indices));
     }
 
     fn update_tree_motion_gpu_ranges(&mut self) {
@@ -2420,7 +2468,7 @@ impl TerrainVisualImpl {
             vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Tree Static Attributes"),
                 contents: cast_slice(&static_vertices),
-                usage: wgpu::BufferUsages::VERTEX,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             }),
             dynamic_vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Tree Dynamic Position Attributes"),
@@ -2430,7 +2478,7 @@ impl TerrainVisualImpl {
             index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Tree Mesh Indices"),
                 contents: cast_slice(indices),
-                usage: wgpu::BufferUsages::INDEX,
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             }),
             index_count: indices.len() as u32,
         })
