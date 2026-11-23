@@ -306,8 +306,8 @@ fn actual_presentation_preserves_disabled_producer_zero_and_exact_missing_owner(
         .host_object_mut(id)
         .unwrap()
         .set_status_disabled_emp(true);
-    // Actual Object Energy reconciliation, not a periodic economy tick.
-    world.refresh_power_after_disabled_expiry(1);
+    // Apply the same Object Energy reconciliation used when restoring a grid.
+    world.restore_player_power();
     assert_eq!(
         (
             world.players[&1].power_produced,
@@ -329,9 +329,7 @@ fn actual_presentation_preserves_disabled_producer_zero_and_exact_missing_owner(
         (0, 0, 0)
     );
     assert!(zero.eva_context.local_player.unwrap().sufficient_power);
-    // Admit the peer grid through the same actual Object Energy fold.
-    // Factory admission alone does not yet publish canonical Energy totals.
-    peer.refresh_power_after_disabled_expiry(1);
+    peer.restore_player_power();
     let other = crate::presentation_frame::PresentationFrame::build_from_logic(&mut peer, 1);
     assert_eq!(other.local_power_produced, 20);
     // Two local players of the same faction never authorize ID99's view.

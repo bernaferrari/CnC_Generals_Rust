@@ -481,8 +481,7 @@ End
         }
     }
 
-    #[test]
-    fn periodic_sabotage_expiry_uses_same_callback_and_includes_powered_scaffolds() {
+    fn power_scaffold_world() -> (GameLogic, ObjectId, ObjectId) {
         let mut world = GameLogic::new();
         let source = "Object PeriodicPlant\nKindOf = STRUCTURE\nEnergyProduction = 20\nEnd\nObject PeriodicPowered\nKindOf = STRUCTURE POWERED\nEnergyProduction = -10\nEnd\n";
         world
@@ -498,12 +497,82 @@ End
         player.map_side.map_player_name = "PeriodicEnergy".into();
         player.add_radar(false);
         world.add_player(player);
-        world
+        let plant = world
             .create_object_for_player("PeriodicPlant", 1, Vec3::ZERO)
             .unwrap();
         let scaffold = world
             .create_object_under_construction_for_player("PeriodicPowered", 1, Vec3::ZERO, 0.)
             .unwrap().expect("ObjectId");
+        (world, plant, scaffold)
+    }
+
+    #[test]
+    fn recovering_emp_producer_preserves_a_powered_scaffolds_sabotage_brownout() {
+        let (mut world, plant, scaffold) = power_scaffold_world();
+        let (mut peer, peer_plant, peer_scaffold) = power_scaffold_world();
+        assert_eq!((plant, scaffold), (peer_plant, peer_scaffold));
+
+        world.set_current_frame(4);
+        world.sabotage_player_power(1, 10);
+        assert!(world.apply_owned_emp_disabled(plant, 6));
+        assert_eq!(world.players[&1].power_produced, 0);
+        assert!(world.objects[&scaffold].status.disabled_underpowered);
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let (mut restored, _, _) = power_scaffold_world();
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+        for owner in [&mut world, &mut restored] {
+            owner.set_current_frame(6);
+            owner.players.get_mut(&1).unwrap().power_available = 999;
+            owner.expire_owned_disabled_statuses();
+            assert!(!owner.objects[&plant].status.disabled_emp);
+            assert_eq!(owner.players[&1].power_produced, 20);
+            assert_eq!(owner.players[&1].energy_production_at(6), 0);
+            assert_eq!(owner.players[&1].power_available, 0);
+            assert!(!owner.players[&1].has_radar());
+            assert!(owner.objects[&scaffold].status.under_construction);
+            assert!(
+                owner.objects[&scaffold].status.disabled_underpowered,
+                "an EMP expiry still signals the current sabotage brownout to POWERED scaffolds"
+            );
+
+            owner.set_current_frame(11);
+            owner.expire_player_power_sabotage(1);
+            assert!(!owner.objects[&scaffold].status.disabled_underpowered);
+            assert_eq!(owner.players[&1].power_produced, 20);
+        }
+        assert!(peer.players[&1].has_radar());
+        assert_eq!(peer.players[&1].power_produced, 20);
+        assert!(!peer.objects[&scaffold].status.disabled_underpowered);
+
+        // At deadline equality an actual producer signal can restore radar
+        // and POWERED actors even before Player::update clears the timer.
+        let retiring_plant = peer
+            .create_object_for_player("PeriodicPlant", 1, Vec3::X)
+            .unwrap();
+        peer.set_current_frame(4);
+        peer.sabotage_player_power(1, 6);
+        assert!(peer.apply_owned_emp_disabled(peer_plant, 6));
+        peer.set_current_frame(6);
+        peer.update_player_resources(0.);
+        // Mirrors late deletion after the resource phase of an ordinary tick.
+        peer.destroy_object(retiring_plant).unwrap();
+        peer.process_destroy_list();
+        assert!(peer.host_object(retiring_plant).is_none());
+        peer.expire_owned_disabled_statuses();
+        assert_eq!(peer.players[&1].power_sabotaged_till_frame, 6);
+        assert_eq!(peer.players[&1].power_produced, 20);
+        assert!(peer.players[&1].has_radar());
+        assert!(!peer.objects[&peer_scaffold].status.disabled_underpowered);
+    }
+
+    #[test]
+    fn periodic_sabotage_expiry_uses_same_callback_and_includes_powered_scaffolds() {
+        let (mut world, _, scaffold) = power_scaffold_world();
         assert!(
             world
                 .host_object(scaffold)

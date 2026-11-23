@@ -103,12 +103,19 @@ impl GameLogic {
         }
     }
 
-    /// Object::onDisabledEdge adjusts this owner's generation synchronously.
-    /// Reuse the canonical grid fold without aging sabotage or replaying income.
-    pub(in super::super) fn refresh_power_after_disabled_expiry(&mut self, player_id: u32) {
+    /// Object.cpp:3826–3854 signals Energy after restoring its radar provider.
+    /// Reconcile the grid here because late destruction can remove a producer
+    /// after the frame's economy refresh without adjusting the Player counter.
+    pub(in super::super) fn admit_reenabled_producer_power(&mut self, player_id: u32) {
         let totals = self.power_totals_for_player(player_id);
-        if let Some(player) = self.players.get_mut(&player_id) {
-            Self::apply_derived_power(player, totals, self.frame);
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return;
+        };
+        Self::apply_derived_power(player, totals, self.frame);
+        let brownout = !player.has_sufficient_energy_at(self.frame);
+        self.admit_player_energy_brownout(player_id, brownout);
+        // The synchronous callback can itself disable other producers.
+        if let Some(player) = self.players.get(&player_id) {
             self.economy_events.record(
                 player_id,
                 player.resources.supplies,

@@ -11,8 +11,6 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        // Optional coupled experiments retain their explicit timer phase.
-        {}
         // C++ GameLogic.cpp:3783-3792 walks the current live object list after
         // destruction and victory. Release each Object borrow before admitting
         // its Player callbacks; no object is temporarily removed from its store.
@@ -32,7 +30,7 @@ impl GameLogic {
                     object.timed_disable_expires_at(effect, self.frame)
                 });
                 if due {
-                    self.clear_owned_timed_disable(id, effect, &mut ancestors, effects);
+                    self.clear_owned_timed_disable(id, effect, &mut ancestors);
                     if self.visual_world_epoch != epoch {
                         return;
                     }
@@ -54,10 +52,9 @@ impl GameLogic {
             let object = self.objects.get_mut(&id).unwrap();
             object.tick_remaining_disabled(self.frame);
             let reenabled = was_disabled && !object.is_disabled();
-            self.admit_disabled_expiry_radar_edges_with_effects(id, effects);
+            self.admit_host_radar_provider_with_effects(id, effects);
             if let (true, Some(owner)) = (reenabled, producer) {
-                self.refresh_power_after_disabled_expiry(owner);
-                self.admit_expiry_power_state_with_effects(owner, effects);
+                self.admit_reenabled_producer_power(owner);
             }
         }
     }
@@ -70,7 +67,6 @@ impl GameLogic {
         id: ObjectId,
         effect: TimedDisable,
         ancestors: &mut Vec<ObjectId>,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         if ancestors.contains(&id) {
             return;
@@ -101,7 +97,7 @@ impl GameLogic {
                     parent.contains_spawn_behavior_child(child, &child_birth)
                 });
                 if still_child && self.spawn_identity_matches(child, child_birth, epoch) {
-                    self.clear_owned_timed_disable(child, effect, ancestors, effects);
+                    self.clear_owned_timed_disable(child, effect, ancestors);
                 }
             }
             ancestors.pop();
@@ -118,101 +114,7 @@ impl GameLogic {
         };
         self.admit_host_radar_disabled_edges(id);
         if let Some(owner) = producer {
-            self.refresh_power_after_disabled_expiry(owner);
-            self.admit_expiry_power_state_with_effects(owner, effects);
+            self.admit_reenabled_producer_power(owner);
         }
-    }
-
-    fn admit_disabled_expiry_radar_edges(&mut self, id: ObjectId) {
-        self.admit_disabled_expiry_radar_edges_with_effects(id, &mut Default::default())
-    }
-
-    fn admit_disabled_expiry_radar_edges_with_effects(
-        &mut self,
-        id: ObjectId,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.admit_host_radar_provider_with_effects(id, effects);
-    }
-
-    fn admit_expiry_power_state(&mut self, player_id: u32) {
-        self.admit_expiry_power_state_with_effects(player_id, &mut Default::default())
-    }
-
-    fn admit_expiry_power_state_with_effects(
-        &mut self,
-        player_id: u32,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let Some(player) = self.players.get_mut(&player_id) else {
-            return;
-        };
-        let had = player.has_radar();
-        let brownout = !player.has_sufficient_energy_at(self.frame);
-        if brownout {
-            player.disable_radar();
-        } else {
-            player.enable_radar();
-        }
-        let count = player.radar_count.max(0) as u32;
-        let has = player.has_radar();
-        self.record_host_radar_transition(player_id, count, had, has);
-
-        // Player.cpp:3232-3241 changes only this owner's KINDOF_POWERED objects.
-        let powered: Vec<_> = self
-            .objects
-            .registered_values()
-            .filter(|object| {
-                object.is_kind_of(KindOf::Powered)
-                    && self.player_owner_for_host_object(object) == Some(player_id)
-            })
-            .map(|object| object.id)
-            .collect();
-        for id in powered {
-            let object = self.objects.get_mut(&id).unwrap();
-            let disabled = brownout && object.is_alive() && object.is_constructed();
-            let was = object.status.disabled_underpowered;
-            let was_disabled = object.is_disabled();
-            let already_power = object.is_power_style_disabled();
-            if disabled && !was && !already_power {
-                object.queue_power_disable_misc_audio(true, &mut self.health_events);
-            } else if !disabled
-                && was
-                && !(object.status.disabled_emp
-                    || object.status.disabled_subdued
-                    || object.status.disabled_hacked)
-            {
-                object.queue_power_disable_misc_audio(false, &mut self.health_events);
-            }
-            object.status.disabled_underpowered = disabled;
-            if was_disabled != object.is_disabled() {
-                object.on_disabled_edge(object.is_disabled());
-            }
-            self.admit_disabled_expiry_radar_edges_with_effects(id, effects);
-        }
-    }
-}
-
-#[cfg(test)]
-mod energy_observer_tests {
-    use super::*;
-    #[test]
-    fn expiry_callback_uses_current_energy_not_stale_or_forged_projection() {
-        let mut world = GameLogic::new();
-        let mut player = crate::game_logic::Player::new(1, Team::USA, "ExpiryOwner", true);
-        player.power_produced = 20;
-        player.power_consumed = 10;
-        player.power_sabotaged_till_frame = 50;
-        player.power_available = -10;
-        player.radar_count = 1;
-        world.add_player(player);
-        world.frame = 50;
-        world.admit_expiry_power_state(1);
-        assert!(world.players[&1].has_radar());
-        world.frame = 49;
-        world.players.get_mut(&1).unwrap().power_available = 999;
-        world.admit_expiry_power_state(1);
-        assert!(!world.players[&1].has_radar());
-        assert_eq!(world.players[&1].power_produced, 20);
     }
 }
