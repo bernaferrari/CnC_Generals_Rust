@@ -92,3 +92,119 @@ fn instant_splash_follows_partition_prepend_order_for_nested_kills() {
         },
     );
 }
+
+const CONE_WEAPON: &str = "Weapon ConeBlast\n\
+  PrimaryDamage = 25\n\
+  PrimaryDamageRadius = 20\n\
+  AttackRange = 200\n\
+  DamageType = ARMOR_PIERCING\n\
+  DeathType = NORMAL\n\
+  RadiusDamageAngle = 45\n\
+  RadiusDamageAffects = ENEMIES NEUTRALS\n\
+  ShockWaveAmount = 60\n\
+  ShockWaveRadius = 20\n\
+End\n";
+
+/// Same-world source at x=50 facing +X with victims behind (x=42) and ahead
+/// (x=58) — both inside the authored 20-unit primary radius.
+fn cone_world() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    let mut world = GameLogic::new();
+    let mut weapons = std::collections::HashMap::new();
+    crate::assets::ini_template_loader::parse_weapon_definitions_ini_into(
+        &mut weapons,
+        CONE_WEAPON,
+        crate::assets::ini_template_loader::WeaponDefinitionLoadType::Normal,
+    );
+    world
+        .admit_receiving_weapon_snapshot(weapons.into_iter().collect())
+        .unwrap();
+    let source = ObjectId(1);
+    let mut shooter_t = ThingTemplate::new("ConeShooter");
+    shooter_t.set_health(500.0).add_kind_of(KindOf::Attackable);
+    let mut shooter = Object::new(shooter_t, source, Team::China);
+    shooter.set_position(Vec3::new(50.0, 0.0, 0.0));
+    shooter.set_orientation(0.0); // orientation 0 faces +X
+    world.objects.insert(source, shooter);
+    world.partition_manager.register_object_at(1, 50.0, 0.0);
+    let add_victim = |world: &mut GameLogic, raw: u32, x: f32| {
+        let id = ObjectId(raw);
+        let mut template = ThingTemplate::new(&format!("ConeVictim{raw}"));
+        template
+            .set_health(500.0)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Infantry);
+        let mut obj = Object::new(template, id, Team::USA);
+        obj.set_position(Vec3::new(x, 0.0, 0.0));
+        world.objects.insert(id, obj);
+        world.partition_manager.register_object_at(raw, x, 0.0);
+        id
+    };
+    let behind = add_victim(&mut world, 2, 42.0);
+    let ahead = add_victim(&mut world, 3, 58.0);
+    (world, source, behind, ahead)
+}
+
+/// RadiusDamageAngle gates the instant splash route: the victim inside the
+/// source's 45-degree cone takes damage and shock, the rear victim neither.
+#[test]
+fn instant_splash_radius_damage_angle_keeps_front_and_skips_rear() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "instant_splash_radius_damage_angle_keeps_front_and_skips_rear",
+        || {
+            let (mut world, source, behind, ahead) = cone_world();
+            let hits = world
+                .apply_instant_hit_splash_at(
+                    Vec3::new(50.0, 0.0, 0.0),
+                    25.0,
+                    0.0,
+                    20.0,
+                    0.0,
+                    source,
+                    Team::China,
+                    ObjectId(0),
+                    Some("ConeBlast"),
+                )
+                .unwrap();
+            assert_eq!(hits, 1);
+            assert!(world.objects[&ahead].health.current < 500.0);
+            assert_eq!(world.objects[&behind].health.current, 500.0);
+            assert_eq!(world.objects[&ahead].shock_stun_frames, u32::MAX);
+            assert_eq!(
+                world.objects[&behind].shock_stun_frames, 0,
+                "shock honors the same authored cone"
+            );
+        },
+    );
+}
+
+/// The same authored cone gates the scatter-miss splash route.
+#[test]
+fn scatter_miss_splash_radius_damage_angle_keeps_front_and_skips_rear() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "scatter_miss_splash_radius_damage_angle_keeps_front_and_skips_rear",
+        || {
+            let (mut world, source, behind, ahead) = cone_world();
+            let hits = world
+                .apply_scatter_miss_splash_at(
+                    Vec3::new(50.0, 0.0, 0.0),
+                    25.0,
+                    20.0,
+                    source,
+                    Team::China,
+                    ObjectId(999),
+                    Some("ConeBlast"),
+                )
+                .unwrap();
+            assert_eq!(hits, 1);
+            assert!(world.objects[&ahead].health.current < 500.0);
+            assert_eq!(world.objects[&behind].health.current, 500.0);
+            assert_eq!(world.objects[&ahead].shock_stun_frames, u32::MAX);
+            assert_eq!(
+                world.objects[&behind].shock_stun_frames, 0,
+                "shock honors the same authored cone"
+            );
+        },
+    );
+}

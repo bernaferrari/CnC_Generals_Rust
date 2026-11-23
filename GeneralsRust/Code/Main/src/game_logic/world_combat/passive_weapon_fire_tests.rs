@@ -126,6 +126,9 @@ fn admit_passive_container(game: &mut GameLogic, state: AIState) {
     let container = game.create_object_for_player(name, 0, MUZZLE).unwrap();
     assert_eq!(container, ObjectId(98403));
     game.host_object_mut(container).unwrap().occupants.push(SOURCE);
+    // Real containment keeps the rider at the container's position; the
+    // accepted projectileless shot rereads that source pose for its delay.
+    game.set_fixture_object_position(SOURCE, MUZZLE);
 }
 
 #[test]

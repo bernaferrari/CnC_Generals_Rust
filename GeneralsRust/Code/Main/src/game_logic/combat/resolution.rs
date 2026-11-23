@@ -941,6 +941,7 @@ impl CombatSystem {
             objects.read(),
             frame,
             historic_damage_limit,
+            leftover_radius_damage_angle(&shot.pending.historic_weapon_key),
         );
         self.apply_damage_events(
             &events,
@@ -960,6 +961,7 @@ impl CombatSystem {
         objects: HostObjectRead<'_>,
         frame: u32,
         historic_damage_limit: u32,
+        radius_damage_angle: f32,
     ) -> Vec<DamageEvent> {
         let p = &shot.pending;
         let mut proj = Projectile::new(
@@ -1016,24 +1018,28 @@ impl CombatSystem {
             shot.damage_pos,
             objects,
         );
+        // C++ dealDamageInternal resolves the victim's live position at impact;
+        // the stored position is only the fallback for a victim already gone.
+        let victim = shot.damage_id.and_then(|id| objects.lookup(&id));
+        let position = victim.map_or(shot.damage_pos, Object::get_position);
         let mut events = Vec::new();
         if proj.explosion_radius > 0.0 || proj.secondary_damage_radius > 0.0 {
-            events.push(Self::splash_area_event(
-                &proj,
-                objects,
-                shot.damage_pos,
-                false,
-            ));
-        } else if let Some(target_id) = shot.damage_id {
-            events.push(DamageEvent::Direct {
-                target_id,
-                position: shot.damage_pos,
-                damage: proj.damage,
-                damage_type: proj.damage_type,
-                death_type: proj.death_type,
-                shooter_id: proj.shooter_id,
-                damage_status_type: proj.damage_status_type,
-            });
+            events.push(Self::splash_area_event(&proj, objects, position, false));
+        } else if let Some(target) = victim {
+            // RadiusDamageAngle gates even the radius-zero direct victim
+            // (Weapon.cpp cone check runs before both damage paths).
+            let (source_pos, facing) = splash_cone_source(objects.lookup(&p.shooter_id));
+            if radius_damage_cone_allows(radius_damage_angle, source_pos, facing, position) {
+                events.push(DamageEvent::Direct {
+                    target_id: target.id,
+                    position,
+                    damage: proj.damage,
+                    damage_type: proj.damage_type,
+                    death_type: proj.death_type,
+                    shooter_id: proj.shooter_id,
+                    damage_status_type: proj.damage_status_type,
+                });
+            }
         }
         if !proj.detonation_fx_name.is_empty() || !proj.detonation_ocl_name.is_empty() {
             self.impact_fx.push(ProjectileImpactFx {
@@ -1198,12 +1204,26 @@ pub(crate) fn leftover_radius_damage_angle(weapon_name: &str) -> f32 {
     .unwrap_or(std::f32::consts::PI)
 }
 
-/// Leftover `deal_damage_internal` cone (Weapon.cpp:1393-1408).
-/// `allowed_angle < PI` gates splash to the source facing cone; missing source skips the victim.
-pub(crate) fn leftover_radius_damage_cone_allows(
+/// Live source pose/facing pair for the leftover damage cone, using the
+/// transform X vector (Weapon.cpp reads sourceObj->getTransform()->Get_X_Vector(),
+/// so a pitched source matters). A missing source yields `(None, None)`,
+/// which the cone check rejects for `angle < PI`.
+pub(in crate::game_logic) fn splash_cone_source(
+    source: Option<&Object>,
+) -> (Option<Vec3>, Option<Vec3>) {
+    (
+        source.map(Object::get_position),
+        source.map(|object| object.get_transform_matrix().x_axis.truncate()),
+    )
+}
+
+/// Leftover `dealDamageInternal` cone (Weapon.cpp:1393-1408).
+/// `allowed_angle < PI` gates damage to the source facing cone; missing
+/// source pose or direction skips the victim.
+pub(in crate::game_logic) fn radius_damage_cone_allows(
     allowed_angle: f32,
     source_pos: Option<Vec3>,
-    source_dir_xz: Option<(f32, f32)>,
+    source_direction: Option<Vec3>,
     victim_pos: Vec3,
 ) -> bool {
     if allowed_angle >= std::f32::consts::PI {
@@ -1212,13 +1232,27 @@ pub(crate) fn leftover_radius_damage_cone_allows(
     let Some(source_pos) = source_pos else {
         return false;
     };
-    let Some((fx, fz)) = source_dir_xz else {
+    let Some(source_dir) = source_direction else {
         return false;
     };
-    // Live XZ ground: leftover/C++ source X-vector is horizontal facing (Y-up host).
-    let source_dir = Vec3::new(fx, 0.0, fz);
     let damage_dir = victim_pos - source_pos;
     let source_n = source_dir.normalize_or_zero();
     let damage_n = damage_dir.normalize_or_zero();
     source_n.dot(damage_n) >= allowed_angle.cos()
+}
+
+/// Leftover `deal_damage_internal` cone (Weapon.cpp:1393-1408).
+/// `allowed_angle < PI` gates splash to the source facing cone; missing source skips the victim.
+pub(crate) fn leftover_radius_damage_cone_allows(
+    allowed_angle: f32,
+    source_pos: Option<Vec3>,
+    source_dir_xz: Option<(f32, f32)>,
+    victim_pos: Vec3,
+) -> bool {
+    radius_damage_cone_allows(
+        allowed_angle,
+        source_pos,
+        source_dir_xz.map(|(x, z)| Vec3::new(x, 0.0, z)),
+        victim_pos,
+    )
 }

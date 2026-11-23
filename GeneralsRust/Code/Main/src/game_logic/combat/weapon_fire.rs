@@ -159,7 +159,7 @@ pub struct CombatSystem {
 }
 
 /// C++ `WeaponTemplate::getProjectileTemplate()==NULL` (empty / `NONE`).
-fn is_projectileless_object_name(name: &str) -> bool {
+pub(in crate::game_logic) fn is_projectileless_object_name(name: &str) -> bool {
     let n = name.trim();
     n.is_empty() || n.eq_ignore_ascii_case("NONE")
 }
@@ -177,6 +177,13 @@ pub(in crate::game_logic) struct LiveProjectilelessDelayedDamage {
     pending: PendingProjectile,
     damage_pos: Vec3,
     damage_id: Option<ObjectId>,
+}
+
+impl LiveProjectilelessDelayedDamage {
+    /// Authored weapon name frozen at acceptance for owner-side rule lookups.
+    pub(in crate::game_logic) fn weapon_key(&self) -> &str {
+        &self.pending.historic_weapon_key
+    }
 }
 
 fn leftover_weapon_is_laser(weapon_name: &str) -> bool {
@@ -217,34 +224,49 @@ fn queue_live_projectileless_delayed(
 /// deal damage now; otherwise leftover `setDelayedDamage` + live apply later.
 fn handle_projectileless_pending(
     combat: &mut CombatSystem,
+    objects: HostObjectRead<'_>,
     pending: PendingProjectile,
-    damage_pos: Vec3,
-    damage_id: Option<ObjectId>,
-    flight_speed: f32,
+    victim_pos: Vec3,
+    aim_pos: Vec3,
+    victim_id: Option<ObjectId>,
+    rolled_radius: f32,
     frame: u32,
 ) -> Option<LiveProjectilelessDelayedDamage> {
     let source_pos = pending.self_damage_position.unwrap_or(pending.shooter_pos);
-    let speed_per_logic_frame = pending.speed_unit.distance_per_logic_frame(flight_speed);
+    let speed_per_logic_frame = pending.speed_unit.distance_per_logic_frame(pending.speed);
     let delay_in_frames =
-        if speed_per_logic_frame > 0.0 && !Projectile::is_instant_speed(flight_speed) {
-            source_pos.distance(damage_pos) / speed_per_logic_frame
+        if speed_per_logic_frame > 0.0 && !Projectile::is_instant_speed(pending.speed) {
+            source_pos.distance(victim_pos) / speed_per_logic_frame
         } else {
             0.0
         };
     let laser = pending
         .selected_weapon_is_laser
         .unwrap_or_else(|| leftover_weapon_is_laser(&pending.historic_weapon_key));
-    let damage_id = if pending.self_damage_position.is_some() {
+    let mut damage_id = if pending.self_damage_position.is_some() {
         None
     } else {
-        damage_id
+        victim_id
     };
-    // C++ laser damage uses projectileDestination; other self-position
-    // weapons capture the source position while retaining target travel time.
-    let damage_pos = if pending.self_damage_position.is_some() && !laser {
+    // C++ laser damage uses projectileDestination within the authored radii;
+    // a near scatter resets it to the victim object's actual position only
+    // when that object exists, while a roll past both radii lands on the aim
+    // point without a victim. Self-position weapons capture the source
+    // position while retaining target travel time.
+    let damage_pos = if laser {
+        if rolled_radius <= pending.splash_radius || rolled_radius <= pending.secondary_damage_radius
+        {
+            victim_id
+                .and_then(|id| objects.lookup(&id))
+                .map_or(aim_pos, Object::get_position)
+        } else {
+            damage_id = None;
+            aim_pos
+        }
+    } else if pending.self_damage_position.is_some() {
         source_pos
     } else {
-        damage_pos
+        victim_pos
     };
     if laser || delay_in_frames < 1.0 {
         return Some(LiveProjectilelessDelayedDamage {
@@ -718,8 +740,11 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         return None;
     };
 
-    // C++ Weapon.ini ScatterRadius residual: offset aim point and clear
-    // direct target lock when scatter > 0 (miss / near-miss residual).
+    let projectileless = is_projectileless_object_name(&p.projectile_object_name);
+    let mut victim_pos = target_pos;
+    let mut rolled_radius = 0.0;
+
+    // Coordinate-target overrides discard the object; radius scatter only changes aim.
     let mut fire_target_id = p.target_id;
     if let Some(tid) = p.target_id {
         if let Some(obj) = objects.lookup(&tid) {
@@ -752,6 +777,9 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
                 target_pos.y = target.ground_height;
             }
         }
+        // The ScatterTarget pick makes the victim a coordinate before
+        // fireWeaponTemplate computes travel and damage.
+        victim_pos = target_pos;
         fire_target_id = None;
     } else if p.scatter_radius > 0.0 {
         // C++ fireWeaponTemplate: STRUCTURE aims at geometry center, then
@@ -764,8 +792,9 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
                 );
             }
         }
-        let (rolled_radius, offset) =
+        let (radius, offset) =
             crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(p.scatter_radius, random);
+        rolled_radius = radius;
         target_pos += offset;
         // C++ snaps Z to the victim pathfind layer so a miss hits dirt,
         // not a far point past the volume. Host Y is up.
@@ -776,7 +805,9 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         }
         // Weapon.cpp:1127 checks the sampled radius at launch. A zero
         // roll still consumes the angle draw and keeps the projectile's victim.
-        if rolled_radius > 0.0 {
+        // Only a spawned projectile loses its victim to a positive roll;
+        // projectileless damage keeps the object for its own victim rules.
+        if rolled_radius > 0.0 && !projectileless {
             fire_target_id = None;
         }
     }
@@ -786,11 +817,6 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
 
     let launch_pos = source_context.launch_transform
         .map_or(p.shooter_pos, |transform| transform.w_axis.truncate());
-    let scale_origin = if is_projectileless_object_name(&p.projectile_object_name) {
-        p.shooter_pos
-    } else {
-        launch_pos
-    };
     let scale_target = if matches!(
         profile.map(|profile| &profile.flight),
         Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(_))
@@ -800,11 +826,13 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     } else {
         target_pos
     };
-    // C++ DumbProjectileBehavior ScaleWeaponSpeed residual (2D range ratio).
+    // C++ DumbProjectileBehavior.cpp:348 ScaleWeaponSpeed residual (2D range
+    // ratio) runs on the spawned projectile's behavior, never on a
+    // projectileless shot's Weapon.cpp speed path.
     let mut flight_speed = p.speed;
-    if p.scale_weapon_speed {
-        let dx = scale_target.x - scale_origin.x;
-        let dz = scale_target.z - scale_origin.z;
+    if p.scale_weapon_speed && !projectileless {
+        let dx = scale_target.x - launch_pos.x;
+        let dz = scale_target.z - launch_pos.z;
         let range_2d = (dx * dx + dz * dz).sqrt();
         let peel = crate::game_logic::weapon_bootstrap::HostWeaponSpeedPeel {
             weapon_speed: p.speed,
@@ -820,13 +848,15 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     // C++ fireWeaponTemplate: no ProjectileObject → leftover delayed damage
     // (or same-frame dealDamageInternal). Do not spawn a CombatSystem
     // dummy that can collide mid-flight.
-    if is_projectileless_object_name(&p.projectile_object_name) {
+    if projectileless {
         return handle_projectileless_pending(
             combat,
+            objects,
             p,
+            victim_pos,
             target_pos,
             fire_target_id,
-            flight_speed,
+            rolled_radius,
             frame,
         );
     }

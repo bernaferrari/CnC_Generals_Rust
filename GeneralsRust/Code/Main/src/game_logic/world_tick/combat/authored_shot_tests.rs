@@ -21,6 +21,79 @@ Weapon AuthoredSlowGun\n\
   DeathType = NORMAL\n\
   WeaponSpeed = 150\n\
   DelayBetweenShots = 2000\n\
+End\n\
+Weapon ScatterInstantGun\n\
+  PrimaryDamage = 25\n\
+  PrimaryDamageRadius = 0\n\
+  AttackRange = 200\n\
+  DamageType = ARMOR_PIERCING\n\
+  DeathType = NORMAL\n\
+  WeaponSpeed = 999999\n\
+  DelayBetweenShots = 2000\n\
+  ScatterRadiusVsInfantry = 120\n\
+End\n\
+Weapon ScatterLaserGun\n\
+  PrimaryDamage = 25\n\
+  PrimaryDamageRadius = 0\n\
+  AttackRange = 200\n\
+  DamageType = ARMOR_PIERCING\n\
+  DeathType = NORMAL\n\
+  WeaponSpeed = 999999\n\
+  DelayBetweenShots = 2000\n\
+  ScatterRadiusVsInfantry = 120\n\
+  LaserName = ScatterCheckBeam\n\
+End\n\
+Weapon ScatterDelayGun\n\
+  PrimaryDamage = 25\n\
+  PrimaryDamageRadius = 9\n\
+  AttackRange = 200\n\
+  DamageType = ARMOR_PIERCING\n\
+  DeathType = NORMAL\n\
+  WeaponSpeed = 150\n\
+  DelayBetweenShots = 2000\n\
+  ScatterRadiusVsInfantry = 120\n\
+End\n\
+Weapon SelfPositionGun\n\
+  PrimaryDamage = 25\n\
+  PrimaryDamageRadius = 9\n\
+  AttackRange = 200\n\
+  DamageType = ARMOR_PIERCING\n\
+  DeathType = NORMAL\n\
+  WeaponSpeed = 150\n\
+  DelayBetweenShots = 2000\n\
+  DamageDealtAtSelfPosition = Yes\n\
+End\n\
+Weapon ConeDelayGun\n\
+  PrimaryDamage = 25\n\
+  PrimaryDamageRadius = 0\n\
+  AttackRange = 200\n\
+  DamageType = ARMOR_PIERCING\n\
+  DeathType = NORMAL\n\
+  WeaponSpeed = 150\n\
+  DelayBetweenShots = 2000\n\
+  RadiusDamageAngle = 45\n\
+End\n\
+Weapon ScatterTableGun\n\
+  PrimaryDamage = 25\n\
+  PrimaryDamageRadius = 0\n\
+  AttackRange = 200\n\
+  DamageType = ARMOR_PIERCING\n\
+  DeathType = NORMAL\n\
+  WeaponSpeed = 999999\n\
+  DelayBetweenShots = 2000\n\
+  ScatterTarget = X:0 Y:50\n\
+  ScatterTargetScalar = 1\n\
+End\n\
+Weapon LaserCoordGun\n\
+  PrimaryDamage = 25\n\
+  PrimaryDamageRadius = 120\n\
+  AttackRange = 200\n\
+  DamageType = ARMOR_PIERCING\n\
+  DeathType = NORMAL\n\
+  WeaponSpeed = 999999\n\
+  DelayBetweenShots = 2000\n\
+  ScatterRadius = 120\n\
+  LaserName = ScatterCoordBeam\n\
 End\n";
 
 fn object(name: &str, weapon: Option<&str>) -> String {
@@ -36,12 +109,25 @@ fn object(name: &str, weapon: Option<&str>) -> String {
 /// A world whose shooter template is named like an old per-unit residual but
 /// authors only `weapon`; the victim authors nothing special.
 fn world(shooter: &str, weapon: &str) -> GameLogic {
+    world_with(shooter, weapon, "")
+}
+
+fn world_with(shooter: &str, weapon: &str, extra_objects: &str) -> GameLogic {
+    world_from(&object(shooter, Some(weapon)), extra_objects)
+}
+
+fn world_from(shooter_template: &str, extra_objects: &str) -> GameLogic {
     let mut world = GameLogic::new();
     world
         .admit_receiving_module_content(
             crate::assets::ReceivingObjectContent::from_sources([(
                 "receiving-authored-shot.ini".into(),
-                format!("{}{}", object(shooter, Some(weapon)), object("PlainVictim", None)),
+                format!(
+                    "{}{}{}",
+                    shooter_template,
+                    object("PlainVictim", None),
+                    extra_objects,
+                ),
             )])
             .unwrap(),
         )
@@ -56,6 +142,18 @@ fn world(shooter: &str, weapon: &str) -> GameLogic {
         .admit_receiving_weapon_snapshot(weapons.into_iter().collect())
         .unwrap();
     world
+}
+
+/// Small-sphere infantry so ScatterRadiusVsInfantry engages and the
+/// bounding-sphere splash distance stays deterministic.
+fn infantry_object(name: &str) -> String {
+    object(name, None)
+        .replace("VEHICLE SELECTABLE CAN_ATTACK", "INFANTRY SELECTABLE CAN_ATTACK")
+        .replace(
+            "Body = ActiveBody BodyTag",
+            "Geometry = SPHERE\nGeometryMajorRadius = 1\nGeometryMinorRadius = 1\nGeometryHeight = 2\n\
+             Body = ActiveBody BodyTag",
+        )
 }
 
 fn engage(world: &mut GameLogic, shooter: ObjectId, victim: ObjectId) {
@@ -349,4 +447,339 @@ fn authored_ecm_missile_jammer_uses_slot_shot_and_world_owned_delay() {
     first.apply_owned_projectileless_delayed_damage().unwrap();
     assert!(first.objects[&missile].ecm_missile_jammed);
     assert_eq!(first.objects[&missile].health.current, 100.0);
+}
+
+/// Stock projectileless scatter: `ScatterRadiusVsInfantry` only re-aims the
+/// instant weapon; the engaged infantry victim keeps its identity and takes
+/// the primary hit (Weapon.cpp fireWeaponTemplate radius-scatter branch).
+#[test]
+fn instant_scatter_vs_infantry_still_damages_the_engaged_victim() {
+    let mut world = world_with(
+        "AuthoredScatterShooter",
+        "ScatterInstantGun",
+        &infantry_object("ScatterInfantry"),
+    );
+    let shooter = world.create_object("AuthoredScatterShooter", Team::China, Vec3::ZERO).unwrap();
+    let victim = world.create_object("ScatterInfantry", Team::USA, Vec3::new(40.0, 0.0, 0.0)).unwrap();
+
+    engage(&mut world, shooter, victim);
+    let probe = crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(
+        120.0,
+        &game_engine::common::random_value::SessionRandom::from_state(world.logic_random.snapshot()),
+    );
+    assert!(probe.0 > 0.0, "deterministic fixture must roll a miss radius");
+
+    world.set_current_frame(100);
+    step(&mut world, &[shooter, victim]);
+
+    assert_eq!(hp(&world, victim), 500.0 - 25.0);
+    assert_eq!(
+        world.objects.registered().count(),
+        2,
+        "projectileless shot spawns no missile object"
+    );
+}
+
+/// Stock projectileless laser: when the rolled scatter miss exceeds both
+/// authored radii, damage lands at the scattered aim point instead of the
+/// victim center, so the primary target takes nothing.
+#[test]
+fn instant_laser_scatter_beyond_both_radii_misses_the_victim() {
+    let mut world = world_with(
+        "AuthoredLaserShooter",
+        "ScatterLaserGun",
+        &infantry_object("ScatterInfantry"),
+    );
+    let shooter = world.create_object("AuthoredLaserShooter", Team::China, Vec3::ZERO).unwrap();
+    let victim = world.create_object("ScatterInfantry", Team::USA, Vec3::new(40.0, 0.0, 0.0)).unwrap();
+
+    engage(&mut world, shooter, victim);
+    let probe = crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(
+        120.0,
+        &game_engine::common::random_value::SessionRandom::from_state(world.logic_random.snapshot()),
+    );
+    assert!(probe.0 > 0.0, "deterministic fixture must roll a miss radius");
+
+    world.set_current_frame(100);
+    step(&mut world, &[shooter, victim]);
+
+    assert_eq!(hp(&world, victim), 500.0);
+}
+
+/// Delayed projectileless scatter: the delayed impact recenters on the
+/// victim's live position instead of the stale fire-time aim, and applies
+/// exactly once when the travel delay elapses (40 units at 5/frame = 8).
+#[test]
+fn delayed_scatter_impact_recentered_on_live_victim_position() {
+    // The saved shooter carries live BaseAiContinuation control, so its
+    // template must admit an AI source for restore — like a real INI unit.
+    let shooter_template = object("AuthoredDelayShooter", Some("ScatterDelayGun")).replace(
+        "End\nEnd\n",
+        "End\nBehavior = AIUpdateInterface AI\nEnd\nEnd\n",
+    );
+    let extra = format!(
+        "{}{}",
+        infantry_object("ScatterInfantry"),
+        infantry_object("ScatterBystander"),
+    );
+    let mut world = world_from(&shooter_template, &extra);
+    let shooter = world.create_object("AuthoredDelayShooter", Team::China, Vec3::ZERO).unwrap();
+    let victim = world.create_object("ScatterInfantry", Team::USA, Vec3::new(40.0, 0.0, 0.0)).unwrap();
+    let near = world.create_object("ScatterBystander", Team::USA, Vec3::new(144.0, 0.0, 0.0)).unwrap();
+    let stale = world.create_object("ScatterBystander", Team::USA, Vec3::new(40.0, 0.0, 0.0)).unwrap();
+
+    engage(&mut world, shooter, victim);
+    let probe = crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(
+        120.0,
+        &game_engine::common::random_value::SessionRandom::from_state(world.logic_random.snapshot()),
+    );
+    assert!(probe.0 > 0.0, "deterministic fixture must roll a miss radius");
+
+    world.set_current_frame(100);
+    step(&mut world, &[shooter, victim, near, stale]);
+    assert_eq!(hp(&world, victim), 500.0, "shot still in flight");
+
+    // Disk round-trip keeps the queued delayed damage live in a fresh
+    // matching world before the victim relocates.
+    let directory = tempfile::TempDir::new().unwrap();
+    let mut manager = crate::save_load::SaveFileManager::with_save_directory(directory.path());
+    manager.init().unwrap();
+    let info = crate::save_load::SaveGameInfo {
+        filename: "delayed_scatter".into(),
+        display_name: "Delayed scatter".into(),
+        description: "recentered victim".into(),
+        map_name: "ScatterMap".into(),
+        pristine_map_name: None,
+        campaign_side: None,
+        mission_number: None,
+        save_date: std::time::SystemTime::now(),
+        game_version: env!("CARGO_PKG_VERSION").into(),
+        play_time: std::time::Duration::ZERO,
+        difficulty: crate::save_load::GameDifficulty::Medium,
+        save_type: crate::save_load::SaveFileType::Normal,
+    };
+    manager.save_game("delayed_scatter", &world, &info).unwrap();
+    let crate::save_load::DecodedGameSave {
+        snapshot: decoded, ..
+    } = manager.load_game_snapshot("delayed_scatter").unwrap();
+    let mut restored = world_from(&shooter_template, &extra);
+    manager
+        .restore_game_snapshot(&decoded, &mut restored)
+        .unwrap();
+
+    // After the scatter commit the victim relocates; the delayed impact must
+    // resolve against the live position in both the live and restored world.
+    world.set_fixture_object_position(victim, Vec3::new(140.0, 0.0, 0.0));
+    restored.set_fixture_object_position(victim, Vec3::new(140.0, 0.0, 0.0));
+    for frame in 101u64..=107 {
+        world.set_current_frame(frame);
+        step(&mut world, &[shooter, victim, near, stale]);
+        restored.set_current_frame(frame);
+        step(&mut restored, &[shooter, victim, near, stale]);
+    }
+    assert_eq!(hp(&world, victim), 500.0);
+    assert_eq!(hp(&restored, victim), 500.0);
+    assert_eq!(hp(&restored, near), 500.0);
+    assert_eq!(hp(&restored, stale), 500.0);
+
+    world.set_current_frame(108);
+    step(&mut world, &[shooter, victim, near, stale]);
+    assert_eq!(hp(&world, victim), 500.0 - 25.0);
+    assert_eq!(hp(&world, near), 500.0 - 25.0);
+    assert_eq!(hp(&world, stale), 500.0, "stale fire-time position untouched");
+
+    restored.set_current_frame(108);
+    step(&mut restored, &[shooter, victim, near, stale]);
+    assert_eq!(hp(&restored, victim), 500.0 - 25.0);
+    assert_eq!(hp(&restored, near), 500.0 - 25.0);
+    assert_eq!(hp(&restored, stale), 500.0);
+
+    for frame in 109u64..=112 {
+        world.set_current_frame(frame);
+        step(&mut world, &[shooter, victim, near, stale]);
+        restored.set_current_frame(frame);
+        step(&mut restored, &[shooter, victim, near, stale]);
+    }
+    assert_eq!(hp(&world, victim), 500.0 - 25.0, "exactly-once delivery");
+    assert_eq!(hp(&world, near), 500.0 - 25.0);
+    assert_eq!(hp(&world, stale), 500.0);
+    assert_eq!(hp(&restored, victim), 500.0 - 25.0);
+    assert_eq!(hp(&restored, near), 500.0 - 25.0);
+    assert_eq!(hp(&restored, stale), 500.0);
+}
+
+/// Authored `ScatterTarget` picks turn the victim into a coordinate before
+/// fireWeaponTemplate: the shot still commits on its fire frame, but no
+/// object identity survives for a zero-radius direct hit.
+#[test]
+fn scatter_target_table_discards_victim_identity_for_the_shot() {
+    let mut world = world("AuthoredTableShooter", "ScatterTableGun");
+    let shooter = world
+        .create_object("AuthoredTableShooter", Team::China, Vec3::ZERO)
+        .unwrap();
+    let victim = world
+        .create_object("PlainVictim", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+
+    engage(&mut world, shooter, victim);
+    world.set_current_frame(100);
+    step(&mut world, &[shooter, victim]);
+
+    assert_eq!(
+        world
+            .host_object(shooter)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .last_fire_frame,
+        100,
+        "shot accepted on the fire frame"
+    );
+    assert_eq!(hp(&world, victim), 500.0);
+}
+
+/// Coordinate-target laser near-scatter: with no victim object the C++
+/// projectileDestination stays the scattered aim point (Weapon.cpp:1011-1027
+/// resets it to the object's actual position only when victimObj exists).
+#[test]
+fn coordinate_laser_near_scatter_splashes_at_the_scattered_aim() {
+    let extra = infantry_object("LaserBystander");
+    let mut world = world_with("AuthoredCoordShooter", "LaserCoordGun", &extra);
+    let shooter = world
+        .create_object("AuthoredCoordShooter", Team::China, Vec3::ZERO)
+        .unwrap();
+
+    let coord = Vec3::new(40.0, 0.0, 0.0);
+    world.set_current_frame(100);
+    world
+        .unit_command_attack_position(shooter, coord, 1)
+        .unwrap();
+    let (rolled, offset) = crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(
+        120.0,
+        &game_engine::common::random_value::SessionRandom::from_state(
+            world.logic_random.snapshot(),
+        ),
+    );
+    assert!(
+        rolled > 0.0 && offset.length() > 0.0,
+        "deterministic fixture must roll a miss"
+    );
+    // Just inside the scattered aim's 120-unit splash but outside a splash
+    // centered on the original target point: radius 1 infantry sphere keeps
+    // the edge at r + 120 vs r + 121.
+    let bystander = world
+        .create_object(
+            "LaserBystander",
+            Team::USA,
+            coord + offset.normalize_or_zero() * (offset.length() + 121.0),
+        )
+        .unwrap();
+
+    step(&mut world, &[shooter, bystander]);
+
+    assert_eq!(hp(&world, bystander), 500.0 - 25.0);
+}
+
+/// When the tracked victim is gone before the delayed impact resolves, the
+/// queued splash falls back to the stored fire-time damage position.
+#[test]
+fn delayed_scatter_impact_without_victim_uses_stored_position() {
+    let extra = format!(
+        "{}{}",
+        infantry_object("ScatterInfantry"),
+        infantry_object("ScatterBystander"),
+    );
+    let mut world = world_with("AuthoredDelayShooter", "ScatterDelayGun", &extra);
+    let shooter = world
+        .create_object("AuthoredDelayShooter", Team::China, Vec3::ZERO)
+        .unwrap();
+    let victim = world
+        .create_object("ScatterInfantry", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    let stale = world
+        .create_object("ScatterBystander", Team::USA, Vec3::new(44.0, 0.0, 0.0))
+        .unwrap();
+
+    engage(&mut world, shooter, victim);
+    world.set_current_frame(100);
+    step(&mut world, &[shooter, victim, stale]);
+    assert_eq!(hp(&world, stale), 500.0, "shot still in flight");
+
+    world.objects.remove(&victim);
+    for frame in 101u64..=108 {
+        world.set_current_frame(frame);
+        step(&mut world, &[shooter, stale]);
+    }
+    assert_eq!(hp(&world, stale), 500.0 - 25.0);
+}
+
+/// `DamageDealtAtSelfPosition`: the delayed blast lands on the captured
+/// firing pose, so a hostile standing next to the shooter is hit while the
+/// intended target 40 units out is untouched.
+#[test]
+fn delayed_self_position_blast_hits_hostile_next_to_shooter() {
+    let extra = infantry_object("SelfBlastBystander");
+    let mut world = world_with("AuthoredSelfShooter", "SelfPositionGun", &extra);
+    let shooter = world.create_object("AuthoredSelfShooter", Team::China, Vec3::ZERO).unwrap();
+    let victim = world.create_object("PlainVictim", Team::USA, Vec3::new(40.0, 0.0, 0.0)).unwrap();
+    let bystander = world.create_object("SelfBlastBystander", Team::USA, Vec3::new(6.0, 0.0, 0.0)).unwrap();
+
+    engage(&mut world, shooter, victim);
+    world.set_current_frame(100);
+    step(&mut world, &[shooter, victim, bystander]);
+    assert_eq!(hp(&world, bystander), 500.0, "blast not due yet");
+
+    for frame in 101u64..=107 {
+        world.set_current_frame(frame);
+        step(&mut world, &[shooter, victim, bystander]);
+    }
+    assert_eq!(hp(&world, bystander), 500.0);
+    assert_eq!(hp(&world, victim), 500.0);
+
+    world.set_current_frame(108);
+    step(&mut world, &[shooter, victim, bystander]);
+    assert_eq!(hp(&world, bystander), 500.0 - 25.0);
+    assert_eq!(hp(&world, victim), 500.0);
+    assert_eq!(hp(&world, shooter), 500.0, "SELF bit not authored");
+}
+
+/// Radius-zero authored cone: the delayed Direct hit still checks the
+/// attacker's facing at impact time. Rotating the source away mid-flight
+/// makes the behind-the-source victim take nothing; facing the victim
+/// applies it on the next shot.
+#[test]
+fn delayed_direct_hit_honors_radius_damage_angle_at_impact() {
+    let mut world = world("AuthoredConeShooter", "ConeDelayGun");
+    let shooter = world.create_object("AuthoredConeShooter", Team::China, Vec3::ZERO).unwrap();
+    let victim = world.create_object("PlainVictim", Team::USA, Vec3::new(40.0, 0.0, 0.0)).unwrap();
+
+    engage(&mut world, shooter, victim);
+    world.set_current_frame(100);
+    step(&mut world, &[shooter, victim]);
+    assert_eq!(hp(&world, victim), 500.0);
+
+    // First shot committed; stop attacking and face the source away from +X
+    // before the delayed impact lands.
+    {
+        let attacker = world.objects.get_mut(&shooter).expect("cone shooter");
+        attacker.target = None;
+        attacker.set_status_attacking(false);
+    }
+    world.set_fixture_object_orientation(shooter, std::f32::consts::PI);
+
+    for frame in 101u64..=108 {
+        world.set_current_frame(frame);
+        step(&mut world, &[shooter, victim]);
+    }
+    assert_eq!(hp(&world, victim), 500.0, "victim outside the 45-degree cone");
+
+    // Re-engage and face +X: the same cone now admits the delayed direct hit.
+    engage(&mut world, shooter, victim);
+    world.set_fixture_object_orientation(shooter, 0.0);
+    for frame in 109u64..=170 {
+        world.set_current_frame(frame);
+        step(&mut world, &[shooter, victim]);
+    }
+    assert_eq!(hp(&world, victim), 500.0 - 25.0);
 }

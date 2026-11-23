@@ -90,7 +90,7 @@ impl GameLogic {
             // old shot must not enter its replacement match's combat queue.
             return Ok(false);
         }
-        self.refresh_accepted_self_damage_pose(&mut shot, source_pose);
+        self.refresh_accepted_projectileless_source_pose(&mut shot, source_pose);
         if let Some(source) = self.objects.get(&shot.shooter_id).filter(|object| {
             source_pose.generation != 0 && object.visual_object_generation == source_pose.generation
         }) {
@@ -128,18 +128,28 @@ impl GameLogic {
     /// CPP Weapon.cpp998 rereads the original source after fire FX/OCL.
     /// An accepted shot survives source removal; a replacement ID is never
     /// allowed to supply the original source's pose.
-    fn refresh_accepted_self_damage_pose(
+    fn refresh_accepted_projectileless_source_pose(
         &self,
         shot: &mut crate::game_logic::combat::PendingProjectile,
         pose: AcceptedSelfDamagePose,
     ) {
-        if shot.self_damage_position.is_none() || pose.epoch != self.visual_world_epoch {
+        if pose.epoch != self.visual_world_epoch {
             return;
         }
         if let Some(source) = self.objects.get(&shot.shooter_id).filter(|object| {
             pose.generation != 0 && object.visual_object_generation == pose.generation
         }) {
-            shot.self_damage_position = Some(source.get_position());
+            let position = source.get_position();
+            // C++ samples the projectileless source position where the weapon
+            // fires — after the FireFX/FireOCL callbacks ran.
+            if crate::game_logic::combat::is_projectileless_object_name(
+                &shot.projectile_object_name,
+            ) {
+                shot.shooter_pos = position;
+            }
+            if shot.self_damage_position.is_some() {
+                shot.self_damage_position = Some(position);
+            }
         }
     }
 
@@ -374,7 +384,7 @@ End
         assert_eq!(shot.self_damage_position, Some(Vec3::ZERO));
         let changed = Vec3::new(7.0, 3.0, 5.0);
         world.set_fixture_object_position(shot.shooter_id, changed);
-        world.refresh_accepted_self_damage_pose(&mut shot, pose);
+        world.refresh_accepted_projectileless_source_pose(&mut shot, pose);
         assert_eq!(shot.target_id, target);
         assert_eq!(shot.self_damage_position, Some(changed));
     }
@@ -389,7 +399,7 @@ End
             .create_object_for_player("OwnedSelfPoseSource", 0, Vec3::new(99.0, 0.0, 0.0))
             .unwrap();
         assert_eq!(replacement, shot.shooter_id);
-        world.refresh_accepted_self_damage_pose(&mut shot, pose);
+        world.refresh_accepted_projectileless_source_pose(&mut shot, pose);
         assert_eq!(
             shot.self_damage_position, before,
             "new match cannot supply an old accepted source pose"

@@ -424,6 +424,17 @@ impl GameLogic {
         Ok(())
     }
 
+    /// Leftover `dealDamageInternal` directional cone evaluated against the
+    /// live source at each victim's turn, so an earlier callback can move the
+    /// source before later victims and shock victims are filtered the same way.
+    fn splash_cone_allows(&self, angle: f32, source_id: ObjectId, victim_pos: Vec3) -> bool {
+        let (position, facing) =
+            crate::game_logic::combat::splash_cone_source(self.objects.lookup(&source_id));
+        crate::game_logic::combat::radius_damage_cone_allows(
+            angle, position, facing, victim_pos,
+        )
+    }
+
     pub(crate) fn apply_shock_wave_at_impact(
         &mut self,
         impact: glam::Vec3,
@@ -431,6 +442,20 @@ impl GameLogic {
         search_radius: f32,
         weapon_name: Option<&str>,
         skip_id: Option<ObjectId>,
+    ) -> u32 {
+        self.apply_shock_wave_at_impact_with_cone(
+            impact, source_pos, search_radius, weapon_name, skip_id, None,
+        )
+    }
+
+    fn apply_shock_wave_at_impact_with_cone(
+        &mut self,
+        impact: glam::Vec3,
+        source_pos: glam::Vec3,
+        search_radius: f32,
+        weapon_name: Option<&str>,
+        skip_id: Option<ObjectId>,
+        cone: Option<(ObjectId, f32)>,
     ) -> u32 {
         // Content cannot be changed by an earlier victim's callbacks. Keep
         // this accepted rule alive while preserving original visitation order.
@@ -483,6 +508,9 @@ impl GameLogic {
                     return None;
                 }
                 let p = obj.get_position();
+                if cone.is_some_and(|(source, angle)| !self.splash_cone_allows(angle, source, p)) {
+                    return None;
+                }
                 let dx = p.x - impact.x;
                 let dz = p.z - impact.z;
                 if dx * dx + dz * dz > r2 {
@@ -568,6 +596,9 @@ impl GameLogic {
             log::error!("Receiving weapon definition missing for accepted splash/shock");
             return Ok(0);
         }
+        let radius_damage_angle = native_rule
+            .as_ref()
+            .map_or(std::f32::consts::PI, |rule| rule.radius_damage_angle);
 
         let max_r = primary_radius.max(secondary_radius);
         if max_r <= 0.0 || (primary_damage <= 0.0 && secondary_damage <= 0.0) {
@@ -705,8 +736,16 @@ impl GameLogic {
                 continue;
             }
             // Earlier victims may synchronously kill another snapshotted
-            // candidate through onDie. Re-fetch instead of replaying that hit.
-            if self.objects.lookup(&id).is_some_and(|obj| obj.is_alive()) {
+            // candidate through onDie. Re-fetch instead of replaying that hit;
+            // Weapon.cpp re-checks the source cone at each victim's turn.
+            if self.objects.lookup(&id).is_some_and(|obj| {
+                obj.is_alive()
+                    && self.splash_cone_allows(
+                        radius_damage_angle,
+                        attacker_id,
+                        obj.get_position(),
+                    )
+            }) {
                 let Some(damage_type) = native_rule
                     .as_ref()
                     .map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type))
@@ -764,7 +803,14 @@ impl GameLogic {
             .lookup(&attacker_id)
             .map(|a| a.get_position())
             .unwrap_or(impact);
-        let _ = self.apply_shock_wave_at_impact(impact, source_pos, max_r, weapon_name, None);
+        let _ = self.apply_shock_wave_at_impact_with_cone(
+            impact,
+            source_pos,
+            max_r,
+            weapon_name,
+            None,
+            Some((attacker_id, radius_damage_angle)),
+        );
         Ok(hits)
     }
 
@@ -815,6 +861,9 @@ impl GameLogic {
             log::error!("Receiving weapon definition missing for accepted splash/shock");
             return Ok(0);
         }
+        let radius_damage_angle = native_rule
+            .as_ref()
+            .map_or(std::f32::consts::PI, |rule| rule.radius_damage_angle);
 
         use crate::game_logic::weapon_bootstrap::{
             host_primary_damage_radius_for_weapon_name, host_radius_damage_affects_for_weapon_name,
@@ -999,8 +1048,16 @@ impl GameLogic {
                 continue;
             }
             // Earlier victims may synchronously kill another snapshotted
-            // candidate through onDie. Re-fetch instead of replaying that hit.
-            if self.objects.lookup(&id).is_some_and(|obj| obj.is_alive()) {
+            // candidate through onDie. Re-fetch instead of replaying that hit;
+            // Weapon.cpp re-checks the source cone at each victim's turn.
+            if self.objects.lookup(&id).is_some_and(|obj| {
+                obj.is_alive()
+                    && self.splash_cone_allows(
+                        radius_damage_angle,
+                        attacker_id,
+                        obj.get_position(),
+                    )
+            }) {
                 let Some(damage_type) = native_rule
                     .as_ref()
                     .map(|rule| crate::game_logic::host_armor_residual::map_store_damage_type(rule.damage_type))
@@ -1058,8 +1115,14 @@ impl GameLogic {
             .lookup(&attacker_id)
             .map(|a| a.get_position())
             .unwrap_or(impact);
-        let _ =
-            self.apply_shock_wave_at_impact(impact, source_pos, max_r, weapon_name, Some(skip_id));
+        let _ = self.apply_shock_wave_at_impact_with_cone(
+            impact,
+            source_pos,
+            max_r,
+            weapon_name,
+            Some(skip_id),
+            Some((attacker_id, radius_damage_angle)),
+        );
         Ok(hits)
     }
 

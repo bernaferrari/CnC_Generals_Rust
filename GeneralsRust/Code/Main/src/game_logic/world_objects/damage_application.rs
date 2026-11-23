@@ -1697,17 +1697,34 @@ impl GameLogic {
         self.update_projectile_weapon_bonus_upgrades(None);
         if let Some(shot) = ready {
             let limit = self.combat_system.historic_damage_limit();
-            let events = self.combat_system.prepare_projectileless_delayed_shot(
-                &shot,
-                self.objects.read(),
-                self.frame,
-                limit,
-            );
+            let events = self.prepare_owned_projectileless_impact(&shot, limit);
             for event in events {
                 self.apply_owned_combat_damage_with_effects(&event, effects)?;
             }
         }
         Ok(())
+    }
+
+    /// Receiving-world radius-damage angle for exactly this accepted
+    /// projectileless impact; unbound programmatic shots keep the C++
+    /// full-circle default.
+    fn prepare_owned_projectileless_impact(
+        &mut self,
+        shot: &crate::game_logic::combat::LiveProjectilelessDelayedDamage,
+        historic_limit: u32,
+    ) -> Vec<crate::game_logic::combat::DamageEvent> {
+        let angle = self
+            .weapon_definitions
+            .as_ref()
+            .and_then(|definitions| definitions.get(&shot.weapon_key().to_ascii_lowercase()))
+            .map_or(std::f32::consts::PI, |rule| rule.radius_damage_angle);
+        self.combat_system.prepare_projectileless_delayed_shot(
+            shot,
+            self.objects.read(),
+            self.frame,
+            historic_limit,
+            angle,
+        )
     }
 
     /// Materialize the batch selected at the existing queue boundary. Shots
@@ -1868,12 +1885,7 @@ impl GameLogic {
         let ready = take_ready_projectileless_delayed_damage(&mut self.combat_system, self.frame);
         let limit = self.combat_system.historic_damage_limit();
         for shot in ready {
-            let events = self.combat_system.prepare_projectileless_delayed_shot(
-                &shot,
-                self.objects.read(),
-                self.frame,
-                limit,
-            );
+            let events = self.prepare_owned_projectileless_impact(&shot, limit);
             for event in events {
                 self.apply_owned_combat_damage_with_effects(&event, effects)?;
             }
