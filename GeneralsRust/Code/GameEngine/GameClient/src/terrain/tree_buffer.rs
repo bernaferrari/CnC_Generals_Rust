@@ -844,14 +844,12 @@ impl W3DTreeBuffer {
     }
 
     pub(super) fn observe_native_view(&mut self, view: Mat4, projection: Mat4) {
-        if self
-            .native_view
-            .is_some_and(|current| current.view == view && current.projection == projection)
-        {
-            return;
+        if self.native_view.is_none() {
+            self.do_full_update();
         }
+        // The current matrices are used when a refresh is pending. A lens
+        // change in W3DView::setHeight alone does not call updateCenter.
         self.native_view = Some(NativeTreeView { view, projection });
-        self.do_full_update();
     }
 
     pub(super) fn has_native_view(&self) -> bool {

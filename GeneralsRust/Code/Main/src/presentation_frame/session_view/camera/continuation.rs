@@ -311,6 +311,8 @@ impl SessionCameraState {
         camera.camera_slave_mode = self.camera_slave_mode;
         camera.view_matrix = self.view_matrix;
         camera.projection_matrix = self.projection_matrix;
+        // View::xfer reaches the source angle and LookAt setters on restore.
+        camera.terrain_center_refresh_pending = true;
         camera.camera_follow_factor = self.camera_follow_factor;
     }
 

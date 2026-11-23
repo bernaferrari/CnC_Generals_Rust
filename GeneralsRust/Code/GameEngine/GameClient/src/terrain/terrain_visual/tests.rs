@@ -131,6 +131,7 @@ mod tests {
         assert_eq!(visual.last_tree_gpu_vertices().as_ptr(), resident);
 
         let reverse = Mat4::from_cols(-glam::Vec4::X, glam::Vec4::Y, -glam::Vec4::Z, glam::Vec4::W);
+        visual.tree_buffer.do_full_update();
         draw(&mut visual, reverse);
         assert_eq!(
             entries(&visual),
@@ -145,6 +146,7 @@ mod tests {
         assert_eq!(triangle_depths(&visual), [7.]);
 
         let raised = Mat4::from_translation(-100. * Vec3::Y);
+        visual.tree_buffer.do_full_update();
         draw(&mut visual, raised);
         assert!(triangle_depths(&visual).is_empty());
         draw(&mut visual, raised);

@@ -663,6 +663,8 @@ impl TerrainVisualImpl {
         let Some(height_map) = self.height_map.as_ref() else {
             return;
         };
+        // W3DView::update forwards a pending full heightmap update to trees.
+        self.tree_buffer.do_full_update();
         self.chunk_manager.mark_region_dirty(
             0.0,
             0.0,

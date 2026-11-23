@@ -43,22 +43,44 @@ impl GameLogic {
         frame_ms: i32,
         interpreter: Option<&ScriptEngine>,
     ) -> gamelogic::GameLogicResult<bool> {
+        self.advance_receiving_camera_view_with_center_refresh(
+            update_views,
+            fast_camera_only,
+            paused,
+            disable_camera_movement,
+            frame_ms,
+            interpreter,
+        )
+        .map(|(active, _)| active)
+    }
+
+    /// Scripted activity protects HAG even while paused. Only an admitted
+    /// movement step reaches W3DView::update's recalcCamera branch.
+    pub(crate) fn advance_receiving_camera_view_with_center_refresh(
+        &mut self,
+        update_views: bool,
+        fast_camera_only: bool,
+        paused: bool,
+        disable_camera_movement: bool,
+        frame_ms: i32,
+        interpreter: Option<&ScriptEngine>,
+    ) -> gamelogic::GameLogicResult<(bool, bool)> {
         if !update_views && !fast_camera_only {
-            return Ok(false);
+            return Ok((false, false));
         }
         // W3DDisplay fast-camera branch calls movement directly, before the
         // full View debug/pause gate. That branch never queries debug control.
         let debug_frozen = !fast_camera_only && self.script_debug_frozen(interpreter)?;
-        Ok(self.advance_camera_view(
-            crate::presentation_frame::camera::motion::MotionAdmission {
-                update_views,
-                fast_camera_only,
-                paused,
-                debug_frozen,
-                disable_camera_movement,
-            },
-            frame_ms,
-        ))
+        let admission = crate::presentation_frame::camera::motion::MotionAdmission {
+            update_views,
+            fast_camera_only,
+            paused,
+            debug_frozen,
+            disable_camera_movement,
+        };
+        let active = self.advance_camera_view(admission, frame_ms);
+        let refresh_center = update_views && !fast_camera_only && admission.advances() && active;
+        Ok((active, refresh_center))
     }
     /// Only a matching, successfully resolved lock object reaches the source
     /// history gate. Inactive, stale and missing facts never query debug control.

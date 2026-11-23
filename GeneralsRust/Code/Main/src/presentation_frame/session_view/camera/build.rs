@@ -28,6 +28,17 @@ impl super::SessionCamera {
         bounds: (Vec3, Vec3),
         sample: &mut dyn FnMut(&CameraSlaveModeRequest) -> SlaveCameraSample,
     ) -> Result<(), String> {
+        self.set_camera_transform_with_center_refresh(target, impulse, bounds, sample, true)
+    }
+
+    pub(crate) fn set_camera_transform_with_center_refresh(
+        &mut self,
+        target: &mut Vec3,
+        impulse: Vec3,
+        bounds: (Vec3, Vec3),
+        sample: &mut dyn FnMut(&CameraSlaveModeRequest) -> SlaveCameraSample,
+        refresh_center: bool,
+    ) -> Result<(), String> {
         if !target.is_finite()
             || !impulse.is_finite()
             || !bounds.0.is_finite()
@@ -55,7 +66,11 @@ impl super::SessionCamera {
         if let Some(bounds) = self.constraint_bounds() {
             *target = bounds.constrain(*target);
         }
-        self.build_camera_transform(target, impulse, sample)
+        self.build_camera_transform(target, impulse, sample)?;
+        // W3DView::setCameraTransform calls updateCenter after the final
+        // transform. Provisional constraint builds cannot publish a refresh.
+        self.terrain_center_refresh_pending |= refresh_center;
+        Ok(())
     }
     /// One actual source build advances rotational shakers, then samples slave.
     /// Pure redraw/matrix inspection uses commit_orbit_pose instead.

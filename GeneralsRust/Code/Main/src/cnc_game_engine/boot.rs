@@ -988,6 +988,7 @@ impl CnCGameEngine {
             camera_slave_mode: None,
             view_matrix,
             projection_matrix,
+            terrain_center_refresh_pending: false,
         };
 
         let application_map_fallback = Self::allow_debug_startup_flags()

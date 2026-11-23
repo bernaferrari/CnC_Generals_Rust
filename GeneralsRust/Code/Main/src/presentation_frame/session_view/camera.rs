@@ -61,6 +61,9 @@ pub(crate) struct SessionCamera {
         Option<crate::game_logic::mission_scripts::CameraSlaveModeRequest>,
     pub(crate) view_matrix: Mat4,
     pub(crate) projection_matrix: Mat4,
+    /// A source updateCenter request waits for the next receiving terrain draw.
+    /// This is transient display work and is outside camera snapshots.
+    pub(crate) terrain_center_refresh_pending: bool,
     pub(crate) camera_follow_factor: f32,
     pub(crate) camera_follow_snap_immediate: bool,
 }
@@ -107,6 +110,7 @@ impl Default for SessionCamera {
             camera_slave_mode: None,
             view_matrix: Mat4::look_at_rh(position, look, Vec3::Y),
             projection_matrix: Mat4::IDENTITY,
+            terrain_center_refresh_pending: false,
             camera_follow_factor: -1.,
             camera_follow_snap_immediate: false,
         }

@@ -337,9 +337,9 @@ impl CnCGameEngine {
         }
         // Command intake has finished. Only this admitted view operation may
         // advance scripted camera axes, follow, shake and terrain-height ease.
-        self.advance_native_camera_view(decision, camera_scroll)?;
+        let recalc_camera = self.advance_native_camera_view(decision, camera_scroll)?;
         if decision.update_views && !self.script_time_fast() {
-            self.finalize_native_view_camera()?;
+            self.finalize_native_view_camera(recalc_camera)?;
         }
         #[cfg(feature = "game_client")]
         {
@@ -454,14 +454,19 @@ impl CnCGameEngine {
     }
 
     /// Shared final camera commitment. Rendering consumes these exact matrices.
-    fn finalize_native_view_camera(&mut self) -> Result<(), String> {
+    fn finalize_native_view_camera(&mut self, recalc_camera: bool) -> Result<(), String> {
         self.host_ensure_presentation_frame_for_render()?;
         // The receiving target may legitimately be near map origin after
         // script movement, player input or restore. W3DView::update does not
         // reapply match-bootstrap focus while committing an ordinary view.
         // Clip/projection is current before provisional constraint rays.
         self.rebuild_tactical_projection();
-        self.set_native_camera_transform()?;
+        // The receiving display still commits its complete camera. The
+        // original notifies terrain only for recalcCamera or an active slave.
+        self.with_native_camera_effects(|world, effects| {
+            let refresh_center = recalc_camera || world.session_view.camera.camera_slave_mode.is_some();
+            world.commit_native_camera_with_center_refresh(effects, refresh_center)
+        })?;
         let viewport = self.game_logic.session_view.camera.viewport;
         self.render_pipeline.set_tactical_3d_viewport(viewport);
         self.rebuild_tactical_projection();

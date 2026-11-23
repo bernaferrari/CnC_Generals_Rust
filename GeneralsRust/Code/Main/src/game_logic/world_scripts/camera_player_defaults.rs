@@ -44,6 +44,14 @@ impl GameLogic {
         &mut self,
         effects: &mut ScriptPresentationEffects<'_>,
     ) -> Result<(), String> {
+        self.commit_native_camera_with_center_refresh(effects, true)
+    }
+
+    pub(crate) fn commit_native_camera_with_center_refresh(
+        &mut self,
+        effects: &mut ScriptPresentationEffects<'_>,
+        refresh_center: bool,
+    ) -> Result<(), String> {
         self.with_current_camera_sampler(effects, |world, sample| {
             let bounds = {
                 let terrain = world
@@ -53,7 +61,14 @@ impl GameLogic {
                     .map_err(|_| "receiving camera bounds terrain poisoned")?;
                 Self::camera_bounds_for_terrain(&terrain)
             };
-            world.session_view.set_camera_transform(bounds, sample)
+            let view = &mut world.session_view;
+            view.camera.set_camera_transform_with_center_refresh(
+                &mut view.target,
+                view.impulse.offset,
+                bounds,
+                sample,
+                refresh_center,
+            )
         })
     }
     pub(super) fn camera_bounds_for_terrain(

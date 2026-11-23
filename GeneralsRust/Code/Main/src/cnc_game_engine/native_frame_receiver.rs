@@ -17,6 +17,15 @@ pub(super) struct NativeFrameReceiver<'a> {
     pub assets: &'a dyn crate::assets::pristine_bones::PristineBoneAssets,
     pub logic_frame: u32,
 }
+fn transfer_tree_center_refresh(
+    camera: &mut crate::presentation_frame::camera::SessionCamera,
+    terrain: &mut game_client::terrain::terrain_visual::TerrainVisualImpl,
+) {
+    if std::mem::take(&mut camera.terrain_center_refresh_pending) {
+        terrain.tree_buffer_mut().do_full_update();
+    }
+}
+
 impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
     fn actor_draw_candidate_is_current(
         &self,
@@ -232,6 +241,7 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
     ) -> std::result::Result<Option<game_client::terrain::TreeCpuDrawReceipt>, String> {
         let mut tree_random = ReceivingTreeRandom(&mut self.world.session_view.client_random);
         poses.admit_pending_native_trees(terrain, &mut tree_random);
+        transfer_tree_center_refresh(&mut self.world.session_view.camera, terrain);
         let Some(mut cursor) = terrain.begin_owned_tree_cpu_draw(
             motion,
             &mut tree_random,
@@ -345,3 +355,131 @@ impl game_client::terrain::TreeRandom for ReceivingTreeRandom<'_> {
 #[cfg(test)]
 #[path = "native_water_height_tests.rs"]
 mod native_water_height_tests;
+
+#[cfg(test)]
+mod tree_center_tests {
+    use super::{ReceivingTreeRandom, transfer_tree_center_refresh};
+    use crate::game_logic::{GameLogic, ScriptPresentationEffects};
+    use game_client::terrain::{
+        TreeModuleData, TreeSphere,
+        terrain_visual::{TerrainVisualImpl, TerrainVisualMotion},
+    };
+    use glam::Vec3;
+
+    fn camera_owner() -> GameLogic {
+        let mut world = GameLogic::new();
+        let mut map = gamelogic::system::map_loader::MapData::new();
+        map.width = 64;
+        map.height = 64;
+        map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+        map.heightmap = vec![0; 4096];
+        world
+            .world_services
+            .terrain()
+            .write()
+            .unwrap()
+            .load_map_data(map);
+        world.session_view.target = Vec3::new(180., 0., 200.);
+        world
+            .admit_player_camera_rotation(0., &mut ScriptPresentationEffects::default())
+            .unwrap();
+        world
+    }
+
+    fn draw_owned(terrain: &mut TerrainVisualImpl, world: &mut GameLogic) {
+        let view = &mut world.session_view;
+        terrain.observe_native_tree_view(&view.camera.view_matrix, &view.camera.projection_matrix);
+        transfer_tree_center_refresh(&mut view.camera, terrain);
+        let motion = TerrainVisualMotion {
+            paused: true,
+            frame: 0,
+            breeze: Default::default(),
+            gravity: 0.,
+        };
+        let cursor = terrain
+            .begin_owned_tree_cpu_draw(motion, &mut ReceivingTreeRandom(&mut view.client_random))
+            .unwrap();
+        terrain.tree_buffer_mut().finish_cpu_draw(cursor).unwrap();
+    }
+
+    fn add_late_tree(terrain: &mut TerrainVisualImpl, world: &GameLogic, id: u32) {
+        let center = world
+            .session_view
+            .camera
+            .view_matrix
+            .inverse()
+            .transform_point3(Vec3::new(0., 0., -50.));
+        terrain
+            .tree_buffer_mut()
+            .add_tree(
+                id,
+                Vec3::new(center.x, center.z, center.y),
+                1.,
+                0.,
+                0.,
+                TreeModuleData {
+                    model_name: "CameraRefreshWitness".into(),
+                    texture_name: "CameraRefreshWitness.tga".into(),
+                    ..Default::default()
+                },
+                TreeSphere {
+                    center: Vec3::ZERO,
+                    radius: 1.,
+                },
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn source_camera_setter_reculls_equal_matrices_in_only_its_receiving_terrain() {
+        let mut owner = camera_owner();
+        let mut peer = camera_owner();
+        let mut terrain = TerrainVisualImpl::new();
+        let mut peer_terrain = TerrainVisualImpl::new();
+        draw_owned(&mut terrain, &mut owner);
+        draw_owned(&mut peer_terrain, &mut peer);
+        add_late_tree(&mut terrain, &owner, 41);
+        add_late_tree(&mut peer_terrain, &peer, 41);
+
+        owner
+            .commit_native_camera_with_center_refresh(&mut ScriptPresentationEffects::default(), false)
+            .unwrap();
+        draw_owned(&mut terrain, &mut owner);
+        assert!(!terrain.tree_buffer_mut().trees()[0].visible);
+
+        // W3DView::setHeight updates the view plane but does not call
+        // updateCenter. A late registration remains hidden inside the new lens.
+        let camera = &mut owner.session_view.camera;
+        let old_projection = camera.projection_matrix;
+        camera.set_view_height_px(camera.viewport.size().1 / 2).unwrap();
+        assert_ne!(camera.projection_matrix, old_projection);
+        owner
+            .commit_native_camera_with_center_refresh(&mut ScriptPresentationEffects::default(), false)
+            .unwrap();
+        draw_owned(&mut terrain, &mut owner);
+        assert!(!terrain.tree_buffer_mut().trees()[0].visible);
+
+        let before = (
+            owner.session_view.camera.view_matrix,
+            owner.session_view.camera.projection_matrix,
+        );
+        owner
+            .admit_player_camera_rotation(0., &mut ScriptPresentationEffects::default())
+            .unwrap();
+        assert_eq!(
+            (
+                owner.session_view.camera.view_matrix,
+                owner.session_view.camera.projection_matrix,
+            ),
+            before
+        );
+        draw_owned(&mut terrain, &mut owner);
+        assert!(terrain.tree_buffer_mut().trees()[0].visible);
+        draw_owned(&mut peer_terrain, &mut peer);
+        assert!(!peer_terrain.tree_buffer_mut().trees()[0].visible);
+
+        add_late_tree(&mut terrain, &owner, 42);
+        draw_owned(&mut terrain, &mut owner);
+        assert!(!terrain.tree_buffer_mut().trees()[1].visible);
+    }
+}

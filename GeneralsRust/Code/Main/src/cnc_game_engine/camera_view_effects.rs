@@ -10,11 +10,11 @@ impl CnCGameEngine {
         &mut self,
         decision: DisplayAdmission,
         scroll: f32,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         if !decision.update_views && !decision.fast_camera_only {
-            return Ok(());
+            return Ok(false);
         }
-        let mut did_scripted_movement = false;
+        let mut followed = false;
         if decision.update_views {
             // Follow precedes the pause-gated scalar movements. Position/yaw
             // use the exact frozen receiving lock identity, never nearest art.
@@ -24,7 +24,7 @@ impl CnCGameEngine {
                 .map(|frame| (frame.camera_follow_object_id, frame.camera_follow_facts));
             if let Some((id, facts)) = follow {
                 let paused = self.native_view_is_paused();
-                did_scripted_movement |= self.apply_camera_follow_or_tether(id, facts, paused)?;
+                followed = self.apply_camera_follow_or_tether(id, facts, paused)?;
             }
         }
 
@@ -32,9 +32,9 @@ impl CnCGameEngine {
         // after follow. Script freeze deliberately does not gate this phase.
         let paused = self.native_view_is_paused();
         let disable_camera_movement = self.game_logic.camera_movement_disabled();
-        did_scripted_movement |= self
+        let (scripted, movement_refreshed_center) = self
             .game_logic
-            .advance_receiving_camera_view(
+            .advance_receiving_camera_view_with_center_refresh(
                 decision.update_views,
                 decision.fast_camera_only,
                 paused,
@@ -43,13 +43,17 @@ impl CnCGameEngine {
                 None,
             )
             .map_err(|error| error.to_string())?;
-        if decision.update_views {
-            // Full view only. Fast's early camera-only branch never reaches
-            // shake, height adjustment, slave pose or matrix commitment.
-            self.update_script_camera_shake();
-            self.ease_camera_height_above_ground(scroll, did_scripted_movement);
+        if !decision.update_views {
+            return Ok(false);
         }
-        Ok(())
+
+        // W3DView samples shake activity before the corresponding timestep,
+        // including active rotational shakers outside this camera's radius.
+        let shaking = self.game_logic.session_view.impulse.intensity > 0.01
+            || !self.game_logic.session_view.camera.script_camera_shakers.is_empty();
+        self.update_script_camera_shake();
+        let adjusted_height = self.ease_camera_height_above_ground(scroll, followed || scripted);
+        Ok(followed || movement_refreshed_center || shaking || adjusted_height)
     }
 }
 
