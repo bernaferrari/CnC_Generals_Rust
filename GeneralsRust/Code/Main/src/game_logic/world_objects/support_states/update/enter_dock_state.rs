@@ -702,7 +702,7 @@ impl GameLogic {
                 return Ok(());
             }
         }
-        if container_is_cave {
+        let cave_capture = if container_is_cave {
             let idx = self
                 .objects
                 .get(&container_id)
@@ -729,25 +729,13 @@ impl GameLogic {
                 }
                 return Ok(());
             }
-            self.play_container_on_containing_sound(container_id, effects);
-            if let Some(rider) = self.objects.get_mut(&object_id) {
-                rider.set_status_disabled_held(true);
-            }
-            if let Some(cave) = self.objects.get_mut(&container_id) {
-                if let Some(building) = cave.building_data.as_mut() {
-                    if building.original_team_instance_id.is_none() {
-                        building.original_team = cave.team_instance_id.map(|_| cave.team);
-                        building.original_garrison_player_id = cave.team_instance_id.and(cave.owner_player_id);
-                        building.original_team_instance_id = cave.team_instance_id;
-                        building.original_team_instance_name = cave.team_instance_id.map(|_| cave.team_instance_name.clone());
-                    }
-                }
-            }
-            self.apply_cave_capture_event_with_effects(idx, ev, container_id, effects)?;
-        }
+            Some((idx, ev))
+        } else {
+            None
+        };
+        let shared = container_is_tunnel_network || container_is_cave;
         self.stamp_player_who_entered(container_id, object_id);
-        // C++ OpenContain::addToContain doLoadSound — leftover TheAudio.
-        if !container_is_cave {
+        if !shared {
             self.play_container_enter_sound(container_id, effects);
         }
 
@@ -763,7 +751,8 @@ impl GameLogic {
             .get(&container_id)
             .map(|c| c.is_enclosing_garrison_container())
             .unwrap_or(true);
-        let transport_birth = self.uses_owned_transport_contain_callback(container_id)
+        let transport_callback = self.uses_owned_transport_contain_callback(container_id);
+        let container_birth = (transport_callback || shared)
             .then(|| self.objects[&container_id].visual_object_generation);
         let epoch = self.visual_world_epoch;
         let occupant_owner = self.objects.get(&object_id).and_then(|o| o.owner_player_id);
@@ -776,8 +765,8 @@ impl GameLogic {
             obj.set_status_force_attack(false);
             obj.target = Some(container_id);
             let containment_actor_id = obj.id;
-            let new_transport_passenger = transport_birth.filter(|_| obj.contained_by != Some(container_id));
-            if new_transport_passenger.is_some() {
+            let callback_birth = container_birth.filter(|_| obj.contained_by != Some(container_id));
+            if callback_birth.is_some() {
                 if enclosing_garrison {
                     self.change_owned_containment_world_membership_with_track_effects(
                         containment_actor_id, false, effects,
@@ -800,12 +789,18 @@ impl GameLogic {
                     return Ok(());
                 }
             }
-            if let Some(transport_birth) = new_transport_passenger {
-                // OpenContain redeploys before TransportContain::onContaining.
+            if let Some(container_birth) = callback_birth {
+                // OpenContain redeploys before the module's onContaining.
                 // Object::onContainedBy publishes the reference afterwards.
-                if !self.spawn_identity_matches(container_id, transport_birth, epoch)
-                    || !self.apply_owned_transport_contain_on_enter(container_id, object_id, effects)
-                {
+                if !self.spawn_identity_matches(container_id, container_birth, epoch) {
+                    return Ok(());
+                }
+                let admitted = if shared {
+                    self.apply_shared_contain_on_enter(container_id, object_id, cave_capture, effects)?
+                } else {
+                    self.apply_owned_transport_contain_on_enter(container_id, object_id, effects)
+                };
+                if !admitted {
                     return Ok(());
                 }
                 self.objects.get_mut(&object_id).unwrap()
@@ -816,7 +811,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&containment_actor_id) else {
                 return Ok(());
             };
-            let __ai_st = if container_is_heal_contain || container_is_tunnel_network {
+            let __ai_st = if container_is_heal_contain || shared {
                 // C++ HealContain / TunnelContain::isGarrisonable is FALSE.
                 // Tunnel occupants are DISABLED_HELD and never shoot out
                 // of an entrance (OpenContain PassengersAllowedToFire default).
@@ -839,7 +834,7 @@ impl GameLogic {
                 obj.deselect();
             }
         }
-        if container_is_cave {
+        if shared {
             self.play_container_load_sound(container_id, effects);
         }
         self.admit_object_drawable_deselection(object_id);
@@ -883,7 +878,7 @@ impl GameLogic {
             self.record_transport_residual_load();
         }
         // Unauthored residual hulls still use their original refresh route.
-        if transport_birth.is_none() && !container_is_structure {
+        if !transport_callback && !container_is_structure {
             self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         }
         Ok(())

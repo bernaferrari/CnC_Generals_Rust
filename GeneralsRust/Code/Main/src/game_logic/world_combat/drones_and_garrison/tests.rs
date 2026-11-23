@@ -55,6 +55,60 @@ End
     assert_eq!(peer.objects[&passenger].contained_by, None);
 }
 
+#[test]
+fn shared_passenger_hold_updates_power_for_both_admission_paths() {
+    for module in ["TunnelContain", "CaveContain"] {
+        let fixture = || {
+            let source = format!(r#"
+Object SharedHoldEntrance
+ KindOf = STRUCTURE
+ Behavior = {module} Contain
+  ContainMax = 5
+  AllowInsideKindOf = INFANTRY
+ End
+End
+Object SharedHoldPassenger
+ KindOf = INFANTRY
+ TransportSlotCount = 1
+ EnergyProduction = 20
+End
+"#);
+            let mut world = GameLogic::new();
+            world.add_player(Player::new(1, Team::GLA, "Shared owner", true));
+            world.admit_object_ini_sources([("shared-held.ini".into(), source)]).unwrap();
+            let a = world.create_object_for_player("SharedHoldEntrance", 1, Vec3::ZERO).unwrap();
+            let b = world.create_object_for_player("SharedHoldEntrance", 1, Vec3::X * 50.0).unwrap();
+            let id = world.create_object_for_player("SharedHoldPassenger", 1, Vec3::ZERO).unwrap();
+            (world, a, b, id)
+        };
+        let (mut owner, entry, exit, rider) = fixture();
+        let (mut peer, peer_entry, _, peer_rider) = fixture();
+        assert_eq!((entry, rider), (peer_entry, peer_rider));
+        assert_eq!(owner.players[&1].power_produced, 20, "{module}");
+        assert!(owner.unit_command_order_enter(rider, entry));
+        owner.update_support_states(&[rider], 1.0 / 30.0).unwrap();
+        assert_eq!(owner.objects[&rider].contained_by, Some(entry), "{module}");
+        assert!(owner.objects[&rider].is_held_disabled(), "{module} Enter");
+        assert_eq!(owner.players[&1].power_produced, 0, "{module} Enter");
+        assert_eq!(peer.players[&1].power_produced, 20, "{module} peer before collision");
+        assert!(peer.unit_command_order_enter(rider, entry));
+        peer.dispatch_host_collide_modules(rider, entry).unwrap();
+        assert_eq!(peer.objects[&rider].contained_by, Some(entry), "{module} collision");
+        assert!(peer.objects[&rider].is_held_disabled(), "{module} collision");
+        assert_eq!(peer.players[&1].power_produced, 0, "{module} collision");
+
+        let removed = if module == "CaveContain" {
+            owner.exit_cave_unit(rider, exit)
+        } else {
+            owner.exit_tunnel_network_unit(rider, exit)
+        };
+        assert!(removed, "{module} cross-network exit");
+        assert!(!owner.objects[&rider].is_held_disabled(), "{module} exit");
+        assert_eq!(owner.players[&1].power_produced, 20, "{module} exit");
+        assert_eq!(peer.players[&1].power_produced, 0, "{module} peer after exit");
+    }
+}
+
 /// C++ NeutonBlastBehavior.cpp:124-127 — unmanned vehicles are aiIdle'd
 /// and deselectObject'd so they do not stay selected or keep orders.
 #[test]

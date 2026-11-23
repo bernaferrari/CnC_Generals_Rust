@@ -1543,11 +1543,16 @@ impl GameLogic {
             is_bunker_structure_name,
         };
 
-        let (mut occupants, is_bunker, target_pos, is_tunnel, target_player) = {
+        let (occupants, is_bunker, target_pos, is_tunnel) = {
             let Some(target) = self.objects.get(&target_id) else {
                 return Ok((0, 0.0, false));
             };
-            let occ = target.contained_units();
+            let tunnel = target.is_tunnel_network_style_container();
+            let occ = if tunnel {
+                self.tunnel_network.contained_for_player(target.tunnel_system_key())
+            } else {
+                target.contained_units()
+            };
             let bunker = is_bunker_structure_name(&target.template_name)
                 || target
                     .building_data
@@ -1559,24 +1564,8 @@ impl GameLogic {
                         ) || b.max_garrison > 0
                     })
                     .unwrap_or(false);
-            let tunnel = target.is_tunnel_network_style_container();
-            (
-                occ,
-                bunker,
-                target.get_position(),
-                tunnel,
-                target.tunnel_system_key(),
-            )
+            (occ, bunker, target.get_position(), tunnel)
         };
-        // C++ TunnelContain::getContainedItemsList / harmAndForceExitAllContained
-        // (TunnelContain.cpp:95) iterates the shared TunnelTracker pool.
-        if is_tunnel {
-            for uid in self.tunnel_network.contained_for_player(target_player) {
-                if !occupants.contains(&uid) {
-                    occupants.push(uid);
-                }
-            }
-        }
         let had_occupants = !occupants.is_empty();
         let mut kills = 0u32;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
@@ -1606,30 +1595,39 @@ impl GameLogic {
                 id
             } else {
                 let Some(id) = occupants.next() else { break };
-                self.remove_owned_occupant_with_bonus_callback(target_id, id, presentation_effects);
+                let Some(birth) = self.objects.get(&id).map(|rider| rider.visual_object_generation)
+                else {
+                    continue;
+                };
+                let epoch = self.visual_world_epoch;
+                if is_tunnel {
+                    if !self.exit_tunnel_network_unit_with_effects(id, target_id, presentation_effects) {
+                        continue;
+                    }
+                } else {
+                    self.remove_owned_occupant_with_bonus_callback(target_id, id, presentation_effects);
+                }
+                if !self.spawn_identity_matches(id, birth, epoch) {
+                    continue;
+                }
                 let Some(occupant) = self.objects.get(&id) else { continue };
                 if !occupant.is_alive() { continue; }
-                Self::set_owned_containment_in_parts(
-                    &mut self.objects,
-                    &mut self.partition_manager,
-                    &mut self.ai_groups,
-                    &mut self.pathfinding_system,
-                    id,
-                    None,
-                    true,
-                );
+                if !is_tunnel {
+                    Self::set_owned_containment_in_parts(
+                        &mut self.objects,
+                        &mut self.partition_manager,
+                        &mut self.ai_groups,
+                        &mut self.pathfinding_system,
+                        id,
+                        None,
+                        true,
+                    );
+                }
                 self.objects.get_mut(&id).unwrap().set_ai_state(
                     AIState::Idle,
                     self.frame,
                     &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                 );
-                if let Some(player_id) = self.tunnel_network.player_holding_unit(id) {
-                    if let Some(entry) = self.tunnel_network.record_exit(player_id, id, target_id) {
-                        if entry != target_id {
-                            self.remove_owned_occupant_with_bonus_callback(entry, id, presentation_effects);
-                        }
-                    }
-                }
                 id
             };
             // C++ bustTheBunker (BunkerBusterBehavior.cpp:186-197): with an

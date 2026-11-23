@@ -86,9 +86,58 @@ impl GameLogic {
     /// Removes local occupant bookkeeping from the entry tunnel if different.
     /// Returns true when the unit was in the shared pool and was released.
     pub fn exit_tunnel_network_unit(&mut self, unit_id: ObjectId, exit_tunnel: ObjectId) -> bool {
+        self.exit_tunnel_network_unit_with_effects(unit_id, exit_tunnel, &mut Default::default())
+    }
+
+    pub(crate) fn exit_tunnel_network_unit_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        exit_tunnel: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let Some(player_id) = self.tunnel_network.player_holding_unit(unit_id) else {
             return false;
         };
+        let Some((position, exit_birth)) = self
+            .objects
+            .get(&exit_tunnel)
+            .filter(|entrance| {
+                entrance.is_tunnel_network_style_container() && entrance.tunnel_system_key() == player_id
+            })
+            .map(|entrance| (entrance.get_position(), entrance.visual_object_generation))
+        else {
+            return false;
+        };
+        let Some(rider_birth) = self.objects.get(&unit_id).map(|rider| rider.visual_object_generation)
+        else {
+            return false;
+        };
+        let epoch = self.visual_world_epoch;
+
+        // TunnelContain::removeFromContain dispatches onRemoving and
+        // onRemovedFrom before erasing the shared tracker entry.
+        self.play_container_on_removing_template_sounds(exit_tunnel, unit_id, effects);
+        self.set_owned_passenger_held(unit_id, false, effects);
+        if !self.spawn_identity_matches(unit_id, rider_birth, epoch) {
+            return true;
+        }
+        if self.spawn_identity_matches(exit_tunnel, exit_birth, epoch) {
+            self.change_owned_containment_world_membership(unit_id, true);
+            if !self.set_owned_object_position_with_effects(unit_id, position, self.frame, effects) {
+                return true;
+            }
+            if !self.spawn_identity_matches(unit_id, rider_birth, epoch) {
+                return true;
+            }
+            let rider = self.objects.get_mut(&unit_id).unwrap();
+            rider.stamp_safe_occlusion_frame(self.frame);
+            if self.spawn_identity_matches(exit_tunnel, exit_birth, epoch) {
+                self.play_container_exit_sound(exit_tunnel, effects);
+            }
+        }
+        self.objects.get_mut(&unit_id).unwrap().finish_containment_reference_with_partition_owner(
+            None, true, &mut self.partition_manager,
+        );
         let entry = self
             .tunnel_network
             .record_exit(player_id, unit_id, exit_tunnel);
@@ -111,18 +160,54 @@ impl GameLogic {
                 );
             }
         }
-        // C++ TunnelContain::onRemoving setSafeOcclusionFrame(frame + OcclusionDelay).
-        if let Some(unit) = self.objects.get_mut(&unit_id) {
-            unit.set_status_disabled_held(false);
-            unit.stamp_safe_occlusion_frame(self.frame);
-        }
-
         true
     }
 
     /// List all units in a player's shared tunnel pool (for Evacuate residual).
     pub fn tunnel_network_contained_for_player(&self, player_id: u32) -> Vec<ObjectId> {
         self.tunnel_network.contained_for_player(player_id)
+    }
+
+    /// TunnelContain and CaveContain share the base sound and HELD callback.
+    /// Cave ownership changes after the rider has been disabled.
+    pub(in crate::game_logic) fn apply_shared_contain_on_enter(
+        &mut self,
+        entrance: ObjectId,
+        rider: ObjectId,
+        cave_capture: Option<(i32, crate::game_logic::host_cave_system::CaveCaptureEvent)>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        let Some((entrance_birth, rider_birth)) = self
+            .objects
+            .get(&entrance)
+            .zip(self.objects.get(&rider))
+            .map(|(entrance, rider)| (entrance.visual_object_generation, rider.visual_object_generation))
+        else {
+            return Ok(false);
+        };
+        let epoch = self.visual_world_epoch;
+        let original = |world: &Self| {
+            world.spawn_identity_matches(entrance, entrance_birth, epoch)
+                && world.spawn_identity_matches(rider, rider_birth, epoch)
+        };
+        self.play_container_on_containing_sound(entrance, effects);
+        self.set_owned_passenger_held(rider, true, effects);
+        if !original(self) {
+            return Ok(false);
+        }
+        if let Some((index, event)) = cave_capture {
+            let cave = self.objects.get_mut(&entrance).unwrap();
+            if let Some(building) = cave.building_data.as_mut()
+                && (cave.team_instance_id.is_none() || building.original_team_instance_id.is_none())
+            {
+                building.original_team = cave.team_instance_id.map(|_| cave.team);
+                building.original_garrison_player_id = cave.team_instance_id.and(cave.owner_player_id);
+                building.original_team_instance_id = cave.team_instance_id;
+                building.original_team_instance_name = cave.team_instance_id.map(|_| cave.team_instance_name.clone());
+            }
+            self.apply_cave_capture_event_with_effects(index, event, entrance, effects)?;
+        }
+        Ok(original(self))
     }
 
     /// C++ CaveContain.cpp:254-336 changeTeamOnAllConnectedCaves.
@@ -277,8 +362,11 @@ impl GameLogic {
             }
         }
         self.play_container_on_removing_template_sounds(exit_cave, unit_id, effects);
-        if let Some(unit) = self.objects.get_mut(&unit_id) {
-            unit.set_status_disabled_held(false);
+        self.set_owned_passenger_held(unit_id, false, effects);
+        if !self.objects.get(&unit_id).is_some_and(|unit| {
+            rider_birth.ptr_eq(&std::sync::Arc::downgrade(&unit.visual_draw_identity_token))
+        }) {
+            return Ok(true);
         }
         self.change_owned_containment_world_membership(unit_id, true);
         if !self.set_owned_object_position_with_effects(unit_id, position, self.frame, effects) {

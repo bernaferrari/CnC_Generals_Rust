@@ -57,6 +57,9 @@ impl super::super::GameLogic {
                     .objects
                     .get(&other_id)
                     .is_some_and(|c| c.is_garrison_contain());
+            let rail = self.objects.get(&other_id).is_some_and(|container| {
+                container.get_template().contain_module.kind == crate::game_logic::ContainModuleKind::RailedTransport
+            });
             let is_transport = self.objects.get(&other_id).is_some_and(|container| {
                 container.normal_enter_uses_transport_slots()
                     && matches!(
@@ -136,6 +139,7 @@ impl super::super::GameLogic {
                 true
             };
             let cancelled = eligible
+                && !rail
                 && (is_garrison || is_transport || tunnel_key.is_some() || cave_index.is_some())
                 && self.should_cancel_containment_after_booby_trap_with_effects(
                     other_id, self_id, effects,
@@ -147,16 +151,23 @@ impl super::super::GameLogic {
             if eligible && !cancelled && uncontained && is_garrison {
                 self.validate_garrison_owner_team_transfer(other_id, self_id)?;
             }
-            let mut boarded = eligible
-                && !cancelled
-                && uncontained
-                && self.objects.get_mut(&other_id).is_some_and(|c| {
+            let ready = eligible && !cancelled && uncontained;
+            let rider_birth = self.objects.get(&self_id).map(|rider| rider.visual_object_generation);
+            let mut boarded = if ready && rail {
+                self.railed_add_contained_with_effects(other_id, self_id, effects)
+                    .map_err(gamelogic::GameLogicError::Configuration)?
+                    && self.objects.get(&self_id).is_some_and(|rider| {
+                        Some(rider.visual_object_generation) == rider_birth && rider.contained_by == Some(other_id)
+                    })
+            } else {
+                ready && self.objects.get_mut(&other_id).is_some_and(|c| {
                     if tunnel_key.is_some() || cave_index.is_some() {
                         c.add_shared_tracker_occupant(self_id)
                     } else {
                         c.add_occupant(self_id)
                     }
-                });
+                })
+            };
             if boarded && let Some(key) = tunnel_key {
                 if self.tunnel_network.record_enter(key, self_id, other_id) {
                     self.stamp_contained_by_frame(self_id, self.frame);
@@ -195,28 +206,8 @@ impl super::super::GameLogic {
             if boarded {
                 // OpenContain::addToContain records the controlling player
                 // immediately after adding the rider to its roster.
-                self.stamp_player_who_entered(other_id, self_id);
-                if let Some((index, event)) = cave_capture {
-                    // Recalculate the entering cave's original team before
-                    // the first-rider capture, even for later riders.
-                    if let Some(cave) = self.objects.get_mut(&other_id) {
-                        if let Some(building) = cave.building_data.as_mut() {
-                            if cave.team_instance_id.is_none() {
-                                building.original_team = None;
-                                building.original_garrison_player_id = None;
-                                building.original_team_instance_id = None;
-                                building.original_team_instance_name = None;
-                            } else if building.original_team_instance_id.is_none() {
-                                building.original_team = cave.team_instance_id.map(|_| cave.team);
-                                building.original_garrison_player_id =
-                                    cave.team_instance_id.and(cave.owner_player_id);
-                                building.original_team_instance_id = cave.team_instance_id;
-                                building.original_team_instance_name =
-                                    cave.team_instance_id.map(|_| cave.team_instance_name.clone());
-                            }
-                        }
-                    }
-                    self.apply_cave_capture_event_with_effects(index, event, other_id, effects)?;
+                if !rail {
+                    self.stamp_player_who_entered(other_id, self_id);
                 }
                 let state = self
                     .objects
@@ -244,15 +235,38 @@ impl super::super::GameLogic {
                     .get(&other_id)
                     .zip(self.objects.get(&self_id))
                     .is_some_and(|(container, rider)| container.is_enclosing_container_for(rider));
-                Self::set_owned_containment_in_parts(
-                    &mut self.objects,
-                    &mut self.partition_manager,
-                    &mut self.ai_groups,
-                    &mut self.pathfinding_system,
-                    self_id,
-                    Some(other_id),
-                    enclosing,
-                );
+                let shared = tunnel_key.is_some() || cave_index.is_some();
+                if shared {
+                    let entrance = &self.objects[&other_id];
+                    let entrance_birth = entrance.visual_object_generation;
+                    let position = entrance.get_position();
+                    let epoch = self.visual_world_epoch;
+                    if enclosing {
+                        self.change_owned_containment_world_membership_with_track_effects(self_id, false, effects);
+                        if !self.set_owned_object_position_with_effects(self_id, position, self.frame, effects) {
+                            return Ok(());
+                        }
+                    }
+                    if !self.spawn_identity_matches(other_id, entrance_birth, epoch)
+                        || !self.apply_shared_contain_on_enter(other_id, self_id, cave_capture, effects)?
+                    {
+                        return Ok(());
+                    }
+                    self.objects.get_mut(&self_id).unwrap().finish_containment_reference_with_partition_owner(
+                        Some(other_id), enclosing, &mut self.partition_manager,
+                    );
+                    self.play_container_load_sound(other_id, effects);
+                } else if !rail {
+                    Self::set_owned_containment_in_parts(
+                        &mut self.objects,
+                        &mut self.partition_manager,
+                        &mut self.ai_groups,
+                        &mut self.pathfinding_system,
+                        self_id,
+                        Some(other_id),
+                        enclosing,
+                    );
+                }
                 if let Some(us) = self.objects.get_mut(&self_id) {
                     us.set_ai_state(
                         state,
@@ -260,9 +274,6 @@ impl super::super::GameLogic {
                         &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
                     );
                     us.status.moving = false;
-                    if tunnel_key.is_some() || cave_index.is_some() {
-                        us.set_status_disabled_held(true);
-                    }
                 }
                 if !self.apply_owned_transport_contain_on_enter(other_id, self_id, effects) {
                     return Ok(());
@@ -281,8 +292,6 @@ impl super::super::GameLogic {
                         }
                     }
                     self.admit_local_drawable_deselected(self_id);
-                    self.play_container_enter_sound(other_id, effects);
-                } else if tunnel_key.is_some() || cave_index.is_some() {
                     self.play_container_enter_sound(other_id, effects);
                 }
             }

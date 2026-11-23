@@ -308,11 +308,7 @@ impl GameLogic {
         };
         let yaw = container.get_orientation();
         let building_pos = container.get_position();
-        let mut passengers: Vec<ObjectId> = if is_cave {
-            self.cave_system.contained_for_index(container.cave_index)
-        } else {
-            container.contained_units()
-        };
+        let mut passengers = self.contained_units_at(container);
         if passengers.is_empty() && !and_exit {
             // Still clear pending flags.
             if let Some(c) = self.objects.get_mut(&container_id) {
@@ -424,8 +420,13 @@ impl GameLogic {
             }
             let mut walked_transport = false;
             let mut side_end: Option<glam::Vec3> = None;
-            if is_cave {
-                if !self.exit_cave_unit_with_effects(*pid, container_id, presentation_effects)? {
+            if is_cave || is_tunnel {
+                let exited = if is_cave {
+                    self.exit_cave_unit_with_effects(*pid, container_id, presentation_effects)?
+                } else {
+                    self.exit_tunnel_network_unit_with_effects(*pid, container_id, presentation_effects)
+                };
+                if !exited {
                     continue;
                 }
                 if !self.objects.get(pid).is_some_and(|object| {
@@ -441,7 +442,7 @@ impl GameLogic {
             if let Some(p) = self.objects.get_mut(pid) {
                 // Wave 201: host_contain_log last-writer (do not bypass set_contained_by).
                 let containment_actor_id = p.id;
-                if !is_cave {
+                if !is_cave && !is_tunnel {
                     Self::set_owned_containment_in_parts(
                         &mut self.objects,
                         &mut self.partition_manager,
@@ -619,12 +620,6 @@ impl GameLogic {
                 && !self.objects.get(&container_id).is_some_and(|container| container.is_helix_transport)
             {
                 self.reset_rider_mood_check_on_exit(container_id, *pid);
-                self.play_container_removing_template_sounds(
-                    container_id,
-                    *pid,
-                    presentation_effects,
-                );
-            } else if is_tunnel {
                 self.play_container_removing_template_sounds(
                     container_id,
                     *pid,

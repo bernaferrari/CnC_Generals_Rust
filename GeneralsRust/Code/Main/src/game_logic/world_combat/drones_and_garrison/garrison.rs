@@ -1233,6 +1233,7 @@ impl GameLogic {
         let rally = container.open_contain_rally_point;
         let is_garrison = container.is_garrison_contain();
         let is_cave = container.is_cave_style_container();
+        let is_tunnel = container.is_tunnel_network_style_container();
         let is_helix = container.is_helix_transport;
         let container_layer = container.pathfind_layer;
         let door_open_time = container.thing().template.contain_module.door_open_time;
@@ -1314,6 +1315,12 @@ impl GameLogic {
                     }
                 }
             }
+        } else if is_tunnel {
+            if self.tunnel_network.player_holding_unit(unit_id).is_some()
+                && !self.exit_tunnel_network_unit_with_effects(unit_id, container_id, presentation_effects)
+            {
+                return;
+            }
         } else {
             self.remove_owned_occupant_with_bonus_callback(container_id, unit_id, presentation_effects);
         }
@@ -1335,7 +1342,7 @@ impl GameLogic {
         if is_garrison || exit_count > 0 {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 let containment_actor_id = unit.id;
-                if !is_cave {
+                if !is_cave && !is_tunnel {
                     Self::set_owned_containment_in_parts(
                         &mut self.objects,
                         &mut self.partition_manager,
@@ -1580,7 +1587,7 @@ impl GameLogic {
         if transport_mood && !is_helix {
             self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         }
-        if !is_garrison && !is_helix && !is_cave {
+        if !is_garrison && !is_helix && !is_cave && !is_tunnel {
             self.play_container_removing_template_sounds(container_id, unit_id, presentation_effects);
         }
         // C++ OpenContain::exitObjectViaDoor door countdown + DOOR_1_OPENING.

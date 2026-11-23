@@ -329,7 +329,17 @@ impl GameLogic {
                 sally.push((uid, exit_tunnel));
             }
             for (uid, exit_tunnel) in sally {
-                let _ = self.exit_tunnel_network_unit(uid, exit_tunnel);
+                let Some(birth) = self.objects.get(&uid).map(|unit| unit.visual_object_generation)
+                else {
+                    continue;
+                };
+                let epoch = self.visual_world_epoch;
+                if !self.exit_tunnel_network_unit_with_effects(uid, exit_tunnel, effects) {
+                    continue;
+                }
+                if !self.spawn_identity_matches(uid, birth, epoch) {
+                    continue;
+                }
                 self.tunnel_network.mark_sally(uid);
                 let (start, mut door_end, layer, yaw, next_exit, exit_count) = self
                     .objects
@@ -376,31 +386,21 @@ impl GameLogic {
                         );
                     }
                 }
-                if let Some(unit) = self.objects.get_mut(&uid) {
-                    let containment_actor_id = unit.id;
-                    Self::set_owned_containment_in_parts(
-                        &mut self.objects,
-                        &mut self.partition_manager,
-                        &mut self.ai_groups,
-                        &mut self.pathfinding_system,
-                        containment_actor_id,
-                        None,
-                        true,
-                    );
+                {
                     if !self.set_owned_object_position_with_effects(
-                        containment_actor_id,
+                        uid,
                         start,
                         tree_move_frame,
                         effects,
                     ) {
                         continue;
                     }
-                    if let Some(unit) = self.objects.get_mut(&containment_actor_id) {
+                    if let Some(unit) = self.objects.get_mut(&uid) {
                         unit.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
                     }
                     // OpenContain.cpp:1086 setLayer before adjustToPossibleDestination.
-                    self.set_owned_pathfinder_layer(containment_actor_id, layer);
-                    if let Some(unit) = self.objects.get_mut(&containment_actor_id) {
+                    self.set_owned_pathfinder_layer(uid, layer);
+                    if let Some(unit) = self.objects.get_mut(&uid) {
                         unit.ignored_obstacle_id = None;
                     }
                 }

@@ -631,7 +631,7 @@ impl GameLogic {
             let Some(stage) = self.objects.get(&ferry).and_then(|dock| dock.railed_dock.approach) else { return Ok(()) };
             if !self.railed_birth_alive(stage.docker) { return Ok(()); }
             if stage.phase == RailedApproachPhase::Action {
-                self.railed_dock_action(ferry, docker, config);
+                self.railed_dock_action(ferry, docker, config, effects);
                 return Ok(());
             }
             let rider = self.objects.get(&docker).unwrap();
@@ -814,7 +814,10 @@ impl GameLogic {
         if !self.railed_birth_alive(ferry_birth) || !self.railed_birth_alive(rider_birth) { return Ok(true); }
         if !self.objects[&ferry].contained_unit_ids().contains(&passenger)
             || self.objects[&passenger].contained_by.is_some() { return Ok(true); }
-        self.objects.get_mut(&passenger).unwrap().set_status_disabled_held(true);
+        self.set_owned_passenger_held(passenger, true, effects);
+        if !self.railed_birth_alive(ferry_birth) || !self.railed_birth_alive(rider_birth) { return Ok(true); }
+        if !self.objects[&ferry].contained_unit_ids().contains(&passenger)
+            || self.objects[&passenger].contained_by.is_some() { return Ok(true); }
         if let Some(container) = self.objects.get_mut(&ferry) {
             if container.contained_unit_ids().len() == 1 && container.has_drawable {
                 container.model_condition_bits |= 1u128 << crate::game_logic::host_enum_table_residual::loaded_model_bit();
@@ -836,6 +839,7 @@ impl GameLogic {
     pub(crate) fn railed_dock_action(
         &mut self, ferry: ObjectId, docker: ObjectId,
         config: RailedDockConfig,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let Some(birth) = self.railed_birth(docker) else { return false };
         let Some(ferry_birth) = self.railed_birth(ferry) else { return false };
@@ -853,9 +857,9 @@ impl GameLogic {
             self.objects.get_mut(&docker).unwrap().status.selected = false;
             self.admit_object_drawable_deselection(birth.id);
             if !self.railed_birth_alive(birth) || !self.railed_birth_alive(ferry_birth) { return true; }
-            let docker_object = self.objects.get_mut(&docker).unwrap();
-            docker_object.set_status_unselectable(true);
-            docker_object.set_status_disabled_held(true);
+            self.objects.get_mut(&docker).unwrap().set_status_unselectable(true);
+            self.set_owned_passenger_held(docker, true, effects);
+            if !self.railed_birth_alive(birth) || !self.railed_birth_alive(ferry_birth) { return true; }
             self.objects.get_mut(&ferry).unwrap().railed_dock.pull_per_frame =
                 distance / config.pull_frames as f32;
             self.objects.get_mut(&docker).unwrap()
@@ -923,7 +927,8 @@ impl GameLogic {
             self.play_container_removing_template_sounds(ferry, passenger, effects);
         }
         if !self.railed_birth_alive(birth) || !self.railed_birth_alive(ferry_birth) { return Ok(true); }
-        self.objects.get_mut(&passenger).unwrap().set_status_disabled_held(false);
+        self.set_owned_passenger_held(passenger, false, effects);
+        if !self.railed_birth_alive(birth) || !self.railed_birth_alive(ferry_birth) { return Ok(true); }
         if let Some(exit_position) = exit_bone_position {
             if !self.set_owned_object_position_with_effects(passenger, exit_position, self.frame, effects)
                 || !self.railed_birth_alive(birth) || !self.railed_birth_alive(ferry_birth) { return Ok(true); }
@@ -981,9 +986,10 @@ impl GameLogic {
         self.set_owned_pathfinder_layer(passenger, layer);
         if !self.set_owned_object_position_with_effects(passenger, position, self.frame, effects) { return Ok(()); }
         if !self.railed_birth_alive(birth) || !self.railed_birth_alive(ferry_birth) { return Ok(()); }
-        let object = self.objects.get_mut(&passenger).unwrap();
-        object.set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
-        object.set_status_disabled_held(true);
+        self.objects.get_mut(&passenger).unwrap()
+            .set_orientation_with_partition_owner(yaw, &mut self.partition_manager);
+        self.set_owned_passenger_held(passenger, true, effects);
+        if !self.railed_birth_alive(birth) || !self.railed_birth_alive(ferry_birth) { return Ok(()); }
         let destination = self.railed_exit_position(ferry, passenger, effects)?;
         if let Some(container) = self.objects.get_mut(&ferry) {
             let state = &mut container.railed_dock;
@@ -1070,9 +1076,9 @@ impl GameLogic {
                         .map_err(|error| error.to_string())?;
                     if !self.railed_birth_alive(unloader) || !self.railed_birth_alive(ferry_birth) { return Ok(()); }
                 }
-                let object = self.objects.get_mut(&unloader.id).unwrap();
-                object.set_status_disabled_held(false);
-                object.set_status_unselectable(false);
+                self.set_owned_passenger_held(unloader.id, false, effects);
+                if !self.railed_birth_alive(unloader) || !self.railed_birth_alive(ferry_birth) { return Ok(()); }
+                self.objects.get_mut(&unloader.id).unwrap().set_status_unselectable(false);
                 if has_ai && self.objects.get(&ferry).is_some_and(|object| object.has_drawable) {
                     let waiting = self.containment_pristine_bone_local_optional(ferry, "DOCKWAITING07", effects)?
                         .ok_or("rail dock exit requires DOCKWAITING07")?;
@@ -1163,8 +1169,8 @@ End
         let (mut first, ferry, rider) = world();
         let (mut second, other_ferry, other_rider) = world();
         let config = RailedDockConfig { pull_frames: 4, push_frames: 4, tolerance: 50.0 };
-        assert!(first.railed_dock_action(ferry, rider, config));
-        assert!(second.railed_dock_action(other_ferry, other_rider, config));
+        assert!(first.railed_dock_action(ferry, rider, config, &mut Default::default()));
+        assert!(second.railed_dock_action(other_ferry, other_rider, config, &mut Default::default()));
         first.railed_dock_update(ferry, config, &mut Default::default()).unwrap();
         assert_eq!(first.objects[&rider].get_position(), Vec3::new(15.0, 0.0, 0.0));
         assert_eq!(second.objects[&other_rider].get_position(), Vec3::new(20.0, 0.0, 0.0));
@@ -1192,7 +1198,7 @@ End
         GameLogic::set_owned_containment_in_parts(&mut world.objects, &mut world.partition_manager,
             &mut world.ai_groups, &mut world.pathfinding_system, first, Some(ferry), true);
         let config = RailedDockConfig { pull_frames: 4, push_frames: 4, tolerance: 50.0 };
-        assert!(world.railed_dock_action(ferry, second, config));
+        assert!(world.railed_dock_action(ferry, second, config, &mut Default::default()));
         world.railed_dock_update(ferry, config, &mut Default::default()).unwrap();
         assert_eq!(world.objects[&ferry].contained_unit_ids(), &[first, second]);
         assert_eq!(world.objects[&first].get_position(), Vec3::ZERO);
@@ -1233,7 +1239,7 @@ Object rider\nKindOf = INFANTRY SELECTABLE\nTransportSlotCount = 1\nBody = Activ
         world.update_owned_partition_with_effects(&mut Default::default()).unwrap();
         assert!(world.object_ids_near(Vec3::ZERO, 25.0).contains(&charge));
         let config = RailedDockConfig { pull_frames: 4, push_frames: 4, tolerance: 50.0 };
-        assert!(world.railed_dock_action(ferry, rider, config));
+        assert!(world.railed_dock_action(ferry, rider, config, &mut Default::default()));
         assert_eq!(world.objects[&ferry].railed_dock.docking.unwrap().id, rider);
         assert_eq!(world.objects[&rider].contained_by, None);
         world.railed_dock_update(ferry, config, &mut Default::default()).unwrap();
@@ -1340,7 +1346,7 @@ End
         install(&mut source);
         let ferry = source.create_object("ferry", Team::USA, Vec3::ZERO).unwrap();
         let rider = source.create_object("rider", Team::USA, Vec3::new(20.0, 0.0, 0.0)).unwrap();
-        assert!(source.railed_dock_action(ferry, rider, config));
+        assert!(source.railed_dock_action(ferry, rider, config, &mut Default::default()));
         source.railed_dock_update(ferry, config, &mut Default::default()).unwrap();
         let builder = SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).unwrap();
@@ -1522,6 +1528,7 @@ Object RailFerry
 End
 Object RailPassenger
  KindOf = VEHICLE SELECTABLE
+ EnergyProduction = 20
  Body = ActiveBody Body
   MaxHealth = 100
   InitialHealth = 100
@@ -1530,18 +1537,22 @@ Object RailPassenger
  End
 End
 ".into())]).unwrap();
-        let ferry = world.create_object("RailFerry", Team::USA, Vec3::ZERO).unwrap();
-        let first = world.create_object("RailPassenger", Team::USA, Vec3::ZERO).unwrap();
-        let second = world.create_object("RailPassenger", Team::USA, Vec3::ZERO).unwrap();
-        for rider in [first, second] {
-            assert!(world.objects.get_mut(&ferry).unwrap().add_occupant(rider));
-            GameLogic::set_owned_containment_in_parts(&mut world.objects, &mut world.partition_manager,
-                &mut world.ai_groups, &mut world.pathfinding_system, rider, Some(ferry), true);
-        }
+        world.add_player(crate::game_logic::Player::new(1, Team::USA, "Rail owner", true));
+        let ferry = world.create_object_for_player("RailFerry", 1, Vec3::ZERO).unwrap();
+        let first = world.create_object_for_player("RailPassenger", 1, Vec3::ZERO).unwrap();
+        let second = world.create_object_for_player("RailPassenger", 1, Vec3::ZERO).unwrap();
         let config = RailedDockConfig { pull_frames: 4, push_frames: 4, tolerance: 50.0 };
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             pristine_bones: Some(&assets), ..Default::default()
         };
+        assert_eq!(world.get_player(1).unwrap().power_produced, 40);
+        assert!(world.railed_dock_action(ferry, first, config, &mut effects));
+        assert_eq!(world.get_player(1).unwrap().power_produced, 20, "pulling holds immediately");
+        world.railed_dock_update(ferry, config, &mut effects).unwrap();
+        assert_eq!(world.objects[&first].contained_by, Some(ferry));
+        assert_eq!(world.get_player(1).unwrap().power_produced, 20, "boarding does not debit twice");
+        assert!(world.railed_add_contained_with_effects(ferry, second, &mut effects).unwrap());
+        assert_eq!(world.get_player(1).unwrap().power_produced, 0);
         world.railed_dock_unload(ferry, config, false, &mut effects).unwrap();
         assert_eq!(world.objects[&ferry].contained_unit_ids(), &[second]);
         assert_eq!(world.objects[&ferry].railed_dock.unloading.unwrap().id, first);
@@ -1549,6 +1560,7 @@ End
         assert_eq!(world.objects[&ferry].railed_dock.push_per_frame, 5.0);
         assert_eq!(world.objects[&first].contained_by, None);
         assert!(world.objects[&first].status.disabled_held);
+        assert_eq!(world.get_player(1).unwrap().power_produced, 0, "unloading re-applies the hold");
         assert_eq!(world.objects[&second].contained_by, Some(ferry));
         let width = world.pathfinding_system.grid.width() as u32;
         let height = world.pathfinding_system.grid.height() as u32;
@@ -1561,6 +1573,7 @@ End
         }
         assert!(!world.objects[&ferry].railed_dock.busy());
         assert!(!world.objects[&first].status.disabled_held);
+        assert_eq!(world.get_player(1).unwrap().power_produced, 20, "only the released passenger produces power");
         assert_eq!(world.objects[&first].last_command_source,
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI);
         assert_eq!(world.objects[&ferry].contained_unit_ids(), &[second]);

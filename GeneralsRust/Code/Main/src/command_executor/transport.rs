@@ -507,7 +507,7 @@ impl<'a> CommandExecutor<'a> {
             let drop_position = origin + offset;
 
             let was_tunnel = if let Some(exit_tid) = tunnel_exit {
-                self.game_logic.exit_tunnel_network_unit(unit_id, exit_tid)
+                self.game_logic.exit_tunnel_network_unit_with_effects(unit_id, exit_tid, &mut self.ui)
             } else if let Some(cid) = container_id {
                 // Fallback: unit in shared pool exiting via entry tunnel.
                 if self
@@ -516,7 +516,7 @@ impl<'a> CommandExecutor<'a> {
                     .player_holding_unit(unit_id)
                     .is_some()
                 {
-                    self.game_logic.exit_tunnel_network_unit(unit_id, cid)
+                    self.game_logic.exit_tunnel_network_unit_with_effects(unit_id, cid, &mut self.ui)
                 } else {
                     false
                 }

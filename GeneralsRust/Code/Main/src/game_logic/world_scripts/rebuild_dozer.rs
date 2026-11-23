@@ -932,9 +932,17 @@ impl GameLogic {
                 if tunnel_count == 0 {
                     let units = self.tunnel_network.contained_for_player(player_id);
                     for (i, uid) in units.into_iter().enumerate() {
-                        let _ = self
-                            .tunnel_network
-                            .record_exit(player_id, uid, structure_id);
+                        let Some(birth) = self.objects.get(&uid).map(|unit| unit.visual_object_generation)
+                        else {
+                            continue;
+                        };
+                        let epoch = self.visual_world_epoch;
+                        if !self.exit_tunnel_network_unit_with_effects(uid, structure_id, effects) {
+                            continue;
+                        }
+                        if !self.spawn_identity_matches(uid, birth, epoch) {
+                            continue;
+                        }
 
                         if let Some(unit) = self.objects.get_mut(&uid) {
                             let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
@@ -950,20 +958,6 @@ impl GameLogic {
                             unit.clear_target(&mut crate::game_logic::ObjectAudio::queue(
                                 &mut self.queued_audio_events,
                             ));
-                            let containment_actor_id = unit.id;
-                            Self::set_owned_containment_in_parts(
-                                &mut self.objects,
-                                &mut self.partition_manager,
-                                &mut self.ai_groups,
-                                &mut self.pathfinding_system,
-                                containment_actor_id,
-                                None,
-                                true,
-                            );
-                            let unit = self
-                                .objects
-                                .get_mut(&containment_actor_id)
-                                .expect("containment operation preserves this birth");
                             unit.set_ai_state(
                                 AIState::Idle,
                                 self.frame,
