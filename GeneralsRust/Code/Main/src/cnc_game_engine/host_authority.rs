@@ -2043,8 +2043,8 @@ impl CnCGameEngine {
         self.configure_receiving_replay_menu();
         // No Common AR_Play output from this candidate can escape a rejected
         // client/camera/presentation admission. Emit once at the successful tail.
-        self.game_logic.finish_saved_snapshot_admission()?;
-        pending_map_audio.admit_to_live(
+        pending_map_audio.admit_after_restore(
+            &mut self.game_logic,
             super::native_audio_effects::NativeAudioService::receiving(&mut self.subsystem_manager)
                 .as_mut(),
         )?;

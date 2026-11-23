@@ -1,5 +1,6 @@
 //! Borrow the existing application audio service only at a native operation root.
 //! No lock spans a simulation walk: legacy callbacks may submit other audio.
+use game_engine::common::audio::audio_event_rts::AudioType;
 use game_engine::common::audio::{AudioEventRts, AudioManager, AudioSubmissionLocality};
 use std::sync::{Arc, Mutex};
 
@@ -21,11 +22,69 @@ impl<'a> NativeAudioService<'a> {
             queued_events,
         })
     }
+    fn is_playback_receipt(handle: u32) -> bool {
+        (1000..0xFFFF_FFF0).contains(&handle)
+    }
+
     fn record(&mut self, handle: u32) {
-        if (1000..0xFFFF_FFF0).contains(&handle) {
+        if Self::is_playback_receipt(handle) {
             self.receipts.push(handle);
         }
     }
+
+    /// ScriptEngine.cpp:9290–9307 restarts the saved track for the local player.
+    fn resume_saved_music(&mut self, world: &mut crate::game_logic::GameLogic) -> Result<(), String> {
+        let Some((interpreter, player)) = world
+            .owned_script_engine
+            .as_ref()
+            .zip(world.local_player_id())
+        else {
+            return Ok(());
+        };
+        let track = interpreter.get_current_track_name();
+        if track.is_empty() {
+            return Ok(());
+        }
+
+        let locality = world.receiving_audio_locality_for_player(player as i32);
+        let mut selection = crate::game_logic::SessionAudioSelection {
+            logic: &world.logic_random,
+            audio: &mut world.session_view.audio_random,
+        };
+        let handle = {
+            let mut device = self
+                .device
+                .lock()
+                .map_err(|_| "receiving native music device poisoned".to_owned())?;
+            let Some(info) = device
+                .find_audio_event_info(&track)
+                .filter(|info| info.sound_type == AudioType::Music)
+            else {
+                log::warn!("Saved music track {track:?} is unavailable on the receiving device");
+                return Ok(());
+            };
+            let mut event = AudioEventRts::with_event_name(&track);
+            event.set_player_index(player as i32);
+            event.set_volume(info.volume);
+            event.set_audio_event_info(info);
+            let Some(mut event) = device.prepare_audio_event_with_selection(&event, &mut selection)?
+            else {
+                return Ok(());
+            };
+            event.admit_script_policy(world.queued_audio_events.policy());
+            let handle = device.add_prepared_audio_event_with_locality(&event, &locality);
+            if Self::is_playback_receipt(handle) {
+                // The app's device may still carry the old match or loading
+                // track. Replace only this session's music before the mixer
+                // starts the new request.
+                device.stop_music_for_handles(self.receipts, false);
+            }
+            handle
+        };
+        self.record(handle);
+        Ok(())
+    }
+
     pub(super) fn receiver(&mut self) -> &mut dyn crate::game_logic::NativeAudioEffects {
         self
     }
@@ -320,6 +379,20 @@ pub(super) struct PendingNativeAudio {
     fx_device: Option<Arc<Mutex<AudioManager>>>,
 }
 impl PendingNativeAudio {
+    /// Admit constructor audio and the ScriptEngine's post-load cue at commit.
+    pub(super) fn admit_after_restore(
+        self,
+        world: &mut crate::game_logic::GameLogic,
+        mut audio: Option<&mut NativeAudioService<'_>>,
+    ) -> Result<(), String> {
+        world.finish_saved_snapshot_admission()?;
+        self.admit_to_live(audio.as_deref_mut())?;
+        if let Some(audio) = audio {
+            audio.resume_saved_music(world)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn capture_sound_service(&mut self, device: Option<Arc<Mutex<AudioManager>>>) {
         self.fx_device = device;
     }
@@ -576,6 +649,105 @@ mod music_completion_tests {
             )
             .unwrap();
         *service.receipts.last().unwrap()
+    }
+
+    #[test]
+    fn restored_audio_replays_the_saved_track_once_for_the_receiving_world() {
+        use crate::game_logic::{GameLogic, Player, Team};
+        use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+
+        let (device, playback) = recording_device();
+        let mut receipts = Vec::new();
+        let mut queued = Vec::new();
+        let mut audio = NativeAudioService {
+            device: &device,
+            receipts: &mut receipts,
+            queued_events: &mut queued,
+        };
+        let mut peer_receipts = Vec::new();
+        let mut peer_queued = Vec::new();
+        let mut peer = NativeAudioService {
+            device: &device,
+            receipts: &mut peer_receipts,
+            queued_events: &mut peer_queued,
+        };
+        let old_music = submit_music_fixture(&mut audio, "Game_USA_11", false);
+        let peer_music = submit_music_fixture(&mut peer, "Game_USA_11", false);
+        let old_click = submit_music_fixture(&mut audio, "GUIClick", false);
+        device.lock().unwrap().process_request_list();
+        let queued_music = submit_music_fixture(&mut audio, "Shell", false);
+
+        // The real map admits the receiving Team prototypes before loading
+        // their saved roster.
+        let world_with_player = || {
+            let mut world = GameLogic::new();
+            world.add_player(Player::new(5, Team::USA, "Saved local player", true));
+            assert!(world.select_local_player(Some(5)));
+            world
+        };
+        let mut source = world_with_player();
+        source
+            .owned_script_engine
+            .as_ref()
+            .unwrap()
+            .set_current_track_name("Game_USA_11".into());
+        source
+            .queued_audio_events
+            .set_named_volume("Game_USA_11", 0.55);
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let snapshot = decode_bincode_world_snapshot(&bytes).unwrap();
+        let mut world = world_with_player();
+        builder.restore_from_snapshot(&snapshot, &mut world).unwrap();
+        assert!(world.select_local_player(Some(5)));
+        assert_eq!(
+            world.owned_script_engine.as_ref().unwrap().get_current_track_name(),
+            "Game_USA_11"
+        );
+        let logic_seed = world.logic_random.seed_words();
+        let pending_map_music = || {
+            let mut pending = PendingNativeAudio::default();
+            pending.capture_sound_service(Some(Arc::clone(&device)));
+            pending.add_audio_event(
+                &AudioEventRts::with_event_name("Shell"),
+                &crate::game_logic::audio_dispatch_impl::receiving_submission_locality(-1, None),
+            );
+            pending
+        };
+
+        assert!(pending_map_music()
+            .admit_after_restore(&mut world, Some(&mut audio))
+            .is_err());
+        assert!(playback.lock().unwrap().stops.is_empty());
+        assert_eq!(
+            device.lock().unwrap().pending_play_request_count_for("Shell"),
+            1
+        );
+
+        world.begin_saved_snapshot_admission().unwrap();
+        pending_map_music()
+            .admit_after_restore(&mut world, Some(&mut audio))
+            .unwrap();
+        assert!(pending_map_music()
+            .admit_after_restore(&mut world, Some(&mut audio))
+            .is_err());
+        assert_eq!(world.logic_random.seed_words(), logic_seed);
+        let mut mixer = device.lock().unwrap();
+        let resumed = {
+            let mut pending = mixer.pending_play_events();
+            let event = pending.next().expect("the saved song was queued");
+            assert_eq!(event.get_event_name(), "Game_USA_11");
+            assert_eq!(event.get_player_index(), 5);
+            assert_eq!(event.get_volume(), 0.55);
+            assert!(pending.next().is_none(), "only one track should remain queued");
+            event.get_playing_handle()
+        };
+        assert!(![old_music, peer_music, old_click, queued_music].contains(&resumed));
+        mixer.process_request_list();
+        let played = playback.lock().unwrap();
+        assert_eq!(played.starts, [old_music, peer_music, old_click, resumed]);
+        assert_eq!(played.stops, [old_music]);
     }
 
     #[test]
