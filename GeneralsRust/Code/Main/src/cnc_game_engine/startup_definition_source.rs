@@ -6,23 +6,27 @@ pub(super) fn read_optional_text(
     owner: &Mutex<AssetManager>,
     path: &str,
 ) -> Result<Option<String>, String> {
-    // This worker can wait for other application archive work. Contention is
-    // never evidence that a required definition is absent. Release the service
-    // before decoding or invoking any INI/parser callback.
-    let bytes = {
-        let mut manager = owner
-            .lock()
-            .map_err(|_| format!("startup archive owner poisoned while reading '{path}'"))?;
-        manager
-            .read_optional_definition_source(path)
-            .map_err(|error| format!("startup definition '{path}': {error}"))?
-    };
-    bytes
+    read_optional_bytes(owner, path)?
         .map(|bytes| {
             String::from_utf8(bytes)
                 .map_err(|error| format!("startup definition '{path}' is not UTF-8: {error}"))
         })
         .transpose()
+}
+
+pub(super) fn read_optional_bytes(
+    owner: &Mutex<AssetManager>,
+    path: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    // This worker can wait for other application archive work. Contention is
+    // never evidence that a required definition is absent. Release the service
+    // before decoding or invoking any INI/parser callback.
+    let mut manager = owner
+        .lock()
+        .map_err(|_| format!("startup archive owner poisoned while reading '{path}'"))?;
+    manager
+        .read_optional_definition_source(path)
+        .map_err(|error| format!("startup definition '{path}': {error}"))
 }
 
 /// Immutable application baselines already admitted before the worker starts.

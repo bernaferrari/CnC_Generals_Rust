@@ -349,7 +349,7 @@ impl TerrainVisualImpl {
             if has_loose(path) {
                 continue;
             }
-            if let Some(bytes) = crate::terrain::tree_buffer::read_game_fs_bytes(path) {
+            if let Some(bytes) = crate::asset_file_system::read_game_fs_bytes(path) {
                 let source = (path.to_string(), bytes);
                 if first {
                     sources.insert(0, source);
@@ -945,7 +945,7 @@ mod terrain_ini_archive_tests {
             eprintln!("skipping: no INIZH.big under Main/assets");
             return;
         };
-        crate::terrain::tree_buffer::add_game_fs_search_roots(&[assets], true);
+        crate::asset_file_system::add_game_fs_search_roots(&[assets], true);
 
         let mut sources = Vec::new();
         let archive_sources =

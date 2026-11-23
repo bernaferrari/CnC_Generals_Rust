@@ -1053,7 +1053,7 @@ impl TerrainVisualImpl {
                         }
                     }
                 }
-                if let Some(bytes) = crate::terrain::tree_buffer::read_game_fs_bytes(&candidate) {
+                if let Some(bytes) = crate::asset_file_system::read_game_fs_bytes(&candidate) {
                     pending_bytes.push((key, bytes));
                     resolved = true;
                     break;

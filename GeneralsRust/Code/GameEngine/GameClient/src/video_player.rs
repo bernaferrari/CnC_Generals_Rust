@@ -161,11 +161,16 @@ pub struct VideoIniCatalogSources {
 }
 
 impl VideoIniCatalogSources {
-    pub fn from_game_file_system() -> Self {
+    /// Read one selected file for each of the original catalog layers.
+    pub fn read_from(mut read: impl FnMut(&str) -> Option<Vec<u8>>) -> Self {
         Self {
-            default_catalog: crate::terrain::tree_buffer::read_game_fs_bytes("Data/INI/Default/Video.ini"),
-            overlay_catalog: crate::terrain::tree_buffer::read_game_fs_bytes("Data/INI/Video.ini"),
+            default_catalog: read("Data/INI/Default/Video.ini"),
+            overlay_catalog: read("Data/INI/Video.ini"),
         }
+    }
+
+    pub(crate) fn from_game_file_system() -> Self {
+        Self::read_from(crate::asset_file_system::read_game_fs_bytes)
     }
 }
 

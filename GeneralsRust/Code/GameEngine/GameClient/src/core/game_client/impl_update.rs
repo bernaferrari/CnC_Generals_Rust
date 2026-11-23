@@ -2620,6 +2620,9 @@ impl GameClient {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .update_receiving(self.script_display.fx_mut())?;
+        } else {
+            // Main presents this receiver's DisplayFxState through its existing WGPU overlay.
+            self.script_display.update_native_movie();
         }
         Ok(())
     }
@@ -3025,3 +3028,7 @@ impl GameClient {
 #[cfg(test)]
 #[path = "native_visual_time_tests.rs"]
 mod native_visual_time_tests;
+
+#[cfg(test)]
+#[path = "native_fullscreen_movie_tests.rs"]
+mod native_fullscreen_movie_tests;

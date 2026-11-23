@@ -83,6 +83,7 @@ pub mod w3d_web_browser;
 pub mod water;
 
 // Complete asset loading system
+mod asset_file_system;
 pub mod assets;
 pub mod bink;
 pub mod bink_audio;

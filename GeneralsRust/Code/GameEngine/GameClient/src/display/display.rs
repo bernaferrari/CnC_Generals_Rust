@@ -8,6 +8,7 @@ use glam::{Mat4, Vec3};
 
 use crate::display::DisplayInterface;
 use crate::display::display_fx;
+use crate::display::fullscreen_movie::FullscreenMovie;
 use crate::display::shadow_pass;
 use crate::display::view::{
     LETTER_BOX_FADE_TIME_MS, ViewTrait, vertical_fov_from_horizontal, with_tactical_view,
@@ -17,9 +18,6 @@ use crate::effects::particle_manager::get_particle_system_manager;
 use crate::effects::particle_renderer::{
     ParticleRenderer as GpuParticleRenderer, ParticleUniforms,
 };
-use crate::game_text::GameText;
-use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
-use crate::gui::font::{FontDesc, get_font_library};
 use crate::gui::ui_renderer::UIRect;
 use crate::platform::GraphicsContext;
 use crate::system::SubsystemInterface;
@@ -40,7 +38,7 @@ use log::{error, warn};
 use std::any::Any;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use wgpu::SurfaceTexture;
 
 pub type DebugDisplayCallback = fn(&mut DebugDisplay, Option<&mut dyn Any>);
@@ -166,15 +164,8 @@ pub struct Display {
     hint_model_cache: RefCell<crate::display::view::HintModelCache>,
     /// Filter RTT/history resources are tied to this Display's device and lifetime.
     shader_filter_resources: crate::display::shader_filter::ShaderFilterResources,
-    video_buffer: Option<Box<dyn VideoBuffer + Send>>,
-    video_stream: Option<Box<dyn VideoStreamInterface>>,
+    fullscreen_movie: FullscreenMovie,
     video_player_slot: Option<VideoPlayerHandle>,
-    currently_playing_movie: String,
-    movie_hold_time_ms: i32,
-    copyright_hold_time_ms: i32,
-    movie_start_time: Option<Instant>,
-    copyright_start_time: Option<Instant>,
-    copyright_display_string: Option<DisplayStringHandle>,
     debug_display: Option<DebugDisplay>,
     debug_display_callback: Option<DebugDisplayCallback>,
     debug_display_user_data: Option<Box<dyn Any + Send + Sync>>,
@@ -256,15 +247,8 @@ impl Display {
             hint_model_cache: RefCell::new(crate::display::view::HintModelCache::default()),
             shader_filter_resources: crate::display::shader_filter::ShaderFilterResources::default(
             ),
-            video_buffer: None,
-            video_stream: None,
+            fullscreen_movie: FullscreenMovie::default(),
             video_player_slot: None,
-            currently_playing_movie: String::new(),
-            movie_hold_time_ms: -1,
-            copyright_hold_time_ms: -1,
-            movie_start_time: None,
-            copyright_start_time: None,
-            copyright_display_string: None,
             debug_display: None,
             debug_display_callback: None,
             debug_display_user_data: None,
@@ -511,84 +495,23 @@ impl Display {
         Box::new(SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8))
     }
 
-    pub fn play_logo_movie(
-        &mut self,
-        fx: &mut display_fx::DisplayFxState,
-        movie_name: String,
-        min_movie_length: i32,
-        min_copyright_length: i32,
-    ) {
+    pub fn play_logo_movie(&mut self, fx: &mut display_fx::DisplayFxState, movie_name: String, min_movie_length: i32, min_copyright_length: i32) {
         self.stop_movie(fx);
-
-        let stream = self.open_video_stream(movie_name.clone());
-        let Some(stream) = stream else {
-            warn!("logo movie skipped (no video provider): {}", movie_name);
-            return;
-        };
-
-        self.currently_playing_movie = movie_name;
-        self.movie_hold_time_ms = min_movie_length;
-        self.copyright_hold_time_ms = min_copyright_length;
-        self.movie_start_time = Some(Instant::now());
-        self.copyright_start_time = None;
-
-        let mut buffer = self.create_video_buffer();
-        if !buffer.allocate(stream.width() as u32, stream.height() as u32) {
-            self.stop_movie(fx);
-            return;
-        }
-        self.video_buffer = Some(buffer);
-        self.video_stream = Some(stream);
+        let Some(stream) = self.open_video_stream(movie_name.clone()) else { warn!("logo movie skipped (no video provider): {}", movie_name); return; };
+        let _ = self.fullscreen_movie.start(stream, min_movie_length, min_copyright_length);
     }
 
     pub fn play_movie(&mut self, fx: &mut display_fx::DisplayFxState, movie_name: String) -> bool {
         self.stop_movie(fx);
-
-        let stream = self.open_video_stream(movie_name.clone());
-        let Some(stream) = stream else {
-            warn!("movie playback skipped (no video provider): {}", movie_name);
-            return false;
-        };
-
-        self.currently_playing_movie = movie_name;
-
-        let mut buffer = self.create_video_buffer();
-        if !buffer.allocate(stream.width() as u32, stream.height() as u32) {
-            self.stop_movie(fx);
-            return false;
-        }
-
-        self.video_buffer = Some(buffer);
-        self.video_stream = Some(stream);
-        true
+        let Some(stream) = self.open_video_stream(movie_name.clone()) else { warn!("movie playback skipped (no video provider): {}", movie_name); return false; };
+        self.fullscreen_movie.start(stream, -1, -1)
     }
 
     pub fn stop_movie(&mut self, fx: &mut display_fx::DisplayFxState) {
-        // Display.cpp:244-266 deliberately disables script video-completion
-        // notification. Stopping one presentation must not mutate another world.
-        self.currently_playing_movie.clear();
-        self.video_buffer = None;
-        fx.clear_movie_frame();
-        fx.set_copyright_overlay(None);
-
-        if let Some(stream) = self.video_stream.take() {
-            stream.close();
-        }
-
-        if let Some(display_string) = self.copyright_display_string.take() {
-            let mut manager = get_display_string_manager();
-            manager.free_display_string(display_string);
-        }
-
-        self.movie_hold_time_ms = -1;
-        self.copyright_hold_time_ms = -1;
-        self.movie_start_time = None;
-        self.copyright_start_time = None;
+        self.fullscreen_movie.stop(fx);
     }
 
-    pub fn is_movie_playing(&self) -> bool {
-        self.video_stream.is_some() && self.video_buffer.is_some()
-    }
+    pub fn is_movie_playing(&self) -> bool { self.fullscreen_movie.is_playing() }
 
     pub fn toggle_movie_capture(&mut self, fx: &mut display_fx::DisplayFxState) {
         fx.set_movie_capture_enabled(!fx.is_movie_capture_enabled());
@@ -771,113 +694,8 @@ impl Display {
         { None }
     }
 
-    fn ensure_copyright_display_string(&mut self, fx: &mut display_fx::DisplayFxState) {
-        let mut manager = get_display_string_manager();
-        let display_string = manager.new_display_string();
-        let (font_name, font_size, font_bold) = {
-            let __lang = crate::global_language::get_global_language_data();
-            let lang = __lang
-                .read()
-                .ok();
-            if let Some(lang) = lang.as_ref() {
-                if !lang.copyright_font.name.is_empty() {
-                    (
-                        lang.copyright_font.name.clone(),
-                        lang.adjust_font_size(lang.copyright_font.size),
-                        lang.copyright_font.bold,
-                    )
-                } else {
-                    ("Courier".to_string(), lang.adjust_font_size(12), true)
-                }
-            } else {
-                ("Courier".to_string(), 12, true)
-            }
-        };
-        let (text_w, text_h) = {
-            let mut display_string_mut = display_string.borrow_mut();
-            display_string_mut.set_text(GameText::fetch("GUI:EACopyright"));
-            let font_desc = FontDesc::new(&font_name, font_size, font_bold);
-            let font_library_handle = get_font_library();
-            let mut font_library = font_library_handle.lock().unwrap_or_else(|e| e.into_inner());
-            if let Ok(font) = font_library.get_font(&font_desc) {
-                display_string_mut.set_font(font);
-            }
-            display_string_mut.get_size()
-        };
-        fx.set_copyright_overlay(Some(display_fx::CopyrightOverlay {
-            text: GameText::fetch("GUI:EACopyright"),
-            width: text_w as f32,
-            height: text_h.max(font_size) as f32,
-            font_size: font_size.max(1) as f32,
-        }));
-        self.copyright_display_string = Some(display_string);
-        self.copyright_start_time = Some(Instant::now());
-    }
-
     fn update_movie_playback(&mut self, fx: &mut display_fx::DisplayFxState) {
-        let should_stop = 'frame: {
-            let (stream, buffer) = match (self.video_stream.as_mut(), self.video_buffer.as_mut()) {
-                (Some(stream), Some(buffer)) => (stream, buffer),
-                _ => return,
-            };
-
-            if stream.has_decode_failed() {
-                break 'frame true;
-            }
-            if !stream.is_frame_ready() {
-                return;
-            }
-
-            stream.frame_decompress();
-            if stream.has_decode_failed() {
-                break 'frame true;
-            }
-            stream.frame_render(buffer.as_mut());
-            if let Some((w, h, rgba)) = display_fx::video_buffer_rgba_mut(buffer.as_mut()) {
-                fx.store_movie_frame(w, h, rgba);
-            }
-
-            if stream.frame_index() != stream.frame_count() - 1 {
-                stream.frame_next();
-                break 'frame stream.has_decode_failed();
-            }
-
-            if self.copyright_hold_time_ms >= 0 || self.movie_hold_time_ms >= 0 {
-                if self.copyright_start_time.is_none() && self.copyright_hold_time_ms >= 0 {
-                    self.ensure_copyright_display_string(fx);
-                }
-
-                let now = Instant::now();
-                let movie_elapsed = self
-                    .movie_start_time
-                    .map(|start| now.duration_since(start))
-                    .unwrap_or_else(|| Duration::from_millis(0));
-                let copyright_elapsed = self
-                    .copyright_start_time
-                    .map(|start| now.duration_since(start))
-                    .unwrap_or_else(|| Duration::from_millis(0));
-
-                if (self.movie_hold_time_ms >= 0
-                    && movie_elapsed
-                        >= Duration::from_millis(self.movie_hold_time_ms.max(0) as u64))
-                    && (self.copyright_hold_time_ms >= 0
-                        && copyright_elapsed
-                            >= Duration::from_millis(self.copyright_hold_time_ms.max(0) as u64))
-                {
-                    self.movie_hold_time_ms = -1;
-                    self.copyright_hold_time_ms = -1;
-                    self.movie_start_time = None;
-                    self.copyright_start_time = None;
-                }
-                false
-            } else {
-                true
-            }
-        };
-
-        if should_stop {
-            self.stop_movie(fx);
-        }
+        self.fullscreen_movie.advance(fx);
     }
 
     fn build_particle_uniforms(

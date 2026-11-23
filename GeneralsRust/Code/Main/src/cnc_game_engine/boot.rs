@@ -1307,9 +1307,21 @@ impl CnCGameEngine {
                 );
             }
             let replay_menu_inputs = engine.receiving_replay_menu_inputs();
+            let video_catalog = game_client::video_player::VideoIniCatalogSources::read_from(|path| {
+                match super::startup_definition_source::read_optional_bytes(
+                    engine.application_assets.as_ref(),
+                    path,
+                ) {
+                    Ok(source) => source,
+                    Err(error) => {
+                        warn!("Receiving video catalog read failed: {error}");
+                        None
+                    }
+                }
+            });
             if let Err(e) = engine
                 .game_client
-                .init_display_subsystems_with_replay_menu(Some(replay_menu_inputs))
+                .init_display_subsystems_with_startup_content(Some(replay_menu_inputs), &video_catalog)
             {
                 warn!("GameClient display subsystems init failed: {}", e);
             }

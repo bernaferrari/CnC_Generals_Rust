@@ -1,4 +1,6 @@
 use crate::display::display::{DebugDisplayCallback, Display as GraphicsDisplay};
+use crate::display::fullscreen_movie::FullscreenMovie;
+use crate::video_player::{VideoPlayerHandle, VideoPlayerInterface};
 use crate::display::view::{
     CameraLockType, CameraShakeType, FilterMode, FilterType, Point3, Vector2, with_tactical_view,
     with_tactical_view_ref,
@@ -25,11 +27,32 @@ use std::sync::{Arc, Mutex, Weak};
 #[derive(Default)]
 pub struct ScriptDisplayReceiver {
     display: Option<Weak<Mutex<GraphicsDisplay>>>,
+    video_player_slot: Option<VideoPlayerHandle>,
+    native_movie: FullscreenMovie,
     fx: crate::display::display_fx::DisplayFxState,
 }
 impl ScriptDisplayReceiver {
     pub fn bind(&mut self, display: Option<&Arc<Mutex<GraphicsDisplay>>>) {
         self.display = display.map(Arc::downgrade);
+    }
+    pub(crate) fn bind_video_player_slot(&mut self, slot: VideoPlayerHandle) {
+        self.video_player_slot = Some(slot);
+    }
+    pub(crate) fn update_native_movie(&mut self) {
+        self.native_movie.advance(&mut self.fx);
+    }
+    fn play_native_movie(&mut self, movie_name: &str) -> bool {
+        self.native_movie.stop(&mut self.fx);
+        let stream = self.video_player_slot.as_ref().and_then(|slot| {
+            slot.lock().ok()?.as_mut()?.open(movie_name.to_owned())
+        });
+        let Some(stream) = stream else {
+            return false;
+        };
+        self.native_movie.start(stream, -1, -1)
+    }
+    pub(crate) fn stop_native_movie(&mut self) {
+        self.native_movie.stop(&mut self.fx);
     }
     fn with_display<R>(
         &mut self,
@@ -57,18 +80,21 @@ impl ScriptDisplayReceiver {
 
 pub fn play_script_display_movie(receiver: &mut ScriptDisplayReceiver, movie_name: &str) -> bool {
     receiver
-        .with_display(|display, fx| display.play_movie(fx, movie_name.to_string()))
-        .unwrap_or(false)
+        .with_display(|display, fx| display.play_movie(fx, movie_name.to_owned()))
+        .unwrap_or_else(|| receiver.play_native_movie(movie_name))
 }
 pub fn is_script_display_movie_playing(receiver: &mut ScriptDisplayReceiver) -> bool {
     receiver
         .with_display(|display, _fx| display.is_movie_playing())
-        .unwrap_or(false)
+        .unwrap_or_else(|| receiver.native_movie.is_playing())
 }
 pub fn stop_script_display_movie(receiver: &mut ScriptDisplayReceiver) -> bool {
-    receiver
-        .with_display(|display, fx| display.stop_movie(fx))
-        .is_some()
+    if receiver.with_display(|display, fx| display.stop_movie(fx)).is_some() {
+        return true;
+    }
+    let is_bound = receiver.video_player_slot.is_some();
+    receiver.stop_native_movie();
+    is_bound
 }
 pub fn toggle_script_display_movie_capture(receiver: &mut ScriptDisplayReceiver) -> bool {
     let enabled = !receiver.fx.is_movie_capture_enabled();

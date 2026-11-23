@@ -583,6 +583,9 @@ impl GameClient {
         }
 
         // Reset subsystems
+        if self.subsystem_manager.display.is_none() {
+            self.script_display.stop_native_movie();
+        }
         self.subsystem_manager
             .reset_all(self.script_display.fx_mut(), &self.session_lighting)?;
         if self.input_authority == ClientInputAuthority::StandaloneCore {
@@ -781,15 +784,8 @@ impl GameClient {
     }
 
     pub fn init_display_subsystems(&mut self) -> GameClientResult<()> {
-        self.init_display_subsystems_with_replay_menu(None)
-    }
-
-    /// Native immutable Recorder policy is admitted before Shell binds authored windows.
-    pub fn init_display_subsystems_with_replay_menu(
-        &mut self,
-        replay_menu: Option<crate::gui::shell::replay_menu::ReplayMenuInputs>,
-    ) -> GameClientResult<()> {
-        self.init_display_subsystems_with_replay_menu_scoped(replay_menu)
+        let video_catalog = crate::video_player::VideoIniCatalogSources::from_game_file_system();
+        self.init_display_subsystems_with_startup_content(None, &video_catalog)
     }
 
     /// Bind a host-owned texture resolver to this client's actual Display
@@ -826,20 +822,24 @@ impl GameClient {
         )
     }
 
-    fn init_display_subsystems_with_replay_menu_scoped(
+    /// Install the receiving application's immutable startup content before
+    /// Shell can open windows or request a movie.
+    pub fn init_display_subsystems_with_startup_content(
         &mut self,
         replay_menu: Option<crate::gui::shell::replay_menu::ReplayMenuInputs>,
+        video_catalog: &crate::video_player::VideoIniCatalogSources,
     ) -> GameClientResult<()> {
         log::info!("init_display_subsystems: starting");
         // C++ initializes TheVideoPlayer before Shell can request menu movies.
         let video_player_slot = self.ensure_video_player_slot();
         let video_search_paths = self.video_search_paths();
-        let video_ini_catalogs = crate::video_player::VideoIniCatalogSources::from_game_file_system();
         crate::video_player::init_video_player_slot(
             &video_player_slot,
             &video_search_paths,
-            &video_ini_catalogs,
+            video_catalog,
         );
+        self.script_display
+            .bind_video_player_slot(video_player_slot.clone());
         self.window_videos.bind_video_player_slot(video_player_slot);
         // Definitions have been loaded; construction itself publishes nothing.
         if !self.menu_host.shell_map_is_configured() {

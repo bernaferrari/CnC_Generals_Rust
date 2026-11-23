@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-use game_engine::common::system::file_system::get_file_system;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 
 pub const MAX_TREE_VERTEX: usize = 30_000;
@@ -845,7 +844,7 @@ impl W3DTreeBuffer {
     /// the pack is dirty or tiles exist with no CPU mips yet.
     pub fn sync_tree_atlas_for_draw(&mut self, lod: i32) -> i32 {
         if self.need_to_update_texture {
-            self.refresh_tree_texture_sources(&mut read_game_fs_bytes);
+            self.refresh_tree_texture_sources(&mut crate::asset_file_system::read_game_fs_bytes);
         }
         let tiles_exist = self.num_tiles > 0 && !self.tile_locations.is_empty();
         if tiles_exist && self.atlas_mips.is_empty() {
@@ -2246,91 +2245,6 @@ pub struct TreeTileImageSpec {
     pub header: TreeTgaHeader,
 }
 
-/// Read a virtual-path file through the game file system: loose overrides
-/// first, then the mounted `.big` archives. Retail tree billboard art
-/// (`Art\Terrain\PT*.tga`) exists only inside `TerrainZH.big`, so a plain
-/// `std::fs::read` can never find it — this mirrors
-/// `TerrainTextures::load_image_from_game_fs_path`.
-pub(crate) fn read_game_fs_bytes(virtual_path: &str) -> Option<Vec<u8>> {
-    ensure_game_fs_backends();
-    let file_system = get_file_system();
-    let mut fs = file_system.lock().ok()?;
-    let mut file = fs.open_file(
-        virtual_path,
-        game_engine::common::system::file::FileAccess::READ
-            .combine(game_engine::common::system::file::FileAccess::BINARY),
-    )?;
-    file.read_entire_and_close().ok()
-}
-
-/// Ensure the engine file system carries the local + BIG backends with the
-/// standard runtime search roots (cwd, exe dir), mirroring the
-/// `TerrainTextures` backend bootstrap so virtual-path reads succeed before
-/// any texture lookup has run.
-pub(crate) fn add_game_fs_search_roots(roots: &[std::path::PathBuf], reload_archives: bool) {
-    use game_engine::common::system::big_file_system::BigArchiveBackend;
-    use game_engine::common::system::file_system::FileSystemBackend;
-    use game_engine::common::system::file_system::get_file_system;
-    use game_engine::common::system::local_file_system::LocalFileSystem;
-    use game_engine::common::system::subsystem_interface::SubsystemInterface as CommonSubsystemInterface;
-
-    let file_system = get_file_system();
-    let Ok(mut guard) = file_system.lock() else {
-        return;
-    };
-
-    {
-        let local_backend: &mut LocalFileSystem = guard.ensure_backend(LocalFileSystem::new);
-        for path in roots {
-            local_backend.add_search_path(path);
-        }
-    }
-    {
-        let big_backend: &mut BigArchiveBackend = guard.ensure_backend(BigArchiveBackend::new);
-        for path in roots {
-            big_backend.add_search_path(path);
-        }
-        if reload_archives {
-            // Close and re-scan so archives in newly added roots are picked
-            // up even after the backend already initialized once.
-            big_backend.reset();
-        }
-    }
-
-    guard.clear_cache();
-    let _ = CommonSubsystemInterface::init(&mut *guard);
-}
-
-fn ensure_game_fs_backends() {
-    enum GameFsRoots {}
-    game_engine::common::common_services::once_per_application::<GameFsRoots>(|| {
-        let mut roots = vec![std::path::PathBuf::from(".")];
-        if let Ok(cwd) = std::env::current_dir() {
-            roots.push(cwd.clone());
-            // Worktree retail + extracted BIG siblings (INIZH.big lives under Data/).
-            roots.push(cwd.join("windows_game/Command & Conquer Generals Zero Hour"));
-            roots.push(cwd.join("windows_game/Command & Conquer Generals Zero Hour/Data"));
-            roots.push(cwd.join("../windows_game/Command & Conquer Generals Zero Hour"));
-            roots.push(cwd.join("../windows_game/Command & Conquer Generals Zero Hour/Data"));
-        }
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                roots.push(parent.to_path_buf());
-            }
-        }
-        if let Ok(assets) = std::env::var("GENERALS_ASSETS_DIR") {
-            let assets = std::path::PathBuf::from(assets);
-            roots.push(assets.clone());
-            roots.push(assets.join("Data"));
-            // Sibling extracted tree next to the retail install.
-            if let Some(parent) = assets.parent() {
-                roots.push(parent.join("extracted_big_files_v2"));
-            }
-        }
-        add_game_fs_search_roots(&roots, true);
-    });
-}
-
 fn load_tree_texture_source(
     name: &str,
     read_virtual_file: &mut impl FnMut(&str) -> Option<Vec<u8>>,
@@ -3246,7 +3160,7 @@ mod game_fs_tree_tests {
             eprintln!("skipping: no TerrainZH.big under Main/assets");
             return;
         };
-        add_game_fs_search_roots(&[assets], true);
+        crate::asset_file_system::add_game_fs_search_roots(&[assets], true);
 
         // NatureProp.ini's CINETreeDogwood1/2 share PTDogwod01.tga even
         // though their model material textures differ. Blossom spans four
@@ -3269,8 +3183,8 @@ mod game_fs_tree_tests {
         let (atlas_width, _) = buffer.texture_size();
         let atlas = &buffer.atlas_upload_levels()[0];
         for (i, (_, texture, width)) in cases.iter().enumerate() {
-            let bytes = read_game_fs_bytes(&format!("Art/Terrain/{texture}"))
-                .or_else(|| read_game_fs_bytes(&format!("Art/Textures/{texture}")))
+            let bytes = crate::asset_file_system::read_game_fs_bytes(&format!("Art/Terrain/{texture}"))
+                .or_else(|| crate::asset_file_system::read_game_fs_bytes(&format!("Art/Textures/{texture}")))
                 .expect("authored TextureName in retail terrain assets");
             assert_eq!((bytes[0], bytes[2], bytes[16], bytes[17]), (0, 2, 32, 8));
             assert_eq!(u16::from_le_bytes([bytes[12], bytes[13]]) as usize, *width);
