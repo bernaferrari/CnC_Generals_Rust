@@ -38,6 +38,14 @@ impl GameLogic {
         let Some(mut object) = self.objects.remove_owned(&id) else {
             return Ok(None);
         };
+        // MissileAIUpdate dies with its Object. InstantDeathBehavior can
+        // remove the actor before KILL_SELF reaches its flight deadline.
+        let birth = Some((object.visual_object_generation, self.visual_world_epoch));
+        if self.combat_system.get_projectiles().get(&id)
+            .is_some_and(|projectile| projectile.projectile_actor_birth == birth)
+        {
+            self.combat_system.remove_projectile(id);
+        }
         // Object::~Object first removes its pathfinder entries after unlinking.
         if !object.is_kind_of(KindOf::Immobile) {
             if self.pathfinding_system.map_ready && object.has_ai_update_interface() {

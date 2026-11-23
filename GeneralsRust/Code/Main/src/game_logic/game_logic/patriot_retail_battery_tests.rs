@@ -308,9 +308,12 @@ fn superweapon_missile_save_continues_the_same_owned_flight() {
 #[test]
 fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
     use crate::presentation_frame::PresentationFrame;
-    let (mut original, source, target) = world_for_target(RetailTarget::Vehicle, true);
+    // The stock regular Patriot weapon leaves its missile alive through KILL_SELF.
+    let (mut original, source, target) = world();
     launch_one(&mut original, source, target);
-    let id = original.combat_system.projectiles_snapshot()[0].id;
+    let shot = &original.combat_system.projectiles_snapshot()[0];
+    assert!(!shot.die_on_detonate);
+    let id = shot.id;
     let initial = PresentationFrame::build_from_logic(&mut original, 0);
     assert!(initial.projectile_render_inputs().iter().any(|row| row.id == id));
     for _ in 0..300 {
@@ -323,7 +326,8 @@ fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
     let projectile = original.combat_system.projectiles_snapshot().into_iter()
         .find(|projectile| projectile.id == id).expect("detonated missile is retained");
     assert!(projectile.missile_drawable_hidden());
-    assert_eq!(original.objects[&id].template_name, "PatriotMissileEMP");
+    assert_eq!(original.objects[&id].template_name, "PatriotMissile");
+    assert!(original.objects[&id].drawable_hidden);
     assert!(projectile.is_missile_kill_self_holding());
     let frame = PresentationFrame::build_from_logic(&mut original, 0);
     assert!(frame.projectiles.iter().any(|row| row.id == id && row.model_hidden));
@@ -335,9 +339,10 @@ fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
     let saved = builder.create_world_snapshot(&original).unwrap();
     let bytes = bincode_legacy::serialize(&saved).unwrap();
     let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
-    let (mut restored, _, _) = world_for_target(RetailTarget::Vehicle, true);
+    let (mut restored, _, _) = world();
     builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
-    assert_eq!(restored.objects[&id].template_name, "PatriotMissileEMP");
+    assert_eq!(restored.objects[&id].template_name, "PatriotMissile");
+    assert!(restored.objects[&id].drawable_hidden);
     let restored_frame = PresentationFrame::build_from_logic(&mut restored, 0);
     assert!(restored_frame.projectiles.iter().any(|row| row.id == id && row.model_hidden));
     assert!(!restored_frame.projectile_render_inputs().iter().any(|row| row.id == id));
@@ -353,6 +358,37 @@ fn detonated_retail_missile_hides_only_its_model_and_stays_hidden_after_save() {
         assert_eq!(original.combat_system.projectile_count(), restored.combat_system.projectile_count());
     }
     assert_eq!(restored.combat_system.projectile_count(), 0, "restored missile completes KILL_SELF");
+}
+
+#[test]
+fn detonated_retail_emp_missile_retires_flight_with_its_instant_death_object() {
+    use crate::presentation_frame::PresentationFrame;
+    let (mut world, source, target) = world_for_target(RetailTarget::Vehicle, true);
+    launch_one(&mut world, source, target);
+    let shot = &world.combat_system.projectiles_snapshot()[0];
+    assert!(shot.die_on_detonate, "SupW_PatriotMissileWeapon sets MissileCallsOnDie");
+    let id = shot.id;
+
+    for _ in 0..300 {
+        let _ = world.update_with_dt(1.0 / 30.0);
+        if world.objects[&target].health.current < 1000.0 {
+            break;
+        }
+    }
+    let health_after_impact = world.objects[&target].health.current;
+    assert!(health_after_impact < 1000.0, "retail EMP warhead reached the target");
+    assert!(!world.objects.contains_key(&id), "InstantDeathBehavior removed the missile");
+    assert!(!world.combat_system.get_projectiles().contains_key(&id),
+        "flight must retire within the same frame as its Object");
+    let frame = PresentationFrame::build_from_logic(&mut world, 0);
+    assert!(!frame.projectiles.iter().any(|row| row.id == id));
+    crate::save_load::SnapshotBuilder::new().create_world_snapshot(&world)
+        .expect("impact frame can be saved without a missing projectile Object");
+
+    for _ in 0..4 {
+        let _ = world.update_with_dt(1.0 / 30.0);
+        assert_eq!(world.objects[&target].health.current, health_after_impact);
+    }
 }
 
 #[test]

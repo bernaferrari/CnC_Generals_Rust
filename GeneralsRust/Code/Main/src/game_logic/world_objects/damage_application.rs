@@ -2221,14 +2221,16 @@ impl GameLogic {
             for event in events {
                 self.apply_owned_combat_damage_with_effects(&event, effects)?;
             }
-            if self_damage_on_detonation && detonation_pose.is_some()
+            if detonation_pose.is_some()
                 && let Some((generation, epoch)) = birth
                 && self.spawn_identity_matches(id, generation, epoch)
             {
                 if detonate_calls_kill {
                     retirement = Some(RetiredProjectileActor::KeepAfterDeath);
                 }
-                self.apply_projectile_detonated_damage(id, (generation, epoch), effects)?;
+                self.apply_projectile_actor_detonation(
+                    id, (generation, epoch), self_damage_on_detonation, effects,
+                )?;
                 if !self.spawn_identity_matches(id, generation, epoch) {
                     retirement = Some(RetiredProjectileActor::KeepAfterDeath);
                 }
@@ -2260,26 +2262,31 @@ impl GameLogic {
         (retirement, result)
     }
 
-    fn apply_projectile_detonated_damage(
+    fn apply_projectile_actor_detonation(
         &mut self,
         id: ObjectId,
         birth: (u64, u64),
+        self_damage: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_usa_pilot::HostDeathType;
 
-        let maximum = self.objects[&id].health.maximum;
-        // Original detonate calls attemptDamage with the regular damage input
-        // and explicitly selected death type.
-        let result = self.apply_owned_damage_with_effects(
-            id, maximum, None, DamageType::Unresistable, HostDeathType::Detonated,
-            None, &DamageHitContext::default(), effects,
-        );
+        let result = if self_damage {
+            let maximum = self.objects[&id].health.maximum;
+            self.apply_owned_damage_with_effects(
+                id, maximum, None, DamageType::Unresistable, HostDeathType::Detonated,
+                None, &DamageHitContext::default(), effects,
+            ).map(|_| ())
+        } else {
+            Ok(())
+        };
+        // MissileAIUpdate::detonate hides its Drawable even when the weapon
+        // leaves the actor alive for the contrail during KILL_SELF.
         if self.spawn_identity_matches(id, birth.0, birth.1) {
             self.objects.get_mut(&id).expect("receiving projectile birth").set_drawable_hidden(true);
         }
-        result.map(|_| ())
+        result
     }
 
     fn apply_owned_combat_damage_with_effects(
