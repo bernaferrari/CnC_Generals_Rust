@@ -178,7 +178,7 @@ pub(crate) fn finish_native_destroyed_objects(
                     .map_err(|_| "retiring native player poisoned")?;
                 // Preflight requires zero production/consumption, so the shared
                 // membership algorithm cannot produce a missing brownout edge.
-                let brownout = player.change_owned_membership_power(&object, false);
+                let brownout = player.change_owned_membership_power(&object, false, services.frame);
                 debug_assert!(brownout.is_none());
                 if is_dozer {
                     services.idle_worker_events.remove(id, controller as Int);

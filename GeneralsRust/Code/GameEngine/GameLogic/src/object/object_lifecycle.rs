@@ -1293,7 +1293,7 @@ impl Object {
                 }
                 if let Some(services) = power.as_deref_mut() {
                     let index = player.get_player_index();
-                    let brownout = player.change_owned_membership_power(self, false);
+                    let brownout = player.change_owned_membership_power(self, false, services.frame());
                     drop(player);
                     if let Some(brownout) = brownout {
                         services.apply_brownout(index, brownout, self)?;
@@ -1348,7 +1348,7 @@ impl Object {
                 let mut player = player_handle.write().expect("capture new player poisoned");
                 if let Some(services) = power.as_deref_mut() {
                     let index = player.get_player_index();
-                    let brownout = player.change_owned_membership_power(self, true);
+                    let brownout = player.change_owned_membership_power(self, true, services.frame());
                     drop(player);
                     if let Some(brownout) = brownout {
                         services.apply_brownout(index, brownout, self)?;

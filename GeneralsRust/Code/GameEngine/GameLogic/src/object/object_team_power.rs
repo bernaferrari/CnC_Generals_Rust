@@ -101,7 +101,7 @@ impl Object {
                     if object.modules_ready && player.get_num_battle_plans_active() > 0 {
                         player.remove_battle_plan_bonuses_for_object(&mut object);
                     }
-                    player.change_owned_membership_power(&object, false)
+                    player.change_owned_membership_power(&object, false, power.frame())
                 };
                 if let Some(brownout) = brownout {
                     power.apply_brownout_from_handle(
@@ -143,7 +143,7 @@ impl Object {
                     player
                         .write()
                         .map_err(|_| "power new player poisoned")?
-                        .change_owned_membership_power(&object, true)
+                        .change_owned_membership_power(&object, true, power.frame())
                 };
                 if let Some(brownout) = brownout {
                     power.apply_brownout_from_handle(

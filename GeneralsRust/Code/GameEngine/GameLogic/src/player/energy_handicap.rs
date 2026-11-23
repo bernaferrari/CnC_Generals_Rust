@@ -101,22 +101,12 @@ impl PlayerEnergy {
 
     /// Register a newly influenced object to adjust production/consumption (matches C++ Energy::objectEnteringInfluence).
     pub fn object_entering_influence(&mut self, obj: &Object) {
-        let energy = obj.get_template().get_energy_production();
-        if energy < 0 {
-            self.add_power_consumption(-energy);
-        } else if energy > 0 {
-            self.add_power_production(energy);
-        }
+        self.adjust_power(obj.get_template().get_energy_production(), true);
     }
 
     /// Remove influence from an object (matches C++ Energy::objectLeavingInfluence).
     pub fn object_leaving_influence(&mut self, obj: &Object) {
-        let energy = obj.get_template().get_energy_production();
-        if energy < 0 {
-            self.add_power_consumption(energy);
-        } else if energy > 0 {
-            self.add_power_production(-energy);
-        }
+        self.adjust_power(obj.get_template().get_energy_production(), false);
     }
 
     pub fn add_power_bonus(&mut self, obj: ObjectID) {
@@ -171,11 +161,12 @@ impl PlayerEnergy {
     }
 
     pub fn has_sufficient_power(&self) -> bool {
-        if self.is_power_sabotaged() {
-            false
-        } else {
-            self.production >= self.consumption
-        }
+        self.has_sufficient_power_at(TheGameLogic::get_frame())
+    }
+
+    /// Energy.cpp:70–77. At the stored deadline, supply is available again.
+    pub(crate) fn has_sufficient_power_at(&self, frame: u32) -> bool {
+        frame >= self.power_sabotaged_till_frame && self.production >= self.consumption
     }
 }
 

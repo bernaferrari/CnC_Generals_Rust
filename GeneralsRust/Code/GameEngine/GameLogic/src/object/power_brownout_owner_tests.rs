@@ -70,7 +70,7 @@ impl Match {
                 .unwrap()
                 .write()
                 .unwrap()
-                .change_owned_membership_power(&object.read().unwrap(), true);
+                .change_owned_membership_power(&object.read().unwrap(), true, 0);
             object
         };
         let producer = create("ActualPowerProducer", 10, powered_producer);
@@ -178,6 +178,47 @@ fn actual_powered_producer_feedback_reenters_after_object_loan_is_released() {
     assert_eq!(world.energy(), (30, 15));
     assert!(!world.producer.read().unwrap().is_disabled());
     assert!(!world.consumer.read().unwrap().is_disabled());
+}
+
+#[test]
+fn nested_producer_power_edge_uses_receiving_sabotage_deadline() {
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+
+    let receiving = Match::new(true);
+    let peer = Match::new(true);
+    let deadline = 50;
+    for world in [&receiving, &peer] {
+        world.apply(true, deadline - 2);
+        let mut player = world.players.get_player(0).unwrap().write().unwrap();
+        player.get_energy_mut().add_power_production(20);
+        player.get_energy_mut().set_power_sabotaged_till_frame(deadline);
+    }
+    assert_eq!(
+        receiving.producer.read().unwrap().get_id(),
+        peer.producer.read().unwrap().get_id()
+    );
+    let foreign = Arc::new(EngineStores::new_for_world());
+    with_active_stores(&foreign, || {
+        let _frame = crate::system::game_logic::enter_update_frame(deadline - 1);
+        // The initial restore signal has already found enough supply.
+        // Clearing a powered producer's disabled edge re-enters brownout.
+        receiving.apply(false, deadline);
+        assert!(!receiving.producer.read().unwrap().is_disabled());
+        assert!(!receiving.consumer.read().unwrap().is_disabled());
+        assert!(peer.producer.read().unwrap().is_disabled());
+        assert!(peer.consumer.read().unwrap().is_disabled());
+    });
+    assert_eq!(
+        receiving
+            .players
+            .get_player(0)
+            .unwrap()
+            .read()
+            .unwrap()
+            .get_energy()
+            .supply_ratio_at(deadline),
+        2.0,
+    );
 }
 
 #[test]

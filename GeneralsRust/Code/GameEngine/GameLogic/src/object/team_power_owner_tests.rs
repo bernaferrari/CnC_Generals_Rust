@@ -51,6 +51,7 @@ fn construction_membership_has_no_power_until_actual_completion_phase() {
         let completion = new.apply_construction_power_influence(
             object.get_template().get_energy_production(),
             object.is_disabled(),
+            0,
         );
         assert_eq!(completion, Some((1, power < 0)));
         assert_eq!(energy(&new), expected);
@@ -97,7 +98,7 @@ fn disabled_producers_are_excluded_but_consumers_still_use_energy() {
             assert_eq!(effect, None);
             assert_eq!(energy(&player), (0, 0));
             assert_eq!(
-                player.apply_construction_power_influence(power, object.is_disabled()),
+                player.apply_construction_power_influence(power, object.is_disabled(), 0),
                 None
             );
         } else {

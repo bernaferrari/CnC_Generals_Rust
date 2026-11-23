@@ -422,13 +422,14 @@ impl Player {
         &mut self,
         object: &Object,
         adding: bool,
+        frame: u32,
     ) -> Option<bool> {
         if adding {
             self.add_owned_object_id(object.get_id());
         } else {
             self.remove_owned_object_id(object.get_id());
         }
-        self.apply_membership_power_influence(object, adding)
+        self.apply_membership_power_influence_at(object, adding, || frame)
     }
 
     fn add_owned_object_id(&mut self, object_id: ObjectID) {
@@ -553,6 +554,15 @@ impl Player {
         object: &Object,
         adding: bool,
     ) -> Option<bool> {
+        self.apply_membership_power_influence_at(object, adding, TheGameLogic::get_frame)
+    }
+
+    fn apply_membership_power_influence_at(
+        &mut self,
+        object: &Object,
+        adding: bool,
+        frame: impl FnOnce() -> u32,
+    ) -> Option<bool> {
         let power = object.get_template().get_energy_production();
         if object.test_status(ObjectStatusTypes::UnderConstruction)
             || power == 0
@@ -560,12 +570,8 @@ impl Player {
         {
             return None;
         }
-        if adding {
-            self.energy.object_entering_influence(object);
-        } else {
-            self.energy.object_leaving_influence(object);
-        }
-        Some(!self.energy.has_sufficient_power())
+        self.energy.adjust_power(power, adding);
+        Some(!self.energy.has_sufficient_power_at(frame()))
     }
 
     /// Get the number of objects owned by this player

@@ -230,7 +230,7 @@ impl BorrowedAiWorld<'_> {
         let brownout = player
             .write()
             .map_err(|_| "construction player poisoned")?
-            .apply_construction_power_influence(power, disabled);
+            .apply_construction_power_influence(power, disabled, frame);
         if let Some((index, is_brownout)) = brownout {
             self.apply_native_player_brownout(index, is_brownout)?;
         }

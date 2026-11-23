@@ -11,16 +11,13 @@ impl Player {
         &mut self,
         power: Int,
         disabled: bool,
+        frame: u32,
     ) -> Option<(PlayerIndex, bool)> {
         if power == 0 || (power > 0 && disabled) {
             return None;
         }
-        if power > 0 {
-            self.energy.add_power_production(power);
-        } else {
-            self.energy.add_power_consumption(-power);
-        }
-        let brownout = !self.energy.has_sufficient_power();
+        self.energy.adjust_power(power, true);
+        let brownout = !self.energy.has_sufficient_power_at(frame);
         if brownout {
             self.disable_radar();
         } else {
@@ -124,8 +121,12 @@ impl Player {
         });
         if let Some((Some(owner), power, disabled)) = influence {
             if power < 0 || (power > 0 && !disabled) {
+                let frame = structure_world.as_ref().map_or_else(
+                    crate::helpers::TheGameLogic::get_frame,
+                    |world| world.logic_frame(),
+                );
                 let brownout = owner.write().ok().and_then(|mut owner| {
-                    owner.apply_construction_power_influence(power, disabled)
+                    owner.apply_construction_power_influence(power, disabled, frame)
                 });
                 if let Some((owner_index, brownout)) = brownout {
                     Self::apply_power_brownout_to_owned_objects(owner_index, brownout);

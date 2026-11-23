@@ -6,6 +6,8 @@ use crate::object::Object;
 /// borrowed value is passed through rather than reacquired by serialized ID.
 /// Implementations must apply the radar flag before original roster visitation.
 pub trait PowerBrownoutServices {
+    /// The logic frame of the receiving team and object callbacks.
+    fn frame(&self) -> u32;
     fn radar_services(&mut self) -> &mut dyn super::RadarEdgeServices;
     fn validate_source(
         &self,
@@ -354,7 +356,7 @@ impl OwnedPowerBrownout<'_> {
                 player
                     .get_energy_mut()
                     .adjust_power(edge.power, !edge.becoming_disabled);
-                Some(!player.get_energy().has_sufficient_power())
+                Some(!player.get_energy().has_sufficient_power_at(self.frame))
             } else {
                 None
             }
@@ -364,6 +366,10 @@ impl OwnedPowerBrownout<'_> {
 }
 
 impl PowerBrownoutServices for OwnedPowerBrownout<'_> {
+    fn frame(&self) -> u32 {
+        self.frame
+    }
+
     fn radar_services(&mut self) -> &mut dyn RadarEdgeServices {
         self.radar
     }

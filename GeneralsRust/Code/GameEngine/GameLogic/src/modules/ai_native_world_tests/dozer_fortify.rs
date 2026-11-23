@@ -753,6 +753,67 @@ fn full_object_restore_reconstructs_completed_power_membership() {
 }
 
 #[test]
+fn powered_object_restore_uses_receiving_sabotage_deadline() {
+    use super::object_restore_tests::{
+        Catalog, capture_at, fresh_with_templates, prepare_with_templates, transfer,
+    };
+    use crate::common::DisabledType;
+    use crate::system::engine_stores::{EngineStores, with_active_stores};
+
+    let generator_name = "ClockRestoreGenerator";
+    let consumer_name = "ClockRestoreConsumer";
+    let generator = building_template(generator_name, false, 12, 0);
+    let consumer = building_template(consumer_name, false, -5, 0);
+    let catalog = Catalog::from_templates(generator, consumer, ground());
+    let deadline = 50;
+    let mut source = fresh_with_templates(
+        &catalog,
+        None,
+        generator_name,
+        consumer_name,
+        false,
+        deadline - 1,
+    )
+    .unwrap();
+    let records = capture_at(&mut source, &catalog, deadline - 1);
+    let prepare = || {
+        prepare_with_templates(&catalog, Some(&records), generator_name, consumer_name).unwrap()
+    };
+    let mut still_sabotaged = prepare();
+    let mut recovered = prepare();
+    assert_eq!(
+        still_sabotaged.target.read().unwrap().get_id(),
+        recovered.target.read().unwrap().get_id()
+    );
+    let foreign = Arc::new(EngineStores::new_for_world());
+    for (game, frame, foreign_frame) in [
+        (&mut still_sabotaged, deadline - 1, deadline),
+        (&mut recovered, deadline, deadline - 1),
+    ] {
+        game.players
+            .get_player(0)
+            .unwrap()
+            .write()
+            .unwrap()
+            .get_energy_mut()
+            .set_power_sabotaged_till_frame(deadline);
+        with_active_stores(&foreign, || {
+            let _frame = crate::system::game_logic::enter_update_frame(foreign_frame);
+            transfer(game, &catalog, frame, |services| services.load_objects(&records)).unwrap();
+        });
+    }
+    let underpowered = |game: &NativeMatch| {
+        game.target
+            .read()
+            .unwrap()
+            .is_disabled_by_type(DisabledType::DisabledUnderpowered)
+    };
+    assert!(underpowered(&still_sabotaged));
+    assert!(!underpowered(&recovered));
+    assert!(!underpowered(&source));
+}
+
+#[test]
 fn target_disappearing_during_action_returns_idle_but_retains_original_pending_task() {
     let mut game = world();
     let peer = world();
