@@ -1527,13 +1527,20 @@ pub fn admitted_data_for_modules(
     if let Some(module) = has("DemoTrapUpdate") {
         // Captured definitions own their module fields; the name/Gamma
         // profile inference is the unbound residual path only.
+        // DemoTrapUpdateModuleData ctor: m_defaultsToProximityMode=false,
+        // m_triggerDetonationRange=0.0f — omitted fields do not inherit the
+        // stock proximity/range residual.
         let mut data = HostMineData::demo_trap();
-        if let Some(v) = module.attribute("TriggerDetonationRange").and_then(|v| v.trim().parse::<f32>().ok()) {
-            data.trigger_range = v;
-        }
-        if let Some(v) = module.attribute("DefaultProximityMode") {
-            data.demo_trap_mode = if parse_bool(v) { DemoTrapMode::Proximity } else { DemoTrapMode::Manual };
-        }
+        data.trigger_range = module
+            .attribute("TriggerDetonationRange")
+            .and_then(|value| value.trim().parse::<f32>().ok())
+            .unwrap_or_default();
+        let mode = if module.attribute("DefaultProximityMode").is_some_and(parse_bool) {
+            DemoTrapMode::Proximity
+        } else {
+            DemoTrapMode::Manual
+        };
+        data.set_demo_trap_mode(mode);
         return Some(data);
     }
     if has("StickyBombUpdate").is_some() {

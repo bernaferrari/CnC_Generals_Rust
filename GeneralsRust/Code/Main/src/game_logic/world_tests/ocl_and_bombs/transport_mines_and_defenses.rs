@@ -972,6 +972,62 @@ fn authored_demo_trap_without_weapon_or_detonate_when_killed_stays_quiet() {
 }
 
 #[test]
+fn authored_demo_trap_defaults_to_manual_and_zero_range() {
+    // DemoTrapUpdateModuleData ctor: m_defaultsToProximityMode=false,
+    // m_triggerDetonationRange=0.0f — only authored fields enable the scan.
+    let blast_ini = "Weapon AuthoredTrapBlast\n PrimaryDamage = 31\n PrimaryDamageRadius = 20\n WeaponSpeed = 999999\n DamageType = UNRESISTABLE\n RadiusDamageAffects = ENEMIES\n ProjectileObject = NONE\nEnd\n";
+    let cases: [(&str, bool); 4] = [
+        ("    TriggerDetonationRange = 20\n", false),
+        (
+            "    TriggerDetonationRange = 20\n    DefaultProximityMode = No\n",
+            false,
+        ),
+        ("    DefaultProximityMode = Yes\n", false),
+        (
+            "    TriggerDetonationRange = 20\n    DefaultProximityMode = Yes\n",
+            true,
+        ),
+    ];
+    for (module_fields, expect_auto) in cases {
+        let (mut world, trap, enemy) = authored_demo_trap_world(
+            &format!(
+                "Behavior = DemoTrapUpdate TrapModule\n    DetonationWeapon = AuthoredTrapBlast\n    DetonateWhenKilled = No\n    AutoDetonationWithFriendsInvolved = Yes\n{module_fields}  End"
+            ),
+            "",
+            blast_ini,
+            "",
+        );
+        world.update_mines_and_demo_traps().unwrap();
+        let enemy_hp_after = world.host_object(enemy).unwrap().health.current;
+        if expect_auto {
+            assert_eq!(
+                enemy_hp_after, 969.0,
+                "a proximity trip fires DetonationWeapon on the same update"
+            );
+            let trap_obj = world.host_object(trap).unwrap();
+            assert!(
+                !trap_obj.is_alive() || trap_obj.status.destroyed,
+                "detonate() runs Object::kill the same frame"
+            );
+            assert!(trap_obj.mine_data.as_ref().unwrap().detonated);
+        } else {
+            assert_eq!(enemy_hp_after, 1000.0);
+            let trap_obj = world.host_object(trap).unwrap();
+            let md = trap_obj.mine_data.as_ref().unwrap();
+            assert!(!md.detonated && !md.demo_trap_warning_armed());
+            assert!(trap_obj.is_alive());
+            // The fixture setup itself still detonates on the manual order.
+            assert!(world.manual_detonate_mine(trap).unwrap());
+            assert_eq!(
+                world.host_object(enemy).unwrap().health.current,
+                969.0,
+                "manual detonate fires exactly the authored PrimaryDamage"
+            );
+        }
+    }
+}
+
+#[test]
 fn dozer_mine_clear_residual_disarms_enemy_mine_safely() {
     use crate::game_logic::host_mines::{
         DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES, DOZER_MINE_CLEAR_RANGE,
