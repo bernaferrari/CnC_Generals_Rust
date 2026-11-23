@@ -335,6 +335,26 @@ pub fn apply_ready_projectileless_delayed_damage(
     });
 }
 
+/// One step of the C++ WeaponStore::update delayed-damage scan: visit
+/// entries in insertion order, skip future ones, and remove the first due
+/// entry for its caller to apply. The cursor does not advance on removal,
+/// so entries a damage callback appends to this same list — even with an
+/// already-past deadline — are still reached before the update returns
+/// (Weapon.cpp:1589-1604).
+pub(in crate::game_logic) fn next_ready_projectileless_delayed_damage(
+    combat: &mut CombatSystem,
+    current_frame: u32,
+    cursor: &mut usize,
+) -> Option<LiveProjectilelessDelayedDamage> {
+    while let Some(shot) = combat.projectileless_delayed.get(*cursor) {
+        if shot.when <= current_frame {
+            return Some(combat.projectileless_delayed.remove(*cursor));
+        }
+        *cursor += 1;
+    }
+    None
+}
+
 /// C++ WeaponStore::update delayed-damage walk: process one due entry at a time
 /// so a dealDamageInternal callback can append another due entry and have it
 /// run before this update returns.
@@ -343,20 +363,18 @@ pub(in crate::game_logic) fn drain_ready_projectileless_delayed(
     current_frame: u32,
     mut apply: impl FnMut(&mut CombatSystem, LiveProjectilelessDelayedDamage),
 ) {
-    let mut i = 0;
-    while i < combat.projectileless_delayed.len() {
-        if combat.projectileless_delayed[i].when <= current_frame {
-            let shot = combat.projectileless_delayed.remove(i);
-            apply(combat, shot);
-        } else {
-            i += 1;
-        }
+    let mut cursor = 0;
+    while let Some(shot) =
+        next_ready_projectileless_delayed_damage(combat, current_frame, &mut cursor)
+    {
+        apply(combat, shot);
     }
 }
 
 /// Test/inspection helper: extract all currently-due entries without applying.
 /// Production delivery uses [`drain_ready_projectileless_delayed`] so same-frame
 /// appends still run (Weapon.cpp:1589-1604).
+#[cfg(test)]
 pub(in crate::game_logic) fn take_ready_projectileless_delayed_damage(
     combat: &mut CombatSystem,
     current_frame: u32,

@@ -2017,10 +2017,19 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        use crate::game_logic::combat::take_ready_projectileless_delayed_damage;
-        let ready = take_ready_projectileless_delayed_damage(&mut self.combat_system, self.frame);
+        // Weapon.cpp:1589-1604 — the original walks m_weaponDDI by iterator,
+        // erasing each due entry only after dealDamageInternal returns. A
+        // Body callback (e.g. TransitionDamageFX firing a retaliation weapon)
+        // appends to the same installed queue and is still visited by this
+        // walk. Entries remaining after an error also stay queued rather
+        // than being discarded with an eagerly extracted batch.
         let limit = self.combat_system.historic_damage_limit();
-        for shot in ready {
+        let mut cursor = 0;
+        while let Some(shot) = crate::game_logic::combat::next_ready_projectileless_delayed_damage(
+            &mut self.combat_system,
+            self.frame,
+            &mut cursor,
+        ) {
             let events = self.prepare_owned_projectileless_impact(&shot, limit);
             for event in events {
                 self.apply_owned_combat_damage_with_effects(&event, effects)?;

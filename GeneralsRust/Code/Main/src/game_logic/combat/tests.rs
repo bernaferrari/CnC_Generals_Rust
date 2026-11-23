@@ -45,7 +45,10 @@ pub(in crate::game_logic) mod tests {
         projectile: PendingProjectile,
         position: Vec3,
     ) {
-        queue_live_projectileless_delayed(combat, apply_frame, projectile, position, None);
+        // The C++ delayed entry carries the victim pointer for object shots
+        // (Weapon.cpp m_weaponDDI); the seeded pending's target is that victim.
+        let victim = projectile.target_id;
+        queue_live_projectileless_delayed(combat, apply_frame, projectile, position, victim);
     }
 
     fn make_obj(

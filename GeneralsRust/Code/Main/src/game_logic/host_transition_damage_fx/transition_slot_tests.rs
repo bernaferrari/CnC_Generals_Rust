@@ -119,6 +119,126 @@ End
     assert_eq!(second.objects[&attacker].health.current, 80.0);
 }
 
+/// Weapon.cpp:1589-1604 — the delayed-damage walk keeps an insertion-order
+/// cursor, so a Body callback that queues another due entry (the victim's
+/// TransitionDamageFX firing a finite-speed retaliation weapon at the
+/// attacker) is still visited before the update returns. Eagerly extracting
+/// the due batch first would leave that callback's shot for the next frame.
+#[test]
+fn delayed_damage_runs_transition_retaliation_appended_for_same_frame() {
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::combat::tests::{
+        combat_test_guard, lifecycle_test_pending_projectile, queue_delayed_impact_for_test,
+    };
+    use crate::game_logic::combat::live_projectileless_delayed_count_for_test;
+    use glam::Vec3;
+
+    let _serial = combat_test_guard();
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::Neutral, "Neutral", false));
+    world.add_player(Player::new(1, Team::USA, "Victim", true));
+    world.add_player(Player::new(2, Team::China, "Attacker", false));
+    world
+        .admit_object_creation_list_sources([r#"
+ObjectCreationList DelayedTransitionRetaliationOcl
+  FireWeapon
+    Weapon = DelayedTransitionRetaliation
+  End
+End
+"#
+        .to_string()])
+        .unwrap();
+    // 30 units of travel at weapon_speed 10 takes 3 logic frames; from the
+    // u32::MAX-1 consumer frame below that deadline wraps to an already-due
+    // value, so the appended entry is due inside the same walk.
+    let mut weapon =
+        gamelogic::weapon::WeaponTemplate::new("DelayedTransitionRetaliation".into());
+    weapon.primary_damage = 10.0;
+    weapon.primary_damage_radius = 5.0;
+    weapon.damage_type = gamelogic::damage::DamageType::Unresistable;
+    weapon.weapon_speed = 10.0;
+    world.weapon_definitions = Some(
+        [(
+            "delayedtransitionretaliation".to_string(),
+            std::sync::Arc::new(weapon),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    for name in ["DelayedTransitionVictim", "DelayedTransitionAttacker"] {
+        let mut template = ThingTemplate::new(name);
+        template.set_health(100.0);
+        template.add_kind_of(KindOf::Attackable).add_kind_of(KindOf::Vehicle);
+        world.templates.insert(name.into(), template);
+    }
+    let victim = world
+        .create_object("DelayedTransitionVictim", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let attacker = world
+        .create_object(
+            "DelayedTransitionAttacker",
+            Team::China,
+            Vec3::new(30.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let mut transition = HostTransitionDamageFxData::default();
+    transition.enabled = true;
+    transition.ocl_for_state[1].push("DelayedTransitionRetaliationOcl".into());
+    world.objects.get_mut(&victim).unwrap().transition_damage_fx = Some(transition);
+
+    // Seed a still-future entry in front of the due one; the walk must skip
+    // it without discarding it.
+    let victim_pos = world.objects[&victim].get_position();
+    let attacker_pos = world.objects[&attacker].get_position();
+    world.frame = u32::MAX - 1;
+    let mut later = lifecycle_test_pending_projectile("NONE", Some(victim), victim_pos);
+    later.shooter_id = attacker;
+    later.shooter_pos = attacker_pos;
+    later.damage = 10.0;
+    later.damage_type = DamageType::Unresistable;
+    later.splash_radius = 0.0;
+    later.secondary_damage = 0.0;
+    later.secondary_damage_radius = 0.0;
+    later.detonation_fx_name.clear();
+    later.detonation_ocl_name.clear();
+    queue_delayed_impact_for_test(&mut world.combat_system, u32::MAX, later, victim_pos);
+    let mut seed = lifecycle_test_pending_projectile("NONE", Some(victim), victim_pos);
+    seed.shooter_id = attacker;
+    seed.shooter_pos = attacker_pos;
+    seed.damage = 40.0;
+    seed.damage_type = DamageType::Unresistable;
+    seed.splash_radius = 0.0;
+    seed.secondary_damage = 0.0;
+    seed.secondary_damage_radius = 0.0;
+    seed.detonation_fx_name.clear();
+    seed.detonation_ocl_name.clear();
+    queue_delayed_impact_for_test(&mut world.combat_system, world.frame, seed, victim_pos);
+
+    world.apply_owned_projectileless_delayed_damage().unwrap();
+    // The seed dealt 40 to the victim; its Pristine→Damaged transition ran
+    // the OCL's FireWeapon, whose wrapped deadline was already due, so the
+    // retaliation's 10 reached the attacker inside this same update.
+    assert_eq!(world.objects[&victim].health.current, 60.0);
+    assert_eq!(world.objects[&attacker].health.current, 90.0);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&world.combat_system),
+        1,
+        "the future entry stays queued; only due entries ran"
+    );
+    world.frame = u32::MAX;
+    world.apply_owned_projectileless_delayed_damage().unwrap();
+    assert_eq!(world.objects[&victim].health.current, 50.0);
+    assert_eq!(world.objects[&attacker].health.current, 90.0);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&world.combat_system),
+        0
+    );
+    world.apply_owned_projectileless_delayed_damage().unwrap();
+    assert_eq!(world.objects[&victim].health.current, 50.0);
+    assert_eq!(world.objects[&attacker].health.current, 90.0);
+}
+
 #[test]
 fn failed_retirement_retains_receipt_in_its_authored_slot() {
     let mut ids = [10, 0, 20];
