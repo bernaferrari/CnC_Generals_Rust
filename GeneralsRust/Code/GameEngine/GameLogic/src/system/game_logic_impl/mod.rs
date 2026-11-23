@@ -124,7 +124,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 use std::time::Instant;
 
+mod map_boundary;
 mod sleepy_queue;
+use map_boundary::CoreBoundaryScriptDriver;
 use game_engine::common::thing::update_module::UpdateScheduleContext;
 use sleepy_queue::{ModuleIdentity, SleepyUpdateQueue};
 

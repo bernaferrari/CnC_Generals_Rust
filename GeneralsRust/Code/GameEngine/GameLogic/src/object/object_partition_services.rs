@@ -389,9 +389,11 @@ impl Object {
             (Some(identity), Some(guard)) => Some((identity, &**guard)),
             _ => None,
         };
-        let garrisonable = self.partition_container_garrisonable(
-            |id| crate::object::registry::OBJECT_REGISTRY.get_object(id),
-        );
+        let world = self.owning_world_services();
+        let garrisonable = self.partition_container_garrisonable(|id| match &world {
+            Some(world) => world.object_registry().get_object(id),
+            None => crate::object::registry::OBJECT_REGISTRY.get_object(id),
+        });
         let mut services = ObjectPartitionServices::new(
             partition,
             shroud,
@@ -402,7 +404,10 @@ impl Object {
             frame,
             unlook_persist_frames,
         );
-        services.look_enabled = !dual_world_registry_unavailable();
+        services.look_enabled = world.as_ref().map_or_else(
+            || !dual_world_registry_unavailable(),
+            |world| !world.object_registry().is_empty(),
+        );
         self.partition_maintenance(&mut services);
     }
 

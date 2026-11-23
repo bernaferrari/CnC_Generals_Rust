@@ -275,24 +275,29 @@ impl Object {
     }
 
     pub(super) fn populate_radar_object_from_state(&self, radar_obj: &mut RadarObject) {
+        let local_player = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        self.populate_radar_object_for_player(radar_obj, local_player.as_ref());
+    }
+
+    pub(super) fn populate_radar_object_for_player(
+        &self,
+        radar_obj: &mut RadarObject,
+        local_player: Option<&Arc<RwLock<Player>>>,
+    ) {
         radar_obj.is_hero = self.is_hero();
         radar_obj.is_local = self.is_locally_controlled();
         radar_obj.is_stealth =
             self.test_status(ObjectStatusTypes::Stealthed) || self.is_stealthed();
         radar_obj.is_detected = self.test_status(ObjectStatusTypes::Detected);
         radar_obj.is_disguised = self.test_status(ObjectStatusTypes::Disguised);
-        radar_obj.is_enemy = self.is_enemy_to_local_player();
+        radar_obj.is_enemy = self.is_enemy_to_player(local_player);
     }
 
-    pub(super) fn is_enemy_to_local_player(&self) -> bool {
-        let Some(team) = self.get_team() else {
-            return false;
-        };
-        let Some(local_player) = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-        else {
+    fn is_enemy_to_player(&self, local_player: Option<&Arc<RwLock<Player>>>) -> bool {
+        let (Some(team), Some(local_player)) = (self.get_team(), local_player) else {
             return false;
         };
         let Ok(team_guard) = team.read() else {

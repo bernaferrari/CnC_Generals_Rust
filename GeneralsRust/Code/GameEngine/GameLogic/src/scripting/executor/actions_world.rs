@@ -718,35 +718,14 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        let mut observer_player_index: Option<u32> = None;
-        let __player_list_arc = player_list();
-        if let Ok(players) = __player_list_arc.read() {
-            if let Some(observer) = players.find_player_by_name("ReplayObserver") {
-                if let Ok(observer_guard) = observer.read() {
-                    observer_player_index = Some(observer_guard.get_player_index() as u32);
-                }
-            }
-        }
-
-        if let Some(observer_index) = observer_player_index {
-            if let Ok(mut shroud_mgr) = crate::system::shroud_manager::get_shroud_manager().lock() {
-                let _ = shroud_mgr.undo_reveal_map_for_player_permanently(observer_index);
-            }
-        }
-
-        if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
-            terrain.set_active_boundary(border_index);
-        }
-
-        if let Some(observer_index) = observer_player_index {
-            if let Ok(mut shroud_mgr) = crate::system::shroud_manager::get_shroud_manager().lock() {
-                let _ = shroud_mgr.reveal_map_for_player_permanently(observer_index);
-            }
-        }
-
-        if let Ok(mut shroud_mgr) = crate::system::shroud_manager::get_shroud_manager().lock() {
-            shroud_mgr.refresh_shroud_for_local_player();
-        }
+        let world = self.context.borrowed_engine().owning_world_services()
+            .ok_or_else(|| ScriptError::ExecutionFailed("boundary script has no world".into()))?;
+        let logic = world.object_registry().owning_logic()
+            .ok_or_else(|| ScriptError::ExecutionFailed("boundary script has no GameLogic".into()))?;
+        logic.try_lock()
+            .map_err(|error| ScriptError::ExecutionFailed(format!("boundary GameLogic: {error}")))?
+            .switch_script_map_boundary(border_index)
+            .map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
         Ok(ScriptActionResult::Success)
     }
 

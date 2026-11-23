@@ -11,8 +11,8 @@ use super::super::*;
 use game_engine::common::system::radar::{RadarBridgeSample, RadarTerrainPaintSource};
 
 use game_engine::common::system::radar::{
-    Coord3D, RadarMapSource, RadarObject, RadarObjectInsert, RadarObjectProvider,
-    RadarPriorityType,
+    Coord3D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH, RadarMapSource, RadarObject, RadarObjectInsert,
+    RadarObjectProvider, RadarPriorityType,
 };
 
 pub(crate) struct HostRadarMapState {
@@ -478,18 +478,23 @@ impl GameLogic {
             .radar_water_color;
         self.radar_map
             .admit_effective_definitions(water_color, &self.terrain_road_definitions.effective);
-        let Some((lo, hi)) = store_radar_map_extent(&mut self.radar_map, min, max) else {
+        if store_radar_map_extent(&mut self.radar_map, min, max).is_none() {
             return false;
-        };
+        }
+        self.paint_new_host_radar();
+        true
+    }
+
+    fn paint_new_host_radar(&mut self) {
         self.host_radar_rescan_terrain();
         let (lo, hi) = self.radar_map.map_extent().expect("admitted radar extent");
-        let heights = self
-            .radar_map
-            .sample_grid(lo, (hi.x - lo.x) / 128.0, (hi.y - lo.y) / 128.0);
-        self.radar.new_map_owned(lo, hi, &heights);
-        self.radar
-            .refresh_owned_terrain_with_source(&self.radar_map, self.radar_map.water_color);
-        true
+        let heights = self.radar_map.sample_grid(
+            lo,
+            (hi.x - lo.x) / RADAR_CELL_WIDTH as f32,
+            (hi.y - lo.y) / RADAR_CELL_HEIGHT as f32,
+        );
+        self.radar.set_water_radar_color(self.radar_map.water_color);
+        self.radar.new_map_owned_with_paint(lo, hi, &heights, Some(&self.radar_map));
     }
 
     /// Sample leftover TerrainLogic + live height into the 128x128 radar cache.
@@ -595,19 +600,10 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         self.admit_host_radar_provider_with_effects(id, effects);
-        if !self.radar.has_map_extent() {
-            if let Some((lo, hi)) =
-                store_radar_map_extent(&mut self.radar_map, self.world_min, self.world_max)
-            {
-                self.host_radar_rescan_terrain();
-                let (lo, hi) = self.radar_map.map_extent().expect("admitted radar extent");
-                let heights =
-                    self.radar_map
-                        .sample_grid(lo, (hi.x - lo.x) / 128.0, (hi.y - lo.y) / 128.0);
-                self.radar.new_map_owned(lo, hi, &heights);
-                self.radar
-                    .refresh_owned_terrain_with_source(&self.radar_map, self.radar_map.water_color);
-            }
+        if !self.radar.has_map_extent()
+            && store_radar_map_extent(&mut self.radar_map, self.world_min, self.world_max).is_some()
+        {
+            self.paint_new_host_radar();
         }
         let Some(obj) = self.objects.get(&id) else {
             return;

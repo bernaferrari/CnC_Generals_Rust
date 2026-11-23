@@ -1151,7 +1151,7 @@ impl RadarSystem {
         }
     }
 
-    /// Reset radar data (matches C++ Radar::reset)
+    /// Reset radar data and the W3D shroud (Radar::reset / W3DRadar::reset).
     pub fn reset(&mut self) {
         // Invalidate delayed render acknowledgments from the preceding match/map.
         self.owner_identity = Arc::new(());
@@ -1161,9 +1161,8 @@ impl RadarSystem {
         self.object_indices.valid = false;
         self.clear_all_events();
         self.radar_force_on = false;
-        self.terrain_dirty = true;
         self.terrain_generation = self.terrain_generation.wrapping_add(1);
-        self.shroud_revision = self.shroud_revision.wrapping_add(1);
+        self.clear_shroud();
     }
 
     /// Clear all radar events (matches C++ Radar::clearAllEvents)
@@ -1215,7 +1214,9 @@ impl RadarSystem {
         terrain_heights: &[(f32, f32, bool)],
     ) {
         self.bind_left_hud_window();
-        self.new_map_impl(map_min, map_max, terrain_heights, false);
+        self.admit_new_map(map_min, map_max, terrain_heights);
+        self.refresh_terrain();
+        snapshot::ensure_the_radar_snapshot_block();
     }
 
     /// Add object to radar (matches C++ Radar::addObject)

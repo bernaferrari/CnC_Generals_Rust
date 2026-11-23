@@ -627,17 +627,10 @@ fn radar_eva_event(eva_name: &str) -> Option<EvaEvent> {
 /// C++ `TheTacticalView` camera constraint hook used by SWITCH_BORDER.
 pub struct TheTacticalView;
 
-static FORCE_CAMERA_CONSTRAINT_RECALC: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
-
 impl TheTacticalView {
     pub fn set_force_camera_constraint_recalc(hook: fn()) {
-        let _ = FORCE_CAMERA_CONSTRAINT_RECALC.set(hook);
-    }
-
-    pub fn force_camera_constraint_recalc() {
-        if let Some(hook) = FORCE_CAMERA_CONSTRAINT_RECALC.get() {
-            hook();
-        }
+        let world = crate::system::engine_stores::active_services();
+        let _ = world.client_visuals().recalc_camera_constraints.set(hook);
     }
 }
 

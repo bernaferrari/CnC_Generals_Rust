@@ -1526,12 +1526,12 @@ impl GameLogic {
     pub fn evaluate_scripts(&mut self) -> Result<(), GameLogicError> {
         trace!("GameLogic::evaluate_scripts()");
 
-        // Also update the global script engine
-        if let Ok(mut engine_guard) = self.script_engine_slot().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                if let Err(e) = engine.update() {
-                    warn!("ScriptEngine::update failed: {}", e);
-                }
+        if let Ok(engine_guard) = self.script_engine_slot().read()
+            && let Some(engine) = engine_guard.as_ref()
+        {
+            let context = crate::scripting::executor::ScriptContext::at_frame(self.frame);
+            if let Err(error) = engine.update_with_driver(context, &mut CoreBoundaryScriptDriver(self)) {
+                warn!("ScriptEngine::update failed: {error}");
             }
         }
 

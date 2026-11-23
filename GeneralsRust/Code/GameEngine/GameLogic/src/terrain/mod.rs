@@ -52,7 +52,7 @@ pub enum WaveGuide1Bind {
 pub const MAX_TERRAIN_NAME_LEN: usize = 64;
 const WATER_GRID_NAME_CPP: &str = "Water Grid";
 const WATER_GRID_NAME_LEGACY: &str = "GridWater";
-const MAX_DYNAMIC_WATER_ENTRIES: usize = 64;
+pub(crate) const MAX_DYNAMIC_WATER_ENTRIES: usize = 64;
 /// C++ `AIUpdate.cpp`: `enum {WAYPOINT_PATH_LIMIT=1024}`. Caps `link[0]` walks
 /// so ShellMapMD 1-link rings (Car_Path) cannot grow an unbounded Vec.
 pub const WAYPOINT_PATH_LIMIT: usize = 1024;
@@ -241,13 +241,6 @@ impl BridgeAttackInfo {
             attack_point2: Coord3D::origin(),
         }
     }
-}
-
-/// C++ `ShroudStatusStoreRestore` buckets used by `setActiveBoundary`.
-#[derive(Debug, Default)]
-struct BoundaryShroudStore {
-    fogged: Vec<(i32, i32, i32)>,
-    revealed: Vec<(i32, i32, i32)>,
 }
 
 /// Bridge class for terrain logic

@@ -605,7 +605,7 @@ fn load_post_process_deletes_bridges_whose_object_id_is_gone() {
     terrain.bridge_list_head = Some(bridge);
 
     assert!(terrain.get_first_bridge().is_some());
-    terrain.load_post_process();
+    assert_eq!(terrain.remove_orphaned_bridges(|_| false), [PathfindLayerEnum::Bridge1]);
     assert!(
         terrain.get_first_bridge().is_none(),
         "orphan bridgeObjectID must be pruned after loadPostProcess"

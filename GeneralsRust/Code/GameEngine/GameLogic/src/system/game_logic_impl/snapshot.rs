@@ -262,7 +262,10 @@ impl XferSnapshotTrait for SidesListSnapshotBridge {
     }
 }
 
-struct TerrainLogicSnapshotBridge;
+struct TerrainLogicSnapshotBridge {
+    logic: &'static Mutex<GameLogic>,
+    terrain: Arc<RwLock<crate::terrain::TerrainLogic>>,
+}
 
 impl XferSnapshotTrait for TerrainLogicSnapshotBridge {
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
@@ -270,14 +273,23 @@ impl XferSnapshotTrait for TerrainLogicSnapshotBridge {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        xfer_terrain_logic_runtime_state(xfer)
+        xfer_terrain_logic_runtime_state(self.logic, &self.terrain, xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
-        // C++ TerrainLogic::loadPostProcess (TerrainLogic.cpp:2994-3009)
-        let terrain = get_terrain_logic();
-        let mut terrain_guard = terrain.write().map_err(|_| XferStatus::InvalidData)?;
-        terrain_guard.load_post_process();
+        let logic = self.logic.try_lock().map_err(|_| XferStatus::InvalidData)?;
+        let pathfinder = logic.pathfinding_owner.as_ref()
+            .and_then(|owner| owner.ai().read().ok()?.pathfinder());
+        let mut pathfinder = pathfinder.as_ref()
+            .map(|pathfinder| pathfinder.try_write().map_err(|_| XferStatus::InvalidData))
+            .transpose()?;
+        let removed = self.terrain.write().map_err(|_| XferStatus::InvalidData)?
+            .remove_orphaned_bridges(|id| logic.objects.contains_key(&id));
+        if let Some(pathfinder) = pathfinder.as_deref_mut() {
+            for layer in removed {
+                pathfinder.change_bridge_state(layer, false);
+            }
+        }
         Ok(())
     }
 }
@@ -299,7 +311,10 @@ fn register_game_logic_snapshot_block() {
     let mut state = game_engine::System::get_game_state();
     state.add_snapshot_block(
         "CHUNK_TerrainLogic".to_string(),
-        Box::new(TerrainLogicSnapshotBridge),
+        Box::new(TerrainLogicSnapshotBridge {
+            logic,
+            terrain: Arc::clone(world.terrain()),
+        }),
         game_engine::System::SnapshotType::SaveLoad,
     );
     state.add_snapshot_block(

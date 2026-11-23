@@ -318,7 +318,6 @@ pub struct PartitionManager {
     /// Reused membership scratch for pairs that can share several cells.
     contact_pairs_seen: FxHashSet<(ObjectId, ObjectId)>,
     /// C++ storeFoggedCells keyed by `(player_index, store_to_fog)`.
-    fogged_cells: HashMap<(usize, bool), HashSet<CellCoord>>,
     /// C++ PartitionCell shroud levels on the 40wu grid.
     pub(crate) shroud: super::partition_shroud::PartitionShroudGrid,
     /// C++ `m_updatedSinceLastReset`.
@@ -342,7 +341,6 @@ impl PartitionManager {
             dirty_geometry: Vec::new(),
             contact_list: Vec::new(),
             contact_pairs_seen: FxHashSet::default(),
-            fogged_cells: HashMap::new(),
             shroud: super::partition_shroud::PartitionShroudGrid::new(),
             updated_since_last_reset: false,
             cell_changed_events: Vec::new(),
@@ -393,7 +391,6 @@ impl PartitionManager {
 
     pub fn shutdown(&mut self) {
         self.clear();
-        self.fogged_cells.clear();
     }
 
     pub fn register_ghost_object(
@@ -1913,37 +1910,42 @@ impl PartitionManager {
         )
     }
 
-    pub fn store_fogged_cells(&mut self, player_index: usize, store_to_fog: bool) {
-        let player = player_index as i32;
-        let mut cells = HashSet::new();
+    pub(crate) fn capture_boundary_shroud(
+        &self,
+        width: f32,
+        height: f32,
+        status: game_engine::common::system::radar::CellShroudStatus,
+    ) -> Vec<(i32, i32, i32)> {
+        let width = (width / self.shroud.cell_size()).ceil() as i32;
+        let height = (height / self.shroud.cell_size()).ceil() as i32;
+        let mut cells = Vec::new();
         for (x, y) in self.shroud.iter_known_cells() {
-            match self.shroud.cell_status(player, x, y) {
-                game_engine::common::system::radar::CellShroudStatus::Fogged if store_to_fog => {
-                    cells.insert(CellCoord { x, y });
+            if x >= 0 && x < width && y >= 0 && y < height {
+                for player in 0..crate::common::MAX_PLAYER_COUNT as i32 {
+                    if self.shroud.cell_status(player, x, y) == status {
+                        cells.push((player, x, y));
+                    }
                 }
-                game_engine::common::system::radar::CellShroudStatus::Clear if !store_to_fog => {
-                    cells.insert(CellCoord { x, y });
-                }
-                _ => {}
             }
         }
-        self.fogged_cells
-            .insert((player_index, store_to_fog), cells);
+        cells
     }
 
-    pub fn restore_fogged_cells(&mut self, player_index: usize, restore_to_fog: bool) {
-        let Some(cells) = self
-            .fogged_cells
-            .get(&(player_index, restore_to_fog))
-            .cloned()
-        else {
-            return;
-        };
-        let player = player_index as i32;
-        for cell in cells {
-            self.shroud.add_looker(player, cell.x, cell.y);
-            if restore_to_fog {
-                self.shroud.remove_looker(player, cell.x, cell.y);
+    pub(crate) fn restore_boundary_shroud(
+        &mut self,
+        cells: Vec<(i32, i32, i32)>,
+        width: f32,
+        height: f32,
+        fogged: bool,
+    ) {
+        let width = (width / self.shroud.cell_size()).ceil() as i32;
+        let height = (height / self.shroud.cell_size()).ceil() as i32;
+        for (player, x, y) in cells {
+            if x < width && y < height {
+                self.shroud.add_looker(player, x, y);
+                if fogged {
+                    self.shroud.remove_looker(player, x, y);
+                }
             }
         }
     }

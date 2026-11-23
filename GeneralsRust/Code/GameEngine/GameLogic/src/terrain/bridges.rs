@@ -451,40 +451,24 @@ impl TerrainLogic {
         self.delete_bridge_at(location)
     }
 
-    /// C++ TerrainLogic::loadPostProcess (TerrainLogic.cpp:2994-3009):
-    /// delete any bridge whose `bridgeObjectID` no longer resolves.
-    pub fn load_post_process(&mut self) {
-        let mut orphan_ids = Vec::new();
-        let mut current = self.bridge_list_head.as_deref();
-        while let Some(bridge) = current {
-            let id = bridge.get_bridge_info().bridge_object_id;
-            if crate::helpers::TheGameLogic::find_object_by_id(id).is_none() {
-                orphan_ids.push(id);
-            }
-            current = bridge.next.as_deref();
-        }
-        for id in orphan_ids {
-            self.delete_bridge_by_object_id(id);
-        }
-    }
-
-    fn delete_bridge_by_object_id(&mut self, bridge_object_id: ObjectID) -> bool {
-        let Some(bridge) = self.detach_bridge_by_object_id(bridge_object_id) else {
-            return false;
-        };
-        let layer = bridge.get_layer();
-        let ai_store = the_ai();
-        if let Ok(ai) = ai_store.read() {
-            if let Some(pathfinder) = ai.pathfinder() {
-                if let Ok(mut pathfinder) = pathfinder.write() {
-                    pathfinder.change_bridge_state(layer, false);
-                }
+    /// C++ TerrainLogic::loadPostProcess (TerrainLogic.cpp:2994–3009).
+    /// The restoring GameLogic answers whether the bridge object still exists.
+    pub(crate) fn remove_orphaned_bridges(
+        &mut self,
+        mut has_object: impl FnMut(ObjectID) -> bool,
+    ) -> Vec<PathfindLayerEnum> {
+        let mut layers = Vec::new();
+        let mut link = &mut self.bridge_list_head;
+        while let Some(bridge) = link.as_ref() {
+            if has_object(bridge.get_bridge_info().bridge_object_id) {
+                link = &mut link.as_mut().expect("bridge present").next;
+            } else {
+                layers.push(bridge.get_layer());
+                *link = link.take().expect("bridge present").next.take();
             }
         }
-        if bridge_object_id != crate::common::INVALID_ID {
-            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(bridge_object_id);
-        }
-        true
+        self.bridge_damage_states_changed |= !layers.is_empty();
+        layers
     }
 
     /// Update bridge damage states

@@ -128,3 +128,53 @@ fn radar_water_colors_are_owned_and_survive_peer_refresh() {
         &[255, 0, 0, 255]
     );
 }
+
+#[test]
+fn owned_radar_map_paints_terrain_water_and_bridges_in_one_pass() {
+    use game_engine::common::system::radar::{
+        CellShroudStatus, Coord3D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH, RadarBridgeSample,
+        RadarSystem, RadarTerrainPaintSource, sample_radar_map_grid,
+    };
+
+    struct Paint;
+    impl RadarTerrainPaintSource for Paint {
+        fn terrain_color_at(&self, x: f32, y: f32) -> Option<[f32; 3]> {
+            Some([x / 1280.0, y / 1280.0, 0.25])
+        }
+        fn bridge_at(&self, world: &Coord3D) -> Option<RadarBridgeSample> {
+            (world.x == 50.0 && world.y == 50.0).then_some(RadarBridgeSample {
+                color: [0.8, 0.4, 0.6],
+                height: 25.0,
+            })
+        }
+    }
+
+    let min = Coord3D::new(0.0, 0.0, 0.0);
+    let max = Coord3D::new(1280.0, 1280.0, 100.0);
+    let water = [0.25, 0.5, 0.75];
+    let samples = sample_radar_map_grid(
+        min,
+        max.x / RADAR_CELL_WIDTH as f32,
+        max.y / RADAR_CELL_HEIGHT as f32,
+        |x, y| Some(((x + y) / 30.0, x < 100.0)),
+    );
+
+    let mut previous = RadarSystem::new();
+    previous.new_map_owned(min, max, &samples);
+    previous.refresh_owned_terrain_with_source(&Paint, water);
+
+    let mut combined = RadarSystem::new();
+    combined.set_water_radar_color(water);
+    combined.set_shroud_level(20, 20, CellShroudStatus::Fogged);
+    combined.new_map_owned_with_paint(min, max, &samples, Some(&Paint));
+
+    assert_eq!(
+        combined.get_terrain_texture(),
+        previous.get_terrain_texture()
+    );
+    assert_eq!(
+        combined.terrain_generation() + 1,
+        previous.terrain_generation()
+    );
+    assert_eq!(combined.get_shroud_level(20, 20), CellShroudStatus::Clear);
+}

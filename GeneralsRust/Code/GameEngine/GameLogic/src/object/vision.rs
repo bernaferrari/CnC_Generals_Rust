@@ -7,6 +7,7 @@
 
 use super::object_impl_imports::*;
 use super::*;
+use crate::common::RadarPriorityType;
 
 impl Object {
     /// C++ `Object::getShroudClearingRange` (Object.cpp:5128-5156).
@@ -30,17 +31,10 @@ impl Object {
         }
     }
 
-    /// C++ `Object::friend_prepareForMapBoundaryAdjust` (Object.cpp:2777-2794).
-    pub fn friend_prepare_for_map_boundary_adjust(&mut self) {
-        if self.radar_data.is_some() {
-            let radar = game_engine::common::system::radar::get_radar_system();
-            if let Ok(mut radar_guard) = radar.write() {
-                radar_guard.remove_object(self.id);
-            }
-        }
-        if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            partition.unregister_object(self.id);
-        }
+    /// C++ `Object::friend_prepareForMapBoundaryAdjust` forgets the
+    /// receipts before the owning partition is reset. Radar rows are
+    /// cleared together by the matching new-map phase.
+    pub(crate) fn detach_map_boundary_observations(&mut self) {
         self.partition_last_look.reset();
         self.partition_reveal_all_last_look.reset();
         self.partition_last_shroud.reset();
@@ -48,49 +42,35 @@ impl Object {
         self.partition_last_value.reset();
     }
 
-    /// C++ `Object::friend_notifyOfNewMapBoundary` (Object.cpp:2799-2813).
-    pub(crate) fn friend_notify_of_new_map_boundary(&mut self, extent: &crate::common::Region3D) {
-        if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            partition.register_object_at(self.id, *self.get_position());
-        }
-        if self.radar_data.is_some() {
-            self.refresh_radar_object_from_state();
-        } else {
-            let radar = game_engine::common::system::radar::get_radar_system();
-            if let Ok(mut radar_guard) = radar.write() {
-                let mut radar_obj = crate::object::RadarObject::new(self.id);
-                let pos = self.get_position();
-                radar_obj.world_pos =
-                    game_engine::common::system::radar::Coord3D::new(pos.x, pos.y, pos.z);
-                radar_obj.priority = match self.get_radar_priority() {
-                    crate::common::RadarPriorityType::Invalid => {
-                        game_engine::common::system::radar::RadarPriorityType::Invalid
-                    }
-                    crate::common::RadarPriorityType::NotOnRadar => {
-                        game_engine::common::system::radar::RadarPriorityType::NotOnRadar
-                    }
-                    crate::common::RadarPriorityType::Structure => {
-                        game_engine::common::system::radar::RadarPriorityType::Structure
-                    }
-                    crate::common::RadarPriorityType::Unit => {
-                        game_engine::common::system::radar::RadarPriorityType::Unit
-                    }
-                    crate::common::RadarPriorityType::LocalUnitOnly => {
-                        game_engine::common::system::radar::RadarPriorityType::LocalUnitOnly
-                    }
-                };
-                self.populate_radar_object_from_state(&mut radar_obj);
-                radar_guard.add_object(radar_obj);
-            }
-        }
-        self.add_self_to_pathfind_map();
-        self.handle_partition_cell_maintenance();
+    pub(crate) fn restore_map_boundary_radar(
+        &mut self,
+        radar: &mut game_engine::common::system::radar::RadarSystem,
+        local_player: Option<&Arc<RwLock<Player>>>,
+    ) {
+        use game_engine::common::system::radar as radar_types;
 
-        self.refresh_off_map_status(extent);
+        let mut row = self.radar_data.as_deref().cloned().unwrap_or_else(|| {
+            let mut row = RadarObject::new(self.id);
+            row.priority = match self.get_radar_priority() {
+                RadarPriorityType::Invalid => radar_types::RadarPriorityType::Invalid,
+                RadarPriorityType::NotOnRadar => radar_types::RadarPriorityType::NotOnRadar,
+                RadarPriorityType::Structure => radar_types::RadarPriorityType::Structure,
+                RadarPriorityType::Unit => radar_types::RadarPriorityType::Unit,
+                RadarPriorityType::LocalUnitOnly => radar_types::RadarPriorityType::LocalUnitOnly,
+            };
+            row
+        });
+        let pos = self.get_position();
+        row.world_pos = radar_types::Coord3D::new(pos.x, pos.y, pos.z);
+        self.populate_radar_object_for_player(&mut row, local_player);
+        if let Some(existing) = self.radar_data.as_deref_mut() {
+            *existing = row.clone();
+        }
+        radar.add_object(row);
     }
 
     /// The saved C++ private bit is updated at transform and boundary phases.
-    pub(super) fn refresh_off_map_status(&mut self, extent: &crate::common::Region3D) {
+    pub(crate) fn refresh_off_map_status(&mut self, extent: &crate::common::Region3D) {
         if extent.is_in_region_no_z(self.get_position()) {
             self.private_status &= !(ObjectPrivateStatusBits::OffMap as u8);
         } else {
@@ -150,20 +130,6 @@ impl Object {
 
     pub(crate) fn clear_owned_partition_registration(&mut self) {
         self.partition_data = None;
-    }
-
-    /// C++ `TheAI->pathfinder()->addObjectToPathfindMap(this)`.
-    pub(super) fn add_self_to_pathfind_map(&self) {
-        let pos = *self.get_position();
-        let footprint = crate::ai::object_footprint_positions(self).unwrap_or_else(|| vec![pos]);
-        let ai_store = crate::ai::the_ai();
-        if let Ok(ai) = ai_store.read() {
-            if let Some(pf) = ai.pathfinder() {
-                if let Ok(mut pf) = pf.write() {
-                    pf.add_object_to_map(self.id, &footprint, false);
-                }
-            }
-        }
     }
 
     /// C++ `getControllingPlayer()->getRelationship(currentPlayer->getDefaultTeam())`.

@@ -521,6 +521,16 @@ impl PartitionManager {
         self.reset_updated_since_last_reset();
     }
 
+    /// Boundary resize releases and restores the existing ghost partitions.
+    /// Keep their links while rebuilding the center index and shroud cells.
+    pub(crate) fn reset_host_boundary_index(&mut self) {
+        self.host.grid.clear();
+        self.host.object_cells.clear();
+        self.host.object_positions.clear();
+        self.shroud.clear();
+        self.reset_updated_since_last_reset();
+    }
+
     /// C++ `PartitionManager::crc` host-side dump.
     pub(crate) fn host_crc_into(&self, xfer: &mut dyn Xfer) {
         self.host.crc_into(xfer);

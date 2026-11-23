@@ -84,15 +84,27 @@ impl RadarSystem {
         map_max: Coord3D,
         terrain_heights: &[(f32, f32, bool)],
     ) {
-        self.new_map_impl(map_min, map_max, terrain_heights, true);
+        self.new_map_owned_with_paint(map_min, map_max, terrain_heights, None);
     }
 
-    pub(super) fn new_map_impl(
+    /// Resize and repaint once with the receiving match's optional terrain art.
+    pub fn new_map_owned_with_paint(
         &mut self,
         map_min: Coord3D,
         map_max: Coord3D,
         terrain_heights: &[(f32, f32, bool)],
-        owned: bool,
+        paint: Option<&dyn RadarTerrainPaintSource>,
+    ) {
+        self.admit_new_map(map_min, map_max, terrain_heights);
+        self.queue_terrain_refresh_frame = None;
+        self.build_terrain_texture_with_source(paint, self.water_radar_color);
+    }
+
+    pub(super) fn admit_new_map(
+        &mut self,
+        map_min: Coord3D,
+        map_max: Coord3D,
+        terrain_heights: &[(f32, f32, bool)],
     ) {
         // C++ Radar::newMap resets before admitting the supplied terrain.
 
@@ -162,11 +174,5 @@ impl RadarSystem {
         });
 
         self.terrain_dirty = true;
-        if owned {
-            self.refresh_owned_terrain();
-        } else {
-            self.refresh_terrain();
-            snapshot::ensure_the_radar_snapshot_block();
-        }
     }
 }

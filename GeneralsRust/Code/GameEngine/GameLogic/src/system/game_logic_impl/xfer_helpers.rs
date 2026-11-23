@@ -687,38 +687,36 @@ fn xfer_sides_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> 
     Ok(())
 }
 
-fn xfer_terrain_logic_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+fn xfer_terrain_logic_runtime_state(
+    logic: &Mutex<GameLogic>,
+    terrain: &RwLock<crate::terrain::TerrainLogic>,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
     let current_version: XferVersion = 2;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
-    let terrain = get_terrain_logic();
-    let mut terrain_guard = terrain.write().map_err(|_| XferStatus::InvalidData)?;
-
-    let mut active_boundary = terrain_guard.get_active_boundary();
+    let loading = xfer.get_xfer_mode() == XferMode::Load;
+    let (mut active_boundary, mut entries) = if loading {
+        (0, Vec::new())
+    } else {
+        let terrain = terrain.read().map_err(|_| XferStatus::InvalidData)?;
+        (terrain.get_active_boundary(), terrain.snapshot_dynamic_water_entries())
+    };
     xfer.xfer_int(&mut active_boundary)?;
-    if xfer.get_xfer_mode() == XferMode::Load {
-        terrain_guard.set_active_boundary(active_boundary);
-    }
 
     if version >= 2 {
-        let mut entries = if xfer.get_xfer_mode() == XferMode::Load {
-            Vec::new()
-        } else {
-            terrain_guard.snapshot_dynamic_water_entries()
-        };
-
-        let mut entry_count = if xfer.get_xfer_mode() == XferMode::Load {
+        let mut entry_count = if loading {
             0i32
         } else {
             entries.len() as i32
         };
         xfer.xfer_int(&mut entry_count)?;
-        if entry_count < 0 {
+        if !(0..=crate::terrain::MAX_DYNAMIC_WATER_ENTRIES as i32).contains(&entry_count) {
             return Err(XferStatus::InvalidData);
         }
 
-        if xfer.get_xfer_mode() == XferMode::Load {
+        if loading {
             entries.reserve(entry_count as usize);
             for _ in 0..entry_count {
                 let mut trigger_id: Int = -1;
@@ -740,9 +738,6 @@ fn xfer_terrain_logic_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatu
                     current_height,
                 });
             }
-            terrain_guard
-                .restore_dynamic_water_entries(entries)
-                .map_err(|_| XferStatus::InvalidData)?;
         } else {
             for entry in &mut entries {
                 let mut trigger_id = entry.trigger_id;
@@ -755,6 +750,19 @@ fn xfer_terrain_logic_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatu
         }
     }
 
+    if loading {
+        logic.try_lock().map_err(|_| XferStatus::InvalidData)?
+            .switch_active_map_boundary(active_boundary)
+            .map_err(|error| {
+                log::warn!("terrain snapshot boundary: {error}");
+                XferStatus::InvalidData
+            })?;
+        if version >= 2 {
+            terrain.write().map_err(|_| XferStatus::InvalidData)?
+                .restore_dynamic_water_entries(entries)
+                .map_err(|_| XferStatus::InvalidData)?;
+        }
+    }
     Ok(())
 }
 
