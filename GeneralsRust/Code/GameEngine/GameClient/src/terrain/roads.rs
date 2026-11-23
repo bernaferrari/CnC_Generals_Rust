@@ -6,9 +6,8 @@
 use crate::terrain::{TerrainError, TerrainResult};
 use super::w3d_overlay_mesh::RoadMiter;
 use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
-use glam::{Vec2, Vec3, Mat4};
+use glam::{Vec2, Vec3};
 use std::collections::HashMap;
-use wgpu::RenderPass;
 
 /// Unique identifier for roads
 pub type RoadId = u32;
@@ -1947,13 +1946,8 @@ impl RoadManager {
         self.terrain_normals_dirty = true;
     }
 
-    /// Validate road geometry for render submission.
-    ///
-    /// Checks all segment geometries (surface, edge, marking) for valid triangle counts.
-    /// GPU submission is performed by `render_pass_draw`, which calls this validation
-    /// internally and then iterates per-mesh draw calls.  Mirrors C++ W3DTerrainVisual
-    /// road rendering which validates geometry before submitting indexed draws.
-    pub fn render(&self, _view: &Mat4, _projection: &Mat4) -> TerrainResult<()> {
+    /// Check generated segment geometry before rebuilding resident meshes.
+    pub(super) fn validate_generated_geometry(&self) -> TerrainResult<()> {
         for segment in self.segments.values() {
             let Some(geometry) = segment.geometry.as_ref() else {
                 continue;
@@ -1973,34 +1967,6 @@ impl RoadManager {
                 )?;
             }
         }
-        Ok(())
-    }
-
-    /// Submit GPU draw calls for all visible road surfaces.
-    ///
-    /// Caller must set the road pipeline and camera bind group (group 0) first.
-    /// `mesh_iter` yields (vertex_slice, index_slice, index_count) per road mesh in
-    /// priority order.  Each mesh results in one `draw_indexed` call, matching C++
-    /// W3DTerrainVisual per-road-mesh submission.
-    pub fn render_pass_draw<'a, FMeshes>(
-        &self,
-        render_pass: &mut RenderPass<'a>,
-        mut mesh_iter: FMeshes,
-    ) -> TerrainResult<()>
-    where
-        FMeshes: FnMut() -> Option<(wgpu::BufferSlice<'a>, wgpu::BufferSlice<'a>, u32)>,
-    {
-        self.render(&Mat4::IDENTITY, &Mat4::IDENTITY)?;
-
-        while let Some((vertex_slice, index_slice, index_count)) = mesh_iter() {
-            if index_count == 0 {
-                continue;
-            }
-            render_pass.set_vertex_buffer(0, vertex_slice);
-            render_pass.set_index_buffer(index_slice, wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..index_count, 0, 0..1);
-        }
-
         Ok(())
     }
 
@@ -2467,7 +2433,7 @@ mod tests {
     }
 
     #[test]
-    fn test_render_validation_passes_for_generated_geometry() {
+    fn generated_road_geometry_passes_validation() {
         crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
@@ -2484,11 +2450,11 @@ mod tests {
             .unwrap();
         manager.update_geometry().unwrap();
 
-        assert!(manager.render(&Mat4::IDENTITY, &Mat4::IDENTITY).is_ok());
+        manager.validate_generated_geometry().unwrap();
     }
 
     #[test]
-    fn test_render_validation_rejects_out_of_bounds_indices() {
+    fn generated_road_geometry_rejects_out_of_bounds_indices() {
         crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
@@ -2522,7 +2488,7 @@ mod tests {
         });
         segment.dirty = false;
 
-        let result = manager.render(&Mat4::IDENTITY, &Mat4::IDENTITY);
+        let result = manager.validate_generated_geometry();
         assert!(matches!(result, Err(TerrainError::InvalidData(_))));
     }
 

@@ -343,9 +343,6 @@ impl TerrainVisualImpl {
         // Render water
         self.water_system.render(view_matrix, projection_matrix)?;
 
-        // Render roads
-        self.road_system.render(view_matrix, projection_matrix)?;
-
         Ok(())
     }
 }

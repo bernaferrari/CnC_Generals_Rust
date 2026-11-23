@@ -948,6 +948,7 @@ impl TerrainVisualImpl {
             return Ok(());
         };
 
+        self.road_system.validate_generated_geometry()?;
         let mut road_batches = RoadMeshBatches::new(&device);
         let mut bridge_meshes = Vec::new();
         let authored_roads = &self.road_presentation;
