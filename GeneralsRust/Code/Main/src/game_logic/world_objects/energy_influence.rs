@@ -209,6 +209,32 @@ impl GameLogic {
         }
     }
 
+    /// SabotagePowerPlantCrateCollide.cpp:112–120 applies the outage on contact.
+    pub(in crate::game_logic) fn sabotage_player_power(&mut self, owner: u32, deadline: u32) {
+        let Some(player) = self.players.get_mut(&owner) else {
+            return;
+        };
+        player.power_sabotaged_till_frame = deadline;
+        player.refresh_energy_projection_at(self.frame);
+        self.admit_player_energy_brownout(owner, true);
+    }
+
+    /// Player.cpp:698–701 runs after this player's generic Team scripts.
+    /// Energy getters recover at equality, while this callback waits one more frame.
+    pub(crate) fn expire_player_power_sabotage(&mut self, owner: u32) {
+        let Some(player) = self.players.get_mut(&owner) else {
+            return;
+        };
+        let deadline = player.power_sabotaged_till_frame;
+        if deadline == 0 || self.frame <= deadline {
+            return;
+        }
+        player.power_sabotaged_till_frame = 0;
+        player.refresh_energy_projection_at(self.frame);
+        let brownout = !player.has_sufficient_energy_at(self.frame);
+        self.admit_player_energy_brownout(owner, brownout);
+    }
+
     /// Player::onPowerBrownOutChange: synchronous exact-owner restriction and
     /// original POWERED member callback, including repeated nonzero signals.
     pub(in crate::game_logic) fn admit_player_energy_brownout(
@@ -492,10 +518,8 @@ End
             ),
             (20, 0)
         );
-        world.get_player_mut(1).unwrap().power_sabotaged_till_frame = 5;
         world.frame = 4;
-        world.update_player_resources(0.);
-        world.update_power_disabled_state();
+        world.sabotage_player_power(1, 5);
         assert!(
             world
                 .host_object(scaffold)
@@ -509,15 +533,15 @@ End
         world.update_player_resources(0.);
         world.update_power_disabled_state();
         assert!(
-            !world
+            world
                 .host_object(scaffold)
                 .unwrap()
                 .status
                 .disabled_underpowered
         );
         assert!(
-            world.get_player(1).unwrap().has_radar(),
-            "deadline equality recovers through the same exact callback"
+            !world.get_player(1).unwrap().has_radar(),
+            "the Player expiry callback has yet to run at deadline equality"
         );
         assert_eq!(
             (
@@ -526,6 +550,14 @@ End
             ),
             (20, 0)
         );
+        crate::ai::AIManager::update_owned(&mut world, 0.);
+        assert_eq!(world.get_player(1).unwrap().power_sabotaged_till_frame, 5);
+        assert!(!world.get_player(1).unwrap().has_radar());
+        world.frame = 6;
+        crate::ai::AIManager::update_owned(&mut world, 0.);
+        assert_eq!(world.get_player(1).unwrap().power_sabotaged_till_frame, 0);
+        assert!(world.get_player(1).unwrap().has_radar());
+        assert!(!world.host_object(scaffold).unwrap().status.disabled_underpowered);
     }
     #[test]
     fn null_controller_keeps_factory_team_and_grid_independent_of_later_same_faction_player() {

@@ -556,20 +556,7 @@ impl GameLogic {
                         let mut cash_stolen = 0u32;
                         match kind {
                             SaboteurEffectKind::PowerPlant => {
-                                let until = self.frame.saturating_add(
-                                                crate::game_logic::host_saboteur::SABOTEUR_POWER_DURATION_FRAMES,
-                                            );
-                                // C++ SabotagePowerPlantCrateCollide.cpp:112-120
-                                // other->getControllingPlayer(), never first same-faction slot.
-                                let victim_id = self
-                                    .objects
-                                    .get(&special_target_id)
-                                    .and_then(|target| self.player_owner_for_host_object(target));
-                                if let Some(player) =
-                                    victim_id.and_then(|id| self.players.get_mut(&id))
-                                {
-                                    player.power_sabotaged_till_frame = until;
-                                }
+                                // Player power changes after victim feedback below.
                             }
                             SaboteurEffectKind::SupplyCenter
                             | SaboteurEffectKind::SupplyDropzone => {
@@ -693,6 +680,14 @@ impl GameLogic {
                         }
                         // C++ doSabotageFeedbackFX residual (type audio + flash).
                         self.do_sabotage_feedback_fx(special_target_id, kind);
+                        if let Some(deadline) = kind.power_sabotage_until(self.frame)
+                            && let Some(owner) = self
+                                .objects
+                                .get(&special_target_id)
+                                .and_then(|target| self.player_owner_for_host_object(target))
+                        {
+                            self.sabotage_player_power(owner, deadline);
+                        }
                         let msg =
                             localization::localize("hud.saboteur.complete", "Building sabotaged");
                         self.queue_radar_message_for_team(team, msg);

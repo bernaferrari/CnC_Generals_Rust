@@ -172,6 +172,7 @@ impl AIManager {
                 }
                 None => {}
             }
+            game_logic.expire_player_power_sabotage(id);
         }
         Ok(())
     }

@@ -2226,6 +2226,7 @@ fn sabotage_command_applies_only_after_unit_reaches_target() {
     ensure_test_power_plant_template(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
     ensure_test_player_for_team(&mut game_logic, Team::USA);
+    game_logic.get_player_mut(0).unwrap().add_radar(false);
 
     let saboteur_id = game_logic
         .create_object("GLAInfantrySaboteur", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
@@ -2293,6 +2294,10 @@ fn sabotage_command_applies_only_after_unit_reaches_target() {
     assert!(
         until > 30,
         "power_sabotaged_till_frame must be set (until={until})"
+    );
+    assert!(
+        !game_logic.get_player(0).unwrap().has_radar(),
+        "sabotage contact restricts radar before any resource or player update"
     );
     // Saboteur consumed residual.
     let sab_alive = game_logic

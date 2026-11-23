@@ -30,11 +30,21 @@ impl GameLogic {
         object.is_alive() && (object.is_constructed() || object.construction_power_admitted)
     }
 
-    pub(crate) fn admit_completed_structure_power(&mut self, player_id: u32) {
+    pub(crate) fn admit_completed_structure_power(&mut self, player_id: u32, structure: ObjectId) {
+        // Object::friend_adjustPowerForPlayer skips disabled producers. Energy
+        // signals the Player for any other nonzero template contribution.
+        let signals_power = self.objects.get(&structure).is_some_and(|object| {
+            let energy = object.get_template().energy_production.unwrap_or_default();
+            energy < 0 || (energy > 0 && !object.is_disabled())
+        });
         let totals = self.power_totals_for_player(player_id);
-        if let Some(player) = self.players.get_mut(&player_id) {
-            Self::apply_derived_power(player, totals);
-            Self::apply_power_sabotage(player, self.frame);
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return;
+        };
+        Self::apply_derived_power(player, totals, self.frame);
+        if signals_power {
+            let brownout = !player.has_sufficient_energy_at(self.frame);
+            self.admit_player_energy_brownout(player_id, brownout);
         }
     }
 
@@ -75,13 +85,9 @@ impl GameLogic {
         totals
     }
 
-    fn apply_derived_power(player: &mut Player, (produced, consumed): (i32, i32)) {
-        player.power_available = produced - consumed;
+    fn apply_derived_power(player: &mut Player, (produced, consumed): (i32, i32), frame: u32) {
         player.power_produced = produced;
         player.power_consumed = consumed;
-    }
-
-    fn apply_power_sabotage(player: &mut Player, frame: u32) {
         // Preserve canonical production while exposing only the sabotage mask.
         // C++ getProduction/hasSufficientPower recover at frame == deadline.
         player.refresh_energy_projection_at(frame);
@@ -93,8 +99,7 @@ impl GameLogic {
     pub(crate) fn restore_player_power(&mut self) {
         let totals = self.all_player_power_totals();
         for (id, player) in &mut self.players {
-            Self::apply_derived_power(player, totals[id]);
-            Self::apply_power_sabotage(player, self.frame);
+            Self::apply_derived_power(player, totals[id], self.frame);
         }
     }
 
@@ -103,8 +108,7 @@ impl GameLogic {
     pub(in super::super) fn refresh_power_after_disabled_expiry(&mut self, player_id: u32) {
         let totals = self.power_totals_for_player(player_id);
         if let Some(player) = self.players.get_mut(&player_id) {
-            Self::apply_derived_power(player, totals);
-            Self::apply_power_sabotage(player, self.frame);
+            Self::apply_derived_power(player, totals, self.frame);
             self.economy_events.record(
                 player_id,
                 player.resources.supplies,
@@ -116,14 +120,7 @@ impl GameLogic {
     pub(in super::super) fn update_player_resources(&mut self, _dt: f32) {
         let totals = self.all_player_power_totals();
         for (id, player) in &mut self.players {
-            Self::apply_derived_power(player, totals[id]);
-            // Expiry and publication belong only to an ordinary update.
-            if player.power_sabotaged_till_frame > 0
-                && self.frame > player.power_sabotaged_till_frame
-            {
-                player.power_sabotaged_till_frame = 0;
-            }
-            Self::apply_power_sabotage(player, self.frame);
+            Self::apply_derived_power(player, totals[id], self.frame);
 
             // Shadow economy channel: effective supplies + power after host tick residual.
             self.economy_events.record(

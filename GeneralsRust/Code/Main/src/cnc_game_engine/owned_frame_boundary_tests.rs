@@ -33,6 +33,161 @@ fn advance_owned_with_test_audio(
     }
 }
 
+fn sabotage_command_browns_out_the_owner_until_after_its_deadline_case() {
+    use crate::command_system::{CommandType, GameCommand, ModifierKeys};
+    use crate::fixture_content::FixtureObject;
+    use crate::game_logic::presentation_definitions::PresentationDefinitions;
+
+    let fixture = || {
+        let (mut world, _, _) = fixture_with(
+            "SabotageWitness",
+            100.0,
+            &[
+                FixtureObject::new("GLAInfantrySaboteur")
+                    .kind_of("INFANTRY SELECTABLE")
+                    .health(120.)
+                    .walker()
+                    .instant_death(),
+                FixtureObject::new("AmericaPowerPlant")
+                    .kind_of("STRUCTURE FS_POWER SELECTABLE")
+                    .energy(20)
+                    .health(1000.)
+                    .radar_provider(),
+                FixtureObject::new("SabotageConsumer")
+                    .kind_of("STRUCTURE POWERED")
+                    .energy(-8)
+                    .health(1000.),
+            ],
+        );
+        let victim = world.get_player_by_team(Team::USA).unwrap().id;
+        let infiltrator = world.get_player_by_team(Team::GLA).unwrap().id;
+        let plant = world
+            .create_object_for_player("AmericaPowerPlant", victim, Vec3::new(90., 0., 90.))
+            .unwrap();
+        let consumer = world
+            .create_object_for_player("SabotageConsumer", victim, Vec3::new(120., 0., 90.))
+            .unwrap();
+        let saboteur = world
+            .create_object_for_player("GLAInfantrySaboteur", infiltrator, Vec3::new(92., 0., 90.))
+            .unwrap();
+        world.session_view.definitions =
+            PresentationDefinitions::with_radar_cues("SabotageRadarUp", "SabotageRadarDown");
+        advance_owned(&mut world, None);
+        assert!(world.get_player(victim).unwrap().has_radar());
+        (world, victim, infiltrator, plant, consumer, saboteur)
+    };
+    let (mut world, victim, infiltrator, plant, consumer, saboteur) = fixture();
+    let (mut peer, peer_victim, _, peer_plant, peer_consumer, peer_saboteur) = fixture();
+    assert_eq!(
+        (victim, plant, consumer, saboteur),
+        (peer_victim, peer_plant, peer_consumer, peer_saboteur)
+    );
+    let contact_frame = world.get_frame();
+    world.queue_command(GameCommand {
+        command_type: CommandType::Sabotage { target_id: plant },
+        player_id: infiltrator,
+        command_id: 1,
+        timestamp: std::time::UNIX_EPOCH,
+        selected_units: vec![saboteur],
+        modifier_keys: ModifierKeys::default(),
+    });
+    advance_owned(&mut world, None);
+    let victim_state = world.get_player(victim).unwrap();
+    let deadline = victim_state.power_sabotaged_till_frame;
+    assert_eq!(
+        deadline,
+        crate::game_logic::host_saboteur::power_sabotage_until_frame(contact_frame)
+    );
+    assert!(!victim_state.has_radar());
+    assert_eq!(victim_state.power_available, -8);
+    assert!(
+        world
+            .host_object(consumer)
+            .unwrap()
+            .status
+            .disabled_underpowered
+    );
+    assert!(
+        world
+            .host_object(saboteur)
+            .is_none_or(|object| !object.is_alive())
+    );
+    assert_eq!(world.host_radar.offline_transitions, 1);
+
+    for (processed_frame, powered) in [
+        (deadline - 1, false),
+        (deadline, false),
+        (deadline + 1, true),
+    ] {
+        world.set_current_frame(u64::from(processed_frame));
+        advance_owned(&mut world, None);
+        let player = world.get_player(victim).unwrap();
+        assert_eq!(world.get_frame(), processed_frame + 1);
+        assert_eq!(
+            player.power_sabotaged_till_frame,
+            if powered { 0 } else { deadline }
+        );
+        assert_eq!(
+            player.has_sufficient_energy_at(processed_frame),
+            processed_frame >= deadline
+        );
+        assert_eq!(player.has_radar(), powered);
+        assert_eq!(
+            world
+                .host_object(consumer)
+                .unwrap()
+                .status
+                .disabled_underpowered,
+            !powered
+        );
+        assert_eq!(world.host_radar.online_transitions, 1 + u32::from(powered));
+    }
+    let radar_cues: Vec<_> = world
+        .process_audio_events(None)
+        .into_iter()
+        .filter(|event| {
+            matches!(
+                event.event_type.as_str(),
+                "SabotageRadarDown" | "SabotageRadarUp"
+            )
+        })
+        .map(|event| (event.event_type.clone(), event.player_index))
+        .collect();
+    assert_eq!(
+        radar_cues,
+        [
+            ("SabotageRadarDown".to_owned(), Some(victim as i32)),
+            ("SabotageRadarUp".to_owned(), Some(victim as i32)),
+        ]
+    );
+    advance_owned(&mut peer, None);
+    assert!(peer.get_player(peer_victim).unwrap().has_radar());
+    assert_eq!(
+        peer.get_player(peer_victim)
+            .unwrap()
+            .power_sabotaged_till_frame,
+        0
+    );
+    assert!(
+        !peer
+            .host_object(peer_consumer)
+            .unwrap()
+            .status
+            .disabled_underpowered
+    );
+    assert!(peer.host_object(peer_saboteur).unwrap().is_alive());
+    assert_eq!(peer.host_radar.offline_transitions, 0);
+}
+
+#[test]
+fn sabotage_command_browns_out_the_owner_until_after_its_deadline() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "sabotage_command_browns_out_the_owner_until_after_its_deadline",
+        sabotage_command_browns_out_the_owner_until_after_its_deadline_case,
+    );
+}
+
 fn author_timers(logic: &mut GameLogic, id: ObjectId) -> u32 {
     let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
     object.flash_as_selected_with_color([0.1, 0.2, 0.3]);

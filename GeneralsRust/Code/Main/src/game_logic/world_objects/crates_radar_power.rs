@@ -933,7 +933,14 @@ impl GameLogic {
         for id in removed {
             self.remove_host_radar_provider(id);
         }
-        let ids: Vec<_> = self.players.keys().copied().collect();
+        // The Player power callbacks own radar restriction for a sabotaged
+        // grid. At deadline equality the Energy getter can recover while
+        // Player::update still owes its expiry callback.
+        let ids: Vec<_> = self
+            .players
+            .iter()
+            .filter_map(|(&id, player)| (player.power_sabotaged_till_frame == 0).then_some(id))
+            .collect();
         for id in ids {
             let player = self.players.get_mut(&id).unwrap();
             let had = player.has_radar();
@@ -1086,9 +1093,14 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_power_disabled_state(&mut self) {
-        // One canonical callback implementation for immediate Energy changes
-        // and periodic sabotage observation. PlayerList slot order is numeric.
-        let mut players = self.players.keys().copied().collect::<Vec<_>>();
+        // The compatibility grid refresh serves ordinary power. A sabotage
+        // timer has explicit contact and Player::update callbacks, plus the
+        // synchronous callbacks from any actual nonzero energy adjustment.
+        let mut players = self
+            .players
+            .iter()
+            .filter_map(|(&id, player)| (player.power_sabotaged_till_frame == 0).then_some(id))
+            .collect::<Vec<_>>();
         players.sort_unstable();
         for id in players {
             let brownout = !self.players[&id].has_sufficient_energy_at(self.frame);

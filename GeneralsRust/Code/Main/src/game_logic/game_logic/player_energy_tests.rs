@@ -8,7 +8,7 @@ fn admitted_world() -> GameLogic {
     let mut world = GameLogic::new();
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
         "owned-energy.ini".into(),
-        "Object OwnedEnergyProducer\nKindOf = VEHICLE\nEnergyProduction = 20\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject OwnedEnergyConsumer\nKindOf = VEHICLE\nEnergyProduction = -10\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
+        "Object OwnedEnergyProducer\nKindOf = STRUCTURE\nEnergyProduction = 20\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\nObject OwnedEnergyConsumer\nKindOf = VEHICLE\nEnergyProduction = -10\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n".into(),
     )]).unwrap()).unwrap();
     let mut player = Player::new(1, Team::USA, "OwnedEnergy", true);
     let mut side = Dict::new();
@@ -138,6 +138,13 @@ fn sabotage_snapshot_restores_raw_grid_and_future_deadline_without_replaying_adm
         restored.frame = frame;
         source.update_player_resources(0.0);
         restored.update_player_resources(0.0);
+        assert_eq!(restored.players[&1].power_sabotaged_till_frame, 50);
+        crate::ai::AIManager::update_owned(&mut source, 0.);
+        crate::ai::AIManager::update_owned(&mut restored, 0.);
+        assert_eq!(
+            restored.players[&1].power_sabotaged_till_frame,
+            if frame <= 50 { 50 } else { 0 }
+        );
         assert_eq!(source.player_economy(1), restored.player_economy(1));
         assert_eq!(
             (
@@ -208,16 +215,40 @@ fn actual_presentation_masks_and_recovers_at_deadline_without_an_economy_tick() 
 }
 
 #[test]
-fn actual_power_callback_recovers_radar_at_deadline_despite_stale_projection() {
-    let (mut world, _, _) = authored_world();
-    world.players.get_mut(&1).unwrap().radar_count = 1;
-    world.update_power_disabled_state();
-    assert!(!world.players[&1].has_radar());
-    world.frame = 50;
-    assert_eq!(world.players[&1].power_available, -10);
-    world.update_power_disabled_state();
-    assert!(world.players[&1].has_radar());
-    assert_eq!(world.players[&1].power_available, -10);
+fn energy_delta_recovers_radar_at_deadline_before_the_player_expiry() {
+    for complete_scaffold in [false, true] {
+        let (mut world, _, _) = authored_world();
+        world.players.get_mut(&1).unwrap().add_radar(false);
+        world.sabotage_player_power(1, 50);
+        assert!(!world.players[&1].has_radar());
+        world.frame = 50;
+        assert_eq!(world.players[&1].power_available, -10);
+        world.update_player_radar();
+        world.update_power_disabled_state();
+        assert!(!world.players[&1].has_radar());
+        let position = glam::Vec3::new(10., 0., 10.);
+        if complete_scaffold {
+            let id = world
+                .create_object_under_construction_for_player("OwnedEnergyProducer", 1, position, 0.)
+                .unwrap()
+                .unwrap();
+            assert!(!world.players[&1].has_radar());
+            let object = world.host_object_mut(id).unwrap();
+            object.construction_percent = 1.0;
+            object.set_status_under_construction(false);
+            world.notify_structure_construction_complete(id).unwrap();
+        } else {
+            world
+                .create_object_for_player("OwnedEnergyProducer", 1, position)
+                .unwrap();
+        }
+        assert!(world.players[&1].has_radar());
+        assert_eq!(world.players[&1].power_available, 30);
+        assert_eq!(world.players[&1].power_sabotaged_till_frame, 50);
+        world.update_player_radar();
+        world.update_power_disabled_state();
+        assert!(world.players[&1].has_radar());
+    }
 }
 
 #[test]
