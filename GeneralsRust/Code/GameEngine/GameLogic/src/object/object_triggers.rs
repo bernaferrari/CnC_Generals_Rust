@@ -27,6 +27,16 @@ pub(super) fn normalize_orientation_angle(mut angle: Real) -> Real {
     angle
 }
 
+#[cfg(test)]
+mod owned_orientation_tests;
+
+/// Object.cpp:1683-1697 uses a strict per-axis threshold.
+fn is_position_different(old: Coord3D, next: Coord3D) -> bool {
+    (old.x - next.x).abs() > 0.01
+        || (old.y - next.y).abs() > 0.01
+        || (old.z - next.z).abs() > 0.01
+}
+
 pub(crate) struct OwnedObjectTransform {
     pub(crate) position_changed: bool,
     pub(crate) pose_changed: bool,
@@ -127,21 +137,12 @@ impl Object {
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
     ) {
-        self.set_transform_matrix_with_pose_and_trigger_context(matrix, None, frame, changed);
-    }
-
-    fn set_transform_matrix_with_pose_and_trigger_context(
-        &mut self,
-        matrix: &Matrix3D,
-        cached_pose: Option<(Coord3D, Real)>,
-        frame: Option<UnsignedInt>,
-        changed: &mut dyn FnMut(ObjectID),
-    ) {
         self.set_transform_matrix_with_pose_and_extent(
             matrix,
-            cached_pose,
+            None,
             frame,
             changed,
+            &mut Self::calculate_height_above_terrain,
             receiving_terrain_extent,
         );
     }
@@ -152,11 +153,10 @@ impl Object {
         cached_pose: Option<(Coord3D, Real)>,
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
+        height: &mut dyn FnMut(&Object) -> Real,
         extent_for_refresh: impl FnOnce(&Object) -> Option<crate::common::Region3D>,
     ) {
-        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, cached_pose, &mut |object| {
-            object.calculate_height_above_terrain()
-        });
+        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, cached_pose, height);
         let translation = self.geometry_info.position;
         let new_angle = self.geometry_info.angle;
         if pos_diff || ang_diff {
@@ -212,9 +212,7 @@ impl Object {
                 drawable.set_transform(*matrix);
             }
         }
-        let pos_diff = (old_pos.x - translation.x).abs() > 0.01
-            || (old_pos.y - translation.y).abs() > 0.01
-            || (old_pos.z - translation.z).abs() > 0.01;
+        let pos_diff = is_position_different(old_pos, translation);
         let ang_diff = (old_angle - new_angle).abs() > 0.01;
         (pos_diff, ang_diff)
     }
@@ -718,10 +716,7 @@ impl Object {
 
     /// Set object position
     pub fn set_position(&mut self, position: &Coord3D) -> Result<(), String> {
-        let old = self.geometry_info.position;
-        let moved = (old.x - position.x).abs() > 0.01
-            || (old.y - position.y).abs() > 0.01
-            || (old.z - position.z).abs() > 0.01;
+        let moved = is_position_different(self.geometry_info.position, *position);
 
         if self.is_kind_of(KindOf::StickToTerrainSlope) {
             let services = self
@@ -743,7 +738,8 @@ impl Object {
                 None,
                 None,
                 &mut |id| crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id),
-                move |_| Some(extent),
+                &mut Self::calculate_height_above_terrain,
+                |_| Some(extent),
             );
             return Ok(());
         }
@@ -1184,17 +1180,35 @@ impl Object {
     pub fn set_orientation(&mut self, angle: Real) -> Result<(), String> {
         let position = self.transform_matrix.w_axis.truncate();
         let mut matrix = Matrix3D::from_translation(position) * Matrix3D::from_rotation_z(angle);
-        if self.is_kind_of(KindOf::StickToTerrainSlope) {
-            let terrain = crate::terrain::get_terrain_logic();
-            let terrain = terrain.read().map_err(|_| "orientation terrain poisoned")?;
+        let position_changed = is_position_different(self.geometry_info.position, position);
+        let extent = if self.is_kind_of(KindOf::StickToTerrainSlope) {
+            let services = self
+                .owning_world_services()
+                .or_else(crate::system::engine_stores::try_active_services);
+            let terrain_handle = services
+                .as_ref()
+                .map(|services| Arc::clone(services.terrain()))
+                .unwrap_or_else(crate::terrain::get_terrain_logic);
+            let terrain = terrain_handle
+                .try_read()
+                .map_err(|_| "Object orientation terrain is already borrowed")?;
             terrain.align_on_terrain(angle, &position, true, &mut matrix);
-        }
-        // Thing.cpp uses raw input for rows and normalizeAngle for its cache.
-        self.set_transform_matrix_with_pose_and_trigger_context(
+            position_changed.then(|| active_compatibility_extent(&terrain))
+        } else if position_changed {
+            checked_receiving_terrain_extent(self)?
+        } else {
+            None
+        };
+        // Thing.cpp:174-219 aligns the matrix but retains its pre-alignment
+        // position and the existing altitude caches.
+        let height = self.geometry_info.height_above_terrain;
+        self.set_transform_matrix_with_pose_and_extent(
             &matrix,
             Some((position, normalize_orientation_angle(angle))),
             None,
             &mut |id| crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id),
+            &mut |_| height,
+            |_| extent,
         );
         Ok(())
     }
