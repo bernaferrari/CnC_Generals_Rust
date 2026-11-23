@@ -126,3 +126,69 @@ fn actual_neutron_unmanning_is_not_an_academy_sniper_event() {
     assert_eq!(count(&peer, 0), 0);
     assert_eq!(count(&owner, 9), 0);
 }
+
+fn powered_sniper_world(kinds: &str) -> (GameLogic, ObjectId, ObjectId) {
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+
+    let mut world = GameLogic::new();
+    admit_fixture_objects(
+        &mut world,
+        &[
+            FixtureObject::new("PoweredSniperTarget")
+                .kind_of(kinds)
+                .health(100.0)
+                .energy(20)
+                .module("Behavior = AIUpdateInterface TargetAI\nEnd"),
+            FixtureObject::new("PoweredSniperSource")
+                .kind_of("INFANTRY")
+                .health(100.0),
+        ],
+    );
+    let mut neutral = Player::new(0, Team::Neutral, "Neutral", false);
+    neutral.map_side.role = PlayerSideRole::Neutral;
+    neutral.map_side.map_player_name.clear();
+    world.add_player(neutral);
+    world.add_player(Player::new(1, Team::USA, "Target", true));
+    world.add_player(Player::new(2, Team::GLA, "Sniper", false));
+    let target = world
+        .create_object_for_player("PoweredSniperTarget", 1, Vec3::ZERO)
+        .unwrap();
+    let source = world
+        .create_object_for_player("PoweredSniperSource", 2, Vec3::new(15.0, 0.0, 0.0))
+        .unwrap();
+    (world, target, source)
+}
+
+#[test]
+fn kill_pilot_debits_receiving_vehicle_power_before_neutral_transfer() {
+    let (mut world, target, source) = powered_sniper_world("VEHICLE SELECTABLE");
+    let (other, other_target, _) = powered_sniper_world("VEHICLE SELECTABLE");
+    assert_eq!(target, other_target);
+    let neutral_team = world.host_default_team_id(0).unwrap();
+    assert_eq!(world.get_player(1).unwrap().power_produced, 20);
+    snipe(&mut world, target, source);
+
+    let husk = world.host_object(target).unwrap();
+    assert!(husk.is_unmanned());
+    assert_eq!(husk.health.current, 100.0);
+    assert_eq!(world.get_player(1).unwrap().power_produced, 0);
+    assert_eq!(husk.team_instance_id, Some(neutral_team));
+    assert_eq!(count(&world, 0), 1);
+    assert_eq!(other.get_player(1).unwrap().power_produced, 20);
+    assert!(!other.host_object(other_target).unwrap().is_unmanned());
+}
+
+#[test]
+fn kill_pilot_keeps_an_aircraft_without_vehicle_kind_owned_and_manned() {
+    let (mut world, target, source) = powered_sniper_world("AIRCRAFT SELECTABLE");
+    assert!(world.host_object(target).unwrap().is_kind_of(KindOf::Aircraft));
+    assert!(!world.host_object(target).unwrap().is_kind_of(KindOf::Vehicle));
+    snipe(&mut world, target, source);
+
+    let aircraft = world.host_object(target).unwrap();
+    assert!(!aircraft.is_unmanned());
+    assert_eq!(aircraft.owner_player_id, Some(1));
+    assert_eq!(aircraft.health.current, 100.0);
+    assert_eq!(world.get_player(1).unwrap().power_produced, 20);
+    assert_eq!(count(&world, 0), 0);
+}

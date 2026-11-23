@@ -1,7 +1,7 @@
 //! C++ ActiveBody.cpp:646–653: score, onDie, fresh source lookup, DamageFX.
 //! This owner keeps both objects installed and finishes before the next hit.
 use super::super::*;
-use crate::game_logic::object::{DamageApplication, DamageHitContext};
+use crate::game_logic::object::{DamageApplication, DamageHitContext, KillPilotAction};
 #[path = "damage_callbacks.rs"]
 mod damage_callbacks;
 #[cfg(test)]
@@ -721,23 +721,30 @@ impl GameLogic {
                     true,
                 )
         };
-        if let Some(continuation) = application.take_rider_change_kill_pilot() {
-            if continuation.car_bomb {
-                let Some(victim) = self.objects.get(&victim_id) else { return Ok(None) };
-                let identity = self.live_draw_playback_identity(victim);
-                self.maybe_detonate_carbomb_on_unmanned_with_effects(victim_id, effects)?;
-                if !self.objects.get(&victim_id).is_some_and(|victim| {
-                    self.live_draw_playback_identity(victim) == identity
-                }) {
+        if let Some(continuation) = application.take_kill_pilot() {
+            if continuation.action == KillPilotAction::Unman {
+                let Some(victim) = self.objects.get_mut(&victim_id) else {
+                    return Ok(None);
+                };
+                let birth = std::sync::Arc::downgrade(&victim.visual_draw_identity_token);
+                if !victim.is_unmanned() {
+                    victim.status.unmanned_owner_team = Some(victim.team);
+                    victim.status.unmanned_owner_player_id = victim.owner_player_id;
+                }
+                // ActiveBody.cpp:400-413. Disable runs its power, radar and
+                // car-bomb callbacks before deselection, virtual Idle and Team.
+                self.set_owned_unmanned(victim_id, effects)?;
+                if !self.object_birth_matches(victim_id, &birth) {
                     return Ok(None);
                 }
-                if let Some(victim) = self.objects.get_mut(&victim_id) {
-                    victim.set_team_and_owner_with_partition_owner(
-                        Team::Neutral,
-                        context.neutral_player_id(),
-                        &mut self.ownership_events,
-                        &mut self.partition_manager,
-                    );
+                self.deselect_drawable(victim_id);
+                self.unit_command_ai_idle_owned_with_effects(victim_id, effects)?;
+                if !self.object_birth_matches(victim_id, &birth) {
+                    return Ok(None);
+                }
+                self.transfer_unmanned_to_neutral_team(victim_id, effects)?;
+                if !self.object_birth_matches(victim_id, &birth) {
+                    return Ok(None);
                 }
             }
             if let Some(transition) = continuation.transition.as_ref() {
@@ -778,7 +785,7 @@ impl GameLogic {
                         let Some(victim) = self.objects.get_mut(&victim_id) else {
                             return;
                         };
-                        victim.finish_rider_change_kill_pilot_after_transition(
+                        victim.finish_kill_pilot_after_transition(
                             &continuation,
                             &mut self.health_events,
                             |effect| {
@@ -844,7 +851,7 @@ impl GameLogic {
                     };
                 let players = &mut self.players;
                 if let Some(victim) = self.objects.get_mut(&victim_id) {
-                    victim.finish_rider_change_kill_pilot_after_transition(
+                    victim.finish_kill_pilot_after_transition(
                         &continuation,
                         &mut self.health_events,
                         |effect| {

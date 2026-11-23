@@ -4,7 +4,7 @@ mod application;
 mod world_policy;
 use application::{ActiveDamageContinuation, HealingContinuation};
 pub(in crate::game_logic) use application::{
-    BridgeBodyCallbacks, DamageApplication, RiderChangeKillPilotContinuation,
+    BridgeBodyCallbacks, DamageApplication, KillPilotAction, KillPilotContinuation,
 };
 
 impl Object {
@@ -356,7 +356,7 @@ impl Object {
         body_fx: &mut BodyStateFxReceiver<'_>,
         operation_frame: u32,
         operation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        yield_rider_kill_pilot_transition: bool,
+        yield_kill_pilot: bool,
     ) -> DamageApplication {
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
@@ -557,9 +557,7 @@ impl Object {
                 damage,
             );
             let fx_type = fx_override.unwrap_or(damage_type);
-            if self.is_kind_of(crate::game_logic::KindOf::Vehicle)
-                || self.is_kind_of(crate::game_logic::KindOf::Aircraft)
-            {
+            if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
                 let rider_change = self.is_combat_cycle_transport
                     || self.thing.template.contain_module.kind
                         == crate::game_logic::ContainModuleKind::RiderChange;
@@ -569,7 +567,7 @@ impl Object {
                         self.status.effectively_dead = true;
                         self.status.destroyed = true;
                         self.status.death_type = death_type;
-                        let transition = if yield_rider_kill_pilot_transition {
+                        let transition = if yield_kill_pilot {
                             self.refresh_model_condition_bits_yield_transition(
                                 context.source(),
                                 frame,
@@ -584,9 +582,9 @@ impl Object {
                             None
                         };
                         let (incoming, previous) = context.last_damage_observations();
-                        let continuation = RiderChangeKillPilotContinuation {
+                        let continuation = KillPilotContinuation {
                             victim_id: self.id,
-                            car_bomb: false,
+                            action: KillPilotAction::MovingRiderChange,
                             source,
                             rebuild_model_bits_after_transition: transition.is_some(),
                             transition,
@@ -599,10 +597,10 @@ impl Object {
                             frame,
                             is_kill: context.is_kill(),
                         };
-                        if yield_rider_kill_pilot_transition {
-                            return DamageApplication::RiderChangeKillPilot(continuation);
+                        if yield_kill_pilot {
+                            return DamageApplication::KillPilot(continuation);
                         }
-                        self.finish_rider_change_kill_pilot_after_transition(
+                        self.finish_kill_pilot_after_transition(
                             &continuation,
                             health_events,
                             player_effects,
@@ -638,6 +636,24 @@ impl Object {
                     }
                     return DamageApplication::Complete(false);
                 }
+                if yield_kill_pilot {
+                    let (incoming, previous) = context.last_damage_observations();
+                    return DamageApplication::KillPilot(KillPilotContinuation {
+                        victim_id: self.id,
+                        action: KillPilotAction::Unman,
+                        source,
+                        transition: None,
+                        source_fx: context.source().cloned(),
+                        incoming,
+                        previous,
+                        damage_type,
+                        fx_type,
+                        amount,
+                        frame,
+                        is_kill: context.is_kill(),
+                        rebuild_model_bits_after_transition: false,
+                    });
+                }
                 self.apply_kill_pilot_unmanned_at_frame(
                     health_events,
                     &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
@@ -645,29 +661,6 @@ impl Object {
                     }),
                     frame,
                 );
-                if yield_rider_kill_pilot_transition
-                    && !self.is_kind_of(crate::game_logic::KindOf::Drone)
-                    && self.authors_carbomb_weapon_set()
-                {
-                    let (incoming, previous) = context.last_damage_observations();
-                    return DamageApplication::RiderChangeKillPilot(
-                        RiderChangeKillPilotContinuation {
-                            victim_id: self.id,
-                            car_bomb: true,
-                            source,
-                            transition: None,
-                            source_fx: context.source().cloned(),
-                            incoming,
-                            previous,
-                            damage_type,
-                            fx_type,
-                            amount,
-                            frame,
-                            is_kill: context.is_kill(),
-                            rebuild_model_bits_after_transition: false,
-                        },
-                    );
-                }
                 if let Some(output) = ownership_events {
                     self.set_team_and_owner_with_partition_context(
                         crate::game_logic::Team::Neutral,
@@ -1258,9 +1251,9 @@ impl Object {
     /// C++ ActiveBody.cpp:501-572 lastDamageInfo: amount>0 or kill, after armor.
     /// Same-or-next-frame overwrites only if new source exists and (old is gone
     /// or new is VEHICLE/INFANTRY/faction structure).
-    pub(in crate::game_logic) fn finish_rider_change_kill_pilot_after_transition(
+    pub(in crate::game_logic) fn finish_kill_pilot_after_transition(
         &mut self,
-        continuation: &RiderChangeKillPilotContinuation,
+        continuation: &KillPilotContinuation,
         health_events: &mut crate::game_logic::HostHealthEvents,
         mut player_effects: impl FnMut(BodyPlayerEffect),
         body_fx: &mut BodyStateFxReceiver<'_>,
@@ -1272,35 +1265,36 @@ impl Object {
         if continuation.rebuild_model_bits_after_transition {
             self.rebuild_model_condition_bits();
         }
-        self.set_ai_state(
-            AIState::Idle,
-            continuation.frame,
-            &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
-                body_fx(object, BodyStateFx::MovementStop(request), None)
-            }),
-        );
-        self.target = None;
-        if !continuation.car_bomb {
+        if continuation.action == KillPilotAction::MovingRiderChange {
+            self.set_ai_state(
+                AIState::Idle,
+                continuation.frame,
+                &mut crate::game_logic::ObjectAudio::callback(&mut |object, request| {
+                    body_fx(object, BodyStateFx::MovementStop(request), None)
+                }),
+            );
+            self.target = None;
             health_events.record_applied_damage(
-            self.id,
-            if self.health.maximum > 0.0 {
-                self.health.maximum
-            } else {
-                self.max_health.max(1.0)
-            },
-            continuation.source,
-            true,
-            continuation.damage_type.to_store() as u32,
-            crate::game_logic::host_damage_log::BodyHealthObservation {
-                current: self.health.current,
-                maximum: if self.health.maximum > 0.0 {
+                self.id,
+                if self.health.maximum > 0.0 {
                     self.health.maximum
                 } else {
-                    self.max_health.max(0.0)
+                    self.max_health.max(1.0)
                 },
-            },
+                continuation.source,
+                true,
+                continuation.damage_type.to_store() as u32,
+                crate::game_logic::host_damage_log::BodyHealthObservation {
+                    current: self.health.current,
+                    maximum: if self.health.maximum > 0.0 {
+                        self.health.maximum
+                    } else {
+                        self.max_health.max(0.0)
+                    },
+                },
             );
         }
+        player_effects(BodyPlayerEffect::NeutralVehicleSniped);
         if continuation.amount > 0.0 || continuation.is_kill {
             let source_template = continuation
                 .source_fx
@@ -1333,9 +1327,6 @@ impl Object {
             },
             continuation.source_fx.as_ref(),
         );
-        if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
-            player_effects(BodyPlayerEffect::NeutralVehicleSniped);
-        }
     }
 
     fn stamp_last_damage_cpp(

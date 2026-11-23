@@ -2934,7 +2934,7 @@ mod bonuses;
 mod construct;
 pub(crate) use construct::{receiving_ai_base_data, receiving_ai_policy_data};
 mod damage;
-pub(in crate::game_logic) use damage::{BridgeBodyCallbacks, DamageApplication};
+pub(in crate::game_logic) use damage::{BridgeBodyCallbacks, DamageApplication, KillPilotAction};
 mod death;
 mod entity_lifecycle_apply;
 pub(crate) use entity_lifecycle_apply::validate_physics_owner;

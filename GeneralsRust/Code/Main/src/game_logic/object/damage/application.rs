@@ -8,19 +8,23 @@ use crate::game_logic::host_transition_damage_fx::HostDamageFxVictim;
 pub(in crate::game_logic) enum DamageApplication {
     // Special/no-HP branches already complete their existing effects.
     Complete(bool),
-    RiderChangeKillPilot(RiderChangeKillPilotContinuation),
+    KillPilot(KillPilotContinuation),
     Active(ActiveDamageContinuation),
     Healing(HealingContinuation),
 }
 
-/// Paused tail of the moving RiderChange/CombatCycle KillPilot callback. The
-/// owner runs `transition` while the victim remains installed and unborrowed,
-/// then reacquires it to finish the native callback sequence.
+/// The original ActiveBody pilot effect completed by the receiving match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::game_logic) enum KillPilotAction {
+    Unman,
+    MovingRiderChange,
+}
+
+/// Paused Body callback, resumed after the released world-effect boundary.
 #[derive(Debug)]
-pub(in crate::game_logic) struct RiderChangeKillPilotContinuation {
+pub(in crate::game_logic) struct KillPilotContinuation {
     pub(in crate::game_logic) victim_id: ObjectId,
-    /// setDisabled yielded before the CARBOMB dead-man kill.
-    pub(in crate::game_logic) car_bomb: bool,
+    pub(in crate::game_logic) action: KillPilotAction,
     pub(in crate::game_logic) source: Option<ObjectId>,
     pub(in crate::game_logic) transition:
         Option<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent>,
@@ -84,7 +88,7 @@ impl DamageApplication {
     pub(in crate::game_logic) fn killed(&self) -> bool {
         match self {
             Self::Complete(killed) => *killed,
-            Self::RiderChangeKillPilot(_) => true,
+            Self::KillPilot(tail) => tail.action == KillPilotAction::MovingRiderChange,
             Self::Active(tail) => tail.lethal,
             Self::Healing(_) => false,
         }
@@ -95,7 +99,7 @@ impl DamageApplication {
     pub(in crate::game_logic) fn actual_damage_dealt(&self) -> Option<f32> {
         match self {
             Self::Active(tail) => Some(tail.actual_damage),
-            Self::Complete(_) | Self::RiderChangeKillPilot(_) | Self::Healing(_) => None,
+            Self::Complete(_) | Self::KillPilot(_) | Self::Healing(_) => None,
         }
     }
 
@@ -108,7 +112,7 @@ impl DamageApplication {
     pub(in crate::game_logic) fn source_id(&self) -> Option<ObjectId> {
         match self {
             Self::Complete(_) => None,
-            Self::RiderChangeKillPilot(tail) => tail.source,
+            Self::KillPilot(tail) => tail.source,
             Self::Active(tail) => tail.source,
             Self::Healing(tail) => tail.source,
         }
@@ -118,23 +122,22 @@ impl DamageApplication {
         match self {
             Self::Active(tail) => tail.bridge_callbacks,
             Self::Healing(tail) => tail.bridge_callbacks,
-            Self::Complete(_) | Self::RiderChangeKillPilot(_) => None,
+            Self::Complete(_) | Self::KillPilot(_) => None,
         }
     }
 
-    pub(in crate::game_logic) fn take_rider_change_kill_pilot(
+    pub(in crate::game_logic) fn take_kill_pilot(
         &mut self,
-    ) -> Option<RiderChangeKillPilotContinuation> {
-        if matches!(self, Self::RiderChangeKillPilot(_)) {
-            let Self::RiderChangeKillPilot(continuation) =
-                std::mem::replace(self, Self::Complete(true))
+    ) -> Option<KillPilotContinuation> {
+        if matches!(self, Self::KillPilot(_)) {
+            let Self::KillPilot(continuation) =
+                std::mem::replace(self, Self::Complete(false))
             else {
-                unreachable!("matched rider transition continuation")
+                unreachable!("matched pilot damage continuation")
             };
-            if continuation.car_bomb {
-                // The nested Object::kill owns scoring and onDie already.
-                *self = Self::Complete(false);
-            }
+            // The Unman branch can call a nested Object::kill, which owns
+            // scoring and onDie itself. Keep the outer Body impact nonlethal.
+            *self = Self::Complete(continuation.action == KillPilotAction::MovingRiderChange);
             Some(continuation)
         } else {
             None
@@ -231,7 +234,7 @@ impl DamageApplication {
                 false,
             ),
             Self::Complete(_) => return None,
-            Self::RiderChangeKillPilot(_) => return None,
+            Self::KillPilot(_) => return None,
         };
         assert_eq!(
             victim_id, victim.id,
@@ -294,7 +297,7 @@ impl DamageApplication {
                 false,
             ),
             Self::Complete(_) => return,
-            Self::RiderChangeKillPilot(_) => return,
+            Self::KillPilot(_) => return,
         };
         assert_eq!(
             victim_id, victim.id,
@@ -474,7 +477,7 @@ impl DamageAfterFx {
     ) -> bool {
         match self.0 {
             DamageApplication::Complete(killed) => killed,
-            DamageApplication::RiderChangeKillPilot(_) => true,
+            DamageApplication::KillPilot(tail) => tail.action == KillPilotAction::MovingRiderChange,
             DamageApplication::Healing(_) => false,
             DamageApplication::Active(tail) => tail.finish_after_damage_fx(
                 victim,
