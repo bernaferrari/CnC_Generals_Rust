@@ -149,6 +149,7 @@ fn check_power_plant_save() {
     let finished = (0..900).any(|_| {
         receiving.advance();
         game.advance();
+        compare_tick(&game, &receiving);
         let sites = receiving.construction(human, plant);
         assert_eq!(
             sites,
@@ -168,6 +169,55 @@ fn check_power_plant_save() {
     );
     for _ in 0..30 {
         receiving.advance();
+        game.advance();
+        compare_tick(&game, &receiving);
     }
     assert_eq!(production(&receiving), saved_power + plant_output);
+}
+
+fn compare_tick(source: &HeadlessSkirmish, receiving: &HeadlessSkirmish) {
+    let expected = source.observe();
+    let actual = receiving.observe();
+    if actual != expected {
+        let actors = |world: &HeadlessSkirmish| {
+            world
+                .logic
+                .host_objects()
+                .registered_values()
+                .map(|actor| {
+                    (
+                        actor.id,
+                        (
+                            actor.template_name.clone(),
+                            actor.get_position(),
+                            actor.health.current,
+                            actor.health.maximum,
+                            actor.owner_player_id,
+                            actor.ai_state().clone(),
+                        ),
+                    )
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        let source_actors = actors(source);
+        let receiving_actors = actors(receiving);
+        for (id, actor) in &source_actors {
+            if receiving_actors.get(id) != Some(actor) {
+                eprintln!(
+                    "{id:?} source {actor:?}; restored {:?}",
+                    receiving_actors.get(id)
+                );
+            }
+        }
+        for (id, actor) in &receiving_actors {
+            if !source_actors.contains_key(id) {
+                eprintln!("{id:?} newly restored {actor:?}");
+            }
+        }
+    }
+    assert_eq!(
+        actual, expected,
+        "first differing logic frame {}",
+        expected.frame
+    );
 }
