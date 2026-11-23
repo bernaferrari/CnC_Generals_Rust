@@ -117,7 +117,7 @@ impl GameLogic {
         self.apply_host_use_command_button_script_requests_with_policy(interpreter);
         self.apply_host_skirmish_fight_script_requests_with_policy(&mut ui, interpreter);
 
-        self.drain_warehouse_script_set_values();
+        self.drain_warehouse_script_set_values_with_effects(&mut ui);
 
         for msg in self.mission_scripts.drain_messages() {
             self.script_broadcasts.push(ScriptBroadcast {

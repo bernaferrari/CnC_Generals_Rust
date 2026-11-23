@@ -488,6 +488,30 @@ impl NativeViewEffects for NativeRendererViewEffects<'_> {
             })
     }
 
+    fn update_drawable_supply_status(
+        &mut self,
+        source: &crate::game_logic::NativeSlaveSource,
+        declarations: &game_engine::common::thing::thing_template::ModuleInfo,
+        global_data: &parking_lot::RwLock<game_engine::common::global_data::GlobalData>,
+        maximum: i32,
+        current: i32,
+    ) -> bool {
+        let Some(key) = self.drawables.binding_key(self.host_epoch, source.identity.object_id()) else {
+            return false;
+        };
+        if self.poses.validate_object_retirement(&source.identity, key).is_err()
+            || self.drawables.set_supply_carrying(key, current > 0).is_err()
+        {
+            return false;
+        }
+        if let Err(error) = self.poses.receive_supply_status(
+            source, key, declarations, global_data, maximum, current,
+        ) {
+            log::debug!("Supply Draw update unavailable for {}: {error}", source.template_name);
+        }
+        true
+    }
+
     fn drawable_model_condition_bits(
         &mut self,
         source: &NativeSlaveSource,

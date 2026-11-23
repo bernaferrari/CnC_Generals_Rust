@@ -83,32 +83,6 @@ fn authored_projectile_clip_subobject_visibility(
     directives
 }
 
-/// C++ `W3DSupplyDraw::updateDrawModuleSupplyStatus` crate-bone hide.
-fn authored_supply_crate_subobject_visibility(
-    draw_model: &crate::assets::AuthoredDrawModel,
-    dock_kind: crate::game_logic::DockKind,
-    current_boxes: i32,
-    max_boxes: i32,
-) -> Vec<crate::assets::AuthoredDrawSubobjectVisibility> {
-    if dock_kind != crate::game_logic::DockKind::SupplyWarehouse || max_boxes == 0 {
-        return Vec::new();
-    }
-    let names: Vec<&str> = draw_model
-        .subobject_visibility
-        .iter()
-        .map(|d| d.name.as_str())
-        .collect();
-    crate::game_logic::host_supply_gather::supply_draw_hide_directives(
-        crate::game_logic::host_supply_gather::DEFAULT_SUPPLY_BONE_PREFIX,
-        &names,
-        current_boxes,
-        max_boxes,
-    )
-    .into_iter()
-    .map(|(name, hidden)| crate::assets::AuthoredDrawSubobjectVisibility { name, hidden })
-    .collect()
-}
-
 /// Snapshot-owned unit mesh/position/selection/FOW input for the main unit render pass.
 ///
 /// Built only from `PresentationFrame` — no live `GameLogic` or shroud borrow.
@@ -719,17 +693,20 @@ impl UnitRenderInput {
         &self,
         draw_model: &crate::assets::AuthoredDrawModel,
     ) -> Vec<crate::assets::AuthoredDrawSubobjectVisibility> {
+        self.authored_subobject_visibility_with_supply(draw_model, &[])
+    }
+
+    pub(crate) fn authored_subobject_visibility_with_supply(
+        &self,
+        draw_model: &crate::assets::AuthoredDrawModel,
+        supply: &[crate::assets::AuthoredDrawSubobjectVisibility],
+    ) -> Vec<crate::assets::AuthoredDrawSubobjectVisibility> {
         let mut directives = draw_model.subobject_visibility.clone();
         directives.extend(authored_projectile_clip_subobject_visibility(
             draw_model,
             &self.projectile_clip_statuses,
         ));
-        directives.extend(authored_supply_crate_subobject_visibility(
-            draw_model,
-            self.dock_kind,
-            self.drawable_supply_boxes,
-            self.drawable_supply_max_boxes,
-        ));
+        directives.extend_from_slice(supply);
         // C++ SubObjectsUpgrade::upgradeImplementation / forceRefresh runs
         // after ConditionState hide/show. Skip while disguised: the live
         // visual is the replacement template, which has no Bombload children.
@@ -1443,7 +1420,7 @@ mod tests {
     }
 
     #[test]
-    fn warehouse_crate_bones_hide_from_drawable_supply_status() {
+    fn scalar_warehouse_stock_does_not_invent_drawable_bones() {
         use crate::game_logic::{DockKind, GameLogic, Player, Team, ThingTemplate};
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(0, Team::Neutral, "N", false));
@@ -1469,16 +1446,7 @@ mod tests {
         assert_eq!(input.drawable_supply_max_boxes, 10);
         let draw_model = crate::assets::AuthoredDrawModel::default();
         let dirs = input.authored_subobject_visibility_for_draw_model(&draw_model);
-        let hidden = dirs
-            .iter()
-            .filter(|d| d.name.starts_with("SupplyBox") && d.hidden)
-            .count();
-        assert!(
-            hidden >= 4,
-            "half stock must hide later crate bones, hidden={hidden}"
-        );
-        assert!(dirs.iter().any(|d| d.name == "SupplyBox05" && d.hidden));
-        assert!(dirs.iter().any(|d| d.name == "SupplyBox04" && !d.hidden));
+        assert!(dirs.is_empty(), "only the installed W3DSupplyDraw writes visibility");
     }
 
     #[test]

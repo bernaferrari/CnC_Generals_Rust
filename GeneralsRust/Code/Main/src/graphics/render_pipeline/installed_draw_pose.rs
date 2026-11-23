@@ -24,6 +24,8 @@ pub(super) struct ObjectVisualState {
     pub native_client_binding: Option<game_client::core::PresentationDirectDrawableBindingKey>,
 
     pub installed_draw_pose: installed_draw_pose::InstalledDrawObject,
+    #[cfg(feature = "game_client")]
+    pub(super) supply_bones: Option<super::supply_draw::SupplyBoneLatch>,
     pub identity: Option<FrozenVisualDrawIdentity>,
     pub animation: Option<ObjectAnimationState>,
     pub animation_paused: bool,
@@ -50,6 +52,8 @@ pub(super) enum InstalledDrawObject {
 #[derive(Debug, Clone)]
 pub(super) struct InstalledDrawPose {
     pub(super) model: Arc<crate::assets::W3DModel>,
+    #[cfg(feature = "game_client")]
+    pub(super) supply_visibility: Vec<crate::assets::AuthoredDrawSubobjectVisibility>,
     asset_scale: f32,
     /// The inner option caches unsupported constructor bounds as well as sizes.
     #[cfg(feature = "game_client")]
@@ -95,6 +99,12 @@ impl TurretBoneNames {
 impl PartialEq for InstalledDrawPose {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.model, &other.model)
+            && {
+                #[cfg(feature = "game_client")]
+                { self.supply_visibility == other.supply_visibility }
+                #[cfg(not(feature = "game_client"))]
+                { true }
+            }
             && self.asset_scale == other.asset_scale
             && self.world == other.world
             && self.controls == other.controls
@@ -124,6 +134,8 @@ impl InstalledDrawPose {
     ) -> Self {
         Self {
             model,
+            #[cfg(feature = "game_client")]
+            supply_visibility: Vec::new(),
             asset_scale: 1.0,
             #[cfg(feature = "game_client")]
             projected_decal_size: None,

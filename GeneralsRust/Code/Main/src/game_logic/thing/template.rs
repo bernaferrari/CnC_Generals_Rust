@@ -394,6 +394,13 @@ impl ReceivingClientTemplate {
             .any(|entry| entry.name.as_str().eq_ignore_ascii_case(name))
     }
 
+    #[cfg(feature = "game_client")]
+    pub(crate) fn receiving_supply_draw_modules(
+        &self,
+    ) -> &game_engine::common::thing::thing_template::ModuleInfo {
+        self.0.draw_modules()
+    }
+
     /// W3DTreeDraw registers with the terrain tree buffer and leaves decal
     /// admission to its typed DoShadow field (W3DTreeBuffer.cpp:1565-1584).
     pub(crate) fn has_only_tree_draws(&self) -> bool {

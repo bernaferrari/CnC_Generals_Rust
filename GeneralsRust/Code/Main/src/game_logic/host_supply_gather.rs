@@ -916,71 +916,6 @@ pub fn wanting_dock_target(number_boxes: i32) -> WantingDockTarget {
     }
 }
 
-/// Retail W3DSupplyDraw `SupplyBonePrefix` default (`SupplyBox01`…).
-pub const DEFAULT_SUPPLY_BONE_PREFIX: &str = "SupplyBox";
-/// Leftover Device / typical warehouse crate-bone count when HTree is unknown.
-pub const DEFAULT_SUPPLY_DRAW_BONE_COUNT: u32 = 8;
-
-/// C++ `W3DSupplyDraw::updateDrawModuleSupplyStatus`
-/// (`W3DSupplyDraw.cpp:60-61`) computes the signed stock fraction before scaling.
-pub fn supply_draw_bones_to_show(total_bones: u32, current_supply: i32, max_supply: i32) -> u32 {
-    if total_bones == 0 || max_supply == 0 {
-        return 0;
-    }
-    let fraction = current_supply as f32 / max_supply as f32;
-    let shown = (total_bones as f32 * fraction).ceil() as u32;
-    shown.min(total_bones)
-}
-
-/// C++ `sprintf("%s%02d", prefix, index)` (`W3DSupplyDraw.cpp:75`).
-pub fn supply_draw_bone_name(prefix: &str, index: u32) -> String {
-    format!("{prefix}{index:02}")
-}
-
-/// 1-based crate index if `name` is `{prefix}NN` (case-insensitive prefix).
-pub fn supply_draw_bone_index(prefix: &str, name: &str) -> Option<u32> {
-    if prefix.is_empty() {
-        return None;
-    }
-    let name = name.trim();
-    if name.len() < prefix.len() + 2 {
-        return None;
-    }
-    if !name.get(..prefix.len())?.eq_ignore_ascii_case(prefix) {
-        return None;
-    }
-    name[prefix.len()..].parse::<u32>().ok().filter(|i| *i >= 1)
-}
-
-/// Count `{prefix}NN` names, then hide bones after `bonesToShow`.
-/// If no names are listed, emit `DEFAULT_SUPPLY_DRAW_BONE_COUNT` slots so the
-/// HLOD resolver can hide existing `SupplyBoxNN` children.
-pub fn supply_draw_hide_directives(
-    prefix: &str,
-    named_bones: &[impl AsRef<str>],
-    current_supply: i32,
-    max_supply: i32,
-) -> Vec<(String, bool)> {
-    let prefix = if prefix.is_empty() {
-        DEFAULT_SUPPLY_BONE_PREFIX
-    } else {
-        prefix
-    };
-    let mut total = 0u32;
-    for name in named_bones {
-        if let Some(idx) = supply_draw_bone_index(prefix, name.as_ref()) {
-            total = total.max(idx);
-        }
-    }
-    if total == 0 {
-        total = DEFAULT_SUPPLY_DRAW_BONE_COUNT;
-    }
-    let show = supply_draw_bones_to_show(total, current_supply, max_supply);
-    (1..=total)
-        .map(|i| (supply_draw_bone_name(prefix, i), i > show))
-        .collect()
-}
-
 /// SupplyWarehouseDockUpdate::setCashValue uses a float quotient and ceil.
 fn warehouse_boxes_from_cash(cash: i32, value_per_box: i32) -> Option<i32> {
     let boxes = (cash as f32 / value_per_box as f32).ceil();
@@ -1161,7 +1096,7 @@ impl crate::game_logic::GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        self.drain_warehouse_script_set_values();
+        self.drain_warehouse_script_set_values_with_effects(effects);
         let frame = self.frame as u32;
         let objects = &self.objects;
         self.warehouse_crippling_states.retain(|id, _| {
@@ -1240,20 +1175,43 @@ impl crate::game_logic::GameLogic {
     }
 
     pub fn drain_warehouse_script_set_values(&mut self) {
+        self.drain_warehouse_script_set_values_with_effects(&mut Default::default());
+    }
+
+    pub(crate) fn drain_warehouse_script_set_values_with_effects(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         for (name, cash) in self.drain_warehouse_set_value_requests() {
-            let _ = self.apply_warehouse_set_value(&name, cash);
+            if let Some(id) = self.host_object_id_by_script_name(&name) {
+                self.apply_warehouse_set_value_to_object_with_effects(id, cash, effects);
+            }
         }
     }
 
     /// C++ `SupplyWarehouseDockUpdate::setCashValue`.
     pub fn apply_warehouse_set_value(&mut self, name: &str, cash: i32) -> bool {
+        self.apply_warehouse_set_value_with_effects(name, cash, &mut Default::default())
+    }
+
+    pub(crate) fn apply_warehouse_set_value_with_effects(
+        &mut self,
+        name: &str,
+        cash: i32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let Some(id) = self.host_object_id_by_script_name(name) else {
             return false;
         };
-        self.apply_warehouse_set_value_to_object(id, cash)
+        self.apply_warehouse_set_value_to_object_with_effects(id, cash, effects)
     }
 
-    pub(crate) fn apply_warehouse_set_value_to_object(&mut self, id: ObjectId, cash: i32) -> bool {
+    pub(crate) fn apply_warehouse_set_value_to_object_with_effects(
+        &mut self,
+        id: ObjectId,
+        cash: i32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> bool {
         let value_per_box = self.supply_box_value();
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
@@ -1265,7 +1223,51 @@ impl crate::game_logic::GameLogic {
             return false;
         };
         obj.set_warehouse_boxes(boxes);
+        let max = obj.get_template().dock_starting_boxes.unwrap_or(0);
+        self.update_receiving_drawable_supply_status(id, max, boxes, effects);
         true
+    }
+
+    /// SupplyWarehouseDockUpdate.cpp:104/158 and SupplyTruckAIUpdate.cpp:125.
+    /// The signed gameplay count is already installed before the Drawable call.
+    pub(crate) fn update_receiving_drawable_supply_status(
+        &mut self,
+        id: ObjectId,
+        max: i32,
+        current: i32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        #[cfg(not(feature = "game_client"))]
+        let _ = (id, max, current, effects);
+        #[cfg(feature = "game_client")]
+        {
+            let Some(view) = effects.view.as_deref_mut() else {
+                return;
+            };
+            let Ok(mut source) = self.current_native_slave_source(
+                id, self.local_player_id().unwrap_or_default(),
+            ) else {
+                return;
+            };
+            let Some(template) = self.templates.get(&source.template_name)
+                .and_then(|template| template.receiving_client_template.as_ref())
+            else {
+                return;
+            };
+            let carry = 1u128 << crate::game_logic::host_enum_table_residual::carrying_model_bit();
+            source.condition_bits = (source.condition_bits & !carry)
+                | if current > 0 { carry } else { 0 };
+            let accepted = view.update_drawable_supply_status(
+                &source, template.receiving_supply_draw_modules(),
+                &self.world_services.common().system.runtime_global_data, max, current,
+            );
+            if accepted
+                && let Some(object) = self.objects.get_mut(&id)
+            {
+                object.model_condition_bits =
+                    (object.model_condition_bits & !carry) | (source.condition_bits & carry);
+            }
+        }
     }
 }
 
@@ -1357,21 +1359,6 @@ mod tests {
     fn gui_add_cash_is_retail_dollar_n() {
         assert_eq!(format_gui_add_cash(75), "$75");
         assert_eq!(format_gui_add_cash(0), "$0");
-    }
-
-    #[test]
-    fn supply_draw_hides_crate_bones_by_ratio() {
-        // 8 bones, half stock → show 4, hide 05..08.
-        let dirs = supply_draw_hide_directives("SupplyBox", &[] as &[&str], 200, 400);
-        assert_eq!(dirs.len(), 8);
-        assert!(!dirs[3].1);
-        assert!(dirs[4].1);
-        assert_eq!(dirs[4].0, "SupplyBox05");
-        assert_eq!(supply_draw_bones_to_show(8, 0, 10), 0);
-        assert_eq!(supply_draw_bones_to_show(8, 10, 10), 8);
-        assert_eq!(supply_draw_bones_to_show(8, 1, 10), 1);
-        assert_eq!(supply_draw_bones_to_show(8, -1, -4), 2);
-        assert_eq!(supply_draw_bones_to_show(8, -1, 4), 0);
     }
 
     #[test]

@@ -365,6 +365,18 @@ pub(crate) trait NativeViewEffects {
         Err("native FX bone query has no receiving installed-render capability".into())
     }
 
+    #[cfg(feature = "game_client")]
+    fn update_drawable_supply_status(
+        &mut self,
+        _source: &NativeSlaveSource,
+        _declarations: &game_engine::common::thing::thing_template::ModuleInfo,
+        _global_data: &parking_lot::RwLock<game_engine::common::global_data::GlobalData>,
+        _maximum: i32,
+        _current: i32,
+    ) -> bool {
+        false
+    }
+
     /// Actual receiving Drawable instance state, separate from Object pose.
     /// None is an explicit no-Drawable recipient; native adapters must validate birth.
     /// None is a genuine no-Drawable receiver, never a stale/missing binding.

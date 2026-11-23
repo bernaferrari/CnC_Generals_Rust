@@ -243,13 +243,23 @@ impl GameLogic {
                 self.route_supply_wanting(object_id, team, owner_player_id, position, can_move)?;
                 return Ok(());
             }
+            // The warehouse was already debited when gainOneBox ran.
+            let warehouse_maximum = self.objects.get_mut(&source_id).map(|warehouse| {
+                warehouse.set_warehouse_boxes(remaining);
+                warehouse.get_template().dock_starting_boxes.unwrap_or(0)
+            });
             if let Some(collector) = self.objects.get_mut(&object_id) {
                 collector.set_carried_supply_boxes(next_carried);
                 collector.supply_truck_next_dock_action_frame =
                     self.frame.saturating_add(metadata.warehouse_delay_frames);
             }
-            if let Some(warehouse) = self.objects.get_mut(&source_id) {
-                warehouse.set_warehouse_boxes(remaining);
+            self.update_receiving_drawable_supply_status(
+                object_id, metadata.max_boxes, next_carried, effects,
+            );
+            if let Some(maximum) = warehouse_maximum
+                && (remaining != 0 || !delete_when_empty)
+            {
+                self.update_receiving_drawable_supply_status(source_id, maximum, remaining, effects);
             }
             (next_carried >= metadata.max_boxes, remaining == 0)
         } else {
@@ -451,6 +461,9 @@ impl GameLogic {
                 } else {
                     obj.set_stored_supplies(0);
                 }
+            }
+            if let Some(metadata) = collector_metadata {
+                self.update_receiving_drawable_supply_status(object_id, metadata.max_boxes, 0, effects);
             }
             // C++ ChinookAIUpdate::getUpgradedSupplyBoost
             // (ChinookAIUpdate.cpp:1644-1652): the CARRIER's

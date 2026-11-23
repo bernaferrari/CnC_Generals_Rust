@@ -2408,3 +2408,214 @@ End
         assert!((1..=100).contains(&system.initial_delay_left()));
     }
 }
+#[test]
+#[ignore = "requires native WGPU and mounted Zero Hour content"]
+fn mounted_supply_draw_latches_stock_pristine_children_only_at_real_status() {
+    use crate::game_logic::{Player, ScriptPresentationEffects, Team};
+
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    let mounted = crate::fixture_content::retail_content_root();
+    let install = mounted.join("Command & Conquer Generals Zero Hour");
+    let stock =
+        crate::parallel_harness::RetailWorldDefinitions::load_from_install(Some(&install)).unwrap();
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    })
+    .unwrap();
+    let (device, queue, color, depth) = {
+        let engine = engine.lock();
+        (
+            engine.device(),
+            engine.queue(),
+            engine.color_format(),
+            engine.depth_format(),
+        )
+    };
+    let mut assets = crate::assets::AssetManager::new().unwrap();
+    pollster::block_on(assets.init(device.as_ref(), queue.as_ref())).unwrap();
+    assets
+        .archive_file_system_mut()
+        .set_local_search_roots(Vec::new());
+    for archive in [
+        mounted.join("Command & Conquer Generals/Data/W3D.big"),
+        install.join("Data/W3DZH.big"),
+    ] {
+        pollster::block_on(assets.archive_file_system_mut().load_big_file(archive)).unwrap();
+    }
+    let assets = std::sync::Arc::new(std::sync::Mutex::new(assets));
+    let mut graphics = GraphicsSystem::new(device, queue, color, depth).unwrap();
+    let mut retirement = game_client::core::game_client::NativeParticleRetirementService;
+
+    let mut pipelines = [
+        RenderPipeline::initialize(engine.clone(), &graphics).unwrap(),
+        RenderPipeline::initialize(engine, &graphics).unwrap(),
+    ];
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut clients = [GameClient::new().unwrap(), GameClient::new().unwrap()];
+    let mut depot_ids = Vec::new();
+    let mut control_ids = None;
+    for index in 0..worlds.len() {
+        let world = &mut worlds[index];
+        stock.admit(world).unwrap();
+        world.add_player(Player::new(0, Team::USA, "Local", true));
+        let pipeline = &mut pipelines[index];
+        pipeline.bind_application_assets(assets.clone());
+        let (_, _, drawables) = clients[index].split_frame_snow_and_drawable_owner();
+        let mut view = NativeRendererViewEffects::new(
+            pipeline.borrow_native_installed_poses(),
+            &mut graphics,
+            drawables,
+            EPOCH,
+            0,
+            receiving_native_drawable_policy(),
+            &mut retirement,
+        );
+        let mut effects = ScriptPresentationEffects {
+            view: Some(&mut view),
+            ..Default::default()
+        };
+        let i = world
+            .create_object_with_script_effects_checked(
+                "SupplyWarehouse",
+                Team::Neutral,
+                Vec3::new(100., 0., 100.),
+                None,
+                &mut effects,
+            )
+            .unwrap()
+            .expect("retail warehouse");
+        assert!(world.set_host_object_name(i, "Depot"));
+        depot_ids.push(i);
+        if index == 0 {
+            control_ids = Some([("SupplyDock", "Dock"), ("SupplyPile", "Pile")].map(
+                |(template, name)| {
+                    let id = world
+                        .create_object_with_script_effects_checked(
+                            template,
+                            Team::Neutral,
+                            Vec3::new(140., 0., 100.),
+                            None,
+                            &mut effects,
+                        )
+                        .unwrap()
+                        .expect("retail supply control");
+                    assert!(world.set_host_object_name(id, name));
+                    id
+                },
+            ));
+        }
+        world.initialize_receiving_named_cache_for_fixture();
+    }
+    assert_eq!(depot_ids[0], depot_ids[1]);
+    let id = depot_ids[0];
+    // Only the second draw is W3DSupplyDraw. Start stock is 400 in both
+    // worlds, but the warehouse constructor runs before Drawable admission.
+    let read = |pipe: &RenderPipeline| pipe.observe_native_supply_draw(id, 1).unwrap();
+    assert_eq!(read(&pipelines[0]).0, None);
+    assert_eq!(read(&pipelines[0]).1.len(), 35);
+    assert!(read(&pipelines[0]).2.is_empty());
+    assert!(
+        assets
+            .lock()
+            .unwrap()
+            .cached_w3d_render_object_prototype("ZBSupplyWH_B")
+            .is_none(),
+        "the warehouse mesh must already draw before the pristine cache is admitted",
+    );
+    assert!(
+        pipelines[0]
+            .observe_native_supply_draw(id, 0)
+            .unwrap()
+            .2
+            .is_empty()
+    );
+
+    for (receiver, boxes, shown) in [(0, 200, 18), (1, 100, 9), (0, 400, 35)] {
+        let world = &mut worlds[receiver];
+        let pipeline = &mut pipelines[receiver];
+        {
+            let (_, _, drawables) = clients[receiver].split_frame_snow_and_drawable_owner();
+            let mut view = NativeRendererViewEffects::new(
+                pipeline.borrow_native_installed_poses(),
+                &mut graphics,
+                drawables,
+                EPOCH,
+                0,
+                receiving_native_drawable_policy(),
+                &mut retirement,
+            );
+            let cash = boxes * world.supply_box_value();
+            assert!(world.apply_warehouse_set_value_with_effects(
+                "Depot",
+                cash,
+                &mut ScriptPresentationEffects {
+                    view: Some(&mut view),
+                    ..Default::default()
+                },
+            ));
+        }
+        let (latch, visible, writes) = read(pipeline);
+        assert_eq!(latch, Some((35, shown)));
+        assert!(
+            assets
+                .lock()
+                .unwrap()
+                .cached_w3d_render_object_prototype("ZBSupplyWH_B")
+                .is_some(),
+            "the first real supply status must resolve the exact authored prototype",
+        );
+        assert_eq!(visible.len(), shown as usize);
+        assert!(visible.contains(&format!("SUP{shown:02}")));
+        if shown != 35 {
+            assert!(!visible.contains(&format!("SUP{:02}", shown + 1)));
+            assert_eq!(writes.len(), (35 - shown) as usize);
+        }
+        assert_eq!(world.host_object(id).unwrap().warehouse_boxes(), boxes);
+        if receiver == 1 {
+            assert_eq!(read(&pipelines[0]).0, Some((35, 18)));
+        }
+    }
+    assert_eq!(read(&pipelines[1]).0, Some((35, 9)));
+
+    let [dock, pile] = control_ids.unwrap();
+    for (name, id, module, boxes, total, shown) in
+        [("Dock", dock, 1, 200, 64, 32), ("Pile", pile, 0, 75, 0, 0)]
+    {
+        let pipeline = &mut pipelines[0];
+        assert!(
+            pipeline
+                .observe_native_supply_draw(id, module)
+                .unwrap()
+                .0
+                .is_none()
+        );
+        let world = &mut worlds[0];
+        {
+            let (_, _, drawables) = clients[0].split_frame_snow_and_drawable_owner();
+            let mut view = NativeRendererViewEffects::new(
+                pipeline.borrow_native_installed_poses(),
+                &mut graphics,
+                drawables,
+                EPOCH,
+                0,
+                receiving_native_drawable_policy(),
+                &mut retirement,
+            );
+            assert!(world.apply_warehouse_set_value_with_effects(
+                name,
+                boxes * world.supply_box_value(),
+                &mut ScriptPresentationEffects {
+                    view: Some(&mut view),
+                    ..Default::default()
+                },
+            ));
+        }
+        let (latch, visible, writes) = pipeline.observe_native_supply_draw(id, module).unwrap();
+        assert_eq!(latch, Some((total, shown)));
+        assert_eq!(visible.len(), shown as usize);
+        assert_eq!(writes.len(), (total - shown) as usize);
+    }
+}

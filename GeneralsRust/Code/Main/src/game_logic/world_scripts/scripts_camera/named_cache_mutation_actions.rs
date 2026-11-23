@@ -83,7 +83,9 @@ impl<'a> HostScriptExecutionDriver<'a> {
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))
         {
-            self.world.apply_warehouse_set_value_to_object(id, cash);
+            self.world.apply_warehouse_set_value_to_object_with_effects(
+                id, cash, &mut self.ui,
+            );
         }
         Some(Ok(()))
     }

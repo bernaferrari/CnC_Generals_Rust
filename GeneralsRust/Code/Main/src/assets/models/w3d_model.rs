@@ -1424,6 +1424,37 @@ impl W3DModel {
         visible
     }
 
+    #[cfg(feature = "game_client")]
+    pub(crate) fn has_rigid_render_child_named(&self, name: &str) -> bool {
+        self.rigid_hlod_static_lod_context().is_some_and(|(hlod, lod, _)| {
+            Self::rigid_hlod_subobject_for_authored_directive(hlod, lod, name).is_some()
+        })
+    }
+
+    /// Only retained child names can change an installed RenderObj. Enumerate
+    /// them in W3DSupplyDraw's numeric order even for an extreme signed count.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn supply_child_indices(&self, prefix: &str) -> Vec<(i32, String)> {
+        let Some((hlod, lod, _)) = self.rigid_hlod_static_lod_context() else {
+            return Vec::new();
+        };
+        let mut names = lod.subobjects.iter().filter_map(|child| {
+            let name = child.name.split_once('.').map_or(child.name.as_str(), |(_, name)| name);
+            let (head, index) = name.split_at_checked(prefix.len())?;
+            if !head.eq_ignore_ascii_case(prefix) {
+                return None;
+            }
+            let ordinal = index.parse::<i32>().ok()?;
+            let use_name = format!("{prefix}{ordinal:02}");
+            (use_name.eq_ignore_ascii_case(name)
+                && Self::rigid_hlod_subobject_for_authored_directive(hlod, lod, &use_name).is_some())
+                .then_some((ordinal, use_name))
+        }).collect::<Vec<_>>();
+        names.sort_unstable_by_key(|(ordinal, _)| *ordinal);
+        names.dedup_by_key(|(ordinal, _)| *ordinal);
+        names
+    }
+
     /// Backwards-compatible transform-only facade for callers that have not
     /// yet retained a source Draw-state animation identity.  An out-of-range
     /// legacy index preserves the old bind-pose fallback rather than silently

@@ -1551,8 +1551,9 @@ impl Object {
                 _ => {}
             }
         }
-        // C++ W3DModelDraw::updateDrawModuleSupplyStatus — CARRYING while boxes > 0.
-        {
+        // Warehouses write CARRYING at their actual receiving Drawable callback.
+        // Other carriers retain their existing cargo observation.
+        if self.thing.template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse {
             use crate::game_logic::host_enum_table_residual::carrying_model_bit;
             let carry_b = carrying_model_bit();
             bits &= !(1u128 << carry_b);

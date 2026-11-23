@@ -1047,5 +1047,7 @@ mod native_frame_receiver;
 pub use native_frame_receiver::{NativeDrawableMeshObservation, NativeFrameRenderReceiver};
 #[cfg(all(feature = "game_client", not(feature = "integration-tests")))]
 pub(crate) use native_frame_receiver::{NativeDrawableMeshObservation, NativeFrameRenderReceiver};
+#[cfg(feature = "game_client")]
+mod supply_draw;
 #[cfg(feature = "integration-tests")]
 pub use native_pose_loan::NativeInstalledPoseLoan;
