@@ -179,7 +179,10 @@ fn receiving_sessions_roll_back_real_native_parser_errors_independently() {
             INILoadType::Overwrite,
         )
         .unwrap_err();
-    assert_eq!(error, ReceivingModuleError::Ini(INIError::UnknownToken));
+    assert_eq!(
+        error,
+        ReceivingModuleError::Ini(INIError::UnknownToken).context("Object Broken at line 6")
+    );
     assert!(first.admitted_template("Prefix").is_none());
     assert!(first.admitted_template("Broken").is_none());
     let first_after = first.admitted_template("SharedUnit").unwrap();
