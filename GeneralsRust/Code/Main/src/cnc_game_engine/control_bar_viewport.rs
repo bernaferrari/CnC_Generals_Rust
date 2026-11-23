@@ -127,7 +127,6 @@ impl CnCGameEngine {
             .map(|ui| ui.tooltips_disabled_at(self.game_logic.frame))
             .unwrap_or(true);
         let (x, y) = self.mouse_position;
-        let observer_roster = self.receiving_observer_roster();
         let upgrade_tooltip = self.game_logic.receiving_upgrade_tooltip_observer();
         let menu_world = self.receiving_menu_world_facts();
         let control_bar_observation = self.receiving_control_bar_callback_observation();
@@ -166,7 +165,8 @@ impl CnCGameEngine {
             upgrade_tooltip: game_client::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Receiving(&upgrade_tooltip),
             replay_menu: None,
             replay_version: None,
-            observer_roster: observer_roster.as_ref(),
+            // Tooltip refresh and animation do not dispatch observer button actions.
+            observer_roster: None,
             camera_options: None,
             control_bar: &mut self.control_bar,
             viewport: &mut self.game_logic.session_view.camera,

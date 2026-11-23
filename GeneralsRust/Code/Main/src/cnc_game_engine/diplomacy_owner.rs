@@ -5,10 +5,7 @@ impl CnCGameEngine {
     pub(super) fn receiving_diplomacy_world_facts(
         &self,
     ) -> Result<game_client::gui::callbacks::diplomacy::DiplomacyWorldFacts, String> {
-        let multiplayer = self
-            .receiving_observer_roster()
-            .ok_or("native recorder observation unavailable")?
-            .multiplayer;
+        let multiplayer = self.receiving_observer_multiplayer();
         use game_client::gui::callbacks::diplomacy::{
             DiplomacyWorldFacts, DiplomaticRelationship, PlayerInfo, PlayerStatus,
         };
