@@ -1229,6 +1229,7 @@ pub fn order_hive_slaves_to_attack_position(slaves: &mut [ResidualHiveSlave], po
 /// Host residual of C++ `SpawnBehavior::orderSlavesToGoIdle`.
 ///
 /// Clears attack residual on all residual soldiers. Returns idle count.
+#[cfg(test)]
 pub fn order_hive_slaves_to_go_idle(slaves: &mut [ResidualHiveSlave]) -> u32 {
     let mut n = 0u32;
     for s in slaves.iter_mut() {

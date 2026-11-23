@@ -1052,6 +1052,89 @@ End
         }
     }
 
+    /// C++ Object.cpp:2132-2139 dispatches SpawnBehavior::orderSlavesDisabledUntil,
+    /// which aiIdle()s each real roster child before the exact deadline
+    /// (SpawnBehavior.cpp:355-370). An object merely produced by the site is
+    /// not an order target.
+    #[test]
+    fn hacked_spawn_site_idles_and_disables_real_children() {
+        let mut world = GameLogic::new();
+        world
+            .admit_object_ini_sources([(
+                "hacked-spawn.ini".into(),
+                r#"
+Object DisableTestSite
+ KindOf = STRUCTURE IMMOBILE SPAWNS_ARE_THE_WEAPONS
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = DefaultProductionExitUpdate Exit
+ End
+ Behavior = SpawnBehavior Spawn
+  SpawnTemplateName = DisableTestSoldier
+  SpawnNumber = 1
+  OneShot = Yes
+  SlavesHaveFreeWill = Yes
+ End
+End
+Object DisableTestSoldier
+ KindOf = INFANTRY
+ Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+ End
+ Behavior = AIUpdateInterface AI
+ End
+End
+"#
+                .into(),
+            )])
+            .unwrap();
+        world.add_player(Player::new(1, Team::GLA, "SpawnOwner", true));
+        let parent = world
+            .create_object_for_player("DisableTestSite", 1, Vec3::ZERO)
+            .unwrap();
+        world.set_current_frame(1);
+        world
+            .update_spawn_behavior_with_effects(&mut Default::default())
+            .unwrap();
+        let [child] = world
+            .host_object(parent)
+            .unwrap()
+            .spawn_behavior_children()[..]
+        else {
+            panic!("SpawnBehavior must create the roster child");
+        };
+        let child = child.0;
+        let bystander = world
+            .create_object_for_player("DisableTestSoldier", 1, Vec3::new(50.0, 0.0, 0.0))
+            .unwrap();
+        // producer_id attribution alone is not an order target.
+        world.objects.get_mut(&bystander).unwrap().producer_id = Some(parent);
+        for id in [child, bystander] {
+            assert!(world.unit_command_ai_move_to(id, Vec3::new(10.0, 0.0, 0.0)));
+            assert!(matches!(
+                world.host_object(id).unwrap().ai_state(),
+                AIState::Moving
+            ));
+        }
+        assert!(world.host_object(child).unwrap().has_ai_update_interface());
+
+        assert!(world.apply_owned_hacked_disabled(parent, 60));
+
+        let child = world.host_object(child).unwrap();
+        assert!(matches!(child.ai_state(), AIState::Idle));
+        assert!(!child.status.moving);
+        assert!(child.is_hacked_disabled());
+        assert_eq!(child.status.disabled_hacked_until_frame, 60);
+        let bystander = world.host_object(bystander).unwrap();
+        assert!(matches!(bystander.ai_state(), AIState::Moving));
+        assert!(bystander.status.moving);
+        assert!(bystander.movement.target_position.is_some());
+        assert!(!bystander.is_hacked_disabled());
+    }
+
     #[test]
     fn ai_tick_does_not_overwrite_a_spawn_childs_independent_hack_deadline() {
         let (mut world, [parent, child, grandchild]) = spawned_radar_world();

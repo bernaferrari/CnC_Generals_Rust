@@ -523,29 +523,3 @@ fn battle_bus_second_life_is_held() {
     // gated by its container's isPassengerAllowedToFire, not by the hold).
     assert!(obj.can_attack());
 }
-
-#[test]
-fn hacked_spawn_site_idles_residual_slaves() {
-    let mut _body_output = crate::game_logic::HostHealthEvents::default();
-
-    let mut site = make_test_object();
-    site.template_name = "GLAStingerSite".into();
-    // Retail GLAStingerSite is KINDOF_SPAWNS_ARE_THE_WEAPONS: setDisabledUntil
-    // orders its slaves idle only for such masters.
-    site.template_mut()
-        .add_kind_of(crate::game_logic::KindOf::SpawnsAreTheWeapons);
-    site.hive_slaves = crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
-    site.hive_slave_count = 3;
-    let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_attack_target(
-        &mut site.hive_slaves,
-        99,
-    );
-    assert!(site.hive_slaves.iter().any(|s| s.ai_attacking));
-    site.apply_disabled_hacked(
-        60,
-        &mut _body_output,
-        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-    );
-    assert!(site.is_hacked_disabled());
-    assert!(site.hive_slaves.iter().all(|s| !s.ai_attacking));
-}

@@ -950,6 +950,7 @@ impl Object {
         }
     }
 
+    #[cfg(test)]
     pub fn apply_disabled_hacked(
         &mut self,
         until_frame: u32,
@@ -961,12 +962,6 @@ impl Object {
             self.queue_power_disable_misc_audio(true, health_events);
         }
         let changed = self.begin_timed_disable(TimedDisable::Hacked, until_frame, audio);
-        // Standalone compatibility callers still own their local hive.
-        if changed && self.is_spawns_are_the_weapons() {
-            let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_go_idle(
-                &mut self.hive_slaves,
-            );
-        }
         if changed && !was_disabled {
             self.on_disabled_edge(true);
         }
