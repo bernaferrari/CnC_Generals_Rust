@@ -89,7 +89,7 @@ pub(crate) use world_scripts::StickyBombInitPosition;
 #[path = "../world_tick/mod.rs"]
 mod world_tick;
 pub(crate) use world_tick::FlightTerrainView;
-pub(super) use world_tick::host_object_footprint;
+pub(super) use world_tick::{host_geom_collides, host_object_footprint};
 pub(crate) use world_tick::{
     NativeCommandAction, NativeCommandCompletion, NativeTickContinuation, NativeTickProgress,
 };

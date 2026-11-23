@@ -1442,6 +1442,7 @@ pub(in crate::game_logic) mod tests {
             0,
             None,
             None,
+            None,
             &mut _ownership_output,
             0,
             Some(&receiving),

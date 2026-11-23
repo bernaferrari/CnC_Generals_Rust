@@ -17,6 +17,149 @@ const SECONDARY_STREAM: &str = "AuthoredSecondaryProjectileStream";
 const TERTIARY_STREAM: &str = "AuthoredTertiaryProjectileStream";
 
 #[test]
+fn mounted_dragon_flame_collides_with_an_enemy_and_passes_an_ally() {
+    use super::patriot_retail_battery_tests::{base_ini, definition};
+    use crate::assets::ini_template_loader::{
+        WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+    };
+    use gamelogic::weapon::WeaponCollideMask;
+
+    let weapon = definition(&base_ini("Weapon.ini"), "Weapon DragonTankFlameWeapon");
+    let projectile = definition(
+        &base_ini("Object/WeaponObjects.ini"),
+        "Object DragonTankFlameProjectile",
+    );
+    let locomotor = definition(
+        &base_ini("Locomotor.ini"),
+        "Locomotor DragonTankFlameLocomotor",
+    );
+    let mut weapons = HashMap::new();
+    assert_eq!(
+        parse_weapon_definitions_ini_into(&mut weapons, &weapon, WeaponDefinitionLoadType::Normal),
+        1
+    );
+    let rules = weapons.remove("dragontankflameweapon").unwrap();
+    assert_eq!(
+        rules.collide_mask.bits(),
+        WeaponCollideMask::ENEMIES | WeaponCollideMask::STRUCTURES
+            | WeaponCollideMask::WALLS | WeaponCollideMask::SHRUBBERY,
+    );
+    let make_world = || {
+        let mut world = GameLogic::new();
+        let mut locomotors = game_engine::common::ini::ini_locomotor::LocomotorStore::new_owned();
+        locomotors.apply_source(&locomotor).unwrap();
+        world.admit_locomotor_definitions(locomotors).unwrap();
+        world.admit_receiving_module_content_with_weapons(
+            crate::assets::ReceivingObjectContent::from_sources([
+                ("WeaponObjects.ini".into(), projectile.clone()),
+                ("dragon-collision-fixture.ini".into(), r#"
+Object DragonCollisionShooter
+  KindOf = VEHICLE CAN_ATTACK
+  Body = ActiveBody Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = AIUpdateInterface AI
+  End
+  WeaponSet
+    Conditions = None
+    Weapon = PRIMARY DragonTankFlameWeapon
+  End
+End
+Object DragonCollisionVehicle
+  KindOf = VEHICLE
+  Body = ActiveBody Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Geometry = Sphere
+  GeometryMajorRadius = 3
+  GeometryIsSmall = Yes
+End
+"#.into()),
+            ]).unwrap(),
+            Some([(rules.name.clone(), rules.clone())].into_iter().collect()),
+        ).unwrap();
+        for (id, alliance) in [(1, 1), (2, 2), (3, 1)] {
+            let mut player = Player::new(id, Team::China, &format!("Dragon collision {id}"), id == 1);
+            player.alliance_team = alliance;
+            world.add_player(player);
+        }
+        world.frame = 100;
+        let shooter = world.create_object_for_player(
+            "DragonCollisionShooter", 1, Vec3::new(20.0, 20.0, 20.0),
+        ).unwrap();
+        let goal = Vec3::new(80.0, 20.0, 20.0);
+        let target = world.create_object_for_player("DragonCollisionVehicle", 2, goal).unwrap();
+        let source = world.objects.get_mut(&shooter).unwrap();
+        assert!(source.is_alive());
+        assert_eq!(source.authored_weapon_name_for_slot(0), Some("DragonTankFlameWeapon"));
+        source.set_active_weapon_slot(0);
+        assert!(source.set_weapon_lock(0, WeaponLockType::LockedPermanently));
+        source.set_prev_victim_pos(Some(goal));
+        source.set_max_shots_to_fire(1);
+        let source = &world.objects[&shooter];
+        let victim = &world.objects[&target];
+        assert!(victim.is_alive());
+        assert!(source.is_within_attack_range_for_slot(0, victim), "{:?}", source.weapon_slot(0));
+        assert!(source.can_fire_with_solo_set(10.0, &world.solo_weapon_bonus_set));
+        assert_eq!(
+            world.attack_fire_weapon_update(shooter, target, 10.0),
+            AttackFireResult::Success
+        );
+        world.drain_pending_projectiles_into_combat();
+        let shots = world.combat_system.projectiles_snapshot();
+        assert_eq!(shots.len(), 1);
+        let id = shots[0].id;
+        assert_eq!(shots[0].projectile_object_name, "DragonTankFlameProjectile");
+        assert!(shots[0].missile_motion.is_some());
+        assert_eq!(world.objects[&id].owner_player_id, Some(1));
+        (world, target, id)
+    };
+
+    let dt = 1.0 / 30.0;
+    let (mut clear, target, id) = make_world();
+    assert!(clear.update_owned_projectile_impacts(dt).unwrap().is_empty());
+    let clear_shot = &clear.combat_system.get_projectiles()[&id];
+    assert!(clear_shot.is_warhead_armed());
+    let contact = clear_shot.position;
+    assert!(contact.distance(clear.objects[&target].get_position()) > 10.0);
+
+    for (controller, offset, collision) in [
+        (2, Vec3::ZERO, true),
+        (3, Vec3::ZERO, false),
+        (2, Vec3::Z * 5.25, false),
+    ] {
+        let (mut world, target, shot) = make_world();
+        assert_eq!(shot, id);
+        let blocker = world
+            .create_object_for_player("DragonCollisionVehicle", controller, contact + offset)
+            .unwrap();
+        let physical_contact =
+            host_geom_collides(&clear.objects[&id], &world.objects[&blocker]).is_some();
+        assert_eq!(physical_contact, offset == Vec3::ZERO);
+        assert_eq!(
+            world.object_relationship(&world.objects[&shot], &world.objects[&blocker]),
+            if controller == 2 {
+                gamelogic::common::Relationship::Enemies
+            } else {
+                gamelogic::common::Relationship::Allies
+            }
+        );
+        let retired = world.update_owned_projectile_impacts(dt).unwrap();
+        let detonated = retired.contains(&shot) || world.objects[&shot].status.no_collisions;
+        assert_eq!(detonated, collision, "controller {controller} crossing the flame");
+        assert_eq!(world.objects[&blocker].health.current, if collision { 90.0 } else { 100.0 });
+        assert_eq!(world.objects[&target].health.current, 100.0);
+        if collision {
+            world.frame += 1;
+            world.update_owned_projectile_impacts(dt).unwrap();
+            assert_eq!(world.objects[&blocker].health.current, 90.0);
+        }
+    }
+}
+
+#[test]
 fn mounted_projectile_draw_preserves_the_shell_model_and_invisible_flame() {
     use crate::presentation_frame::PresentationFrame;
 

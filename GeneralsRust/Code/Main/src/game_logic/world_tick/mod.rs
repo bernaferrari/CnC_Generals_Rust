@@ -11,7 +11,7 @@ mod jet_lockon;
 pub(in crate::game_logic) use airfield::heli_motion_tests;
 mod attack;
 mod collide_dispatch;
-pub(in super::super) use collide_dispatch::host_object_footprint;
+pub(in crate::game_logic) use collide_dispatch::{host_geom_collides, host_object_footprint};
 mod collide_modules;
 
 mod combat;

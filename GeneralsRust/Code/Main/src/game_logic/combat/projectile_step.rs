@@ -2,6 +2,169 @@
 //! This supplies the Body boundary for CPP GameLogic.cpp3698-3736.
 //! Detonation FX/OCL and complete UpdateModule ordering remain separate work.
 use super::*;
+use gamelogic::{common::Relationship, weapon::WeaponCollideMask};
+
+type ProjectileRelationshipOwners<'a> = (
+    &'a HashMap<u32, Player>,
+    &'a gamelogic::team::TeamFactoryHandle,
+);
+
+/// C++ PartitionData::collidesWith and Weapon.cpp:710–731.
+fn missile_contacts(
+    mask: WeaponCollideMask,
+    objects: HostObjectRead<'_>,
+    missile: &Object,
+    other: &Object,
+) -> bool {
+    use crate::game_logic::weapon_bootstrap::{
+        projectile_collides_with_structure_or_fence, projectile_structure_same_controller,
+    };
+
+    let same_controller = projectile_structure_same_controller(
+        missile.owner_player_id,
+        other.owner_player_id,
+        missile.team == other.team,
+    );
+    let matches_kind = projectile_collides_with_structure_or_fence(
+        mask.bits(),
+        other.is_kind_of(KindOf::Structure),
+        other.get_template().fence_width > 0.0,
+        same_controller,
+    ) || (mask.contains(WeaponCollideMask::SHRUBBERY) && other.is_kind_of(KindOf::Shrubbery))
+        || (mask.contains(WeaponCollideMask::PROJECTILE) && other.is_kind_of(KindOf::Projectile))
+        || (mask.contains(WeaponCollideMask::SMALL_MISSILES) && other.is_kind_of(KindOf::SmallMissile))
+        || (mask.contains(WeaponCollideMask::BALLISTIC_MISSILES)
+            && other.is_kind_of(KindOf::BallisticMissile));
+    if !matches_kind && !mask.contains(WeaponCollideMask::ALLIES | WeaponCollideMask::ENEMIES) {
+        return false;
+    }
+    // Reuse the contact kernel at the pose just installed by MissileMotion.
+    // Only actual overlaps need the receiving world's relationship lookup.
+    if crate::game_logic::game_logic::host_geom_collides(missile, other).is_none() {
+        return false;
+    }
+    if matches_kind {
+        return true;
+    }
+    match objects.relationship(missile, other) {
+        Some(Relationship::Allies) => mask.contains(WeaponCollideMask::ALLIES),
+        Some(Relationship::Enemies) => mask.contains(WeaponCollideMask::ENEMIES),
+        _ => false,
+    }
+}
+
+fn find_incidental_projectile_hit(
+    projectile: &Projectile,
+    objects: HostObjectRead<'_>,
+    frame: u32,
+) -> Option<ObjectId> {
+    use crate::game_logic::weapon_bootstrap::{
+        projectile_collides_structures_or_fences, projectile_collides_with_structure_or_fence,
+        projectile_structure_same_controller,
+    };
+
+    let mask = WeaponCollideMask::new(projectile.projectile_collides);
+    if mask.bits() == 0 {
+        return None;
+    }
+    // Missile motion has already validated and advanced this Object.
+    let missile = projectile
+        .missile_motion
+        .as_ref()
+        .and_then(|_| objects.lookup(&projectile.id));
+    if let Some(missile) = missile {
+        if missile.status.no_collisions || missile.is_kind_of(KindOf::NoCollide) {
+            return None;
+        }
+    } else if !projectile_collides_structures_or_fences(mask.bits()) {
+        return None;
+    }
+
+    let launcher = objects.lookup(&projectile.shooter_id);
+    let launcher_owner = launcher
+        .and_then(|object| object.owner_player_id)
+        .or(projectile.source_owner_player_id);
+    let launcher_team = launcher.map_or(projectile.source_team, |object| object.team);
+    let launcher_container = launcher.and_then(|object| object.contained_by);
+    let intended = projectile.target_id;
+    let intended_object = intended.and_then(|id| objects.lookup(&id));
+    let skip_burned = matches!(projectile.damage_type, DamageType::Flame | DamageType::ParticleBeam);
+    for (&id, other) in objects.registered() {
+        if id == projectile.id
+            || id == projectile.shooter_id
+            || Some(id) == intended
+            || Some(id) == launcher_container
+        {
+            continue;
+        }
+        if !other.is_alive() || other.status.under_construction {
+            continue;
+        }
+        let overlaps = if let Some(missile) = missile {
+            !other.status.no_collisions
+                && other.contained_by.is_none()
+                && missile_contacts(mask, objects, missile, other)
+        } else {
+            // The standalone projectile path has no Object collision geometry.
+            let same_controller = projectile_structure_same_controller(
+                launcher_owner,
+                other.owner_player_id,
+                launcher_team == other.team,
+            );
+            projectile_collides_with_structure_or_fence(
+                mask.bits(),
+                other.is_kind_of(KindOf::Structure),
+                other.get_template().fence_width > 0.0,
+                same_controller,
+            ) && standalone_projectile_overlaps(projectile, other)
+        };
+        if !overlaps
+            || (skip_burned && other.has_object_status_bit("BURNED"))
+            || other.get_sneaky_targeting_offset(frame).is_some()
+        {
+            continue;
+        }
+        // Weapon.cpp:679–699. The resting target belongs to this airfield.
+        if other.is_kind_of(KindOf::FSAirfield)
+            && other.thing().template.parking_place.is_some()
+            && intended_object.is_some_and(|target| {
+                target.producer_id == Some(id) || target.contained_by == Some(id)
+            })
+        {
+            continue;
+        }
+        return Some(id);
+    }
+    None
+}
+
+fn standalone_projectile_overlaps(projectile: &Projectile, other: &Object) -> bool {
+    use crate::game_logic::HostGeometryType;
+
+    let pos = projectile.position;
+    let other_pos = other.get_position();
+    let dx = pos.x - other_pos.x;
+    let dz = pos.z - other_pos.z;
+    if (dx * dx + dz * dz).sqrt() > other.selection_radius.max(8.0) {
+        return false;
+    }
+    let Some(geometry) = projectile.collision_geometry else {
+        return true;
+    };
+    let other_geometry = other.geometry_info();
+    let below = |shape: &crate::game_logic::HostGeometryInfo| {
+        if shape.geom_type == HostGeometryType::Sphere {
+            shape.major_radius
+        } else {
+            0.0
+        }
+    };
+    let top = pos.y + geometry.max_height_above_position();
+    let bottom = pos.y - below(&geometry);
+    let other_top = other_pos.y + other_geometry.max_height_above_position();
+    let other_bottom = other_pos.y - below(other_geometry);
+    top >= other_bottom && bottom <= other_top
+}
 
 fn mark_missile_detonated(
     objects: &mut crate::game_logic::HostObjectStore,
@@ -110,6 +273,7 @@ impl CombatSystem {
             frame,
             terrain,
             None,
+            None,
             ownership_events,
             historic_damage_limit,
             None,
@@ -128,6 +292,7 @@ impl CombatSystem {
         frame: u32,
         terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
         mut partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
+        relationships: Option<ProjectileRelationshipOwners<'_>>,
         ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
         historic_damage_limit: u32,
         receiving_objects: Option<&crate::assets::ReceivingObjectDefinitions>,
@@ -280,102 +445,14 @@ impl CombatSystem {
             }
 
             // The intended target has its own hit check below.
-            let mut incidental_hit = None;
-            if crate::game_logic::weapon_bootstrap::projectile_collides_structures_or_fences(
-                projectile.projectile_collides,
-            ) {
-                let shooter = projectile.shooter_id;
-                let intended = projectile.target_id;
-                let pos = projectile.position;
-                let sneak_now = frame;
-                let shooter_obj = objects.get(&shooter);
-                let proj_owner = shooter_obj
-                    .and_then(|s| s.owner_player_id)
-                    .or(projectile.source_owner_player_id);
-                let proj_team = shooter_obj
-                    .map(|s| s.team)
-                    .unwrap_or(projectile.source_team);
-                // C++ Weapon.cpp:663-666 — never collide with the launcher's container.
-                let launcher_contained_by = shooter_obj.and_then(|s| s.contained_by);
-                // C++ Weapon.cpp:670-677 — Flame/ParticleBeam skip already-burned.
-                let skip_burned = matches!(
-                    projectile.damage_type,
-                    DamageType::Flame | DamageType::ParticleBeam
-                );
-                for (&oid, obj) in objects.registered() {
-                    if oid == shooter || Some(oid) == intended {
-                        continue;
-                    }
-                    if launcher_contained_by == Some(oid) {
-                        continue;
-                    }
-                    if skip_burned && obj.has_object_status_bit("BURNED") {
-                        continue;
-                    }
-                    if obj.get_sneaky_targeting_offset(sneak_now).is_some() {
-                        continue;
-                    }
-                    let is_structure = obj.is_kind_of(KindOf::Structure);
-                    let is_fence = obj.get_template().fence_width > 0.0;
-                    if !(is_structure || is_fence) || !obj.is_alive() || obj.status.under_construction {
-                        continue;
-                    }
-                    let same_controller =
-                        crate::game_logic::weapon_bootstrap::projectile_structure_same_controller(
-                            proj_owner,
-                            obj.owner_player_id,
-                            obj.team == proj_team,
-                        );
-                    if !crate::game_logic::weapon_bootstrap::projectile_collides_with_structure_or_fence(
-                        projectile.projectile_collides,
-                        is_structure,
-                        is_fence,
-                        same_controller,
-                    ) {
-                        continue;
-                    }
-                    // C++ Weapon.cpp:679-699 — only skip KINDOF_FS_AIRFIELD
-                    // when the intended victim reserved a parking space.
-                    // Other buildings still detonate AA / airborne shots.
-                    if obj.is_kind_of(KindOf::FSAirfield)
-                        && obj.thing().template.parking_place.is_some()
-                    {
-                        if let Some(tid) = intended {
-                            if let Some(t) = objects.get(&tid) {
-                                if t.producer_id == Some(oid) || t.contained_by == Some(oid) {
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                    let radius = obj.selection_radius.max(8.0);
-                    let op = obj.get_position();
-                    if let Some(projectile_geometry) = projectile.collision_geometry {
-                        let building_geometry = *obj.geometry_info();
-                        let projectile_below = match projectile_geometry.geom_type {
-                            crate::game_logic::HostGeometryType::Sphere => projectile_geometry.major_radius,
-                            _ => 0.0,
-                        };
-                        let building_below = match building_geometry.geom_type {
-                            crate::game_logic::HostGeometryType::Sphere => building_geometry.major_radius,
-                            _ => 0.0,
-                        };
-                        let projectile_top = pos.y + projectile_geometry.max_height_above_position();
-                        let projectile_bottom = pos.y - projectile_below;
-                        let building_top = op.y + building_geometry.max_height_above_position();
-                        let building_bottom = op.y - building_below;
-                        if projectile_top < building_bottom || projectile_bottom > building_top {
-                            continue;
-                        }
-                    }
-                    let dx = pos.x - op.x;
-                    let dz = pos.z - op.z;
-                    if (dx * dx + dz * dz).sqrt() <= radius {
-                        incidental_hit = Some(oid);
-                        break;
-                    }
-                }
-            }
+            let objects_for_contact = objects.read();
+            let objects_for_contact = if let Some((players, teams)) = relationships {
+                objects_for_contact.with_players(players).with_team_factory(teams)
+            } else {
+                objects_for_contact
+            };
+            let incidental_hit =
+                find_incidental_projectile_hit(projectile, objects_for_contact, frame);
             if let Some(sid) = incidental_hit {
                 if let Some(flight) = projectile.flight.as_ref() {
                     if crate::game_logic::weapon_bootstrap::apply_garrison_hit_kill(

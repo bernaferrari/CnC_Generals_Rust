@@ -283,7 +283,7 @@ fn retarget_failure_detonates_before_advancing_when_grid_is_replaced() {
             let before = world.combat_system.projectiles[&id].position;
             let (_, retired, _) = world.combat_system.prepare_projectile_impact_with_runtime(
                 id, 1. / 30., &mut world.objects, None, world.frame, None,
-                Some(&mut world.partition_manager), &mut world.ownership_events, 0, None, &mut (),
+                Some(&mut world.partition_manager), None, &mut world.ownership_events, 0, None, &mut (),
             );
             assert_eq!(retired, vec![id]);
             assert_eq!(world.combat_system.projectiles[&id].position, before);
