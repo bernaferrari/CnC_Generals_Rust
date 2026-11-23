@@ -43,25 +43,6 @@ impl GameLogic {
         );
     }
 
-    /// C++ FlammableUpdate::startBurningSound GenericFireMediumLoop.
-    pub(crate) fn start_fire_spread_burning_sound(
-        &mut self,
-        object_id: ObjectId,
-        pos: Vec3,
-        sound_name: &str,
-    ) {
-        if sound_name.is_empty() {
-            return;
-        }
-        self.queue_audio_event(
-            AudioEventRequest::new(sound_name)
-                .with_object(object_id)
-                .with_position(pos)
-                .with_priority(140)
-                .looping(),
-        );
-    }
-
     /// C++ FlammableUpdate::stopBurningSound removeAudioEvent.
     pub(crate) fn stop_fire_spread_burning_sound(
         &mut self,

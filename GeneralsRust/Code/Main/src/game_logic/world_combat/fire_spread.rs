@@ -223,7 +223,7 @@ impl GameLogic {
             if !due {
                 continue;
             }
-            let (position, begin, start_sound, incarnation, flammable_due) = {
+            let (position, aflame_damage, incarnation, flammable_due) = {
                 let Some(object) = self.objects.get_mut(&id) else {
                     continue;
                 };
@@ -232,18 +232,14 @@ impl GameLogic {
                     continue;
                 };
                 let flammable_due = fire.flammable_due(frame);
-                let begin = if flammable_due {
+                let aflame_damage = if flammable_due {
                     fire.begin_tick_flammable(frame)
                 } else {
-                    crate::game_logic::host_fire_spread::FlammableTickResult::default()
+                    0.0
                 };
-                let start_sound = begin
-                    .start_burning_sound
-                    .then(|| fire.burning_sound_name.clone());
                 (
                     position,
-                    begin,
-                    start_sound,
+                    aflame_damage,
                     std::sync::Arc::clone(&object.visual_draw_identity_token),
                     flammable_due,
                 )
@@ -251,10 +247,10 @@ impl GameLogic {
             // C++ FlammableUpdate::update calls doAflameDamage before the
             // burned and aflame-end timers; allow its Body callbacks to finish
             // before advancing this object's timer tail.
-            if begin.aflame_damage > 0.0 {
+            if aflame_damage > 0.0 {
                 let _ = self.apply_residual_damage_owned_with_effects(
                     id,
-                    begin.aflame_damage,
+                    aflame_damage,
                     Some(id),
                     crate::game_logic::combat::DamageType::Flame,
                     crate::game_logic::host_usa_pilot::HostDeathType::Burned,
@@ -270,9 +266,6 @@ impl GameLogic {
                 std::sync::Arc::ptr_eq(&object.visual_draw_identity_token, &incarnation)
             }) {
                 continue;
-            }
-            if let Some(sound) = start_sound {
-                self.start_fire_spread_burning_sound(id, position, &sound);
             }
             let (tail, stop_sound) = {
                 let Some(object) = self.objects.get_mut(&id).filter(|object| {

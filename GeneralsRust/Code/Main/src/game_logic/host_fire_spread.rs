@@ -104,8 +104,8 @@ pub struct HostFireSpreadData {
     /// C++ BodyModule::setAflame.
     #[serde(default)]
     pub body_aflame: bool,
-    /// C++ `m_audioHandle` live: loop already started.
-    #[serde(default)]
+    /// Live playback receipt. FlammableUpdate::xfer omits m_audioHandle.
+    #[serde(skip)]
     pub burning_sound_active: bool,
 }
 
@@ -343,42 +343,22 @@ impl HostFireSpreadData {
 
     /// Per-frame flammable status progression (`FlammableUpdate.cpp:105-145`).
     pub fn tick_flammable(&mut self, current_frame: u32) -> FlammableTickResult {
-        let mut result = self.begin_tick_flammable(current_frame);
-        let tail = self.finish_tick_flammable(current_frame);
-        result.aflame = tail.aflame;
-        result.burned = tail.burned;
-        result.became_burned = tail.became_burned;
-        result.smoldering = tail.smoldering;
-        result.became_smoldering = tail.became_smoldering;
-        result.returned_to_normal = tail.returned_to_normal;
-        result.stop_burning_sound = tail.stop_burning_sound;
-        result
+        let aflame_damage = self.begin_tick_flammable(current_frame);
+        FlammableTickResult {
+            aflame_damage,
+            ..self.finish_tick_flammable(current_frame)
+        }
     }
 
-    /// C++ FlammableUpdate::update damage phase (before burned/end timers).
-    pub fn begin_tick_flammable(&mut self, current_frame: u32) -> FlammableTickResult {
-        let mut r = FlammableTickResult::default();
-        match self.state {
-            HostFlammableState::Normal => {}
-            HostFlammableState::Aflame => {
-                r.aflame = true;
-                if !self.burning_sound_active && !self.burning_sound_name.is_empty() {
-                    self.burning_sound_active = true;
-                    r.start_burning_sound = true;
-                }
-                // C++ FlammableUpdate.cpp:113-117 doAflameDamage on m_damageEndFrame.
-                if self.damage_end_frame != 0 && current_frame >= self.damage_end_frame {
-                    self.damage_end_frame =
-                        current_frame.saturating_add(self.aflame_damage_delay.max(1));
-                    r.aflame_damage = self.aflame_damage_amount;
-                }
-            }
-            HostFlammableState::Burned => {
-                r.burned = true;
-                r.smoldering = self.smoldering;
-            }
+    /// FlammableUpdate.cpp:113–117 runs damage before the burned/end timers.
+    pub fn begin_tick_flammable(&mut self, current_frame: u32) -> f32 {
+        if self.is_aflame() && self.damage_end_frame != 0 && current_frame >= self.damage_end_frame {
+            self.damage_end_frame =
+                current_frame.saturating_add(self.aflame_damage_delay.max(1));
+            self.aflame_damage_amount
+        } else {
+            0.0
         }
-        r
     }
 
     /// C++ FlammableUpdate::update burned/end timer phase, after doAflameDamage.
@@ -482,7 +462,6 @@ pub struct FlammableTickResult {
     pub became_smoldering: bool,
     /// Aflame ended without BURNED — object can catch fire again.
     pub returned_to_normal: bool,
-    pub start_burning_sound: bool,
     pub stop_burning_sound: bool,
     /// C++ FlammableUpdate::doAflameDamage amount this frame (0 = none).
     pub aflame_damage: f32,
@@ -573,7 +552,6 @@ mod tests {
         assert!(d.body_aflame);
         let r105 = d.tick_flammable(TREE_AFLAME_DURATION_FRAMES);
         assert!(r105.became_burned);
-        assert!(r105.stop_burning_sound);
         assert!(matches!(d.state, HostFlammableState::Burned));
         assert!(!d.body_aflame);
         assert!(!d.would_ignite());
@@ -594,14 +572,11 @@ mod tests {
     }
 
     #[test]
-    fn burning_sound_starts_once_and_stops_on_extinguish() {
+    fn active_burning_sound_stops_on_extinction() {
         let mut d = HostFireSpreadData::tree_default();
         assert!(d.try_to_ignite(0));
-        let r0 = d.tick_flammable(0);
-        assert!(r0.start_burning_sound);
-        assert!(!r0.stop_burning_sound);
-        let r1 = d.tick_flammable(1);
-        assert!(!r1.start_burning_sound);
+        d.burning_sound_active = true;
+        assert!(!d.tick_flammable(1).stop_burning_sound);
         d.aflame_end_frame = 5;
         d.smoldering = true;
         let r5 = d.tick_flammable(5);

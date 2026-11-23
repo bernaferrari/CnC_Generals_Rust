@@ -2756,6 +2756,64 @@ fn flammable_buildings_ignite_and_play_burning_loop() {
 }
 
 #[test]
+fn flammable_save_restores_due_damage_without_restarting_the_live_burning_loop() {
+    use crate::game_logic::{DamageHitContext, ScriptPresentationEffects};
+    use crate::game_logic::host_fire_spread::{TREE_BURNING_SOUND, admit_fire_fixture};
+    use crate::save_load::{SnapshotBuilder, WorldSnapshot};
+
+    const DERRICK: &str = "TechOilDerrick";
+    let fixture = || {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::USA, "Fire witness", true));
+        admit_fire_fixture(&mut world, &[], &[DERRICK]);
+        world
+    };
+    let mut source = fixture();
+    let id = source.create_object_for_player(DERRICK, 1, Vec3::ZERO).unwrap();
+    source.set_current_frame(10);
+    source.apply_owned_damage_with_effects(
+        id,
+        50.0,
+        None,
+        DamageType::Flame,
+        crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+        None,
+        &DamageHitContext::default(),
+        &mut ScriptPresentationEffects::default(),
+    ).unwrap().unwrap();
+    let burning = source.host_object(id).unwrap().fire_spread.as_ref().unwrap();
+    assert!(burning.is_aflame() && burning.burning_sound_active);
+    let damage_end = burning.damage_end_frame;
+    let aflame_end = burning.aflame_end_frame;
+    assert!(damage_end > 10 && damage_end < aflame_end);
+    assert!(source.queued_audio_events.iter().any(|event| {
+        event.object_id == Some(id) && event.event_type == TREE_BURNING_SOUND && event.is_looping
+    }));
+
+    let builder = SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&source).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let saved: WorldSnapshot = bincode_legacy::deserialize(&bytes).unwrap();
+    let mut receiving = fixture();
+    builder.restore_from_snapshot(&saved, &mut receiving).unwrap();
+    let object = receiving.host_object(id).unwrap();
+    let fire = object.fire_spread.as_ref().unwrap();
+    assert!(fire.is_aflame() && !fire.burning_sound_active);
+    assert_eq!((fire.damage_end_frame, fire.aflame_end_frame), (damage_end, aflame_end));
+    let health = object.health.current;
+    receiving.set_current_frame(damage_end.into());
+    receiving.update_fire_spread().unwrap();
+    assert!(receiving.host_object(id).unwrap().health.current < health);
+
+    receiving.set_current_frame(aflame_end.into());
+    receiving.update_fire_spread().unwrap();
+    assert!(!receiving.host_object(id).unwrap().has_object_status_bit("AFLAME"));
+    assert!(!receiving.queued_audio_events.iter().any(|event| {
+        event.object_id == Some(id) && event.event_type == TREE_BURNING_SOUND
+    }));
+}
+
+#[test]
 fn fire_spread_spawns_burning_embers_and_uses_3d_range() {
     use crate::game_logic::host_fire_spread::{fire_fixture_ini, TREE_SPREAD_TRY_RANGE};
 

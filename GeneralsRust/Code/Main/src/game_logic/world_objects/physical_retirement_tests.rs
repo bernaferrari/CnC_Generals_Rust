@@ -181,6 +181,82 @@ fn physical_callback_loses_lookup_but_keeps_owned_identity_for_both_destroy_rout
 }
 
 #[test]
+fn physical_retirement_stops_only_the_departing_flammable_loop() {
+    use crate::game_logic::host_fire_spread::{TREE_BURNING_SOUND, admit_fire_fixture};
+
+    let mut world = GameLogic::new();
+    admit_fire_fixture(&mut world, &[], &["RetirementFlammable"]);
+    world.add_player(Player::new(1, Team::USA, "PhysicalOwner", true));
+    let position = Vec3::new(3., 0., 5.);
+    let first = world
+        .create_object_for_player("RetirementFlammable", 1, position)
+        .unwrap();
+    let second = world
+        .create_object_for_player("RetirementFlammable", 1, Vec3::new(43., 0., 5.))
+        .unwrap();
+
+    let position = world.host_object(first).unwrap().get_position();
+    world.set_current_frame(10);
+    for id in [first, second] {
+        assert!(world.ignite_object_fire_spread(id, &mut Default::default()));
+        let fire = world.host_object(id).unwrap().fire_spread.as_ref().unwrap();
+        assert!(fire.is_aflame() && fire.burning_sound_active);
+        assert!(fire.aflame_end_frame > world.frame);
+    }
+    let starts: Vec<_> = world
+        .queued_audio_events
+        .drain_requests()
+        .into_iter()
+        .filter(|request| request.event_type == TREE_BURNING_SOUND)
+        .map(|request| (request.object_id, request.is_looping, request.stop))
+        .collect();
+    assert_eq!(
+        starts,
+        [(Some(first), true, false), (Some(second), true, false)]
+    );
+
+    queue(&mut world, first, false);
+    assert!(
+        world
+            .queued_audio_events
+            .iter()
+            .all(|request| { request.event_type != TREE_BURNING_SOUND || !request.stop })
+    );
+    let mut probe = Observe::new(&world, first, false);
+    world
+        .process_destroy_list_with_effects_checked(&mut ScriptPresentationEffects {
+            view: Some(&mut probe),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(probe.calls, 1);
+    assert!(world.host_object(first).is_none());
+    let surviving = world
+        .host_object(second)
+        .unwrap()
+        .fire_spread
+        .as_ref()
+        .unwrap();
+    assert!(surviving.is_aflame() && surviving.burning_sound_active);
+
+    world.process_destroy_list();
+    let stops: Vec<_> = world
+        .queued_audio_events
+        .iter()
+        .filter(|request| request.event_type == TREE_BURNING_SOUND)
+        .map(|request| {
+            (
+                request.object_id,
+                request.position,
+                request.stop,
+                request.object_loop_stop_only,
+            )
+        })
+        .collect();
+    assert_eq!(stops, [(Some(first), Some(position), true, true)]);
+}
+
+#[test]
 fn failed_owned_retirement_is_not_live_or_retried_and_cannot_advance_save_create_or_reset() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

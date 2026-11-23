@@ -108,6 +108,14 @@ impl GameLogic {
             return Err(gamelogic::GameLogicError::Configuration(reason));
         }
 
+        // FlammableUpdate.cpp:70–73 and 227–234 stop this module's handle.
+        let position = object.get_position();
+        if let Some(fire) = object.fire_spread.as_mut()
+            && std::mem::take(&mut fire.burning_sound_active)
+        {
+            self.stop_fire_spread_burning_sound(id, position, &fire.burning_sound_name);
+        }
+
         // Object.cpp665 follows current destructor obligations. Ordinary
         // death and direct deletion converge here on the same Object birth.
         if !object.name.is_empty() {
