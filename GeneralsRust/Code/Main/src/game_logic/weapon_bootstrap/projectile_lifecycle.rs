@@ -20,7 +20,10 @@ const MISSILE_DEFAULT_KILL_SELF_DELAY_FRAMES: u32 = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HostProjectileLifecycle {
     /// `DumbProjectileBehavior`: expiry calls `detonate()`.
-    DumbProjectile { max_lifespan_frames: u32 },
+    DumbProjectile {
+        max_lifespan_frames: u32,
+        detonate_calls_kill: bool,
+    },
     /// `MissileAIUpdate`: fuel and followed-target loss have distinct results.
     Missile {
         try_to_follow_target: bool,
@@ -32,6 +35,10 @@ pub enum HostProjectileLifecycle {
 }
 
 impl HostProjectileLifecycle {
+    pub(crate) fn detonate_calls_kill(self) -> bool {
+        matches!(self, Self::DumbProjectile { detonate_calls_kill: true, .. })
+    }
+
     /// Whether this authored behavior tracks an object target in flight.
     pub fn follows_target(self) -> bool {
         matches!(
@@ -48,7 +55,7 @@ impl HostProjectileLifecycle {
     pub fn lifetime_seconds(self) -> f32 {
         let frames = match self {
             Self::DumbProjectile {
-                max_lifespan_frames,
+                max_lifespan_frames, ..
             } => max_lifespan_frames,
             Self::Missile {
                 fuel_lifetime_frames,
@@ -74,8 +81,10 @@ pub(crate) fn parse_dumb_projectile_lifecycle(
 ) -> Option<HostProjectileLifecycle> {
     let max_lifespan_frames = optional_duration_frames(data, "MaxLifespan")?
         .unwrap_or(DUMB_PROJECTILE_DEFAULT_MAX_LIFESPAN_FRAMES);
+    let detonate_calls_kill = optional_bool(data, "DetonateCallsKill")?.unwrap_or(false);
     Some(HostProjectileLifecycle::DumbProjectile {
         max_lifespan_frames,
+        detonate_calls_kill,
     })
 }
 
@@ -218,6 +227,7 @@ mod tests {
             ),
             Some(HostProjectileLifecycle::DumbProjectile {
                 max_lifespan_frames: DUMB_PROJECTILE_DEFAULT_MAX_LIFESPAN_FRAMES,
+                detonate_calls_kill: false,
             })
         );
         assert_eq!(

@@ -161,7 +161,7 @@ pub struct Projectile {
     pub(crate) missile_motion: Option<MissileMotion>,
     /// Factory-created projectile Object generation and world epoch.
     #[serde(skip)]
-    pub(crate) missile_actor_birth: Option<(u64, u64)>,
+    pub(crate) projectile_actor_birth: Option<(u64, u64)>,
     /// Impact pose captured before the same frame's PhysicsBehavior update.
     #[serde(skip)]
     pub(super) detonation_position: Option<Vec3>,
@@ -189,6 +189,16 @@ pub struct Projectile {
 }
 
 impl Projectile {
+    pub(crate) fn detonate_calls_kill(&self) -> bool {
+        self.projectile_lifecycle.is_some_and(
+            crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::detonate_calls_kill,
+        )
+    }
+
+    pub(crate) fn owns_receiving_actor(&self) -> bool {
+        self.missile_motion.is_some() || self.detonate_calls_kill()
+    }
+
     pub fn new(
         id: ObjectId,
         start_pos: Vec3,
@@ -247,7 +257,7 @@ impl Projectile {
             flight: None,
             flight_runtime: crate::game_logic::weapon_bootstrap::HostProjectileRuntime::default(),
             missile_motion: None,
-            missile_actor_birth: None,
+            projectile_actor_birth: None,
             detonation_position: None,
             frames_till_decoyed: 0,
             no_damage: false,
@@ -470,7 +480,7 @@ impl Projectile {
         let frame = self.elapsed_logic_frames();
         match lifecycle {
             HostProjectileLifecycle::DumbProjectile {
-                max_lifespan_frames,
+                max_lifespan_frames, ..
             } if frame >= max_lifespan_frames => ProjectileStep::Detonate,
             HostProjectileLifecycle::Missile {
                 try_to_follow_target: _,

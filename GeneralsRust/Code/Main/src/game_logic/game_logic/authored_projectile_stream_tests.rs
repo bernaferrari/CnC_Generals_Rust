@@ -683,3 +683,154 @@ fn pending_shell_bonus_after_load_waits_for_receiving_materialization_phase() {
     assert!(!source_world.combat_system.get_projectiles()[&id].projectile_upgrades_initialized);
     assert_eq!(uranium_impact(&mut receiving, target), 100.0);
 }
+
+fn authored_neutron_shell_world(calls_kill: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
+    use crate::game_logic::game_logic::PlayerSideRole;
+    let detonate_calls_kill = if calls_kill { "Yes" } else { "No" };
+
+    let mut world = GameLogic::new();
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![0; 1024];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
+    world.initialize_receiving_partition_grid().unwrap();
+
+    admit_fixture_content(
+        &mut world,
+        &[
+            FixtureObject::new("AuthoredNeutronLauncher")
+                .kind_of("VEHICLE SELECTABLE CAN_ATTACK")
+                .health(100.0)
+                .module("Behavior = AIUpdateInterface CarAI\nEnd")
+                .armed("AuthoredNeutronWeapon"),
+            FixtureObject::new("AuthoredNeutronTestShell")
+                .kind_of("PROJECTILE")
+                .health(100.0)
+                .model("NeutronFixtureMesh")
+                .module("Behavior = DestroyDie Retire\nEnd")
+                .module(format!(
+                    "Behavior = DumbProjectileBehavior Flight\nFirstHeight = 10\nSecondHeight = 10\n\
+                     FirstPercentIndent = 50%\nSecondPercentIndent = 90%\n\
+                     DetonateCallsKill = {detonate_calls_kill}\nEnd",
+                ))
+                .module("Behavior = PhysicsBehavior Physics\nMass = 0.01\nEnd")
+                .module("Behavior = NeutronBlastBehavior Pulse\nBlastRadius = 15\nAffectAirborne = No\nEnd"),
+            FixtureObject::new("AuthoredNeutronTestVehicle")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(100.0)
+                .field("Geometry = Sphere")
+                .field("GeometryMajorRadius = 0"),
+        ],
+        &[FixtureWeapon::new("AuthoredNeutronWeapon")
+            .damage(10.0)
+            .radius(5.0)
+            .range(120.0)
+            .damage_type("EXPLOSION")
+            .field("ProjectileObject = AuthoredNeutronTestShell")
+            .field("WeaponSpeed = 30")
+            .field("RadiusDamageAffects = ENEMIES")
+            .field("AntiGround = Yes")
+            .clip(1, 5000)],
+    );
+    for (id, team) in [(0, Team::China), (2, Team::GLA)] {
+        let mut player = Player::new(id, team, "shell fixture", id == 0);
+        player.alliance_team = id as i32;
+        world.add_player(player);
+    }
+    let mut neutral = Player::new(9, Team::Neutral, "Neutral", false);
+    neutral.map_side.role = PlayerSideRole::Neutral;
+    neutral.map_side.map_player_name.clear();
+    world.add_player(neutral);
+    let source = world
+        .create_object_for_player("AuthoredNeutronLauncher", 0, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    let target_position = Vec3::new(130.0, 0.0, 100.0);
+    let target = world
+        .create_object_for_player("AuthoredNeutronTestVehicle", 2, target_position)
+        .unwrap();
+    let nearby = world
+        .create_object_for_player(
+            "AuthoredNeutronTestVehicle", 2, target_position + Vec3::new(9.0, 0.0, 0.0),
+        )
+        .unwrap();
+    world.frame = 100;
+    world.objects.get_mut(&source).unwrap().set_prev_victim_pos(Some(target_position));
+    (world, source, target, nearby)
+}
+
+fn launch_authored_neutron_shell(world: &mut GameLogic, source: ObjectId, target: ObjectId) -> ObjectId {
+    world.objects.get_mut(&source).unwrap().set_max_shots_to_fire(1);
+    assert_eq!(world.attack_fire_weapon_update(source, target, 10.0), AttackFireResult::Success);
+    world.drain_pending_projectiles_into_combat();
+    assert_eq!(world.combat_system.projectile_count(), 1);
+    world.combat_system.projectiles_snapshot()[0].id
+}
+
+#[test]
+fn authored_shell_calls_neutron_die_once_after_impact_damage() {
+    for calls_die in [true, false] {
+        let (mut world, source, target, nearby) = authored_neutron_shell_world(calls_die);
+        let shell = launch_authored_neutron_shell(&mut world, source, target);
+        assert_eq!(world.host_object(shell).is_some(), calls_die);
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 0);
+        assert_eq!(frame.projectile_render_inputs().iter().filter(|item| item.id == shell).count(), 1);
+        assert!(frame.direct_host_drawables.iter().all(|item| item.object.id != shell));
+        assert_eq!(world.objects[&nearby].health.current, 100.0);
+        assert!(!world.objects[&nearby].is_unmanned());
+        for _ in 0..300 {
+            let _ = world.update_with_dt(1.0 / 30.0);
+            if world.combat_system.projectile_count() == 0 {
+                break;
+            }
+        }
+        assert_eq!(world.combat_system.projectile_count(), 0);
+        assert_eq!(world.objects[&target].health.current, 90.0);
+        assert_eq!(world.objects[&nearby].health.current, 100.0);
+        assert_eq!(world.objects[&target].is_unmanned(), calls_die);
+        assert_eq!(world.objects[&nearby].is_unmanned(), calls_die);
+        for _ in 0..30 {
+            let _ = world.update_with_dt(1.0 / 30.0);
+            assert_eq!(world.combat_system.projectile_count(), 0);
+            assert_eq!(world.objects[&target].health.current, 90.0);
+        }
+    }
+}
+
+#[test]
+fn authored_neutron_shell_keeps_its_receiving_body_through_encoded_save() {
+    let (mut world, source, target, nearby) = authored_neutron_shell_world(true);
+    let shell = launch_authored_neutron_shell(&mut world, source, target);
+    let _ = world.update_with_dt(1.0 / 30.0);
+    let live = world.combat_system.projectiles_snapshot();
+    assert_eq!(live.len(), 1);
+    assert_eq!(world.objects[&shell].get_position(), live[0].position);
+
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&world).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let (mut restored, _, _, _) = authored_neutron_shell_world(true);
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+    assert_eq!(restored.objects[&shell].get_position(), live[0].position);
+    restored.validate_projectile_actor_births().unwrap();
+
+    for _ in 0..300 {
+        let _ = world.update_with_dt(1.0 / 30.0);
+        let _ = restored.update_with_dt(1.0 / 30.0);
+        let a = world.combat_system.get_projectiles().get(&shell);
+        let b = restored.combat_system.get_projectiles().get(&shell);
+        assert_eq!(a.map(|shot| shot.position), b.map(|shot| shot.position));
+        if a.is_none() {
+            break;
+        }
+    }
+    for finished in [&world, &restored] {
+        assert_eq!(finished.combat_system.projectile_count(), 0);
+        assert_eq!(finished.objects[&target].health.current, 90.0);
+        assert!(finished.objects[&target].is_unmanned());
+        assert!(finished.objects[&nearby].is_unmanned());
+    }
+}

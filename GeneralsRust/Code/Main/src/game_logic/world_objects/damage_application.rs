@@ -24,6 +24,12 @@ impl OwnedDamageResult {
     }
 }
 
+#[derive(Clone, Copy)]
+enum RetiredProjectileActor {
+    Destroy,
+    KeepAfterDeath,
+}
+
 impl GameLogic {
     /// Actual Body::setMaxHealth: no attemptHealing or damage callback walk.
     pub(in crate::game_logic) fn set_owned_body_max_health_with_effects(
@@ -1785,8 +1791,12 @@ impl GameLogic {
         // live-target-or-captured-position test can produce an aim.
         let has_aim = pending.target_pos.is_some()
             || pending.target_id.is_some_and(|id| self.objects.lookup(&id).is_some());
-        let birth = if missile && has_aim {
-            if transform.is_none() {
+        let detonate_calls_kill = pending.projectile_lifecycle
+            .or_else(|| self.projectile_definitions.get(&projectile_name).map(|profile| profile.lifecycle))
+            .is_some_and(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::detonate_calls_kill);
+        let shooter_id = pending.shooter_id;
+        let birth = if (missile || detonate_calls_kill) && has_aim {
+            if missile && transform.is_none() {
                 return Err(gamelogic::GameLogicError::Configuration(format!(
                     "Missile {projectile_name} has no launch transform"
                 )));
@@ -1797,7 +1807,7 @@ impl GameLogic {
             ) {
                 Ok(Some(birth)) => Some(birth),
                 Ok(None) => return Err(gamelogic::GameLogicError::Configuration(format!(
-                    "Could not create missile {projectile_name}"
+                    "Could not create projectile {projectile_name}"
                 ))),
                 Err(error) => {
                     if let Some((id, birth)) = error.committed {
@@ -1826,7 +1836,14 @@ impl GameLogic {
         );
         if let Some((id, birth)) = birth {
             let valid = self.spawn_identity_matches(id, birth.0, birth.1);
-            let motion = if valid {
+            if detonate_calls_kill && !missile && valid {
+                if let Some(projectile) = self.combat_system.projectile_mut(id) {
+                    projectile.projectile_actor_birth = Some(birth);
+                    self.objects.get_mut(&id).expect("receiving projectile birth").producer_id = Some(shooter_id);
+                    return Ok(ready);
+                }
+            }
+            let motion = if missile && valid {
                 match (
                     self.projectile_definitions.get(&projectile_name),
                     transform,
@@ -1856,7 +1873,7 @@ impl GameLogic {
                     projectile.position = position;
                     projectile.velocity = velocity;
                     projectile.missile_motion = Some(motion);
-                    projectile.missile_actor_birth = Some(birth);
+                    projectile.projectile_actor_birth = Some(birth);
                 }
             } else {
                 let had_projectile = self.combat_system.remove_projectile(id);
@@ -1865,7 +1882,7 @@ impl GameLogic {
                 }
                 if had_projectile || !valid {
                     return Err(gamelogic::GameLogicError::Configuration(format!(
-                        "Could not launch missile {projectile_name}"
+                        "Could not launch projectile {projectile_name}"
                     )));
                 }
             }
@@ -1912,10 +1929,10 @@ impl GameLogic {
         let mut error = None;
         for id in ids {
             let birth = self.combat_system.get_projectiles().get(&id)
-                .and_then(|shot| shot.missile_actor_birth);
-            let (retire, result) = self.update_owned_projectile_impact_with_effects(id, dt, limit, effects);
-            if retire {
-                retired.push((id, birth));
+                .and_then(|shot| shot.projectile_actor_birth);
+            let (retirement, result) = self.update_owned_projectile_impact_with_effects(id, dt, limit, effects);
+            if let Some(actor) = retirement {
+                retired.push((id, birth, actor));
             }
             if let Err(callback_error) = result {
                 error = Some(callback_error);
@@ -1925,11 +1942,12 @@ impl GameLogic {
         // Terminal effects can already have run when a callback fails. Finish
         // retirement at the batch boundary so a retry cannot replay them.
         // A callback can replace an ID, so retire only the selected incarnation.
-        for &(id, birth) in &retired {
+        for &(id, birth, actor) in &retired {
             let current = self.combat_system.get_projectiles().get(&id);
-            if current.is_some_and(|shot| shot.missile_actor_birth == birth) {
+            if current.is_some_and(|shot| shot.projectile_actor_birth == birth) {
                 self.combat_system.retire_projectile_impacts(&[id]);
-                if let Some((generation, epoch)) = birth
+                if matches!(actor, RetiredProjectileActor::Destroy)
+                    && let Some((generation, epoch)) = birth
                     && self.spawn_identity_matches(id, generation, epoch)
                     && let Err(destroy_error) = self.destroy_object_with_effects(id, effects)
                 {
@@ -1940,7 +1958,7 @@ impl GameLogic {
         if let Some(error) = error {
             return Err(error);
         }
-        Ok(retired.into_iter().map(|(id, _)| id).collect())
+        Ok(retired.into_iter().map(|(id, _, _)| id).collect())
     }
 
     /// One callback without holding the projectile arena across Body or OCL.
@@ -1951,12 +1969,16 @@ impl GameLogic {
         dt: f32,
         historic_damage_limit: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> (bool, gamelogic::GameLogicResult<()>) {
-        if let Some(birth) = self.combat_system.get_projectiles().get(&id)
-            .and_then(|projectile| projectile.missile_actor_birth)
-        {
+    ) -> (Option<RetiredProjectileActor>, gamelogic::GameLogicResult<()>) {
+        let projectile = self.combat_system.get_projectiles().get(&id);
+        let birth = projectile.and_then(|projectile| projectile.projectile_actor_birth);
+        let detonate_calls_kill = projectile.is_some_and(|projectile| projectile.detonate_calls_kill());
+        if let Some(birth) = birth {
             if !self.spawn_identity_matches(id, birth.0, birth.1) {
-                return (true, Ok(()));
+                return (Some(RetiredProjectileActor::Destroy), Ok(()));
+            }
+            if detonate_calls_kill && self.objects[&id].status.effectively_dead {
+                return (Some(RetiredProjectileActor::KeepAfterDeath), Ok(()));
             }
         }
         // Weapon.cpp:1504-1508 and 1797-1816 compute the detonation
@@ -2001,7 +2023,7 @@ impl GameLogic {
             samples: self.pathfinding_height_samples.as_ref(),
         };
         #[cfg(feature = "game_client")]
-        let (events, retired) = {
+        let (events, retired, detonation_pose) = {
             let shroud = self.world_services.shroud();
             let fx_operation_environment = self.observe_object_fx_environment();
             Self::with_object_fx_services(
@@ -2031,7 +2053,7 @@ impl GameLogic {
             )
         };
         #[cfg(not(feature = "game_client"))]
-        let (events, retired) = self.combat_system.prepare_projectile_impact_with_runtime(
+        let (events, retired, detonation_pose) = self.combat_system.prepare_projectile_impact_with_runtime(
             id,
             dt,
             &mut self.objects,
@@ -2045,16 +2067,56 @@ impl GameLogic {
             &mut (),
         );
 
-        // C++ Weapon::handleProjectileDetonation → fireWeaponTemplate with
-        // isProjectileDetonation: ProjectileDetonationFX/OCL run before Body
-        // damage (Weapon.cpp:889-949 then dealDamageInternal).
+        if detonate_calls_kill && birth.is_some() {
+            if let Some(projectile) = self.combat_system.get_projectiles().get(&id) {
+                let actor = self.objects.get_mut(&id).expect("validated projectile birth");
+                let position = detonation_pose.unwrap_or(projectile.position);
+                if actor.get_position() != position {
+                    actor.set_position_with_partition_owner(
+                        position, self.frame, effects, &mut self.partition_manager,
+                    );
+                }
+            }
+        }
+        let mut retirement = retired.contains(&id).then_some(RetiredProjectileActor::Destroy);
+        // Weapon::handleProjectileDetonation runs FX/OCL and Body damage first.
+        // DumbProjectileBehavior then submits DEATH_DETONATED to its own Body.
         let result = self.flush_projectile_impact_fx_with_effects(effects).and_then(|()| {
             for event in events {
                 self.apply_owned_combat_damage_with_effects(&event, effects)?;
             }
+            if detonate_calls_kill && detonation_pose.is_some()
+                && let Some((generation, epoch)) = birth
+                && self.spawn_identity_matches(id, generation, epoch)
+            {
+                retirement = Some(RetiredProjectileActor::KeepAfterDeath);
+                self.apply_dumb_projectile_detonated_damage(id, (generation, epoch), effects)?;
+            }
             Ok(())
         });
-        (retired.contains(&id), result)
+        (retirement, result)
+    }
+
+    fn apply_dumb_projectile_detonated_damage(
+        &mut self,
+        id: ObjectId,
+        birth: (u64, u64),
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+
+        let maximum = self.objects[&id].health.maximum;
+        // Original detonate calls attemptDamage with the regular damage input
+        // and explicitly selected death type.
+        let result = self.apply_owned_damage_with_effects(
+            id, maximum, None, DamageType::Unresistable, HostDeathType::Detonated,
+            None, &DamageHitContext::default(), effects,
+        );
+        if self.spawn_identity_matches(id, birth.0, birth.1) {
+            self.objects.get_mut(&id).expect("receiving projectile birth").set_drawable_hidden(true);
+        }
+        result.map(|_| ())
     }
 
     fn apply_owned_combat_damage_with_effects(

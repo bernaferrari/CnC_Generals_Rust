@@ -784,7 +784,7 @@ impl GameLogic {
                 .into_iter()
                 .filter_map(|p| {
                     let position = if p.missile_motion.is_some() {
-                        let birth = p.missile_actor_birth?;
+                        let birth = p.projectile_actor_birth?;
                         if !self.spawn_identity_matches(p.id, birth.0, birth.1) {
                             return None;
                         }
@@ -826,7 +826,7 @@ impl GameLogic {
                 .into_iter()
                 .filter_map(|p| {
                     let position = if p.missile_motion.is_some() {
-                        let birth = p.missile_actor_birth?;
+                        let birth = p.projectile_actor_birth?;
                         if !self.spawn_identity_matches(p.id, birth.0, birth.1) {
                             return None;
                         }

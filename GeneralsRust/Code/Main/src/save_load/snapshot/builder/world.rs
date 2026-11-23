@@ -1235,7 +1235,7 @@ impl SnapshotBuilder {
             .combat_system
             .restore_live_projectile_arena(projectile_continuation.arena);
         // Runtime birth tokens belong to this receiving world, not the saved world.
-        game_logic.rebind_missile_actor_births();
+        game_logic.rebind_projectile_actor_births();
 
         if map_bridge_bindings.is_none() {
             let mut has_source_bridges = false;

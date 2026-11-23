@@ -630,7 +630,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
                 .or_else(|| profile.map(|profile| profile.lifecycle)),
             Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
         );
-        let missile_actor_id = is_missile.then(|| {
+        let projectile_actor_id = is_missile.then(|| {
             crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
         });
         if let Some(immediate) = materialize_accepted_projectile(
@@ -643,7 +643,7 @@ pub(in crate::game_logic) fn drain_pending_projectiles_with_partition(
             geometry,
             partition,
             next_object_id,
-            missile_actor_id,
+            projectile_actor_id,
             random,
         ) {
             combat.projectileless_delayed.push(immediate);
@@ -666,7 +666,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
     geometry: Option<crate::game_logic::HostGeometryInfo>,
     partition: Option<&crate::game_logic::partition_manager::PartitionManager>,
     next_object_id: &mut ObjectId,
-    missile_actor_id: Option<ObjectId>,
+    projectile_actor_id: Option<ObjectId>,
     random: &game_engine::common::random_value::SessionRandom,
 ) -> Option<LiveProjectilelessDelayedDamage> {
     // Accepted records retain their captured lifecycle. Otherwise resolve only
@@ -895,9 +895,12 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         projectile_lifecycle,
         Some(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::Missile { .. })
     );
-    let id = if is_missile {
-        // Only the receiving world can admit a real missile Object.
-        missile_actor_id?
+    let requires_actor = is_missile || projectile_lifecycle.is_some_and(
+        crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::detonate_calls_kill,
+    );
+    let id = if requires_actor {
+        // The accepted flight must share the receiving Object's identity.
+        projectile_actor_id?
     } else {
         crate::game_logic::world_objects::allocate_live_object_id(next_object_id, objects, combat)
     };

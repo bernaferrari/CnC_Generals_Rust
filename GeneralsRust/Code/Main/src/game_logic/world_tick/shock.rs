@@ -75,14 +75,12 @@ impl GameLogic {
         let ground_heights: Vec<(ObjectId, std::sync::Weak<()>, f32)> = {
             let mut out = Vec::new();
             for (id, o) in self.objects.registered() {
-                // Live MissileMotion performs its own force and contact step on
-                // this same Object during the projectile phase.
+                // The projectile phase advances the actor's owned flight.
                 if self.combat_system.get_projectiles().get(id)
                     .is_some_and(|shot| {
-                        shot.missile_motion.is_some()
-                            && shot.missile_actor_birth.is_some_and(|birth| {
-                                self.spawn_identity_matches(*id, birth.0, birth.1)
-                            })
+                        shot.projectile_actor_birth.is_some_and(|birth| {
+                            self.spawn_identity_matches(*id, birth.0, birth.1)
+                        })
                     })
                 {
                     continue;

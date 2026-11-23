@@ -1721,26 +1721,26 @@ impl GameLogic {
 }
 
 impl GameLogic {
-    /// Rebind runtime-only missile identities after restoring the object arena.
-    pub(crate) fn rebind_missile_actor_births(&mut self) {
+    /// Rebind runtime-only projectile identities after restoring the object arena.
+    pub(crate) fn rebind_projectile_actor_births(&mut self) {
         let epoch = self.visual_world_epoch;
         let objects = &self.objects;
         for projectile in self.combat_system.projectiles_mut() {
-            if projectile.missile_motion.is_some() {
+            if projectile.owns_receiving_actor() {
                 let object = objects.get(&projectile.id)
-                    .expect("validated missile snapshot requires its world Object");
-                projectile.missile_actor_birth = Some((object.visual_object_generation, epoch));
+                    .expect("validated projectile snapshot requires its world Object");
+                projectile.projectile_actor_birth = Some((object.visual_object_generation, epoch));
             }
         }
     }
 
-    pub(crate) fn validate_missile_actor_births(&self) -> Result<(), String> {
+    pub(crate) fn validate_projectile_actor_births(&self) -> Result<(), String> {
         for projectile in self.combat_system.projectiles_snapshot() {
-            if projectile.missile_motion.is_some() {
+            if projectile.owns_receiving_actor() {
                 let birth = self.objects.get(&projectile.id)
                     .map(|object| (object.visual_object_generation, self.visual_world_epoch));
-                if birth.is_none() || birth != projectile.missile_actor_birth {
-                    return Err(format!("missile {:?} does not own its world Object birth", projectile.id));
+                if birth.is_none() || birth != projectile.projectile_actor_birth {
+                    return Err(format!("projectile {:?} does not own its world Object birth", projectile.id));
                 }
             }
         }

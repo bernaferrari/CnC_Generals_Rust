@@ -395,6 +395,20 @@ impl PresentationFrame {
             PresentationWorldEnv::from_receiving_logic(logic, runtime_heightmap);
         // Freeze team base proximity once (camera snap / host residual).
         let local_team_base_position = logic.team_base_position(local_team);
+        // These shells own an Object for Body and Die callbacks. Their flight
+        // pose and mesh already come from the projectile presentation pass.
+        let projectile_draw_ids: game_engine::common::fast_hash::FxHashSet<_> = logic
+            .combat_system()
+            .get_projectiles()
+            .values()
+            .filter(|projectile| {
+                projectile.detonate_calls_kill()
+                    && projectile.projectile_actor_birth.is_some_and(|(generation, epoch)| {
+                        logic.spawn_identity_matches(projectile.id, generation, epoch)
+                    })
+            })
+            .map(|projectile| projectile.id)
+            .collect();
         // Freeze terrain FOW grid once for this presentation frame (local player only).
         // One borrow freezes all shroud facts, then releases the manager before
         // gameplay queries. The vectors use the same unchanged object traversal;
@@ -410,6 +424,7 @@ impl PresentationFrame {
             let objects: Vec<_> = logic
                 .host_objects()
                 .registered_values()
+                .filter(|object| !projectile_draw_ids.contains(&object.id))
                 .map(|obj| {
                     let owner = obj
                         .owner_player_id

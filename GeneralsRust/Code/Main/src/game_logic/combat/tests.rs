@@ -215,6 +215,7 @@ pub(in crate::game_logic) mod tests {
             Some(
                 crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::DumbProjectile {
                     max_lifespan_frames: 300,
+                    detonate_calls_kill: false,
                 }
             )
         );
@@ -1433,7 +1434,7 @@ pub(in crate::game_logic) mod tests {
             missing_fx.is_empty(),
             "missing receiving definitions fail closed"
         );
-        let (damage_events, _) = combat.prepare_projectile_impact_with_runtime(
+        let (damage_events, _, _) = combat.prepare_projectile_impact_with_runtime(
             pid,
             1.0 / 30.0,
             &mut objects,
