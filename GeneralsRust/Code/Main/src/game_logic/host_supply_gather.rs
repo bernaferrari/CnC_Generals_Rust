@@ -889,30 +889,9 @@ pub fn steal_cash_clamped(available: u32, desired: u32) -> u32 {
     desired.min(available)
 }
 
-/// C++ `Drawable::updateDrawableSupplyStatus(startingBoxes, boxesStored)`.
-/// Host cash is `boxes * ValuePerSupplyBox`; convert back for the crate visual.
-pub fn drawable_supply_status_from_cash(
-    starting_boxes: Option<u32>,
-    stored_cash: u32,
-) -> (u32, u32) {
-    let value = crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX;
-    let value = if value > 0 { value as u32 } else { 75 };
-    let max_boxes = starting_boxes.unwrap_or(0);
-    let current_boxes = stored_cash / value;
-    (max_boxes, current_boxes)
-}
-
-/// C++ `SupplyTruckAIUpdate::gainOneBox` / `loseOneBox`
-/// (`SupplyTruckAIUpdate.cpp:122-126`, `:164-168`):
-/// `drawable->updateDrawableSupplyStatus(maxBoxes, m_numberBoxes)`.
-/// Host collectors store cash; convert with retail `ValuePerSupplyBox`.
-pub fn collector_drawable_supply_status(max_boxes: u32, stored_cash: u32) -> (u32, u32) {
-    drawable_supply_status_from_cash(Some(max_boxes), stored_cash)
-}
-
 /// C++ `W3DModelDraw::updateDrawModuleSupplyStatus` (`W3DModelDraw.cpp:3907-3917`):
 /// CARRYING when `currentSupply > 0`. Presentation stamps the mesh bit.
-pub fn collector_carrying_from_boxes(current_boxes: u32) -> bool {
+pub fn collector_carrying_from_boxes(current_boxes: i32) -> bool {
     current_boxes > 0
 }
 
@@ -943,13 +922,13 @@ pub const DEFAULT_SUPPLY_BONE_PREFIX: &str = "SupplyBox";
 pub const DEFAULT_SUPPLY_DRAW_BONE_COUNT: u32 = 8;
 
 /// C++ `W3DSupplyDraw::updateDrawModuleSupplyStatus`
-/// (`W3DSupplyDraw.cpp:60-61`): `ceil(total * current / max)`.
-pub fn supply_draw_bones_to_show(total_bones: u32, current_supply: u32, max_supply: u32) -> u32 {
+/// (`W3DSupplyDraw.cpp:60-61`) computes the signed stock fraction before scaling.
+pub fn supply_draw_bones_to_show(total_bones: u32, current_supply: i32, max_supply: i32) -> u32 {
     if total_bones == 0 || max_supply == 0 {
         return 0;
     }
-    let shown =
-        ((total_bones as f32) * (current_supply as f32) / (max_supply as f32)).ceil() as u32;
+    let fraction = current_supply as f32 / max_supply as f32;
+    let shown = (total_bones as f32 * fraction).ceil() as u32;
     shown.min(total_bones)
 }
 
@@ -979,8 +958,8 @@ pub fn supply_draw_bone_index(prefix: &str, name: &str) -> Option<u32> {
 pub fn supply_draw_hide_directives(
     prefix: &str,
     named_bones: &[impl AsRef<str>],
-    current_supply: u32,
-    max_supply: u32,
+    current_supply: i32,
+    max_supply: i32,
 ) -> Vec<(String, bool)> {
     let prefix = if prefix.is_empty() {
         DEFAULT_SUPPLY_BONE_PREFIX
@@ -1002,13 +981,13 @@ pub fn supply_draw_hide_directives(
         .collect()
 }
 
-/// C++ `setCashValue` → host stored cash (`boxes * ValuePerSupplyBox`).
-pub fn warehouse_stored_supplies_from_cash(cash: i32) -> u32 {
-    let boxes =
-        crate::game_logic::host_structure_economy_residual::supply_warehouse_boxes_from_cash(cash);
-    let value = crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX;
-    let value = if value > 0 { value as u32 } else { 75 };
-    (boxes.max(0) as u32).saturating_mul(value)
+/// SupplyWarehouseDockUpdate::setCashValue uses a float quotient and ceil.
+fn warehouse_boxes_from_cash(cash: i32, value_per_box: i32) -> Option<i32> {
+    let boxes = (cash as f32 / value_per_box as f32).ceil();
+    if !(-2_147_483_648.0..2_147_483_648.0).contains(&boxes) {
+        return None;
+    }
+    Some(boxes as i32)
 }
 
 /// Healing observations and clocks owned by one live game instance.
@@ -1087,17 +1066,20 @@ pub fn dock_is_clear_to_act(active: Option<ObjectId>, docker: ObjectId) -> bool 
 /// (`SupplyTruckAIUpdate.cpp:134-135`). Already at MaxBoxes fails and the
 /// warehouse `++m_boxesStored` takes the box back. Fail-closed: no transfer.
 pub fn warehouse_action_transfer_one_box(
-    warehouse_boxes: u32,
-    collector_boxes: u32,
-    max_boxes: u32,
-) -> (u32, u32, bool) {
+    warehouse_boxes: i32,
+    collector_boxes: i32,
+    max_boxes: i32,
+) -> (i32, i32, bool) {
     if warehouse_boxes == 0 {
         return (0, collector_boxes, false);
     }
     if collector_boxes >= max_boxes {
         return (warehouse_boxes, collector_boxes, false);
     }
-    (warehouse_boxes - 1, collector_boxes + 1, true)
+    let Some(remaining) = warehouse_boxes.checked_sub(1) else {
+        return (warehouse_boxes, collector_boxes, false);
+    };
+    (remaining, collector_boxes + 1, true)
 }
 
 /// Retail regular `AmericaVehicleChinook` `UpgradedSupplyBoost` (leftover INI parse = 4).
@@ -1272,13 +1254,17 @@ impl crate::game_logic::GameLogic {
     }
 
     pub(crate) fn apply_warehouse_set_value_to_object(&mut self, id: ObjectId, cash: i32) -> bool {
+        let value_per_box = self.supply_box_value();
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
         if obj.thing().template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse {
             return false;
         }
-        obj.set_stored_supplies(warehouse_stored_supplies_from_cash(cash));
+        let Some(boxes) = warehouse_boxes_from_cash(cash, value_per_box) else {
+            return false;
+        };
+        obj.set_warehouse_boxes(boxes);
         true
     }
 }
@@ -1302,27 +1288,9 @@ mod tests {
         // Room for one more: debit and credit.
         assert_eq!(warehouse_action_transfer_one_box(1, 3, 4), (0, 4, true));
         assert_eq!(warehouse_action_transfer_one_box(0, 2, 4), (0, 2, false));
-    }
-
-    #[test]
-    fn warehouse_drawable_boxes_follow_cash() {
-        let (max, current) = drawable_supply_status_from_cash(Some(10), 10 * 75);
-        assert_eq!(max, 10);
-        assert_eq!(current, 10);
-        let (_, after) = drawable_supply_status_from_cash(Some(10), 9 * 75);
-        assert_eq!(after, 9);
-        let (_, empty) = drawable_supply_status_from_cash(Some(10), 0);
-        assert_eq!(empty, 0);
-    }
-
-    #[test]
-    fn collector_drawable_boxes_follow_cash_and_carrying() {
-        // C++ gainOneBox / loseOneBox: updateDrawableSupplyStatus(maxBoxes, m_numberBoxes).
-        assert_eq!(collector_drawable_supply_status(4, 0), (4, 0));
-        assert_eq!(collector_drawable_supply_status(4, 75), (4, 1));
-        assert_eq!(collector_drawable_supply_status(4, 4 * 75), (4, 4));
-        assert!(!collector_carrying_from_boxes(0));
-        assert!(collector_carrying_from_boxes(1));
+        assert_eq!(warehouse_action_transfer_one_box(-1, 0, 4), (-2, 1, true));
+        assert_eq!(warehouse_action_transfer_one_box(-1, 4, 4), (-1, 4, false));
+        assert_eq!(warehouse_action_transfer_one_box(1, 0, -1), (1, 0, false));
     }
 
     #[test]
@@ -1402,14 +1370,17 @@ mod tests {
         assert_eq!(supply_draw_bones_to_show(8, 0, 10), 0);
         assert_eq!(supply_draw_bones_to_show(8, 10, 10), 8);
         assert_eq!(supply_draw_bones_to_show(8, 1, 10), 1);
+        assert_eq!(supply_draw_bones_to_show(8, -1, -4), 2);
+        assert_eq!(supply_draw_bones_to_show(8, -1, 4), 0);
     }
 
     #[test]
     fn warehouse_set_value_ceils_boxes_from_cash() {
-        assert_eq!(warehouse_stored_supplies_from_cash(75), 75);
-        assert_eq!(warehouse_stored_supplies_from_cash(76), 150);
-        assert_eq!(warehouse_stored_supplies_from_cash(0), 0);
-        assert_eq!(warehouse_stored_supplies_from_cash(1000), 14 * 75);
+        assert_eq!(warehouse_boxes_from_cash(75, 75), Some(1));
+        assert_eq!(warehouse_boxes_from_cash(76, 75), Some(2));
+        assert_eq!(warehouse_boxes_from_cash(0, 75), Some(0));
+        assert_eq!(warehouse_boxes_from_cash(-126, 125), Some(-1));
+        assert_eq!(warehouse_boxes_from_cash(-1, 125), Some(0));
     }
 
     #[test]

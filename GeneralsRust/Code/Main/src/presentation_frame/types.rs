@@ -531,12 +531,14 @@ pub struct RenderableObject {
     pub power_consumed: i32,
     /// Host Object::stored_resources.supplies residual (supply center / drop zone).
     pub stored_supplies: u32,
+    pub authored_warehouse_boxes: i32,
+    pub authored_carried_boxes: Option<i32>,
     /// C++ `updateDrawableSupplyStatus` current boxes (warehouse crate pile).
     #[serde(default)]
-    pub drawable_supply_boxes: u32,
+    pub drawable_supply_boxes: i32,
     /// C++ startingBoxes argument to `updateDrawableSupplyStatus`.
     #[serde(default)]
-    pub drawable_supply_max_boxes: u32,
+    pub drawable_supply_max_boxes: i32,
     /// Exact Object INI DockUpdate family, carried separately from KindOf so
     /// physical RMB classification never derives dockability from a name.
     #[serde(default)]

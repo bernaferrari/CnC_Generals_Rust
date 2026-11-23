@@ -1487,9 +1487,9 @@ impl InGameUI {
                                         &tip_entry.template_name,
                                     )
                                 } {
-                                    Self::append_presentation_warehouse_tooltip(
+                                    Self::append_warehouse_tooltip(
                                         &mut tooltip,
-                                        tip_entry.supply_boxes,
+                                        tip_entry.warehouse_cash_value,
                                     );
                                     if let Some(facts) = receiving {
                                         let observation = facts.object(tip_entry.object_id);
@@ -1618,10 +1618,9 @@ impl InGameUI {
                                         let base_value = global_data::read_safe()
                                             .map(|data| data.base_value_per_supply_box)
                                             .unwrap_or(100);
-                                        display_name.push_str(
-                                            &Self::supply_warehouse_tooltip_feedback(
-                                                boxes, base_value,
-                                            ),
+                                        Self::append_warehouse_tooltip(
+                                            &mut display_name,
+                                            Some(boxes.wrapping_mul(base_value)),
                                         );
                                     }
                                     if let Ok(player_guard) = player.read() {

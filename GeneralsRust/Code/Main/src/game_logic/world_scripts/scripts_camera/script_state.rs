@@ -515,23 +515,7 @@ impl GameLogic {
             player_who_entered: host_query_player_who_entered(self, obj),
             is_supply_warehouse: obj.thing().template.dock_kind
                 == crate::game_logic::DockKind::SupplyWarehouse,
-            warehouse_boxes: if obj.thing().template.dock_kind
-                == crate::game_logic::DockKind::SupplyWarehouse
-            {
-                // C++ SupplyWarehouseDockUpdate::getBoxesStored.
-                // drawable_supply_boxes is kept in sync by set_stored_supplies
-                // (including 0). Cash fallback only if never initialized.
-                if obj.drawable_supply_max_boxes > 0 || obj.drawable_supply_boxes > 0 {
-                    obj.drawable_supply_boxes as i32
-                } else {
-                    let value =
-                        crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX;
-                    let value = if value > 0 { value as u32 } else { 75 };
-                    (obj.stored_resources.supplies / value) as i32
-                }
-            } else {
-                0
-            },
+            warehouse_boxes: obj.warehouse_boxes(),
             off_map: position.x < self.world_min.x
                 || position.x > self.world_max.x
                 || position.z < self.world_min.z
@@ -654,8 +638,7 @@ impl GameLogic {
                 HostScriptPlayerCensus {
                     science_purchase_points: player.science_purchase_points,
                     unlocked_sciences: player.unlocked_sciences.iter().cloned().collect(),
-                    supply_box_value:
-                        crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX,
+                    supply_box_value: self.supply_box_value(),
                     ..self.script_census_money_and_power(player)
                 },
             );

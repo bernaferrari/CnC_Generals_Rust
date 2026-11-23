@@ -89,25 +89,19 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        // Retail `SupplyWarehouseDockUpdate::StartingBoxes` is authoritative.
-        // Retain the legacy bootstrap table only for hand-authored templates
-        // that have no parsed Behavior metadata; it never grants Dock ability.
-        let supplies = if obj.thing().template.dock_kind
-            == crate::game_logic::DockKind::SupplyWarehouse
-        {
-            obj.thing().template.dock_starting_boxes.map(|boxes| {
-                boxes.saturating_mul(
-                    crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32,
-                )
-            })
+        // The warehouse module's constructor initialized its signed stock.
+        // Generic synthetic sources retain their existing bootstrap.
+        let authored_warehouse = obj.thing().template.dock_kind
+            == crate::game_logic::DockKind::SupplyWarehouse;
+        let has_warehouse_create =
+            obj.thing().template.has_supply_warehouse_create || authored_warehouse;
+        let generic_supplies = if authored_warehouse {
+            None
         } else {
             starting_supplies_for_template(&obj.template_name)
         };
-        let has_warehouse_create = obj.thing().template.has_supply_warehouse_create
-            || obj.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse;
-        let had_supplies = supplies.is_some();
-        if let Some(supplies) = supplies {
-            // Only seed if empty (map may already set amount).
+        let had_supplies = generic_supplies.is_some();
+        if let Some(supplies) = generic_supplies {
             if obj.stored_resources.supplies == 0 {
                 obj.set_stored_supplies(supplies);
             }

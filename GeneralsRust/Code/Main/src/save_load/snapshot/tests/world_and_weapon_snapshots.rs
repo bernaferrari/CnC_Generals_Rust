@@ -791,6 +791,37 @@ fn snapshot_restore_rebuilds_resource_depots_and_harvesters() {
 }
 
 #[test]
+fn snapshot_keeps_signed_inventory_with_exact_actor_and_generic_resources() {
+    const CONTENT: &str = "Object SignedWarehouse\nKindOf = STRUCTURE SUPPLY_SOURCE\n\
+        Body = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+        Behavior = SupplyWarehouseDockUpdate Dock\nStartingBoxes = -3\nEnd\n\
+        Behavior = SupplyTruckAIUpdate Collect\nMaxBoxes = 4\nEnd\nEnd\n\
+        Object GenericReserve\nKindOf = SUPPLY_SOURCE\n\
+        Body = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n";
+
+    let mut source = authored_snapshot_world(CONTENT);
+    let position = Vec3::new(25.0, 0.0, 25.0);
+    let negative = source.create_object("SignedWarehouse", Team::Neutral, position).unwrap();
+    let empty = source.create_object("SignedWarehouse", Team::Neutral, position).unwrap();
+    let generic = source.create_object("GenericReserve", Team::Neutral, position).unwrap();
+    assert_eq!(source.host_object(negative).unwrap().warehouse_boxes(), -3);
+    source.host_object_mut(negative).unwrap().set_carried_supply_boxes(2);
+    source.host_object_mut(empty).unwrap().set_warehouse_boxes(0);
+    source.host_object_mut(generic).unwrap().set_stored_supplies(2537);
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let snapshot = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut receiving = authored_snapshot_world(CONTENT);
+    builder.restore_from_snapshot(&snapshot, &mut receiving).unwrap();
+    assert_eq!(receiving.host_object(negative).unwrap().warehouse_boxes(), -3);
+    assert_eq!(receiving.host_object(negative).unwrap().carried_supply_boxes(), 2);
+    assert_eq!(receiving.host_object(empty).unwrap().warehouse_boxes(), 0);
+    assert_eq!(receiving.host_object(generic).unwrap().stored_resources.supplies, 2537);
+}
+
+#[test]
 fn snapshot_restore_preserves_explicit_zero_over_tracker_summary() {
     let mut source = GameLogic::new();
     let mut tank_template = ThingTemplate::new("TestTank");

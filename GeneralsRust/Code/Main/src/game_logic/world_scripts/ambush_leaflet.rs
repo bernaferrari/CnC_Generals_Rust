@@ -1279,14 +1279,12 @@ impl GameLogic {
             .unwrap_or(DockKind::None)
     }
 
-    /// Supply carried by a collector or remaining at a warehouse, exposed as
-    /// a value probe for boot-only RMB classification.
-    #[inline]
-    pub fn unit_stored_supplies(&self, id: ObjectId) -> u32 {
-        self.objects
-            .get(&id)
-            .map(|o| o.stored_resources.supplies)
-            .unwrap_or(0)
+    pub(crate) fn unit_supply_carrier_has_cargo(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(Object::supply_carrier_has_cargo)
+    }
+
+    pub(crate) fn unit_warehouse_has_stock(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some_and(|object| object.warehouse_boxes() != 0)
     }
 
     /// Wave 244: repair/dozer probe without exposing `&Object`.

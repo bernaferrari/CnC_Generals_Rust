@@ -708,6 +708,7 @@ impl CnCGameEngine {
                     object_hotkey_group.entry(id.0).or_insert(g);
                 }
             }
+            let supply_box_value = self.game_logic.supply_box_value();
             let catalog: Vec<game_client::gui::ingame_ui::PresentationUnitCatalogEntry> = {
                 use crate::unit_control::UnitControlSystem;
                 pres.objects
@@ -814,13 +815,9 @@ impl CnCGameEngine {
                                 crate::game_logic::ObjectId(o.id.0),
                             )
                             .unwrap_or_default(),
-                            supply_boxes: if o.dock_kind
-                                == crate::game_logic::DockKind::SupplyWarehouse
-                            {
-                                Some(o.drawable_supply_boxes as i32)
-                            } else {
-                                None
-                            },
+                            warehouse_cash_value: (o.dock_kind
+                                == crate::game_logic::DockKind::SupplyWarehouse)
+                                .then(|| o.authored_warehouse_boxes.wrapping_mul(supply_box_value)),
                         },
                     )
                     .collect()

@@ -80,6 +80,7 @@ pub struct PresentationTargetHint {
     /// Warehouse remaining cash/boxes represented in host supply units.
     #[serde(default)]
     pub stored_supplies: u32,
+    pub has_authored_supply: bool,
     /// Exact C++ `KINDOF_CAPTURABLE` frozen from Object INI metadata.
     #[serde(default)]
     pub capturable: bool,
@@ -178,6 +179,7 @@ pub struct PresentationSelectedUnitHint {
     /// collector without a live authority read during physical RMB handling.
     #[serde(default)]
     pub stored_supplies: u32,
+    pub has_authored_supply: bool,
     /// Exact local-player control frozen with the selected object.  A physical
     /// RMB context must never turn a foreign/allied object into a SupplyCenter
     /// depositor merely because the faction tint is friendly.

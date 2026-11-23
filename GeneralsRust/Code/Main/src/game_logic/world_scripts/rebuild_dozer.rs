@@ -1418,7 +1418,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return;
         };
-        if obj.stored_resources.supplies == 0 {
+        if !obj.has_positive_supply_cargo() {
             return;
         }
         if !(obj.is_resource_collector()
@@ -1426,7 +1426,11 @@ impl GameLogic {
         {
             return;
         }
-        obj.set_stored_supplies(0);
+        if obj.thing().template.supply_truck_metadata.is_some() {
+            obj.set_carried_supply_boxes(0);
+        } else {
+            obj.set_stored_supplies(0);
+        }
     }
 
     /// C++ `AIUpdateInterface::isClearingMines` (AIUpdate.cpp:3120-3135).

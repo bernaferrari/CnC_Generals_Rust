@@ -24,8 +24,7 @@ fn world_with_warehouse_and_workers() -> (GameLogic, ObjectId, Vec<ObjectId>) {
     world
         .host_object_mut(dock_id)
         .expect("warehouse object")
-        .stored_resources
-        .supplies = 1000;
+        .set_warehouse_boxes(10);
     let workers = (0..10)
         .map(|index| {
             world

@@ -399,6 +399,8 @@ impl Object {
             railed_paths: Vec::new(),
             railed_dock: Default::default(),
 
+            warehouse_boxes: dock_starting_boxes,
+            carried_supply_boxes: 0,
             drawable_supply_boxes: dock_starting_boxes,
             drawable_supply_max_boxes: dock_starting_boxes,
             repair_dock_last_id: None,
@@ -1236,6 +1238,8 @@ impl Object {
             railed_paths: Vec::new(),
             railed_dock: Default::default(),
 
+            warehouse_boxes: dock_starting_boxes,
+            carried_supply_boxes: 0,
             drawable_supply_boxes: dock_starting_boxes,
             drawable_supply_max_boxes: dock_starting_boxes,
             repair_dock_last_id: None,

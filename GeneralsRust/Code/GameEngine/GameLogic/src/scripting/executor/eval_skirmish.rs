@@ -210,11 +210,33 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_skirmish_supplies_value_within_distance(
         &self,
         condition: &Condition,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let player_name = self.get_condition_string_param(condition, 0)?;
+        use crate::scripting::engine::ScriptOwnerQuery;
+        let raw_string = |index| {
+            condition
+                .get_parameter(index)
+                .map(|parameter| parameter.get_string())
+                .ok_or_else(|| ScriptError::ParameterNotFound(format!("Parameter {index} not found")))
+        };
+        let raw_player = raw_string(0)?;
         let distance = self.get_condition_real_param(condition, 1)?;
-        let area_name = self.get_condition_string_param(condition, 2)?;
+        let raw_area = raw_string(2)?;
         let compare_value = self.get_condition_real_param(condition, 3)?;
+        let current_player = self
+            .context
+            .with_engine_ref(|engine| engine.get_current_player_name())
+            .flatten();
+        match driver.supplies_value_within_distance(
+            raw_player, distance, raw_area, compare_value, current_player.as_deref(),
+        ) {
+            ScriptOwnerQuery::Present(found) => return Ok(Self::bool_result(found)),
+            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
+            ScriptOwnerQuery::Unavailable => {}
+        }
+
+        let player_name = self.get_condition_string_param(condition, 0)?;
+        let area_name = self.get_condition_string_param(condition, 2)?;
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             if let Some(ok) = self.host_query().host_eval_skirmish_supplies_value_within_distance(

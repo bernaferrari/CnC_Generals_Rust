@@ -255,7 +255,7 @@ impl GameLogic {
                 if !harvestable {
                     return None;
                 }
-                if obj.stored_resources.supplies == 0
+                if obj.warehouse_boxes() == 0
                     && (obj.is_kind_of(KindOf::SupplySource)
                         || obj.is_kind_of(KindOf::Harvestable)
                         || obj.object_type == ObjectType::Supply)

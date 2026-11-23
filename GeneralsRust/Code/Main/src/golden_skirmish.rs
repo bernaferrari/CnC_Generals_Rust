@@ -496,7 +496,7 @@ fn is_retail_supply_source_name(name: &str) -> bool {
 fn is_stocked_supply_warehouse(logic: &GameLogic, o: &crate::game_logic::object::Object) -> bool {
     o.is_alive()
         && o.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
-        && logic.unit_stored_supplies(o.id) > 0
+        && logic.unit_warehouse_has_stock(o.id)
 }
 
 /// Prefer map-spawned SupplyDock/SupplyPile; else seed an admitted retail dock.

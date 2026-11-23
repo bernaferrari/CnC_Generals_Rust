@@ -8,9 +8,7 @@
 //! was reinstalled — so a mid-drop Chinook lost ropes/stagger and the next
 //! combat-drop started from Flying.
 //!
-//! Append a tagged CHNK v2 suffix after the historical lifecycle payload.
-//! The outer Rust capability 32 gates the changed idle continuation schema;
-//! active v1 suffixes are rejected rather than inferred or converted.
+//! CHNK v3 stores flight continuation. Carried boxes are in the actor inventory.
 
 use crate::game_logic::host_combat_chinook::HostChinookAI;
 use crate::game_logic::{GameLogic, ObjectId};
@@ -18,7 +16,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const CHNK_MAGIC: &[u8; 4] = b"CHNK";
-const CHNK_VERSION: u32 = 2;
+const CHNK_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ChinookAiPersistPayload {

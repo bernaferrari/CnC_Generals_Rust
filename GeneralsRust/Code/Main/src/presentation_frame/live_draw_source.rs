@@ -191,7 +191,10 @@ pub(super) fn object_condition_facts(
         shock_grounded_once: obj.shock_grounded_once,
         shock_stun_frames: obj.shock_stun_frames,
         shock_was_airborne: obj.shock_was_airborne,
-        stored_supplies: obj.stored_resources.supplies,
+        stored_supplies: obj.thing().template.supply_truck_metadata.map_or(
+            obj.stored_resources.supplies,
+            |_| obj.carried_supply_boxes().max(0) as u32,
+        ),
         structure_topple_matrix: obj
             .structure_topple_data
             .as_ref()

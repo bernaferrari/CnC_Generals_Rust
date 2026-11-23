@@ -76,6 +76,7 @@ impl GameLogic {
         mut minimum_cash: i32,
     ) -> Option<ObjectId> {
         let base = horizontal(base);
+        let value_per_box = self.supply_box_value();
         let cash_generators = self
             .host_objects()
             .registered_values()
@@ -125,7 +126,7 @@ impl GameLogic {
                     }
                     Some((
                         warehouse.id,
-                        warehouse.stored_resources.supplies as i32,
+                        warehouse.warehouse_boxes().wrapping_mul(value_per_box),
                         pos.distance_squared(base),
                     ))
                 })
@@ -172,4 +173,48 @@ impl GameLogic {
 
 fn horizontal(position: Vec3) -> glam::Vec2 {
     glam::Vec2::new(position.x, position.z)
+}
+
+#[cfg(test)]
+mod signed_inventory_tests {
+use super::*;
+use crate::ai::AIDifficulty;
+
+#[test]
+fn authored_supply_build_values_each_receiving_warehouses_stock() {
+    use game_engine::common::ini::ini_game_data::ProductionEnergyRules;
+    const CONTENT: &str = "Object ValueWarehouse\nKindOf = STRUCTURE SUPPLY_SOURCE\n\
+        Body = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+        Behavior = SupplyWarehouseDockUpdate Dock\nStartingBoxes = 1\nEnd\nEnd\n\
+        Object ValueCenter\nKindOf = STRUCTURE CASH_GENERATOR\n\
+        Body = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n";
+    let world = |value_per_supply_box| {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("ValueEconomy.ini".into(), CONTENT.into())]).unwrap();
+        world.admit_production_energy_base(ProductionEnergyRules {
+            value_per_supply_box,
+            ..Default::default()
+        });
+        world.add_player(Player::new(1, Team::USA, "Builder", true));
+        world.ai_manager.add_ai_player(1, Team::USA, AIDifficulty::Medium);
+        world.ai_manager.ai_players.get_mut(&1).unwrap().base_center = Vec3::ZERO;
+        let negative = world.create_object("ValueWarehouse", Team::Neutral, Vec3::X * 20.0).unwrap();
+        let near = world.create_object("ValueWarehouse", Team::Neutral, Vec3::X * 40.0).unwrap();
+        let far = world.create_object("ValueWarehouse", Team::Neutral, Vec3::X * 80.0).unwrap();
+        world.host_object_mut(negative).unwrap().set_warehouse_boxes(-1);
+        world.host_object_mut(far).unwrap().set_warehouse_boxes(2);
+        (world, near, far)
+    };
+    let (custom, near, far) = world(125);
+    let (stock, peer_near, peer_far) = world(75);
+    assert_eq!((near, far), (peer_near, peer_far));
+    assert_eq!(
+        custom.prepare_ordinary_script_supply_build(1, "ValueCenter", 105).unwrap().warehouse,
+        near
+    );
+    assert_eq!(
+        stock.prepare_ordinary_script_supply_build(1, "ValueCenter", 105).unwrap().warehouse,
+        far
+    );
+}
 }

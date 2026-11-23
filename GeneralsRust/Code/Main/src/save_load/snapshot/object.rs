@@ -25,7 +25,7 @@ pub struct WeaponBarrelStateSnapshot {
 
 /// Mutable economy/collector ownership state appended at schema v5.  It is a
 /// separate object tail so v1-v4 object records preserve their exact layout.
-/// `stored_supply_boxes` is the collector's carried box count, not player cash.
+/// Physical counts belong to the actor record; generic stored supplies retain their own units.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CollectorRuntimeSnapshot {
     pub owner_player_id: Option<u32>,
@@ -36,7 +36,9 @@ pub struct CollectorRuntimeSnapshot {
     pub supply_truck_state: SupplyTruckState,
     pub supply_truck_force_pending: bool,
     pub supply_truck_next_dock_action_frame: u32,
-    pub stored_supply_boxes: u32,
+    pub warehouse_boxes: i32,
+    pub stored_supply_boxes: i32,
+    pub generic_stored_supplies: u32,
 }
 
 pub const fn default_weapon_barrel_shots_left() -> u32 {
@@ -733,7 +735,9 @@ impl Default for CollectorRuntimeSnapshot {
             supply_truck_state: SupplyTruckState::Idle,
             supply_truck_force_pending: false,
             supply_truck_next_dock_action_frame: 0,
+            warehouse_boxes: 0,
             stored_supply_boxes: 0,
+            generic_stored_supplies: 0,
         }
     }
 }
@@ -772,7 +776,11 @@ impl XferData for CollectorRuntimeSnapshot {
         xfer.xfer_marker_label("SupplyTruckNextDockActionFrame")?;
         xfer.xfer_u32(&mut self.supply_truck_next_dock_action_frame)?;
         xfer.xfer_marker_label("StoredSupplyBoxes")?;
-        xfer.xfer_u32(&mut self.stored_supply_boxes)?;
+        xfer.xfer_i32(&mut self.stored_supply_boxes)?;
+        xfer.xfer_marker_label("WarehouseBoxes")?;
+        xfer.xfer_i32(&mut self.warehouse_boxes)?;
+        xfer.xfer_marker_label("GenericStoredSupplies")?;
+        xfer.xfer_u32(&mut self.generic_stored_supplies)?;
         Ok(())
     }
 }

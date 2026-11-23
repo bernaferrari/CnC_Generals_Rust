@@ -705,7 +705,7 @@ impl Default for DeployStyleMetadata {
 /// without one of those modules stay `None`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SupplyTruckMetadata {
-    pub max_boxes: u32,
+    pub max_boxes: i32,
     pub warehouse_scan_distance: f32,
     pub warehouse_delay_frames: u32,
     pub center_delay_frames: u32,

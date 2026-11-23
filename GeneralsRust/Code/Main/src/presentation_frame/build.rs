@@ -823,6 +823,9 @@ impl PresentationFrame {
                 power_provided: obj.power_provided,
                 power_consumed: obj.power_consumed,
                 stored_supplies: obj.stored_resources.supplies,
+                authored_warehouse_boxes: obj.warehouse_boxes(),
+                authored_carried_boxes: obj.thing().template.supply_truck_metadata
+                    .map(|_| obj.carried_supply_boxes()),
                 drawable_supply_boxes: obj.drawable_supply_boxes,
                 drawable_supply_max_boxes: obj.drawable_supply_max_boxes,
                 dock_kind: obj.thing().template.dock_kind,

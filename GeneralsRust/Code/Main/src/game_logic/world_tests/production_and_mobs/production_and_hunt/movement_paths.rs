@@ -137,7 +137,6 @@ fn repair_abort_clears_the_ignored_obstacle() {
 
 #[test]
 fn full_truck_returns_to_the_supply_center_approach() {
-    use crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX;
     use crate::game_logic::{
         DockKind, KindOf, Player, SupplyTruckMetadata, SupplyTruckState, ThingTemplate,
     };
@@ -180,7 +179,7 @@ fn full_truck_returns_to_the_supply_center_approach() {
         .expect("truck");
     {
         let src = logic.host_object_mut(warehouse).expect("warehouse");
-        src.set_stored_supplies(VALUE_PER_SUPPLY_BOX as u32);
+        src.set_warehouse_boxes(1);
         src.dock_active_docker = Some(truck);
         src.selection_radius = 40.0;
     }
@@ -205,7 +204,7 @@ fn full_truck_returns_to_the_supply_center_approach() {
             ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        unit.set_stored_supplies(VALUE_PER_SUPPLY_BOX as u32);
+        unit.set_carried_supply_boxes(1);
         unit.supply_truck_state = SupplyTruckState::DockingWarehouse;
         unit.supply_truck_next_dock_action_frame = 0;
     }
@@ -245,7 +244,7 @@ fn full_truck_returns_to_the_supply_center_approach() {
         .expect("next warehouse");
     {
         let src = logic.host_object_mut(next).expect("next");
-        src.set_stored_supplies(VALUE_PER_SUPPLY_BOX as u32);
+        src.set_warehouse_boxes(1);
         src.selection_radius = 40.0;
         src.set_status_under_construction(false);
         src.construction_percent = 1.0;
@@ -270,11 +269,11 @@ fn full_truck_returns_to_the_supply_center_approach() {
     let cash = logic.players.get(&0).expect("player").resources.supplies;
     assert_eq!(
         cash,
-        start + VALUE_PER_SUPPLY_BOX as u32,
+        start + 100,
         "a truck on the dock approach must pay the box"
     );
     let back = logic.host_object(truck).expect("truck");
-    assert_eq!(back.stored_resources.supplies, 0);
+    assert_eq!(back.carried_supply_boxes(), 0);
     assert_eq!(back.ai_state(), AIState::Gathering);
     assert_ne!(back.ai_state(), AIState::Attacking);
     let back_end = back
@@ -292,7 +291,6 @@ fn full_truck_returns_to_the_supply_center_approach() {
 
 #[test]
 fn empty_truck_regroups_outside_the_supply_center() {
-    use crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX;
     use crate::game_logic::{DockKind, KindOf, Player, SupplyTruckMetadata, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -335,7 +333,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.supply_truck_force_pending = true;
-        unit.set_stored_supplies(VALUE_PER_SUPPLY_BOX as u32);
+        unit.set_carried_supply_boxes(1);
     }
     logic.update_support_states_for_test(&[truck], 1.0 / 30.0);
     let loaded = logic.host_object(truck).expect("truck");
@@ -353,7 +351,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
             ai_entry_frame,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        unit.set_stored_supplies(0);
+        unit.set_carried_supply_boxes(0);
         unit.supply_truck_force_pending = true;
         unit.set_status_moving(false);
         unit.movement.clear_path();
@@ -407,7 +405,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         unit.set_status_moving(false);
-        unit.set_stored_supplies(0);
+        unit.set_carried_supply_boxes(0);
         unit.supply_truck_force_pending = true;
         unit.movement.clear_path();
         unit.movement.target_position = None;

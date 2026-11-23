@@ -15,12 +15,6 @@ impl GameLogic {
         tree_move_frame: u32,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        // Retail GameData.ini `ValuePerSupplyBox = 75` (ZH override of
-        // C++ GlobalData.cpp default 100). Player::getSupplyBoxValue
-        // (Player.cpp:1928-1930) reads TheGlobalData->m_baseValuePerSupplyBox.
-        const SUPPLY_BOX_VALUE: u32 =
-            crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32;
-
         // C++ WorkerAIUpdate.cpp:283-287 — harvest path arms
         // WEAPONSET_MINE_CLEARING_DETAIL so GLA workers can be
         // diverted onto mines while ferrying.
@@ -39,7 +33,7 @@ impl GameLogic {
         };
 
         // Extract source state before any mutations.
-        let (source_alive, source_pos, source_supplies, source_is_warehouse, delete_when_empty) =
+        let (source_alive, source_pos, source_supplies, warehouse_boxes, source_is_warehouse, delete_when_empty) =
             self.objects
                 .get(&source_id)
                 .map(|s| {
@@ -47,12 +41,13 @@ impl GameLogic {
                         s.is_alive(),
                         s.get_position(),
                         s.stored_resources.supplies,
+                        s.warehouse_boxes(),
                         s.thing().template.dock_kind
                             == crate::game_logic::DockKind::SupplyWarehouse,
                         s.thing().template.dock_delete_when_empty,
                     )
                 })
-                .unwrap_or((false, position, 0, false, false));
+                .unwrap_or((false, position, 0, 0, false, false));
 
         if !source_alive {
             // C++ dock session ends → WANTING. Cargo banks first.
@@ -164,43 +159,6 @@ impl GameLogic {
             }
         }
 
-        // In range — gather resources.  The host tracks cash
-        // value rather than C++ individual boxes, but a warehouse
-        // still cannot grant more than its authored stock.  This
-        // avoids turning an empty `SupplyWarehouseDockUpdate`
-        // into an infinite source.
-        let gather_amount = collector_metadata
-            .map(|_| SUPPLY_BOX_VALUE)
-            .unwrap_or_else(|| (100.0 * dt) as u32);
-        let max_carry = collector_metadata
-            .map(|metadata| metadata.max_boxes.saturating_mul(SUPPLY_BOX_VALUE))
-            .unwrap_or(1000);
-        let current_carry = self
-            .objects
-            .get(&object_id)
-            .map(|o| o.stored_resources.supplies)
-            .unwrap_or(0);
-        // C++ SupplyTruckAIUpdate::gainOneBox (SupplyTruckAIUpdate.cpp:134-135)
-        // fails when m_numberBoxes >= m_maxBoxesData. Warehouse action
-        // (SupplyWarehouseDockUpdate.cpp:89-111) then ++m_boxesStored
-        // to take the tentative debit back.
-        let already_at_max_boxes = collector_metadata.is_some_and(|metadata| {
-            let (_remaining, _carry, transferred) =
-                crate::game_logic::host_supply_gather::warehouse_action_transfer_one_box(
-                    source_supplies / SUPPLY_BOX_VALUE,
-                    current_carry / SUPPLY_BOX_VALUE,
-                    metadata.max_boxes,
-                );
-            !transferred && current_carry / SUPPLY_BOX_VALUE >= metadata.max_boxes
-        });
-        // Keep the legacy generic-resource path intact.  The
-        // precise stock gate is required specifically for the
-        // newly-authored SupplyWarehouseDockUpdate target.
-        let taken = if source_is_warehouse {
-            gather_amount.min(source_supplies)
-        } else {
-            gather_amount
-        };
         if source_is_warehouse {
             let crippled = self.objects.get(&source_id).is_some_and(|s| {
                 matches!(
@@ -270,44 +228,49 @@ impl GameLogic {
                 return Ok(());
             }
         }
-        if source_is_warehouse && already_at_max_boxes {
-            self.release_dock_if_holder(source_id, object_id);
-            // C++ aiDock(bestCenter): DockUpdate approach, not the center.
-            self.begin_return_to_supply_center(object_id, team, owner_player_id, position)?;
-            return Ok(());
-        }
-        if source_is_warehouse && taken == 0 {
-            self.release_dock_if_holder(source_id, object_id);
-            // C++ action() FALSE → AIDock SUCCESS → WANTING.
-            // Partial cargo banks; empty seeks another warehouse.
-            self.route_supply_wanting(object_id, team, owner_player_id, position, can_move)?;
-            return Ok(());
-        }
-        let is_full = current_carry + taken >= max_carry;
-
-        if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.set_stored_supplies(
-                obj.stored_resources
-                    .supplies
-                    .saturating_add(taken)
-                    .min(max_carry),
-            );
-            if let Some(metadata) = collector_metadata {
-                obj.supply_truck_next_dock_action_frame =
+        let (is_full, depleted) = if source_is_warehouse {
+            let carried = self.objects.get(&object_id).map_or(0, |o| o.carried_supply_boxes());
+            let Some(metadata) = collector_metadata else {
+                self.release_dock_if_holder(source_id, object_id);
+                return Ok(());
+            };
+            let (remaining, next_carried, accepted) =
+                crate::game_logic::host_supply_gather::warehouse_action_transfer_one_box(
+                    warehouse_boxes, carried, metadata.max_boxes,
+                );
+            if !accepted {
+                self.release_dock_if_holder(source_id, object_id);
+                self.route_supply_wanting(object_id, team, owner_player_id, position, can_move)?;
+                return Ok(());
+            }
+            if let Some(collector) = self.objects.get_mut(&object_id) {
+                collector.set_carried_supply_boxes(next_carried);
+                collector.supply_truck_next_dock_action_frame =
                     self.frame.saturating_add(metadata.warehouse_delay_frames);
             }
-        }
-
-        let remaining_after = source_supplies.saturating_sub(taken);
-        // Deplete the supply source.
-        if let Some(source) = self.objects.get_mut(&source_id) {
-            source.set_stored_supplies(remaining_after);
-            if remaining_after == 0 && (!source_is_warehouse || delete_when_empty) {
-                Self::mark_object_destroyed_authority_aware(source, None, &mut self.health_events);
-                self.mark_object_for_destruction_with_effects(source_id, None, effects)?;
+            if let Some(warehouse) = self.objects.get_mut(&source_id) {
+                warehouse.set_warehouse_boxes(remaining);
             }
-        }
-        if remaining_after == 0 && collector_metadata.is_some() {
+            (next_carried >= metadata.max_boxes, remaining == 0)
+        } else {
+            if collector_metadata.is_some() {
+                self.route_supply_wanting(object_id, team, owner_player_id, position, can_move)?;
+                return Ok(());
+            }
+            let taken = (100.0 * dt) as u32;
+            let mut is_full = false;
+            if let Some(collector) = self.objects.get_mut(&object_id) {
+                let carried = collector.stored_resources.supplies.saturating_add(taken).min(1000);
+                collector.set_stored_supplies(carried);
+                is_full = carried >= 1000;
+            }
+            let remaining = source_supplies.saturating_sub(taken);
+            if let Some(source) = self.objects.get_mut(&source_id) {
+                source.set_stored_supplies(remaining);
+            }
+            (is_full, remaining == 0)
+        };
+        if depleted && collector_metadata.is_some() {
             let scan = self
                 .collector_warehouse_scan(object_id, owner_player_id)
                 .unwrap_or(0.0);
@@ -340,7 +303,14 @@ impl GameLogic {
             }
         }
 
-        if source_is_warehouse && (is_full || remaining_after == 0) {
+        if depleted && (!source_is_warehouse || delete_when_empty) {
+            if let Some(source) = self.objects.get_mut(&source_id) {
+                Self::mark_object_destroyed_authority_aware(source, None, &mut self.health_events);
+            }
+            self.mark_object_for_destruction_with_effects(source_id, None, effects)?;
+        }
+
+        if source_is_warehouse && (is_full || depleted) {
             self.release_dock_if_holder(source_id, object_id);
         }
 
@@ -408,11 +378,14 @@ impl GameLogic {
             // (AIDock SUCCESS) even at 0 boxes, then banks
             // getUpgradedSupplyBoost (Supply Lines / Worker Shoes).
             // Never leave the exclusive dock claimed.
-            let deposit_amount = self
-                .objects
-                .get(&object_id)
-                .map(|o| o.stored_resources.supplies)
-                .unwrap_or(0);
+            let value_per_box = self.supply_box_value() as u32;
+            let deposit_amount = self.objects.get(&object_id).map_or(0, |object| {
+                if collector_metadata.is_some() {
+                    value_per_box.wrapping_mul(object.carried_supply_boxes().max(0) as u32)
+                } else {
+                    object.stored_resources.supplies
+                }
+            });
 
             // Snapshot carrier for C++ getUpgradedSupplyBoost identity.
             let (
@@ -473,7 +446,11 @@ impl GameLogic {
 
             // Clear carried resources.
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.set_stored_supplies(0);
+                if collector_metadata.is_some() {
+                    obj.set_carried_supply_boxes(0);
+                } else {
+                    obj.set_stored_supplies(0);
+                }
             }
             // C++ ChinookAIUpdate::getUpgradedSupplyBoost
             // (ChinookAIUpdate.cpp:1644-1652): the CARRIER's
@@ -489,7 +466,11 @@ impl GameLogic {
                     has_supply_lines,
                 );
                         let boost = supply_lines_boost.saturating_add(carrier_worker_boost);
-            let credited = deposit_amount.saturating_add(boost);
+            let credited = if collector_metadata.is_some() {
+                deposit_amount.wrapping_add(boost)
+            } else {
+                deposit_amount.saturating_add(boost)
+            };
             // Credit the player (carried supplies + optional economy boost).
             // Capture the concrete owner before the mutable
             // credit so the typed event below is tied to this

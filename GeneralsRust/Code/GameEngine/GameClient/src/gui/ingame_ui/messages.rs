@@ -245,12 +245,7 @@ impl InGameUI {
         Self::mouseover_tooltip_text(real_template_name, &display_name)
     }
 
-    fn format_supply_warehouse_tooltip_feedback(
-        label: &str,
-        boxes_stored: i32,
-        base_value_per_supply_box: i32,
-    ) -> String {
-        let value = boxes_stored * base_value_per_supply_box;
+    fn format_supply_warehouse_tooltip_feedback(label: &str, value: i32) -> String {
         let value_text = value.to_string();
         if label.contains("%d") {
             label.replace("%d", &value_text)
@@ -263,26 +258,11 @@ impl InGameUI {
         }
     }
 
-    fn supply_warehouse_tooltip_feedback(
-        boxes_stored: i32,
-        base_value_per_supply_box: i32,
-    ) -> String {
-        let label = GameText::fetch("TOOLTIP:SupplyWarehouse");
-        Self::format_supply_warehouse_tooltip_feedback(
-            &label,
-            boxes_stored,
-            base_value_per_supply_box,
-        )
-    }
-
-    fn append_presentation_warehouse_tooltip(tooltip: &mut String, boxes: Option<i32>) {
-        let Some(boxes) = boxes else {
-            return;
-        };
-        let base_value = global_data::read_safe()
-            .map(|data| data.base_value_per_supply_box)
-            .unwrap_or(100);
-        tooltip.push_str(&Self::supply_warehouse_tooltip_feedback(boxes, base_value));
+    fn append_warehouse_tooltip(tooltip: &mut String, value: Option<i32>) {
+        if let Some(value) = value {
+            let label = GameText::fetch("TOOLTIP:SupplyWarehouse");
+            tooltip.push_str(&Self::format_supply_warehouse_tooltip_feedback(&label, value));
+        }
     }
 
     fn supply_warehouse_boxes_for_object(object: &Object) -> Option<i32> {

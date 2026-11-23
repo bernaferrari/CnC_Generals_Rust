@@ -637,14 +637,13 @@ impl GameLogic {
         can_move: bool,
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_supply_gather::{WantingDockTarget, wanting_dock_target};
-        const SUPPLY_BOX_VALUE: u32 =
-            crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32;
-        let cash = self
-            .objects
-            .get(&object_id)
-            .map(|o| o.stored_resources.supplies)
-            .unwrap_or(0);
-        let number_boxes = (cash / SUPPLY_BOX_VALUE.max(1)) as i32;
+        let number_boxes = self.objects.get(&object_id).map_or(0, |object| {
+            if object.thing().template.supply_truck_metadata.is_some() {
+                object.carried_supply_boxes()
+            } else {
+                i32::from(object.stored_resources.supplies >= crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32)
+            }
+        });
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.supply_truck_state = SupplyTruckState::Wanting;
         }

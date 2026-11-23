@@ -791,7 +791,7 @@ fn collector_returns_to_assigned_supply_center_over_nearer_center() {
     {
         let collector = logic.host_object_mut(collector_id).expect("collector live");
         collector.preferred_dock_id = Some(assigned_center);
-        collector.set_stored_supplies(100);
+        collector.set_carried_supply_boxes(1);
         collector.set_ai_state(
             crate::game_logic::AIState::ReturningResources,
             frame,
@@ -889,7 +889,7 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
     logic
         .host_object_mut(source_id)
         .expect("source live")
-        .set_stored_supplies(20_000);
+        .set_warehouse_boxes(200);
 
     let loose_collector = logic
         .create_object(
@@ -1365,7 +1365,7 @@ fn build_by_supplies_places_named_template_near_warehouse() {
         .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(200.0, 0.0, 0.0))
         .expect("warehouse");
     if let Some(obj) = logic.host_object_mut(warehouse) {
-        obj.stored_resources.supplies = 5_000;
+        obj.set_warehouse_boxes(50);
     }
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
@@ -3757,7 +3757,7 @@ fn find_supply_center_without_acquired_enemy_does_not_use_human_as_enemy() {
     let warehouse = logic
         .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(90.0, 0.0, 0.0))
         .unwrap();
-    logic.host_object_mut(warehouse).unwrap().stored_resources.supplies = 5_000;
+    logic.host_object_mut(warehouse).unwrap().set_warehouse_boxes(50);
 
     let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     assert_eq!(ai.find_supply_center(&logic, 100), Some(warehouse));
@@ -3772,7 +3772,7 @@ fn find_supply_center_uses_origin_for_enemy_without_structures() {
     let warehouse = logic
         .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
         .unwrap();
-    logic.host_object_mut(warehouse).unwrap().stored_resources.supplies = 5_000;
+    logic.host_object_mut(warehouse).unwrap().set_warehouse_boxes(50);
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     ai.base_center = Vec3::new(100.0, 0.0, 0.0);
@@ -3827,13 +3827,13 @@ fn find_supply_center_uses_warehouse_dock_and_cash_gen_and_sixty_forty() {
         .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(80.0, 0.0, 0.0))
         .expect("near");
     if let Some(obj) = logic.host_object_mut(near) {
-        obj.stored_resources.supplies = 5_000;
+        obj.set_warehouse_boxes(50);
     }
     let far = logic
         .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(400.0, 0.0, 0.0))
         .expect("far");
     if let Some(obj) = logic.host_object_mut(far) {
-        obj.stored_resources.supplies = 5_000;
+        obj.set_warehouse_boxes(50);
     }
     assert_eq!(ai.find_supply_center(&logic, 100), Some(near));
 
@@ -3876,12 +3876,18 @@ fn find_supply_center_uses_warehouse_dock_and_cash_gen_and_sixty_forty() {
 #[test]
 fn find_supply_center_halves_cash_floor_then_stops_at_one_hundred() {
     let mut logic = crate::game_logic::GameLogic::new();
+    logic.admit_production_energy_base(
+        game_engine::common::ini::ini_game_data::ProductionEnergyRules {
+            value_per_supply_box: 75,
+            ..Default::default()
+        },
+    );
     insert_warehouse_template(&mut logic, "SupplyWarehouse");
     let id = logic
         .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(50.0, 0.0, 0.0))
         .expect("wh");
     if let Some(obj) = logic.host_object_mut(id) {
-        obj.stored_resources.supplies = 150;
+        obj.set_warehouse_boxes(2);
     }
     let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     assert!(

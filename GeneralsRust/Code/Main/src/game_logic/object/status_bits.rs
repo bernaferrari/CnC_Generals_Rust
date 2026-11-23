@@ -1044,24 +1044,45 @@ impl Object {
 
     pub fn set_stored_supplies(&mut self, supplies: u32) {
         self.stored_resources.supplies = supplies;
-        if self.thing.template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse {
-            let (max_boxes, current_boxes) =
-                crate::game_logic::host_supply_gather::drawable_supply_status_from_cash(
-                    self.thing.template.dock_starting_boxes,
-                    supplies,
-                );
-            self.drawable_supply_max_boxes = max_boxes;
-            self.drawable_supply_boxes = current_boxes;
-        } else if let Some(metadata) = self.thing.template.supply_truck_metadata {
-            // C++ SupplyTruckAIUpdate::gainOneBox / loseOneBox:
-            // drawable->updateDrawableSupplyStatus(maxBoxes, m_numberBoxes).
-            let (max_boxes, current_boxes) =
-                crate::game_logic::host_supply_gather::collector_drawable_supply_status(
-                    metadata.max_boxes,
-                    supplies,
-                );
-            self.drawable_supply_max_boxes = max_boxes;
-            self.drawable_supply_boxes = current_boxes;
+    }
+
+    pub(crate) fn warehouse_boxes(&self) -> i32 {
+        self.warehouse_boxes
+    }
+
+    pub(crate) fn set_warehouse_boxes(&mut self, boxes: i32) {
+        self.warehouse_boxes = boxes;
+        self.drawable_supply_boxes = boxes;
+        self.drawable_supply_max_boxes = self.thing.template.dock_starting_boxes.unwrap_or(0);
+    }
+
+    pub(crate) fn carried_supply_boxes(&self) -> i32 {
+        self.carried_supply_boxes
+    }
+
+    pub(crate) fn set_carried_supply_boxes(&mut self, boxes: i32) {
+        self.carried_supply_boxes = boxes;
+        self.drawable_supply_boxes = boxes;
+        self.drawable_supply_max_boxes = self
+            .thing
+            .template
+            .supply_truck_metadata
+            .map_or(0, |metadata| metadata.max_boxes);
+    }
+
+    pub(crate) fn supply_carrier_has_cargo(&self) -> bool {
+        if self.thing.template.supply_truck_metadata.is_some() {
+            self.carried_supply_boxes != 0
+        } else {
+            self.stored_resources.supplies != 0
+        }
+    }
+
+    pub(crate) fn has_positive_supply_cargo(&self) -> bool {
+        if self.thing.template.supply_truck_metadata.is_some() {
+            self.carried_supply_boxes > 0
+        } else {
+            self.stored_resources.supplies > 0
         }
     }
 

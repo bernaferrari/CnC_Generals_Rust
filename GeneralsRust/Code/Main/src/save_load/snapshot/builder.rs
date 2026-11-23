@@ -131,7 +131,9 @@ impl SnapshotBuilder {
                 supply_truck_state: object.supply_truck_state,
                 supply_truck_force_pending: object.supply_truck_force_pending,
                 supply_truck_next_dock_action_frame: object.supply_truck_next_dock_action_frame,
-                stored_supply_boxes: object.stored_resources.supplies,
+                warehouse_boxes: object.warehouse_boxes(),
+                stored_supply_boxes: object.carried_supply_boxes(),
+                generic_stored_supplies: object.stored_resources.supplies,
             }),
             weapon_suspend_fx_frames,
             temporary_weapon_runtime,
@@ -1900,10 +1902,14 @@ impl SnapshotBuilder {
     }
 
     pub(super) fn is_resource_source_object(object: &Object) -> bool {
-        object.object_type == ObjectType::Supply
-            || object.is_kind_of(KindOf::Resource)
-            || object.is_kind_of(KindOf::Harvestable)
-            || object.template_name.to_ascii_lowercase().contains("supply")
+        // Authored inventory, pose and orders travel with the exact actor ID.
+        let template = &object.thing().template;
+        template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse
+            && template.supply_truck_metadata.is_none()
+            && (object.object_type == ObjectType::Supply
+                || object.is_kind_of(KindOf::Resource)
+                || object.is_kind_of(KindOf::Harvestable)
+                || object.template_name.to_ascii_lowercase().contains("supply"))
     }
 
     pub(super) fn veterancy_bonuses_for_level(level: VeterancyLevel) -> VeterancyBonuses {

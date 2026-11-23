@@ -392,7 +392,7 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
     logic
         .host_object_mut(source_id)
         .expect("source object")
-        .set_stored_supplies(20_000);
+        .set_warehouse_boxes(200);
 
     let cash_before_spawn = logic.get_player(1).expect("AI player").effective_supplies();
     let center_id = logic

@@ -415,6 +415,8 @@ impl GameLogic {
         }
         self.refresh_receiving_client_templates();
         self.physics_definitions.effective = self.physics_definitions.base;
+        self.production_energy.effective.value_per_supply_box =
+            self.production_energy.base.value_per_supply_box;
         self.locomotor_definitions
             .set_admitted(self.locomotor_definition_base.clone());
         if let Err(error) = self.restore_projectile_definition_base() {

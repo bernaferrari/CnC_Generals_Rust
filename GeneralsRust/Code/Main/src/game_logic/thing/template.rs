@@ -785,7 +785,7 @@ pub struct ThingTemplate {
     /// `SupplyWarehouseDockUpdate::StartingBoxes`, when authored.  `Some(0)`
     /// is meaningful and must remain distinct from no warehouse module.
     #[serde(default)]
-    pub dock_starting_boxes: Option<u32>,
+    pub dock_starting_boxes: Option<i32>,
     /// RepairDockUpdate module duration in real logic frames; absent means no module.
     /// The dock snapshot capsule preserves this immutable receiving definition.
     #[serde(skip)]

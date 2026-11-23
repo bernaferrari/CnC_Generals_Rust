@@ -691,7 +691,7 @@ impl ScriptConditionEvaluator<'_> {
             ConditionType::SkirmishValueInArea => self.eval_skirmish_value_in_area(condition),
             ConditionType::SkirmishPlayerFaction => self.eval_skirmish_player_faction(condition),
             ConditionType::SkirmishSuppliesValueWithinDistance => {
-                self.eval_skirmish_supplies_value_within_distance(condition)
+                self.eval_skirmish_supplies_value_within_distance(condition, driver)
             }
             ConditionType::SkirmishTechBuildingWithinDistance => {
                 self.eval_skirmish_tech_building_within_distance(condition, driver)

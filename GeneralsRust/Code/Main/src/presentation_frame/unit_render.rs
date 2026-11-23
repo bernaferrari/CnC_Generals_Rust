@@ -87,8 +87,8 @@ fn authored_projectile_clip_subobject_visibility(
 fn authored_supply_crate_subobject_visibility(
     draw_model: &crate::assets::AuthoredDrawModel,
     dock_kind: crate::game_logic::DockKind,
-    current_boxes: u32,
-    max_boxes: u32,
+    current_boxes: i32,
+    max_boxes: i32,
 ) -> Vec<crate::assets::AuthoredDrawSubobjectVisibility> {
     if dock_kind != crate::game_logic::DockKind::SupplyWarehouse || max_boxes == 0 {
         return Vec::new();
@@ -339,9 +339,9 @@ pub struct UnitRenderInput {
     /// Frozen stored supply boxes/cash used to stamp MODELCONDITION_CARRYING.
     pub stored_supplies: u32,
     /// Frozen warehouse crate-box count for W3DSupplyDraw hide.
-    pub drawable_supply_boxes: u32,
+    pub drawable_supply_boxes: i32,
     /// Frozen warehouse startingBoxes for W3DSupplyDraw hide.
-    pub drawable_supply_max_boxes: u32,
+    pub drawable_supply_max_boxes: i32,
     /// Frozen dock kind so crate hide only runs on warehouses.
     pub dock_kind: crate::game_logic::DockKind,
     /// Frozen direct-object C++ shroud facts.  Renderer code receives this
@@ -546,7 +546,8 @@ impl UnitRenderInput {
             presentation_opacity: 1.0,
             second_material_pass_opacity: 0.0,
             status_tint: ro.status_tint,
-            stored_supplies: ro.stored_supplies,
+            stored_supplies: ro.authored_carried_boxes
+                .map_or(ro.stored_supplies, |boxes| boxes.max(0) as u32),
             drawable_supply_boxes: if ro.dock_kind == crate::game_logic::DockKind::SupplyWarehouse {
                 ro.drawable_supply_boxes
             } else {
@@ -1457,7 +1458,7 @@ mod tests {
         logic
             .host_object_mut(id)
             .expect("wh")
-            .set_stored_supplies(5 * 75);
+            .set_warehouse_boxes(5);
         let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
         let input = frame
             .unit_render_inputs()

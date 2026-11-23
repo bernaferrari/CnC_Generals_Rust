@@ -1293,17 +1293,31 @@ fn load_replay_camera_from_pref(pref: &UserPreferences) -> (bool, bool) {
 }
 
 /// Effective GameData construction and production rules, owned by one session.
-/// C++ GlobalData's constructor zeros these fields; retail GameData authors
-/// the production rates and MaxLineBuildObjects=50. This runtime projection
-/// is not serialized: saved-map admission reconstructs its effective values.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+/// Saved-map admission reconstructs this projection from startup and the
+/// pristine map's INI companions.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ProductionEnergyRules {
     pub penalty: f32,
     pub min_speed: f32,
     pub max_speed: f32,
     /// Signed CPP parseInt value; even zero/negative still permits the first tile.
     pub max_line_build_objects: i32,
+    /// C++ GlobalData::m_baseValuePerSupplyBox.
+    pub value_per_supply_box: i32,
 }
+
+impl Default for ProductionEnergyRules {
+    fn default() -> Self {
+        Self {
+            penalty: 0.0,
+            min_speed: 0.0,
+            max_speed: 0.0,
+            max_line_build_objects: 0,
+            value_per_supply_box: 100,
+        }
+    }
+}
+
 impl ProductionEnergyRules {
     /// Parse actual GameData fields through the existing field table into
     /// private scratch. No global publication or OptionPreferences side effect.
@@ -1314,6 +1328,7 @@ impl ProductionEnergyRules {
         draft.min_low_energy_production_speed = self.min_speed;
         draft.max_low_energy_production_speed = self.max_speed;
         draft.max_line_build_objects = self.max_line_build_objects;
+        draft.base_value_per_supply_box = self.value_per_supply_box;
         let mut ini = INI::new();
         ini.with_inline_source(contents, |ini| {
             loop {
@@ -1336,6 +1351,7 @@ impl ProductionEnergyRules {
             min_speed: draft.min_low_energy_production_speed,
             max_speed: draft.max_low_energy_production_speed,
             max_line_build_objects: draft.max_line_build_objects,
+            value_per_supply_box: draft.base_value_per_supply_box,
         })
     }
 }

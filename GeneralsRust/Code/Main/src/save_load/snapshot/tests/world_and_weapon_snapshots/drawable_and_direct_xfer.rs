@@ -459,7 +459,9 @@ fn direct_xfer_current_round_trips_exact_player_template_binding_tail() {
         supply_truck_state: SupplyTruckState::DockingCenter,
         supply_truck_force_pending: true,
         supply_truck_next_dock_action_frame: 1_234,
-        stored_supply_boxes: 6,
+        warehouse_boxes: -2,
+            stored_supply_boxes: 6,
+            generic_stored_supplies: 37,
     });
     world.objects.insert(collector.id, collector);
 
@@ -502,7 +504,9 @@ fn direct_xfer_current_round_trips_exact_player_template_binding_tail() {
             supply_truck_state: SupplyTruckState::DockingCenter,
             supply_truck_force_pending: true,
             supply_truck_next_dock_action_frame: 1_234,
+            warehouse_boxes: -2,
             stored_supply_boxes: 6,
+            generic_stored_supplies: 37,
         }
     );
     assert_eq!(sentinel, 0xB7C8_D9EA);

@@ -2360,6 +2360,59 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         }
     }
 
+    fn supplies_value_within_distance(
+        &mut self,
+        player: &str,
+        distance: f32,
+        area: &str,
+        threshold: f32,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some(owner) = self.script_player_id(player, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(area) = self.world.qualified_script_area(area, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let (bounds, radius) = {
+            let triggers = self.world.host_trigger_world.lock().expect("owned script trigger query");
+            let Some(trigger) = triggers.trigger_area_by_name(&area) else {
+                return ScriptOwnerQuery::Missing;
+            };
+            (trigger.get_bounds(), trigger.get_radius() + distance)
+        };
+        let center = glam::Vec2::new(
+            (bounds.lo.x + bounds.hi.x) as f32 / 2.0,
+            (bounds.lo.y + bounds.hi.y) as f32 / 2.0,
+        );
+        let radius_squared = radius * radius;
+        let price = self.world.supply_box_value() as u32;
+        let max_value = self.world.host_objects().registered_values()
+            .filter(|object| {
+                if object.status.off_map
+                    || !object.is_kind_of(KindOf::Structure)
+                    || object.thing().template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse
+                {
+                    return false;
+                }
+                let position = object.get_position();
+                glam::Vec2::new(position.x, position.z).distance_squared(center) < radius_squared
+                    && (self.world.player_owner_for_host_object(object) == Some(owner)
+                        || GameLogic::object_relationship_from_owner_to_team_identity(
+                            &self.world.team_factory,
+                            &self.world.players,
+                            Some(owner),
+                            object.owner_player_id,
+                            object.team_instance_id,
+                            &object.team_instance_name,
+                        ) == gamelogic::common::Relationship::Neutral)
+            })
+            .map(|object| price.wrapping_mul(object.warehouse_boxes() as u32))
+            .max()
+            .unwrap_or(0);
+        ScriptOwnerQuery::Present((max_value as f32) > threshold)
+    }
+
     fn tech_building_within_distance(
         &mut self,
         player: &str,

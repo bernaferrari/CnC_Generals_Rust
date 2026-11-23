@@ -1,6 +1,6 @@
 use super::*;
 
-fn construction_world(cash: u32, boxes: u32) -> (GameLogic, ObjectId) {
+fn construction_world(cash: u32, boxes: i32) -> (GameLogic, ObjectId) {
     let mut logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = cash;
@@ -56,7 +56,7 @@ fn ordinary_scaffold_factory_observes_cpp_birth_before_payment_and_placement() {
                 assert_eq!(object.producer_id, None);
                 assert_eq!(object.builder_id, None);
                 assert_eq!(object.get_position(), Vec3::ZERO);
-                assert_eq!(object.stored_resources.supplies, 7 * 75);
+                assert_eq!(object.warehouse_boxes(), 7);
                 assert!(
                     !crate::game_logic::host_preorder_create::has_preorder_model_bit(
                         object.model_condition_bits
@@ -115,8 +115,8 @@ fn same_id_construction_worlds_keep_factory_resources_and_builders_isolated() {
     assert_eq!(a, b);
     second.destroy_object(b).unwrap();
     assert_eq!(
-        first.host_object(a).unwrap().stored_resources.supplies,
-        3 * 75
+        first.host_object(a).unwrap().warehouse_boxes(),
+        3
     );
     assert_eq!(
         first.host_object(a).unwrap().get_position(),

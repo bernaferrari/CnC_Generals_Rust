@@ -832,7 +832,13 @@ impl SnapshotBuilder {
                 runtime.supply_truck_next_dock_action_frame;
             // C++ SupplyWarehouseDockUpdate::loadPostProcess
             // updateDrawableSupplyStatus(startingBoxes, boxesStored).
-            object.set_stored_supplies(runtime.stored_supply_boxes);
+            object.set_stored_supplies(runtime.generic_stored_supplies);
+            if object.thing().template.supply_truck_metadata.is_some() {
+                object.set_carried_supply_boxes(runtime.stored_supply_boxes);
+            }
+            if object.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse {
+                object.set_warehouse_boxes(runtime.warehouse_boxes);
+            }
         }
 
         // C++ TempWeaponBonusHelper::xfer (`TempWeaponBonusHelper.cpp:112-113`)

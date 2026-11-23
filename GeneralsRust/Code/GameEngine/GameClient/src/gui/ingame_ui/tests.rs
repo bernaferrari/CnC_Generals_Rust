@@ -188,7 +188,7 @@ mod tests {
     fn supply_warehouse_tooltip_feedback_formats_placeholder_value() {
         crate::test_support::ensure_ambient_host();
         assert_eq!(
-            InGameUI::format_supply_warehouse_tooltip_feedback(" ($%d)", 12, 100),
+            InGameUI::format_supply_warehouse_tooltip_feedback(" ($%d)", 1200),
             " ($1200)"
         );
     }
@@ -197,20 +197,20 @@ mod tests {
     fn supply_warehouse_tooltip_feedback_appends_without_placeholder() {
         crate::test_support::ensure_ambient_host();
         assert_eq!(
-            InGameUI::format_supply_warehouse_tooltip_feedback(" supplies: ", 3, 200),
+            InGameUI::format_supply_warehouse_tooltip_feedback(" supplies: ", 600),
             " supplies: 600"
         );
     }
 
     #[test]
-    fn supply_warehouse_tooltip_feedback_uses_cpp_raw_value_product() {
+    fn supply_warehouse_tooltip_feedback_formats_signed_values() {
         crate::test_support::ensure_ambient_host();
         assert_eq!(
-            InGameUI::format_supply_warehouse_tooltip_feedback(" ($%d)", -2, 100),
+            InGameUI::format_supply_warehouse_tooltip_feedback(" ($%d)", -200),
             " ($-200)"
         );
         assert_eq!(
-            InGameUI::format_supply_warehouse_tooltip_feedback(" ($%d)", 2, -100),
+            InGameUI::format_supply_warehouse_tooltip_feedback(" ($%i)", -200),
             " ($-200)"
         );
     }
@@ -252,7 +252,7 @@ mod tests {
             command_set_name: String::new(),
             hotkey_group: -1,
             caption: String::new(),
-            supply_boxes: None,
+            warehouse_cash_value: None,
         }
     }
 
@@ -291,10 +291,10 @@ mod tests {
         Language::clear_localized_strings();
         Language::register_localized_string("TOOLTIP:SupplyWarehouse", " ($%d)");
         let mut tip = "Supply Dock".to_string();
-        InGameUI::append_presentation_warehouse_tooltip(&mut tip, Some(12));
+        InGameUI::append_warehouse_tooltip(&mut tip, Some(1200));
         assert_eq!(tip, "Supply Dock ($1200)");
         let mut empty = "Supply Dock".to_string();
-        InGameUI::append_presentation_warehouse_tooltip(&mut empty, None);
+        InGameUI::append_warehouse_tooltip(&mut empty, None);
         assert_eq!(empty, "Supply Dock");
         Language::clear_localized_strings();
     }

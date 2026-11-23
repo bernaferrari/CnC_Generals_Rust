@@ -1556,7 +1556,7 @@ impl Object {
             use crate::game_logic::host_enum_table_residual::carrying_model_bit;
             let carry_b = carrying_model_bit();
             bits &= !(1u128 << carry_b);
-            if self.stored_resources.supplies > 0 {
+            if self.has_positive_supply_cargo() {
                 bits |= 1u128 << carry_b;
             }
         }

@@ -54,7 +54,7 @@ fn catalog_unit(id: u32, template: &str) -> PresentationUnitCatalogEntry {
         command_set_name: String::new(),
         hotkey_group: -1,
         caption: String::new(),
-        supply_boxes: None,
+        warehouse_cash_value: None,
     }
 }
 
@@ -75,6 +75,7 @@ fn facts_for(id: u32, template: &str, display: &str) -> ReceivingMouseoverFacts 
 
 #[test]
 fn create_mouseover_hint_sets_cursor_tooltip_only_on_receiving_client() {
+    let _services = game_engine::common::common_services::CommonServicesScope::new();
     let mut owner = client();
     let mut peer = client();
     let mut ui = InGameUISubsystem::default();
@@ -134,4 +135,26 @@ fn create_mouseover_hint_sets_cursor_tooltip_only_on_receiving_client() {
             .tooltip_text,
         "peer retained"
     );
+}
+
+#[test]
+fn warehouse_mouseover_uses_receiving_signed_cash_value() {
+    use game_engine::common::language::Language;
+
+    let _services = game_engine::common::common_services::CommonServicesScope::new();
+    Language::register_localized_string("TOOLTIP:SupplyWarehouse", " ($%d)");
+    let facts = facts_for(7, "SupplyWarehouse", "Supply Warehouse");
+    for value in [-250, 150, 0] {
+        let mut entry = catalog_unit(7, "SupplyWarehouse");
+        entry.warehouse_cash_value = Some(value);
+        let mut ui = InGameUISubsystem::default();
+        ui.set_presentation_unit_catalog(vec![entry]);
+        let mut receiving = client();
+        receiving.set_in_game_ui_subsystem(ui);
+        receiving.create_mouseover_hint(Some(7), false, 1, &facts);
+        assert_eq!(
+            receiving.input_mouse().unwrap().cursor_tooltip_state().tooltip_text,
+            format!("Supply Warehouse (${value})")
+        );
+    }
 }

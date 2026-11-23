@@ -34,6 +34,11 @@ impl super::GameLogic {
         self.production_energy.effective.max_line_build_objects
     }
 
+    /// Cash per physical box for the receiving map (Player::getSupplyBoxValue).
+    pub(crate) fn supply_box_value(&self) -> i32 {
+        self.production_energy.effective.value_per_supply_box
+    }
+
     pub(crate) fn admit_production_energy_base(&mut self, rules: ProductionEnergyRules) {
         self.production_energy = ProductionEnergyDefinitions {
             base: rules,

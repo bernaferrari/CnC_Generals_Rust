@@ -101,6 +101,10 @@ impl<'a> AiWorldView<'a> {
     ) -> &crate::game_logic::game_logic::command_overrides::ControlBarOverrides {
         self.world.control_bar_overrides()
     }
+    pub(super) fn supply_box_value(&self) -> i32 {
+        self.world.supply_box_value()
+    }
+
     pub(super) fn host_objects(&self) -> HostObjectRead<'a> {
         self.world.host_objects()
     }

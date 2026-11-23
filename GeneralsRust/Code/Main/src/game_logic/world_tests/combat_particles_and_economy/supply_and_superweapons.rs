@@ -366,7 +366,7 @@ fn supply_truck_gather_credits_retail_value_per_box() {
         .expect("warehouse");
     {
         let warehouse = logic.host_object_mut(source).expect("warehouse mut");
-        warehouse.set_stored_supplies(10 * 75);
+        warehouse.set_warehouse_boxes(10);
     }
 
     let collector_id = logic
@@ -389,20 +389,18 @@ fn supply_truck_gather_credits_retail_value_per_box() {
         );
         collector.supply_truck_state = SupplyTruckState::DockingWarehouse;
         collector.supply_truck_next_dock_action_frame = 0;
-        collector.set_stored_supplies(0);
+        collector.set_carried_supply_boxes(0);
     }
 
     logic.update_support_states(&[collector_id, source], 1.0 / 30.0);
 
     let cargo = logic
         .host_object(collector_id)
-        .expect("collector after")
-        .stored_resources
-        .supplies;
+        .expect("collector after").carried_supply_boxes();
     assert_eq!(
         cargo,
-        crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32,
-        "one warehouse box must credit retail ValuePerSupplyBox 75"
+        1,
+        "one warehouse action transfers one physical box"
     );
     let warehouse = logic.host_object(source).expect("warehouse after");
     assert_eq!(warehouse.drawable_supply_max_boxes, 10);
@@ -455,13 +453,13 @@ fn adjacent_supply_dock_takes_a_box() {
         .create_object("AmericaSupplyTruck", Team::USA, at)
         .expect("truck");
     if let Some(warehouse) = logic.host_object_mut(source) {
-        warehouse.set_stored_supplies(750);
+        warehouse.set_warehouse_boxes(10);
     }
     assert!(logic.unit_command_dock_at_supply_warehouse(id, source));
     logic.update_support_states(&[id, source], 1.0 / 30.0);
     logic.update_support_states(&[id, source], 1.0 / 30.0);
     let truck = logic.host_object(id).expect("truck");
-    let carried = truck.stored_resources.supplies;
+    let carried = truck.carried_supply_boxes();
     assert!(
         carried > 0,
         "a truck on the warehouse must take a box, carried={carried} ai={:?} state={:?}",
@@ -506,7 +504,7 @@ fn full_truck_returns_to_its_supply_center() {
         .create_object("FiniteWarehouse", Team::Neutral, pad)
         .expect("warehouse");
     if let Some(warehouse) = logic.host_object_mut(source) {
-        warehouse.set_stored_supplies(750);
+        warehouse.set_warehouse_boxes(10);
     }
     let center_id = logic
         .create_object_for_player("AmericaSupplyCenter", 0, Vec3::new(80.0, 0.0, 20.0))
@@ -519,7 +517,7 @@ fn full_truck_returns_to_its_supply_center() {
         .create_object_for_player("AmericaSupplyTruck", 0, pad)
         .expect("truck");
     if let Some(truck) = logic.host_object_mut(id) {
-        truck.set_stored_supplies(75);
+        truck.set_carried_supply_boxes(1);
     }
     assert!(logic.unit_command_dock_at_supply_warehouse(id, source));
     logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);
@@ -557,10 +555,10 @@ fn full_truck_returns_to_its_supply_center() {
     logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);
     logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);
     let truck = logic.host_object(id).expect("after deposit");
-    assert_eq!(truck.stored_resources.supplies, 0);
+    assert_eq!(truck.carried_supply_boxes(), 0);
     assert_eq!(
         logic.get_player(0).expect("player").resources.supplies,
-        starting + 75,
+        starting + 100,
         "the supply center must credit the carried box"
     );
 }
@@ -583,7 +581,7 @@ fn warehouse_set_value_updates_live_host_stock() {
     logic
         .host_object_mut(id)
         .expect("wh")
-        .set_stored_supplies(400 * 75);
+        .set_warehouse_boxes(400);
     {
         let obj = logic.host_object_mut(id).expect("name");
         obj.name = "MapWarehouse".into();
@@ -594,8 +592,8 @@ fn warehouse_set_value_updates_live_host_stock() {
         .queue_warehouse_set_value("MapWarehouse", 1000);
     logic.update_supply_warehouse_crippling().unwrap();
     let obj = logic.host_object(id).expect("after set");
-    assert_eq!(obj.stored_resources.supplies, 14 * 75);
-    assert_eq!(obj.drawable_supply_boxes, 14);
+    assert_eq!(obj.warehouse_boxes(), 10);
+    assert_eq!(obj.drawable_supply_boxes, 10);
 }
 
 #[test]
@@ -631,18 +629,16 @@ fn warehouses_keep_script_values_and_heal_clocks_per_world() {
         first
             .host_object(first_id)
             .unwrap()
-            .stored_resources
-            .supplies,
-        27 * 75,
+            .warehouse_boxes(),
+        20,
         "the last value in this world's FIFO queue wins"
     );
     assert_eq!(
         second
             .host_object(second_id)
             .unwrap()
-            .stored_resources
-            .supplies,
-        40 * 75
+            .warehouse_boxes(),
+        30
     );
 
     first.warehouse_crippling_states.insert(
@@ -759,13 +755,12 @@ fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
     warehouse.dock_delete_when_empty = true;
     logic.templates.insert(warehouse.name.clone(), warehouse);
 
-    let box_value = crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32;
     let source = logic
         .create_object("LastBoxWarehouse", Team::Neutral, Vec3::new(2.0, 0.0, 0.0))
         .expect("warehouse");
     {
         let warehouse = logic.host_object_mut(source).expect("warehouse mut");
-        warehouse.set_stored_supplies(box_value);
+        warehouse.set_warehouse_boxes(1);
     }
 
     let collector_id = logic
@@ -788,19 +783,17 @@ fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
         );
         collector.supply_truck_state = SupplyTruckState::DockingWarehouse;
         collector.supply_truck_next_dock_action_frame = 0;
-        collector.set_stored_supplies(4 * box_value);
+        collector.set_carried_supply_boxes(4);
     }
 
     logic.update_support_states(&[collector_id, source], 1.0 / 30.0);
 
     let cargo = logic
         .host_object(collector_id)
-        .expect("collector after")
-        .stored_resources
-        .supplies;
+        .expect("collector after").carried_supply_boxes();
     assert_eq!(
         cargo,
-        4 * box_value,
+        4,
         "already-full collector must not gain another box"
     );
     let warehouse = logic
@@ -811,7 +804,7 @@ fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
         "C++ take-back must not deleteWhenEmpty the last box"
     );
     assert_eq!(
-        warehouse.stored_resources.supplies, box_value,
+        warehouse.warehouse_boxes(), 1,
         "warehouse must keep the box when gainOneBox fails"
     );
     assert_eq!(
@@ -881,7 +874,7 @@ fn supply_dropoff_grants_authored_dock_stealth_and_preserves_permanent_grants() 
             logic.receive_stealth_grant(truck, true, frames);
         }
         let collector = logic.host_object_mut(truck).unwrap();
-        collector.set_stored_supplies(75);
+        collector.set_carried_supply_boxes(1);
         collector.set_ai_state(
             AIState::ReturningResources,
             0,
@@ -893,16 +886,223 @@ fn supply_dropoff_grants_authored_dock_stealth_and_preserves_permanent_grants() 
 
         logic.update_support_states(&[truck, center], 1.0 / 30.0).unwrap();
         let collector = logic.host_object(truck).unwrap();
-        assert_eq!(collector.stored_resources.supplies, 0, "{template}");
+        assert_eq!(collector.carried_supply_boxes(), 0, "{template}");
         assert_eq!(collector.stealth_frames_granted, expected, "{template}");
         assert_eq!(collector.status.stealthed, expected != 0 || initial_grant == Some(0), "{template}");
         ids.push(truck);
     }
 
-    assert_eq!(logic.get_player(1).unwrap().resources.supplies, start_cash + 5 * 75);
+    assert_eq!(logic.get_player(1).unwrap().resources.supplies, start_cash + 5 * 100);
     assert_eq!(
         logic.take_supply_dropoff_events().iter().map(|event| event.carrier_id).collect::<Vec<_>>(),
         ids,
+    );
+}
+
+#[test]
+fn authored_signed_supply_uses_receiving_price_and_real_dock() {
+    use crate::game_logic::SupplyTruckState;
+    use game_engine::common::ini::ini_game_data::ProductionEnergyRules;
+    use game_engine::common::system::DataChunkOutput;
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
+    const DOCK_OWNER: u32 = 12;
+
+    fn run_set_value(world: &mut GameLogic, cash: i32) {
+        let mut action = ScriptAction::new(ScriptActionType::WarehouseSetValue);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "PriceDepot".into(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Int, cash))
+            .unwrap();
+        let mut condition = OrCondition::new();
+        condition
+            .set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+        let mut script = Script::new();
+        script.script_name = "PriceDepotFixture".into();
+        script.condition = Some(Box::new(condition));
+        script.action = Some(Box::new(action));
+        script.is_one_shot = true;
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(script));
+        world
+            .with_owned_script_engine(|engine, world| {
+                engine
+                    .set_script_list_for_player(0, Some(Box::new(list)))
+                    .unwrap();
+                world.update_local_script_engine_with_owner(engine).unwrap();
+            })
+            .unwrap();
+    }
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "authored_signed_supply_uses_receiving_price_and_real_dock",
+        || {
+            let custom_dir = tempfile::tempdir().unwrap();
+            let stock_dir = tempfile::tempdir().unwrap();
+            let custom_map = custom_dir.path().join("SupplyValueCustom.map");
+            let stock_map = stock_dir.path().join("SupplyValueStock.map");
+            let custom_map = custom_map.to_str().unwrap();
+            let stock_map = stock_map.to_str().unwrap();
+            let mut map = DataChunkOutput::new();
+            map.open_data_chunk("HeightMapData", 3);
+            for value in [21, 21, 1, 441] {
+                map.write_int(value);
+            }
+            for _ in 0..441 {
+                map.write_byte(8);
+            }
+            map.close_data_chunk();
+            map.open_data_chunk("ObjectsList", 3);
+            map.close_data_chunk();
+            let bytes = map.into_ckmp_bytes();
+            std::fs::write(custom_map, &bytes).unwrap();
+            std::fs::write(stock_map, &bytes).unwrap();
+            std::fs::write(
+                custom_dir.path().join("Map.ini"),
+                "GameData\n ValuePerSupplyBox = 40\nEnd\n",
+            )
+            .unwrap();
+            std::fs::write(
+                custom_dir.path().join("Solo.ini"),
+                "GameData\n ValuePerSupplyBox = 125\nEnd\n",
+            )
+            .unwrap();
+
+            let warehouse_ini = FINITE_WAREHOUSE.replace(
+                "StartingBoxes = 100",
+                "StartingBoxes = 100\n DeleteWhenEmpty = Yes",
+            );
+            let templates = supply_deposit_fixture_ini("PriceTruck", "PriceCenter", 100, None)
+                + warehouse_ini.as_str();
+            let spawn = |world: &mut GameLogic, path: &str| {
+                world
+                    .admit_object_ini_sources([(
+                        "SupplyValueObjects.ini".into(),
+                        templates.clone(),
+                    )])
+                    .unwrap();
+                world.start_new_game(GameMode::SinglePlayer).unwrap();
+                assert!(world.load_map(path));
+                let mut player = Player::new(DOCK_OWNER, Team::USA, "Dock owner", true);
+                player.resources.supplies = 0;
+                world.add_player(player);
+                let warehouse = world
+                    .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(54.5, 0.0, 40.0))
+                    .unwrap();
+                let center = world
+                    .create_object_for_player("PriceCenter", DOCK_OWNER, Vec3::new(40.0, 0.0, 40.0))
+                    .unwrap();
+                let truck = world
+                    .create_object_for_player("PriceTruck", DOCK_OWNER, Vec3::new(52.5, 0.0, 40.0))
+                    .unwrap();
+                assert!(world.set_host_object_name(warehouse, "PriceDepot"));
+                world.initialize_receiving_named_cache_for_fixture();
+                assert_eq!(
+                    world.host_object(warehouse).unwrap().drawable_supply_boxes,
+                    100
+                );
+                (warehouse, center, truck)
+            };
+
+            let baseline = ProductionEnergyRules::default()
+                .overlay_ini_text("GameData\n ValuePerSupplyBox = 75\nEnd\n")
+                .unwrap();
+            let mut custom = GameLogic::new();
+            custom.admit_production_energy_base(baseline);
+            let mut stock = GameLogic::new();
+            stock.admit_production_energy_base(baseline);
+            let custom_ids = spawn(&mut custom, custom_map);
+            let stock_ids = spawn(&mut stock, stock_map);
+            assert_eq!(
+                custom_ids, stock_ids,
+                "worlds use the same object identities"
+            );
+
+            for (world, (warehouse, center, truck), boxes, cash) in [
+                (&mut custom, custom_ids, 2, 125),
+                (&mut stock, stock_ids, 3, 75),
+            ] {
+                run_set_value(world, 151);
+                assert_eq!(world.host_object(warehouse).unwrap().warehouse_boxes(), boxes);
+                let remaining = if cash == 125 {
+                    run_set_value(world, -126);
+                    assert_eq!(world.host_object(warehouse).unwrap().warehouse_boxes(), -1);
+                    -2
+                } else {
+                    boxes - 1
+                };
+                assert_eq!(
+                    world.host_object(warehouse).unwrap().warehouse_boxes(),
+                    if cash == 125 { -1 } else { boxes }
+                );
+                assert_eq!(world.get_player(DOCK_OWNER).unwrap().resources.supplies, 0);
+                world.frame += 1;
+                let frame = world.frame;
+                {
+                    let (collector, attack_events) =
+                        world.host_object_and_attack_events_mut(truck).unwrap();
+                    let mut audio = Vec::new();
+                    let mut audio = crate::game_logic::ObjectAudio::record(&mut audio);
+                    collector.set_target(Some(warehouse), frame, attack_events, &mut audio);
+                    collector.set_ai_state(AIState::Gathering, frame, &mut audio);
+                    collector.supply_truck_state = SupplyTruckState::DockingWarehouse;
+                    collector.supply_truck_next_dock_action_frame = frame;
+                }
+                world
+                    .update_support_states(&[truck, warehouse], 1.0 / 30.0)
+                    .unwrap();
+                assert_eq!(
+                    world.host_object(warehouse).unwrap().warehouse_boxes(),
+                    remaining
+                );
+                assert_eq!(world.host_object(truck).unwrap().drawable_supply_boxes, 1);
+                {
+                    let collector = world.host_object_mut(truck).unwrap();
+                    collector.set_ai_state(
+                        AIState::ReturningResources,
+                        frame,
+                        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+                    );
+                    collector.supply_truck_state = SupplyTruckState::DockingCenter;
+                    collector.supply_truck_next_dock_action_frame = frame;
+                    collector.preferred_dock_id = Some(center);
+                }
+                world
+                    .update_support_states(&[truck, center], 1.0 / 30.0)
+                    .unwrap();
+                assert_eq!(world.host_object(truck).unwrap().drawable_supply_boxes, 0);
+                let owner = world.get_player(DOCK_OWNER).unwrap();
+                assert_eq!(owner.resources.supplies, cash);
+                assert_eq!(owner.statistics.money_earned(), cash);
+                let events = world.take_supply_dropoff_events();
+                assert_eq!(events.len(), 1);
+                assert_eq!(events[0].carried_amount, cash);
+            }
+
+            std::fs::remove_file(custom_dir.path().join("Solo.ini")).unwrap();
+            for (path, boxes) in [(custom_map, 4), (stock_map, 3)] {
+                assert!(custom.load_map(path));
+                let warehouse = custom
+                    .create_object("FiniteWarehouse", Team::Neutral, Vec3::ZERO)
+                    .unwrap();
+                assert!(custom.set_host_object_name(warehouse, "PriceDepot"));
+                custom.initialize_receiving_named_cache_for_fixture();
+                assert!(custom.apply_warehouse_set_value("PriceDepot", 151));
+                assert_eq!(
+                    custom.host_object(warehouse).unwrap().drawable_supply_boxes,
+                    boxes
+                );
+            }
+            assert_eq!(stock.get_player(DOCK_OWNER).unwrap().resources.supplies, 75);
+        },
     );
 }
 
@@ -945,7 +1145,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         let collector = logic
             .host_object_mut(allied_collector_id)
             .expect("collector mut");
-        collector.set_stored_supplies(75);
+        collector.set_carried_supply_boxes(1);
         collector.set_ai_state(
             AIState::ReturningResources,
             0,
@@ -972,7 +1172,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         .host_object(allied_collector_id)
         .expect("allied collector after rejected dock");
     assert_eq!(
-        allied_collector.stored_resources.supplies, 75,
+        allied_collector.carried_supply_boxes(), 1,
         "rejected dock must keep the cargo aboard"
     );
     assert!(logic.take_supply_dropoff_events().is_empty());
@@ -994,7 +1194,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         let collector = logic
             .host_object_mut(own_collector_id)
             .expect("collector mut");
-        collector.set_stored_supplies(75);
+        collector.set_carried_supply_boxes(1);
         collector.set_ai_state(
             AIState::ReturningResources,
             0,
@@ -1009,7 +1209,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
 
     assert_eq!(
         logic.get_player(1).expect("china").resources.supplies,
-        125,
+        150,
         "C++ SupplyCenterDockUpdate deposits to the center owner"
     );
     assert_eq!(
@@ -1018,7 +1218,7 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
             .expect("china")
             .statistics
             .money_earned(),
-        75,
+        100,
         "C++ ScoreKeeper::addMoneyEarned must count the drop-off"
     );
     assert_eq!(
@@ -1088,7 +1288,7 @@ fn supply_wanting_skips_enemy_warehouse_even_when_players_share_faction() {
         logic
             .host_object_mut(id)
             .expect("warehouse")
-            .set_stored_supplies(750);
+            .set_warehouse_boxes(10);
     }
     let collector = logic
         .create_object_for_player("ParitySupplyTruck", 0, Vec3::ZERO)
@@ -1109,12 +1309,12 @@ fn supply_wanting_skips_enemy_warehouse_even_when_players_share_faction() {
     let collector_after = logic.host_object(collector).expect("collector after");
     assert_eq!(collector_after.target, Some(legal));
     assert_eq!(
-        logic.host_object(enemy).unwrap().stored_resources.supplies,
-        750
+        logic.host_object(enemy).unwrap().warehouse_boxes(),
+        10
     );
     assert_eq!(
-        logic.host_object(legal).unwrap().stored_resources.supplies,
-        750
+        logic.host_object(legal).unwrap().warehouse_boxes(),
+        10
     );
 }
 
@@ -1159,7 +1359,7 @@ fn supply_wanting_prefers_valid_dock_past_scan_limit_and_falls_back_when_empty()
         logic
             .host_object_mut(id)
             .expect("warehouse")
-            .set_stored_supplies(750);
+            .set_warehouse_boxes(10);
     }
     let collector = logic
         .create_object_for_player("PreferredParityTruck", 0, Vec3::ZERO)
@@ -1188,7 +1388,7 @@ fn supply_wanting_prefers_valid_dock_past_scan_limit_and_falls_back_when_empty()
     logic
         .host_object_mut(preferred)
         .unwrap()
-        .set_stored_supplies(0);
+        .set_warehouse_boxes(0);
     {
         let object = logic.host_object_mut(collector).unwrap();
         object.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
@@ -1245,7 +1445,7 @@ fn supply_wanting_falls_back_when_preferred_warehouse_approach_is_full() {
         logic
             .host_object_mut(id)
             .expect("warehouse")
-            .set_stored_supplies(750);
+            .set_warehouse_boxes(10);
     }
 
     // Fill the preferred warehouse's nine authored approach positions with
@@ -1333,7 +1533,7 @@ fn admitted_supply_dock_still_transfers_if_relationship_changes_in_transit() {
     logic
         .host_object_mut(dock)
         .unwrap()
-        .set_stored_supplies(750);
+        .set_warehouse_boxes(10);
     let collector = logic
         .create_object_for_player("TransitParityTruck", 0, Vec3::new(200.0, 0.0, 0.0))
         .expect("collector");
@@ -1376,13 +1576,12 @@ fn admitted_supply_dock_still_transfers_if_relationship_changes_in_transit() {
         logic
             .host_object(collector)
             .unwrap()
-            .stored_resources
-            .supplies,
-        75
+            .carried_supply_boxes(),
+        1
     );
     assert_eq!(
-        logic.host_object(dock).unwrap().stored_resources.supplies,
-        675
+        logic.host_object(dock).unwrap().warehouse_boxes(),
+        9
     );
 }
 
@@ -1419,7 +1618,7 @@ fn supply_warehouse_scan_uses_cpp_strict_radius_and_zero_semantics() {
         logic
             .host_object_mut(source)
             .unwrap()
-            .set_stored_supplies(750);
+            .set_warehouse_boxes(10);
         let collector = logic
             .create_object_for_player("ScanBoundaryTruck", 0, Vec3::ZERO)
             .expect("collector");
@@ -1499,7 +1698,7 @@ fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() 
         logic
             .host_object_mut(source)
             .unwrap()
-            .set_stored_supplies(750);
+            .set_warehouse_boxes(10);
     }
     let center_id = logic
         .create_object_for_player("PostDepositCenter", 0, Vec3::ZERO)
@@ -1516,7 +1715,7 @@ fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() 
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         object.preferred_dock_id = Some(former_source);
-        object.set_stored_supplies(75);
+        object.set_carried_supply_boxes(1);
         object.set_ai_state(
             AIState::ReturningResources,
             0,
@@ -1536,8 +1735,7 @@ fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() 
         logic
             .host_object(collector)
             .unwrap()
-            .stored_resources
-            .supplies,
+            .carried_supply_boxes(),
         0
     );
     assert_eq!(
@@ -1548,19 +1746,17 @@ fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() 
         logic
             .host_object(former_source)
             .unwrap()
-            .stored_resources
-            .supplies,
-        750
+            .warehouse_boxes(),
+        10
     );
     assert_eq!(
         logic
             .host_object(preferred)
             .unwrap()
-            .stored_resources
-            .supplies,
-        750
+            .warehouse_boxes(),
+        10
     );
-    assert_eq!(logic.get_player(0).unwrap().resources.supplies, 10_075);
+    assert_eq!(logic.get_player(0).unwrap().resources.supplies, 10_100);
 }
 
 #[test]

@@ -177,7 +177,7 @@ fn actual_named_actions_use_cached_pointer_immediately_and_do_not_touch_peer_tra
                     assert_eq!(object.attack_priority_set.as_deref(), Some("ExactSet"));
                     assert_eq!(object.garrison_evac_disposition(), 1);
                     assert!(object.is_indestructible());
-                    assert_eq!(object.stored_resources.supplies, 600);
+                    assert_eq!(object.warehouse_boxes(), 6);
                     assert_eq!(
                         object.special_power_countdown_seconds(
                             &crate::command_system::SpecialPowerType::SpySatellite

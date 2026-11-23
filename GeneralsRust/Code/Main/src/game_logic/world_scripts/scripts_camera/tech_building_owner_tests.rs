@@ -589,3 +589,46 @@ fn true_condition_calibrates_runtime_counter_witness() {
         },
     );
 }
+
+#[test]
+fn warehouse_condition_values_receiving_signed_boxes_and_current_price() {
+    use game_engine::common::ini::ini_game_data::ProductionEnergyRules;
+
+    let make_world = |price| {
+        let mut world = GameLogic::new();
+        world.admit_object_ini_sources([("SupplyCondition.ini".into(), "Object ConditionWarehouse\nKindOf = STRUCTURE SUPPLY_SOURCE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = SupplyWarehouseDockUpdate Dock\nStartingBoxes = 1\nEnd\nEnd\n".into())]).unwrap();
+        world.admit_production_energy_base(ProductionEnergyRules { value_per_supply_box: price, ..Default::default() });
+        world.add_player(Player::new(1, Team::USA, "Viewer", true).with_script_identity("Viewer"));
+        let trigger = gamelogic::polygon_trigger::PolygonTrigger::new(
+            1, "PriceTest".into(),
+            vec![gamelogic::common::ICoord3D::new(0, 0, 0), gamelogic::common::ICoord3D::new(20, 20, 0)],
+        );
+        world.host_trigger_world.lock().unwrap().set_trigger_areas(&[trigger]);
+        let warehouse = world.create_object("ConditionWarehouse", Team::Neutral, Vec3::new(10.0, 0.0, 10.0)).unwrap();
+        (world, warehouse)
+    };
+    let check = |world: &mut GameLogic, threshold| {
+        let mut c = Condition::new(ConditionType::SkirmishSuppliesValueWithinDistance);
+        c.add_parameter(Parameter::with_string(ParameterType::Side, "Viewer".into())).unwrap();
+        c.add_parameter(Parameter::with_real(ParameterType::Real, 0.0)).unwrap();
+        c.add_parameter(Parameter::with_string(ParameterType::TriggerArea, "PriceTest".into())).unwrap();
+        c.add_parameter(Parameter::with_real(ParameterType::Real, threshold)).unwrap();
+        let mut branch = OrCondition::new();
+        branch.set_first_and_condition(Some(Box::new(c)));
+        let mut script = Script::new();
+        script.condition = Some(Box::new(branch));
+        world.with_owned_script_engine(|engine, owner| {
+            owner.evaluate_owned_script_conditions(engine, &mut script, Some("Viewer"))
+        }).unwrap()
+    };
+    let (mut custom, warehouse) = make_world(125);
+    let (mut stock, peer) = make_world(75);
+    assert_eq!(warehouse, peer);
+    assert!(check(&mut custom, 100.0));
+    assert!(!check(&mut stock, 100.0));
+    assert!(!check(&mut custom, 125.0));
+    custom.host_object_mut(warehouse).unwrap().set_warehouse_boxes(-1);
+    assert!(check(&mut custom, 1_000_000.0));
+    custom.host_object_mut(warehouse).unwrap().status.off_map = true;
+    assert!(!check(&mut custom, 1_000_000.0));
+}

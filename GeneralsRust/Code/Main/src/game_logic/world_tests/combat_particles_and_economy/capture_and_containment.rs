@@ -1100,6 +1100,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 dock_kind: crate::game_logic::DockKind::None,
                 dock_controller_is_local: false,
                 stored_supplies: 0,
+                has_authored_supply: false,
                 capturable: false,
                 immune_to_capture: false,
                 capture_garrisonable: false,
@@ -1140,6 +1141,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 is_infantry: false,
                 transport_slot_count: 0,
                 stored_supplies: 0,
+                has_authored_supply: false,
                 is_controlled_by_local: true,
                 capture_power: crate::game_logic::CapturePowerKind::None,
                 capture_power_ready: false,
@@ -1450,7 +1452,7 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
         .expect("truck");
     {
         let truck = game_logic.host_object_mut(truck_id).expect("truck mut");
-        truck.set_stored_supplies(CARGO);
+        truck.set_carried_supply_boxes(4);
         truck.set_ai_state(
             AIState::ReturningResources,
             0,
@@ -1507,13 +1509,12 @@ fn loaded_combat_chinook_does_not_auto_gather() {
     warehouse.dock_kind = DockKind::SupplyWarehouse;
     warehouse.dock_starting_boxes = Some(10);
     logic.templates.insert(warehouse.name.clone(), warehouse);
-    let box_value = crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32;
     let source = logic
         .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(2.0, 0.0, 0.0))
         .expect("warehouse");
     {
         let warehouse = logic.host_object_mut(source).expect("warehouse mut");
-        warehouse.set_stored_supplies(10 * box_value);
+        warehouse.set_warehouse_boxes(10);
     }
 
     let chinook_id = create_test_combat_chinook(&mut logic, Vec3::ZERO);
@@ -1540,7 +1541,7 @@ fn loaded_combat_chinook_does_not_auto_gather() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         chinook.supply_truck_state = SupplyTruckState::DockingWarehouse;
-        chinook.set_stored_supplies(0);
+        chinook.set_carried_supply_boxes(0);
     }
     let infantry = logic
         .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
@@ -1567,9 +1568,8 @@ fn loaded_combat_chinook_does_not_auto_gather() {
         logic
             .host_object(source)
             .expect("warehouse after")
-            .stored_resources
-            .supplies,
-        10 * box_value,
+            .warehouse_boxes(),
+        10,
         "warehouse must stay full"
     );
 }
@@ -1608,7 +1608,7 @@ fn supply_truck_force_wanting_reenters_gathering() {
         .expect("warehouse");
     {
         let warehouse = logic.host_object_mut(source).expect("warehouse mut");
-        warehouse.set_stored_supplies(10 * 75);
+        warehouse.set_warehouse_boxes(10);
     }
 
     let collector_id = logic
@@ -1623,7 +1623,7 @@ fn supply_truck_force_wanting_reenters_gathering() {
         );
         collector.supply_truck_state = SupplyTruckState::Regrouping;
         collector.supply_truck_force_pending = true;
-        collector.set_stored_supplies(0);
+        collector.set_carried_supply_boxes(0);
         collector.stop_moving(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
     }
 

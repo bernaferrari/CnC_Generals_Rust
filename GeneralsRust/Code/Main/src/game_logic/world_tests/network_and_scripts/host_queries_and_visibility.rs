@@ -2990,6 +2990,7 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
                 dock_kind: target.dock_kind,
                 dock_controller_is_local: frame.is_owned_by_local(target),
                 stored_supplies: target.stored_supplies,
+                has_authored_supply: target.authored_warehouse_boxes != 0,
                 capturable: target.capturable,
                 immune_to_capture: target.immune_to_capture,
                 capture_garrisonable: target.capture_garrisonable,
@@ -3030,6 +3031,7 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
                 is_infantry: false,
                 transport_slot_count: collector.transport_slot_count,
                 stored_supplies: collector.stored_supplies,
+                has_authored_supply: collector.authored_carried_boxes.is_some_and(|boxes| boxes != 0),
                 is_controlled_by_local: frame.is_owned_by_local(collector),
                 capture_power: crate::game_logic::CapturePowerKind::None,
                 capture_power_ready: false,
@@ -3092,8 +3094,7 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
     game_logic
         .host_object_mut(collector_id)
         .expect("collector")
-        .stored_resources
-        .supplies = 1;
+        .set_carried_supply_boxes(1);
 
     let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
     let other_center = frame

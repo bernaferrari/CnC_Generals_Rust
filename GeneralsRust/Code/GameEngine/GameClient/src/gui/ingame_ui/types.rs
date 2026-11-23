@@ -1012,8 +1012,8 @@ pub struct PresentationUnitCatalogEntry {
     pub hotkey_group: i8,
     /// Live host beacon Drawable caption residual for EditBeaconText.
     pub caption: String,
-    /// C++ SupplyWarehouseDockUpdate boxes for TOOLTIP:SupplyWarehouse dollar value.
-    pub supply_boxes: Option<i32>,
+    /// Signed warehouse cash value from the receiving world for TOOLTIP:SupplyWarehouse.
+    pub warehouse_cash_value: Option<i32>,
 }
 
 pub struct InGameUI {

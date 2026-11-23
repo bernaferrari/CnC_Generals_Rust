@@ -524,10 +524,11 @@ impl GameLogic {
                         .unwrap_or(0);
                 }
                 if candidate == DockKind::SupplyWarehouse {
-                    template.dock_starting_boxes = module
-                        .attribute("StartingBoxes")
-                        .and_then(|value| value.trim().parse::<i64>().ok())
-                        .and_then(|value| u32::try_from(value).ok());
+                    template.dock_starting_boxes = Some(
+                        module.attribute("StartingBoxes")
+                            .and_then(|value| value.trim().parse::<i32>().ok())
+                            .unwrap_or(1),
+                    );
                     template.dock_delete_when_empty =
                         module.attribute("DeleteWhenEmpty").is_some_and(|value| {
                             matches!(
@@ -1250,7 +1251,10 @@ impl GameLogic {
             .trim()
             .to_string();
         template.supply_truck_metadata = Some(SupplyTruckMetadata {
-            max_boxes: module.attribute("MaxBoxes").and_then(unsigned).unwrap_or(1),
+            max_boxes: module
+                .attribute("MaxBoxes")
+                .and_then(|value| value.trim().parse::<i32>().ok())
+                .unwrap_or(0),
             warehouse_scan_distance: module
                 .attribute("SupplyWarehouseScanDistance")
                 .and_then(finite)

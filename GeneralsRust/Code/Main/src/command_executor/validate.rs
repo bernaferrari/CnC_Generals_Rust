@@ -190,14 +190,14 @@ impl<'a> CommandExecutor<'a> {
         match target.thing().template.dock_kind {
             DockKind::SupplyCenter
                 if unit.is_resource_collector()
-                    && unit.stored_resources.supplies > 0
+                    && unit.supply_carrier_has_cargo()
                     && same_supply_center_controller =>
             {
                 Some(DockKind::SupplyCenter)
             }
             DockKind::SupplyWarehouse
                 if unit.is_resource_collector()
-                    && target.stored_resources.supplies > 0
+                    && target.warehouse_boxes() != 0
                     && warehouse_is_not_enemy =>
             {
                 Some(DockKind::SupplyWarehouse)

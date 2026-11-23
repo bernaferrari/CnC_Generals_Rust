@@ -168,7 +168,7 @@ fn worker_shoes_completion_pays_authored_worker_supply_boost() {
         let (w, fixture_partition_w) = game_logic
             .host_object_and_partition_mut(worker_id)
             .expect("worker mut");
-        w.set_stored_supplies(100);
+        w.set_carried_supply_boxes(1);
         w.set_position_with_partition_owner(
             Vec3::new(5.0, 0.0, 0.0),
             0,

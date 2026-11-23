@@ -1245,13 +1245,13 @@ impl CommandSystem {
             DockKind::SupplyCenter => units.iter().copied().all(|unit_id| {
                 common_source(unit_id)
                     && game_logic.unit_is_resource_collector(unit_id)
-                    && game_logic.unit_stored_supplies(unit_id) > 0
+                    && game_logic.unit_supply_carrier_has_cargo(unit_id)
                     // C++ compares `getControllingPlayer()` pointers, not
                     // faction or alliance identity.
                     && supply_center_controller_matches(unit_id)
             }),
             DockKind::SupplyWarehouse => {
-                if game_logic.unit_stored_supplies(target_id) == 0 {
+                if !game_logic.unit_warehouse_has_stock(target_id) {
                     return false;
                 }
                 units.iter().copied().all(|unit_id| {
@@ -1305,13 +1305,13 @@ impl CommandSystem {
                     && selected_presentation.iter().all(|unit| {
                         common_source(unit)
                             && unit.is_resource_collector
-                            && unit.stored_supplies > 0
+                            && (unit.has_authored_supply || unit.stored_supplies > 0)
                             && unit.is_controlled_by_local
                     })
             }
             DockKind::SupplyWarehouse => {
                 !hint.is_enemy_of_local
-                    && hint.stored_supplies > 0
+                    && (hint.has_authored_supply || hint.stored_supplies > 0)
                     && selected_presentation
                         .iter()
                         .all(|unit| common_source(unit) && unit.is_resource_collector)

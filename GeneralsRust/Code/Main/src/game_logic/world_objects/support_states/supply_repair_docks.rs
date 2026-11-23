@@ -24,7 +24,7 @@ impl GameLogic {
                 && warehouse.is_alive()
                 && !warehouse.status.under_construction
                 && !warehouse.status.sold
-                && warehouse.stored_resources.supplies != 0
+                && warehouse.warehouse_boxes() != 0
                 && collector.thing().template.supply_truck_metadata.is_some()
                 && collector.is_alive()
                 && !collector.status.under_construction

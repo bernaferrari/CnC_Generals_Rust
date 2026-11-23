@@ -52,8 +52,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     world
         .host_object_mut(warehouse)
         .unwrap()
-        .stored_resources
-        .supplies = 5_000;
+        .set_warehouse_boxes(50);
     {
         let mut factory = world.team_factory.lock().unwrap();
         factory
@@ -445,10 +444,8 @@ fn ordinary_script_supply_uses_warehouse_and_script_enemy_context_for_priority_r
     assert_eq!(
         world
             .host_object(warehouse)
-            .unwrap()
-            .stored_resources
-            .supplies,
-        300
+            .unwrap().warehouse_boxes(),
+        4
     );
     for x in [-310.0, -280.0, -110.0] {
         world
@@ -506,11 +503,11 @@ fn ordinary_script_supply_uses_warehouse_and_script_enemy_context_for_priority_r
     world
         .host_object_mut(warehouse)
         .unwrap()
-        .set_stored_supplies(0);
+        .set_warehouse_boxes(0);
     world
         .host_object_mut(earlier)
         .unwrap()
-        .set_stored_supplies(900);
+        .set_warehouse_boxes(9);
     let guard = supply_action("CampaignSupplyGuard", 550);
     let context = gamelogic::scripting::executor::ScriptContext::at_frame(world.frame);
     engine.friend_execute_action_with_driver(

@@ -942,6 +942,7 @@ impl AIPlayer {
         let enemy_center = self
             .enemy_structure_bounds_midpoint(game_logic)
             .map(|p| (p.x, p.z));
+        let value_per_box = game_logic.supply_box_value();
         let mut candidates: Vec<gamelogic::ai::ai_player::LeftoverSupplyCenterCandidate> =
             Vec::new();
         let mut own_cash_gens: Vec<gamelogic::ai::ai_player::LeftoverOwnedCashGenerator> =
@@ -961,7 +962,7 @@ impl AIPlayer {
                 x: p.x,
                 y: p.z,
                 bounding_circle: Self::host_object_bounding_circle(source),
-                available_cash: source.stored_resources.supplies as i32,
+                available_cash: source.warehouse_boxes().wrapping_mul(value_per_box),
                 is_structure: source.is_kind_of(KindOf::Structure),
                 is_supply_source: source.is_kind_of(KindOf::SupplySource),
                 has_warehouse_dock: source.thing().template.dock_kind == DockKind::SupplyWarehouse,
@@ -1348,6 +1349,7 @@ impl AIPlayer {
         let game_logic = &AiWorldView::new(game_logic);
         let center = game_logic.host_object(center_id)?;
         let center_position = center.get_position();
+        let value_per_box = game_logic.supply_box_value();
         let maximum_distance = Self::SUPPLY_CENTER_CLOSE_DISTANCE + center.selection_radius;
         let maximum_distance_squared = maximum_distance * maximum_distance;
 
@@ -1371,7 +1373,7 @@ impl AIPlayer {
                 // non-dock sources carry no cash or relationship gate.
                 if source.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
                 {
-                    if source.stored_resources.supplies == 0 {
+                    if source.warehouse_boxes().wrapping_mul(value_per_box) <= 0 {
                         return None;
                     }
                     // C++ m_player->getRelationship(supplySource->getTeam()).

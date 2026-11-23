@@ -1245,7 +1245,7 @@ impl PresentationFrame {
             .filter(|o| {
                 !o.destroyed
                     && !o.sold
-                    && o.stored_supplies > 0
+                    && (o.authored_warehouse_boxes > 0 || o.stored_supplies > 0)
                     && (o.is_structure
                         || o.building_type.is_some()
                         || o.object_type == PresentationObjectType::Building

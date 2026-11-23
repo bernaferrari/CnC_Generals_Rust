@@ -797,6 +797,18 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
+    /// C++ ScriptConditions::evaluateSkirmishSuppliesWithinDistancePerimeter.
+    fn supplies_value_within_distance(
+        &mut self,
+        _player: &str,
+        _distance: f32,
+        _area: &str,
+        _threshold: f32,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     /// Present(false) is a completed empty search and must latch. Missing is
     /// an absent trigger/query and must not latch. After player selection,
     /// neither Missing nor Unavailable permits a foreign-owner fallback.

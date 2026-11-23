@@ -518,17 +518,12 @@ pub const HOST_CHINOOK_ARRIVE_THRESH: f32 = 3.0;
 /// C++ `while (ai->loseOneBox())` on transport landing / combat drop
 /// (`ChinookAIUpdate.cpp:213-216`, `:473-475`).
 ///
-/// Host collectors store cash in `Object.stored_resources.supplies` and crate
-/// visuals in `drawable_supply_boxes`. Zeroing only `HostChinookAI.supply_boxes`
-/// leaves diverted Chinooks carrying crates.
 pub fn lose_all_chinook_object_boxes(obj: &mut crate::game_logic::Object) {
-    if let Some(ai) = obj.chinook_ai.as_mut() {
-        while ai.lose_one_box() {}
+    if obj.thing().template.supply_truck_metadata.is_some() {
+        obj.set_carried_supply_boxes(0);
+    } else {
+        obj.set_stored_supplies(0);
     }
-    // C++ loseOneBox decrements m_numberBoxes then updateDrawableSupplyStatus.
-    // Host cash + crate visual are the live equivalent of that counter.
-    obj.set_stored_supplies(0);
-    obj.drawable_supply_boxes = 0;
 }
 
 /// True when C++ `ChinookTakeoffOrLandingState` / `ChinookCombatDropState`
@@ -599,7 +594,6 @@ pub struct HostChinookAI {
     pub preferred_height: f32,
     pub min_drop_height: f32,
     pub rappel_speed: f32,
-    pub supply_boxes: u32,
     pub layer_is_ground: bool,
     pub pad_search_applied: bool,
     pub rider8: bool,
@@ -674,7 +668,6 @@ impl HostChinookAI {
             preferred_height: COMBAT_CHINOOK_PREFERRED_HEIGHT,
             min_drop_height: COMBAT_CHINOOK_MIN_DROP_HEIGHT,
             rappel_speed: COMBAT_CHINOOK_RAPPEL_SPEED,
-            supply_boxes: COMBAT_CHINOOK_MAX_BOXES,
             layer_is_ground: true,
             pad_search_applied: false,
             rider8: false,
@@ -698,20 +691,6 @@ impl HostChinookAI {
             pending_ai_idle: false,
             rappel_into_jobs: Vec::new(),
         }
-    }
-
-    /// C++ `SupplyTruckAIUpdate::loseOneBox` (ChinookAIUpdate inherits).
-    pub fn lose_one_box(&mut self) -> bool {
-        if self.supply_boxes == 0 {
-            return false;
-        }
-        self.supply_boxes -= 1;
-        true
-    }
-
-    /// C++ `while (ai->loseOneBox())` residual box counter.
-    fn lose_all_boxes(&mut self) {
-        while self.lose_one_box() {}
     }
 
     /// C++ `getAiFreeToExit`: landed, or combat-drop + `KINDOF_CAN_RAPPEL`.
@@ -886,8 +865,7 @@ impl HostChinookAI {
                 self.flight_status = HostChinookFlightStatus::DoingCombatDrop;
                 self.preferred_height = self.move_to_bldg_old_preferred;
                 // C++ ChinookCombatDropState::onEnter while(loseOneBox()).
-                // Object stored_resources / drawable crates: lose_all_chinook_object_boxes.
-                self.lose_all_boxes();
+                // The receiving Object owns and clears the carrier's cargo.
                 self.combat_drop_next_release_frame = 0;
                 self.combat_drop_releases = 0;
             }
@@ -903,8 +881,7 @@ impl HostChinookAI {
         };
         if landing {
             // C++ ChinookTakeoffOrLandingState::onEnter while(loseOneBox()).
-            // Object stored_resources / drawable crates: lose_all_chinook_object_boxes.
-            self.lose_all_boxes();
+            // The receiving Object owns and clears the carrier's cargo.
             self.pad_search_applied = true;
             self.dest = [self.pos[0], self.pos[1], 0.0];
         } else {
@@ -1092,7 +1069,6 @@ pub fn honesty_host_chinook_ai_cpp_residual_ok() -> bool {
     let auto_lands = flying.state == HostChinookAIState::Landing
         && flying.flight_status == HostChinookFlightStatus::Landing
         && flying.ai_free_to_exit(false) == HostChinookFreeToExit::WaitToExit
-        && flying.supply_boxes == 0
         && flying.pad_search_applied;
 
     let combat = HostChinookAI::new_combat([0.0, 0.0, 0.0]);
@@ -1273,7 +1249,6 @@ mod tests {
         ai.tick_idle_auto_land();
         assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
         assert!(ai.pad_search_applied);
-        assert_eq!(ai.supply_boxes, 0);
         ai.pos = [0.0, 0.0, 0.0];
         ai.dest = [0.0, 0.0, 0.0];
         assert!(ai.update_from_observed_pose().is_none());
@@ -1493,13 +1468,12 @@ mod tests {
             if !obj.is_combat_chinook_style_container() {
                 obj.install_combat_chinook_transport(frame);
             }
-            obj.set_stored_supplies(8 * 75);
-            obj.drawable_supply_boxes = 8;
+            obj.set_carried_supply_boxes(8);
             obj.pending_evacuate_on_stop = true;
         }
         assert_eq!(
-            logic.host_object(id).unwrap().stored_resources.supplies,
-            600
+            logic.host_object(id).unwrap().carried_supply_boxes(),
+            8
         );
         assert_eq!(logic.host_object(id).unwrap().drawable_supply_boxes, 8);
         logic
@@ -1511,23 +1485,20 @@ mod tests {
             HostChinookFlightStatus::Landing
         );
         assert_eq!(
-            obj.stored_resources.supplies, 0,
+            obj.carried_supply_boxes(), 0,
             "diverted landing must dump cash crates"
         );
         assert_eq!(
             obj.drawable_supply_boxes, 0,
             "diverted landing must dump crate visuals"
         );
-        assert_eq!(obj.chinook_ai.as_ref().unwrap().supply_boxes, 0);
 
         {
             let obj = logic.host_object_mut(id).expect("obj");
-            obj.set_stored_supplies(4 * 75);
-            obj.drawable_supply_boxes = 4;
+            obj.set_carried_supply_boxes(4);
             if let Some(ai) = obj.chinook_ai.as_mut() {
                 ai.flight_status = HostChinookFlightStatus::Flying;
                 ai.state = HostChinookAIState::MoveToCombatDrop;
-                ai.supply_boxes = 4;
                 ai.arrive_for_combat_drop();
             }
         }
@@ -1540,7 +1511,7 @@ mod tests {
             HostChinookFlightStatus::DoingCombatDrop
         );
         assert_eq!(
-            obj.stored_resources.supplies, 0,
+            obj.carried_supply_boxes(), 0,
             "combat drop must dump cash crates"
         );
         assert_eq!(
@@ -1549,16 +1520,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn lose_one_box_decrements_until_empty() {
-        let mut ai = HostChinookAI::new_combat([0.0, 0.0, 100.0]);
-        ai.supply_boxes = 3;
-        assert!(ai.lose_one_box());
-        assert_eq!(ai.supply_boxes, 2);
-        while ai.lose_one_box() {}
-        assert_eq!(ai.supply_boxes, 0);
-        assert!(!ai.lose_one_box());
-    }
 
     /// hq-2qedt.269
     #[test]

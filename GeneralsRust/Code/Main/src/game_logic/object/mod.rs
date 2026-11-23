@@ -590,6 +590,12 @@ pub struct Object {
     /// Earliest frame at which the current warehouse/center dock may act.
     #[serde(default)]
     pub supply_truck_next_dock_action_frame: u32,
+    /// SupplyWarehouseDockUpdate::m_boxesStored.
+    #[serde(default)]
+    warehouse_boxes: i32,
+    /// SupplyTruckAIInterface's physical cargo, including Chinook and Worker.
+    #[serde(default)]
+    carried_supply_boxes: i32,
     /// C++ `DockUpdate::m_activeDocker` — only this docker may enter/act.
     #[serde(default)]
     pub dock_active_docker: Option<ObjectId>,
@@ -611,10 +617,10 @@ pub struct Object {
 
     /// C++ `Drawable::updateDrawableSupplyStatus` current boxes.
     #[serde(default)]
-    pub drawable_supply_boxes: u32,
+    pub drawable_supply_boxes: i32,
     /// C++ startingBoxes argument to `updateDrawableSupplyStatus`.
     #[serde(default)]
-    pub drawable_supply_max_boxes: u32,
+    pub drawable_supply_max_boxes: i32,
     /// C++ `RepairDockUpdate::m_lastRepair`.
     #[serde(default)]
     pub repair_dock_last_id: Option<ObjectId>,
