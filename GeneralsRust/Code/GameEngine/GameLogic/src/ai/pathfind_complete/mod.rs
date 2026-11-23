@@ -38,6 +38,7 @@ mod hierarchical;
 mod line_passable;
 mod observations;
 mod occupancy;
+pub use observations::QueuedPathObservations;
 pub(crate) use observations::PathfindObservations;
 mod snap;
 mod system;

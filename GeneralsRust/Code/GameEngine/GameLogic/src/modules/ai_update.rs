@@ -1399,16 +1399,14 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         self.do_pathfind();
     }
 
-    /// Actual standard Enter path completion, borrowing the queue's owner services.
-    fn do_enter_pathfind_with_services(
+    /// Complete a queued path using the driving batch observations.
+    fn do_queued_pathfind_with_services(
         &mut self,
         _pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
-        _factory: &crate::object::object_factory::ObjectFactory,
-        _players: &crate::player::PlayerList,
-        _terrain: &crate::terrain::TerrainLogic,
+        _observations: &mut crate::ai::pathfind_complete::QueuedPathObservations<'_>,
         _frame: u32,
     ) -> Result<bool, String> {
-        Err("installed AI does not admit supplied Enter path completion".into())
+        Err("installed AI does not admit supplied path completion".into())
     }
 
     fn is_waiting_for_path(&self) -> bool {

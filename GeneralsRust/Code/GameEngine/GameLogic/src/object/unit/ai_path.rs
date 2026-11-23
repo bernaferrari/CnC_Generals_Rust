@@ -439,19 +439,18 @@ impl UnitAIUpdate {
         self.do_queued_pathfind_with_observations(pathfinder, None)
     }
 
-    pub(super) fn do_enter_pathfind_with_services(
+    pub(super) fn do_queued_pathfind_with_services(
         &mut self,
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
-        factory: &crate::object::object_factory::ObjectFactory,
-        players: &crate::player::PlayerList,
-        terrain: &crate::terrain::TerrainLogic,
+        observations: &mut crate::ai::pathfind_complete::QueuedPathObservations<'_>,
         frame: u32,
     ) -> Result<bool, String> {
+        let terrain = observations.world.terrain;
         let owner = self
             .runtime
             .native_owner()
             .ok_or("queued Enter owner missing")?;
-        let supplied = factory
+        let supplied = observations.world.factory
             .get_object(self.runtime.unit_id)
             .and_then(|object| object.get_base_object())
             .ok_or("queued Enter supplied owner missing")?;
@@ -514,11 +513,10 @@ impl UnitAIUpdate {
         {
             return Err("supplied queue does not admit this path family".into());
         }
-        let observations =
-            crate::ai::pathfind_complete::PathfindObservations::admit(factory, players, terrain)?;
+        let observations = observations.admit()?;
         let found = self.do_queued_pathfind_with_observations(
             pathfinder,
-            Some((frame, terrain.get_maximum_pathfind_extent(), &observations)),
+            Some((frame, terrain.get_maximum_pathfind_extent(), observations)),
         )?;
         if movement && self.runtime.data.is_final_goal {
             if let Some(last) = self

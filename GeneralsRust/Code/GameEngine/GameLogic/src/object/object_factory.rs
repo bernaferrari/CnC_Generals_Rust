@@ -678,6 +678,10 @@ impl ObjectFactory {
         }
     }
 
+    pub(crate) fn instances(&self) -> impl Iterator<Item = &GameObjectInstance> {
+        self.object_registry.values()
+    }
+
     /// Get all objects of a specific type
     pub fn get_objects_by_type<F>(&self, type_check: F) -> Vec<ObjectID>
     where

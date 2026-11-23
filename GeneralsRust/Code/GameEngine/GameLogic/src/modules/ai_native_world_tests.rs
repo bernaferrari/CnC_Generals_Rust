@@ -1144,12 +1144,12 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
         .get_locomotor_set_clone()
         .unwrap()
         .get_valid_surfaces();
-    let observations = crate::ai::pathfind_complete::PathfindObservations::admit(
+    let mut queue_observations = crate::ai::pathfind_complete::QueuedPathObservations::new(
         &game.factory,
         &game.players,
         &game.terrain,
-    )
-    .unwrap();
+    );
+    let observations = queue_observations.admit().unwrap();
     let grid = game.pathfinder.pathfinding_system_mut();
     let valid = grid.valid_movement_position(surfaces, false, &target_pos, Some(2));
     let quick = grid.client_safe_quick_does_path_exist_ignoring(
@@ -1164,7 +1164,7 @@ fn cached_native_enter_queued_path_routes_around_actual_wall_through_gap() {
     request.unit_radius = actor.read().unwrap().get_geometry_info().get_major_radius();
     request.ignore_obstacle_id = Some(2);
     let raw = grid
-        .find_path_internal_with_observations(request, Some(false), Some(&observations))
+        .find_path_internal_with_observations(request, Some(false), Some(observations))
         .unwrap();
     assert!(
         valid && quick && raw.success,

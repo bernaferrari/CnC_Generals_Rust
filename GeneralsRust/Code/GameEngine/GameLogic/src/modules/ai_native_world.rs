@@ -270,7 +270,8 @@ impl<'a> BorrowedAiWorld<'a> {
     pub fn process_enter_path_queue(&mut self, max_per_frame: usize) -> Result<usize, String> {
         let factory = &*self.factory;
         let terrain = self.services.terrain;
-        let players = self.players;
+        let mut observations =
+            crate::ai::pathfind_complete::QueuedPathObservations::new(factory, self.players, terrain);
         let frame = self.services.frame;
         let scheduler = &*self.update_scheduler;
         self.services
@@ -303,9 +304,7 @@ impl<'a> BorrowedAiWorld<'a> {
                         );
                     }
                     let mut ai = ai.lock().map_err(|_| "queued Enter interface poisoned")?;
-                    ai.do_enter_pathfind_with_services(
-                        pathfinder, factory, players, terrain, frame,
-                    )?;
+                    ai.do_queued_pathfind_with_services(pathfinder, &mut observations, frame)?;
                     Ok(true)
                 },
             )

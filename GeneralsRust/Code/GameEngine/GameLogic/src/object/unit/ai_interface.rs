@@ -615,17 +615,13 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::do_pathfind(self)
     }
 
-    fn do_enter_pathfind_with_services(
+    fn do_queued_pathfind_with_services(
         &mut self,
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
-        factory: &crate::object::object_factory::ObjectFactory,
-        players: &crate::player::PlayerList,
-        terrain: &crate::terrain::TerrainLogic,
+        observations: &mut crate::ai::pathfind_complete::QueuedPathObservations<'_>,
         frame: u32,
     ) -> Result<bool, String> {
-        UnitAIUpdate::do_enter_pathfind_with_services(
-            self, pathfinder, factory, players, terrain, frame,
-        )
+        UnitAIUpdate::do_queued_pathfind_with_services(self, pathfinder, observations, frame)
     }
 
     fn do_pathfind_with_pathfinder(
