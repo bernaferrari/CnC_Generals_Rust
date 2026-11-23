@@ -146,11 +146,8 @@ impl<'a> ObjectXferDefinitions<'a> {
                 "native Object restore requires supplied repulsor construction rules".into(),
             );
         }
-        if template.get_energy_production() != 0 || template.get_energy_bonus() != 0 {
-            return Err(
-                "native Object restore does not admit powered template construction".into(),
-            );
-        }
+        // Base energy follows the receiving team membership callbacks.
+        // The module admission below controls upgrade and overcharge effects.
         for entry in template.get_behavior_module_info() {
             let module_data = entry.data.read();
             if entry.name.as_str() == "ActiveBody" {
@@ -511,6 +508,8 @@ impl ObjectXferServices<'_> {
                 })?;
             self.validate_owner(&source)
                 .map_err(|error| ObjectXferError::new(id, None, "admission", error))?;
+            // GameLogic.cpp:4775 creates the Object on the neutral team before
+            // Object.cpp:4082–4111 reads status and restores the saved team.
             let teams = self.teams;
             Object::set_or_restore_team_from_handle_with_power_and_tail(
                 &source,

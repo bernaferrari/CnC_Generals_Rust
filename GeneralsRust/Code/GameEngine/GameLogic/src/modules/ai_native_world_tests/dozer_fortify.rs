@@ -68,15 +68,20 @@ fn source_template_with_locomotor(locomotor: crate::locomotor::LocomotorTemplate
     })
 }
 fn target_template(is_scaffold: bool) -> Arc<dyn ThingTemplate> {
-    target_template_with_power(is_scaffold, 12)
+    let power = if is_scaffold { 12 } else { 0 };
+    building_template("OwnedFortifyTarget", is_scaffold, power, 0)
 }
-fn target_template_with_power(is_scaffold: bool, power: i32) -> Arc<dyn ThingTemplate> {
-    let mut base = DefaultThingTemplate::new("OwnedFortifyTarget".into());
+fn building_template(name: &str, is_scaffold: bool, power: i32, bonus: i32) -> Arc<dyn ThingTemplate> {
+    let mut base = DefaultThingTemplate::new(name.into());
     base.add_kind_of(KindOf::Structure);
+    base.set_energy_production(power);
+    base.set_energy_bonus(bonus);
+    if power < 0 {
+        base.add_kind_of(KindOf::Powered);
+    }
     if is_scaffold {
         base.add_kind_of(KindOf::Score);
         base.set_build_time(0.1);
-        base.set_energy_production(power);
     }
     Arc::new(EntryTemplate {
         base,
@@ -537,7 +542,9 @@ fn full_object_restore_rebinds_fortify_and_restarts_original_nested_action() {
 
 #[test]
 fn full_object_restore_resumes_active_dozer_build_without_a_new_order() {
-    use super::object_restore_tests::{Catalog, capture_at, fresh_with_templates};
+    use super::object_restore_tests::{
+        Catalog, admit_prepared_match, capture_at, fresh_with_templates, prepare_with_templates,
+    };
     use crate::common::ObjectStatusTypes;
     use crate::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
 
@@ -545,27 +552,35 @@ fn full_object_restore_resumes_active_dozer_build_without_a_new_order() {
     locomotor.max_turn_rate = 0.2;
     let catalog = Catalog::from_templates(
         source_template_with_locomotor(locomotor.clone()),
-        target_template_with_power(true, 0),
+        target_template(true),
         locomotor,
     );
-    let fresh = |records, frame| {
-        fresh_with_templates(
-            &catalog,
-            records,
-            "OwnedFortifyDozer",
-            "OwnedFortifyTarget",
-            true,
-            frame,
-        )
-        .unwrap()
-    };
-    let mut game = fresh(None, 17);
+    let mut game = prepare_with_templates(
+        &catalog,
+        None,
+        "OwnedFortifyDozer",
+        "OwnedFortifyTarget",
+    )
+    .unwrap();
     let builder = game.source.clone();
     let builder_id = builder.read().unwrap().get_id();
     let scaffold_id = game.target.read().unwrap().get_id();
     let scaffold_position = Coord3D::new(220.0, 100.0, 0.0);
     let start = scaffold_position - Coord3D::new(30.0, 0.0, 0.0);
     let scaffold = game.target.clone();
+    let output = scaffold.read().unwrap().get_template().get_energy_production();
+    assert!(output > 0);
+    {
+        let mut scaffold = scaffold.write().unwrap();
+        scaffold.set_builder_id(builder_id);
+        scaffold.set_status(ObjectStatusTypes::UnderConstruction.into(), true);
+        scaffold.set_construction_percent(0.0);
+    }
+    // DozerAIUpdate.cpp creates the structure with UnderConstruction
+    // already set so the initial team membership contributes no energy.
+    admit_prepared_match(&mut game, &catalog).unwrap();
+    assert_eq!(energy_balance(game.players.get_player(0).unwrap()), (0, 0));
+    scaffold.write().unwrap().set_health(10.0).unwrap();
     game.operate(18, |world| {
         world.set_object_position_handle(&scaffold, &scaffold_position)?;
         world.set_object_position_handle(&builder, &(start - Coord3D::X))
@@ -573,13 +588,6 @@ fn full_object_restore_resumes_active_dozer_build_without_a_new_order() {
     .unwrap();
     register_receiving_geometry(&mut game);
     idle(&mut game, 18);
-    {
-        let mut scaffold = scaffold.write().unwrap();
-        scaffold.set_builder_id(builder_id);
-        scaffold.set_status(ObjectStatusTypes::UnderConstruction.into(), true);
-        scaffold.set_construction_percent(0.0);
-        scaffold.set_health(10.0).unwrap();
-    }
     ai(&game)
         .lock()
         .unwrap()
@@ -609,7 +617,21 @@ fn full_object_restore_resumes_active_dozer_build_without_a_new_order() {
         (scaffold.get_construction_percent(), scaffold.get_health())
     };
     let records = capture_at(&mut game, &catalog, frame);
-    let mut restored = fresh(Some(&records), frame);
+    let mut restored = fresh_with_templates(
+        &catalog,
+        Some(&records),
+        "OwnedFortifyDozer",
+        "OwnedFortifyTarget",
+        true,
+        frame,
+    )
+    .unwrap();
+    let player = restored.players.get_player(0).unwrap().clone();
+    let neutral = restored.players.get_neutral_player().unwrap();
+    assert_eq!(energy_balance(&player), (0, 0));
+    // GameLogic.cpp creates the object on neutral before Object.cpp reads
+    // the saved status. The unfinished departure skips membership energy.
+    assert_eq!(energy_balance(&neutral), (output, 0));
     let restored_dozer = observation(&restored);
     assert_eq!(restored_dozer.current_task, DozerTask::Build);
     assert_eq!(restored_dozer.primary, before_save.primary);
@@ -642,7 +664,6 @@ fn full_object_restore_resumes_active_dozer_build_without_a_new_order() {
         restored.target.read().unwrap().get_construction_percent(),
         progress,
     );
-    let player = restored.players.get_player(0).unwrap().clone();
     let structures_built = || player.read().unwrap().get_score_keeper().get_total_buildings_built();
     let score = structures_built();
     let runtime = ai(&restored);
@@ -657,7 +678,12 @@ fn full_object_restore_resumes_active_dozer_build_without_a_new_order() {
         saw_delayed_request |= movement.waiting_for_path
             && movement.queue_for_path_frame > now
             && movement.requested_destination == start;
-        !restored.target.read().unwrap().is_under_construction()
+        drop(runtime);
+        let unfinished = restored.target.read().unwrap().is_under_construction();
+        if unfinished {
+            assert_eq!(energy_balance(&player), (0, 0));
+        }
+        !unfinished
     }).expect("restored Dozer must finish after reapproaching its action dock");
     assert!(saw_delayed_request, "the second dock request must survive the AI wake");
     for now in finished_at + 1..=finished_at + 30 {
@@ -668,6 +694,8 @@ fn full_object_restore_resumes_active_dozer_build_without_a_new_order() {
         crate::object::CONSTRUCTION_COMPLETE,
     );
     assert_eq!(structures_built(), score + 1);
+    assert_eq!(energy_balance(&player), (output, 0));
+    assert_eq!(energy_balance(&neutral), (output, 0));
     assert_eq!(
         restored.dirty_ui.iter().filter(|&&id| id == scaffold_id).count(),
         1,
@@ -678,6 +706,50 @@ fn full_object_restore_resumes_active_dozer_build_without_a_new_order() {
         progress,
     );
     assert_eq!(game.target.read().unwrap().get_health(), health);
+    assert_eq!(energy_balance(game.players.get_player(0).unwrap()), (0, 0));
+}
+
+fn energy_balance(player: &RwLock<Player>) -> (i32, i32) {
+    let player = player.read().unwrap();
+    let energy = player.get_energy();
+    (energy.production(), energy.consumption())
+}
+
+#[test]
+fn full_object_restore_reconstructs_completed_power_membership() {
+    use super::object_restore_tests::{Catalog, capture_at, fresh_with_templates};
+
+    let generator = building_template("ReceivingGenerator", false, 12, 7);
+    let consumer = building_template("ReceivingConsumer", false, -5, 0);
+    let catalog = Catalog::from_templates(generator, consumer, ground());
+    let transfer = |records| {
+        fresh_with_templates(
+            &catalog,
+            records,
+            "ReceivingGenerator",
+            "ReceivingConsumer",
+            false,
+            17,
+        )
+        .unwrap()
+    };
+    let mut game = transfer(None);
+    let saved = capture_at(&mut game, &catalog, 17);
+    let restored = transfer(Some(&saved));
+    let restored_owner = restored.players.get_player(0).unwrap();
+    assert_eq!(energy_balance(restored_owner), (12, 5));
+    assert_eq!(
+        energy_balance(&restored.players.get_neutral_player().unwrap()),
+        (0, 0),
+    );
+    assert_eq!(energy_balance(game.players.get_player(0).unwrap()), (12, 5));
+    assert!(!restored.target.read().unwrap().is_disabled());
+    for object in [&restored.source, &restored.target] {
+        assert_eq!(
+            object.read().unwrap().controlling_player_id_from_pin().unwrap(),
+            Some(0),
+        );
+    }
 }
 
 #[test]

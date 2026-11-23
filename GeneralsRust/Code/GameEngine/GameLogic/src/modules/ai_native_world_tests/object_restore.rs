@@ -104,8 +104,8 @@ impl Catalog {
     }
 }
 
-// Ordinary unpowered templates cannot produce a radar edge. Fail visibly if
-// this scoped construction family ever requests a richer presentation effect.
+// The restore fixtures have no radar modules. A radar sound would require
+// presentation services beyond the fixtures' owned energy bookkeeping.
 struct RadarScope(u32);
 impl RadarEdgeServices for RadarScope {
     fn has_single_player_been_defeated(&self, _: &Player) -> bool {
@@ -121,7 +121,7 @@ impl RadarEdgeServices for RadarScope {
         self.0
     }
     fn play_radar_edge(&mut self, _: crate::player::PlayerIndex, _: bool) {
-        panic!("unpowered native restore radar edge");
+        panic!("native restore fixture unexpectedly played a radar edge");
     }
 }
 
@@ -172,13 +172,11 @@ fn fresh(
         171,
     )
 }
-pub(super) fn fresh_with_templates(
+pub(super) fn prepare_with_templates(
     catalog: &Catalog,
     records: Option<&[ObjectSnapshotRecord]>,
     source_name: &str,
     target_name: &str,
-    source_has_ai: bool,
-    restore_frame: u32,
 ) -> Result<NativeMatch, String> {
     let mut factory = ObjectFactory::new();
     let definitions = catalog.borrowed(17);
@@ -244,7 +242,7 @@ pub(super) fn fresh_with_templates(
             None,
         )
         .unwrap();
-    let mut game = NativeMatch {
+    Ok(NativeMatch {
         weapon_store: crate::weapon::WeaponStore::new(),
         historic_damage_limit: game_engine::common::global_data::GlobalData::default()
             .historic_damage_limit,
@@ -279,7 +277,29 @@ pub(super) fn fresh_with_templates(
         terrain_moves: Vec::new(),
         source,
         target,
-    };
+    })
+}
+
+pub(super) fn admit_prepared_match(game: &mut NativeMatch, catalog: &Catalog) -> Result<(), String> {
+    let team = game.teams.find_team_by_id(1).unwrap();
+    for owner in [game.source.clone(), game.target.clone()] {
+        transfer(game, catalog, 17, |services| {
+            services.admit_prepared_object(&owner, team.clone())
+        })?;
+        Object::admit_update_schedule_from_handle(&owner, &mut game.scheduler)?;
+    }
+    Ok(())
+}
+
+pub(super) fn fresh_with_templates(
+    catalog: &Catalog,
+    records: Option<&[ObjectSnapshotRecord]>,
+    source_name: &str,
+    target_name: &str,
+    source_has_ai: bool,
+    restore_frame: u32,
+) -> Result<NativeMatch, String> {
+    let mut game = prepare_with_templates(catalog, records, source_name, target_name)?;
     if let Some(records) = records {
         transfer(&mut game, catalog, restore_frame, |services| {
             services.load_objects(records)
@@ -337,13 +357,7 @@ pub(super) fn fresh_with_templates(
             Object::admit_update_schedule_from_handle(&owner, &mut game.scheduler)?;
         }
     } else {
-        let team = game.teams.find_team_by_id(1).unwrap();
-        for owner in [game.source.clone(), game.target.clone()] {
-            transfer(&mut game, catalog, 17, |services| {
-                services.admit_prepared_object(&owner, team.clone())
-            })?;
-            Object::admit_update_schedule_from_handle(&owner, &mut game.scheduler)?;
-        }
+        admit_prepared_match(&mut game, catalog)?;
     }
     Ok(game)
 }
