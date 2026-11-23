@@ -495,17 +495,31 @@ impl Object {
     /// C++ DISABLED_HELD residual (Battle Bus second life / contain freeze).
     pub fn set_status_disabled_held(&mut self, v: bool) {
         let was_disabled = self.has_disabled_type();
-        self.status.disabled_held = v;
+        self.set_held_mask_without_callbacks(v);
         self.note_disabled_status_transition(was_disabled);
+    }
+
+    pub(crate) fn set_held_mask_without_callbacks(&mut self, held: bool) {
+        use game_engine::common::game_common::{FOREVER, NEVER};
+        self.status.disabled_held = held;
+        self.status.disabled_held_until_frame = if held { FOREVER } else { NEVER };
+    }
+
+    pub(crate) fn held_disable_deadline(&self) -> u32 {
+        use game_engine::common::game_common::{FOREVER, NEVER};
+        let deadline = self.status.disabled_held_until_frame;
+        if self.status.disabled_held && deadline == NEVER {
+            return FOREVER;
+        }
+        deadline
     }
 
     /// The named script uses FOREVER or NEVER and dispatches its own callbacks.
     pub(in crate::game_logic) fn set_named_held_deadline(&mut self, deadline: u32, frame: u32) -> bool {
-        use game_engine::common::game_common::{FOREVER, NEVER};
-        let previous = if self.status.disabled_held { FOREVER } else { NEVER };
-        if previous == deadline {
+        if self.held_disable_deadline() == deadline {
             return false;
         }
+        self.status.disabled_held_until_frame = deadline;
         self.status.disabled_held = deadline > frame;
         true
     }

@@ -1,4 +1,4 @@
-//! Two original disabled-mask bits absent from the positional host status.
+//! Original disabled-mask state absent from the positional host status.
 use super::ObjectSnapshot;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 const TAG: &[u8; 4] = b"ODIS";
-const VERSION: u32 = 2;
+const VERSION_WITH_SCRIPT_STATUS: u32 = 2;
+const VERSION: u32 = 3;
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Record {
     object_id: u32,
@@ -24,28 +25,64 @@ struct RecordV1 {
     awestruck_until: u32,
     brainwashed_until: u32,
 }
+#[derive(Serialize, Deserialize)]
+pub(super) struct HeldDeadline {
+    object_id: u32,
+    deadline: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RecordPayload {
+    records: Vec<Record>,
+    held_deadlines: Vec<HeldDeadline>,
+}
+
 pub(super) struct Decoded<'a> {
     pub records: Option<Vec<Record>>,
+    pub held_deadlines: Vec<HeldDeadline>,
     pub legacy_tail: Cow<'a, [u8]>,
 }
 pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<()> {
-    let mut records: Vec<_> = world
-        .host_objects()
-        .registered()
-        .map(|(id, object)| Record {
+    use game_engine::common::game_common::{FOREVER, NEVER};
+
+    let mut records = Vec::with_capacity(world.host_objects().registered_len());
+    let mut held_deadlines = Vec::new();
+    for (id, object) in world.host_objects().registered() {
+        records.push(Record {
             object_id: id.0,
             awestruck: object.status.disabled_awestruck,
             brainwashed: object.status.disabled_brainwashed,
             awestruck_until: object.status.disabled_awestruck_until_frame,
             brainwashed_until: object.status.disabled_brainwashed_until_frame,
             script_status_disabled: Some(object.status.script_status_disabled),
-        })
-        .collect();
+        });
+        let deadline = object.held_disable_deadline();
+        let implied = if object.status.disabled_held { FOREVER } else { NEVER };
+        if deadline != implied {
+            held_deadlines.push(HeldDeadline {
+                object_id: id.0,
+                deadline,
+            });
+        }
+    }
     records.sort_by_key(|entry| entry.object_id);
-    let payload = bincode_legacy::serialize(&records).map_err(corrupted)?;
+    // Most HELD deadlines follow directly from the saved mask bit.
+    let (version, payload) = if held_deadlines.is_empty() {
+        (VERSION_WITH_SCRIPT_STATUS, bincode_legacy::serialize(&records))
+    } else {
+        held_deadlines.sort_by_key(|entry| entry.object_id);
+        (
+            VERSION,
+            bincode_legacy::serialize(&RecordPayload {
+                records,
+                held_deadlines,
+            }),
+        )
+    };
+    let payload = payload.map_err(corrupted)?;
     let length = u32::try_from(payload.len()).map_err(corrupted)?;
     bytes.extend_from_slice(TAG);
-    bytes.extend_from_slice(&VERSION.to_le_bytes());
+    bytes.extend_from_slice(&version.to_le_bytes());
     bytes.extend_from_slice(&length.to_le_bytes());
     bytes.extend_from_slice(&payload);
     Ok(())
@@ -60,6 +97,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     if !suffix.starts_with(TAG) {
         return Ok(Decoded {
             records: None,
+            held_deadlines: Vec::new(),
             legacy_tail: Cow::Borrowed(bytes),
         });
     }
@@ -68,7 +106,7 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     }
     let version = u32::from_le_bytes(suffix[4..8].try_into().unwrap());
     let length = u32::from_le_bytes(suffix[8..12].try_into().unwrap()) as usize;
-    if version != 1 && version != VERSION {
+    if !matches!(version, 1 | VERSION_WITH_SCRIPT_STATUS | VERSION) {
         return Err(corrupted("unknown version"));
     }
     let end = 12usize
@@ -78,12 +116,13 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
         .get(12..end)
         .ok_or_else(|| corrupted("truncated records"))?;
     let payload_length = payload.len();
-    let (records, consumed): (Vec<Record>, usize) = if version == 1 {
-        let (old, consumed): (Vec<RecordV1>, usize) =
-            bincode::serde::decode_from_slice(payload, bincode::config::legacy())
-                .map_err(corrupted)?;
-        (
-            old.into_iter()
+    let (records, held_deadlines, consumed) = match version {
+        1 => {
+            let (old, consumed): (Vec<RecordV1>, usize) =
+                bincode::serde::decode_from_slice(payload, bincode::config::legacy())
+                    .map_err(corrupted)?;
+            let records = old
+                .into_iter()
                 .map(|entry| Record {
                     object_id: entry.object_id,
                     awestruck: entry.awestruck,
@@ -92,13 +131,24 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
                     brainwashed_until: entry.brainwashed_until,
                     script_status_disabled: None,
                 })
-                .collect(),
-            consumed,
-        )
-    } else {
-        bincode::serde::decode_from_slice(payload, bincode::config::legacy()).map_err(corrupted)?
+                .collect();
+            (records, Vec::new(), consumed)
+        }
+        VERSION_WITH_SCRIPT_STATUS => {
+            let (records, consumed) =
+                bincode::serde::decode_from_slice(payload, bincode::config::legacy())
+                    .map_err(corrupted)?;
+            (records, Vec::new(), consumed)
+        }
+        VERSION => {
+            let (decoded, consumed): (RecordPayload, usize) =
+                bincode::serde::decode_from_slice(payload, bincode::config::legacy())
+                    .map_err(corrupted)?;
+            (decoded.records, decoded.held_deadlines, consumed)
+        }
+        _ => unreachable!("disabled continuation version checked above"),
     };
-    if version == VERSION
+    if version >= VERSION_WITH_SCRIPT_STATUS
         && records
             .iter()
             .any(|record: &Record| record.script_status_disabled.is_none())
@@ -112,12 +162,14 @@ pub(super) fn decode(bytes: &[u8]) -> SaveLoadResult<Decoded<'_>> {
     tail.extend_from_slice(&suffix[end..]);
     Ok(Decoded {
         records: Some(records),
+        held_deadlines,
         legacy_tail: Cow::Owned(tail),
     })
 }
 
 pub(super) fn validate(
     records: Option<&[Record]>,
+    held_deadlines: &[HeldDeadline],
     objects: &HashMap<ObjectId, ObjectSnapshot>,
 ) -> SaveLoadResult<()> {
     let Some(records) = records else {
@@ -133,7 +185,26 @@ pub(super) fn validate(
             return Err(corrupted("unknown or duplicate owner"));
         }
     }
+    seen.clear();
+    for held in held_deadlines {
+        let id = ObjectId(held.object_id);
+        if held.deadline == game_engine::common::game_common::NEVER
+            || !objects.contains_key(&id)
+            || !seen.insert(id)
+        {
+            return Err(corrupted("invalid HELD deadline or owner"));
+        }
+    }
     Ok(())
+}
+
+/// Apply after OXOB has restored the active bit and its implied deadline.
+pub(super) fn apply_held_deadlines(held_deadlines: &[HeldDeadline], world: &mut GameLogic) {
+    for entry in held_deadlines {
+        if let Some(object) = world.objects.get_mut(&ObjectId(entry.object_id)) {
+            object.status.disabled_held_until_frame = entry.deadline;
+        }
+    }
 }
 /// Reconstruct the saved script bit before each Object is admitted, so its
 /// restore callbacks cannot observe the old combined-mask approximation.

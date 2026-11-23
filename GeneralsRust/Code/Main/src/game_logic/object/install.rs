@@ -4,6 +4,7 @@ use super::*;
 pub(in crate::game_logic) enum TimedDisable {
     Emp,
     Hacked,
+    Held,
     Paralyzed,
     Awestruck,
     Brainwashed,
@@ -20,6 +21,10 @@ impl TimedDisable {
             Self::Hacked => (
                 &mut status.disabled_hacked,
                 &mut status.disabled_hacked_until_frame,
+            ),
+            Self::Held => (
+                &mut status.disabled_held,
+                &mut status.disabled_held_until_frame,
             ),
             Self::Paralyzed => (
                 &mut status.disabled_paralyzed,
@@ -952,6 +957,7 @@ impl Object {
                 self.status.disabled_hacked,
                 self.status.disabled_hacked_until_frame,
             ),
+            TimedDisable::Held => (self.status.disabled_held, self.held_disable_deadline()),
             TimedDisable::Paralyzed => (
                 self.status.disabled_paralyzed,
                 self.status.disabled_paralyzed_until_frame,

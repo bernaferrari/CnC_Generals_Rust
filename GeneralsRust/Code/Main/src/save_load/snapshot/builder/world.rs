@@ -658,6 +658,7 @@ impl SnapshotBuilder {
             super::super::original_disabled_persist::decode(native_lifecycle.legacy_tail.as_ref())?;
         super::super::original_disabled_persist::validate(
             original_disabled.records.as_deref(),
+            &original_disabled.held_deadlines,
             &snapshot.objects,
         )?;
         let repair_dock =
@@ -1155,6 +1156,10 @@ impl SnapshotBuilder {
         )?;
         let transport_projection =
             super::super::object_xfer_persist::apply(object_continuations, game_logic)?;
+        super::super::original_disabled_persist::apply_held_deadlines(
+            &original_disabled.held_deadlines,
+            game_logic,
+        );
         // OXOB's active Guard deadline must agree with the immutable nested
         // continuation; neither record may silently repair a conflicting save.
         super::super::named_unit_history_persist::apply_from_lifecycle_tail(

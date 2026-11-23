@@ -985,7 +985,7 @@ impl SnapshotBuilder {
         object.status.parachute_landing_override_set = status.parachute_landing_override_set;
         object.status.faerie_fire = status.faerie_fire;
         object.faerie_fire_until_frame = status.faerie_fire_until_frame;
-        object.status.disabled_held = status.disabled_held;
+        object.set_held_mask_without_callbacks(status.disabled_held);
 
         object.special_power_ready = status.special_power_ready;
         object.special_power_cooldown = status.special_power_cooldown;

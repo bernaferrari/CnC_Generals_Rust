@@ -765,6 +765,10 @@ pub struct ObjectStatus {
     /// C++ DISABLED_HELD (Battle Bus second-life hulk / contain freeze).
     #[serde(default)]
     pub disabled_held: bool,
+    /// C++ m_disabledTillFrame[DISABLED_HELD], carried by the native disabled
+    /// continuation when it cannot be derived from the legacy active bit.
+    #[serde(skip)]
+    pub(crate) disabled_held_until_frame: u32,
     /// C++ OBJECT_STATUS_MISSILE_KILLING_SELF (MissileAIUpdate::detonate → KillSelf).
     #[serde(default)]
     pub missile_killing_self: bool,

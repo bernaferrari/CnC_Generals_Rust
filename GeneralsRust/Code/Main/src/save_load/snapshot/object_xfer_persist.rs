@@ -787,7 +787,7 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.last_damage_info_type = None;
         object.last_damage_fx_done = None;
         object.next_damage_fx_time = 0;
-        object.status.disabled_held = false;
+        object.set_held_mask_without_callbacks(false);
         object.single_use_command_used = false;
         object.ai_attitude = 0;
         object.custom_indicator_color = None;
@@ -922,7 +922,7 @@ fn apply_payload(
             .as_deref()
             .and_then(|name| game_logic.resolve_receiving_locomotor(name));
         if let Some(object) = game_logic.objects.get_mut(&id) {
-            object.status.disabled_held = entry.disabled_held;
+            object.set_held_mask_without_callbacks(entry.disabled_held);
             object.single_use_command_used = entry.single_use_command_used;
             object.ai_attitude = entry.ai_attitude;
             object.custom_indicator_color = entry.custom_indicator_color;

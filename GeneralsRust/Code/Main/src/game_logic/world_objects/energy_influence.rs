@@ -650,6 +650,68 @@ End
     }
 
     #[test]
+    fn held_deadline_expires_in_original_order_after_save_and_load() {
+        use game_engine::common::game_common::FOREVER;
+
+        let (mut world, ids) = spawned_radar_world();
+        let (mut restored, restored_ids) = spawned_radar_world();
+        assert_eq!(ids, restored_ids);
+        let [parent, plant, _] = ids;
+        world.set_current_frame(u64::from(FOREVER) - 1);
+        world.set_owned_named_held(parent, true);
+        assert!(world.apply_owned_paralyzed_disabled(plant, FOREVER));
+        assert!(ids.iter().all(|id| world.objects[id].is_held_disabled()));
+        assert_eq!(world.players[&1].power_produced, 0);
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+        for owner in [&mut world, &mut restored] {
+            owner.expire_owned_disabled_statuses();
+            assert!(ids.iter().all(|id| owner.objects[id].is_held_disabled()));
+            owner.set_current_frame(u64::from(FOREVER));
+            owner.expire_owned_disabled_statuses();
+            assert!(ids.iter().all(|id| !owner.objects[id].has_disabled_type()));
+            // HELD clears before PARALYZED, whose recursive recovery is
+            // followed by the suspended HELD recovery on the same object.
+            assert_eq!(owner.players[&1].power_produced, 40);
+            assert_eq!(owner.players[&1].radar_count, 2);
+        }
+    }
+
+    #[test]
+    fn saved_inactive_held_deadline_still_propagates_a_named_release() {
+        use game_engine::common::game_common::FOREVER;
+
+        let (mut world, ids) = spawned_radar_world();
+        let (mut restored, restored_ids) = spawned_radar_world();
+        assert_eq!(ids, restored_ids);
+        let [parent, _, grandchild] = ids;
+        world.set_current_frame(u64::from(FOREVER));
+        world.set_owned_named_held(parent, true);
+        assert!(ids.iter().all(|id| !world.objects[id].is_held_disabled()));
+        world
+            .objects
+            .get_mut(&grandchild)
+            .unwrap()
+            .set_status_disabled_held(true);
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+        assert!(restored.objects[&grandchild].is_held_disabled());
+        restored.set_owned_named_held(parent, false);
+        assert!(ids.iter().all(|id| !restored.objects[id].is_held_disabled()));
+        assert!(world.objects[&grandchild].is_held_disabled());
+    }
+
+    #[test]
     fn same_frame_disable_expiry_delivers_each_recursive_recovery_callback() {
         let (mut world, ids) = spawned_radar_world();
         let (mut restored, restored_ids) = spawned_radar_world();

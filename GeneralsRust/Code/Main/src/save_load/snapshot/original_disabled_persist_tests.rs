@@ -102,7 +102,7 @@ fn malformed_frame_and_owner_roster_reject_before_receiver_mutation() {
     let snapshot = super::super::SnapshotBuilder::new()
         .create_world_snapshot(&world)
         .unwrap();
-    assert!(validate(Some(&[]), &snapshot.objects).is_err());
+    assert!(validate(Some(&[]), &[], &snapshot.objects).is_err());
     let record = Record {
         object_id: id.0,
         awestruck: true,
@@ -111,10 +111,23 @@ fn malformed_frame_and_owner_roster_reject_before_receiver_mutation() {
         brainwashed_until: 0,
         script_status_disabled: Some(false),
     };
-    assert!(validate(Some(&[record.clone(), record.clone()]), &snapshot.objects).is_err());
-    let mut unknown = record;
+    assert!(
+        validate(Some(&[record.clone(), record.clone()]), &[], &snapshot.objects).is_err()
+    );
+    let mut unknown = record.clone();
     unknown.object_id += 1;
-    assert!(validate(Some(&[unknown]), &snapshot.objects).is_err());
+    assert!(validate(Some(&[unknown]), &[], &snapshot.objects).is_err());
+    let deadline = |object_id| HeldDeadline { object_id, deadline: 50 };
+    assert!(
+        validate(
+            Some(std::slice::from_ref(&record)),
+            &[deadline(id.0), deadline(id.0)],
+            &snapshot.objects,
+        ).is_err()
+    );
+    assert!(
+        validate(Some(&[record]), &[deadline(id.0 + 1)], &snapshot.objects).is_err()
+    );
     let mut bytes = super::super::lifecycle_tail::encode_lifecycle_tail(&Default::default());
     let boundary = bytes.len();
     append(&mut bytes, &world).unwrap();
@@ -122,7 +135,7 @@ fn malformed_frame_and_owner_roster_reject_before_receiver_mutation() {
         assert!(decode(&bytes[..length]).is_err());
     }
     let mut bad = bytes.clone();
-    bad[boundary + 4..boundary + 8].copy_from_slice(&3u32.to_le_bytes());
+    bad[boundary + 4..boundary + 8].copy_from_slice(&(VERSION + 1).to_le_bytes());
     assert!(decode(&bad).is_err());
     bytes.extend_from_within(boundary..);
     assert!(decode(&bytes).is_err());
@@ -217,7 +230,7 @@ fn malformed_complete_roster_leaves_direct_receiver_unchanged() {
     snapshot.lifecycle_tail.extend_from_slice(TAG);
     snapshot
         .lifecycle_tail
-        .extend_from_slice(&VERSION.to_le_bytes());
+        .extend_from_slice(&VERSION_WITH_SCRIPT_STATUS.to_le_bytes());
     snapshot
         .lifecycle_tail
         .extend_from_slice(&(payload.len() as u32).to_le_bytes());

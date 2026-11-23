@@ -269,7 +269,7 @@ impl GameLogic {
                 .get_mut(&child_id)
                 .expect("installed detached child");
             if transport && !helix {
-                child.status.disabled_held = false;
+                child.set_held_mask_without_callbacks(false);
                 if airborne {
                     child.allow_to_fall = true;
                 }
