@@ -934,7 +934,7 @@ impl Object {
 
     /// Apply the local part of Object::setDisabledUntil. The caller delivers
     /// the aggregate disabled edge after dispatching any child disables.
-    pub(in crate::game_logic) fn begin_timed_disable(
+    fn begin_timed_disable(
         &mut self,
         effect: TimedDisable,
         until_frame: u32,
@@ -1033,15 +1033,30 @@ impl Object {
 
     /// Object::setDisabledUntil updates the mask and module pause count
     /// before dispatching contained and spawned objects.
-    pub(in crate::game_logic) fn begin_underpowered_disable(&mut self, deadline: u32, frame: u32) -> bool {
-        if self.underpowered_disable_deadline() == deadline {
+    pub(in crate::game_logic) fn begin_owned_timed_disable(
+        &mut self,
+        effect: TimedDisable,
+        deadline: u32,
+        frame: u32,
+    ) -> bool {
+        let (was_active, stored_deadline) = {
+            let (active, deadline) = effect.state_mut(&mut self.status);
+            (*active, *deadline)
+        };
+        let stored_deadline = match effect {
+            TimedDisable::Held => self.held_disable_deadline(),
+            TimedDisable::Underpowered => self.underpowered_disable_deadline(),
+            _ => stored_deadline,
+        };
+        if stored_deadline == deadline {
             return false;
         }
-        if !self.status.disabled_underpowered {
+        if !was_active && effect != TimedDisable::Held {
             self.pause_authored_powers_for_disable(true);
         }
-        self.status.disabled_underpowered_until_frame = deadline;
-        self.status.disabled_underpowered = frame < deadline;
+        let (active, stored_deadline) = effect.state_mut(&mut self.status);
+        *active = frame < deadline;
+        *stored_deadline = deadline;
         true
     }
 

@@ -1,5 +1,5 @@
 //! A disabled spawn-weapon site idles each receiving child before disabling it.
-use generals_main::game_logic::{GameLogic, GameMode, Player, Team};
+use generals_main::game_logic::{GameLogic, Player, Team};
 use glam::Vec3;
 
 fn world() -> (
@@ -11,22 +11,49 @@ fn world() -> (
     world
         .admit_object_ini_sources([(
             "SpawnDisabledIdle.ini".into(),
-            "Object SpawnDisabledIdleSite\n KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS\n Body = ActiveBody SiteBody\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject SpawnDisabledIdleChild\n KindOf = VEHICLE DOZER SELECTABLE\n Locomotor = SET_NORMAL AmericaVehicleDozerLocomotor\n Body = ActiveBody ChildBody\n MaxHealth = 200\n InitialHealth = 200\n End\n Behavior = DozerAIUpdate ChildAI\n End\nEnd\n".into(),
+            "
+Object SpawnDisabledIdleSite
+ KindOf = STRUCTURE SELECTABLE SPAWNS_ARE_THE_WEAPONS
+ Body = ActiveBody SiteBody
+  MaxHealth = 500
+  InitialHealth = 500
+ End
+ Behavior = DefaultProductionExitUpdate Exit
+ End
+ Behavior = SpawnBehavior Spawn
+  SpawnNumber = 1
+  SpawnTemplateName = SpawnDisabledIdleChild
+  OneShot = Yes
+ End
+End
+Object SpawnDisabledIdleChild
+ KindOf = VEHICLE DOZER SELECTABLE
+ Locomotor = SET_NORMAL AmericaVehicleDozerLocomotor
+ Body = ActiveBody ChildBody
+  MaxHealth = 200
+  InitialHealth = 200
+ End
+ Behavior = DozerAIUpdate ChildAI
+ End
+End
+".into(),
         )])
         .unwrap();
-    world.start_new_game(GameMode::SinglePlayer).unwrap();
     world.add_player(Player::new(1, Team::USA, "Owner", true));
     let site = world
         .create_object_for_player("SpawnDisabledIdleSite", 1, Vec3::ZERO)
         .unwrap();
+    for _ in 0..32 {
+        world.update();
+    }
     let child = world
-        .create_object_for_player("SpawnDisabledIdleChild", 1, Vec3::new(5.0, 0.0, 0.0))
-        .unwrap();
-    // This fixture supplies the producer link directly. The authored KindOf
-    // is real; original SpawnBehavior roster admission and timing remain a
-    // separate ownership obligation.
-    assert!(world.host_object(site).unwrap().is_spawns_are_the_weapons());
-    world.host_object_mut(child).unwrap().producer_id = Some(site);
+        .host_objects()
+        .registered_values()
+        .find(|object| object.producer_id == Some(site))
+        .expect("authored SpawnBehavior child")
+        .id;
+    // Only the parent is inside the field. The child is reached by the callback.
+    assert!(world.set_registered_object_position(child, Vec3::X * 2_000.0));
     (world, site, child)
 }
 
@@ -47,17 +74,10 @@ fn disabled_spawn_site_runs_child_ai_idle_in_its_receiving_world_first() {
     peer.host_object_mut(peer_child)
         .unwrap()
         .set_actively_constructing(true);
-    {
-        let site = owner.host_object_mut(site).unwrap();
-        site.status.disabled_hacked = true;
-        site.status.disabled_hacked_until_frame = 90;
-    }
-
-    // Main's ordinary fixed-step driver reaches propagate_hacked_to_spawn_slaves.
-    owner.update_with_dt(1.0 / 30.0);
+    assert!(owner.apply_emp_pulse_disable_field_at(1, Vec3::ZERO, None));
 
     let owner_child = owner.host_object(child).unwrap();
-    assert!(owner_child.status.disabled_hacked);
+    assert!(owner_child.status.disabled_emp);
     assert_eq!(
         owner_child.last_command_source,
         2, // C++ CMD_FROM_AI, set by the owned derived Idle before disable.
@@ -68,6 +88,6 @@ fn disabled_spawn_site_runs_child_ai_idle_in_its_receiving_world_first() {
         "DozerAIUpdate::aiDoCommand clears its active-construction model condition"
     );
     let peer_child = peer.host_object(peer_child).unwrap();
-    assert!(!peer_child.status.disabled_hacked);
+    assert!(!peer_child.status.disabled_emp);
     assert_eq!(peer_child.last_command_source, 71);
 }

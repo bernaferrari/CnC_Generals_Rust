@@ -95,7 +95,7 @@ impl GameLogic {
                 return;
             };
             object.queue_timed_disable_reenabled_audio(effect, &mut self.health_events);
-            if effect == TimedDisable::Underpowered {
+            if effect != TimedDisable::Held {
                 object.pause_authored_powers_for_disable(false);
             }
             (object.visual_object_generation, deadline)

@@ -514,16 +514,6 @@ impl Object {
         deadline
     }
 
-    /// The named script uses FOREVER or NEVER and dispatches its own callbacks.
-    pub(in crate::game_logic) fn set_named_held_deadline(&mut self, deadline: u32, frame: u32) -> bool {
-        if self.held_disable_deadline() == deadline {
-            return false;
-        }
-        self.status.disabled_held_until_frame = deadline;
-        self.status.disabled_held = deadline > frame;
-        true
-    }
-
     /// C++ OBJECT_STATUS_MISSILE_KILLING_SELF residual.
     pub fn set_status_missile_killing_self(&mut self, v: bool) {
         self.status.missile_killing_self = v;
