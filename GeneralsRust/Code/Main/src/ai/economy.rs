@@ -2,9 +2,9 @@ use super::*;
 use game_engine::common::system::kind_of::KindOfMask;
 use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
 
-struct DozerReadiness {
-    available: Option<ObjectId>,
-    needs_dozer: bool,
+pub(super) struct DozerReadiness {
+    pub(super) available: Option<ObjectId>,
+    pub(super) needs_dozer: bool,
 }
 
 #[derive(Default)]
@@ -156,7 +156,7 @@ impl AIPlayer {
         Self::scan_dozer_readiness(game_logic, player, target, skip).available
     }
 
-    fn scan_dozer_readiness(
+    pub(super) fn scan_dozer_readiness(
         game_logic: &(impl AiReadSource + ?Sized),
         player: u32,
         target: Vec3,
@@ -512,6 +512,7 @@ impl AIPlayer {
             token: building.runtime_visit_token,
             template_name,
             position,
+            angle: 0.0,
             dozer,
             cost,
         })
@@ -1674,11 +1675,17 @@ impl AIPlayer {
             let mut order = AIWorkOrder::new(collector_template, 1, 100);
             order.is_resource_gatherer = true;
             order.supply_center_id = Some(center_id);
+            let started = if let Some(timing) = self.ordinary_timing.as_mut() {
+                timing.team_delay = 0;
+                game_logic.frame
+            } else {
+                (current_time * LOGIC_FRAMES_PER_SECOND) as u32
+            };
             self.team_queue.push_front(AITeamQueue::new(
                 "Supply truck".to_string(),
                 vec![order],
                 true,
-                (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
+                started,
             ));
             // C++ sets m_teamDelay=0 and proceeds through queueUnits in this
             // same pass, so process_team_queue will enqueue it immediately.

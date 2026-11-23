@@ -2584,8 +2584,9 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 calling,
                 condition,
             } => {
-                self.world
-                    .apply_owned_script_build_nearest(player, building, team, calling, condition);
+                return Some(self.world.apply_owned_script_build_nearest(
+                    player, building, team, calling, condition, &mut self.ui,
+                ));
             }
             ScriptAiPlayerRequest::BaseDefense {
                 player,

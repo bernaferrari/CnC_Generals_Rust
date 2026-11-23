@@ -114,25 +114,16 @@ impl GameLogic {
                         })
             })
         });
-        let definitions = self.ai_definitions.snapshot();
-        let (completion, desired) = {
+        let completion = {
             let Some(ai) = self.ai_manager.ai_players.get_mut(&owner) else {
                 return;
             };
-            ai.next_team_queue_time = 0.0;
-            ai.next_building_time = 0.0;
-            let side = ai.side_info_name();
-            let desired = definitions
-                .side_info
-                .iter()
-                .filter(|info| side.is_some_and(|side| info.side == side))
-                .last()
-                .map_or(0, |info| match ai.difficulty {
-                    AIDifficulty::Easy => info.easy,
-                    AIDifficulty::Medium => info.normal,
-                    AIDifficulty::Hard | AIDifficulty::Brutal => info.hard,
-                })
-                .wrapping_add(1);
+            ai.wake_team_queue();
+            if let Some(timing) = ai.ordinary_timing.as_mut() {
+                timing.build_delay = 0;
+            } else {
+                ai.next_building_time = 0.0;
+            }
             let Some(building) = ai
                 .building_queue
                 .iter_mut()
@@ -140,13 +131,19 @@ impl GameLogic {
             else {
                 if let Some(index) = rebuilt_pad {
                     ai.building_queue[index].object_id = Some(structure);
+                    if let Some(ordinary) = &mut ai.building_queue[index].ordinary {
+                        ordinary.under_construction = false;
+                    }
                 }
                 // Original rebound branch does not replay map properties,
                 // attached scripts, upgrades, or supply bookkeeping.
                 return;
             };
             building.is_built = true;
-            (building.completion.clone(), desired)
+            if let Some(ordinary) = &mut building.ordinary {
+                ordinary.under_construction = false;
+            }
+            building.completion.clone()
         };
         if let Some(completion) = completion {
             if let Some(object) = self.host_object_mut(structure) {
@@ -168,21 +165,41 @@ impl GameLogic {
                 self.run_owned_object_script_with_effects(&completion.script, structure, ui);
             }
         }
-        // Re-resolve after the immediate script; it may destroy/capture/change
-        // the structure or its pad. CPP checks the actual completed module now.
-        let is_supply = self.host_object(structure).is_some_and(|object| {
+        self.check_owned_ai_completed_supply_structure(owner, structure);
+    }
+
+    /// C++ AIPlayer::checkForSupplyCenter runs after the attached script.
+    pub(crate) fn check_owned_ai_completed_supply_structure(
+        &mut self,
+        owner: u32,
+        structure: ObjectId,
+    ) {
+        if !self.host_object(structure).is_some_and(|object| {
             object.thing().template.dock_kind == crate::game_logic::DockKind::SupplyCenter
-        });
-        if is_supply {
-            if let Some(building) = self.ai_manager.ai_players.get_mut(&owner).and_then(|ai| {
-                ai.building_queue
-                    .iter_mut()
-                    .find(|building| building.object_id == Some(structure))
-            }) {
-                building.supply_building = true;
-                building.current_gatherers = -1;
-                building.desired_gatherers = desired;
-            }
+        }) {
+            return;
+        }
+        let Some(ai) = self.ai_manager.ai_players.get_mut(&owner) else {
+            return;
+        };
+        let side = ai.side_info_name();
+        let desired = self.ai_definitions.data()
+            .side_info
+            .iter()
+            .filter(|info| side.is_some_and(|side| info.side == side))
+            .last()
+            .map_or(0, |info| match ai.difficulty {
+                AIDifficulty::Easy => info.easy,
+                AIDifficulty::Medium => info.normal,
+                AIDifficulty::Hard | AIDifficulty::Brutal => info.hard,
+            })
+            .wrapping_add(1);
+        if let Some(building) = ai.building_queue.iter_mut()
+            .find(|building| building.object_id == Some(structure))
+        {
+            building.supply_building = true;
+            building.current_gatherers = -1;
+            building.desired_gatherers = desired;
         }
     }
 
@@ -264,13 +281,15 @@ impl GameLogic {
                 ai.repair_dozer = Some(unit_id);
                 ai.repair_dozer_origin = unit_position;
                 ai.dozer_queued_for_repair = false;
+            } else if let Some(timing) = ai.ordinary_timing.as_mut() {
+                timing.build_delay = 0;
+                timing.structure_timer = 1;
             } else {
-                // Host economic scheduling combines C++ m_buildDelay=0 and
-                // m_structureTimer=1: make the next logic frame eligible.
+                // Skirmish's deadline makes the next logic frame eligible.
                 ai.next_building_time = now + 1.0 / LOGIC_FRAMES_PER_SECOND;
             }
         }
-        ai.next_team_queue_time = 0.0; // C++ m_teamDelay=0, not m_teamTimer.
+        ai.wake_team_queue();
 
         if let Some(delivery) = delivery {
             if let Some(team_id) = delivery.team_id {

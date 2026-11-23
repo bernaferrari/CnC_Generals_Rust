@@ -9,7 +9,9 @@
 //! `BuildListInfo.object_timestamp` rebuild-delay clock, `m_objectID`,
 //! `m_underConstruction`, and `m_priorityBuild`. Live spends remaining rebuilds
 //! as `AIBuildingInfo.rebuild_count`, the clock as `destroyed_at_time`, and the
-//! pad binding as `object_id` / `is_built` / `is_priority`.
+//! pad binding as `object_id` / `is_built` / `is_priority`. Ordinary campaign
+//! rows also keep the original raw frame and solo BuildList state, along with
+//! the controller's signed countdowns and readiness flags.
 //!
 //! Append an EOF-located owner frame after historical tagged extensions
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
@@ -17,13 +19,14 @@
 //! timestamps, and pad object bindings; it never re-runs selectTeamToBuild or
 //! rebuilds the INI layout.
 
-use crate::ai::{AITeamQueue, AIWorkOrder};
+use crate::ai::{AITeamQueue, AIWorkOrder, OrdinaryAiTiming, OrdinaryBuildListFields};
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const AITQ_MAGIC: &[u8; 4] = b"AITQ";
-const AITQ_VERSION: u32 = 7;
+const AITQ_VERSION: u32 = 8;
+const AITQ_VERSION_V7: u32 = 7;
 const AITQ_VERSION_V6: u32 = 6;
 const FRAME_MAGIC: &[u8; 4] = b"AIQF";
 const AITQ_VERSION_V5: u32 = 5;
@@ -52,6 +55,20 @@ struct AIPlayerQueuePersistPayloadV7 {
         u32,
         std::collections::BTreeMap<String, crate::ai::OwnedProductionConditionState>,
     )>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AIPlayerQueuePersistPayloadV8 {
+    shared: AIPlayerQueuePersistPayloadV7,
+    ordinary: Vec<(u32, OrdinaryAiContinuation)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OrdinaryAiContinuation {
+    timing: OrdinaryAiTiming,
+    // Indexed by the complete saved owner list above, including IDs
+    // that the ordinary base-building pass has not observed missing yet.
+    rows: Vec<Option<Box<OrdinaryBuildListFields>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -469,7 +486,7 @@ impl AIWorkOrderPersist {
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     let payload = capture(game_logic);
-    let payload = AIPlayerQueuePersistPayloadV7 {
+    let shared = AIPlayerQueuePersistPayloadV7 {
         queues: payload,
         buildings: game_logic
             .ai_manager
@@ -484,6 +501,25 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
             .map(|(&id, ai)| (id, ai.production_condition_states.clone()))
             .collect(),
     };
+    let ordinary: Vec<_> = game_logic
+        .ai_manager
+        .ai_players
+        .iter()
+        .filter_map(|(&id, ai)| {
+            Some((
+                id,
+                OrdinaryAiContinuation {
+                    timing: ai.ordinary_timing?,
+                    rows: ai
+                        .building_queue
+                        .iter()
+                        .map(|row| row.ordinary.clone())
+                        .collect(),
+                },
+            ))
+        })
+        .collect();
+    let payload = AIPlayerQueuePersistPayloadV8 { shared, ordinary };
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
@@ -505,6 +541,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
     if version != AITQ_VERSION
+        && version != AITQ_VERSION_V7
         && version != AITQ_VERSION_V6
         && version != AITQ_VERSION_V5
         && version != AITQ_VERSION_V4
@@ -525,12 +562,26 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     let encoded = &rest[..payload_len];
     let mut buildings = None;
     let mut conditions = None;
-    let payload = if version == AITQ_VERSION || version == AITQ_VERSION_V6 {
-        let current: AIPlayerQueuePersistPayloadV6 = if version == AITQ_VERSION {
+    let (shared, ordinary) = match version {
+        AITQ_VERSION => {
+            let current: AIPlayerQueuePersistPayloadV8 = bincode_legacy::deserialize(encoded)
+                .map_err(|err| {
+                    SaveLoadError::Corrupted(format!("AITQ v8 payload decode: {err}"))
+                })?;
+            (Some(current.shared), current.ordinary)
+        }
+        AITQ_VERSION_V7 => {
             let current: AIPlayerQueuePersistPayloadV7 = bincode_legacy::deserialize(encoded)
                 .map_err(|err| {
                     SaveLoadError::Corrupted(format!("AITQ v7 payload decode: {err}"))
                 })?;
+            (Some(current), Vec::new())
+        }
+        _ => (None, Vec::new()),
+    };
+    let mut ordinary_timing = std::collections::HashMap::new();
+    let payload = if version >= AITQ_VERSION_V6 {
+        let mut current: AIPlayerQueuePersistPayloadV6 = if let Some(current) = shared {
             let ids: std::collections::HashSet<_> = current
                 .queues
                 .players
@@ -586,6 +637,31 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 return Err(SaveLoadError::Corrupted(
                     "invalid AITQ v6 owned pads".into(),
                 ));
+            }
+        }
+        for (id, continuation) in ordinary {
+            let Some((_, pads)) = current.buildings.iter_mut().find(|(owner, _)| *owner == id)
+            else {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "missing AITQ ordinary BuildList owner {id}"
+                )));
+            };
+            if !game_logic.ai_manager.ai_players.contains_key(&id)
+                || game_logic
+                    .get_player(id)
+                    .is_none_or(|player| player.map_side.is_skirmish_ai)
+                || ordinary_timing.insert(id, continuation.timing).is_some()
+                || continuation.rows.len() != pads.len()
+                || continuation.rows.iter().flatten().any(|row| {
+                    !row.angle.is_finite() || row.rally_point_offset.iter().any(|v| !v.is_finite())
+                })
+            {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "invalid AITQ ordinary BuildList continuation for {id}"
+                )));
+            }
+            for (pad, fields) in pads.iter_mut().zip(continuation.rows) {
+                pad.ordinary = fields;
             }
         }
         buildings = Some(current.buildings);
@@ -644,7 +720,10 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     if let Some(buildings) = buildings {
         for (id, pads) in buildings {
             if let Some(ai) = game_logic.ai_manager.ai_players.get_mut(&id) {
+                // Player::xfer replaces the ordered list. An ordinary
+                // missing object still needs its first base-building visit.
                 ai.building_queue = pads;
+                ai.ordinary_timing = ordinary_timing.remove(&id);
             }
         }
     }
@@ -774,6 +853,143 @@ mod tests {
     }
 
     #[test]
+    fn encoded_snapshot_restores_ordinary_ai_paused_timers_and_ordered_build_list() {
+        let mut source = GameLogic::new();
+        let mut player = Player::new(1, Team::China, "Campaign builder", false);
+        player.can_build_base = false;
+        player.can_build_units = false;
+        source.add_player(player);
+        let civilian = || {
+            let mut player =
+                Player::new(2, Team::Neutral, "Civilian", false).with_script_identity("PlyrCivilian");
+            player.map_side.role = crate::game_logic::PlayerSideRole::Participant;
+            player
+        };
+        source.add_player(civilian());
+        source.admit_direct_map_ai_controllers(Some(gamelogic::player::GameDifficulty::Hard));
+
+        let timing = OrdinaryAiTiming {
+            ready_to_build_team: true,
+            ready_to_build_structure: false,
+            team_timer: -3,
+            structure_timer: 37,
+            build_delay: 19,
+            team_delay: 21,
+            team_seconds: 11,
+            frame_last_building_built: 219,
+            bridge_timer: 1401,
+        };
+        let mut gatherers =
+            [None; gamelogic::build_list_info::BuildListInfo::MAX_RESOURCE_GATHERERS];
+        gatherers[1] = Some(ObjectId(74));
+        gatherers[8] = Some(ObjectId(3));
+        let former = OrdinaryBuildListFields {
+            rally_point_offset: [9.0, -7.5],
+            angle: 0.375,
+            initially_built: true,
+            whiner: true,
+            repairable: false,
+            object_timestamp: 0xf123_4567,
+            under_construction: false,
+            resource_gatherers: gatherers,
+        };
+        let next = OrdinaryBuildListFields {
+            rally_point_offset: [-11.0, 6.0],
+            angle: -0.625,
+            initially_built: false,
+            object_timestamp: 0,
+            under_construction: true,
+            ..former.clone()
+        };
+        let missing = ObjectId(600);
+        let mut first = crate::ai::AIBuildingInfo::new(
+            "ChinaSupplyCenter".into(),
+            Vec3::new(9.0, 0.0, -5.0),
+            4,
+        );
+        first.object_id = Some(missing);
+        first.is_built = true;
+        first.rebuild_count = 2;
+        first.supply_building = true;
+        first.current_gatherers = -1;
+        first.desired_gatherers = 8;
+        first.ordinary = Some(Box::new(former.clone()));
+        let mut second = crate::ai::AIBuildingInfo::new(
+            "ChinaSupplyCenter".into(),
+            Vec3::new(-3.0, 0.0, 1.0),
+            2,
+        );
+        second.is_priority = true;
+        second.automatic_build = false;
+        second.ordinary = Some(Box::new(next.clone()));
+        let ai = source.ai_manager.ai_players.get_mut(&1).unwrap();
+        ai.is_active = false;
+        ai.ordinary_timing = Some(timing);
+        ai.building_queue = vec![first, second];
+        let empty = source.ai_manager.ai_players.get_mut(&2).unwrap();
+        empty.is_active = false;
+        empty.ordinary_timing = Some(OrdinaryAiTiming {
+            structure_timer: 7,
+            ..timing
+        });
+        empty.building_queue.clear();
+
+        let builder = SnapshotBuilder::new();
+        let saved = builder.create_world_snapshot(&source).unwrap();
+        let bytes = bincode_legacy::serialize(&saved).unwrap();
+        let decoded = bincode_legacy::deserialize(&bytes).unwrap();
+        let mut receiving = china_ai_logic();
+        // As with a real resumed map, the receiving TeamFactory already has
+        // each authored default prototype before the save applies the roster.
+        receiving.add_player(civilian());
+        let mut peer = china_ai_logic();
+        let peer_ai = peer.ai_manager.ai_players.get_mut(&1).unwrap();
+        let peer_timing = OrdinaryAiTiming {
+            team_timer: 76,
+            ..timing
+        };
+        peer_ai.ordinary_timing = Some(peer_timing);
+        let peer_layout_len = peer_ai.building_queue.len();
+        builder
+            .restore_from_snapshot(&decoded, &mut receiving)
+            .unwrap();
+
+        let player = receiving.get_player(1).unwrap();
+        assert!(!player.can_build_base && !player.can_build_units);
+        let ai = &receiving.ai_manager.ai_players[&1];
+        assert!(!ai.is_active);
+        assert_eq!(ai.ordinary_timing, Some(timing));
+        let [first, second] = ai.building_queue.as_slice() else {
+            panic!("receiving list must match the two saved rows");
+        };
+        assert_eq!(first.template_name, second.template_name);
+        assert_eq!(first.position, Vec3::new(9.0, 0.0, -5.0));
+        assert_eq!(second.position, Vec3::new(-3.0, 0.0, 1.0));
+        assert_eq!(first.object_id, Some(missing));
+        assert!(first.is_built);
+        assert_eq!(first.max_rebuilds - first.rebuild_count, 2);
+        assert_eq!((first.current_gatherers, first.desired_gatherers), (-1, 8));
+        assert!(second.is_priority && !second.automatic_build);
+        assert_eq!(first.ordinary.as_deref(), Some(&former));
+        assert_eq!(second.ordinary.as_deref(), Some(&next));
+        assert!(
+            receiving.ai_manager.ai_players[&2]
+                .building_queue
+                .is_empty()
+        );
+        assert_eq!(
+            receiving.ai_manager.ai_players[&2]
+                .ordinary_timing
+                .unwrap()
+                .structure_timer,
+            7
+        );
+        let peer_ai = &peer.ai_manager.ai_players[&1];
+        assert_eq!(peer_ai.ordinary_timing, Some(peer_timing));
+        assert_eq!(peer_ai.building_queue.len(), peer_layout_len);
+    }
+
+    #[test]
     fn framed_queue_restores_authored_pad_callback_and_supply_continuation() {
         let mut source = china_ai_logic();
         let ai = source.ai_manager.ai_players.get_mut(&1).unwrap();
@@ -891,7 +1107,7 @@ mod tests {
             };
             let encoded = bincode_legacy::serialize(&payload).unwrap();
             let mut bytes = AITQ_MAGIC.to_vec();
-            append_u32(&mut bytes, AITQ_VERSION);
+            append_u32(&mut bytes, AITQ_VERSION_V7);
             append_u32(&mut bytes, encoded.len() as u32);
             bytes.extend_from_slice(&encoded);
             let mut target = china_ai_logic();

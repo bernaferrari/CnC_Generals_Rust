@@ -1416,10 +1416,9 @@ impl GameLogic {
             scripts_started.elapsed().as_secs_f32()
         );
 
-        // Skirmish/SP: map spawn clears world objects. Rebind host AI (stale
-        // object/factory refs, rebuild budget) and re-ensure GLA_*/faction templates
-        // without wiping players, cash, difficulty, or is_active.
-        if self.uses_lobby_side_foundation() || self.is_single_player_scenario() {
+        // GameLogic.cpp:1911–1982 places GameInfo slot starters for fresh
+        // lobby games. Campaign objects belong to the authored map.
+        if self.uses_lobby_side_foundation() && !self.is_loading_saved_snapshot() {
             self.rebind_host_ai_after_map_load();
             // C++ GameLogic.cpp placeObjectAtPosition loop for PlayerTemplate StartingUnitN.
             // Without this, Lone Eagle-style maps keep buildings but no dozers/workers.
@@ -1456,13 +1455,13 @@ impl GameLogic {
         // GameLogic.cpp:2069-2071 final step: PlayerList::newMap, unless
         // loading a saved game.
         if !self.is_loading_saved_snapshot() {
-            self.admit_preplaced_campaign_factories();
-            self.new_map_owned_skirmish_ai_with_effects(
+            self.new_map_owned_ai_with_effects(
                 &mut native
                     .as_mut()
                     .map(|native| native.effects())
                     .unwrap_or_default(),
-            );
+            )
+            .map_err(|error| error.to_string())?;
         }
 
         self.map_loaded = true;

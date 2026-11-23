@@ -1935,26 +1935,6 @@ impl SnapshotBuilder {
         }
     }
 
-    pub(super) fn difficulty_from_modifiers(
-        modifiers: &DifficultyModifiers,
-    ) -> crate::ai::AIDifficulty {
-        let score = (modifiers.ai_resource_bonus
-            + modifiers.ai_damage_bonus
-            + modifiers.ai_health_bonus
-            + modifiers.ai_build_speed_bonus)
-            / 4.0;
-
-        if score < 0.95 {
-            crate::ai::AIDifficulty::Easy
-        } else if score < 1.15 {
-            crate::ai::AIDifficulty::Medium
-        } else if score < 1.35 {
-            crate::ai::AIDifficulty::Hard
-        } else {
-            crate::ai::AIDifficulty::Brutal
-        }
-    }
-
     pub(super) fn sorted_unique_strings<I>(iter: I) -> Vec<String>
     where
         I: IntoIterator<Item = String>,

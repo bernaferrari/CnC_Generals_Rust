@@ -14,6 +14,7 @@ pub(super) struct ScaffoldAttempt {
     pub token: u64,
     pub template_name: String,
     pub position: Vec3,
+    pub angle: f32,
     pub dozer: ObjectId,
     pub cost: Resources,
 }
@@ -38,7 +39,7 @@ impl ScaffoldAttempt {
             self.player,
             self.dozer,
             self.position,
-            0.0,
+            self.angle,
             self.cost,
             ui,
         )?

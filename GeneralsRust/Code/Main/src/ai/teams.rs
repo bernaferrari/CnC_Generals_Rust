@@ -20,17 +20,19 @@ impl AIPlayer {
         current_time: f32,
         ai_data: &AiDataView,
     ) -> gamelogic::GameLogicResult<()> {
-        // C++ WorkOrder::validateFactory: failed production must release the
-        // association so a later pass can submit to a surviving producer.
-        for team in &mut self.team_queue {
-            for order in &mut team.work_orders {
-                if order.factory_id.is_some_and(|id| {
-                    !game_logic
-                        .host_object(id)
-                        .is_some_and(|factory| factory.is_alive())
-                }) {
-                    order.factory_id = None;
-                    order.queued_count = 0;
+        let ordinary = self.ordinary_timing.is_some();
+        if !ordinary {
+            // The existing Skirmish queue retries lost producers immediately.
+            for team in &mut self.team_queue {
+                for order in &mut team.work_orders {
+                    if order.factory_id.is_some_and(|id| {
+                        !game_logic
+                            .host_object(id)
+                            .is_some_and(|factory| factory.is_alive())
+                    }) {
+                        order.factory_id = None;
+                        order.queued_count = 0;
+                    }
                 }
             }
         }
@@ -54,25 +56,36 @@ impl AIPlayer {
         for (team_index, team) in self.team_queue.iter_mut().enumerate() {
             let mut all_complete = true;
 
-            for (order_index, work_order) in team.work_orders.iter().enumerate() {
-                if work_order.num_completed < work_order.num_required {
-                    // Try to queue more units
-                    if work_order.factory_id.is_none()
-                        && (can_build_units
-                            || game_logic.production_template_is_dozer(&work_order.template_name)
-                            || work_order.is_resource_gatherer)
+            for (order_index, work_order) in team.work_orders.iter_mut().enumerate() {
+                let waiting = work_order.num_completed < work_order.num_required;
+                all_complete &= !waiting;
+                // AIPlayer.cpp:2652–2689, 3688–3700. A bound order
+                // validates on this visit. An invalid receipt can retry on
+                // the next pass, after other orders have had their turn.
+                if let Some(factory) = work_order.factory_id {
+                    if ordinary
+                        && !game_logic.host_object(factory).is_some_and(|factory| {
+                            game_logic.player_owner_for_host_object(factory) == Some(self.player_id)
+                        })
                     {
-                        factory_assignments.push((
-                            team_index,
-                            order_index,
-                            work_order.template_name.clone(),
-                            team.priority_build,
-                            work_order.is_resource_gatherer,
-                            work_order.supply_center_id,
-                        ));
+                        work_order.factory_id = None;
+                        work_order.queued_count = 0;
                     }
-
-                    all_complete = false;
+                    continue;
+                }
+                if waiting
+                    && (can_build_units
+                        || game_logic.production_template_is_dozer(&work_order.template_name)
+                        || work_order.is_resource_gatherer)
+                {
+                    factory_assignments.push((
+                        team_index,
+                        order_index,
+                        work_order.template_name.clone(),
+                        team.priority_build,
+                        work_order.is_resource_gatherer,
+                        work_order.supply_center_id,
+                    ));
                 }
             }
 
@@ -1785,12 +1798,23 @@ impl AIPlayer {
                 );
             }
         }
-        let mut q = AITeamQueue::new(
-            team_name,
-            vec![order],
-            false,
-            (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
-        );
+        let ordinary = self.ordinary_timing.is_some();
+        // AIPlayer.cpp:1618–1620 attempts ordinary reinforcement before
+        // returning to queueUnits (which starts by checking supply trucks).
+        if ordinary && order.num_completed == 0 {
+            if let Some(factory) = self.find_factory_and_clear_captures(game_logic, &thing, false)
+                && game_logic.enqueue_production(factory, thing)
+            {
+                order.factory_id = Some(factory);
+                order.queued_count = 1;
+            }
+        }
+        let started = if ordinary {
+            game_logic.frame
+        } else {
+            (current_time * LOGIC_FRAMES_PER_SECOND) as u32
+        };
+        let mut q = AITeamQueue::new(team_name, vec![order], false, started);
         q.reinforcement = true;
         if let Some(id) = q
             .work_orders
@@ -1803,7 +1827,11 @@ impl AIPlayer {
         q.team_id = Some(inst_id);
         self.team_queue.push_front(q);
         // C++ m_teamDelay = 0
-        self.next_team_queue_time = current_time;
+        if let Some(timing) = self.ordinary_timing.as_mut() {
+            timing.team_delay = 0;
+        } else {
+            self.next_team_queue_time = current_time;
+        }
         self.activity_count = self.activity_count.saturating_add(1);
         true
     }
@@ -2225,7 +2253,7 @@ impl AIPlayer {
                 self.team_queue.push_back(team);
             }
             // C++ `m_teamDelay = 0` so `queueUnits` retries immediately.
-            self.next_team_queue_time = 0.0;
+            self.wake_team_queue();
             self.activity_count = self.activity_count.saturating_add(1);
 
             if execute_actions && !production_condition.is_empty() {

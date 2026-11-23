@@ -546,6 +546,7 @@ impl GameLogic {
                 log::error!("Receiving authored Player admission failed: {error}");
                 return Ok(false);
             }
+            self.admit_direct_map_ai_controllers(difficulty);
         }
         self.sync_legacy_player_list_from_sides();
         self.transfer_side_build_lists_to_players();
@@ -857,16 +858,23 @@ impl GameLogic {
             .map(|index| self.host_player_id_for_side_index(index as u32))
             .collect();
         for (index, owner) in owners.into_iter().enumerate() {
+            let ordinary = owner.and_then(|id| self.ai_manager.ai_players.get_mut(&id))
+                .filter(|ai| ai.ordinary_timing.is_some());
+            let mut ordinary_rows = ordinary.map(|ai| &mut ai.building_queue);
             let Some(side) = self.prepared_map_sides.get_side_info_mut(index) else {
                 continue;
             };
             let mut node = side.take_build_list();
             let mut list = Vec::new();
             while let Some(mut entry) = node {
+                if let Some(rows) = ordinary_rows.as_deref_mut() {
+                    rows.push(crate::ai::AIBuildingInfo::from_campaign_build_list(&entry));
+                }
                 let location = entry.get_location();
                 list.push(HostAuthoredBuild {
                     template: entry.get_template_name().to_string(),
                     position: (location.x, location.y, location.z),
+                    angle: entry.get_angle(),
                     num_rebuilds: entry.get_num_rebuilds(),
                     initially_built: entry.is_initially_built(),
                     completion: crate::ai::AuthoredStructureCompletion {
@@ -1086,6 +1094,7 @@ impl GameLogic {
             grouped.entry(pid).or_default().push(HostAuthoredBuild {
                 template: entry.template.clone(),
                 position: (entry.position.x, entry.position.y, entry.position.z),
+                angle: entry.angle,
                 num_rebuilds: entry.num_rebuilds.max(0) as u32,
                 initially_built: entry.initially_built,
                 completion: crate::ai::AuthoredStructureCompletion {
@@ -1121,6 +1130,9 @@ impl GameLogic {
             let Some(ai) = self.ai_manager.ai_players.get_mut(&pid) else {
                 continue;
             };
+            if ai.ordinary_timing.is_some() {
+                continue;
+            }
             ai.building_queue.clear();
             for entry in list {
                 let pos = glam::Vec3::new(entry.position.0, entry.position.2, entry.position.1);

@@ -796,15 +796,23 @@ impl AIPlayer {
         if self.structures_to_repair.is_empty() {
             return None;
         }
-        if self.last_bridge_repair_time >= 0.0 && current_time - self.last_bridge_repair_time < 1.0
-        {
+        let ordinary = self.ordinary_timing.is_some();
+        if let Some(timing) = &mut self.ordinary_timing {
+            // AIPlayer.cpp:2298–2304 visits every logic frame while work exists.
+            timing.bridge_timer = timing.bridge_timer.wrapping_sub(1);
+            if timing.bridge_timer > 0 {
+                return None;
+            }
+            timing.bridge_timer = LOGIC_FRAMES_PER_SECOND as i32;
+        } else if self.last_bridge_repair_time >= 0.0 && current_time - self.last_bridge_repair_time < 1.0 {
             return None;
+        } else {
+            self.last_bridge_repair_time = current_time;
         }
-        self.last_bridge_repair_time = current_time;
 
         while !self.structures_to_repair.is_empty() {
             let head = self.structures_to_repair[0];
-            if game_logic.host_object(head).is_some_and(|o| o.is_alive()) {
+            if game_logic.host_object(head).is_some_and(|o| ordinary || o.is_alive()) {
                 break;
             }
             self.structures_to_repair.remove(0);
@@ -818,7 +826,7 @@ impl AIPlayer {
         };
         let bridge_pos = bridge.get_position();
         let bridge_pristine = matches!(bridge.body_damage_state, HostBodyDamageType::Pristine)
-            && bridge.health.current + 0.01 >= bridge.health.maximum;
+            && (ordinary || bridge.health.current + 0.01 >= bridge.health.maximum);
 
         if self.repair_dozer.is_none() {
             self.dozer_is_repairing = false;
@@ -843,17 +851,22 @@ impl AIPlayer {
         let Some(dozer_id) = self.repair_dozer else {
             return None;
         };
-        let Some(dozer) = game_logic.host_object(dozer_id) else {
+        let Some(dozer) = game_logic
+            .host_object(dozer_id)
+            .filter(|dozer| ordinary || dozer.is_alive())
+        else {
             self.repair_dozer = None;
+            if let Some(timing) = &mut self.ordinary_timing {
+                timing.bridge_timer = 0;
+            }
             self.last_bridge_repair_time = -1.0;
             return None;
         };
-        if !dozer.is_alive() {
-            self.repair_dozer = None;
-            self.last_bridge_repair_time = -1.0;
-            return None;
-        }
-        let dozer_idle = dozer.ai_state() == AIState::Idle;
+        let dozer_idle = if ordinary {
+            dozer.dozer_tasks.requests.iter().all(|task| task.target.is_none())
+        } else {
+            dozer.ai_state() == AIState::Idle
+        };
 
         if self.dozer_is_repairing {
             if !dozer_idle {
@@ -863,7 +876,12 @@ impl AIPlayer {
                 self.structures_to_repair.remove(0);
                 self.dozer_is_repairing = false;
                 if self.structures_to_repair.is_empty() {
-                    let home = if self.base_center.length_squared() > 0.0 {
+                    let use_base = if ordinary {
+                        self.base_center_set
+                    } else {
+                        self.base_center.length_squared() > 0.0
+                    };
+                    let home = if use_base {
                         self.base_center
                     } else {
                         self.repair_dozer_origin
@@ -874,7 +892,9 @@ impl AIPlayer {
                         position: home,
                     });
                 }
-                return None;
+                if !ordinary {
+                    return None;
+                }
             }
         }
 

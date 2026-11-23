@@ -14,28 +14,37 @@ impl GameLogic {
     /// C++ GameLogic::startNewGame final step (GameLogic.cpp:2069-2071):
     /// PlayerList::newMap runs each Player's AI newMap before the first
     /// script frame, so script build requests mark the AIData build list.
-    pub(crate) fn new_map_owned_skirmish_ai_with_effects(
+    pub(crate) fn new_map_owned_ai_with_effects(
         &mut self,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let data = AiDataView::from_world(self);
         let mut ids: Vec<u32> = self.ai_manager.ai_players.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
-            self.initialize_owned_skirmish_ai_with_effects(id, &data, ui);
+            let Some(ai) = self.ai_manager.ai_players.get(&id) else {
+                continue;
+            };
+            if ai.ordinary_timing.is_some() {
+                self.new_map_owned_ordinary_ai(id, ui)?;
+            } else {
+                self.initialize_owned_skirmish_ai_with_effects(id, &data, ui);
+            }
         }
+        Ok(())
     }
 
     /// AIPlayer.cpp:3010–3027 and Player.cpp:653–663. Admit the
     /// preplaced producers for each installed ordinary campaign controller.
     /// Two prepends in C++ leave oldest Object birth first in the BuildList.
+    #[cfg(test)]
     pub(crate) fn admit_preplaced_campaign_factories(&mut self) {
         if !self.is_single_player_scenario()
             || self.ai_definitions.data().force_skirmish_ai
         {
             return;
         }
-        let mut rows: std::collections::BTreeMap<u32, Vec<AIBuildingInfo>> = self
+        let owners: Vec<_> = self
             .ai_manager
             .ai_players
             .keys()
@@ -43,40 +52,31 @@ impl GameLogic {
             .filter(|&id| self.get_player(id).is_some_and(|player| {
                 !player.is_human && !player.is_reserved_neutral() && !player.map_side.is_skirmish_ai
             }))
-            .map(|id| (id, Vec::new()))
             .collect();
-        if rows.is_empty() {
-            return;
+        for owner in owners {
+            self.prepend_owned_campaign_factories(owner);
         }
+    }
+
+    pub(super) fn prepend_owned_campaign_factories(&mut self, owner: u32) {
+        let mut preplaced = Vec::new();
         for object in self.host_objects().registered_values().rev() {
-            let Some(entries) = self
-                .player_owner_for_host_object(object)
-                .and_then(|owner| rows.get_mut(&owner))
-            else {
-                continue;
-            };
-            if AIPlayer::has_factory_production_interface(object) {
-                let mut entry = AIBuildingInfo::new(
-                    object.template_name.clone(), object.get_position(), 0,
-                );
-                entry.object_id = Some(object.id);
-                entry.is_built = object.is_constructed();
-                entries.push(entry);
+            if self.object_owned_by_player(object, owner)
+                && AIPlayer::has_factory_production_interface(object)
+            {
+                preplaced.push(AIBuildingInfo::preplaced_campaign_factory(object));
             }
         }
-        for (id, mut preplaced) in rows {
-            let has_authored_rows = self.get_player(id)
-                .is_some_and(|player| !player.map_side.build_list.is_empty());
-            let ai = self.ai_manager.ai_players.get_mut(&id).expect("map AI owner");
-            if has_authored_rows {
+        let has_authored_rows = self.get_player(owner)
+            .is_some_and(|player| !player.map_side.build_list.is_empty());
+        if let Some(ai) = self.ai_manager.ai_players.get_mut(&owner) {
+            if has_authored_rows || ai.ordinary_timing.is_some() {
                 preplaced.append(&mut ai.building_queue);
             }
             ai.building_queue = preplaced;
-            // The ordinary controller must not later apply
-            // AISkirmishPlayer::adjustBuildList to these campaign factories.
             ai.skirmish_new_map_applied = true;
-            self.compute_owned_ai_base_extent(id);
         }
+        self.compute_owned_ai_base_extent(owner);
     }
 
     /// Initial-map destruction and factory callbacks observe the installed AI.
@@ -93,7 +93,7 @@ impl GameLogic {
         let Some(ai) = self.ai_manager.ai_players.get_mut(&player) else {
             return;
         };
-        if !ai.is_active || ai.skirmish_new_map_applied {
+        if !ai.is_active || ai.skirmish_new_map_applied || ai.ordinary_timing.is_some() {
             return;
         }
         ai.skirmish_new_map_applied = true;
@@ -251,7 +251,7 @@ impl GameLogic {
         };
         self.ai_manager.ai_players.insert(player, ai);
         queue_result?;
-        let candidates: Vec<(String, i32)> = self
+        let candidates = self
             .ai_manager
             .ai_players
             .get(&player)
@@ -260,29 +260,8 @@ impl GameLogic {
                     && now >= ai.next_team_time
                     && ai.can_attempt_team_selection(self)
             })
-            .map(|ai| {
-                ai.team_factory
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .owned_team_prototypes_for_controller(player)
-                    .into_iter()
-                    .map(|prototype| {
-                        (
-                            prototype.get_name().to_string(),
-                            prototype.get_production_priority(),
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let conditions = candidates
-            .iter()
-            .cloned()
-            .map(|(name, _)| {
-                let result = self.evaluate_owned_team_condition(player, &name);
-                (name, result)
-            })
-            .collect::<HashMap<_, _>>();
+            .map_or_else(Vec::new, AIPlayer::player_team_prototype_candidates);
+        let conditions = self.evaluate_owned_ai_team_conditions(player, &candidates);
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return Ok(());
         };
@@ -336,6 +315,142 @@ impl GameLogic {
         queue_result?;
         Ok(())
     }
+    fn evaluate_owned_ai_team_conditions(
+        &mut self,
+        player: u32,
+        candidates: &[(String, i32)],
+    ) -> HashMap<String, bool> {
+        candidates
+            .iter()
+            .map(|(name, _)| {
+                let result = self.evaluate_owned_team_condition(player, name);
+                (name.clone(), result)
+            })
+            .collect()
+    }
+
+    fn run_owned_ordinary_ai_queue_units(
+        &mut self,
+        player: u32,
+        now: f32,
+        data: &AiDataView,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
+            return Ok(());
+        };
+        let result = ai.process_team_queue_with_ai_data(self, now, data);
+        self.ai_manager.ai_players.insert(player, ai);
+        result
+    }
+
+    /// AIPlayer.cpp:2620–2626, 2877–2902. Player permission pauses both
+    /// countdowns; only the ordinary controller runs this 150-frame cadence.
+    pub(super) fn update_owned_ordinary_ai_team_building_with_effects(
+        &mut self,
+        player: u32,
+        now: f32,
+        data: &AiDataView,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        use super::teams::OwnedTeamSelection;
+
+        if !self.get_player(player).is_some_and(|p| p.can_build_units) {
+            return Ok(());
+        }
+        let Some(timing) = self
+            .ai_manager
+            .ai_players
+            .get_mut(&player)
+            .and_then(|ai| ai.ordinary_timing.as_mut())
+        else {
+            return Ok(());
+        };
+        if !timing.ready_to_build_team {
+            timing.team_timer = timing.team_timer.wrapping_sub(1);
+            if timing.team_timer <= 0 {
+                timing.ready_to_build_team = true;
+                timing.team_delay = 0;
+            }
+        }
+        timing.team_delay = timing.team_delay.wrapping_sub(1);
+        if timing.team_delay >= 1 {
+            return Ok(());
+        }
+
+        self.run_owned_ordinary_ai_queue_units(player, now, data)?;
+        let candidates = self
+            .ai_manager
+            .ai_players
+            .get(&player)
+            .filter(|ai| {
+                ai.ordinary_timing
+                    .is_some_and(|timing| timing.ready_to_build_team)
+            })
+            .map(AIPlayer::player_team_prototype_candidates);
+        let selection = if let Some(candidates) = candidates {
+            // Evaluate authored conditions with the canonical controllers installed.
+            let conditions = self.evaluate_owned_ai_team_conditions(player, &candidates);
+            let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
+                return Ok(());
+            };
+            let selection = ai.prepare_team_selection_with_conditions(
+                self,
+                now,
+                data,
+                Some(&conditions),
+                Some(candidates),
+            );
+            self.ai_manager.ai_players.insert(player, ai);
+            selection
+        } else {
+            OwnedTeamSelection::None
+        };
+        let selected = match selection {
+            OwnedTeamSelection::None => false,
+            OwnedTeamSelection::Reinforced => true,
+            OwnedTeamSelection::New(name) => {
+                // AIPlayer.cpp:1699–1707 arms the timer after the void build
+                // call even when the admission or an authored action fails.
+                self.build_owned_specific_ai_team_with_effects(player, &name, false, None, ui);
+                let money = self.get_player(player).map_or(0, |p| p.resources.supplies);
+                let definitions = self.ai_definitions.data();
+                if let Some(timing) = self
+                    .ai_manager
+                    .ai_players
+                    .get_mut(&player)
+                    .and_then(|ai| ai.ordinary_timing.as_mut())
+                {
+                    timing.ready_to_build_team = false;
+                    let timer = timing.team_seconds.wrapping_mul(30);
+                    timing.team_timer = if money < definitions.resources_poor as u32 {
+                        (timer as f32 / definitions.team_poor_mod) as i32
+                    } else if money > definitions.resources_wealthy as u32 {
+                        (timer as f32 / definitions.team_wealthy_mod) as i32
+                    } else {
+                        timer
+                    };
+                }
+                true
+            }
+        };
+        let result = if selected {
+            self.run_owned_ordinary_ai_queue_units(player, now, data)
+        } else {
+            Ok(())
+        };
+
+        // The final write wins over any synchronous team admission shortcut.
+        if let Some(timing) = self
+            .ai_manager
+            .ai_players
+            .get_mut(&player)
+            .and_then(|ai| ai.ordinary_timing.as_mut())
+        {
+            timing.team_delay = 5 * 30;
+        }
+        result
+    }
+
     // Explicit UI-only adapter for standalone callers; native roots lend both domains.
     pub(crate) fn update_owned_ai_military_with_ui(
         &mut self,
@@ -510,7 +625,7 @@ impl GameLogic {
             return false;
         }
         node.team_id = Some(team_id);
-        ai.next_team_queue_time = 0.0;
+        ai.wake_team_queue();
         ai.activity_count = ai.activity_count.saturating_add(1);
         // CPP rereads the admitted prototype after the null-team callback.
         let (execute, condition) = admitted_actions.unwrap();
@@ -589,6 +704,9 @@ impl GameLogic {
         let Some(ai) = self.ai_manager.ai_players.get_mut(&player) else {
             return;
         };
+        let frame = self.frame;
+        let ordinary = ai.ordinary_timing.is_some();
+        let skirmish = skirmish && !ordinary;
         for node in ai.team_queue.iter_mut() {
             if node.visit_token == 0 {
                 node.visit_token = ai.next_queue_visit_token;
@@ -603,7 +721,11 @@ impl GameLogic {
         loop {
             let decision = self.ai_manager.ai_players.get(&player).and_then(|ai| {
                 ai.team_queue.iter().enumerate().find_map(|(index, team)| {
-                    let expired = team.is_build_time_expired(&ai.team_factory, now);
+                    let expired = if ordinary {
+                        team.is_ordinary_build_time_expired(&ai.team_factory, frame)
+                    } else {
+                        team.is_build_time_expired(&ai.team_factory, now)
+                    };
                     let minimum = team.is_minimum_built();
                     (expired && (!minimum || team.are_builds_complete()))
                         .then_some((index, minimum))
@@ -1277,6 +1399,199 @@ mod tests {
                 .is_some()
         );
         assert!(world.owned_script_engine.is_some());
+    }
+
+    #[test]
+    fn ordinary_team_cadence_pauses_and_selects_with_the_signed_clock() {
+        let mut world = callback_world();
+        world
+            .create_object_for_player("AmericaBarracks", 1, Vec3::new(80.0, 0.0, 0.0))
+            .unwrap();
+        // Parent holds an existing work order. These two pending receipts put
+        // the ordinary controller at the same count as the Skirmish guard.
+        let initial = OrdinaryAiTiming {
+            ready_to_build_team: false,
+            ready_to_build_structure: false,
+            team_timer: 2,
+            structure_timer: 2,
+            build_delay: 31,
+            team_delay: 0,
+            team_seconds: 17,
+            frame_last_building_built: 0,
+            bridge_timer: 0,
+        };
+        let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+        ai.ordinary_timing = Some(initial);
+        ai.set_team_delay_seconds(-3);
+        let initial = ai.ordinary_timing.unwrap();
+        for name in ["PendingOne", "PendingTwo"] {
+            ai.team_queue.push_back(AITeamQueue::new(
+                name.into(),
+                vec![AIWorkOrder::new("MissingCampaignUnit".into(), 1, 100)],
+                false,
+                0,
+            ));
+        }
+        world
+            .ai_manager
+            .ai_players
+            .get_mut(&2)
+            .unwrap()
+            .ordinary_timing = Some(OrdinaryAiTiming {
+            team_delay: 77,
+            ..initial
+        });
+        let mut definitions = world.ai_definitions.data().clone();
+        definitions.resources_poor = 0;
+        definitions.resources_wealthy = 7_000;
+        definitions.team_wealthy_mod = 2.0;
+        world.set_ai_definition_base(definitions);
+        world.frame = (1 << 24) + 1;
+        let data = AiDataView::from_world(&world);
+
+        world.get_player_mut(1).unwrap().set_can_build_units(false);
+        tick_ordinary_team(&mut world, &data);
+        let ai = &world.ai_manager.ai_players[&1];
+        assert_eq!(ai.ordinary_timing, Some(initial));
+        assert_eq!(ai.team_queue.len(), 3);
+        assert_eq!(ai.team_queue[0].work_orders[0].factory_id, None);
+
+        world.get_player_mut(1).unwrap().set_can_build_units(true);
+        tick_ordinary_team(&mut world, &data);
+        let ai = &world.ai_manager.ai_players[&1];
+        assert_eq!(
+            ai.ordinary_timing,
+            Some(OrdinaryAiTiming {
+                team_timer: 1,
+                team_delay: 150,
+                ..initial
+            })
+        );
+        assert_eq!(ai.team_queue.len(), 3);
+        assert!(ai.team_queue[0].work_orders[0].factory_id.is_some());
+
+        tick_ordinary_team(&mut world, &data);
+        let ai = &world.ai_manager.ai_players[&1];
+        assert_eq!(
+            ai.ordinary_timing,
+            Some(OrdinaryAiTiming {
+                team_timer: -45,
+                team_delay: 150,
+                ..initial
+            })
+        );
+        let child = ai
+            .team_queue
+            .iter()
+            .find(|node| node.name == "Child")
+            .unwrap();
+        assert_eq!(child.frame_started, world.frame);
+        assert!(child.work_orders[0].factory_id.is_some());
+        assert_eq!(ai.next_team_time, 100_000.0);
+        assert_eq!(ai.next_team_queue_time, 100_000.0);
+        let peer = &world.ai_manager.ai_players[&2];
+        assert!(peer.team_queue.iter().any(|node| node.name == "PeerChild"));
+        assert_eq!(peer.ordinary_timing.unwrap().team_delay, 0);
+        assert_eq!(peer.ordinary_timing.unwrap().team_timer, 2);
+        assert_eq!(peer.next_team_queue_time, 100_000.0);
+    }
+
+    fn tick_ordinary_team(world: &mut GameLogic, data: &AiDataView) {
+        world.frame += 1;
+        world
+            .update_owned_ordinary_ai_team_building_with_effects(
+                1,
+                world.frame as f32 / LOGIC_FRAMES_PER_SECOND,
+                data,
+                &mut Default::default(),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn ordinary_work_order_validation_yields_the_idle_factory_to_waiting_orders() {
+        const RANGER: &str = "AmericaInfantryRanger";
+        const MISSILE_DEFENDER: &str = "AmericaInfantryMissileDefender";
+
+        let mut world = callback_world();
+        let captured = world
+            .host_objects()
+            .registered_values()
+            .find(|object| {
+                object.template_name == "AmericaBarracks" && object.owner_player_id == Some(1)
+            })
+            .unwrap()
+            .id;
+        let removed = world
+            .create_object_for_player("AmericaBarracks", 1, Vec3::new(80.0, 0.0, 0.0))
+            .unwrap();
+        let replacement = world
+            .create_object_for_player("AmericaBarracks", 1, Vec3::new(160.0, 0.0, 0.0))
+            .unwrap();
+        world.templates.get_mut(RANGER).unwrap().set_cost(225, 0);
+        let mut missile_defender = ThingTemplate::new(MISSILE_DEFENDER);
+        missile_defender
+            .add_kind_of(KindOf::Infantry)
+            .set_cost(300, 0);
+        world
+            .templates
+            .insert(MISSILE_DEFENDER.into(), missile_defender);
+
+        assert!(world.enqueue_production(captured, RANGER.into()));
+        assert!(world.enqueue_production(removed, RANGER.into()));
+        let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+        ai.ordinary_timing = Some(OrdinaryAiTiming {
+            ready_to_build_team: false,
+            ready_to_build_structure: false,
+            team_timer: 500,
+            structure_timer: 500,
+            build_delay: 500,
+            team_delay: 0,
+            team_seconds: 20,
+            frame_last_building_built: 0,
+            bridge_timer: 0,
+        });
+        let [first, second] = [captured, removed].map(|factory| {
+            let mut order = AIWorkOrder::new(RANGER.into(), 1, 100);
+            order.factory_id = Some(factory);
+            order.queued_count = 1;
+            order
+        });
+        let waiting = AIWorkOrder::new(MISSILE_DEFENDER.into(), 1, 100);
+        ai.team_queue[0].work_orders = vec![first, second, waiting];
+
+        assert!(world.transfer_object_to_player(captured, 2).unwrap());
+        world.destroy_object(removed).unwrap();
+        world.process_destroy_list();
+        let captured_object = world.host_object(captured).unwrap();
+        assert_eq!(captured_object.owner_player_id, Some(2));
+        assert_eq!(captured_object.team, Team::USA);
+        assert!(world.host_object(removed).is_none());
+        let cash = world.host_authoritative_cash(1).unwrap();
+        let peer_cash = world.host_authoritative_cash(2).unwrap();
+
+        let data = AiDataView::from_world(&world);
+        tick_ordinary_team(&mut world, &data);
+
+        let orders = &world.ai_manager.ai_players[&1].team_queue[0].work_orders;
+        assert_eq!(
+            orders
+                .iter()
+                .map(|o| (o.factory_id, o.queued_count))
+                .collect::<Vec<_>>(),
+            [(None, 0), (None, 0), (Some(replacement), 1)]
+        );
+        let queue = &world
+            .host_object(replacement)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue;
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].template_name, MISSILE_DEFENDER);
+        assert_eq!(world.host_authoritative_cash(1), Some(cash - 300));
+        assert_eq!(world.host_authoritative_cash(2), Some(peer_cash));
     }
 
     #[test]

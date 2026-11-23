@@ -168,6 +168,112 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mounted_md_usa01_installs_ordinary_ai_and_runs_its_first_player_phase() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "mounted_md_usa01_installs_ordinary_ai_and_runs_its_first_player_phase",
+            || {
+                let definitions = crate::parallel_harness::RetailWorldDefinitions::load()
+                    .expect("mounted Zero Hour startup definitions");
+                let map = crate::game_logic::resolve_retail_map_path("MD_USA01")
+                    .expect("mounted MD_USA01 map");
+                let mut world = GameLogic::new();
+                world
+                    .with_own_services_mut(|world| definitions.admit(world))
+                    .unwrap();
+                world
+                    .start_new_game_in_campaign_session(GameMode::SinglePlayer, true, false)
+                    .unwrap();
+                let frame_at_admission = world.getFrame();
+                assert!(world.load_map(map.to_str().unwrap()));
+                assert!(world.has_campaign_session());
+                let id_of = |name| {
+                    world
+                        .get_players()
+                        .iter()
+                        .find(|(_, player)| player.script_identity() == Some(name))
+                        .map(|(&id, _)| id)
+                        .expect("stock campaign side")
+                };
+                let owner = id_of("INTRO_Euro_Base");
+                let human = id_of("The_Player");
+                let civilian = id_of("PlyrCivilian");
+                let player = world.get_player(owner).unwrap();
+                assert!(!player.is_human && !player.map_side.is_skirmish_ai);
+                assert!(world.is_host_ai_active(owner));
+                assert!(world.is_host_ai_active(civilian));
+                assert!(!world.is_host_ai_active(0));
+                assert!(!world.is_host_ai_active(human));
+                assert!(player.can_build_base);
+                assert!(!player.can_build_units);
+                assert!(player.map_side.build_list.is_empty());
+
+                let ai = &world.ai_manager.ai_players[&owner];
+                let initial = ai.ordinary_timing.expect("ordinary controller timing");
+                assert!(!initial.ready_to_build_structure && !initial.ready_to_build_team);
+                assert_eq!((initial.structure_timer, initial.team_timer), (2, 2));
+                assert_eq!((initial.build_delay, initial.team_delay), (0, 0));
+                assert_eq!(initial.frame_last_building_built, frame_at_admission as i32);
+                assert_eq!(
+                    initial.team_seconds,
+                    world.ai_definitions.data().team_seconds as i32
+                );
+                let factory_ids = world
+                    .host_objects()
+                    .registered_values()
+                    .rev()
+                    .filter(|object| {
+                        object.owner_player_id == Some(owner)
+                            && matches!(
+                                object.template_name.as_str(),
+                                "AmericaBarracks" | "AmericaCommandCenter",
+                            )
+                    })
+                    .map(|object| object.id)
+                    .collect::<Vec<_>>();
+                assert_eq!(factory_ids.len(), 2);
+                assert_eq!(
+                    ai.building_queue
+                        .iter()
+                        .filter(|pad| {
+                            matches!(
+                                pad.template_name.as_str(),
+                                "AmericaBarracks" | "AmericaCommandCenter",
+                            )
+                        })
+                        .map(|pad| pad.object_id.unwrap())
+                        .collect::<Vec<_>>(),
+                    factory_ids,
+                );
+                assert!(
+                    ai.building_queue.iter().all(|pad| {
+                        pad.object_id.is_some() && pad.is_built && pad.max_rebuilds == 0
+                    })
+                );
+
+                // The native logic loop calls this same pathfinding and PlayerList
+                // phase. Drive it before mission actions change build permissions.
+                world
+                    .with_own_services_mut(|world| {
+                        world.update_match_ai_with_effects(&mut Default::default())
+                    })
+                    .unwrap();
+                let ai = &world.ai_manager.ai_players[&owner];
+                let after = ai.ordinary_timing.unwrap();
+                assert_eq!(after.structure_timer, 1);
+                assert_eq!(after.build_delay, 60);
+                assert!(!after.ready_to_build_structure && !after.ready_to_build_team);
+                assert_eq!((after.team_timer, after.team_delay), (2, 0));
+                assert_eq!(
+                    after.frame_last_building_built,
+                    initial.frame_last_building_built
+                );
+                assert_eq!(ai.activity_count, 0);
+            },
+        );
+    }
+
     fn row(name: &str, human: bool, money: i32) -> Dict {
         let mut row = Dict::new();
         row.set_ascii_string(key_player_name(), name);

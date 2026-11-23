@@ -104,13 +104,14 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
     .map(|(template, position)| crate::game_logic::HostAuthoredBuild {
         template: template.into(),
         position,
+        angle: 0.0,
         num_rebuilds: 1,
         initially_built: false,
         completion: Default::default(),
     })
     .collect();
     game_logic.feed_host_ai_from_authored_build_lists();
-    game_logic.new_map_owned_skirmish_ai_with_effects(&mut Default::default());
+    game_logic.new_map_owned_ai_with_effects(&mut Default::default()).unwrap();
     let base_center = Vec3::new(140.0, 0.0, 100.0);
     assert_eq!(game_logic.ai_manager.ai_players[&0].get_base_center(), Some(base_center));
 

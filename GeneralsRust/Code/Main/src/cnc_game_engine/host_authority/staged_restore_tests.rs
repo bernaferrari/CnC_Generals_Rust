@@ -1832,7 +1832,7 @@ End
                     .unwrap();
                 let catalog = source.templates.clone();
                 let crate::save_load::DecodedGameSave {
-                    snapshot,
+                    mut snapshot,
                     save_info: info,
                     saved_game_mode,
                     ..
@@ -1840,9 +1840,9 @@ End
                 #[cfg(feature = "game_client")]
                 {
                     use crate::game_logic::NativeMapAdmission;
-                    // Exercise the real saved-stage producer after actual map
-                    // factory births. The initial empty discard succeeds; the
-                    // first Object destructor's selected native callback fails.
+                    // C++ skips lobby starter births on saved map load. Tamper
+                    // with the particle stream so cleanup must instead retire
+                    // Objects admitted from the actual saved roster.
                     struct RejectSelected {
                         selected: Vec<game_client::core::DrawableId>,
                         empty_discards: usize,
@@ -1888,7 +1888,8 @@ End
                             None,
                         )
                         .unwrap();
-                    let restore_called = std::cell::Cell::new(false);
+                    let original_particle_state =
+                        snapshot.particle_system_companion.replace(vec![1, 0]);
                     let failure = CnCGameEngine::stage_decoded_saved_world_for_restore_with_native(
                         &snapshot,
                         save_info("terminal-owned-services", map_name.clone()),
@@ -1915,25 +1916,25 @@ End
                         source.session_view.camera.movement_policy,
                         source.session_view.camera.input_policy,
                         &source.world_services,
-                        |_, _| {
-                            restore_called.set(true);
-                            Err("snapshot callback must follow foundation retirement".into())
+                        |snapshot, candidate| {
+                            assert!(candidate.host_objects().registered_is_empty());
+                            crate::save_load::SnapshotBuilder::new()
+                                .restore_from_snapshot(snapshot, candidate)
+                                .map_err(|error| error.to_string())
                         },
                         Some(&mut attempt),
                     );
                     drop(attempt);
+                    snapshot.particle_system_companion = original_particle_state;
                     let mut failure = match failure {
                         Err(failure) => failure,
                         Ok(_) => panic!("selected native retirement must reject real saved stage"),
                     };
-                    assert!(
-                        !restore_called.get(),
-                        "native foundation retirement precedes snapshot replacement"
-                    );
+
                     assert!(
                         failure
                             .to_string()
-                            .contains("saved-map foundation retirement"),
+                            .contains("staged Object cleanup=Err"),
                         "{failure}"
                     );
                     assert!(
@@ -1941,8 +1942,8 @@ End
                         "{failure}"
                     );
                     assert_eq!(
-                        terminal_retirement.empty_discards, 1,
-                        "only initial pristine discard is admitted"
+                        terminal_retirement.empty_discards, 2,
+                        "empty setup discards complete before the selected restored Drawable fails"
                     );
                     assert_eq!(
                         terminal_retirement.selected.len(),

@@ -32,6 +32,7 @@ impl AIPlayer {
             // Seed from player id (stable per slot); base_center updates don't reseed.
             placement_rng: HostRandomState::seeded(player_id.wrapping_add(0xA17A_0001)),
             building_queue: Vec::new(),
+            ordinary_timing: None,
             next_building_visit_token: 1,
             next_building_time: 0.0,
             next_team_queue_time: 0.0,
@@ -72,6 +73,35 @@ impl AIPlayer {
         }
     }
 
+    /// Keep an authored startup row identifiable through synchronous factory
+    /// callbacks. Its actual Object binding is written after BuildAssistant.
+    pub(crate) fn reserve_campaign_initial_build_row(
+        &mut self,
+        index: usize,
+        authored: &crate::game_logic::HostAuthoredBuild,
+    ) -> Option<u64> {
+        let row = self.building_queue.get_mut(index)?;
+        if row.template_name != authored.template
+            || row.position != Vec3::new(authored.position.0, authored.position.2, authored.position.1)
+            || row.object_id.is_some()
+        {
+            return None;
+        }
+        self.campaign_build_row_visit(index)
+    }
+
+    pub(super) fn campaign_build_row_visit(&mut self, index: usize) -> Option<u64> {
+        let row = self.building_queue.get_mut(index)?;
+        if row.runtime_visit_token == 0 {
+            row.runtime_visit_token = self.next_building_visit_token;
+            self.next_building_visit_token = self
+                .next_building_visit_token
+                .checked_add(1)
+                .expect("AI building token exhaustion");
+        }
+        Some(row.runtime_visit_token)
+    }
+
     pub(crate) fn get_base_center(&self) -> Option<Vec3> {
         self.base_center_set.then_some(self.base_center)
     }
@@ -93,7 +123,19 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::setTeamDelaySeconds`.
     pub fn set_team_delay_seconds(&mut self, delay: i32) {
-        self.team_seconds = delay.max(0) as f32;
+        if let Some(timing) = self.ordinary_timing.as_mut() {
+            timing.team_seconds = delay;
+        } else {
+            self.team_seconds = delay.max(0) as f32;
+        }
+    }
+
+    pub(super) fn wake_team_queue(&mut self) {
+        if let Some(timing) = self.ordinary_timing.as_mut() {
+            timing.team_delay = 0;
+        } else {
+            self.next_team_queue_time = 0.0;
+        }
     }
 
     pub fn capture_queue_persist(
@@ -253,6 +295,7 @@ impl AIPlayer {
     }
 
     pub fn clear_queue_persist(&mut self) {
+        self.ordinary_timing = None;
         self.team_queue.clear();
         self.team_ready_queue.clear();
         self.next_building_time = 0.0;
@@ -963,7 +1006,14 @@ impl AIPlayer {
         // not automatic SkirmishBuildList entries.
         building.automatic_build = false;
         building.is_priority = true;
-        self.building_queue.push(building);
+        if self.ordinary_timing.is_some() {
+            // Player::addToPriorityBuildList prepends a single build.
+            building.max_rebuilds = 1;
+            building.set_ordinary_defaults(0.0);
+            self.building_queue.insert(0, building);
+        } else {
+            self.building_queue.push(building);
+        }
     }
 
     /// C++ `AISkirmishPlayer::newMap` layout slot: increment rebuilds so the

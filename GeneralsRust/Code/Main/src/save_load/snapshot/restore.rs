@@ -2010,30 +2010,6 @@ impl SnapshotBuilder {
     //     Ok(())
     // }
 
-    pub(super) fn restore_global_ai_state(
-        &self,
-        global_ai_snapshot: &GlobalAIStateSnapshot,
-        game_logic: &mut GameLogic,
-    ) -> SaveLoadResult<()> {
-        let inferred_difficulty =
-            Self::difficulty_from_modifiers(&global_ai_snapshot.difficulty_modifiers);
-
-        let local_player_id = game_logic.local_player_id().unwrap_or(u32::MAX);
-        game_logic.setup_skirmish_ai(local_player_id);
-
-        let ai_player_ids: Vec<u32> = game_logic
-            .get_players()
-            .iter()
-            .filter_map(|(id, player)| (!player.is_human).then_some(*id))
-            .collect();
-
-        for player_id in ai_player_ids {
-            game_logic.set_ai_difficulty(player_id, inferred_difficulty);
-        }
-
-        Ok(())
-    }
-
     /// C++ `OpenContain::xfer` (`OpenContain.cpp:1590`) persist the contain
     /// list. Host HUD / capacity use `BuildingData.garrisoned_units`, which
     /// is a live mirror of `Object.occupants` and must be rebuilt on load.

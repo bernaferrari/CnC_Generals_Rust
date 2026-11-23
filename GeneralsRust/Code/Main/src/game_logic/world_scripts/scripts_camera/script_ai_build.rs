@@ -69,30 +69,72 @@ impl GameLogic {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) {
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(player) = self.host_player_id_for_script_token(player) else {
-            return;
+            return Ok(());
         };
-        let Some((_, members)) = self
-            .resolve_owned_script_team(team, calling, condition)
-            .expect("owned build-nearest team")
-        else {
-            return;
+        let Some(ai) = self.ai_manager.ai_players.get(&player) else {
+            return Ok(());
         };
+        let ordinary = ai.ordinary_timing.is_some();
+        let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        if ordinary {
+            // Team.cpp:2206 uses the intrusive list head, even if it is
+            // effectively dead, rather than searching for another member.
+            let Some(position) = members
+                .first()
+                .and_then(|&id| self.host_object(ObjectId(id)))
+                .map(|object| object.get_position())
+            else {
+                return Ok(());
+            };
+            if let Some((position, angle)) =
+                self.ordinary_nearest_team_build_site(player, building, position, effects)
+            {
+                use gamelogic::build_list_info::BuildListInfo;
+                use gamelogic::common::Coord3D;
+
+                // Player::addToPriorityBuildList prepends a default row
+                // with one build and an authored priority stamp.
+                let mut entry = BuildListInfo::new();
+                entry.set_template_name(building.into());
+                entry.set_location(Coord3D::new(position.x, position.z, position.y));
+                entry.set_angle(angle);
+                entry.set_num_rebuilds(1);
+                entry.mark_priority_build();
+                self.ai_manager
+                    .ai_players
+                    .get_mut(&player)
+                    .unwrap()
+                    .building_queue
+                    .insert(
+                        0,
+                        crate::ai::AIBuildingInfo::from_campaign_build_list(&entry),
+                    );
+            }
+            return Ok(());
+        }
+
         let Some(position) = members.into_iter().find_map(|id| {
             self.host_object(ObjectId(id))
                 .filter(|o| o.is_alive())
                 .map(|o| o.get_position())
         }) else {
-            return;
+            return Ok(());
         };
-        if building.trim().is_empty() {
-            return;
+        if !building.trim().is_empty() {
+            self.ai_manager
+                .ai_players
+                .get_mut(&player)
+                .unwrap()
+                .add_building(building, position, 2);
         }
-        if let Some(ai) = self.ai_manager.ai_players.get_mut(&player) {
-            ai.add_building(building, position, 2);
-        }
+        Ok(())
     }
+
     pub(super) fn apply_owned_script_base_defense(
         &mut self,
         player: &str,
@@ -102,6 +144,15 @@ impl GameLogic {
         let Some(player) = self.host_player_id_for_script_token(player) else {
             return;
         };
+        // AIPlayer.cpp:2234–2249 handles these commands only in the subclass.
+        if self
+            .ai_manager
+            .ai_players
+            .get(&player)
+            .is_some_and(|ai| ai.ordinary_timing.is_some())
+        {
+            return;
+        }
         // Placement only observes owned state and admits an AI build-list row;
         // it executes no factory/script callback while the controller is borrowed.
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {

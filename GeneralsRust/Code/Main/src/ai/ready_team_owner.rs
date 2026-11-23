@@ -108,6 +108,7 @@ impl GameLogic {
                 return;
             };
             ai.team_ready_queue.remove(index);
+            let ordinary = ai.ordinary_timing.is_some();
             ai.activity_count = ai.activity_count.saturating_add(1);
             if node.reinforcement {
                 if let Some(id) = node.reinforcement_id.filter(|id| {
@@ -120,7 +121,7 @@ impl GameLogic {
                 team.write()
                     .unwrap_or_else(|error| error.into_inner())
                     .set_active();
-                if self.game_mode() == GameMode::Skirmish {
+                if !ordinary && self.game_mode() == GameMode::Skirmish {
                     if let Some(engine) = &self.owned_script_engine {
                         engine.clear_team_flags();
                     }

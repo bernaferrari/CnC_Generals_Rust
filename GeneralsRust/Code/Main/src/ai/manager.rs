@@ -120,18 +120,22 @@ impl AIManager {
                 }
                 if let Some(mut ai) = game_logic.ai_manager.ai_players.remove(&id) {
                     let active = ai.is_active;
+                    let ordinary = ai.ordinary_timing.is_some();
                     if active {
                         ai.last_update_time = current_time;
                         ai.purge_destroyed_or_wiped_queued_teams(game_logic);
                     }
                     game_logic.ai_manager.ai_players.insert(id, ai);
                     if active {
-                        game_logic.update_owned_ai_economy_with_effects(
-                            id,
-                            current_time,
-                            &ai_data,
-                            ui,
-                        )?;
+                        if ordinary {
+                            game_logic.update_owned_ordinary_ai_base_with_effects(
+                                id, current_time, &ai_data, ui,
+                            )?;
+                        } else {
+                            game_logic.update_owned_ai_economy_with_effects(
+                                id, current_time, &ai_data, ui,
+                            )?;
+                        }
                         if game_logic.team_creation_error().is_some() {
                             return Ok(());
                         }
@@ -140,12 +144,15 @@ impl AIManager {
                         if game_logic.team_creation_error().is_some() {
                             return Ok(());
                         }
-                        game_logic.update_owned_ai_military_with_effects(
-                            id,
-                            current_time,
-                            &ai_data,
-                            ui,
-                        )?;
+                        if ordinary {
+                            game_logic.update_owned_ordinary_ai_team_building_with_effects(
+                                id, current_time, &ai_data, ui,
+                            )?;
+                        } else {
+                            game_logic.update_owned_ai_military_with_effects(
+                                id, current_time, &ai_data, ui,
+                            )?;
+                        }
                         if game_logic.team_creation_error().is_some() {
                             return Ok(());
                         }
@@ -328,14 +335,13 @@ impl AIManager {
 
     /// Recreate registered host-AI players from an offline snapshot.
     ///
-    /// The caller supplies restored player teams because save rows identify an
-    /// AI by player id, while team ownership remains part of `PlayerSnapshot`.
+    /// The restored Player roster supplies each controller's owning side.
     /// Empty rows replace this manager's roster with no controllers. Both
     /// accepted world schemas serialize that absence explicitly.
-    pub fn restore_players_from_save(
+    pub(crate) fn restore_players_from_save(
         &mut self,
         snapshots: &[crate::save_load::AIPlayerSnapshot],
-        player_teams: &HashMap<u32, Team>,
+        players: &HashMap<u32, Player>,
     ) {
         let mut rows: Vec<_> = snapshots.iter().collect();
         rows.sort_by_key(|snapshot| snapshot.player_id);
@@ -350,14 +356,14 @@ impl AIManager {
                 );
                 continue;
             }
-            let Some(&team) = player_teams.get(&snapshot.player_id) else {
+            let Some(player) = players.get(&snapshot.player_id) else {
                 log::warn!(
                     "Ignoring host AI snapshot for missing player {}",
                     snapshot.player_id
                 );
                 continue;
             };
-            if team == Team::Neutral {
+            if player.is_reserved_neutral() {
                 log::warn!(
                     "Ignoring host AI snapshot for neutral player {}",
                     snapshot.player_id
@@ -367,13 +373,20 @@ impl AIManager {
 
             let difficulty =
                 Self::difficulty_from_name(&snapshot.difficulty).unwrap_or(AIDifficulty::Medium);
-            self.add_ai_player(snapshot.player_id, team, difficulty);
+            if player.team == Team::Neutral {
+                let ai = AIPlayer::new_with_team_factory(
+                    snapshot.player_id, player.team, difficulty, self.team_factory.clone(),
+                );
+                self.ai_players.insert(snapshot.player_id, ai);
+            } else {
+                self.add_ai_player(snapshot.player_id, player.team, difficulty);
+            }
             let Some(ai) = self.ai_players.get_mut(&snapshot.player_id) else {
                 continue;
             };
 
             ai.personality = Self::personality_from_name(&snapshot.personality)
-                .unwrap_or_else(|| AIPersonality::for_team(team));
+                .unwrap_or_else(|| AIPersonality::for_team(player.team));
             ai.is_active = snapshot.is_active;
             // Legacy snapshot rows represented the same anchor only as the
             // first tactical defensive position; prefer the dedicated field
@@ -385,7 +398,7 @@ impl AIManager {
                 ai.relocate_base(base_center);
                 ai.base_center_set = snapshot.base_center_set;
             }
-            if snapshot.base_radius.is_finite() && snapshot.base_radius > 0.0 {
+            if snapshot.base_radius.is_finite() && snapshot.base_radius >= 0.0 {
                 ai.base_radius = snapshot.base_radius;
             }
             ai.current_strategy = Self::strategy_from_name(&snapshot.current_strategy)

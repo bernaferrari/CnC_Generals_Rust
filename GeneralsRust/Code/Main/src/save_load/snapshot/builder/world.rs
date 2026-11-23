@@ -978,12 +978,8 @@ impl SnapshotBuilder {
         self.restore_weather(&snapshot.weather, game_logic)?;
         self.restore_resource_manager(&snapshot.resource_manager, game_logic)?;
         self.restore_combat_tracker(&snapshot.combat_tracker, game_logic)?;
-        // Accepted world versions (23 through 29) explicitly serialize the AI
-        // roster. An empty roster must not run skirmish constructors, which
-        // would invent controllers and overwrite saved player build flags.
-        if !snapshot.ai_players.is_empty() {
-            self.restore_global_ai_state(&snapshot.global_ai_state, game_logic)?;
-        }
+        // AI::xfer transfers its version alone. The admitted PlayerList
+        // already owns build permissions, and each saved AI owns difficulty.
         self.restore_ai_players(&snapshot.ai_players, game_logic)?;
         self.restore_special_power_strikes(&snapshot.special_power_strikes, game_logic)?;
         self.restore_combat_particles(

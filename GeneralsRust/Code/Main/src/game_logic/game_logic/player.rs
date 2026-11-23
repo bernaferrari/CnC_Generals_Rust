@@ -53,6 +53,7 @@ pub struct PlayerMapSideState {
 pub struct HostAuthoredBuild {
     pub template: String,
     pub position: (f32, f32, f32),
+    pub angle: f32,
     pub num_rebuilds: u32,
     pub initially_built: bool,
     pub completion: crate::ai::AuthoredStructureCompletion,

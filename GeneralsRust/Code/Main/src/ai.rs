@@ -168,16 +168,26 @@ impl AITeamQueue {
         team_factory: &gamelogic::team::TeamFactoryHandle,
         current_time: f32,
     ) -> bool {
+        let idle_frames = self.queue_idle_frames(team_factory);
+        let now = (current_time * LOGIC_FRAMES_PER_SECOND) as u32;
+        idle_frames >= 1 && now > self.frame_started.saturating_add(idle_frames as u32)
+    }
+
+    fn is_ordinary_build_time_expired(
+        &self,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+        frame: u32,
+    ) -> bool {
+        let idle_frames = self.queue_idle_frames(team_factory);
+        idle_frames >= 1 && frame > self.frame_started.wrapping_add(idle_frames as u32)
+    }
+
+    fn queue_idle_frames(&self, team_factory: &gamelogic::team::TeamFactoryHandle) -> i32 {
         let proto_name = self
             .team_id
             .and_then(|id| Self::leftover_team_proto_name(team_factory, id))
             .unwrap_or_else(|| self.name.clone());
-        let idle_frames = Self::leftover_initial_idle_frames(team_factory, &proto_name);
-        if idle_frames < 1 {
-            return false;
-        }
-        let now = (current_time * LOGIC_FRAMES_PER_SECOND) as u32;
-        now > self.frame_started.saturating_add(idle_frames as u32)
+        Self::leftover_initial_idle_frames(team_factory, &proto_name)
     }
 
     fn leftover_team_proto_name(
@@ -226,12 +236,44 @@ pub struct AuthoredStructureCompletion {
     pub unsellable: bool,
 }
 
+/// Ordinary `AIPlayer::xfer` countdowns and readiness. These hold their
+/// exact values while the corresponding Player build permission is paused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OrdinaryAiTiming {
+    pub ready_to_build_team: bool,
+    pub ready_to_build_structure: bool,
+    pub team_timer: i32,
+    pub structure_timer: i32,
+    pub build_delay: i32,
+    pub team_delay: i32,
+    pub team_seconds: i32,
+    pub frame_last_building_built: i32,
+    pub bridge_timer: i32,
+}
+
+/// Solo `BuildListInfo::xfer` values with no skirmish-row counterpart.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OrdinaryBuildListFields {
+    pub rally_point_offset: [f32; 2],
+    pub angle: f32,
+    pub initially_built: bool,
+    pub whiner: bool,
+    pub repairable: bool,
+    pub object_timestamp: u32,
+    pub under_construction: bool,
+    pub resource_gatherers:
+        [Option<ObjectId>; gamelogic::build_list_info::BuildListInfo::MAX_RESOURCE_GATHERERS],
+}
+
 /// AI building info for base construction
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AIBuildingInfo {
     /// Synchronous row identity only; no continuation survives a frame/save.
     #[serde(skip)]
     pub(crate) runtime_visit_token: u64,
+    /// Persisted with the ordinary controller in the AITQ owner frame.
+    #[serde(skip)]
+    pub(crate) ordinary: Option<Box<OrdinaryBuildListFields>>,
     pub template_name: String,
     pub position: Vec3,
     pub object_id: Option<ObjectId>,
@@ -255,6 +297,7 @@ impl AIBuildingInfo {
     pub fn new(template_name: String, position: Vec3, max_rebuilds: u32) -> Self {
         Self {
             runtime_visit_token: 0,
+            ordinary: None,
             template_name,
             position,
             object_id: None,
@@ -353,6 +396,7 @@ pub struct AIPlayer {
     /// Deterministic placement scatter (retail ADC RandomValue residual).
     placement_rng: HostRandomState,
     pub building_queue: Vec<AIBuildingInfo>,
+    pub(crate) ordinary_timing: Option<OrdinaryAiTiming>,
     next_building_visit_token: u64,
     pub next_building_time: f32,
     /// Existing work orders run on the short C++ `m_teamDelay`; choosing a
@@ -443,7 +487,9 @@ mod combat;
 mod destination_clearance;
 mod economic_owner;
 mod economy;
+mod ordinary_economy;
 mod manager;
+mod campaign_admission;
 mod player_core;
 mod postmilitary_owner;
 mod production_callback;

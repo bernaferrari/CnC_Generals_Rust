@@ -351,6 +351,127 @@ fn ai_match_phase_queues_research_only_after_the_authored_action() {
 }
 
 #[test]
+fn ordinary_script_nearest_team_queues_one_typed_priority_pad_only_after_relocation() {
+    use super::condition_cursor_control_tests::admit;
+    use crate::ai::{AIBuildingInfo, AIDifficulty, OrdinaryAiTiming};
+    use crate::fixture_content::{FixtureObject, admit_fixture_content};
+
+    let mut world = GameLogic::new();
+    admit_fixture_content(
+        &mut world,
+        &[
+            FixtureObject::new("NearestTeamMember").kind_of("VEHICLE SELECTABLE"),
+            FixtureObject::new("NearestTeamBlocker")
+                .kind_of("STRUCTURE IMMOBILE")
+                .field("Geometry = BOX")
+                .field("GeometryMajorRadius = 1")
+                .field("GeometryMinorRadius = 1"),
+            FixtureObject::new("NearestTeamPad")
+                .kind_of("STRUCTURE IMMOBILE")
+                .field("Geometry = BOX")
+                .field("GeometryMajorRadius = 4")
+                .field("GeometryMinorRadius = 3")
+                .field("PlacementViewAngle = 45"),
+        ],
+        &[],
+    );
+    let mut player = Player::new(1, Team::USA, "Ordinary builder", false)
+        .with_script_identity("OrdinaryBuilder");
+    player.can_build_base = false;
+    world.add_player(player);
+    world
+        .ai_manager
+        .add_ai_player(1, Team::USA, AIDifficulty::Medium);
+    let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
+    ai.building_queue = vec![AIBuildingInfo::new(
+        "NearestTeamBlocker".into(),
+        Vec3::new(-100.0, 0.0, -100.0),
+        0,
+    )];
+    ai.ordinary_timing = Some(OrdinaryAiTiming {
+        ready_to_build_team: false,
+        ready_to_build_structure: false,
+        team_timer: 2,
+        structure_timer: 2,
+        build_delay: 0,
+        team_delay: 0,
+        team_seconds: 10,
+        frame_last_building_built: 0,
+        bridge_timer: 0,
+    });
+
+    let earlier = world
+        .create_object_for_player("NearestTeamMember", 1, Vec3::new(70.0, 0.0, 130.0))
+        .unwrap();
+    let position = Vec3::new(150.0, 0.0, 130.0);
+    let head = world
+        .create_object_for_player("NearestTeamMember", 1, position)
+        .unwrap();
+    admit(&world, "NearestCampaignTeam", 77, None);
+    world
+        .team_factory
+        .lock()
+        .unwrap()
+        .find_team_by_id(77)
+        .unwrap()
+        .write()
+        .unwrap()
+        .restore_owned_members(&[head.0, earlier.0]);
+    assert_eq!(
+        world.resolve_owned_script_team("NearestCampaignTeam", None, None).unwrap(),
+        Some((77, vec![head.0, earlier.0]))
+    );
+
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let mut nearest = action(
+        ScriptActionType::AiPlayerBuildTypeNearestTeam,
+        ParameterType::Side,
+        "OrdinaryBuilder",
+    );
+    nearest
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "NearestTeamPad".into(),
+        ))
+        .unwrap();
+    nearest
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "NearestCampaignTeam".into(),
+        ))
+        .unwrap();
+
+    run(&engine, &mut world, &nearest);
+    assert_eq!(world.ai_manager.ai_players[&1].building_queue.len(), 1);
+
+    world
+        .create_object_for_player("NearestTeamBlocker", 1, position)
+        .unwrap();
+    run(&engine, &mut world, &nearest);
+
+    let ai = &world.ai_manager.ai_players[&1];
+    let [pad, previous] = ai.building_queue.as_slice() else {
+        panic!("a relocated priority row should precede the old row");
+    };
+    assert_eq!(previous.template_name, "NearestTeamBlocker");
+    assert_eq!(pad.template_name, "NearestTeamPad");
+    assert_eq!(pad.position, Vec3::new(140.0, 0.0, 120.0));
+    assert!(pad.is_priority && pad.automatic_build);
+    assert_eq!(
+        (pad.rebuild_count, pad.max_rebuilds, pad.object_id),
+        (0, 1, None)
+    );
+    let ordinary = pad
+        .ordinary
+        .as_deref()
+        .expect("receiving ordinary BuildList fields");
+    assert!((ordinary.angle - std::f32::consts::FRAC_PI_4).abs() < 0.00001);
+    assert_eq!(ordinary.object_timestamp, 0);
+    assert!(!ordinary.under_construction && !ordinary.initially_built);
+    assert_eq!(ai.ordinary_timing.unwrap().build_delay, 0);
+}
+
+#[test]
 fn upgrade_and_nearest_team_actions_apply_immediately_to_actual_owner() {
     use super::condition_cursor_control_tests::admit;
     let (mut owner, unit, _) = world();

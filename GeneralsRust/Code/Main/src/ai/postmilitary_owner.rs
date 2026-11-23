@@ -154,6 +154,10 @@ impl GameLogic {
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return;
         };
+        if ai.ordinary_timing.is_some() {
+            self.ai_manager.ai_players.insert(player, ai);
+            return;
+        }
         // These two functions read world state and mutate only this controller.
         ai.update_strategy_phase(self, now);
         ai.update_build_phase(self, now);

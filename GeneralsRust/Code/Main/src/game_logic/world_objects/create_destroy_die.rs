@@ -1018,10 +1018,7 @@ impl GameLogic {
         producer_id: ObjectId,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
-        let Some(team) = self.players.get(&owner_player_id).map(|player| player.team) else {
-            return Ok(None);
-        };
-        if team == Team::Neutral {
+        if self.players.get(&owner_player_id).is_none_or(Player::is_reserved_neutral) {
             return Ok(None);
         }
         let Some(producer) = self.objects.get(&producer_id) else {
@@ -1032,6 +1029,34 @@ impl GameLogic {
         {
             return Ok(None);
         }
+        self.create_prepared_instant_structure_with_effects(
+            template_name,
+            owner_player_id,
+            position,
+            orientation,
+            Some(producer_id),
+            ui,
+        )
+    }
+
+    /// The structure arm of BuildAssistant::buildObjectNow after clearance.
+    /// A campaign InitiallyBuilt placement has no constructor Object.
+    pub(in crate::game_logic) fn create_prepared_instant_structure_with_effects(
+        &mut self,
+        template_name: &str,
+        owner_player_id: u32,
+        position: Vec3,
+        orientation: f32,
+        producer_id: Option<ObjectId>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        let Some(player) = self.players.get(&owner_player_id) else {
+            return Ok(None);
+        };
+        if player.is_reserved_neutral() {
+            return Ok(None);
+        }
+        let team = player.team;
         // This structure seam does not pretend to implement the original
         // non-structure arm's Player::onUnitCreated / VoiceCreated policy.
         if !self.ensure_host_spawn_template(template_name)
@@ -1057,12 +1082,15 @@ impl GameLogic {
             return Ok(None);
         };
         let mut ground_position = position;
-        ground_position.y = self.terrain_height_at(position).unwrap_or(position.y);
+        ground_position.y = self.raw_terrain_ground_height_at(position);
         let Some(object) = self.objects.get_mut(&id) else {
             return Ok(None);
         };
-        object.producer_id = Some(producer_id);
-        if !self.set_owned_object_position_with_effects(id, ground_position, self.frame, ui) {
+        let birth = std::sync::Arc::downgrade(&object.visual_draw_identity_token);
+        object.producer_id = producer_id;
+        if !self.set_owned_object_position_with_effects(id, ground_position, self.frame, ui)
+            || !self.object_birth_matches(id, &birth)
+        {
             return Ok(None);
         }
         {
@@ -1086,8 +1114,18 @@ impl GameLogic {
         }
         // Player's completion policy precedes CreateModule::onBuildComplete.
         // Neither operation is the ordinary Dozer completion notification.
-        self.complete_instant_line_build_player_with_effects(producer_id, id, owner_player_id, ui)?;
-        self.apply_create_modules_on_build_complete_with_effects(id, None, ui);
+        self.complete_owned_structure_player_with_effects(id, owner_player_id, false, None, ui)?;
+        if !self.object_birth_matches(id, &birth) {
+            return Ok(None);
+        }
+        if producer_id.is_some() {
+            self.apply_create_modules_on_build_complete_with_effects(id, None, ui);
+        } else {
+            self.apply_create_modules_on_build_complete_with_effects_checked(id, None, ui)?;
+        }
+        if !self.object_birth_matches(id, &birth) {
+            return Ok(None);
+        }
         if let Some(object) = self.objects.get_mut(&id) {
             object.stamp_partition_value_threat_with_partition_owner(&mut self.partition_manager);
         }

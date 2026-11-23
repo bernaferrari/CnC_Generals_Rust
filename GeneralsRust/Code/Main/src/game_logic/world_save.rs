@@ -27,6 +27,8 @@ mod world_paths;
 mod follow_path;
 #[path = "world_save/world_players.rs"]
 mod world_players;
+#[path = "world_save/campaign_initial_build.rs"]
+mod campaign_initial_build;
 #[path = "world_save/world_runtime.rs"]
 mod world_runtime;
 #[path = "world_save/world_subsystems.rs"]

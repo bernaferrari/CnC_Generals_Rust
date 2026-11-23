@@ -1429,13 +1429,8 @@ impl GameLogic {
         &mut self,
         snapshots: &[crate::save_load::AIPlayerSnapshot],
     ) {
-        let player_teams = self
-            .players
-            .iter()
-            .map(|(&player_id, player)| (player_id, player.team))
-            .collect();
         self.ai_manager
-            .restore_players_from_save(snapshots, &player_teams);
+            .restore_players_from_save(snapshots, &self.players);
 
         let valid_object_ids: std::collections::HashSet<ObjectId> =
             self.objects.registered_keys().copied().collect();

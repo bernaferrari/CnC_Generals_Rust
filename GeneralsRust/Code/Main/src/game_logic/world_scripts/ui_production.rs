@@ -4,6 +4,9 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+#[path = "ordinary_build_site.rs"]
+mod ordinary_build_site;
+
 fn receiving_minimap_beacon_entries(logic: &GameLogic) -> Vec<(u32, glam::Vec3)> {
     let mut entries: Vec<(u32, glam::Vec3)> = Vec::new();
     // HostObjectStore prepends registrations, whereas beacon placement order
@@ -1166,6 +1169,18 @@ impl GameLogic {
                 (max_x, max_z),
                 MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD,
             );
+        use crate::game_logic::host_production_buildable_command_residual::{
+            LOCAL_LEGAL_CLEAR_PATH, LOCAL_LEGAL_NO_ENEMY_OBJECT_OVERLAP,
+            LOCAL_LEGAL_NO_OBJECT_OVERLAP, LOCAL_LEGAL_SHROUD_REVEALED,
+            LOCAL_LEGAL_TERRAIN_RESTRICTIONS,
+        };
+        // Existing preview/confirm callers supply only stealth options and
+        // already rely on the full checks. The ordinary AI explicitly passes
+        // BuildAssistant's two source option sets.
+        let explicit_checks =
+            options & (LOCAL_LEGAL_NO_OBJECT_OVERLAP | LOCAL_LEGAL_NO_ENEMY_OBJECT_OVERLAP) != 0;
+        let checks = |flag| !explicit_checks || options & flag != 0;
+        let only_check_enemies = options == LOCAL_LEGAL_NO_ENEMY_OBJECT_OVERLAP;
         let builder = builder_id.and_then(|id| self.objects.get(&id));
         let mut blockers: Vec<(f32, f32, f32)> = Vec::new();
         let mut blocker_ids: Vec<ObjectId> = Vec::new();
@@ -1215,7 +1230,15 @@ impl GameLogic {
             {
                 let dx = p.x - position.x;
                 let dz = p.z - position.z;
-                if dx * dx + dz * dz < (place_r + r) * (place_r + r) {
+                let overlap = if explicit_checks {
+                    xy_shapes_collide(
+                        &query_shape,
+                        &ordinary_build_site::placement_shape_for_object(obj),
+                    )
+                } else {
+                    dx * dx + dz * dz < (place_r + r) * (place_r + r)
+                };
+                if overlap {
                     busy_ally_in_way = true;
                 }
             }
@@ -1245,8 +1268,13 @@ impl GameLogic {
             // `is_kind_of(Structure)` class ringed every real-map base with
             // immovable-looking neutral tech/civilian structures and failed
             // every pad with LBC_OBJECTS_IN_THE_WAY (construct_fail_no_building).
-            let blocks = obj.is_kind_of(KindOf::Immobile)
-                || obj.is_disabled()
+            let immobile = obj.is_kind_of(KindOf::Immobile);
+            if only_check_enemies && immobile && builder.is_some()
+                && rel != gamelogic::common::Relationship::Enemies
+            {
+                continue;
+            }
+            let blocks = immobile || obj.is_disabled()
                 || rel == gamelogic::common::Relationship::Enemies;
             if blocks {
                 // C++ PartitionFilterWouldCollide::allow
@@ -1286,8 +1314,6 @@ impl GameLogic {
         // C++ runs a second nearby-structure query even when no object touches
         // the candidate footprint. Its expanded bounds and exits are distinct
         // from the ordinary obstruction query above.
-        let only_check_enemies = options
-            == crate::game_logic::host_production_buildable_command_residual::LOCAL_LEGAL_NO_ENEMY_OBJECT_OVERLAP;
         let mut factory_in_way = false;
         if !only_check_enemies {
             let (mut my_exit_width, mut my_extra) = self.factory_exit_widths(template_name);
@@ -1419,7 +1445,7 @@ impl GameLogic {
         };
         // C++ SHROUD_REVEALED residual: require CELLSHROUD_CLEAR for human build.
         // When fog_of_war is off or no shroud grid is initialized, fail-open (clear).
-        let shrouded = if !self.skirmish_rules.fog_of_war {
+        let shrouded = if !checks(LOCAL_LEGAL_SHROUD_REVEALED) || !self.skirmish_rules.fog_of_war {
             false
         } else {
             let player_id = builder_id
@@ -1432,16 +1458,15 @@ impl GameLogic {
         };
         // C++ footprint height sample residual (hiZ-loZ > AllowedHeightVariation).
         // Fail-open when no height samples available (synthetic maps without terrain).
-        let not_flat = self.footprint_not_flat_enough(position, place_r);
+        let check_terrain = checks(LOCAL_LEGAL_TERRAIN_RESTRICTIONS);
+        let not_flat = check_terrain && self.footprint_not_flat_enough(position, place_r);
         // C++ CLEAR_PATH residual when a mobile builder is provided.
-        let no_clear = match builder_id {
-            Some(bid) => !self.builder_has_clear_path_to(bid, position),
-            None => false,
-        };
+        let no_clear = checks(LOCAL_LEGAL_CLEAR_PATH)
+            && builder_id.is_some_and(|id| !self.builder_has_clear_path_to(id, position));
         // C++ BuildAssistant.cpp:491-499 CELL_WATER/CLIFF/IMPASSABLE and
         // :1006-1009 non-GROUND layer (bridge) set terrainRestricted inside
         // the final TERRAIN_RESTRICTIONS stage — not an early out.
-        let terrain_restricted = self.placement_terrain_restricted(position, place_r);
+        let terrain_restricted = check_terrain && self.placement_terrain_restricted(position, place_r);
         // C++ BuildAssistant.cpp:884-1044 priority order: off-map → shroud →
         // object overlap → supplies → CLEAR_PATH → terrain (restricted/edge,
         // then flatness).
@@ -1452,7 +1477,7 @@ impl GameLogic {
             too_close,
             no_clear,
             terrain_restricted,
-            too_close_edge,
+            check_terrain && too_close_edge,
             not_flat,
         )
     }

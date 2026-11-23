@@ -65,7 +65,7 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
         .templates
         .insert("AmericaVehicleDozer".into(), dozer_t);
     let mut mine_t = ThingTemplate::new("GLAStandardMine");
-    mine_t.set_health(50.0);
+    mine_t.add_kind_of(KindOf::Mine).set_health(50.0);
     logic.templates.insert("GLAStandardMine".into(), mine_t);
     let mid = logic
         .create_object(
