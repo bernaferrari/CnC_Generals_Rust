@@ -267,38 +267,6 @@ fn authored_money_cargo_does_not_pay_before_partition_contact() {
     assert_eq!(world.get_player(1).unwrap().resources.supplies, funds);
 }
 
-fn admit_retail_upgrade_catalog(world: &mut GameLogic, install: &std::path::Path) {
-    use game_engine::common::system::archive_file_system::ArchiveFileSystem;
-    use std::io::Read;
-
-    // RetailWorldDefinitions currently admits Object and Weapon content.
-    // The application admits its UpgradeCenter separately from these INIs.
-    let mut archive = ArchiveFileSystem::new();
-    archive.add_search_path(install);
-    archive.init().unwrap();
-    world.with_own_services_mut(|world| {
-        for path in ["Data/INI/Default/Upgrade.ini", "Data/INI/Upgrade.ini"] {
-            let mut text = String::new();
-            archive
-                .open_file(path, 0)
-                .unwrap_or_else(|error| panic!("{path}: {error}"))
-                .read_to_string(&mut text)
-                .unwrap();
-            crate::assets::ini_template_loader::load_upgrade_ini_text(
-                &mut world.upgrade_definitions,
-                &text,
-            )
-            .unwrap_or_else(|error| panic!("{path}: {error}"));
-        }
-        world.upgrade_definition_base = world.upgrade_definitions.clone();
-    });
-    assert!(
-        world
-            .upgrade_template(UPGRADE_AMERICA_SUPPLY_LINES)
-            .is_some()
-    );
-}
-
 #[test]
 fn mounted_stock_money_crate_deposits_authored_supply_lines_at_partition_contact() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
@@ -314,7 +282,6 @@ fn mounted_stock_money_crate_deposits_authored_supply_lines_at_partition_contact
                     .unwrap_or_else(|error| panic!("{}: {error}", install.display()));
             let mut world = GameLogic::new();
             startup.admit(&mut world).unwrap();
-            admit_retail_upgrade_catalog(&mut world, &install);
             admit_presentation(&mut world);
             world.add_player(Player::new(1, Team::USA, "RetailMoneyReceiver", true));
             world.frame = 40;

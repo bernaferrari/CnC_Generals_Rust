@@ -2095,6 +2095,230 @@ mod cost_modifier_receiving_owner_tests {
 
     const UPGRADE: &str = "Upgrade_OwnedCostModifier";
 
+    const STOCK_REFINERY: &str = "TechOilRefinery";
+    const STOCK_CRUSADER: &str = "AmericaTankCrusader";
+    const STOCK_PRICE: u32 = 900;
+    const STOCK_DISCOUNTED_PRICE: u32 = 810;
+
+    fn stock_definitions() -> crate::parallel_harness::RetailWorldDefinitions {
+        use crate::parallel_harness::{RetailWorldDefinitions, explicit_retail_install};
+
+        let install = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
+            .map(std::path::PathBuf::from)
+            .or_else(crate::map_frame_scenario::find_lone_eagle_retail_install)
+            .expect("a real mounted retail install is required");
+        let install = explicit_retail_install(&install).unwrap();
+        RetailWorldDefinitions::load_from_install(Some(&install))
+            .unwrap_or_else(|error| panic!("{}: {error}", install.display()))
+    }
+
+    fn stock_world(definitions: &crate::parallel_harness::RetailWorldDefinitions) -> GameLogic {
+        let mut world = GameLogic::new();
+        definitions.admit(&mut world).unwrap();
+        let upgrade = world
+            .upgrade_template("Upgrade_CostReduction")
+            .expect("stock Upgrade.ini is admitted into the receiving UpgradeCenter");
+        assert_eq!(upgrade.get_upgrade_type(), gamelogic::upgrade::UpgradeType::Object);
+        assert_ne!(upgrade.get_mask().bits(), 0);
+
+        let mut neutral = Player::new(0, Team::Neutral, "Neutral", false);
+        let mut side = game_engine::common::dict::Dict::new();
+        side.set_ascii_string(
+            game_engine::common::well_known_keys::key_player_name(),
+            "",
+        );
+        neutral.apply_map_side_dict(&side, false, &mut Default::default());
+        world.add_player(neutral);
+        world.add_player(Player::new(1, Team::USA, "Capturer", true));
+        world.add_player(Player::new(2, Team::USA, "Recapturer", true));
+        world.frame = 40;
+
+        assert!(world.ensure_host_spawn_template(STOCK_CRUSADER));
+        let crusader = &world.get_templates()[STOCK_CRUSADER];
+        assert!(crusader.is_kind_of(crate::game_logic::KindOf::Vehicle));
+        assert_eq!(crusader.build_cost.supplies, STOCK_PRICE);
+        world
+    }
+
+    fn stock_refinery(world: &mut GameLogic) -> ObjectId {
+        use crate::game_logic::script_loader::PlacedObject;
+        use game_engine::common::{dict::Dict, name_key_generator::NameKeyGenerator};
+
+        const STOCK_UPGRADE: &str = "Upgrade_CostReduction";
+        let mut properties = Dict::new();
+        properties.set_ascii_string(NameKeyGenerator::name_to_key("originalOwner"), "team");
+        let placement = PlacedObject {
+            template: STOCK_REFINERY.to_owned(),
+            flags: 0,
+            name: None,
+            position: gamelogic::common::Coord3D::new(180.0, 220.0, 0.0),
+            rotation: None,
+            team_name: None,
+            player_id: None,
+            upgrade: None,
+            unsellable: None,
+            enabled: None,
+            powered: None,
+            indestructible: None,
+            object_weather: None,
+            properties,
+        };
+        let mut effects = Default::default();
+        let birth = world
+            .create_placed_map_object_with_effects_checked(
+                &placement,
+                glam::Vec3::new(180.0, 0.0, 220.0),
+                &mut effects,
+            )
+            .unwrap()
+            .expect("stock refinery on the reserved Neutral default Team");
+        let id = birth.id;
+        let refinery = world.host_object(id).unwrap();
+        let [grant] = refinery.get_template().grant_upgrade_creates.as_slice() else {
+            panic!("stock refinery must have one authored GrantUpgradeCreate");
+        };
+        assert_eq!(grant.upgrade_name, STOCK_UPGRADE);
+        assert!(!grant.exempt_under_construction);
+        assert!(!refinery.has_object_upgrade_complete(STOCK_UPGRADE));
+        assert_eq!(stock_quotes(world), [STOCK_PRICE; 3]);
+
+        // GameLogic.cpp:1870–1889 applies map properties and then completes
+        // the placement. With no ExemptStatus, GrantUpgradeCreate.cpp:59–88
+        // skips onCreate and grants from onBuildComplete.
+        world.apply_update_obj_values_from_map_properties_with_effects(
+            id, &placement.properties, &mut effects,
+        );
+        birth.finish(world, &mut effects).unwrap();
+
+        let refinery = world.host_object(id).unwrap();
+        assert!(refinery.has_object_upgrade_complete(STOCK_UPGRADE));
+        assert_eq!(refinery.cost_modifier_upgrade_executed.as_slice(), &[true]);
+        assert_eq!(
+            stock_quotes(world),
+            [STOCK_DISCOUNTED_PRICE, STOCK_PRICE, STOCK_PRICE]
+        );
+        id
+    }
+
+    fn stock_quotes(world: &GameLogic) -> [u32; 3] {
+        [0, 1, 2].map(|player| {
+            world.modified_build_cost_supplies(player, STOCK_CRUSADER, STOCK_PRICE)
+        })
+    }
+
+    fn capture_stock_refinery(world: &mut GameLogic, refinery: ObjectId, owner: u32) {
+        let team = world.host_default_team_id(owner).unwrap();
+        assert!(world.set_host_object_team(refinery, team).unwrap());
+        let refinery = world.host_object(refinery).unwrap();
+        assert_eq!(refinery.owner_player_id, Some(owner));
+        assert_eq!(refinery.team_instance_id, Some(team));
+    }
+
+    #[test]
+    fn mounted_stock_refinery_grants_captures_restores_and_deletes_its_cost_modifier() {
+        use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "mounted_stock_refinery_grants_captures_restores_and_deletes_its_cost_modifier",
+            || {
+                let definitions = stock_definitions();
+                let mut world = stock_world(&definitions);
+                let mut peer = stock_world(&definitions);
+                assert_eq!(stock_quotes(&world), [STOCK_PRICE; 3]);
+
+                let refinery = stock_refinery(&mut world);
+                let peer_refinery = stock_refinery(&mut peer);
+                assert_eq!(refinery, peer_refinery);
+                assert_eq!(world.host_object(refinery).unwrap().owner_player_id, Some(0));
+                capture_stock_refinery(&mut world, refinery, 1);
+                capture_stock_refinery(&mut peer, peer_refinery, 2);
+                assert_eq!(
+                    stock_quotes(&world),
+                    [STOCK_PRICE, STOCK_DISCOUNTED_PRICE, STOCK_PRICE]
+                );
+                assert_eq!(
+                    stock_quotes(&peer),
+                    [STOCK_PRICE, STOCK_PRICE, STOCK_DISCOUNTED_PRICE]
+                );
+
+                let builder = SnapshotBuilder::new();
+                let snapshot = builder.create_world_snapshot(&world).unwrap();
+                let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+                let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+                let mut restored = stock_world(&definitions);
+                builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+                assert_eq!(stock_quotes(&restored), stock_quotes(&world));
+
+                capture_stock_refinery(&mut restored, refinery, 2);
+                assert_eq!(stock_quotes(&restored), stock_quotes(&peer));
+                restored.destroy_object(refinery).unwrap();
+                assert_eq!(stock_quotes(&restored), [STOCK_PRICE; 3]);
+                restored.process_destroy_list();
+                assert!(restored.host_object(refinery).is_none());
+                assert_eq!(
+                    stock_quotes(&world),
+                    [STOCK_PRICE, STOCK_DISCOUNTED_PRICE, STOCK_PRICE]
+                );
+                assert_eq!(
+                    stock_quotes(&peer),
+                    [STOCK_PRICE, STOCK_PRICE, STOCK_DISCOUNTED_PRICE]
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mounted_stock_refinery_rubble_immediately_returns_its_bonus_to_neutral() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "mounted_stock_refinery_rubble_immediately_returns_its_bonus_to_neutral",
+            || {
+                let definitions = stock_definitions();
+                let mut world = stock_world(&definitions);
+                let mut peer = stock_world(&definitions);
+                let refinery = stock_refinery(&mut world);
+                let peer_refinery = stock_refinery(&mut peer);
+                assert_eq!(refinery, peer_refinery);
+                capture_stock_refinery(&mut world, refinery, 1);
+                capture_stock_refinery(&mut peer, peer_refinery, 1);
+                assert_eq!(
+                    stock_quotes(&world),
+                    [STOCK_PRICE, STOCK_DISCOUNTED_PRICE, STOCK_PRICE]
+                );
+                assert!(world.host_object(refinery).unwrap().has_captured_model_condition());
+
+                world
+                    .apply_owned_kill(refinery, DamageType::Unresistable, HostDeathType::Normal)
+                    .unwrap()
+                    .expect("lethal damage through the receiving ActiveBody");
+                // TechBuildingBehavior.cpp:98–108 executes in onDie. The
+                // authored KeepObjectDie never schedules physical retirement.
+                let neutral_team = world.host_default_team_id(0).unwrap();
+                let rubble = world.host_object(refinery).expect("retained stock rubble");
+                assert!(rubble.status.on_die_started && rubble.status.effectively_dead);
+                assert_eq!(
+                    stock_quotes(&world),
+                    [STOCK_DISCOUNTED_PRICE, STOCK_PRICE, STOCK_PRICE]
+                );
+                assert_eq!(rubble.owner_player_id, Some(0));
+                assert_eq!(rubble.team_instance_id, Some(neutral_team));
+                assert!(!rubble.has_captured_model_condition());
+                world.process_destroy_list();
+                assert!(world.host_object(refinery).is_some());
+
+                assert!(peer.host_object(peer_refinery).unwrap().is_alive());
+                assert_eq!(
+                    stock_quotes(&peer),
+                    [STOCK_PRICE, STOCK_DISCOUNTED_PRICE, STOCK_PRICE]
+                );
+            },
+        );
+    }
+
     fn world(percent: &str, create_source: bool) -> (GameLogic, Option<ObjectId>) {
         let mut world = GameLogic::new();
         world.add_player(crate::game_logic::Player::new(

@@ -142,10 +142,14 @@ impl GameLogic {
             // airborne removal/falling damage precedes OpenContain's gate.
             let parachute_override = matches!(&declaration.kind, NativeDieKind::Contain { .. })
                 && object.thing().template.contain_module.kind == ContainModuleKind::Parachute;
-            // NeutronBlastBehavior implements Die directly, without DieMux.
+            // NeutronBlastBehavior and TechBuildingBehavior implement Die
+            // directly, without DieMux.
             if !jet_ground
                 && !parachute_override
-                && !matches!(&declaration.kind, NativeDieKind::NeutronBlast(_))
+                && !matches!(
+                    &declaration.kind,
+                    NativeDieKind::NeutronBlast(_) | NativeDieKind::TechBuilding
+                )
                 && !declaration.gate.allows(object, input.death_type)
             {
                 continue;
@@ -198,6 +202,9 @@ impl GameLogic {
                     if let Some(object) = self.objects.get_mut(&id) {
                         object.fire_crush_die_from_input(input.damage_type, crusher);
                     }
+                }
+                NativeDieKind::TechBuilding => {
+                    self.neutralize_dead_tech_building(id, presentation_effects)?;
                 }
                 // KeepObjectDie::onDie is an applicability-only no-op. It
                 // neither requests deletion nor prevents a later DestroyDie.
@@ -504,6 +511,37 @@ impl GameLogic {
         }
         // Only explicit authored deletion owns removal. Keep/Slow alone do
         // not synthesize DestroyDie. Empty effective content is retained too.
+        Ok(())
+    }
+
+    fn neutralize_dead_tech_building(
+        &mut self,
+        id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return Ok(());
+        };
+        // TechBuildingBehavior.cpp:98–108: the retained building must release
+        // the old controller's bonuses through ordinary Object::setTeam.
+        object.set_captured_model_condition(false);
+        let neutral_team = self
+            .players
+            .values()
+            .filter(|player| player.is_reserved_neutral())
+            .map(|player| player.id)
+            .min()
+            .and_then(|neutral| self.host_default_team_id(neutral))
+            .ok_or_else(|| {
+                gamelogic::GameLogicError::Configuration(
+                    "TechBuildingBehavior requires the receiving Neutral default Team".into(),
+                )
+            })?;
+        if !self.set_host_object_team_with_effects(id, neutral_team, effects)? {
+            return Err(gamelogic::GameLogicError::Configuration(
+                "TechBuildingBehavior could not enter the receiving Neutral default Team".into(),
+            ));
+        }
         Ok(())
     }
 

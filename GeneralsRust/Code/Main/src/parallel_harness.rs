@@ -32,8 +32,8 @@ pub struct SharedSkirmishAssets {
 }
 
 /// Everything C++ GameEngine::init loads before a game can start (GlobalData,
-/// PlayerTemplate, Locomotor, Multiplayer, Armor, Terrain, Roads, OCL and the
-/// ordered Object INI), read once and admitted into each receiving world in
+/// PlayerTemplate, Locomotor, Multiplayer, Armor, Terrain, Roads, OCL,
+/// Upgrade and the ordered Object INI), read once and admitted into each receiving world in
 /// the application boot order.
 pub struct RetailWorldDefinitions {
     startup: StandaloneStartupSources,
@@ -45,6 +45,7 @@ pub struct RetailWorldDefinitions {
     player_templates: PlayerTemplateStore,
     locomotors: LocomotorStore,
     multiplayer: Arc<MultiplayerSettings>,
+    upgrade_definitions: gamelogic::upgrade::center::UpgradeCenter,
     /// AIData.ini (GameEngine.cpp:480): SideInfo and SkirmishBuildList.
     ai_data: game_engine::common::ini::ini_ai_data::AIData,
     crates: game_engine::common::ini::ParsedCrateSystem,
@@ -330,7 +331,13 @@ impl RetailWorldDefinitions {
             None => load_standalone_startup_sources(),
         }
         .map_err(HarnessAssetError::Invalid)?;
-        for file in ["GameData.ini", "PlayerTemplate.ini", "Locomotor.ini", "Multiplayer.ini"] {
+        for file in [
+            "GameData.ini",
+            "PlayerTemplate.ini",
+            "Locomotor.ini",
+            "Multiplayer.ini",
+            "Upgrade.ini",
+        ] {
             if startup.definition_texts(file).next().is_none() {
                 return Err(HarnessAssetError::Missing(file.into()));
             }
@@ -377,6 +384,18 @@ impl RetailWorldDefinitions {
         }
         let multiplayer = Arc::new(multiplayer);
 
+        // GameEngine.cpp:468 initializes the three veterancy bits, then
+        // applies Default/Upgrade.ini and Upgrade.ini in source order.
+        let mut upgrade_definitions = gamelogic::upgrade::center::UpgradeCenter::new();
+        upgrade_definitions.init();
+        for (path, text) in startup.definition_texts("Upgrade.ini") {
+            crate::assets::ini_template_loader::load_upgrade_ini_text(
+                &mut upgrade_definitions,
+                text,
+            )
+            .map_err(|error| invalid(path, &error))?;
+        }
+
         let mut ai_store = game_engine::common::ini::ini_ai_data::AIDataStore::default();
         for (path, text) in startup.definition_texts("AIData.ini") {
             let mut ini = game_engine::common::ini::INI::new();
@@ -402,6 +421,7 @@ impl RetailWorldDefinitions {
             player_templates,
             locomotors,
             multiplayer,
+            upgrade_definitions,
             ai_data,
             crates,
         })
@@ -429,6 +449,8 @@ impl RetailWorldDefinitions {
         logic.admit_startup_content(startup()?)?;
         logic.admit_player_template_definitions(self.player_templates.clone())?;
         logic.multiplayer_definitions = Some(Arc::clone(&self.multiplayer));
+        logic.upgrade_definition_base = self.upgrade_definitions.clone();
+        logic.upgrade_definitions = self.upgrade_definitions.clone();
         logic.set_ai_definition_base(self.ai_data.clone());
         *logic.world_services.common().ini.crate_system.write() = self.crates.clone();
         Ok(())

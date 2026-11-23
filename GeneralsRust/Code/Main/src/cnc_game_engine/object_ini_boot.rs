@@ -195,6 +195,9 @@ const STANDALONE_DEFINITION_PATHS: &[&str] = &[
     "Data/INI/Roads.ini",
     "Data/INI/Default/ObjectCreationList.ini",
     "Data/INI/ObjectCreationList.ini",
+    // GameEngine.cpp:468: DefaultUpgrade precedes the authored upgrades.
+    "Data/INI/Default/Upgrade.ini",
+    "Data/INI/Upgrade.ini",
     // GameEngine.cpp:480 AIData, Default then the retail override.
     "Data/INI/Default/AIData.ini",
     "Data/INI/AIData.ini",
@@ -355,7 +358,7 @@ fn capture_standalone_startup_sources(
 /// Initialize a standalone world with real application-selected definitions.
 /// Like the application boot (C++ GameEngine::init loads GameData.ini before
 /// any map), this admits the GameData baselines, PlayerTemplate, Locomotor,
-/// Multiplayer, Armor, Terrain, Roads and OCL catalogs with the Object INI;
+/// Multiplayer, Armor, Terrain, Roads, OCL and Upgrade catalogs with the Object INI;
 /// a world holding only Objects has PartitionCellSize 0 (GlobalData.cpp:679)
 /// and cannot partition a retail map.
 pub fn start_standalone_game(
