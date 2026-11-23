@@ -194,6 +194,8 @@ pub struct GameLogic {
 
     /// C++ GameLogic::m_drawIconUI, owned by this match.
     pub(crate) draw_icon_ui: bool,
+    /// C++ GameLogic::m_showBehindBuildingMarkers, including cinematic overrides.
+    pub(super) show_behind_building_markers: bool,
 
     /// Simulation frame counter
     pub(crate) frame: u32,

@@ -2028,8 +2028,8 @@ impl CnCGameEngine {
                 .read();
             (
                 settings.writable.use_shadow_decals,
-                settings
-                    .enable_behind_building_markers
+                (settings.enable_behind_building_markers
+                    && self.game_logic.show_behind_building_markers())
                     .then_some(settings.occluded_luminance_scale),
             )
         };

@@ -18,6 +18,14 @@ impl GameLogic {
         self.draw_icon_ui = enabled;
     }
 
+    pub(crate) fn show_behind_building_markers(&self) -> bool {
+        self.show_behind_building_markers
+    }
+
+    pub(crate) fn set_show_behind_building_markers(&mut self, enabled: bool) {
+        self.show_behind_building_markers = enabled;
+    }
+
     pub(in crate::game_logic) fn drain_warehouse_set_value_requests(&self) -> Vec<(String, i32)> {
         self.mission_scripts.drain_warehouse_set_values()
     }
@@ -139,6 +147,7 @@ impl GameLogic {
             next_formation_id: 1,
             frame: 0,
             draw_icon_ui: true,
+            show_behind_building_markers: true,
             replay_pending: crate::command_system::ReplayPendingState::default(),
             frame_objects_changed_trigger_areas: std::cell::Cell::new(0),
             host_guard_area_occupancy: Default::default(),
@@ -945,6 +954,7 @@ impl GameLogic {
         self.session_view.border_shroud_level = None;
         self.native_hulk_max_lifetime_override = -1;
         self.draw_icon_ui = true;
+        self.show_behind_building_markers = true;
         self.weapon_definitions = self.weapon_definition_base.clone();
         self.locomotor_definitions
             .set_admitted(self.locomotor_definition_base.clone());

@@ -397,6 +397,9 @@ mod debug_freeze;
 mod camera_fade_owner_tests;
 
 #[cfg(test)]
+mod behind_building_marker_owner_tests;
+
+#[cfg(test)]
 mod draw_icon_ui_owner_tests;
 
 mod waypoint_routes;

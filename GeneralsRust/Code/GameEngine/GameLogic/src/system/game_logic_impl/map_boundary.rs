@@ -304,6 +304,14 @@ impl ScriptExecutionDriver for CoreBoundaryScriptDriver<'_> {
         }
     }
 
+    fn set_show_behind_building_markers(
+        &mut self,
+        enabled: bool,
+    ) -> Option<crate::GameLogicResult<()>> {
+        self.0.set_show_behind_building_markers(enabled);
+        Some(Ok(()))
+    }
+
     fn after_action(&mut self) -> crate::GameLogicResult<()> {
         Ok(())
     }

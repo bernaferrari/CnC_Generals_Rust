@@ -405,6 +405,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         Some(Ok(()))
     }
 
+    fn set_show_behind_building_markers(
+        &mut self,
+        enabled: bool,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.world.set_show_behind_building_markers(enabled);
+        Some(Ok(()))
+    }
+
     fn override_hulk_lifetime(&mut self, frames: i32) -> Option<gamelogic::GameLogicResult<()>> {
         self.world.native_hulk_max_lifetime_override = frames;
         Some(Ok(()))

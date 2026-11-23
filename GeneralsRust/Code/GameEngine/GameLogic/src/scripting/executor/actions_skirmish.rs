@@ -1109,8 +1109,15 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_options_set_occlusion_mode(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
+        // ScriptActions.cpp:6011–6014 and :7420–7422 pass getInt() as Bool.
         let mode = self.get_int_param(action, 0)?;
+        if let Some(result) = driver.set_show_behind_building_markers(mode != 0) {
+            return result
+                .map(|()| ScriptActionResult::Success)
+                .map_err(|error| ScriptError::ExecutionFailed(error.to_string()));
+        }
         TheGameLogic::set_show_behind_building_markers(mode != 0);
         log::debug!("Setting occlusion mode to {}", mode);
         Ok(ScriptActionResult::Success)

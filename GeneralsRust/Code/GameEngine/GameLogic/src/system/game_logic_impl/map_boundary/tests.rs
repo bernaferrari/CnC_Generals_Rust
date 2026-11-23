@@ -171,6 +171,32 @@ fn authored_boundary_script_uses_the_driving_core_loan() {
 }
 
 #[test]
+fn authored_occlusion_script_sets_the_driving_core_while_a_peer_is_published() {
+    let _lock = crate::test_sync::lock();
+    let owner = engine_stores::new_for_world();
+    let peer = engine_stores::new_for_world();
+    owner.services().scripts().initialize_engine(owner.services()).unwrap();
+    let mut action = ScriptAction::new(ScriptActionType::OptionsSetOcclusionMode);
+    action.add_parameter(Parameter::with_int(ParameterType::Boolean, 0)).unwrap();
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(condition));
+    script.action = Some(Box::new(action));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    owner.services().scripts().engine().write().unwrap().as_mut().unwrap()
+        .set_script_list_for_player(0, Some(Box::new(list))).unwrap();
+
+    with_active_stores(&peer, || {
+        owner.game_logic_mutex().lock().unwrap().evaluate_scripts().unwrap();
+    });
+    assert!(!owner.game_logic_mutex().lock().unwrap().get_show_behind_building_markers());
+    assert!(peer.game_logic_mutex().lock().unwrap().get_show_behind_building_markers());
+}
+
+#[test]
 fn terrain_snapshot_rebuilds_the_registered_recipient_boundary() {
     let _lock = crate::test_sync::lock();
     let (source, _) = admitted_world();

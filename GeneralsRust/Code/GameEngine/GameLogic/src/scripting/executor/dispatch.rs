@@ -2507,7 +2507,9 @@ impl ScriptActionDispatcher<'_> {
                     }
                 }
             }
-            ScriptActionType::OptionsSetOcclusionMode => self.do_options_set_occlusion_mode(action),
+            ScriptActionType::OptionsSetOcclusionMode => {
+                self.do_options_set_occlusion_mode(action, driver)
+            }
             ScriptActionType::OptionsSetDrawiconUiMode => {
                 self.do_options_set_draw_icon_ui_mode(action)
             }
