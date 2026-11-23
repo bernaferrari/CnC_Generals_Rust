@@ -17,6 +17,10 @@ mod rodio_hook;
 mod movie_pcm;
 pub use movie_pcm::MoviePcmVoice;
 mod animation_bridge;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+mod browser;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+pub use browser::{BrowserAudioContent, BrowserAudioOutput};
 #[cfg(not(target_arch = "wasm32"))]
 pub use rodio_hook::register_rodio_playback_hook;
 pub use animation_bridge::{
@@ -28,10 +32,9 @@ use animation_bridge::{
     apply_loaded_audio_settings_to_manager, read_audio_settings_from_game_fs, AnimatedSoundBridge,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use rodio_hook::{
-    get_rodio_stream_handle, live_audio_file_cache, wav_channel_count, CachedAudioBytes,
-    RodioPlaybackHook, RodioSinkState, RodioVoice,
-};
+use rodio_hook::{get_rodio_stream_handle, live_audio_file_cache};
+#[cfg(any(not(target_arch = "wasm32"), all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
+use rodio_hook::{wav_channel_count, CachedAudioBytes, RodioPlaybackHook, RodioSinkState, RodioVoice};
 #[cfg(target_arch = "wasm32")]
 use rodio_hook::{register_wasm_playback_hook, WasmPlaybackHook};
 
@@ -58,13 +61,16 @@ use indexmap::IndexMap;
 use lewton::inside_ogg::OggStreamReader;
 #[cfg(not(target_arch = "wasm32"))]
 use minimp3::{Decoder as Mp3Decoder, Error as Mp3Error};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
 use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, SpatialSink};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+use web_time::Instant;
 use ww3d_animation::{initialize_animated_sound_mgr, set_sound_library, SoundLibraryBridge};
 use ww3d_core::errors::{W3DError, W3DResult};
 
@@ -689,6 +695,10 @@ pub struct AudioManager {
     audio_random: RandomState,
     /// Optional receiving backend. Absence retains the legacy installed backend.
     playback_recipient: playback::PlaybackRecipient,
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+    browser_audio_content: Option<Arc<BrowserAudioContent>>,
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+    browser_play_failures: browser::FailureLog,
     #[cfg(not(target_arch = "wasm32"))]
     movie_pcm_output: Option<movie_pcm::MoviePcmOutput>,
     // Settings and configuration
@@ -781,6 +791,10 @@ impl AudioManager {
         AudioManager {
             audio_random: RandomState::default(),
             playback_recipient: playback::PlaybackRecipient::default(),
+            #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+            browser_audio_content: None,
+            #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+            browser_play_failures: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
             movie_pcm_output: None,
             audio_settings: AudioSettings::default(),
@@ -1014,6 +1028,11 @@ impl AudioManager {
         event_to_add: &AudioEventRts,
         submission: AudioSubmission<'_>,
     ) -> AudioHandle {
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        if self.browser_audio_content.is_some() && event_to_add.get_is_logical_audio() {
+            self.report_play_failure(event_to_add.get_event_name(), "browser audio requires the receiving logical random stream");
+            return AHSV_ERROR;
+        }
         let mut audio_random = std::mem::take(&mut self.audio_random);
         let handle = self.add_audio_event_with_submission_and_selection(
             event_to_add,
@@ -1089,6 +1108,19 @@ impl AudioManager {
             return AHSV_NO_SOUND;
         }
 
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        if self.browser_audio_content.is_some()
+            && (matches!(submission, AudioSubmission::Ambient(_))
+                || (prepared && event_to_add.get_is_logical_audio())
+                || event_to_add.needs_ambient_audio_owner())
+        {
+            self.report_play_failure(
+                event_to_add.get_event_name(),
+                "browser audio requires explicit locality and a receiving audio owner",
+            );
+            return AHSV_ERROR;
+        }
+
         let mut audio_event = event_to_add.clone();
         if audio_event.get_audio_event_info().is_none() {
             if let Some(info) = self.find_audio_event_info(event_to_add.get_event_name()) {
@@ -1100,13 +1132,23 @@ impl AudioManager {
             // C++ addAudioEvent returns AHSV_Error for unknown names
             // (GameAudio.cpp:393-395); report once so a silent event name is
             // visible in the log instead of a dropped handle.
-            report_play_failure_once(
+            self.report_play_failure(
                 audio_event.get_event_name(),
                 "addAudioEvent: event name unresolved",
             );
             return AHSV_ERROR;
         };
         let sound_type = resolved_info.sound_type;
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        if self.browser_audio_content.is_some()
+            && audio_event.is_positional_audio()
+            && (resolved_info.type_field & super::audio_event_rts::ST_SHROUDED) != 0
+            && (resolved_info.type_field & ST_GLOBAL) == 0
+            && resolved_info.priority != AudioPriority::Critical
+        {
+            self.report_play_failure(audio_event.get_event_name(), "browser audio requires a receiving shroud observation for this sound");
+            return AHSV_ERROR;
+        }
 
         // Check if audio type is enabled
         match sound_type {
@@ -1702,7 +1744,19 @@ impl AudioManager {
     }
 
     fn audio_paths(&self) -> AudioPathSettings {
-        AudioPathSettings::from_settings(&self.audio_settings)
+        let paths = AudioPathSettings::from_settings(&self.audio_settings);
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        let paths = paths.with_browser_content(self.browser_audio_content.clone());
+        paths
+    }
+
+    fn report_play_failure(&mut self, event: &str, reason: &str) {
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        if self.browser_audio_content.is_some() {
+            self.log_browser_play_failure(event, reason);
+            return;
+        }
+        report_play_failure_once(event, reason);
     }
 
     /// Apply parsed settings to this receiving manager and initialize its mix.
@@ -1863,7 +1917,7 @@ impl AudioManager {
         visible: &mut dyn FnMut(&Coord3D) -> bool,
     ) {
         let Some(info) = event.get_audio_event_info() else {
-            report_play_failure_once(
+            self.report_play_failure(
                 event.get_event_name(),
                 "playAudioEvent: unresolved event info",
             );
@@ -1897,7 +1951,7 @@ impl AudioManager {
         let play_ok = match hook_result {
             Some(Ok(())) | None => true,
             Some(Err(msg)) => {
-                report_play_failure_once(event.get_event_name(), &msg);
+                self.report_play_failure(event.get_event_name(), &msg);
                 false
             }
         };
@@ -1927,6 +1981,16 @@ impl AudioManager {
     /// C++ `MilesAudioManager::friend_forcePlayAudioEventRTS` (2971-3017).
     /// Mission-briefing force-play at the speech slider volume.
     pub fn friend_force_play_audio_event_rts(&mut self, event_to_play: &AudioEventRts) {
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        if self.browser_audio_content.is_some()
+            && (event_to_play.get_is_logical_audio() || event_to_play.needs_ambient_audio_owner())
+        {
+            self.report_play_failure(
+                event_to_play.get_event_name(),
+                "browser audio requires a receiving audio owner",
+            );
+            return;
+        }
         let mut event = event_to_play.clone();
         if event.get_audio_event_info().is_none() {
             if let Some(info) = self.find_audio_event_info(event.get_event_name()) {
@@ -1934,7 +1998,7 @@ impl AudioManager {
             }
         }
         let Some(info) = event.get_audio_event_info() else {
-            report_play_failure_once(
+            self.report_play_failure(
                 event_to_play.get_event_name(),
                 "friend_forcePlayAudioEventRTS: unresolved event info",
             );
@@ -1971,7 +2035,7 @@ impl AudioManager {
         let play_ok = match hook_result {
             Some(Ok(())) | None => true,
             Some(Err(msg)) => {
-                report_play_failure_once(event.get_event_name(), &msg);
+                self.report_play_failure(event.get_event_name(), &msg);
                 false
             }
         };

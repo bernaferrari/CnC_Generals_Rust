@@ -28,6 +28,7 @@ pub(super) fn get_rodio_stream_handle() -> Option<OutputStreamHandle> {
     }
     payload.as_ref().map(|(_, handle)| handle.clone())
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub(super) fn live_audio_file_cache() -> Arc<AudioFileCache> {
     crate::common::common_services::common_services()
         .system
@@ -51,13 +52,13 @@ impl AsRef<[u8]> for CachedAudioBytes {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
 pub(super) enum RodioVoice {
     Flat(Sink),
     Spatial(SpatialSink),
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
 impl RodioVoice {
     fn set_volume(&self, volume: f32) {
         match self {
@@ -110,18 +111,20 @@ impl RodioVoice {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
 pub(super) struct RodioPlaybackHook {
     // THREAD: kept as Mutex - the hook is published as `Arc<dyn SoundPlaybackHook>`
     // (Send + Sync) and is reachable from the rodio callback thread.
     sinks: Mutex<HashMap<AudioHandle, RodioSinkState>>,
     listener_position: Mutex<Coord3D>,
     listener_orientation: Mutex<Coord3D>,
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     offline_mixer: Option<rodio::mixer::Mixer>,
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+    browser: browser::BrowserPlayback,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
 pub(super) struct RodioSinkState {
     // Each voice is owned by its registry; rodio shares its internal player controls.
     sink: RodioVoice,
@@ -134,7 +137,7 @@ pub(super) struct RodioSinkState {
     duration_ms: Option<Real>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
 impl RodioSinkState {
     fn new(
         sink: RodioVoice,
@@ -158,8 +161,9 @@ impl RodioSinkState {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
 impl RodioPlaybackHook {
+    #[cfg(not(target_arch = "wasm32"))]
     fn new() -> Self {
         Self {
             sinks: Mutex::new(HashMap::new()),
@@ -171,6 +175,20 @@ impl RodioPlaybackHook {
             }),
             #[cfg(test)]
             offline_mixer: None,
+        }
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+    pub(super) fn with_browser(browser: browser::BrowserPlayback) -> Self {
+        Self {
+            sinks: Mutex::new(HashMap::new()),
+            listener_position: Mutex::new(Coord3D::ZERO),
+            listener_orientation: Mutex::new(Coord3D {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            }),
+            browser,
         }
     }
 
@@ -212,6 +230,32 @@ impl RodioPlaybackHook {
         }
     }
 
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+    fn resolve_audio_data(&self, event: &AudioEventRts) -> Option<(String, Arc<Vec<u8>>)> {
+        for name in [Self::portion_filename(event), event.get_filename()] {
+            if let Some((name, data)) = Self::read_browser_audio(&self.browser.content, name) {
+                if event.is_positional_audio()
+                    && wav_channel_count(&data).is_some_and(|channels| channels > 1)
+                {
+                    return None;
+                }
+                return Some((name, data));
+            }
+        }
+        None
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+    pub(super) fn read_browser_audio(
+        content: &BrowserAudioContent,
+        name: &str,
+    ) -> Option<(String, Arc<Vec<u8>>)> {
+        Self::build_path_candidates(name)
+            .into_iter()
+            .find_map(|candidate| content.file(&candidate).map(|bytes| (candidate, bytes)))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn resolve_audio_data(&self, event: &AudioEventRts) -> Option<(String, Arc<Vec<u8>>)> {
         let mut names = vec![Self::portion_filename(event).to_string()];
         let fallback = event.get_filename();
@@ -303,8 +347,41 @@ impl RodioPlaybackHook {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
 impl RodioPlaybackHook {
+    #[cfg(feature = "audio")]
+    pub(super) fn decode_source(
+        file_path: &str,
+        audio_data: Arc<Vec<u8>>,
+    ) -> Result<Box<dyn Source<Item = f32> + Send>, String> {
+        if super::super::retail_adpcm::is_ima_wave(&audio_data) {
+            let decoded = super::super::retail_adpcm::decode(audio_data)
+                .map_err(|error| format!("Failed to decode audio file '{file_path}': {error}"))?;
+            return Ok(Box::new(rodio::buffer::SamplesBuffer::new(
+                std::num::NonZero::new(decoded.channels).expect("decoder validated channels"),
+                std::num::NonZero::new(decoded.sample_rate).expect("decoder validated sample rate"),
+                decoded.samples,
+            )));
+        }
+        Decoder::new(Cursor::new(CachedAudioBytes(audio_data)))
+            .map(|source| Box::new(source) as Box<dyn Source<Item = f32> + Send>)
+            .map_err(|error| format!("Failed to decode audio file '{file_path}': {error}"))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn slider_observation(event: &AudioEventRts) -> MilesVolumeSliders {
+        event.playback_slider_observation().unwrap_or_else(|| {
+            get_global_audio_manager()
+                .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
+                .unwrap_or_default()
+        })
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+    fn slider_observation(event: &AudioEventRts) -> MilesVolumeSliders {
+        event.playback_slider_observation().unwrap_or_default()
+    }
+
     fn play_with_observation(
         &self,
         event: &AudioEventRts,
@@ -321,46 +398,29 @@ impl RodioPlaybackHook {
                 event.get_filename()
             )
         })?;
+        #[cfg(not(target_arch = "wasm32"))]
         let duration_ms = AudioManager::duration_ms_from_audio_data(audio_data.as_ref());
         #[cfg(feature = "audio")]
-        let source: Box<dyn Source<Item = f32> + Send> =
-            if super::super::retail_adpcm::is_ima_wave(&audio_data) {
-                let decoded = super::super::retail_adpcm::decode(audio_data.clone())
-                    .map_err(|e| format!("Failed to decode audio file '{}': {}", file_path, e))?;
-                Box::new(rodio::buffer::SamplesBuffer::new(
-                    std::num::NonZero::new(decoded.channels).expect("decoder validated channels"),
-                    std::num::NonZero::new(decoded.sample_rate)
-                        .expect("decoder validated sample rate"),
-                    decoded.samples,
-                ))
-            } else {
-                Box::new(
-                    Decoder::new(Cursor::new(CachedAudioBytes(audio_data))).map_err(|e| {
-                        format!("Failed to decode audio file '{}': {}", file_path, e)
-                    })?,
-                )
-            };
+        let source = Self::decode_source(&file_path, audio_data)?;
         #[cfg(not(feature = "audio"))]
         let source = Decoder::new(Cursor::new(CachedAudioBytes(audio_data)))
-            .map_err(|e| format!("Failed to decode audio file '{}': {}", file_path, e))?;
-        #[cfg(test)]
+            .map_err(|error| format!("Failed to decode audio file '{file_path}': {error}"))?;
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        let duration_ms = source.total_duration().map(|duration| duration.as_secs_f32() * 1000.0);
+        #[cfg(all(test, not(target_arch = "wasm32")))]
         let stream_handle = if self.offline_mixer.is_some() {
             None
         } else {
             Some(get_rodio_stream_handle()
                 .ok_or_else(|| "Audio output stream not available".to_string())?)
         };
-        #[cfg(not(test))]
+        #[cfg(all(not(test), not(target_arch = "wasm32")))]
         let stream_handle = Some(get_rodio_stream_handle()
             .ok_or_else(|| "Audio output stream not available".to_string())?);
         let (listener, orientation) = self.listener_pose();
         // C++ Miles getEffectiveVolume reads sliders already held by
         // AudioManager::update. Never re-lock THE_AUDIO from this hook.
-        let sliders = event.playback_slider_observation().unwrap_or_else(|| {
-            get_global_audio_manager()
-                .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
-                .unwrap_or_default()
-        });
+        let sliders = Self::slider_observation(event);
         let mut volume = miles_slider_volume(event, &sliders);
         let position = event
             .is_positional_audio()
@@ -368,9 +428,12 @@ impl RodioPlaybackHook {
         if event.is_positional_audio() {
             if let Some(info) = event.get_audio_event_info() {
                 if info.low_pass_freq > 0.0 {
+                    #[cfg(not(target_arch = "wasm32"))]
                     let on_screen = on_screen.unwrap_or_else(|| {
                         legacy_audio_visibility(&miles_event_world_position(event))
                     });
+                    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+                    let on_screen = on_screen.unwrap_or(true);
                     if !on_screen {
                         // C++ AIL_set_3D_sample_occlusion(sample, 1.0 - m_lowPassFreq)
                         volume *= info.low_pass_freq.clamp(0.0, 1.0);
@@ -378,6 +441,7 @@ impl RodioPlaybackHook {
                 }
             }
         }
+        #[cfg(not(target_arch = "wasm32"))]
         let voice = if let Some(pos) = position.as_ref() {
             let pan = stereo_pan(&listener, orientation.x, orientation.y, pos);
             #[cfg(test)]
@@ -407,6 +471,20 @@ impl RodioPlaybackHook {
                     .map_err(|e| format!("Failed to create audio sink: {}", e))?
             };
             RodioVoice::Flat(sink)
+        };
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        let mixer = self.browser.output.device.mixer();
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        let voice = if let Some(pos) = position.as_ref() {
+            let pan = stereo_pan(&listener, orientation.x, orientation.y, pos);
+            RodioVoice::Spatial(SpatialSink::connect_new(
+                mixer,
+                [pan, 0.0, -1.0],
+                [-0.1, 0.0, 0.0],
+                [0.1, 0.0, 0.0],
+            ))
+        } else {
+            RodioVoice::Flat(Sink::connect_new(mixer))
         };
         let pitch = event.get_effective_pitch();
         // C++ MilesAudioManager::playStream (MilesAudioManager.cpp:2762-2764)
@@ -460,7 +538,7 @@ impl RodioPlaybackHook {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
 impl SoundPlaybackHook for RodioPlaybackHook {
     fn play(&self, event: &AudioEventRts) -> Result<(), String> {
         self.play_with_observation(event, None)
@@ -534,11 +612,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             return;
         };
 
-        let sliders = event.playback_slider_observation().unwrap_or_else(|| {
-            get_global_audio_manager()
-                .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
-                .unwrap_or_default()
-        });
+        let sliders = Self::slider_observation(event);
         state.base_volume = miles_slider_volume(event, &sliders);
         if event.is_positional_audio() {
             state.position = Some(miles_event_world_position(event));

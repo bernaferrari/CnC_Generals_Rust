@@ -4272,6 +4272,7 @@ dependencies = [
  "tracing-subscriber",
  "unicode-normalization",
  "uuid",
+ "web-time",
  "wgpu",
  "winapi",
  "winit 0.30.13",

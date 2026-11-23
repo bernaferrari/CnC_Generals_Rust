@@ -278,15 +278,17 @@ impl SoundManagerImpl {
                     return false;
                 }
 
-                if shrouded_positional_event_is_blocked(
-                    event_info.type_field,
-                    true,
-                    event_info.priority == AP_CRITICAL,
-                    with_audio_shroud_resolver(|resolver| {
-                        resolver.is_position_visible_to_local_player(pos)
-                    })
-                    .unwrap_or(true),
-                ) {
+                if event_info.type_field & ST_SHROUDED != 0
+                    && shrouded_positional_event_is_blocked(
+                        event_info.type_field,
+                        true,
+                        event_info.priority == AP_CRITICAL,
+                        with_audio_shroud_resolver(|resolver| {
+                            resolver.is_position_visible_to_local_player(pos)
+                        })
+                        .unwrap_or(true),
+                    )
+                {
                     return false;
                 }
             }

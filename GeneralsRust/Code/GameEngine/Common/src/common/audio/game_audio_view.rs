@@ -30,6 +30,12 @@ fn playback_visibility(event: &AudioEventRts, visible: &mut dyn FnMut(&Coord3D) 
 
 impl AudioManager {
     pub fn update(&mut self) {
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        if self.browser_audio_content.is_some() {
+            // An unobserved view uses the last explicitly supplied pose.
+            self.update_after_listener(&mut |_| true);
+            return;
+        }
         // C++ MilesAudioManager::update (MilesAudioManager.cpp:460-468):
         // AudioManager::update (listener/zoom) → setDeviceListenerPosition →
         // processRequestList → processPlayingList → processFadingList → processStoppedList.

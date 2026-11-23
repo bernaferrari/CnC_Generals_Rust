@@ -10,6 +10,8 @@ pub(crate) struct AudioPathSettings {
     music_folder: String,
     streaming_folder: String,
     sounds_extension: String,
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+    pub(super) browser_content: Option<std::sync::Arc<super::game_audio::BrowserAudioContent>>,
 }
 
 impl AudioPathSettings {
@@ -20,7 +22,25 @@ impl AudioPathSettings {
             music_folder: settings.music_folder.clone(),
             streaming_folder: settings.streaming_folder.clone(),
             sounds_extension: settings.sounds_extension.clone(),
+            #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+            browser_content: None,
         }
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+    pub(super) fn with_browser_content(
+        mut self,
+        content: Option<std::sync::Arc<super::game_audio::BrowserAudioContent>>,
+    ) -> Self {
+        self.browser_content = content;
+        self
+    }
+
+    pub(super) fn uses_browser_content(&self) -> bool {
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        return self.browser_content.is_some();
+        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio")))]
+        false
     }
 
     pub(super) fn prefix(&self, sound_type: AudioType, language: Option<&str>) -> String {
@@ -60,6 +80,8 @@ impl Default for AudioPathSettings {
             music_folder: "Music".to_owned(),
             streaming_folder: "Speech".to_owned(),
             sounds_extension: "wav".to_owned(),
+            #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+            browser_content: None,
         }
     }
 }

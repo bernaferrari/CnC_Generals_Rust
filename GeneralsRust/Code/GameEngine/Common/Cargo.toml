@@ -99,6 +99,7 @@ test-ambient-services = []
 default = ["async", "graphics", "audio"]
 async = ["tokio", "async-trait", "futures"]
 audio = ["cpal", "symphonia", "realfft", "rubato"]
+browser-audio = ["audio", "dep:rodio", "dep:rodio_compat", "rodio/wasm-bindgen", "dep:web-time"]
 compression = ["lz4", "zstd"]
 graphics = ["wgpu", "winit"]
 windows = []
@@ -142,6 +143,11 @@ tokio = { version = "1.53.1", default-features = false, features = ["rt", "sync"
 getrandom_03 = { package = "getrandom", version = "0.3.4", features = ["wasm_js"] }
 getrandom_04 = { package = "getrandom", version = "0.4.2", features = ["wasm_js"] }
 uuid = { workspace = true, features = ["js"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+rodio = { workspace = true, optional = true }
+rodio_compat = { workspace = true, optional = true }
+web-time = { workspace = true, optional = true }
 
 # Native Windows URL launching is compiled by target, independently of features.
 [target.'cfg(windows)'.dependencies]

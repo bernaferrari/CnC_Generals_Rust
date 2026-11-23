@@ -669,7 +669,9 @@ impl AudioEventRts {
             let mut localized = self.filename_to_load.clone();
             self.adjust_for_localization(&mut localized, sound_type, paths);
             self.filename_to_load = localized;
-            if let Some(resolved) = resolve_extracted_audiozh_path(&self.filename_to_load) {
+            if !paths.uses_browser_content()
+                && let Some(resolved) = resolve_extracted_audiozh_path(&self.filename_to_load)
+            {
                 self.filename_to_load = resolved;
             }
             return;
@@ -706,7 +708,9 @@ impl AudioEventRts {
         let mut localized = self.filename_to_load.clone();
         self.adjust_for_localization(&mut localized, sound_type, paths);
         self.filename_to_load = localized;
-        if let Some(resolved) = resolve_extracted_audiozh_path(&self.filename_to_load) {
+        if !paths.uses_browser_content()
+            && let Some(resolved) = resolve_extracted_audiozh_path(&self.filename_to_load)
+        {
             self.filename_to_load = resolved;
         }
 
@@ -1381,6 +1385,13 @@ impl AudioEventRts {
         self.is_logical_audio = is_logical_audio;
     }
 
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+    pub(super) fn needs_ambient_audio_owner(&self) -> bool {
+        matches!(self.owner_type, OwnerType::Drawable)
+            || (matches!(self.owner_type, OwnerType::Object)
+                && self.receiving_object_identity.is_none())
+    }
+
     pub fn get_is_logical_audio(&self) -> Bool {
         self.is_logical_audio
     }
@@ -1554,6 +1565,16 @@ impl AudioEventRts {
         let Some(index) = filename.rfind('\\') else {
             return;
         };
+
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        if let Some(content) = paths.browser_content.as_ref() {
+            let mut localized_path = paths.prefix(audio_type_to_play, Some(content.language()));
+            localized_path.push_str(&filename[index + 1..]);
+            if content.file(&localized_path).is_some() {
+                *filename = localized_path;
+            }
+            return;
+        }
 
         let mut localized_path =
             self.generate_filename_prefix_with_settings(audio_type_to_play, true, paths);

@@ -3,6 +3,10 @@ use super::*;
 impl AudioManager {
     pub fn get_audio_length_ms(&mut self, event: &AudioEventRts) -> Real {
         // C++ parity: clone event, resolve concrete filenames, then sum attack/main/decay lengths.
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        if self.browser_audio_content.is_some() && event.get_is_logical_audio() {
+            return 0.0;
+        }
         let mut tmp_event = event.clone();
         if tmp_event.get_audio_event_info().is_none() {
             if let Some(info) = self.find_audio_event_info(event.get_event_name()) {
@@ -37,9 +41,7 @@ impl AudioManager {
             return length;
         }
 
-        let length = Self::read_audio_file_bytes(normalized)
-            .and_then(|bytes| Self::duration_ms_from_audio_data(&bytes))
-            .unwrap_or(0.0);
+        let length = self.measure_audio_file_ms(normalized).unwrap_or(0.0);
 
         self.file_length_cache
             .lock()
@@ -47,6 +49,17 @@ impl AudioManager {
             .insert(normalized.to_string(), length);
 
         length
+    }
+
+    fn measure_audio_file_ms(&self, normalized: &str) -> Option<Real> {
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "browser-audio"))]
+        if let Some(content) = self.browser_audio_content.as_ref() {
+            let (name, bytes) = RodioPlaybackHook::read_browser_audio(content, normalized)?;
+            let source = RodioPlaybackHook::decode_source(&name, bytes).ok()?;
+            return source.total_duration().map(|duration| duration.as_secs_f32() * 1000.0);
+        }
+        let bytes = Self::read_audio_file_bytes(normalized)?;
+        Self::duration_ms_from_audio_data(&bytes)
     }
 
     pub(super) fn read_audio_file_bytes(file_path: &str) -> Option<Vec<u8>> {
