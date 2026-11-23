@@ -1085,6 +1085,37 @@ mod tests {
         assert!(!png_minimap_on_screen_has_terrain(&path, reference), "checkerboard neighborhoods must not manufacture terrain correlation");
     }
 
+    #[test]
+    fn radar_capture_ignores_marker_edge_pixels_when_proving_snow_detail() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("radar-marker-overlay.png");
+        let mut reference = String::from("0,0,128,128");
+        let mut image = image::RgbImage::new(128, 128);
+        for index in 0..16 {
+            let x = 20 + index * 5;
+            let y = 24;
+            let color = 98 + index % 8;
+            reference.push_str(&format!(";{x},{y},{color},{color},{color}"));
+            // Eight terrain samples remain native; the other eight fall on
+            // antialiased radar marker edges and stay inside the broad visual
+            // tolerance while destroying the snow's subtle correlation.
+            let observed = if index < 8 {
+                color
+            } else if index % 2 == 0 {
+                color + 15
+            } else {
+                color - 15
+            };
+            let pixel_y = 127 - y;
+            image.put_pixel(x as u32, pixel_y as u32, image::Rgb([observed; 3]));
+        }
+        for (x, y) in [(70, 50), (80, 50), (70, 60), (80, 60)] {
+            reference.push_str(&format!(";h,{x},{y}"));
+        }
+        image.save(&path).unwrap();
+        assert!(png_minimap_on_screen_has_terrain(&path, &reference));
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn host_ok_requires_shell_wnd_when_wnd_enabled() {

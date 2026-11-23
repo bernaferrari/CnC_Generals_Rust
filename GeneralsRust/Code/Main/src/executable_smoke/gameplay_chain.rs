@@ -2258,6 +2258,7 @@ fn png_minimap_on_screen_has_terrain(path: &Path, reference: &str) -> bool {
     }
     let mut checked = 0u32;
     let mut matched = 0u32;
+    let mut terrain_matched = 0u32;
     let mut hidden_checked = 0u32;
     let mut hidden_matched = 0u32;
     let mut expected_sum = [0i64; 3];
@@ -2295,18 +2296,29 @@ fn png_minimap_on_screen_has_terrain(path: &Path, reference: &str) -> bool {
         let expected_peak = *values[2..].iter().max().unwrap_or(&0);
         let pixel = image.get_pixel(px as u32, py as u32).0;
         let observed_peak = i32::from(*pixel.iter().max().unwrap_or(&0));
-        if observed_peak >= (expected_peak / 2).max(16)
-            && (0..3).all(|i| (i32::from(pixel[i]) - values[i + 2]).abs() <= 48)
-        {
+        let channel_error = (0..3)
+            .map(|i| (i32::from(pixel[i]) - values[i + 2]).abs())
+            .max()
+            .unwrap_or(i32::MAX);
+        if observed_peak >= (expected_peak / 2).max(16) && channel_error <= 48 {
             matched += 1;
-            for i in 0..3 {
-                let expected = i64::from(values[i + 2]);
-                let observed = i64::from(pixel[i]);
-                expected_sum[i] += expected;
-                observed_sum[i] += observed;
-                expected_sq[i] += expected * expected;
-                observed_sq[i] += observed * observed;
-                cross_sum[i] += expected * observed;
+            // C++ W3DRadar::draw draws the terrain first, then object overlays,
+            // shroud, icons, and events. A marker edge can still be within the
+            // broad visual-match window above, which is useful for tolerating
+            // the ordinary render path but distorts snowy terrain correlation.
+            // Use only near-native pixels for the correlation proof; marker
+            // colors and antialiased marker edges remain excluded as outliers.
+            if channel_error <= 12 {
+                terrain_matched += 1;
+                for i in 0..3 {
+                    let expected = i64::from(values[i + 2]);
+                    let observed = i64::from(pixel[i]);
+                    expected_sum[i] += expected;
+                    observed_sum[i] += observed;
+                    expected_sq[i] += expected * expected;
+                    observed_sq[i] += observed * observed;
+                    cross_sum[i] += expected * observed;
+                }
             }
         }
     }
@@ -2314,7 +2326,7 @@ fn png_minimap_on_screen_has_terrain(path: &Path, reference: &str) -> bool {
     // Snow radar colors can vary by fewer than 16 levels in a legitimate
     // capture. Check the spatial relationship to the real source instead of
     // requiring a fixed contrast; unrelated flat fills have zero variance.
-    let count = i64::from(matched);
+    let count = i64::from(terrain_matched);
     let terrain_detail = (0..3).any(|i| {
         let source_variance = count * expected_sq[i] - expected_sum[i] * expected_sum[i];
         let image_variance = count * observed_sq[i] - observed_sum[i] * observed_sum[i];
@@ -2326,6 +2338,7 @@ fn png_minimap_on_screen_has_terrain(path: &Path, reference: &str) -> bool {
     // Without matching source and captured terrain variation, the screenshot
     // cannot prove that the native radar terrain was drawn.
     checked >= 8 && matched >= 8 && matched * 2 >= checked
+        && terrain_matched >= 8
         && terrain_detail && (hidden_checked < 4 || shroud_shape)
 }
 
