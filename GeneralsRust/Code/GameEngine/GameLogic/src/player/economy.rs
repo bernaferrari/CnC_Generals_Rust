@@ -236,7 +236,7 @@ impl Player {
     /// Add KindOf production cost change (matches C++ Player::addKindOfProductionCostChange)
     pub fn add_kind_of_production_cost_change(&mut self, kind_of: KindOfMaskType, percent: Real) {
         for entry in &mut self.kind_of_percent_production_change_list {
-            if entry.kind_of == kind_of && (entry.percent - percent).abs() < f32::EPSILON {
+            if entry.kind_of == kind_of && entry.percent == percent {
                 entry.refs = entry.refs.saturating_add(1);
                 return;
             }
@@ -256,31 +256,22 @@ impl Player {
         kind_of: KindOfMaskType,
         percent: Real,
     ) {
-        let mut idx = None;
-        for (i, entry) in self
+        let Some(index) = self
             .kind_of_percent_production_change_list
-            .iter_mut()
-            .enumerate()
-        {
-            if entry.kind_of == kind_of && (entry.percent - percent).abs() < f32::EPSILON {
-                if entry.refs > 0 {
-                    entry.refs -= 1;
-                }
-                if entry.refs == 0 {
-                    idx = Some(i);
-                }
-                break;
-            }
-        }
-
-        if let Some(i) = idx {
-            self.kind_of_percent_production_change_list.remove(i);
-        } else if idx.is_none() {
+            .iter()
+            .position(|entry| entry.kind_of == kind_of && entry.percent == percent)
+        else {
             log::warn!(
-                "remove_kind_of_production_cost_change missing entry kind_of={} percent={} ",
+                "remove_kind_of_production_cost_change missing entry kind_of={} percent={}",
                 kind_of,
                 percent
             );
+            return;
+        };
+        let entry = &mut self.kind_of_percent_production_change_list[index];
+        entry.refs = entry.refs.saturating_sub(1);
+        if entry.refs == 0 {
+            self.kind_of_percent_production_change_list.remove(index);
         }
     }
 
@@ -324,7 +315,8 @@ impl Player {
     pub fn get_production_cost_change_based_on_kind_of(&self, kind_of: KindOfMaskType) -> Real {
         let mut result: Real = 1.0;
         for entry in &self.kind_of_percent_production_change_list {
-            if (kind_of & entry.kind_of) != KIND_OF_MASK_NONE {
+            // C++ TEST_KINDOFMASK_MULTI requires every authored bit.
+            if kind_of & entry.kind_of == entry.kind_of {
                 result *= 1.0 + entry.percent;
             }
         }

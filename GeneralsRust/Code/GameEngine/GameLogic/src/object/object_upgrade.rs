@@ -20,6 +20,7 @@ enum PreparedUpgrade {
     MaxHealth(ModuleDataView<crate::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData>),
     ExperienceScalar(ModuleDataView<crate::object::upgrade::experience_scalar_upgrade::ExperienceScalarUpgradeModuleData>),
     WeaponBonus(ModuleDataView<crate::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData>),
+    CostModifier(ModuleDataView<crate::object::upgrade::cost_modifier_upgrade::CostModifierUpgradeModuleData>),
 }
 
 impl PreparedUpgrade {
@@ -33,6 +34,7 @@ impl PreparedUpgrade {
             Self::MaxHealth(data) => f(&data.read().upgrade_mux_data),
             Self::ExperienceScalar(data) => f(&data.read().upgrade_mux_data),
             Self::WeaponBonus(data) => f(&data.read().upgrade_mux_data),
+            Self::CostModifier(data) => f(&data.read().upgrade_mux_data),
         }
     }
 }
@@ -809,6 +811,9 @@ impl Object {
                     UpgradeModuleKindMut::WeaponBonus(upgrade) => upgrade
                         .prepare_upgrade(mask)
                         .map(PreparedUpgrade::WeaponBonus),
+                    UpgradeModuleKindMut::CostModifier(upgrade) => upgrade
+                        .prepare_upgrade(mask)
+                        .map(PreparedUpgrade::CostModifier),
                     other => {
                         if let Some(upgrade) = other.into_interface() {
                             if upgrade.can_upgrade(mask) {
@@ -831,6 +836,7 @@ impl Object {
                     PreparedUpgrade::MaxHealth(data) => data.read().apply_to_object(self, loading_map),
                     PreparedUpgrade::ExperienceScalar(data) => data.read().apply_to_object(self),
                     PreparedUpgrade::WeaponBonus(data) => data.read().apply_to_object(self),
+                    PreparedUpgrade::CostModifier(data) => data.read().apply_to_object(self),
                     PreparedUpgrade::SubObjects(_) | PreparedUpgrade::PassengersFire(_) => {}
                 }
                 // Commit to the same entry that supplied this plan. Matching
@@ -865,6 +871,10 @@ impl Object {
                     (
                         PreparedUpgrade::WeaponBonus(_),
                         Some(UpgradeModuleKindMut::WeaponBonus(upgrade)),
+                    ) => upgrade.finish_upgrade(),
+                    (
+                        PreparedUpgrade::CostModifier(_),
+                        Some(UpgradeModuleKindMut::CostModifier(upgrade)),
                     ) => upgrade.finish_upgrade(),
                     _ => unreachable!("prepared upgrade changed module kind"),
                 });

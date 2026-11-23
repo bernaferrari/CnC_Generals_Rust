@@ -8,6 +8,7 @@ use crate::helpers::TheThingFactory;
 use crate::player::PlayerArcExt;
 use crate::upgrade::{UpgradeStatus, UpgradeTemplate, UpgradeType};
 use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get_thing_factory};
+use game_engine::common::system::Snapshotable;
 
 const ID: ObjectID = 0x7A3D_1001;
 const FIRST: &str = "Upgrade_OwnedAdmissionFirst";
@@ -44,6 +45,49 @@ fn player() -> Arc<RwLock<Player>> {
         .unwrap()
         .add_player(player.clone());
     player
+}
+
+fn roster_with_players(indices: &[crate::player::PlayerIndex]) -> Arc<RwLock<crate::player::PlayerList>> {
+    let mut roster = crate::player::PlayerList::new();
+    for &index in indices {
+        roster.add_player(Arc::new(RwLock::new(Player::new(index))));
+    }
+    Arc::new(RwLock::new(roster))
+}
+
+fn roster_player(
+    roster: &Arc<RwLock<crate::player::PlayerList>>,
+    index: crate::player::PlayerIndex,
+) -> Arc<RwLock<Player>> {
+    roster
+        .read()
+        .unwrap()
+        .get_player(index)
+        .cloned()
+        .expect("fixture roster player")
+}
+
+fn owner_for_roster(
+    name: &str,
+    modules: &str,
+    roster: &Arc<RwLock<crate::player::PlayerList>>,
+    player_index: u32,
+) -> Arc<RwLock<Object>> {
+    let owner = owner(name, modules, false);
+    owner
+        .write()
+        .unwrap()
+        .bind_rank_roster(roster)
+        .expect("bind receiving player roster");
+    let team = Arc::new(RwLock::new(Team::new(
+        format!("{name}Team").into(),
+        ID + 100 + player_index,
+    )));
+    team.write()
+        .unwrap()
+        .set_controlling_player_id(Some(player_index));
+    owner.write().unwrap().set_team(Some(team)).unwrap();
+    owner
 }
 
 fn owner(name: &str, modules: &str, controlling_player: bool) -> Arc<RwLock<Object>> {
@@ -113,6 +157,162 @@ fn both_modules() -> String {
     format!(
         " Behavior = StatusBitsUpgrade RequiresBoth\n TriggeredBy = {FIRST} {SECOND}\n RequiresAllTriggers = Yes\n StatusToSet = MASKED\n End\n"
     )
+}
+
+#[test]
+fn cost_modifier_completion_uses_the_receiving_owner_and_cleans_up_on_capture_delete() {
+    if !child(concat!(
+        module_path!(),
+        "::cost_modifier_completion_uses_the_receiving_owner_and_cleans_up_on_capture_delete"
+    )) {
+        return;
+    }
+    const TRIGGER: &str = "Upgrade_CostModifierOwnerIsolation";
+    crate::upgrade::center::with_upgrade_center_mut(|center| {
+        center.new_upgrade(AsciiString::from(TRIGGER));
+    });
+    let module_a = format!(
+        " Behavior = CostModifierUpgrade CostModifierOwnerIsolation\n TriggeredBy = {TRIGGER}\n EffectKindOf = STRUCTURE\n Percentage = -10%\n End\n"
+    );
+    let module_b = format!(
+        " Behavior = CostModifierUpgrade CostModifierOwnerIsolation\n TriggeredBy = {TRIGGER}\n EffectKindOf = STRUCTURE\n Percentage = -25%\n End\n"
+    );
+    let roster_a = roster_with_players(&[0, 1]);
+    let roster_b = roster_with_players(&[0]);
+    let source_a = owner_for_roster("CostModifierOwnerA", &module_a, &roster_a, 0);
+    let source_b = owner_for_roster("CostModifierOwnerB", &module_b, &roster_b, 0);
+    assert_eq!(source_a.read().unwrap().id, source_b.read().unwrap().id);
+    assert!(crate::object::registry::OBJECT_REGISTRY
+        .get_object(ID)
+        .is_none());
+
+    source_a
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(TRIGGER, UpgradeType::Object));
+    source_b
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(TRIGGER, UpgradeType::Object));
+
+    let player_a0 = roster_player(&roster_a, 0);
+    let player_a1 = roster_player(&roster_a, 1);
+    let player_b0 = roster_player(&roster_b, 0);
+    assert_eq!(
+        player_a0.read().unwrap().get_player_index(),
+        player_b0.read().unwrap().get_player_index(),
+        "the colliding Objects resolve slot zero from distinct receiving rosters"
+    );
+    let structure = game_engine::common::system::kind_of::KindOfMask::STRUCTURE.bits();
+    assert_eq!(
+        player_a0
+            .read()
+            .unwrap()
+            .get_production_cost_change_based_on_kind_of(structure),
+        0.9,
+        "A's completed module must affect only A's player"
+    );
+    assert_eq!(
+        player_b0
+            .read()
+            .unwrap()
+            .get_production_cost_change_based_on_kind_of(structure),
+        0.75,
+        "same numeric ObjectID in B must still affect B's player"
+    );
+    let quote = crate::object::production::build_cost_calculator::BuildCostCalculator::new()
+        .calc_cost_to_build(
+            1_000,
+            &crate::object::production::build_cost_calculator::PlayerBuildModifiers {
+                production_cost_change_by_kind: player_a0
+                    .read()
+                    .unwrap()
+                    .get_production_cost_change_based_on_kind_of(structure),
+                ..Default::default()
+            },
+        );
+    assert_eq!(quote, 900, "the authored kind modifier is a live purchase quote");
+    let quote_b = crate::object::production::build_cost_calculator::BuildCostCalculator::new()
+        .calc_cost_to_build(
+            1_000,
+            &crate::object::production::build_cost_calculator::PlayerBuildModifiers {
+                production_cost_change_by_kind: player_b0
+                    .read()
+                    .unwrap()
+                    .get_production_cost_change_based_on_kind_of(structure),
+                ..Default::default()
+            },
+        );
+    assert_eq!(quote_b, 750, "B's authored value is read from B's roster");
+
+    // Object.cpp calls onCapture after changing the object's controlling team.
+    let captured_team = Arc::new(RwLock::new(Team::new("CapturedInA".into(), ID + 200)));
+    captured_team
+        .write()
+        .unwrap()
+        .set_controlling_player_id(Some(1));
+    source_a
+        .write()
+        .unwrap()
+        .set_team(Some(captured_team))
+        .unwrap();
+    source_a
+        .write()
+        .unwrap()
+        .on_capture(Some(player_a0.clone()), Some(player_a1.clone()));
+    assert_eq!(
+        player_a0
+            .read()
+            .unwrap()
+            .get_production_cost_change_based_on_kind_of(structure),
+        1.0
+    );
+    assert_eq!(
+        player_a1
+            .read()
+            .unwrap()
+            .get_production_cost_change_based_on_kind_of(structure),
+        0.9
+    );
+    assert_eq!(
+        player_b0
+            .read()
+            .unwrap()
+            .get_production_cost_change_based_on_kind_of(structure),
+        0.75,
+        "capture in A's receiving roster must not cross into B"
+    );
+
+    source_a.write().unwrap().on_destroy();
+    assert_eq!(
+        player_a1
+            .read()
+            .unwrap()
+            .get_production_cost_change_based_on_kind_of(structure),
+        1.0,
+        "destroying captured A removes only its retained reference"
+    );
+    assert_eq!(
+        player_b0.read().unwrap().kind_of_production_change_entries(),
+        vec![(structure, -0.25, 1)]
+    );
+
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    {
+        let mut xfer = game_engine::common::system::xfer_save::XferSave::new(&mut bytes, 1);
+        player_b0.write().unwrap().xfer(&mut xfer).unwrap();
+    }
+    bytes.set_position(0);
+    let mut restored = Player::new(0);
+    {
+        let mut xfer = game_engine::common::system::xfer_load::XferLoad::new(&mut bytes, 1);
+        restored.xfer(&mut xfer).unwrap();
+    }
+    assert_eq!(
+        restored.kind_of_production_change_entries(),
+        vec![(structure, -0.25, 1)],
+        "the owning Player save keeps the remaining module reference"
+    );
 }
 
 #[test]

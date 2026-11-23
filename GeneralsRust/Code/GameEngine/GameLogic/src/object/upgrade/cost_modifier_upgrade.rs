@@ -3,17 +3,12 @@ use std::sync::Arc;
 use crate::common::{KindOfMaskType, ObjectID, Real, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+    UpgradeMuxData, mux_can_upgrade,
 };
 use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::system::kind_of::KindOfMask;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-
-/// Wave 448: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
+use game_engine::common::thing::module::{Module, ModuleData, ModuleDataView, NameKeyType};
 
 /// Module data describing the cost modifier upgrade.
 #[derive(Debug, Clone)]
@@ -75,7 +70,6 @@ impl Snapshotable for CostModifierUpgradeModuleData {
 pub struct CostModifierUpgrade {
     module_name_key: NameKeyType,
     data: game_engine::common::thing::module::ModuleDataHandle,
-    object_id: ObjectID,
     applied: bool,
 }
 
@@ -83,14 +77,48 @@ impl CostModifierUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
         data: game_engine::common::thing::module::ModuleDataHandle,
-        object_id: ObjectID,
+        _object_id: ObjectID,
     ) -> Self {
         Self {
             module_name_key,
             data,
-            object_id,
             applied: false,
         }
+    }
+
+    pub(crate) fn prepare_upgrade(
+        &self,
+        upgrade_mask: UpgradeMaskType,
+    ) -> Option<ModuleDataView<CostModifierUpgradeModuleData>> {
+        let can_upgrade = {
+            let data = self.data.read();
+            let data = data
+                .as_any()
+                .downcast_ref::<CostModifierUpgradeModuleData>()
+                .expect("CostModifierUpgradeModuleData");
+            mux_can_upgrade(&data.upgrade_mux_data, self.applied, upgrade_mask)
+        };
+        can_upgrade.then(|| {
+            ModuleDataView::new(self.data.clone(), |data| {
+                (data as &dyn std::any::Any)
+                    .downcast_ref::<CostModifierUpgradeModuleData>()
+                    .expect("CostModifierUpgradeModuleData")
+            })
+        })
+    }
+
+    pub(crate) fn finish_upgrade(&mut self) {
+        self.applied = true;
+    }
+}
+
+impl CostModifierUpgradeModuleData {
+    /// C++ CostModifierUpgrade::upgradeImplementation uses the Thing that
+    /// owns this module; the live Object caller passes that owner explicitly.
+    pub(crate) fn apply_to_object(&self, owner: &mut crate::object::Object) {
+        owner.with_controlling_player_mut(|player| {
+            player.add_kind_of_production_cost_change(self.kind_of, self.percentage);
+        });
     }
 }
 
@@ -140,33 +168,6 @@ impl Snapshotable for CostModifierUpgrade {
 impl UpgradeModuleInterface for CostModifierUpgrade {
     fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         mux_can_upgrade(&self.data.read().as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData").upgrade_mux_data, self.applied, upgrade_mask)
-    }
-
-    fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        // Wave 448: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        if self.applied {
-            return false;
-        }
-        { let data = self.data.read().as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData").upgrade_mux_data.clone(); mux_give_self_upgrade_for_object(&data, self.object_id) };
-        use crate::object::registry::OBJECT_REGISTRY;
-
-        let kind = self.data.read().as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData").kind_of();
-        let percentage = self.data.read().as_any().downcast_ref::<CostModifierUpgradeModuleData>().expect("CostModifierUpgradeModuleData").percentage();
-        let Some(()) = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
-            object_guard.with_controlling_player_mut(|player_guard| {
-                player_guard.add_kind_of_production_cost_change(kind, percentage);
-            });
-        }) else {
-            log::warn!("CostModifierUpgrade: Object {} not found", self.object_id);
-            return false;
-        };
-
-        self.applied = true;
-        true
     }
 
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
@@ -240,10 +241,10 @@ fn parse_effect_kind_of_field(
     data: &mut CostModifierUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.kind_of = crate::object::behavior::auto_heal_behavior::parse_kind_of_mask(tokens);
+    let previous = KindOfMask::from_bits_retain(data.kind_of);
+    data.kind_of = KindOfMask::parse_ini(previous, &tokens.join(" "))
+        .map_err(|_| INIError::InvalidNameList)?
+        .bits();
     Ok(())
 }
 
@@ -271,3 +272,57 @@ const COST_MODIFIER_UPGRADE_FIELDS: &[FieldParse<CostModifierUpgradeModuleData>]
         parse: parse_percentage_field,
     },
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cost_modifier_effect_kind_of_uses_the_full_ini_bit_list() {
+        let mut data = CostModifierUpgradeModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "EffectKindOf = VEHICLE NO_HEAL_ICON\nEffectKindOf = -VEHICLE +AIRCRAFT\nEnd\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .unwrap();
+        assert_eq!(
+            data.kind_of(),
+            (KindOfMask::AIRCRAFT | KindOfMask::NO_HEAL_ICON).bits()
+        );
+
+        let result = ini.with_inline_source("EffectKindOf = NO_SUCH_KIND\nEnd\n", |ini| {
+            data.parse_from_ini(ini)
+        });
+        assert_eq!(result, Err(INIError::InvalidNameList));
+    }
+
+    #[test]
+    fn cost_modifier_rows_require_all_bits_and_keep_exact_authored_percentages() {
+        let mut player = crate::player::Player::new(0);
+        let vehicle = KindOfMask::VEHICLE.bits();
+        let filter = (KindOfMask::VEHICLE | KindOfMask::AIRCRAFT).bits();
+        let discount = -0.25_f32;
+        let adjacent = f32::from_bits(discount.to_bits() - 1);
+        player.add_kind_of_production_cost_change(filter, discount);
+        player.add_kind_of_production_cost_change(filter, discount);
+        player.add_kind_of_production_cost_change(filter, adjacent);
+
+        assert_eq!(
+            player.kind_of_production_change_entries(),
+            [(filter, discount, 2), (filter, adjacent, 1)]
+        );
+        assert_eq!(player.get_production_cost_change_based_on_kind_of(vehicle), 1.0);
+        assert_eq!(
+            player.get_production_cost_change_based_on_kind_of(filter),
+            (1.0 + discount) * (1.0 + adjacent)
+        );
+        player.remove_kind_of_production_cost_change(filter, discount);
+        assert_eq!(player.kind_of_production_change_entries()[0], (filter, discount, 1));
+        player.remove_kind_of_production_cost_change(filter, discount);
+        assert_eq!(player.kind_of_production_change_entries(), [(filter, adjacent, 1)]);
+
+        player.add_kind_of_production_cost_change(KindOfMask::empty().bits(), discount);
+        assert_eq!(player.get_production_cost_change_based_on_kind_of(vehicle), 1.0 + discount);
+    }
+}
