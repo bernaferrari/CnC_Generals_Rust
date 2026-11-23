@@ -1,4 +1,5 @@
 use super::*;
+use gamelogic::object::collide::crate_collide::salvage_crate_collide::SalvageCrateCollideModuleData;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::game_logic) enum TimedDisable {
@@ -95,6 +96,15 @@ impl Object {
     /// C++ `Object::getTemplate` / `Thing::getTemplate`.
     pub fn get_template(&self) -> &crate::game_logic::ThingTemplate {
         &self.thing.template
+    }
+
+    pub(crate) fn authored_salvage_crate_collides(
+        &self,
+    ) -> Option<&std::sync::Arc<[SalvageCrateCollideModuleData]>> {
+        self.get_template()
+            .receiving_client_template
+            .as_ref()?
+            .salvage_crate_collides()
     }
 
     /// C++ Object.cpp:2078-2088 / 2237-2247 Building/Vehicle Disabled/Reenabled.

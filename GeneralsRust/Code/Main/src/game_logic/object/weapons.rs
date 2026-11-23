@@ -150,6 +150,9 @@ impl Object {
     /// is not a primary weapon, and treating it as one makes a `FIRE_WEAPON
     /// TERTIARY` command silently discharge the wrong weapon.
     pub fn weapon_name_for_slot(&self, slot: u8) -> Option<&str> {
+        if self.thing.template.has_receiving_weapon_sets() {
+            return self.selected_weapon_name(slot);
+        }
         match slot {
             0 => self.primary_weapon_name(),
             1 => self.secondary_weapon_name(),

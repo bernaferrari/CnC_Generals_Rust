@@ -112,9 +112,11 @@ impl GameLogic {
                 let _ = self.maybe_spawn_rebuild_hole_with_effects(event.id, presentation_effects);
             }
 
-            // Snapshot CreateCrateDie residual fields before remove.
+            // Only detached template-only callers own the legacy drop path.
             let (crate_data, death_pos_pre, death_team_pre, last_src) =
-                if let Some(o) = self.objects.get(&event.id) {
+                if let Some(o) = self.objects.get(&event.id).filter(|object| {
+                    object.thing().template.native_die_declarations.is_none()
+                }) {
                     (
                         o.thing().template.create_crate_data.clone(),
                         o.get_position(),

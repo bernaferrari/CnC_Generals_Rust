@@ -426,6 +426,14 @@ impl CrateSystem {
 
     /// Convert Common-layer `ParsedCrateTemplate` into a runtime template.
     pub fn template_from_parsed(parsed: &ParsedCrateTemplate) -> CrateTemplate {
+        Self::template_from_parsed_with_science(parsed, parse_science_type)
+    }
+
+    /// Resolve science from the same owner that admitted the CrateData catalog.
+    pub fn template_from_parsed_with_science(
+        parsed: &ParsedCrateTemplate,
+        resolve_science: impl FnOnce(&str) -> ScienceType,
+    ) -> CrateTemplate {
         let mut template = CrateTemplate::new(parsed.name.clone());
         template.creation_chance = parsed.creation_chance;
         template.veterancy_level = if parsed.veterancy_level.trim().is_empty() {
@@ -435,7 +443,11 @@ impl CrateSystem {
         };
         template.killed_by_type_kindof = parsed.killed_by_type_kindof;
         template.killer_science_name = parsed.killer_science.clone();
-        template.killer_science = parse_science_type(&parsed.killer_science);
+        template.killer_science = if parsed.killer_science.is_empty() {
+            SCIENCE_INVALID
+        } else {
+            resolve_science(&parsed.killer_science)
+        };
 
         template.possible_crates = parsed
             .possible_crates

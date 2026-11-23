@@ -47,6 +47,7 @@ pub struct RetailWorldDefinitions {
     multiplayer: Arc<MultiplayerSettings>,
     /// AIData.ini (GameEngine.cpp:480): SideInfo and SkirmishBuildList.
     ai_data: game_engine::common::ini::ini_ai_data::AIData,
+    crates: game_engine::common::ini::ParsedCrateSystem,
 }
 
 /// The GameData / definition baselines `CnCGameEngine` boot admits into the
@@ -320,7 +321,7 @@ impl RetailWorldDefinitions {
         Self::load_from_install(None)
     }
 
-    fn load_from_install(install: Option<&Path>) -> Result<Self, HarnessAssetError> {
+    pub(crate) fn load_from_install(install: Option<&Path>) -> Result<Self, HarnessAssetError> {
         // Owned parse scope: these catalogs are built here, then handed to
         // every instance by value; no instance's services observe the parse.
         let _scope = game_engine::common::common_services::CommonServicesScope::new();
@@ -388,6 +389,10 @@ impl RetailWorldDefinitions {
             result.map_err(|error| invalid(path, &error))?;
         }
         let ai_data = ai_store.get_active().cloned().unwrap_or_default();
+        let mut crates = game_engine::common::ini::ParsedCrateSystem::new();
+        for (path, text) in startup.crate_sources() {
+            crates.apply_mixed_source(text).map_err(|error| invalid(path, &error))?;
+        }
 
         Ok(Self {
             startup,
@@ -398,6 +403,7 @@ impl RetailWorldDefinitions {
             locomotors,
             multiplayer,
             ai_data,
+            crates,
         })
     }
 
@@ -424,6 +430,7 @@ impl RetailWorldDefinitions {
         logic.admit_player_template_definitions(self.player_templates.clone())?;
         logic.multiplayer_definitions = Some(Arc::clone(&self.multiplayer));
         logic.set_ai_definition_base(self.ai_data.clone());
+        *logic.world_services.common().ini.crate_system.write() = self.crates.clone();
         Ok(())
     }
 

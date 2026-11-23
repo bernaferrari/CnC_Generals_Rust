@@ -89,7 +89,7 @@ impl ParsedCrateTemplate {
 
 /// INI-layer crate template store.
 /// Matches C++ `CrateSystem` template vector.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParsedCrateSystem {
     templates: HashMap<String, ParsedCrateTemplate>,
     template_order: Vec<String>,
@@ -122,6 +122,31 @@ impl ParsedCrateSystem {
 
     pub fn get_mut(&mut self, name: &str) -> Option<&mut ParsedCrateTemplate> {
         self.templates.get_mut(name)
+    }
+
+    /// Import the CrateData declarations from the mixed stock Crate.ini.
+    /// Object rows belong to the receiving ThingFactory source stream.
+    pub fn apply_mixed_source(&mut self, source: &str) -> INIResult<()> {
+        use crate::common::thing::thing_template::ObjectIniFields;
+        let lines: Vec<_> = source.lines().collect();
+        let mut index = 0;
+        while index < lines.len() {
+            let header = lines[index].split(';').next().unwrap_or_default().trim();
+            let Some(kind) = header.split_whitespace().next() else {
+                index += 1;
+                continue;
+            };
+            let (_, next) = ObjectIniFields::capture_body(&lines, index + 1);
+            if kind.eq_ignore_ascii_case("CrateData") {
+                let text = lines[index..next].join("\n");
+                INI::new().with_inline_source(&text, |ini| {
+                    ini.read_line()?;
+                    parse_crate_template_definition_into(ini, self)
+                })?;
+            }
+            index = next;
+        }
+        Ok(())
     }
 
     pub fn len(&self) -> usize {
@@ -180,30 +205,22 @@ pub fn get_crate_system() -> Option<Arc<RwLock<ParsedCrateSystem>>> {
 /// 2. Check if template already exists (for override support)
 /// 3. Parse fields using the C++ field parse table
 pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
-    // 1. Read the template name
-    let name = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
-
     let system = ensure_crate_system();
-    let mut system_guard = system.write();
+    parse_crate_template_definition_into(ini, &mut system.write())
+}
 
-    // 2. Check for existing template (C++ override logic)
-    if system_guard.get(&name).is_some() {
-        // Template exists -- create override by cloning and replacing
-        if let Some(existing) = system_guard.get(&name).cloned() {
-            system_guard.insert(existing); // re-inserts (update)
-        }
-    } else {
-        // New template -- check for DefaultCrate copy
-        let mut template = ParsedCrateTemplate::new(name.clone());
-        if let Some(default) = system_guard.get("DefaultCrate") {
-            template.creation_chance = default.creation_chance;
-            template.veterancy_level = default.veterancy_level.clone();
-            template.killed_by_type_kindof = default.killed_by_type_kindof;
-            template.killer_science = default.killer_science.clone();
-            template.possible_crates = default.possible_crates.clone();
-            template.is_owned_by_maker = default.is_owned_by_maker;
-        }
-        system_guard.insert(template);
+fn parse_crate_template_definition_into(
+    ini: &mut INI,
+    system: &mut ParsedCrateSystem,
+) -> INIResult<()> {
+    let name = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
+    if system.get(&name).is_none() {
+        let mut template = system
+            .get("DefaultCrate")
+            .cloned()
+            .unwrap_or_else(|| ParsedCrateTemplate::new(name.clone()));
+        template.name.clone_from(&name);
+        system.insert(template);
     }
 
     // 3. Parse fields. The block callback is entered while `ini.buffer` still
@@ -211,7 +228,7 @@ pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
     // be read from subsequent lines, just like C++ `initFromINI`; consuming
     // tokens from the header made the old port return immediately and left
     // `CreationChance` to be misread as a top-level block.
-    let template = system_guard.get_mut(&name).unwrap();
+    let template = system.get_mut(&name).expect("admitted CrateData name");
 
     while let Some(field) = ini.get_next_field() {
         let values: Vec<String> = ini

@@ -789,15 +789,19 @@ impl Object {
 
     /// C++ SalvageCrateCollide::doWeaponSet residual.
     pub fn apply_salvage_weapon_upgrade(&mut self, frame: u32) {
-        if self.test_weapon_condition(5) {
+        use gamelogic::weapon::weapon_set::WeaponSetType;
+
+        let first = WeaponSetType::CrateUpgradeOne as u8;
+        let second = WeaponSetType::CrateUpgradeTwo as u8;
+        if self.test_weapon_condition(second) {
             return;
         }
         let receiving = self.thing().template.has_receiving_weapon_sets();
-        if self.test_weapon_condition(4) {
-            self.set_weapon_condition_at_frame(4, false, frame);
-            self.set_weapon_condition_at_frame(5, true, frame);
+        if self.test_weapon_condition(first) {
+            self.set_weapon_condition_at_frame(first, false, frame);
+            self.set_weapon_condition_at_frame(second, true, frame);
         } else {
-            self.set_weapon_condition_at_frame(4, true, frame);
+            self.set_weapon_condition_at_frame(first, true, frame);
         }
         if !receiving {
             // Legacy synthetic fixtures have no receiving WeaponSet rows.

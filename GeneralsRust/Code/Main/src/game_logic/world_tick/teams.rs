@@ -2071,6 +2071,12 @@ impl GameLogic {
             if !parent_ok || u.target.is_some() {
                 return false;
             }
+            if u.get_template().receiving_client_template.is_some() {
+                // AIUpdate.cpp:876–897 clears the pending ID before its
+                // lookup. GameLogic::findObjectByID(INVALID_ID) returns null.
+                u.crate_created = None;
+                return false;
+            }
             let parent_state = u.ai_state().clone();
             let keep = !matches!(u.ai_state(), AIState::Idle);
             let Some(id) = u.crate_created else {

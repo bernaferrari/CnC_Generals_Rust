@@ -3,6 +3,8 @@
 use super::*;
 #[path = "death/authored.rs"]
 mod authored;
+#[path = "death/crate_drop.rs"]
+mod crate_drop;
 
 #[cfg(all(test, feature = "game_client"))]
 #[path = "structure_topple_fx_tests.rs"]

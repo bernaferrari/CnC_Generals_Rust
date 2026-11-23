@@ -376,6 +376,301 @@ fn mounted_crate_ini_objects_keep_their_authored_birth_and_lifetime() {
 }
 
 #[test]
+fn authored_crate_die_rolls_each_resolved_data_row_in_die_order() {
+    use crate::game_logic::{
+        combat::DamageType, host_usa_pilot::HostDeathType, object::DamageHitContext,
+    };
+    use game_engine::common::system::game_common::normalize_angle;
+
+    let position = Vec3::new(35., 12., 47.);
+    let (mut world, victim) = authored_with_extra(
+        "CrateClockVictim",
+        "Behavior = CreateCrateDie DropTag\n\
+         CrateData = Missing\nCrateData = ZeroChance\nCrateData = NoWeight\n\
+         CrateData = SpawnClock\nCrateData = SpawnClock\nEnd",
+        40,
+        position,
+        "Object ClockCrate\nKindOf = IMMOBILE\n\
+         Body = InactiveBody BodyTag\nEnd\n\
+         Behavior = DeletionUpdate ClockTag\nMinLifetime = 1000\nMaxLifetime = 2000\nEnd\nEnd",
+    );
+    let sources = "CrateData DefaultCrate\nCreationChance = 0\nEnd\n\
+         CrateData ZeroChance\nCrateObject = ClockCrate 1\nEnd\n\
+         CrateData NoWeight\nCreationChance = 1\nCrateObject = ClockCrate 0\nEnd\n\
+         CrateData SpawnClock\nCreationChance = 1\nCrateObject = ClockCrate 1\nEnd\n";
+    world
+        .world_services
+        .common()
+        .ini
+        .crate_system
+        .write()
+        .apply_mixed_source(sources)
+        .unwrap();
+    world.set_owned_pathfinder_layer(victim, 2);
+    world.set_logic_random_seed(0xC8A7E);
+    let mut expected = world.logic_random.snapshot();
+    expected.next_real(0., 1.); // Inherited zero chance, no pick.
+    assert!(expected.next_real(0., 1.) < 1.);
+    expected.next_real(0., 1.); // Existing row with no weighted selection.
+    let expected_outcomes = std::array::from_fn::<_, 2, _>(|_| {
+        assert!(expected.next_real(0., 1.) < 1.);
+        assert!(expected.next_real(0., 1.) < 1.);
+        let due = 40 + expected.next_int(30, 60) as u32;
+        let orientation = normalize_angle(expected.next_real(0., std::f32::consts::TAU));
+        (due, orientation)
+    });
+
+    world
+        .apply_owned_damage_with_effects(
+            victim,
+            200.,
+            None,
+            DamageType::Unresistable,
+            HostDeathType::Normal,
+            None,
+            &DamageHitContext::default(),
+            &mut Default::default(),
+        )
+        .unwrap()
+        .expect("lethal receiving Body application");
+
+    let drops = world
+        .objects
+        .registered_values()
+        .rev()
+        .filter(|o| o.template_name == "ClockCrate")
+        .collect::<Vec<_>>();
+    assert_eq!(drops.len(), expected_outcomes.len());
+    for (object, (due, angle)) in drops.into_iter().zip(expected_outcomes) {
+        assert_eq!(object.get_position(), position);
+        assert_eq!(object.get_orientation(), angle);
+        assert_eq!(object.pathfind_layer, 2);
+        assert_eq!(
+            object.native_lifecycle.as_ref().unwrap().states.as_ref(),
+            &[NativeLifecycleState::Deletion {
+                die_frame: due,
+                active: true
+            }],
+        );
+    }
+    assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+}
+
+#[test]
+fn authored_ai_consumes_crate_notification_without_chasing() {
+    let (mut world, picker) = authored_with_extra(
+        "PickupMarkerOwner",
+        "Behavior = AIUpdateInterface PickupAI\nEnd",
+        40,
+        Vec3::ZERO,
+        "Object PickupMarkerActiveCrate\nKindOf = SELECTABLE CRATE\n\
+         Body = ActiveBody PickupBody\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd",
+    );
+    let crate_id = world
+        .create_object("PickupMarkerActiveCrate", Team::Neutral, Vec3::X * 30.)
+        .unwrap();
+    assert!(world.host_object(picker).unwrap().has_ai_update_interface());
+    assert!(world.host_object(crate_id).unwrap().is_alive());
+    assert!(world.notify_unit_crate(picker, crate_id));
+    assert_eq!(
+        world.host_object(picker).unwrap().crate_created,
+        Some(crate_id)
+    );
+
+    assert!(!world.try_idle_crate_pickup(picker));
+    let owner = world.host_object(picker).unwrap();
+    assert_eq!(owner.crate_created, None);
+    assert_eq!(owner.requested_destination, None);
+}
+
+#[test]
+fn mounted_stock_scorpion_collects_authored_salvage_at_partition_contact() {
+    use crate::game_logic::{
+        ScriptPresentationEffects, VeterancyLevel,
+        presentation_definitions::PresentationDefinitions,
+    };
+    use game_engine::common::system::{
+        archive_file_system::ArchiveFileSystem, install_layout::find_file_case_insensitive,
+    };
+    use gamelogic::weapon::weapon_set::WeaponSetType;
+    use std::io::Read;
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "mounted_stock_scorpion_collects_authored_salvage_at_partition_contact",
+        || {
+            let install = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
+                .map(std::path::PathBuf::from)
+                .or_else(crate::map_frame_scenario::find_lone_eagle_retail_install)
+                .expect("a real mounted retail install is required");
+            let startup =
+                crate::parallel_harness::RetailWorldDefinitions::load_from_install(Some(&install))
+                    .unwrap_or_else(|error| panic!("{}: {error}", install.display()));
+            let mut world = GameLogic::new();
+            startup.admit(&mut world).unwrap();
+            let ini_archive = [&install, &install.join("Data")]
+                .into_iter()
+                .find_map(|dir| find_file_case_insensitive(dir, "INIZH.big"))
+                .unwrap();
+            let mut archive = ArchiveFileSystem::new();
+            archive
+                .open_archive_file(&ini_archive.to_string_lossy())
+                .unwrap();
+            let misc_path = "Data/INI/MiscAudio.ini";
+            let mut misc = Vec::new();
+            archive
+                .open_file(misc_path, 1)
+                .unwrap()
+                .read_to_end(&mut misc)
+                .unwrap();
+            world
+                .admit_presentation_definitions(
+                    PresentationDefinitions::from_ordered_sources(
+                        &[],
+                        &[(misc_path, String::from_utf8_lossy(&misc).into_owned())],
+                        &[],
+                        &|_| false,
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            world.add_player(Player::new(1, Team::GLA, "NativeSalvager", true));
+            world.frame = 40;
+
+            let mut effects = ScriptPresentationEffects::default();
+            let at_crate = Vec3::new(200., 0., 200.);
+            let away = at_crate - Vec3::X * 45.;
+            let picker = world
+                .create_object_for_player_with_effects_checked(
+                    "GLATankScorpion",
+                    1,
+                    away,
+                    None,
+                    &mut effects,
+                )
+                .unwrap()
+                .expect("stock GLA Scorpion");
+            let position =
+                |world: &mut GameLogic, effects: &mut ScriptPresentationEffects<'_>, point| {
+                    assert!(world.set_owned_object_position_with_effects(
+                        picker,
+                        point,
+                        world.frame,
+                        effects
+                    ));
+                    world.update_owned_partition_with_effects(effects).unwrap();
+                };
+            let birth = |world: &mut GameLogic, effects: &mut ScriptPresentationEffects<'_>| {
+                let id = world
+                    .create_object_with_script_effects_checked(
+                        "SalvageCrate",
+                        Team::Neutral,
+                        at_crate,
+                        None,
+                        effects,
+                    )
+                    .unwrap()
+                    .expect("stock authored crate");
+                let crate_object = world.host_object(id).unwrap();
+                assert!(!crate_object.status.effectively_dead);
+                assert_eq!(world.presentation_crate_flags(crate_object), (true, true));
+                id
+            };
+            let assert_retired = |world: &mut GameLogic, id| {
+                assert!(world.host_object(id).unwrap().status.destroyed);
+                world.process_destroy_list();
+                assert!(world.host_object(id).is_none());
+            };
+
+            let first = birth(&mut world, &mut effects);
+            let untouched = world.logic_random.seed_words();
+            position(&mut world, &mut effects, at_crate);
+            assert!(!world.host_object(first).unwrap().status.destroyed);
+            assert_eq!(world.logic_random.seed_words(), untouched);
+            assert_eq!(world.host_object(picker).unwrap().weapon_crate_upgrade(), 0);
+            assert!(
+                world
+                    .get_player_mut(1)
+                    .unwrap()
+                    .unlock_science("SCIENCE_GLA")
+            );
+            position(&mut world, &mut effects, away);
+            assert!(!world.host_object(first).unwrap().status.destroyed);
+
+            let funds = world.get_player(1).unwrap().resources.supplies;
+            position(&mut world, &mut effects, at_crate);
+            assert_eq!(world.logic_random.seed_words(), untouched);
+            assert_eq!(world.get_player(1).unwrap().resources.supplies, funds);
+            let scorpion = world.host_object(picker).unwrap();
+            assert!(scorpion.test_weapon_condition(WeaponSetType::CrateUpgradeOne as u8));
+            assert!(!scorpion.test_weapon_condition(WeaponSetType::CrateUpgradeTwo as u8));
+            assert_eq!(
+                scorpion.weapon_name_for_slot(0),
+                Some("ScorpionTankGunPlusOne")
+            );
+            assert_eq!(scorpion.weapon_name_for_slot(1), None);
+            assert!(world.queued_audio_events.iter().any(|event| {
+                event.event_type == "SalvageUpgrade" && event.object_id == Some(picker)
+            }));
+            assert_retired(&mut world, first);
+
+            position(&mut world, &mut effects, away);
+            let second = birth(&mut world, &mut effects);
+            let untouched = world.logic_random.seed_words();
+            position(&mut world, &mut effects, at_crate);
+            assert_eq!(world.logic_random.seed_words(), untouched);
+            let scorpion = world.host_object(picker).unwrap();
+            assert!(!scorpion.test_weapon_condition(WeaponSetType::CrateUpgradeOne as u8));
+            assert!(scorpion.test_weapon_condition(WeaponSetType::CrateUpgradeTwo as u8));
+            assert_eq!(
+                scorpion.weapon_name_for_slot(0),
+                Some("ScorpionTankGunPlusOne")
+            );
+            assert_retired(&mut world, second);
+
+            for (seed, gain_level) in [(0x2000_0000, true), (0, false)] {
+                position(&mut world, &mut effects, away);
+                let id = birth(&mut world, &mut effects);
+                world.set_logic_random_seed(seed);
+                let mut expected = world.logic_random.snapshot();
+                assert_eq!(expected.next_real(0., 1.) < 0.25, gain_level);
+                let expected_money = if gain_level {
+                    0
+                } else {
+                    expected.next_int(25, 75) as u32
+                };
+                let earned = world.get_player(1).unwrap().statistics.money_earned();
+                world.queued_audio_events.clear();
+                position(&mut world, &mut effects, at_crate);
+                assert_eq!(
+                    world.host_object(picker).unwrap().experience.level,
+                    VeterancyLevel::Veteran
+                );
+                assert_eq!(world.logic_random.seed_words(), expected.seed_words());
+                assert_eq!(
+                    world.get_player(1).unwrap().resources.supplies,
+                    funds + expected_money
+                );
+                assert_eq!(
+                    world.get_player(1).unwrap().statistics.money_earned(),
+                    earned + expected_money
+                );
+                if !gain_level {
+                    assert!(world.queued_audio_events.iter().any(|event| {
+                        event.event_type == "CrateMoney" && event.object_id == Some(picker)
+                    }));
+                    let floating = world.host_money_crates.money_floating_texts.last().unwrap();
+                    assert_eq!(floating.amount, expected_money);
+                    assert_eq!(floating.position, at_crate + Vec3::Y * 10.);
+                    assert_eq!(floating.picker_id, picker);
+                }
+                assert_retired(&mut world, id);
+            }
+        },
+    );
+}
+
+#[test]
 fn authored_height_die_uses_its_own_clock_and_sample_through_ai() {
     let (mut world, id) = authored(
         "NativeAltitudeOwner",
@@ -985,4 +1280,96 @@ fn construction_and_weapon_jamming_are_not_disabled_types_for_lifecycle() {
     assert!(!object.has_disabled_type());
     drive(&mut world, id, 32);
     assert!(world.host_object(id).unwrap().status.on_die_started);
+}
+
+#[test]
+fn mounted_crusader_death_notifies_the_gla_salvager_of_its_authored_crate_once() {
+    use crate::game_logic::{
+        combat::DamageType, host_usa_pilot::HostDeathType, object::DamageHitContext,
+    };
+    use gamelogic::common::Relationship;
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "mounted_crusader_death_notifies_the_gla_salvager_of_its_authored_crate_once",
+        || {
+            let install = std::env::var_os("GENERALS_RETAIL_CONTENT_ROOT")
+                .map(std::path::PathBuf::from)
+                .or_else(crate::map_frame_scenario::find_lone_eagle_retail_install)
+                .expect("a real mounted retail install is required");
+            let startup =
+                crate::parallel_harness::RetailWorldDefinitions::load_from_install(Some(&install))
+                    .unwrap_or_else(|error| panic!("{}: {error}", install.display()));
+            let mut world = GameLogic::new();
+            startup.admit(&mut world).unwrap();
+            let mut usa = Player::new(1, Team::USA, "CrateVictim", true);
+            usa.set_map_relationship(2, Relationship::Enemies);
+            let mut gla = Player::new(2, Team::GLA, "CrateKiller", false);
+            gla.set_map_relationship(1, Relationship::Enemies);
+            assert!(gla.unlock_science("SCIENCE_GLA"));
+            world.add_player(usa);
+            world.add_player(gla);
+            world.frame = 40;
+
+            let origin = Vec3::new(180., 12., 220.);
+            let victim = world
+                .create_object_for_player_with_effects_checked(
+                    "AmericaTankCrusader", 1, origin, None, &mut Default::default(),
+                )
+                .unwrap()
+                .expect("stock USA Crusader");
+            let killer = world
+                .create_object_for_player_with_effects_checked(
+                    "GLATankScorpion", 2, origin + Vec3::X * 35., None, &mut Default::default(),
+                )
+                .unwrap()
+                .expect("stock GLA Scorpion");
+            // A victim on a non-ground pathfinder layer drops at its own
+            // position and layer (CreateCrateDie.cpp:187–195).
+            world.set_owned_pathfinder_layer(victim, 2);
+            let origin = world.host_object(victim).unwrap().get_position();
+
+            world
+                .apply_owned_damage_with_effects(
+                    victim,
+                    10_000.,
+                    Some(killer),
+                    DamageType::Unresistable,
+                    HostDeathType::Normal,
+                    None,
+                    &DamageHitContext::default(),
+                    &mut Default::default(),
+                )
+                .unwrap()
+                .expect("lethal receiving Body application");
+
+            assert!(world.host_object(victim).unwrap().status.on_die_started);
+            let crate_id = world.host_object(killer).unwrap().crate_created
+                .expect("native Die callback immediately informs the GLA computer unit");
+            let crate_object = world.host_object(crate_id).expect("real receiving crate object");
+            assert_eq!(crate_object.template_name, "SalvageCrate");
+            assert_eq!(crate_object.team, Team::Neutral);
+            assert_eq!(crate_object.get_position(), origin);
+            assert_eq!(crate_object.pathfind_layer, 2);
+            assert!(matches!(
+                crate_object.native_lifecycle.as_ref().unwrap().states.as_ref(),
+                [NativeLifecycleState::Deletion { die_frame, active: true }]
+                    if (940..=1090).contains(die_frame)
+            ));
+            assert_eq!(
+                crate_object.terrain_decal_type,
+                crate::game_logic::host_battlemaster::TERRAIN_DECAL_CRATE
+            );
+
+            world.destroy_object(victim).unwrap();
+            world.process_destroy_list();
+            assert!(world.host_object(victim).is_none());
+            assert_eq!(
+                world.objects.registered().filter(|(_, object)| {
+                    object.template_name == "SalvageCrate"
+                }).map(|(id, _)| *id).collect::<Vec<_>>(),
+                [crate_id]
+            );
+        },
+    );
 }

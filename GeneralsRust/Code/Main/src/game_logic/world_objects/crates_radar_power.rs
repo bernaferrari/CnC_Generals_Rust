@@ -4,6 +4,17 @@
 use super::super::*;
 
 impl GameLogic {
+    pub(crate) fn presentation_crate_flags(&self, object: &Object) -> (bool, bool) {
+        let legacy = self.host_money_crates.get(object.id);
+        let is_salvage = object.authored_salvage_crate_collides().is_some()
+            || (object.get_template().receiving_client_template.is_none()
+                && legacy.is_some_and(|entry| entry.is_salvage));
+        (
+            is_salvage || object.is_kind_of(KindOf::Crate) || legacy.is_some(),
+            is_salvage,
+        )
+    }
+
     /// Advance pending DeliverPayload cargo missions with DropDelay stagger.
     ///
     /// Spawns one payload item per due frame (DoorDelay before first item, then
@@ -264,6 +275,10 @@ impl GameLogic {
                 self.host_money_crates.forget(id);
                 continue;
             };
+            if obj.authored_salvage_crate_collides().is_some() {
+                // The native Collide module handles actual partition contacts.
+                continue;
+            }
             if !obj.is_alive() {
                 self.host_money_crates.forget(id);
                 continue;

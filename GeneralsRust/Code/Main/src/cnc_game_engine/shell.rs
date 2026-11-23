@@ -1670,15 +1670,13 @@ impl CnCGameEngine {
                         baseline
                     };
 
-                    // GameEngine.cpp:483, default then retail in overwrite mode.
-                    // The receiving Object admission below reads these same bytes.
+                    // GameEngine.cpp:483 admits the CrateData rows from
+                    // these mixed files in the receiving match, after Default.
+                    let mut crates = game_engine::common::ini::ParsedCrateSystem::new();
                     for (path, content) in receiving_object_sources.crate_sources() {
-                        let mut ini = game_engine::common::ini::INI::new();
-                        match ini.with_inline_source(content, |ini| ini.parse_current_file()) {
-                            Ok(()) => info!("Loaded crate definitions from '{path}'"),
-                            Err(error) => warn!("Failed parsing '{path}': {error}"),
-                        }
+                        crates.apply_mixed_source(content).map_err(|error| format!("{path}: {error}"))?;
                     }
+                    *_world_tls.common().ini.crate_system.write() = crates;
 
                     // Parse each actual Object declaration once, preserving the existing
                     // Default/Object + current-directory + nested archive source order.

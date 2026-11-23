@@ -239,7 +239,10 @@ impl ReceivingDrawModels {
 #[derive(Debug, Clone)]
 pub(crate) struct ReceivingClientTemplate(
     std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+    Option<std::sync::Arc<[SalvageCrateCollideModuleData]>>,
 );
+
+use gamelogic::object::collide::crate_collide::salvage_crate_collide::SalvageCrateCollideModuleData;
 
 impl PartialEq for ReceivingClientTemplate {
     fn eq(&self, other: &Self) -> bool {
@@ -248,6 +251,16 @@ impl PartialEq for ReceivingClientTemplate {
 }
 
 impl ReceivingClientTemplate {
+    pub(crate) fn salvage_crate_collides(
+        &self,
+    ) -> Option<&std::sync::Arc<[SalvageCrateCollideModuleData]>> {
+        self.1.as_ref()
+    }
+
+    pub(crate) fn authored_kind_of_bits(&self) -> u128 {
+        self.0.template().get_kindof_bits()
+    }
+
     #[cfg(feature = "game_client")]
     pub(crate) fn projected_model_decal(&self) -> Option<(&str, glam::Vec2, glam::Vec2)> {
         use game_engine::common::system::geometry::GeometryType;
@@ -559,7 +572,14 @@ impl ReceivingClientTemplate {
             game_engine::common::thing::thing_template::AdmittedReceivingTemplate,
         >,
     ) -> Self {
-        Self(template)
+        let salvage_collides: Vec<_> = template
+            .behavior_modules()
+            .iter()
+            .filter(|entry| entry.name.as_str().eq_ignore_ascii_case("SalvageCrateCollide"))
+            .filter_map(|entry| SalvageCrateCollideModuleData::from_authored_handle(&entry.data))
+            .collect();
+        let salvage_collides = (!salvage_collides.is_empty()).then(|| salvage_collides.into());
+        Self(template, salvage_collides)
     }
 
     pub(crate) fn audio_event(
@@ -1325,6 +1345,17 @@ pub struct ThingTemplate {
 }
 
 impl ThingTemplate {
+    pub(crate) fn install_receiving_client_plan(
+        &mut self,
+        plan: std::sync::Arc<game_engine::common::thing::thing_template::AdmittedReceivingTemplate>,
+    ) {
+        if self.receiving_client_template.as_ref().is_none_or(|current| {
+            !std::sync::Arc::ptr_eq(&current.0, &plan)
+        }) {
+            self.receiving_client_template = Some(ReceivingClientTemplate::new(plan));
+        }
+    }
+
     pub(crate) fn is_optimized_map_tree(&self) -> bool {
         use game_engine::common::system::kind_of::KindOfMask;
 

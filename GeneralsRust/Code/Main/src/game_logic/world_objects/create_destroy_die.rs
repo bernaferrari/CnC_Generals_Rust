@@ -1398,8 +1398,7 @@ impl GameLogic {
                     .as_ref()
                     .is_some_and(|existing| std::sync::Arc::ptr_eq(existing, &definition))
             }) {
-                template.receiving_client_template =
-                    Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
+                template.install_receiving_client_plan(plan);
                 return true;
             }
             let mut template = match Self::build_template_from_object_definition_with_receiving(

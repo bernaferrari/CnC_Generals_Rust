@@ -238,6 +238,12 @@ impl StandaloneStartupSources {
         ).map_err(|error| error.to_string())
     }
 
+    pub(crate) fn crate_sources(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.objects.iter().filter_map(|(path, text)| {
+            CRATE_INI_PATHS.contains(&path.as_str()).then_some((path.as_str(), text.as_str()))
+        })
+    }
+
     /// The Science names these sources were parsed against.
     pub fn sciences(&self) -> std::sync::Arc<game_engine::common::rts::science::ScienceNameFacts> {
         std::sync::Arc::clone(&self.sciences)

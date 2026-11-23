@@ -61,6 +61,16 @@ impl PresentationDefinitions {
         );
         Self::from_ordered_sources(&[], &[("MiscAudio.ini", source)], &[], &|_| false).unwrap()
     }
+    pub(crate) fn salvage_sound(&self, upgrade: bool) -> Option<&str> {
+        let event = if upgrade {
+            &self.misc_audio.crate_salvage
+        } else {
+            &self.misc_audio.crate_money
+        };
+        let name = event.playable_event_name();
+        (!name.is_empty()).then_some(name)
+    }
+
     pub(crate) fn level_gain_template(&self) -> Option<&Anim2DTemplate> {
         self.animations.find(&self.rules.animation_name)
     }

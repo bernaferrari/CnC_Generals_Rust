@@ -640,6 +640,7 @@ impl PresentationFrame {
                 obj.team
             };
             let (ammo_pip_total, ammo_pip_full) = obj.get_ammo_pip_showing_info().unwrap_or_default();
+            let (is_crate, is_salvage_crate) = logic.presentation_crate_flags(obj);
             let renderable = RenderableObject {
                 receiving_draw_models: obj.get_template().receiving_draw_models(),
                 status_tint: [0.0; 3],
@@ -934,12 +935,8 @@ impl PresentationFrame {
                 is_force_attackable: obj.is_kind_of(KindOf::ForceAttackable),
                 always_selectable: obj.is_kind_of(KindOf::AlwaysSelectable),
 
-                is_crate: obj.is_kind_of(KindOf::Crate) || logic.host_money_crates.contains(obj.id),
-                is_salvage_crate: logic
-                    .host_money_crates
-                    .get(obj.id)
-                    .is_some_and(|entry| entry.is_salvage)
-                    || obj.template_name.eq_ignore_ascii_case("SalvageCrate"),
+                is_crate,
+                is_salvage_crate,
                 ignoring_stealth: obj.status.ignoring_stealth,
                 repulsor: obj.status.repulsor,
                 stealthed: obj.status.stealthed,

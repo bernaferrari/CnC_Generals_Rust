@@ -176,8 +176,7 @@ impl GameLogic {
                 .as_ref()
                 .expect("receiving branch retained owner"),
         )?;
-        template.receiving_client_template =
-            Some(crate::game_logic::thing::ReceivingClientTemplate::new(plan));
+        template.install_receiving_client_plan(plan);
         Ok(())
     }
 

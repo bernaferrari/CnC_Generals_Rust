@@ -69,6 +69,12 @@ impl Default for SalvageCrateCollideModuleData {
 }
 
 impl SalvageCrateCollideModuleData {
+    /// Copy the typed INI row installed by strict receiving admission.
+    pub fn from_authored_handle(handle: &ModuleDataHandle) -> Option<Self> {
+        let adapter = handle.read().into_downcast::<CrateCollideDataAdapter<Self>>()?;
+        Some(adapter.data.clone())
+    }
+
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, SALVAGE_CRATE_COLLIDE_FIELDS)
     }

@@ -107,6 +107,7 @@ pub(crate) enum NativeDieKind {
     Create {
         config: Option<NativeDieCreate>,
     },
+    Crate,
     Crush,
     Keep,
     Destroy,
@@ -169,6 +170,7 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                             .is_some_and(|value| value.eq_ignore_ascii_case("yes")),
                     ),
                 },
+                "createcratedie" => NativeDieKind::Crate,
                 "crushdie" => NativeDieKind::Crush,
                 "keepobjectdie" => NativeDieKind::Keep,
                 "destroydie" => NativeDieKind::Destroy,

@@ -75,7 +75,7 @@ impl GameLogic {
             building_radius * 0.7,
             building_radius * 1.3,
             start,
-            |candidate, angle| self.try_owned_ground_position(candidate, center.y, angle, None, None),
+            |candidate, angle| self.try_owned_ground_position(candidate, center.y, angle, None, None, None),
         )
     }
 
@@ -135,9 +135,57 @@ impl GameLogic {
         // Source draws after its scripted off-map escape, including the radius-zero attempt.
         let start = std::f32::consts::TAU * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
         Ok(find_position_around(center, 0., max_radius, start, |candidate, angle| {
-            self.try_owned_ground_position(candidate, center.y, angle, None, None)
+            self.try_owned_ground_position(candidate, center.y, angle, None, None, None)
         }))
     }
+    /// CreateCrateDie.cpp:181–203. The tight query ignores friendly vehicles
+    /// and infantry. The wide fallback uses a separate random start angle.
+    pub(crate) fn find_owned_crate_drop_position(
+        &self,
+        victim: &Object,
+    ) -> gamelogic::GameLogicResult<Option<Vec3>> {
+        use gamelogic::path::PathfindLayerEnum;
+
+        let center = victim.get_position();
+        if victim.pathfind_layer != PathfindLayerEnum::Ground as u8 {
+            return Ok(Some(center));
+        }
+        {
+            let terrain = self
+                .world_services
+                .terrain()
+                .read()
+                .unwrap_or_else(|error| error.into_inner());
+            let point = gamelogic::common::Coord3D::new(center.x, center.z, center.y);
+            let extent = if terrain.has_height_map() {
+                terrain.get_maximum_pathfind_extent()
+            } else {
+                if self.map_loaded && self.terrain.is_none() && self.pathfinding_height_samples.is_none() {
+                    return Err(gamelogic::GameLogicError::Configuration(
+                        "Crate placement requires the receiving terrain".into(),
+                    ));
+                }
+                let lo = gamelogic::common::Coord3D::new(self.world_min.x, self.world_min.z, self.world_min.y);
+                let hi = gamelogic::common::Coord3D::new(self.world_max.x, self.world_max.z, self.world_max.y);
+                gamelogic::common::Region3D::new(lo, hi)
+            };
+            // Region3D::isInRegionNoZ excludes the boundary itself.
+            if !extent.is_in_region_no_z(&point) {
+                return Ok(Some(center));
+            }
+        }
+        for (max, relationship) in [(5., Some(victim)), (125., None)] {
+            let angle = self.logic_random.next_real(0., std::f32::consts::TAU);
+            let found = find_position_around(center, 0., max, angle, |candidate, angle| {
+                self.try_owned_ground_position(candidate, center.y, angle, None, None, relationship)
+            });
+            if found.is_some() {
+                return Ok(found);
+            }
+        }
+        Ok(None)
+    }
+
     fn try_owned_ground_position(
         &self,
         mut candidate: Vec3,
@@ -145,6 +193,7 @@ impl GameLogic {
         angle: f32,
         ignore: Option<ObjectId>,
         source: Option<ObjectId>,
+        ignore_friendly_units_of: Option<&Object>,
     ) -> Option<Vec3> {
         let owner = self.world_services.terrain();
         let cliff = {
@@ -192,6 +241,13 @@ impl GameLogic {
             .into_iter()
             .filter(|id| Some(ObjectId(*id)) != ignore && Some(ObjectId(*id)) != source)
             .filter_map(|id| self.objects.get(&ObjectId(id)))
+            .filter(|object| {
+                !ignore_friendly_units_of.is_some_and(|owner| {
+                    (object.is_kind_of(KindOf::Infantry) || object.is_kind_of(KindOf::Vehicle))
+                        && self.object_relationship(owner, object)
+                            != gamelogic::common::Relationship::Enemies
+                })
+            })
             .any(|object| {
                 crate::game_logic::partition_geometry::object_would_collide_2d(
                     candidate,
@@ -236,7 +292,7 @@ impl GameLogic {
         };
         let start = std::f32::consts::TAU * (self.logic_random.next_u32() as f32 / u32::MAX as f32);
         Ok(find_position_around(center, 0., 100., start, |candidate, angle| {
-            let position = self.try_owned_ground_position(candidate, center.y, angle, ignore, Some(source_id))?;
+            let position = self.try_owned_ground_position(candidate, center.y, angle, ignore, Some(source_id), None)?;
             (!ai || self.quick_path_exists_in_world(start_pos, position, surfaces))
                 .then_some(position)
         }).unwrap_or(center))
@@ -291,7 +347,7 @@ impl GameLogic {
         Ok(
             find_position_around(center, 0., 100., start, |candidate, angle| {
                 let position =
-                    self.try_owned_ground_position(candidate, center.y, angle, Some(source_id), None)?;
+                    self.try_owned_ground_position(candidate, center.y, angle, Some(source_id), None, None)?;
                 path_exists(position).then_some(position)
             })
             .unwrap_or(center),
@@ -352,7 +408,7 @@ mod tests {
         drop(peer);
         assert!(
             world
-                .try_owned_ground_position(Vec3::new(100., 0., 100.), 80., 0., None, None)
+                .try_owned_ground_position(Vec3::new(100., 0., 100.), 80., 0., None, None, None)
                 .is_none()
         );
         let found = world.find_owned_parachute_landing_position(center).unwrap();

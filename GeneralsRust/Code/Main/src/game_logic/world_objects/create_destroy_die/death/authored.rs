@@ -180,6 +180,13 @@ impl GameLogic {
                         )?;
                     }
                 }
+                NativeDieKind::Crate => self.drop_authored_crates_with_effects(
+                    id,
+                    input.source,
+                    declaration.module_tag.as_deref(),
+                    interpreter,
+                    presentation_effects,
+                )?,
                 NativeDieKind::Crush => {
                     let crusher = input
                         .source

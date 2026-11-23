@@ -2322,17 +2322,11 @@ impl PresentationFrame {
                 ro.death_fx_name = death_fx;
                 dirty = true;
             }
-            let is_crate = obj.is_kind_of(crate::game_logic::KindOf::Crate)
-                || logic.host_money_crates.contains(obj.id);
+            let (is_crate, is_salvage_crate) = logic.presentation_crate_flags(obj);
             if ro.is_crate != is_crate {
                 ro.is_crate = is_crate;
                 dirty = true;
             }
-            let is_salvage_crate = logic
-                .host_money_crates
-                .get(obj.id)
-                .is_some_and(|entry| entry.is_salvage)
-                || obj.template_name.eq_ignore_ascii_case("SalvageCrate");
             if ro.is_salvage_crate != is_salvage_crate {
                 ro.is_salvage_crate = is_salvage_crate;
                 dirty = true;
