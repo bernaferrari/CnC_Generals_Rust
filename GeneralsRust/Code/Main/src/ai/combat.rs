@@ -826,7 +826,7 @@ impl AIPlayer {
                 return None;
             }
             if let Some(dozer_id) =
-                Self::find_available_dozer(game_logic, self.team, bridge_pos, None)
+                Self::find_available_dozer(game_logic, self.player_id, bridge_pos, None)
             {
                 self.repair_dozer = Some(dozer_id);
                 if let Some(dozer) = game_logic.host_object(dozer_id) {

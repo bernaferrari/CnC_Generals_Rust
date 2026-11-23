@@ -1,4 +1,5 @@
 use super::*;
+use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
 
 impl AIPlayer {
     /// Update economic management (base building, resource optimization)
@@ -136,7 +137,7 @@ impl AIPlayer {
     /// `m_repairDozer`.
     pub(super) fn find_available_dozer(
         game_logic: &(impl AiReadSource + ?Sized),
-        team: Team,
+        player: u32,
         target: Vec3,
         skip: Option<ObjectId>,
     ) -> Option<ObjectId> {
@@ -145,7 +146,10 @@ impl AIPlayer {
             .host_objects()
             .registered_values()
             .filter(|object| {
-                if object.team != team || !object.is_alive() || !object.can_construct() {
+                if !game_logic.object_owned_by_player(object, player)
+                    || !object.is_alive()
+                    || !object.can_construct()
+                {
                     return false;
                 }
                 if skip == Some(object.id) {
@@ -153,7 +157,7 @@ impl AIPlayer {
                 }
                 // C++ AIPlayer::findDozer (AIPlayer.cpp:3187): a dozer with a
                 // pending DOZER_TASK_BUILD is "already building".
-                if object.dozer_tasks.requests[0].target.is_some() {
+                if object.dozer_tasks.requests[DozerTask::Build as usize].target.is_some() {
                     return false;
                 }
                 !matches!(
@@ -183,15 +187,19 @@ impl AIPlayer {
             .map(|(_, _, id)| id)
     }
 
-    pub(super) fn team_has_any_dozer(
+    pub(super) fn player_has_any_dozer(
         game_logic: &(impl AiReadSource + ?Sized),
-        team: Team,
+        player: u32,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
             .registered_values()
-            .any(|object| object.team == team && object.is_alive() && object.can_construct())
+            .any(|object| {
+                game_logic.object_owned_by_player(object, player)
+                    && object.is_alive()
+                    && object.can_construct()
+            })
     }
 
     /// C++ queueDozer / work-order gates use KINDOF_DOZER, never a name peel.
@@ -216,25 +224,23 @@ impl AIPlayer {
     /// C++ `AIPlayer::queueDozer` walks TheThingFactory for KINDOF_DOZER and
     /// queues the first template that has a busyOK factory. There is no
     /// faction name fallback: an empty catalog queues nothing.
-    pub(super) fn first_dozer_template_with_factory(
+    fn first_dozer_template_with_factory(
+        &self,
         world: &GameLogic,
-        team: Team,
     ) -> Option<(String, crate::game_logic::ObjectId)> {
-        let mut names: Vec<String> = world
+        let mut names: Vec<_> = world
             .templates
             .iter()
             .filter(|(_, template)| template.is_kind_of(KindOf::Dozer))
-            .map(|(name, _)| name.clone())
+            .map(|(name, _)| name.as_str())
             .collect();
         // HashMap has no INI chain; name order keeps the empty/present outcome
         // stable across runs when several Dozer kinds share one catalog.
-        names.sort();
-        for name in names {
-            if let Some(factory) = Self::find_factory_for_unit_ex(world, &name, team, true) {
-                return Some((name, factory));
-            }
-        }
-        None
+        names.sort_unstable();
+        names.into_iter().find_map(|name| {
+            self.find_factory_for_unit_ex(world, name, true)
+                .map(|factory| (name.to_owned(), factory))
+        })
     }
 
     /// C++ `AIPlayer::queueDozer` (AIPlayer.cpp:3128-3171): prepend a priority
@@ -253,7 +259,7 @@ impl AIPlayer {
         if self.dozer_already_queued(world) {
             return None;
         }
-        let (template, factory) = Self::first_dozer_template_with_factory(world, self.team)?;
+        let (template, factory) = self.first_dozer_template_with_factory(world)?;
         let mut preexisting: Vec<_> = world
             .host_objects()
             .registered()
@@ -322,7 +328,6 @@ impl AIPlayer {
 
         game_logic.resume_owned_ai_construction(
             self.player_id,
-            self.team,
             self.repair_dozer,
             unfinished,
         )?;
@@ -413,7 +418,7 @@ impl AIPlayer {
         ai_data: &AiDataView,
     ) -> gamelogic::GameLogicResult<()> {
         self.resume_interrupted_construction(game_logic)?;
-        if !Self::team_has_any_dozer(game_logic, self.team) {
+        if !Self::player_has_any_dozer(game_logic, self.player_id) {
             self.queue_dozer(game_logic, current_time);
         }
         if let Some(attempt) = self.prepare_scaffold_attempt(game_logic, current_time, ai_data) {
@@ -447,7 +452,8 @@ impl AIPlayer {
         let mut cost = game_logic.templates.get(&template_name)?.build_cost;
         cost.supplies =
             game_logic.modified_build_cost_supplies(self.player_id, &template_name, cost.supplies);
-        let dozer = Self::find_available_dozer(game_logic, self.team, position, self.repair_dozer)?;
+        let dozer =
+            Self::find_available_dozer(game_logic, self.player_id, position, self.repair_dozer)?;
         let legal = |candidate| {
             game_logic.is_location_legal_to_build_for_ai(
                 self.player_id,

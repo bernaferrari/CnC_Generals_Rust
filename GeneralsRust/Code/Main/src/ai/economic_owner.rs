@@ -1,5 +1,6 @@
 //! Original base-building effects run with the canonical AI roster installed.
 use super::*;
+use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
 
 pub(super) struct ScaffoldAttempt {
     pub player: u32,
@@ -108,7 +109,6 @@ impl GameLogic {
         if now < ai.next_building_time || self.frame == 0 {
             return Ok(());
         }
-        let team = ai.team;
         let repair = ai.repair_dozer;
         let unfinished: Vec<_> = ai
             .building_queue
@@ -122,7 +122,7 @@ impl GameLogic {
                     .then_some((id, object.get_position()))
             })
             .collect();
-        self.resume_owned_ai_construction(player, team, repair, unfinished)?;
+        self.resume_owned_ai_construction(player, repair, unfinished)?;
         self.queue_owned_ai_dozer(player, now);
         let Some(mut ai) = self.ai_manager.ai_players.remove(&player) else {
             return Ok(());
@@ -149,7 +149,6 @@ impl GameLogic {
     pub(super) fn resume_owned_ai_construction(
         &mut self,
         player: u32,
-        team: Team,
         repair: Option<ObjectId>,
         unfinished: Vec<(ObjectId, Vec3)>,
     ) -> gamelogic::GameLogicResult<()> {
@@ -158,10 +157,10 @@ impl GameLogic {
                 self.object_owned_by_player(object, player)
                     && object.is_alive()
                     && object.can_construct()
-                    && object.dozer_tasks.requests[0].target == Some(id)
+                    && object.dozer_tasks.requests[DozerTask::Build as usize].target == Some(id)
             });
             if !builder {
-                if let Some(dozer) = AIPlayer::find_available_dozer(self, team, position, repair) {
+                if let Some(dozer) = AIPlayer::find_available_dozer(self, player, position, repair) {
                     let _ = self.resume_construction(&[dozer], id)?;
                 }
             }
@@ -170,13 +169,11 @@ impl GameLogic {
     }
 
     pub(super) fn queue_owned_ai_dozer(&mut self, player: u32, now: f32) {
-        let Some(ai) = self.ai_manager.ai_players.get(&player) else {
-            return;
-        };
-        if AIPlayer::team_has_any_dozer(self, ai.team) {
-            return;
+        if self.ai_manager.ai_players.contains_key(&player)
+            && !AIPlayer::player_has_any_dozer(self, player)
+        {
+            self.admit_owned_ai_dozer(player, now);
         }
-        self.admit_owned_ai_dozer(player, now);
     }
 
     pub(super) fn admit_owned_ai_dozer(&mut self, player: u32, now: f32) {
@@ -292,16 +289,28 @@ mod tests {
 
     #[test]
     fn owned_economic_pass_builds_one_paid_scaffold_with_peer_unchanged() {
-        let (mut world, _) = world();
+        let (mut world, dozer) = world();
+        let peer = world
+            .create_object_for_player("OwnedEconomyDozer", 2, Vec3::new(70.0, 0.0, 100.0))
+            .unwrap();
         let data = AiDataView::from_world(&world);
         // AIPlayer.cpp:58: base building starts on frame 1, never frame 0.
         world.frame = 1;
+        assert!(world.unit_command_move_to_moving(dozer, Vec3::new(50.0, 0.0, 25.0)));
+        assert!(world.unit_command_move_to_moving(peer, Vec3::new(65.0, 0.0, 75.0)));
+        let peer_move = world.host_object(peer).unwrap().movement.target_position;
+        assert!(peer_move.is_some());
         world.update_owned_ai_economy(1, 0.0, &data).unwrap();
-        assert!(
-            world.ai_manager.ai_players[&1].building_queue[0]
-                .object_id
-                .is_some()
+        let scaffold = world.ai_manager.ai_players[&1].building_queue[0]
+            .object_id
+            .expect("the paying player's own Dozer must start construction");
+        assert_eq!(
+            world.host_object(dozer).unwrap().dozer_tasks.requests[0].target,
+            Some(scaffold)
         );
+        let peer = world.host_object(peer).unwrap();
+        assert_eq!(peer.movement.target_position, peer_move);
+        assert!(peer.dozer_tasks.requests[0].target.is_none());
         assert!(world.ai_manager.ai_players[&2].building_queue.is_empty());
         assert_eq!(world.get_player(1).unwrap().resources.supplies, 9900);
         assert_eq!(world.get_player(2).unwrap().resources.supplies, 10000);

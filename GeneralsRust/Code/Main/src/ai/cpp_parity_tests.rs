@@ -1073,6 +1073,9 @@ fn lost_dozer_queues_priority_command_center_replacement() {
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
     player.resources.supplies = 5_000;
     logic.add_player(player);
+    let mut peer = crate::game_logic::Player::new(2, Team::USA, "Peer USA AI", false);
+    peer.resources.supplies = 5_000;
+    logic.add_player(peer);
 
     let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
     cc.add_kind_of(crate::game_logic::KindOf::Structure)
@@ -1095,8 +1098,15 @@ fn lost_dozer_queues_priority_command_center_replacement() {
         .set_cost(500, 0);
     logic.templates.insert("AmericaBarracks".into(), barracks);
 
+    let peer_cc = logic
+        .create_object_for_player("AmericaCommandCenter", 2, Vec3::ZERO)
+        .expect("peer command center");
+    let peer_dozer = logic
+        .create_object_for_player("AmericaVehicleDozer", 2, Vec3::new(25.0, 0.0, 25.0))
+        .expect("peer dozer");
+    assert!(logic.host_object(peer_dozer).unwrap().can_construct());
     let cc_id = logic
-        .create_object("AmericaCommandCenter", Team::USA, Vec3::ZERO)
+        .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(120.0, 0.0, 0.0))
         .expect("command center");
     if let Some(obj) = logic.host_object_mut(cc_id) {
         obj.owner_player_id = Some(1);
@@ -1106,7 +1116,7 @@ fn lost_dozer_queues_priority_command_center_replacement() {
     }
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-    ai.add_building("AmericaBarracks", Vec3::new(64.0, 0.0, 0.0), 1);
+    ai.add_building("AmericaBarracks", Vec3::new(180.0, 0.0, 0.0), 1);
     ai.process_building_queue(&mut logic, 0.0);
 
     assert_eq!(
@@ -1131,6 +1141,11 @@ fn lost_dozer_queues_priority_command_center_replacement() {
         .map(|b| b.production_queue.len())
         .unwrap_or(0);
     assert_eq!(queued, 1, "Command Center must start training the dozer");
+    assert!(
+        logic.host_object(peer_cc).unwrap().building_data
+            .as_ref().unwrap().production_queue.is_empty()
+    );
+    assert_eq!(logic.get_player(2).unwrap().resources.supplies, 5_000);
 
     ai.process_building_queue(&mut logic, 1.0);
     assert_eq!(
@@ -3300,7 +3315,7 @@ fn find_dozer_skips_assigned_bridge_repair_dozer() {
     let free = logic
         .create_object("AmericaVehicleDozer", Team::USA, Vec3::new(40.0, 0.0, 0.0))
         .expect("free dozer");
-    let found = AIPlayer::find_available_dozer(&logic, Team::USA, Vec3::ZERO, Some(repair));
+    let found = AIPlayer::find_available_dozer(&logic, 1, Vec3::ZERO, Some(repair));
     assert_eq!(found, Some(free));
 }
 

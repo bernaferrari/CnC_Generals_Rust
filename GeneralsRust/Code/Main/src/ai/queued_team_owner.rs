@@ -1016,6 +1016,11 @@ mod tests {
     #[test]
     fn automatic_military_selection_runs_owned_condition_and_nested_build_immediately() {
         let mut world = callback_world();
+        // Parent starts training before automatic team selection. C++
+        // isPossibleToBuildTeam still needs an idle factory of this player.
+        world
+            .create_object_for_player("AmericaBarracks", 1, Vec3::new(80.0, 0.0, 0.0))
+            .unwrap();
         let ai = world.ai_manager.ai_players.get_mut(&1).unwrap();
         ai.next_team_queue_time = 0.0;
         ai.next_team_time = 0.0;

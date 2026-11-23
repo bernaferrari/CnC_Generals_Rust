@@ -107,10 +107,9 @@ impl AIPlayer {
                     )
                 })
             } else {
-                Self::find_factory_for_unit_ex(
+                self.find_factory_for_unit_ex(
                     game_logic,
                     &template_name,
-                    self.team,
                     priority_build,
                 )
             };
@@ -1737,8 +1736,7 @@ impl AIPlayer {
                     if count >= unit.max_units as u32 {
                         continue;
                     }
-                    if Self::find_factory_for_unit_ex(game_logic, &unit.thing, self.team, false)
-                        .is_none()
+                    if self.find_factory_for_unit_ex(game_logic, &unit.thing, false).is_none()
                     {
                         continue;
                     }
@@ -2543,8 +2541,7 @@ impl AIPlayer {
             return false;
         }
         orders.iter().all(|order| {
-            Self::find_factory_for_unit_ex(game_logic, &order.template_name, self.team, true)
-                .is_some()
+            self.find_factory_for_unit_ex(game_logic, &order.template_name, true).is_some()
         })
     }
 
@@ -2554,20 +2551,7 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
         unit_template_name: &str,
     ) -> Option<ObjectId> {
-        let game_logic = &AiWorldView::new(game_logic);
-        Self::find_factory_for_unit_static(game_logic, unit_template_name, self.team)
-    }
-
-    /// Static version to avoid borrowing conflicts
-    pub(super) fn find_factory_for_unit_static(
-        game_logic: &(impl AiReadSource + ?Sized),
-        unit_template_name: &str,
-        team: Team,
-    ) -> Option<ObjectId> {
-        let game_logic = &AiWorldView::new(game_logic);
-        // Prefer idle factory (C++ findFactory(thing, busyOk=false) residual).
-        Self::find_factory_for_unit_ex(game_logic, unit_template_name, team, false)
-            .or_else(|| Self::find_factory_for_unit_ex(game_logic, unit_template_name, team, true))
+        self.find_factory_for_unit_ex(game_logic, unit_template_name, true)
     }
 
     /// Map host unit template → retail factory template residual.
@@ -2667,24 +2651,27 @@ impl AIPlayer {
 
     /// Find constructed factory; `busy_ok=false` requires idle queue (C++ findFactory).
     pub(super) fn find_factory_for_unit_ex(
+        &self,
         game_logic: &(impl AiReadSource + ?Sized),
         unit_template_name: &str,
-        team: Team,
         busy_ok: bool,
     ) -> Option<ObjectId> {
         let game_logic = &AiWorldView::new(game_logic);
         if game_logic.has_build_eligibility_catalog() {
-            return Self::find_factory_cpp(game_logic, unit_template_name, team, busy_ok);
+            return self.find_factory_cpp(game_logic, unit_template_name, busy_ok);
         }
         // Fixture worlds without a command-set catalog keep the name table.
-        let factory_name = Self::factory_template_for_unit(unit_template_name, team)?;
+        let factory_name = Self::factory_template_for_unit(unit_template_name, self.team)?;
         // Pure residual acquire: prefer idle factories (priority 0) over busy (1)
         // when busy_ok; nearest 3D tiebreak for stable multi-factory choice.
         let cands: Vec<_> = game_logic
             .host_objects()
             .registered()
             .filter_map(|(&id, object)| {
-                if object.team != team || !object.is_constructed() || !object.is_alive() {
+                if !game_logic.object_owned_by_player(object, self.player_id)
+                    || !object.is_constructed()
+                    || !object.is_alive()
+                {
                     return None;
                 }
                 let name_ok = Self::factory_name_matches(&object.template_name, factory_name)
@@ -2722,16 +2709,16 @@ impl AIPlayer {
     /// holds; an idle one (productionCount==0) wins, else a busy one if
     /// `busy_ok`. Ties keep the lowest id for a stable build-list order.
     fn find_factory_cpp(
+        &self,
         game_logic: &AiWorldView<'_>,
         unit_template_name: &str,
-        team: Team,
         busy_ok: bool,
     ) -> Option<ObjectId> {
         let mut factories: Vec<(ObjectId, bool)> = game_logic
             .host_objects()
             .registered()
             .filter(|(_, object)| {
-                object.team == team
+                game_logic.object_owned_by_player(object, self.player_id)
                     && object.is_alive()
                     && !object.status.under_construction
                     && !object.status.sold
@@ -2770,10 +2757,10 @@ impl AIPlayer {
         let mut any_idle = false;
         for name in &names {
             // Must have some factory that can produce this unit (busy ok for existence).
-            if Self::find_factory_for_unit_ex(game_logic, name, self.team, true).is_none() {
+            if self.find_factory_for_unit_ex(game_logic, name, true).is_none() {
                 return false;
             }
-            if Self::find_factory_for_unit_ex(game_logic, name, self.team, false).is_some() {
+            if self.find_factory_for_unit_ex(game_logic, name, false).is_some() {
                 any_idle = true;
             }
         }
