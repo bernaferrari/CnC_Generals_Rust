@@ -20,10 +20,10 @@ pub struct AIPlayerSnapshot {
     /// it so a manually-paused skirmish AI stays paused after a load.
     #[serde(default = "default_ai_player_active")]
     pub is_active: bool,
-    /// The host AI rebuild/defence anchor.  Older saves had no per-AI rows, so
-    /// this remains optional for backwards-compatible empty snapshots.
+    /// The host AI rebuild and defense anchor.
     #[serde(default)]
     pub base_center: Option<glam::Vec3>,
+    pub base_center_set: bool,
     #[serde(default)]
     pub base_radius: f32,
     #[serde(default)]
@@ -323,6 +323,8 @@ impl XferData for AIPlayerSnapshot {
         xfer.xfer_bool(&mut self.is_active)?;
         xfer.xfer_marker_label("BaseCenter")?;
         xfer_option(xfer, &mut self.base_center, glam::Vec3::ZERO)?;
+        xfer.xfer_marker_label("BaseCenterSet")?;
+        xfer.xfer_bool(&mut self.base_center_set)?;
         xfer.xfer_marker_label("BaseRadius")?;
         xfer.xfer_f32(&mut self.base_radius)?;
         xfer.xfer_marker_label("ActivityCount")?;

@@ -93,6 +93,27 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         .templates
         .insert("AmericaCommandCenter".to_string(), cc_tpl);
 
+    let ai = crate::ai::AIPlayer::new(0, Team::USA, crate::ai::AIDifficulty::Medium);
+    game_logic.ai_manager.ai_players.insert(0, ai);
+    game_logic.get_player_mut(0).unwrap().map_side.build_list = [
+        ("AmericaCommandCenter", (120.0, 80.0, 0.0)),
+        ("AmericaCommandCenter", (160.0, 120.0, 0.0)),
+        ("UnknownBuildListTemplate", (250.0, 250.0, 0.0)),
+    ]
+    .into_iter()
+    .map(|(template, position)| crate::game_logic::HostAuthoredBuild {
+        template: template.into(),
+        position,
+        num_rebuilds: 1,
+        initially_built: false,
+        completion: Default::default(),
+    })
+    .collect();
+    game_logic.feed_host_ai_from_authored_build_lists();
+    game_logic.new_map_owned_skirmish_ai_with_effects(&mut Default::default());
+    let base_center = Vec3::new(140.0, 0.0, 100.0);
+    assert_eq!(game_logic.ai_manager.ai_players[&0].get_base_center(), Some(base_center));
+
     let cc_pos = Vec3::new(120.0, 0.0, 80.0);
     let cc_id = game_logic
         .create_object("AmericaCommandCenter", Team::USA, cc_pos)
@@ -140,8 +161,8 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
             .target_position
             .expect("fallback residual must set move destination");
         assert!(
-            (dest.x - cc_pos.x).abs() < 0.1 && (dest.z - cc_pos.z).abs() < 0.1,
-            "fallback destination must be command center ({cc_pos:?}), got {dest:?}"
+            (dest.x - base_center.x).abs() < 0.1 && (dest.z - base_center.z).abs() < 0.1,
+            "fallback destination must be the AI build-list centroid ({base_center:?}), got {dest:?}"
         );
     }
 
@@ -166,6 +187,27 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         1,
         "base-center residual must be one-shot (m_didMoveToBase)"
     );
+
+    let builder = crate::save_load::SnapshotBuilder::new();
+    let saved = builder.create_world_snapshot(&game_logic).unwrap();
+    let bytes = bincode_legacy::serialize(&saved).unwrap();
+    let saved = crate::save_load::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = GameLogic::new();
+    restored.add_player(Player::new(0, Team::USA, "USA AI", false));
+    restored.restore_host_ai_players_from_save(&saved.ai_players);
+    assert_eq!(restored.ai_manager.ai_players[&0].get_base_center(), Some(base_center));
+
+    let fresh_ai = crate::ai::AIPlayer::new(0, Team::USA, crate::ai::AIDifficulty::Medium);
+    game_logic.ai_manager.ai_players.insert(0, fresh_ai);
+    let pilot_with_unset_center = game_logic
+        .create_object_for_player("AmericaInfantryPilot", 0, Vec3::ZERO)
+        .unwrap();
+    game_logic.frame += 1;
+    game_logic.update_ai(&[pilot_with_unset_center, cc_id], 1.0 / 30.0).unwrap();
+    let waiting = game_logic.host_object(pilot_with_unset_center).unwrap();
+    assert!(!waiting.pilot_did_move_to_base());
+    assert_eq!(waiting.ai_state(), AIState::Idle);
+    assert_eq!(game_logic.usa_pilot_residual().base_center_moves, 1);
 
     // Human residual: no base-center fallback.
     let mut human_logic = GameLogic::new();

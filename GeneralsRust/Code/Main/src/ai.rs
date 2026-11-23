@@ -347,6 +347,8 @@ pub struct AIPlayer {
 
     // Economic Management
     pub base_center: Vec3,
+    /// AIPlayer::m_baseCenterSet. A provisional map-start anchor is not a base.
+    base_center_set: bool,
     pub base_radius: f32,
     /// Deterministic placement scatter (retail ADC RandomValue residual).
     placement_rng: HostRandomState,

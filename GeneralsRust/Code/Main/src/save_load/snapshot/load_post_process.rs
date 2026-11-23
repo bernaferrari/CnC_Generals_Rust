@@ -148,6 +148,7 @@ impl Snapshot for WorldSnapshot {
                 current_strategy: String::new(),
                 is_active: true,
                 base_center: None,
+                base_center_set: false,
                 base_radius: 0.0,
                 activity_count: 0,
                 strategic_state: default_ai_strategic_state(),

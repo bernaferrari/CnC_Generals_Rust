@@ -27,6 +27,7 @@ impl AIPlayer {
             is_active: true,
             enemy_player_id: None,
             base_center: Vec3::ZERO,
+            base_center_set: false,
             base_radius: 100.0,
             // Seed from player id (stable per slot); base_center updates don't reseed.
             placement_rng: HostRandomState::seeded(player_id.wrapping_add(0xA17A_0001)),
@@ -71,9 +72,14 @@ impl AIPlayer {
         }
     }
 
+    pub(crate) fn get_base_center(&self) -> Option<Vec3> {
+        self.base_center_set.then_some(self.base_center)
+    }
+
     /// Initialize AI with starting base layout
     pub fn initialize(&mut self, base_position: Vec3) {
         self.base_center = base_position;
+        self.base_center_set = false;
         self.setup_base_layout();
         self.setup_initial_strategy();
         // Act on the first host AI update (skirmish vertical-slice pacing).
@@ -315,6 +321,7 @@ impl AIPlayer {
     /// range without stripping faction templates from the catalog.
     pub fn relocate_base(&mut self, base_position: Vec3) {
         self.base_center = base_position;
+        self.base_center_set = false;
         self.building_queue.clear();
         self.setup_base_layout();
     }
@@ -539,7 +546,8 @@ impl AIPlayer {
             .get_player(self.player_id)
             .is_some_and(|p| !p.map_side.build_list.is_empty())
         {
-            // Campaign/map SidesList already consumed by feed_host_ai.
+            // Campaign/map SidesList already supplied its build queue.
+            self.compute_center_and_radius_of_base_in_view(game_logic);
             return;
         }
         let _ = self.apply_skirmish_new_map_with_ai_data(game_logic, ai_data);
@@ -710,13 +718,9 @@ impl AIPlayer {
         }
         let (set, cx, cz, radius) =
             gamelogic::ai::ai_player::leftover_compute_center_and_radius_of_base(&entries);
-        if set {
-            self.base_center = Vec3::new(cx, 0.0, cz);
-            self.base_radius = radius;
-        } else {
-            self.base_center = Vec3::ZERO;
-            self.base_radius = 0.0;
-        }
+        self.base_center_set = set;
+        self.base_center = Vec3::new(cx, 0.0, cz);
+        self.base_radius = radius;
     }
 
     pub(super) fn destroy_owned_command_center(

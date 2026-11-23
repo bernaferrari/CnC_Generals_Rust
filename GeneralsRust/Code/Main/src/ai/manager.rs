@@ -292,6 +292,7 @@ impl AIManager {
                     current_strategy: Self::strategy_name(ai.current_strategy).to_string(),
                     is_active: ai.is_active,
                     base_center: Some(ai.base_center),
+                    base_center_set: ai.base_center_set,
                     base_radius: ai.base_radius,
                     activity_count: ai.activity_count,
                     strategic_state: crate::save_load::AIStrategicStateSnapshot {
@@ -382,6 +383,7 @@ impl AIManager {
                 .or_else(|| snapshot.tactical_state.defensive_positions.first().copied());
             if let Some(base_center) = saved_base_center.filter(|pos| pos.is_finite()) {
                 ai.relocate_base(base_center);
+                ai.base_center_set = snapshot.base_center_set;
             }
             if snapshot.base_radius.is_finite() && snapshot.base_radius > 0.0 {
                 ai.base_radius = snapshot.base_radius;

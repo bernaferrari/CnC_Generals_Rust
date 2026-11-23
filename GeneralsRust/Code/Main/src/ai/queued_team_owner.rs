@@ -50,6 +50,7 @@ impl GameLogic {
             .get_player(player)
             .is_some_and(|p| !p.map_side.build_list.is_empty())
         {
+            self.compute_owned_ai_base_extent(player);
             return;
         }
         if !has_definition {
@@ -92,6 +93,10 @@ impl GameLogic {
                 ai.building_queue.push(building);
             }
         }
+        self.compute_owned_ai_base_extent(player);
+    }
+
+    fn compute_owned_ai_base_extent(&mut self, player: u32) {
         if let Some(mut ai) = self.ai_manager.ai_players.remove(&player) {
             ai.compute_center_and_radius_of_base(self);
             self.ai_manager.ai_players.insert(player, ai);

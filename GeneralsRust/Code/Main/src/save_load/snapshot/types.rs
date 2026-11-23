@@ -49,9 +49,9 @@ pub const WORLD_SNAPSHOT_PARTICLE_DRIVE_SETTINGS_VERSION: u32 = 38;
 /// Version47 saves raw Movement path nodes and their optimized links.
 /// Version48 stores both raw cursor pointers instead of an optimized ordinal.
 /// Version49 stores the accepted projectile's exact optional launch transform.
-/// Positional pre-49 saves intentionally do not cross this format cutover.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 49;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 49;
+/// Version50 stores whether an AI player's build-list center has been computed.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 50;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 50;
 /// Version36 introduced mandatory exact original-Garrison-Team continuation.
 pub const WORLD_SNAPSHOT_GARRISON_TEAM_VERSION: u32 = 36;
 

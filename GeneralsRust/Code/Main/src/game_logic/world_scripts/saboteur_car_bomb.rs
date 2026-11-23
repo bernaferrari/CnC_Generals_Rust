@@ -190,7 +190,6 @@ impl GameLogic {
         };
         let pilot = &self.objects[&pilot_id];
         let pilot_pos = pilot.get_position();
-        let pilot_team = pilot.team;
         let pilot_off_map = pilot.status.off_map;
         let did_move_to_base = runtime.did_move_to_base;
 
@@ -280,19 +279,12 @@ impl GameLogic {
             return;
         }
 
-        // No vehicle: one-shot base-center fallback residual (getAiBaseCenter).
-        // Fail-closed: only a real CommandCenter residual (not any structure /
-        // unit fallback — avoids stealing AutoFindHealing hospital residual).
-        let base_pos = self.objects.registered_values().find_map(|obj| {
-            if obj.team == pilot_team
-                && obj.is_alive()
-                && (obj.is_kind_of(KindOf::CommandCenter) || obj.is_command_center())
-            {
-                Some(obj.get_position())
-            } else {
-                None
-            }
-        });
+        // Player::getAiBaseCenter reads the exact AI controller's build-list center.
+        let base_pos = self
+            .ai_manager
+            .ai_players
+            .get(&owner)
+            .and_then(crate::ai::AIPlayer::get_base_center);
         if !should_pilot_base_center_fallback(false, did_move_to_base, base_pos.is_some()) {
             return;
         }
