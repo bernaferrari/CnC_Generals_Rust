@@ -70,13 +70,14 @@ pub fn set_audio_events_enabled_for_tests(enabled: bool) -> bool {
 
 /// Registered per CommonServices by the world that owns it; host objects are
 /// that world's (C++ the engine's TheGameLogic), never the published one.
-struct GameLogicAudioEventOwnerResolver {
-    world: Option<std::sync::Weak<crate::system::engine_stores::WorldServices>>,
+struct GameLogicAudioResolver {
+    world: std::sync::Weak<crate::system::engine_stores::WorldServices>,
 }
 
-impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
+impl AudioEventOwnerResolver for GameLogicAudioResolver {
     fn resolve_object_position(&self, object_id: ObjectID) -> Option<EngineCoord3D> {
-        if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
+        let world = self.world.upgrade()?;
+        if let Some(object) = world.object_registry().get_object(object_id) {
             if let Ok(guard) = object.read() {
                 let position = *guard.get_position();
                 return Some(EngineCoord3D {
@@ -88,42 +89,53 @@ impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
         }
         // Live host objects are not in leftover TheGameLogic. Host snapshot is
         // Y-up (x, y_height, z_ground); C++ AudioEventRTS is Z-up (x, y_ground, z_height).
-        crate::scripting::HostScriptQuery::from_world(
-            self.world.as_ref().and_then(std::sync::Weak::upgrade),
-        )
-        .host_script_query_object_by_id(object_id)
-        .map(|obj| EngineCoord3D {
-            x: obj.x,
-            y: obj.z,
-            z: obj.y,
-        })
+        crate::scripting::HostScriptQuery::of(&world)
+            .host_script_query_object_by_id(object_id)
+            .map(|obj| EngineCoord3D {
+                x: obj.x,
+                y: obj.z,
+                z: obj.y,
+            })
     }
 
     fn resolve_drawable_position(&self, drawable_id: u32) -> Option<EngineCoord3D> {
-        let client = TheGameClient::get()?;
-        let state = client.find_drawable_by_id(drawable_id)?;
+        let world = self.world.upgrade()?;
+        let position = world
+            .client_visuals()
+            .drawables
+            .lock()
+            .ok()?
+            .get(&drawable_id)?
+            .position;
         Some(EngineCoord3D {
-            x: state.position.x,
-            y: state.position.y,
-            z: state.position.z,
+            x: position.x,
+            y: position.y,
+            z: position.z,
         })
     }
 
     fn resolve_object_player_index(&self, object_id: ObjectID) -> Option<Int> {
-        let object = TheGameLogic::find_object_by_id(object_id)?;
-        let guard = object.read().ok()?;
-        guard.with_controlling_player(|player_guard| player_guard.get_player_index())
+        let world = self.world.upgrade()?;
+        let object = world.object_registry().get_object(object_id)?;
+        let controller = object.read().ok()?.controlling_player_id_from_pin().ok()??;
+        let index = Int::try_from(controller).ok()?;
+        world.players().read().ok()?.get_player(index)?;
+        Some(index)
     }
 
     fn resolve_drawable_player_index(&self, drawable_id: u32) -> Option<Int> {
-        let client = TheGameClient::get()?;
-        let state = client.find_drawable_by_id(drawable_id)?;
+        let world = self.world.upgrade()?;
+        let (shroud_status_object_id, drawable) = {
+            let drawables = world.client_visuals().drawables.lock().ok()?;
+            let state = drawables.get(&drawable_id)?;
+            (state.shroud_status_object_id, state.drawable.clone())
+        };
 
-        if state.shroud_status_object_id != INVALID_ID {
-            return self.resolve_object_player_index(state.shroud_status_object_id);
+        if shroud_status_object_id != INVALID_ID {
+            return self.resolve_object_player_index(shroud_status_object_id);
         }
 
-        let drawable = state.drawable?;
+        let drawable = drawable?;
         let object_id = drawable.read().ok()?.get_object_id();
         if object_id == INVALID_ID {
             return None;
@@ -133,25 +145,19 @@ impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
     }
 }
 
-struct GameLogicAudioShroudResolver;
-
-impl AudioShroudResolver for GameLogicAudioShroudResolver {
+impl AudioShroudResolver for GameLogicAudioResolver {
     fn is_position_visible_to_local_player(&self, position: &EngineCoord3D) -> Bool {
-        let __player_list_arc = crate::player::player_list();
-            let local_player_index = __player_list_arc.read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()));
-
-        let Some(local_player_index) = local_player_index else {
+        let Some(world) = self.world.upgrade() else {
+            return true;
+        };
+        let Some(local_player_index) = self.get_local_player_index() else {
             return true;
         };
         if local_player_index < 0 {
             return true;
         }
 
-        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
-        let Ok(shroud) = shroud_manager.lock() else {
+        let Ok(shroud) = world.shroud().lock() else {
             return true;
         };
 
@@ -168,44 +174,40 @@ impl AudioShroudResolver for GameLogicAudioShroudResolver {
     }
 }
 
-struct GameLogicAudioLocalityResolver;
+impl GameLogicAudioResolver {
+    fn players<R>(&self, f: impl FnOnce(&crate::player::PlayerList) -> R) -> Option<R> {
+        let world = self.world.upgrade()?;
+        let players = world.players().read().ok()?;
+        Some(f(&players))
+    }
+}
 
-impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
+impl AudioLocalityResolver for GameLogicAudioResolver {
     fn get_local_player_index(&self) -> Option<Int> {
-        let __player_list_arc = crate::player::player_list();
-        let list = __player_list_arc.read().ok()?;
-        let player = list.get_local_player()?.clone();
-        let guard = player.read().ok()?;
-        Some(guard.get_player_index())
+        self.players(|list| {
+            list.get_local_player()?;
+            Some(list.get_local_player_index())
+        })?
     }
 
     fn is_player_active(&self, player_index: Int) -> Bool {
         if player_index < 0 {
             return false;
         }
-        let __player_list_arc = crate::player::player_list();
-        let list = match __player_list_arc.read() {
-            Ok(list) => list,
-            Err(_) => return false,
-        };
-        let Some(player) = list.get_player(player_index).cloned() else {
-            return false;
-        };
-        player
-            .read()
-            .ok()
-            .map(|guard| guard.is_player_active())
-            .unwrap_or(false)
+        self.players(|list| {
+            list.get_player(player_index)
+                .and_then(|player| player.read().ok())
+                .map(|guard| guard.is_player_active())
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
     }
 
     fn player_exists(&self, player_index: Int) -> Bool {
         if player_index < 0 {
             return false;
         }
-        crate::player::player_list()
-            .read()
-            .ok()
-            .map(|list| list.get_player(player_index).is_some())
+        self.players(|list| list.get_player(player_index).is_some())
             .unwrap_or(false)
     }
 
@@ -213,23 +215,19 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
         if player_index < 0 {
             return false;
         }
-        let __player_list_arc = crate::player::player_list();
-        let list = match __player_list_arc.read() {
-            Ok(list) => list,
-            Err(_) => return false,
-        };
-        let Some(player) = list.get_player(player_index).cloned() else {
-            return false;
-        };
-        player
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_default_team())
-            .is_some()
+        self.players(|list| {
+            list.get_player(player_index)
+                .and_then(|player| player.read().ok())
+                .and_then(|guard| guard.get_default_team())
+                .is_some()
+        })
+        .unwrap_or(false)
     }
 
     fn get_observer_look_at_player_index(&self) -> Option<Int> {
-        observer_audio_locality_hooks().and_then(|hooks| hooks.get_observer_look_at_player_index())
+        let world = self.world.upgrade()?;
+        let hooks = world.observer_audio_locality_hooks().lock().ok()?.clone()?;
+        hooks.get_observer_look_at_player_index()
     }
 
     fn get_relationship_to_local_team(
@@ -241,16 +239,15 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
             return AudioLocalityRelationship::Neutral;
         }
 
-        let __player_list_arc = crate::player::player_list();
-        let list = match __player_list_arc.read() {
-            Ok(list) => list,
-            Err(_) => return AudioLocalityRelationship::Neutral,
-        };
-
-        let Some(source_player) = list.get_player(source_player_index).cloned() else {
-            return AudioLocalityRelationship::Neutral;
-        };
-        let Some(local_player) = list.get_player(local_player_index).cloned() else {
+        let Some((source_player, local_player)) = self
+            .players(|list| {
+                Some((
+                    list.get_player(source_player_index)?.clone(),
+                    list.get_player(local_player_index)?.clone(),
+                ))
+            })
+            .flatten()
+        else {
             return AudioLocalityRelationship::Neutral;
         };
 
@@ -365,12 +362,18 @@ enum LogicAudioSubmission<'a> {
 /// C++ equivalent: TheTacticalView and TheTerrainLogic access in AudioManager::update().
 /// Uses the real terrain logic for ground height and provides tactical view data
 /// from the game client when available.
-struct GameLogicAudioViewResolver;
+impl GameLogicAudioResolver {
+    fn observer_hooks(&self) -> Option<Arc<dyn crate::helpers::ObserverAudioViewHooks>> {
+        let world = self.world.upgrade()?;
+        world.observer_audio_view_hooks().lock().ok()?.clone()
+    }
+}
 
-impl AudioViewResolver for GameLogicAudioViewResolver {
+impl AudioViewResolver for GameLogicAudioResolver {
     fn get_tactical_view_position(&self) -> EngineCoord3D {
-        if let Some((x, y, z)) =
-            observer_audio_view_hooks().and_then(|hooks| hooks.get_tactical_view_position())
+        if let Some((x, y, z)) = self
+            .observer_hooks()
+            .and_then(|hooks| hooks.get_tactical_view_position())
         {
             return EngineCoord3D { x, y, z };
         }
@@ -384,8 +387,9 @@ impl AudioViewResolver for GameLogicAudioViewResolver {
     }
 
     fn get_tactical_view_angle(&self) -> f32 {
-        if let Some(angle) =
-            observer_audio_view_hooks().and_then(|hooks| hooks.get_tactical_view_angle())
+        if let Some(angle) = self
+            .observer_hooks()
+            .and_then(|hooks| hooks.get_tactical_view_angle())
         {
             return angle;
         }
@@ -395,8 +399,9 @@ impl AudioViewResolver for GameLogicAudioViewResolver {
     }
 
     fn get_3d_camera_position(&self) -> EngineCoord3D {
-        if let Some((x, y, z)) =
-            observer_audio_view_hooks().and_then(|hooks| hooks.get_3d_camera_position())
+        if let Some((x, y, z)) = self
+            .observer_hooks()
+            .and_then(|hooks| hooks.get_3d_camera_position())
         {
             return EngineCoord3D { x, y, z };
         }
@@ -413,9 +418,15 @@ impl AudioViewResolver for GameLogicAudioViewResolver {
         // C++ reads TheTerrainLogic->getGroundHeight(x, y).
         // This uses the real terrain logic - the most important resolver method
         // for correct audio attenuation over terrain.
-        crate::terrain::get_terrain_logic()
-            .read()
-            .map(|terrain| terrain.get_ground_height(x, y, None))
+        self.world
+            .upgrade()
+            .and_then(|world| {
+                world
+                    .terrain()
+                    .read()
+                    .ok()
+                    .map(|terrain| terrain.get_ground_height(x, y, None))
+            })
             .unwrap_or(0.0)
     }
 }
@@ -425,22 +436,25 @@ impl AudioViewResolver for GameLogicAudioViewResolver {
 fn ensure_audio_event_resolvers_registered(audio: &TheAudio) {
     // A handle that names only the engine (no world) leaves registration to
     // the world that owns that engine.
-    if audio.world.is_none() {
+    let Some(world) = audio.world.as_ref() else {
         return;
-    }
-    audio.common.system.game_logic_audio_resolvers_installed.get_or_init(|| {
-        let _ = register_audio_event_owner_resolver(Arc::new(GameLogicAudioEventOwnerResolver {
-            world: audio.world.clone(),
-        }));
-        let _ = register_audio_shroud_resolver(Arc::new(GameLogicAudioShroudResolver));
-        let _ = register_audio_locality_resolver(Arc::new(GameLogicAudioLocalityResolver));
-        let _ = register_audio_view_resolver(Arc::new(GameLogicAudioViewResolver));
-        let _ = game_engine::common::system::radar::register_radar_event_feedback(Arc::new(
-            WorldRadarAudioFeedback {
-                world: audio.world.clone(),
-            },
-        ));
-    });
+    };
+    audio
+        .common
+        .system
+        .game_logic_audio_resolvers_installed
+        .get_or_init(|| {
+            let resolver = Arc::new(GameLogicAudioResolver { world: world.clone() });
+            let _ = register_audio_event_owner_resolver(resolver.clone());
+            let _ = register_audio_shroud_resolver(resolver.clone());
+            let _ = register_audio_locality_resolver(resolver.clone());
+            let _ = register_audio_view_resolver(resolver);
+            let _ = game_engine::common::system::radar::register_radar_event_feedback(Arc::new(
+                WorldRadarAudioFeedback {
+                    world: audio.world.clone(),
+                },
+            ));
+        });
 }
 
 /// Ownerless radar sounds (event chirps, infiltration) play in the engine
@@ -855,7 +869,8 @@ mod leftover_the_audio_tests {
     }
 
     fn setup_observed_audio_world(index: i32) {
-        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
+        let world = crate::system::engine_stores::active_services();
+        crate::scripting::HostScriptQuery::of(&world).set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
                 objects: vec![crate::scripting::HostScriptQueryObject {
                     id: 77,
@@ -867,38 +882,72 @@ mod leftover_the_audio_tests {
                 ..Default::default()
             },
         );
-        let players = crate::player::player_list();
         {
-            let mut players = players.write().unwrap();
-            players.add_player(Arc::new(std::sync::RwLock::new(crate::player::Player::new(index))));
+            let mut players = world.players().write().unwrap();
+            players.add_player(Arc::new(std::sync::RwLock::new(
+                crate::player::Player::new(index),
+            )));
             players.set_local_player_index(index);
         }
-        let manager = crate::system::shroud_manager::get_shroud_manager();
-        let mut shroud = manager.lock().unwrap();
+        let mut shroud = world.shroud().lock().unwrap();
         shroud.init_shroud_grid(100.0, 100.0);
         if index == 3 {
-            shroud.reveal_map_for_player_permanently(index as u32).unwrap();
+            shroud
+                .reveal_map_for_player_permanently(index as u32)
+                .unwrap();
         }
         drop(shroud);
-        assert!(crate::helpers::register_observer_audio_locality_hooks(Arc::new(TestObserver(index))));
-        assert!(crate::helpers::register_observer_audio_view_hooks(Arc::new(TestObserver(index))));
-        TheAudio::of(&crate::system::engine_stores::active_services()).install_resolvers();
+        *world.observer_audio_locality_hooks().lock().unwrap() =
+            Some(Arc::new(TestObserver(index)));
+        *world.observer_audio_view_hooks().lock().unwrap() = Some(Arc::new(TestObserver(index)));
+        TheAudio::of(&world).install_resolvers();
     }
 
     fn assert_observed_audio_world(index: i32) {
-        let services = game_engine::common::common_services::common_services();
-        let owner = services.system.audio_event_owner_resolver.lock().unwrap().clone().unwrap();
+        let world = crate::system::engine_stores::active_services();
+        let services = world.common();
+        let owner = services
+            .system
+            .audio_event_owner_resolver
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap();
         let position = owner.resolve_object_position(77).unwrap();
-        assert_eq!((position.x, position.y, position.z), (index as f32, 20.0, 42.0));
-        let locality = services.system.audio_locality_resolver.lock().unwrap().clone().unwrap();
+        assert_eq!(
+            (position.x, position.y, position.z),
+            (index as f32, 20.0, 42.0)
+        );
+        let locality = services
+            .system
+            .audio_locality_resolver
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap();
         assert_eq!(locality.get_observer_look_at_player_index(), Some(index));
         assert_eq!(locality.get_local_player_index(), Some(index));
-        let view = services.system.audio_view_resolver.lock().unwrap().clone().unwrap();
+        let view = services
+            .system
+            .audio_view_resolver
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap();
         assert_eq!(view.get_tactical_view_position().x, index as f32);
         assert_eq!(view.get_tactical_view_angle(), index as f32);
         assert_eq!(view.get_3d_camera_position().y, index as f32);
-        let shroud = services.system.audio_shroud_resolver.lock().unwrap().clone().unwrap();
-        assert_eq!(shroud.is_position_visible_to_local_player(&position), index == 3);
+        let shroud = services
+            .system
+            .audio_shroud_resolver
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap();
+        assert_eq!(
+            shroud.is_position_visible_to_local_player(&position),
+            index == 3
+        );
     }
 
     #[test]
@@ -914,6 +963,108 @@ mod leftover_the_audio_tests {
             assert_observed_audio_world(3);
             drop(second);
             assert_observed_audio_world(3);
+        });
+    }
+
+    #[test]
+    fn installed_audio_resolvers_keep_their_world_when_ids_collide() {
+        let first = crate::system::engine_stores::new_for_world();
+        let second = crate::system::engine_stores::new_for_world();
+        for (world, players, local, observer) in
+            [(&first, &[7][..], 7, 71), (&second, &[7, 8][..], 8, 82)]
+        {
+            {
+                let mut roster = world.services().players().write().unwrap();
+                for index in players {
+                    roster.add_player(Arc::new(std::sync::RwLock::new(
+                        crate::player::Player::new(*index),
+                    )));
+                }
+                roster.set_local_player_index(local);
+            }
+            *world
+                .services()
+                .observer_audio_locality_hooks()
+                .lock()
+                .unwrap() = Some(Arc::new(TestObserver(observer)));
+            *world.services().observer_audio_view_hooks().lock().unwrap() =
+                Some(Arc::new(TestObserver(observer)));
+            crate::scripting::HostScriptQuery::of(world.services()).set_host_script_query_snapshot(
+                crate::scripting::HostScriptQuerySnapshot {
+                    objects: vec![crate::scripting::HostScriptQueryObject {
+                        id: 77,
+                        x: observer as f32,
+                        y: 42.0,
+                        z: 20.0,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            );
+            crate::system::engine_stores::with_active_stores(world, || {
+                let mut object = crate::object::Object::new_test(88, 100.0);
+                object.set_position(&Coord3D::new(observer as f32, 25.0, 3.0)).unwrap();
+                world.services().object_registry().register_object(88, &Arc::new(RwLock::new(object)));
+            });
+            let mut shroud = world.services().shroud().lock().unwrap();
+            shroud.init_shroud_grid(100.0, 100.0);
+            if observer == 71 {
+                shroud.reveal_map_for_player_permanently(7).unwrap();
+            }
+        }
+
+        crate::system::engine_stores::with_active_stores(&first, || {
+            TheAudio::of(first.services()).install_resolvers();
+        });
+
+        crate::system::engine_stores::with_active_stores(&second, || {
+            let resolver = first
+                .services()
+                .common()
+                .system
+                .audio_locality_resolver
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap();
+            let owner = first
+                .services()
+                .common()
+                .system
+                .audio_event_owner_resolver
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap();
+            let position = owner.resolve_object_position(77).unwrap();
+            assert_eq!((position.x, position.y, position.z), (71.0, 20.0, 42.0));
+            let position = owner.resolve_object_position(88).unwrap();
+            assert_eq!((position.x, position.y, position.z), (71.0, 25.0, 3.0));
+            assert_eq!(resolver.get_local_player_index(), Some(7));
+            assert!(resolver.player_exists(7));
+            assert!(!resolver.player_exists(8));
+            assert_eq!(resolver.get_observer_look_at_player_index(), Some(71));
+            let view = first
+                .services()
+                .common()
+                .system
+                .audio_view_resolver
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap();
+            assert_eq!(view.get_tactical_view_position().x, 71.0);
+            assert_eq!(view.get_3d_camera_position().y, 71.0);
+            let shroud = first
+                .services()
+                .common()
+                .system
+                .audio_shroud_resolver
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap();
+            assert!(shroud.is_position_visible_to_local_player(&position));
         });
     }
 
@@ -940,7 +1091,9 @@ mod leftover_the_audio_tests {
         let world = crate::system::engine_stores::new_for_world();
         crate::system::engine_stores::with_active_stores(&world, || {
             TheAudio::of(world.services()).install_resolvers();
-            let replacement: Arc<dyn AudioViewResolver> = Arc::new(GameLogicAudioViewResolver);
+            let replacement: Arc<dyn AudioViewResolver> = Arc::new(GameLogicAudioResolver {
+                world: Arc::downgrade(world.services()),
+            });
             assert!(!register_audio_view_resolver(Arc::clone(&replacement)));
             TheAudio::of(world.services()).install_resolvers();
             let services = game_engine::common::common_services::common_services();
@@ -1006,8 +1159,8 @@ mod leftover_the_audio_tests {
     #[test]
     fn host_snapshot_resolver_uses_host_height() {
         use super::AudioEventOwnerResolver;
-        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
-        crate::scripting::HostScriptQuery::published_for_test().set_host_script_query_snapshot(
+        let world = crate::system::engine_stores::new_world_services();
+        crate::scripting::HostScriptQuery::of(&world).set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
                 objects: vec![crate::scripting::HostScriptQueryObject {
                     id: 77,
@@ -1019,16 +1172,13 @@ mod leftover_the_audio_tests {
                 ..Default::default()
             },
         );
-        let resolver = super::GameLogicAudioEventOwnerResolver {
-            world: crate::system::engine_stores::try_active_services()
-                .as_ref()
-                .map(std::sync::Arc::downgrade),
+        let resolver = super::GameLogicAudioResolver {
+            world: Arc::downgrade(&world),
         };
         let pos = resolver.resolve_object_position(77).expect("host object");
         assert_eq!(pos.x, 10.0);
         assert_eq!(pos.y, 20.0);
         assert_eq!(pos.z, 42.0);
-        crate::scripting::HostScriptQuery::published_for_test().clear_host_script_query_snapshot();
     }
 
     #[test]

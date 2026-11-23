@@ -170,15 +170,6 @@ pub fn register_observer_audio_view_hooks(hooks: Arc<dyn ObserverAudioViewHooks>
     true
 }
 
-fn observer_audio_view_hooks() -> Option<Arc<dyn ObserverAudioViewHooks>> {
-    let services = crate::system::engine_stores::try_active_services()?;
-    services
-        .observer_audio_view_hooks()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .clone()
-}
-
 use game_engine::common::system::scene_submission::{
     SceneLineDesc, SceneLineId, SceneModelDesc, SceneProjectileStreamDesc, SceneSubmission,
 };
