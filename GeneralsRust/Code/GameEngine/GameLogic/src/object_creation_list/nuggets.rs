@@ -859,61 +859,8 @@ impl GenericObjectCreationNugget {
                     &self.bounce_sound,
                 )));
 
-                // Calculate spin rates
-                let spin_rate = if self.spin_rate >= 0.0 {
-                    self.spin_rate
-                } else {
-                    (PI / 32.0) * self.disposition_intensity
-                };
-
-                let yaw_rate = if self.yaw_rate >= 0.0 {
-                    self.yaw_rate
-                } else {
-                    spin_rate
-                };
-                let roll_rate = if self.roll_rate >= 0.0 {
-                    self.roll_rate
-                } else {
-                    spin_rate
-                };
-                let pitch_rate = if self.pitch_rate >= 0.0 {
-                    self.pitch_rate
-                } else {
-                    spin_rate
-                };
-
-                let yaw = ctx.game_logic.random_value_real(-yaw_rate, yaw_rate);
-                let roll = ctx.game_logic.random_value_real(-roll_rate, roll_rate);
-                let pitch = ctx.game_logic.random_value_real(-pitch_rate, pitch_rate);
-
-                // Calculate force based on disposition
-                let force = if self.disposition.has(DebrisDisposition::SEND_IT_FLYING) {
-                    let horiz_force = 4.0 * self.disposition_intensity;
-                    let vert_force = 3.0 * self.disposition_intensity;
-                    Coord3D::new(
-                        ctx.game_logic.random_value_real(-horiz_force, horiz_force),
-                        ctx.game_logic.random_value_real(-horiz_force, horiz_force),
-                        ctx.game_logic
-                            .random_value_real(vert_force * 0.33, vert_force),
-                    )
-                } else if self.disposition.has(DebrisDisposition::SEND_IT_UP) {
-                    let horiz_force = 2.0 * self.disposition_intensity;
-                    let vert_force = 4.0 * self.disposition_intensity;
-                    Coord3D::new(
-                        ctx.game_logic.random_value_real(-horiz_force, horiz_force),
-                        ctx.game_logic.random_value_real(-horiz_force, horiz_force),
-                        ctx.game_logic
-                            .random_value_real(vert_force * 0.75, vert_force),
-                    )
-                } else {
-                    calc_random_force(
-                        ctx,
-                        self.min_mag,
-                        self.max_mag,
-                        self.min_pitch,
-                        self.max_pitch,
-                    )
-                };
+                let (force, [yaw, roll, pitch]) =
+                    self.draw_flight(|lo, hi| ctx.game_logic.random_value_real(lo, hi));
 
                 physics.apply_force(&force);
 
@@ -997,7 +944,67 @@ impl GenericObjectCreationNugget {
         drop(obj_read);
     }
 
-    /// C++ ObjectCreationList.cpp:1387-1401
+    /// Draw yaw, roll, and pitch rates, then the launch force
+    /// (`ObjectCreationList.cpp:1129-1175`).
+    pub fn draw_flight(&self, mut draw: impl FnMut(Real, Real) -> Real) -> (Coord3D, [Real; 3]) {
+        // Calculate spin rates
+        let spin_rate = if self.spin_rate >= 0.0 {
+            self.spin_rate
+        } else {
+            (PI / 32.0) * self.disposition_intensity
+        };
+
+        let yaw_rate = if self.yaw_rate >= 0.0 {
+            self.yaw_rate
+        } else {
+            spin_rate
+        };
+        let roll_rate = if self.roll_rate >= 0.0 {
+            self.roll_rate
+        } else {
+            spin_rate
+        };
+        let pitch_rate = if self.pitch_rate >= 0.0 {
+            self.pitch_rate
+        } else {
+            spin_rate
+        };
+
+        let yaw = draw(-yaw_rate, yaw_rate);
+        let roll = draw(-roll_rate, roll_rate);
+        let pitch = draw(-pitch_rate, pitch_rate);
+
+        // Calculate force based on disposition
+        let force = if self.disposition.has(DebrisDisposition::SEND_IT_FLYING) {
+            let horiz_force = 4.0 * self.disposition_intensity;
+            let vert_force = 3.0 * self.disposition_intensity;
+            Coord3D::new(
+                draw(-horiz_force, horiz_force),
+                draw(-horiz_force, horiz_force),
+                draw(vert_force * 0.33, vert_force),
+            )
+        } else if self.disposition.has(DebrisDisposition::SEND_IT_UP) {
+            let horiz_force = 2.0 * self.disposition_intensity;
+            let vert_force = 4.0 * self.disposition_intensity;
+            Coord3D::new(
+                draw(-horiz_force, horiz_force),
+                draw(-horiz_force, horiz_force),
+                draw(vert_force * 0.75, vert_force),
+            )
+        } else {
+            calc_random_force_with(
+                draw,
+                self.min_mag,
+                self.max_mag,
+                self.min_pitch,
+                self.max_pitch,
+            )
+        };
+
+        (force, [yaw, roll, pitch])
+    }
+
+    /// ObjectCreationList.cpp:1387-1401
     fn apply_fade_to_object(&self, debris: &Arc<RwLock<Object>>, source_obj: Option<&Object>) {
         if self.fade_in {
             play_ocl_fade_sound(&self.fade_sound_name, debris, source_obj);
@@ -1327,9 +1334,27 @@ pub fn calc_random_force(
     min_pitch: Real,
     max_pitch: Real,
 ) -> Coord3D {
-    let angle = ctx.game_logic.random_value_real(0.0, 2.0 * PI);
-    let pitch = ctx.game_logic.random_value_real(min_pitch, max_pitch);
-    let mag = ctx.game_logic.random_value_real(min_mag, max_mag);
+    calc_random_force_with(
+        |lo, hi| ctx.game_logic.random_value_real(lo, hi),
+        min_mag,
+        max_mag,
+        min_pitch,
+        max_pitch,
+    )
+}
+
+/// RANDOM_FORCE draw shared by `calc_random_force` and
+/// `GenericObjectCreationNugget::draw_flight`: angle, pitch, magnitude.
+fn calc_random_force_with(
+    mut draw: impl FnMut(Real, Real) -> Real,
+    min_mag: Real,
+    max_mag: Real,
+    min_pitch: Real,
+    max_pitch: Real,
+) -> Coord3D {
+    let angle = draw(0.0, 2.0 * PI);
+    let pitch = draw(min_pitch, max_pitch);
+    let mag = draw(min_mag, max_mag);
     calc_random_force_xyz(angle, pitch, mag)
 }
 

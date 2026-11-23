@@ -47,7 +47,6 @@ fn supports_host_weapon_generic_ocl(
     let unsupported_disposition = DebrisDisposition::SEND_IT_FLYING
         | DebrisDisposition::SEND_IT_UP
         | DebrisDisposition::SEND_IT_OUT
-        | DebrisDisposition::RANDOM_FORCE
         | DebrisDisposition::FLOATING
         | DebrisDisposition::WHIRLING;
 
@@ -591,17 +590,48 @@ impl GameLogic {
                     );
                 }
                 // C++ ObjectCreationList.cpp:1086/1121-1124 ExtraFriction/Bounciness/BounceSound.
-                object.set_extra_friction(generic.extra_friction);
-                if generic.disposition.has(
-                    gamelogic::object_creation_list::DebrisDisposition::SEND_IT_FLYING
-                        | gamelogic::object_creation_list::DebrisDisposition::SEND_IT_UP
-                        | gamelogic::object_creation_list::DebrisDisposition::RANDOM_FORCE,
-                ) {
-                    object.set_extra_bounciness(generic.extra_bounciness);
-                    object.set_allow_bouncing(true);
-                }
-                if !generic.bounce_sound.is_empty() {
-                    object.set_bounce_sound(generic.bounce_sound.clone());
+                if generic.disposition.has(DebrisDisposition::RANDOM_FORCE) {
+                    // C++ doStuffToObj guards the whole flight block on the
+                    // created object having a PhysicsBehavior: a physics-less
+                    // template still births but draws no force and keeps
+                    // default bounce/friction properties.
+                    if object.authors_behavior_module("PhysicsBehavior") {
+                        object.set_extra_friction(generic.extra_friction);
+                        object.set_extra_bounciness(generic.extra_bounciness);
+                        object.set_allow_bouncing(true);
+                        // The original assigns the authored bounce sound
+                        // unconditionally here, even when the token is empty.
+                        object.set_bounce_sound(generic.bounce_sound.clone());
+                        let (force, [yaw, roll, pitch]) = generic
+                            .draw_flight(|lo, hi| self.logic_random.next_real(lo, hi));
+                        object.apply_physics_force(
+                            Vec3::new(force.x, force.z, force.y),
+                            self.frame,
+                        );
+                        object.shock_yaw_rate = yaw;
+                        object.shock_roll_rate = roll;
+                        object.shock_pitch_rate = pitch;
+                        let orientation = if generic.orient_in_force_direction {
+                            force.y.atan2(force.x)
+                        } else {
+                            source_orientation
+                        };
+                        object.set_orientation_with_partition_owner(
+                            orientation,
+                            &mut self.partition_manager,
+                        );
+                    }
+                } else {
+                    object.set_extra_friction(generic.extra_friction);
+                    if generic.disposition.has(
+                        DebrisDisposition::SEND_IT_FLYING | DebrisDisposition::SEND_IT_UP,
+                    ) {
+                        object.set_extra_bounciness(generic.extra_bounciness);
+                        object.set_allow_bouncing(true);
+                    }
+                    if !generic.bounce_sound.is_empty() {
+                        object.set_bounce_sound(generic.bounce_sound.clone());
+                    }
                 }
                 if generic.fade_in {
                     object.start_drawable_fade_in(generic.fade_frames, self.frame);

@@ -127,6 +127,72 @@ fn authored_ocl_embers_and_partition_tie_drive_world_spread() {
 }
 
 #[test]
+fn authored_random_force_embers_launch_with_authored_physics() {
+    // Stock OCL_BurningEmbers shape (retail ObjectCreationList.ini): RANDOM_FORCE
+    // with authored offset/friction/bounce onto a PhysicsBehavior Mass=2 ember.
+    const EMBER_PHYSICS_INI: &str = "Object EmberFixtureActor\n Body = ActiveBody BodyTag\n MaxHealth = 1\n InitialHealth = 1\n End\n Behavior = PhysicsBehavior PhysTag\n Mass = 2\n End\n Behavior = LifetimeUpdate LifeTag\n MinLifetime = 5000\n MaxLifetime = 10000\n End\nEnd\n";
+    const EMBER_FORCE_OCL_INI: &str = "ObjectCreationList CustomEmberList\n CreateObject\n ObjectNames = EmberFixtureActor\n Count = 1\n Offset = X:0 Y:0 Z:20\n Disposition = RANDOM_FORCE\n MinForceMagnitude = 2\n MaxForceMagnitude = 4\n MinForcePitch = 60\n MaxForcePitch = 70\n ExtraBounciness = -1.0\n ExtraFriction = 30\n End\nEnd\n";
+
+    let mut world = GameLogic::new();
+    let ini = format!("{SPREADER_INI}{EMBER_PHYSICS_INI}");
+    world
+        .admit_object_ini_sources([("FireSpreadOwner.ini".into(), ini)])
+        .unwrap();
+    world
+        .admit_object_creation_list_sources([EMBER_FORCE_OCL_INI.to_string()])
+        .unwrap();
+    world.start_new_game(GameMode::SinglePlayer).unwrap();
+
+    let source = world
+        .create_object("FlameSpreader", Team::Neutral, Vec3::new(5.0, 0.0, 5.0))
+        .expect("spread source");
+    ignite_now(&mut world, source);
+
+    // One fixed step: the due spread attempt births the ember even with no
+    // spread candidate (C++ ember OCL runs before candidate selection).
+    world.update_with_dt(1.0 / 30.0);
+
+    let ember = world
+        .host_objects()
+        .registered_values()
+        .find(|object| object.template_name == "EmberFixtureActor")
+        .expect("RANDOM_FORCE CustomEmberList must birth a real EmberFixtureActor");
+    assert_eq!(ember.producer_id, Some(source));
+    let ember_position = ember.get_position();
+    // The birth tick already integrates the launch impulse once, so the
+    // authored Z:20 offset (host Y-up) is position minus that first step.
+    assert!(
+        (ember_position.y - ember.movement.velocity.y - 20.0).abs() < 0.15,
+        "authored Z:20 offset maps to host Y +20, got y={} velocity.y={}",
+        ember_position.y,
+        ember.movement.velocity.y
+    );
+    assert_eq!(ember.physics_mass, 2.0, "authored PhysicsBehavior Mass");
+    // parseFrictionPerSec stores ExtraFriction / 30 per frame.
+    assert!(
+        (ember.extra_friction - 1.0).abs() < 1e-6,
+        "ExtraFriction = 30 parses to 1.0 per frame, got {}",
+        ember.extra_friction
+    );
+    assert!(
+        (ember.extra_bounciness - (-1.0)).abs() < 1e-6,
+        "ExtraBounciness = -1.0 preserved, got {}",
+        ember.extra_bounciness
+    );
+    // apply_physics_force stores force/mass in physics_accel; if the same
+    // tick already integrated it, the impulse lives in velocity.y instead
+    // (minus at most one frame of SHOCK_GRAVITY ≈ -0.071).
+    let launch = ember.physics_accel.y + ember.movement.velocity.y;
+    let min_launch = 2.0 * 60.0f32.to_radians().sin() / 2.0;
+    let max_launch = 4.0 * 70.0f32.to_radians().sin() / 2.0;
+    assert!(
+        launch > min_launch - 0.1 && launch <= max_launch + 1e-3,
+        "RANDOM_FORCE vertical impulse mag*sin(pitch)/mass expected in \
+         [{min_launch}, {max_launch}], got {launch}"
+    );
+}
+
+#[test]
 fn authored_range_excludes_candidate_at_exact_boundary() {
     let mut world = GameLogic::new();
     let ini = format!(
