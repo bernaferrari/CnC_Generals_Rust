@@ -161,9 +161,10 @@ impl GameLogic {
         self.admit_host_radar_disabled_edges(id);
         if disable_callback {
             if matches!(request, DisableUntil::NamedHeld { .. }) {
-                self.record_named_held_energy_callback(id);
+                self.admit_named_held_energy_callback(id);
+            } else {
+                self.admit_owned_producer_energy_edge(id, true);
             }
-            self.admit_owned_producer_energy_edge(id, true);
         }
         true
     }
@@ -175,7 +176,7 @@ impl GameLogic {
         0
     }
 
-    fn record_named_held_energy_callback(&mut self, id: ObjectId) {
+    fn admit_named_held_energy_callback(&mut self, id: ObjectId) {
         let Some((owner, energy)) = self.objects.get(&id).and_then(|object| {
             object
                 .owner_player_id
@@ -183,17 +184,9 @@ impl GameLogic {
         }) else {
             return;
         };
-        if let Some(player) = self.players.get_mut(&owner) {
-            // The actual signed callback is independent of the HELD mask
-            // change above. Carry that delta into the next compatibility fold.
-            if energy > 0 {
-                player.power_production_adjustment =
-                    player.power_production_adjustment.wrapping_sub(energy);
-            } else {
-                player.power_consumption_adjustment =
-                    player.power_consumption_adjustment.wrapping_add(energy);
-            }
-        }
+        // The named deadline already accounted for its mask change.
+        self.signal_producer_energy_edge(owner, energy, 0, false);
+        self.record_power_projection(owner);
     }
 
     fn containment_disable_rider(&self, owner: ObjectId) -> Option<ObjectId> {
@@ -315,15 +308,49 @@ impl GameLogic {
         id: ObjectId,
         disabled: bool,
     ) {
-        let Some((owner, power)) = self.objects.get(&id).and_then(|object| {
-            object
-                .owner_player_id
-                .zip(object.producer_energy_on_disabled_edge())
+        let Some((owner, power, folded_output)) = self.objects.get(&id).and_then(|object| {
+            let owner = object.owner_player_id?;
+            let power = object.producer_energy_on_disabled_edge()?;
+            Some((owner, power, Self::folded_producer_output(object, power)))
         }) else {
             return;
         };
-        self.signal_template_energy_delta(owner, power, !disabled);
+        self.signal_producer_energy_edge(owner, power, folded_output, !disabled);
         self.record_power_projection(owner);
+    }
+
+    fn folded_producer_output(object: &Object, power: i32) -> i32 {
+        if Self::object_contributes_power(object) {
+            power
+        } else {
+            0
+        }
+    }
+
+    /// Energy.cpp:79–98 puts a negative adjustPower argument in consumption.
+    /// Account for the difference from the remaining compatibility fold before
+    /// the synchronous brownout callback can observe the producer's new mask.
+    fn signal_producer_energy_edge(
+        &mut self,
+        owner: u32,
+        power: i32,
+        folded_output: i32,
+        incoming: bool,
+    ) {
+        let production_difference = power.max(0).wrapping_sub(folded_output);
+        let consumption_difference = power.min(0).wrapping_neg();
+        if (production_difference != 0 || consumption_difference != 0)
+            && let Some(player) = self.players.get_mut(&owner)
+        {
+            let direction = if incoming { 1 } else { -1 };
+            player.power_production_adjustment = player
+                .power_production_adjustment
+                .wrapping_add(production_difference.wrapping_mul(direction));
+            player.power_consumption_adjustment = player
+                .power_consumption_adjustment
+                .wrapping_add(consumption_difference.wrapping_mul(direction));
+        }
+        self.signal_template_energy_delta(owner, power, incoming);
     }
 
     /// Admit a signed EnergyBonus to its exact Player, then settle radar and
@@ -443,7 +470,9 @@ impl GameLogic {
                 object.set_status_disabled_underpowered(brownout);
                 let now_disabled = object.has_disabled_type();
                 let producer_edge = if was_disabled != now_disabled {
-                    object.producer_energy_on_disabled_edge()
+                    object
+                        .producer_energy_on_disabled_edge()
+                        .map(|power| (power, Self::folded_producer_output(object, power)))
                 } else {
                     None
                 };
@@ -451,8 +480,8 @@ impl GameLogic {
                 // Object::onDisabledEdge immediately adjusts a positive producer,
                 // which synchronously reenters this Player callback before the
                 // outer member traversal continues. Consumers never feed back.
-                if let Some(power) = producer_edge {
-                    self.signal_template_energy_delta(owner, power, !now_disabled);
+                if let Some((power, folded_output)) = producer_edge {
+                    self.signal_producer_energy_edge(owner, power, folded_output, !now_disabled);
                 }
             }
         }
@@ -994,6 +1023,90 @@ End";
                     assert!(!owner.objects[&consumer].status.disabled_underpowered);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn recovering_producer_transfers_signed_energy_to_consumption() {
+        let fixture = || {
+            let mut world = GameLogic::new();
+            let source = "
+Object SignedExpiryPlant
+ KindOf = STRUCTURE
+ EnergyProduction = 20
+ EnergyBonus = -25
+ Behavior = OverchargeBehavior Overcharge
+  HealthPercentToDrainPerSecond = 0%
+  NotAllowedWhenHealthBelowPercent = 0%
+ End
+End
+Object SignedExpiryLoad
+ KindOf = STRUCTURE POWERED
+ EnergyProduction = -10
+End";
+            world
+                .admit_receiving_module_content(
+                    crate::assets::ReceivingObjectContent::from_sources([(
+                        "signed-expiry.ini".into(),
+                        source.into(),
+                    )])
+                    .unwrap(),
+                )
+                .unwrap();
+            world.add_player(Player::new(1, Team::USA, "SignedExpiry", true));
+            let plant = world
+                .create_object_for_player("SignedExpiryPlant", 1, Vec3::ZERO)
+                .unwrap();
+            world
+                .create_object_for_player("SignedExpiryLoad", 1, Vec3::X)
+                .unwrap();
+            (world, plant)
+        };
+        let energy = |world: &GameLogic| {
+            let player = &world.players[&1];
+            (
+                player.power_produced,
+                player.power_consumed,
+                player.power_available,
+            )
+        };
+        let (mut world, plant) = fixture();
+        let (mut restored, peer_plant) = fixture();
+        assert_eq!(plant, peer_plant);
+
+        world.set_current_frame(4);
+        assert!(world.apply_owned_emp_disabled(plant, 6));
+        assert!(world.toggle_overcharge_object(plant));
+        assert_eq!(world.objects[&plant].power_provided, -5);
+        assert_eq!(energy(&world), (-25, 10, -35));
+        assert_eq!(energy(&restored), (20, 10, 10));
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+        for owner in [&mut world, &mut restored] {
+            assert_eq!(energy(owner), (-25, 10, -35));
+            owner.set_current_frame(5);
+            owner.expire_owned_disabled_statuses();
+            assert_eq!(energy(owner), (-25, 10, -35));
+            owner.set_current_frame(6);
+            owner.expire_owned_disabled_statuses();
+            assert!(!owner.objects[&plant].status.disabled_emp);
+            assert_eq!(
+                energy(owner),
+                (-25, 15, -40),
+                "C++ Energy::adjustPower(-5, true)"
+            );
+            owner.update_player_resources(0.);
+            assert_eq!(energy(owner), (-25, 15, -40));
+
+            assert!(owner.apply_owned_hacked_disabled(plant, 8));
+            assert_eq!(energy(owner), (-25, 10, -35));
+            owner.update_player_resources(0.);
+            assert_eq!(energy(owner), (-25, 10, -35));
         }
     }
 

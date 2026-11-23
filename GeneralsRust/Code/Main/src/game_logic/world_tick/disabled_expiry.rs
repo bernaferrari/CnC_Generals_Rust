@@ -44,18 +44,15 @@ impl GameLogic {
                 }
             }
 
-            let Some(object) = self.objects.get(&id) else {
+            let Some(object) = self.objects.get_mut(&id) else {
                 continue;
             };
             let was_disabled = object.has_disabled_type();
-            let producer = object.owner_player_id
-                .filter(|_| object.producer_energy_on_disabled_edge().is_some());
-            let object = self.objects.get_mut(&id).unwrap();
             object.tick_remaining_disabled(self.frame);
             let reenabled = was_disabled && !object.has_disabled_type();
             self.admit_host_radar_provider_with_effects(id, effects);
-            if let (true, Some(owner)) = (reenabled, producer) {
-                self.admit_reenabled_producer_power(owner);
+            if reenabled {
+                self.admit_owned_producer_energy_edge(id, false);
             }
         }
     }
@@ -106,18 +103,16 @@ impl GameLogic {
                 return;
             }
         }
-        let producer = {
+        let reenabled = {
             let object = self.objects.get_mut(&id).unwrap();
             if !object.clear_timed_disable(effect) {
                 return;
             }
-            object.owner_player_id.filter(|_| {
-                !object.has_disabled_type() && object.producer_energy_on_disabled_edge().is_some()
-            })
+            !object.has_disabled_type()
         };
         self.admit_host_radar_disabled_edges(id);
-        if let Some(owner) = producer {
-            self.admit_reenabled_producer_power(owner);
+        if reenabled {
+            self.admit_owned_producer_energy_edge(id, false);
         }
     }
 }
