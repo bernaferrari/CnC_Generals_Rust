@@ -3361,3 +3361,71 @@ fn authored_minefield_without_detonation_weapon_spends_charge_silently() {
         "last charge consumed: C++ requests destroyObject on the pad"
     );
 }
+
+#[test]
+fn authored_minefield_placement_preserves_admitted_pad_data() {
+    use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
+
+    let mut world = GameLogic::new();
+    admit_fixture_content(
+        &mut world,
+        &[
+            FixtureObject::new("ChinaStandardMine")
+                .kind_of("MINE IMMOBILE")
+                .health(100.0)
+                .field("Geometry = Cylinder")
+                .field("GeometryMajorRadius = 10.0")
+                .module(
+                    "Behavior = MinefieldBehavior Mine\nNumVirtualMines = 2\n\
+                     Regenerates = No\nRepeatDetonateMoveThresh = 9\nEnd",
+                ),
+            // Authored lookalike with no mine behavior: C++ placeMineAt still
+            // creates it, but adds no mine module, flags, or weapon strip.
+            FixtureObject::new("ChinaClusterMine")
+                .kind_of("IMMOBILE")
+                .health(100.0),
+            FixtureObject::new("MinePlanter")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(400.0),
+        ],
+        &[] as &[FixtureWeapon],
+    );
+    use crate::game_logic::{Player, PlayerSideRole};
+    let mut neutral = Player::new(0, Team::Neutral, "Neutral", false);
+    neutral.map_side.role = PlayerSideRole::Neutral;
+    neutral.map_side.map_player_name.clear();
+    world.add_player(neutral);
+    let mut player = Player::new(1, Team::China, "mine fixture", true);
+    player.alliance_team = 1;
+    world.add_player(player);
+
+    let planter_pos = Vec3::new(100.0, 0.0, 100.0);
+    let producer = world
+        .create_object_for_player("MinePlanter", 1, planter_pos)
+        .unwrap();
+    let pad_pos = planter_pos + Vec3::new(50.0, 0.0, 0.0);
+    let pad = world
+        .place_land_mine_named("ChinaStandardMine", Team::China, pad_pos, Some(producer))
+        .unwrap();
+    let lookalike = world
+        .place_land_mine_named("ChinaClusterMine", Team::China, pad_pos, Some(producer))
+        .unwrap();
+
+    let pad_obj = world.host_object(pad).unwrap();
+    let mine = pad_obj.mine_data.as_ref().unwrap();
+    // Bound admission (MinefieldBehaviorModuleData + authored fields), not the
+    // standardmine name profile's 8/regen/scoot inference.
+    assert_eq!(mine.num_virtual_mines, 2);
+    assert_eq!(mine.virtual_mines_remaining, 2);
+    assert!(!mine.regenerates);
+    assert_eq!(mine.repeat_detonate_move_thresh, 9.0);
+    assert_eq!(mine.scoot_from_starting_point_time, 0);
+    assert!(!mine.is_scooting());
+    assert_eq!(mine.producer_id, Some(producer));
+    assert_eq!(pad_obj.producer_id, Some(producer));
+    assert_eq!(pad_obj.get_position(), pad_pos);
+
+    let lookalike = world.host_object(lookalike).unwrap();
+    assert!(lookalike.mine_data.is_none());
+    assert!(!lookalike.is_disarmable_mine());
+}

@@ -687,6 +687,36 @@ impl GameLogic {
             effects,
         )?;
 
+        // C++ GenerateMinefieldBehavior::placeMineAt (cpp:199-211): the factory
+        // births the authored template; producer + LandMineInterface scoot are
+        // the only placement mutations. Bound pads keep the MinefieldBehavior
+        // admission made at create (charges/regen/thresh/scoot), their weapons,
+        // and their authored KindOf set — no synthetic data or flag install.
+        if kind == HostMineKind::LandMine
+            && self
+                .host_object(id)
+                .is_some_and(|object| {
+                    object.get_template().receiving_object_definition.is_some()
+                })
+        {
+            let start =
+                producer.and_then(|pid| self.host_object(pid).map(Object::get_position));
+            let mine = self.objects.get_mut(&id)?;
+            mine.producer_id = producer;
+            if let Some(data) = mine
+                .mine_data
+                .as_mut()
+                .filter(|data| data.kind == HostMineKind::LandMine)
+            {
+                data.producer_id = producer;
+            }
+            if let Some(start) = start {
+                self.apply_land_mine_scoot_with_effects(id, start, position, effects);
+            }
+            self.mine_residual_places = self.mine_residual_places.saturating_add(1);
+            return Some(id);
+        }
+
         let mut data = match kind {
             crate::game_logic::host_mines::HostMineKind::LandMine => {
                 HostMineData::land_mine_for_template(template_name)
