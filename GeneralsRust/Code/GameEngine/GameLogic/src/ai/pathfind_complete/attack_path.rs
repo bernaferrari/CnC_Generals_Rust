@@ -699,9 +699,9 @@ impl PathfindingSystem {
         open.push(std::cmp::Reverse((0, 0, start.x, start.y)));
         g_score.insert((start.x, start.y), 0);
 
-        let mut farthest: Option<(GridCoord, f32)> = None;
+        let mut farthest_distance_sqr = 0.0;
         let mut cell_count = 0i32;
-        let mut found: Option<(GridCoord, Coord3D)> = None;
+        let mut destination = None;
 
         while let Some(std::cmp::Reverse((_f, g, cx, cy))) = open.pop() {
             if closed.contains(&(cx, cy)) {
@@ -724,8 +724,8 @@ impl PathfindingSystem {
             if open.is_empty() && cell_count > 0 {
                 ok = true;
             }
-            if farthest.map(|(_, d)| nearest > d).unwrap_or(true) {
-                farthest = Some((cell, nearest));
+            if nearest > farthest_distance_sqr {
+                farthest_distance_sqr = nearest;
                 // C++: if already big search and this is farthest, accept early.
                 if cell_count > MAX_CELLS {
                     ok = true;
@@ -744,7 +744,7 @@ impl PathfindingSystem {
                 )
             {
                 if !(is_human && !self.in_logical_extent(cell)) {
-                    found = Some((cell, center));
+                    destination = Some(center);
                     break;
                 }
             }
@@ -795,25 +795,8 @@ impl PathfindingSystem {
             }
         }
 
-        let goal_pos = if let Some((_, pos)) = found {
-            pos
-        } else if let Some((cell, _)) = farthest {
-            let layer = self.get_layer_for_coord(cell);
-            if !self.is_destination_valid(
-                cell,
-                layer,
-                surfaces,
-                is_crusher,
-                radius,
-                center_in_cell,
-                request.ignore_obstacle_id,
-            ) {
-                return PathResult::none();
-            }
-            let mut center = Coord3D::new(0.0, 0.0, 0.0);
-            self.adjust_coord_to_cell(cell.x, cell.y, center_in_cell, &mut center, layer);
-            center
-        } else {
+        // Exhaustion without an accepted cell returns null in C++.
+        let Some(goal_pos) = destination else {
             return PathResult::none();
         };
 

@@ -646,6 +646,47 @@ fn find_safe_path_moves_outside_repulsor() {
 }
 
 #[test]
+fn find_safe_path_fails_when_only_the_unsafe_start_can_be_reached() {
+    let mut system = PathfindingSystem::new(32, 32);
+    system.new_map();
+    let from = Coord3D::new(105.0, 105.0, 0.0);
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            if (dx, dy) != (0, 0) {
+                system.set_cell_type(
+                    &Coord3D::new(from.x + dx as f32 * 10.0, from.y + dy as f32 * 10.0, 0.0),
+                    PathfindCellType::Impassable,
+                );
+            }
+        }
+    }
+    let request = PathRequest {
+        object_id: INVALID_ID,
+        from,
+        to: from,
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: false,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: true,
+    };
+    let trapped = system.find_safe_path(request.clone(), &from, &from, 40.0);
+    assert!(!trapped.success, "an isolated unsafe start is no path: {trapped:?}");
+
+    // The original can accept the last expanded cell inside the radius, but
+    // only after examining at least one neighboring cell.
+    system.set_cell_type(
+        &Coord3D::new(from.x + 10.0, from.y, 0.0),
+        PathfindCellType::Clear,
+    );
+    let partial = system.find_safe_path(request, &from, &from, 40.0);
+    assert!(partial.success);
+    assert!(partial.waypoints.last().unwrap().x > from.x);
+}
+
+#[test]
 fn find_path_still_works_open_ground() {
     let mut system = PathfindingSystem::new(32, 32);
     system.new_map();
