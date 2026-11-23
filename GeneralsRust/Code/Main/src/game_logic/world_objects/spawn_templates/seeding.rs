@@ -759,12 +759,6 @@ impl GameLogic {
                 template.refund_value = value;
             }
         }
-        if let Some(energy) = Self::object_definition_attr(definition, "energyproduction")
-            .and_then(|value| value.trim().parse::<i32>().ok())
-        {
-            template.energy_production = Some(energy);
-        }
-
         if let Some(wname) = definition.base_weapon_name(0) {
             template.set_primary_weapon_name(wname);
         }

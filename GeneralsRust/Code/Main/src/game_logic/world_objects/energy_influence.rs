@@ -668,6 +668,83 @@ End";
         );
     }
 
+    fn receiving_energy_defaults_world() -> GameLogic {
+        let source = "
+Object DefaultGridPowerPlant
+  KindOf = STRUCTURE
+End
+Object DefaultGridRelay
+  KindOf = STRUCTURE
+End
+Object DefaultGridParent
+  KindOf = STRUCTURE
+  EnergyProduction = -4suffix
+End
+ChildObject DefaultGridChild DefaultGridParent
+End";
+        let mut world = GameLogic::new();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "energy-defaults.ini".into(),
+                    source.into(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world.add_player(Player::new(1, Team::USA, "GridDefaults", true));
+        world
+    }
+
+    #[test]
+    fn receiving_energy_defaults_survive_map_layers_and_legacy_save_mirrors() {
+        use crate::save_load::snapshot::ObjectTypeSnapshot;
+
+        let mut world = receiving_energy_defaults_world();
+        let mut peer = receiving_energy_defaults_world();
+        let map = "Object DefaultGridRelay\n  EnergyProduction = -9\nEnd".to_owned();
+        world.apply_receiving_module_overrides(std::slice::from_ref(&map)).unwrap();
+        world.apply_receiving_module_overrides(&[]).unwrap();
+        peer.apply_receiving_module_overrides(&[map]).unwrap();
+
+        let spawn_grid = |world: &mut GameLogic| {
+            ["DefaultGridPowerPlant", "DefaultGridRelay", "DefaultGridChild"]
+                .map(|name| world.create_object_for_player(name, 1, Vec3::ZERO).unwrap())
+        };
+        let [plant, relay, child] = spawn_grid(&mut world);
+        assert_eq!(spawn_grid(&mut peer), [plant, relay, child]);
+        assert_eq!(world.objects[&plant].power_provided, 0, "omitted producer base");
+        assert_eq!(world.objects[&relay].power_consumed, 0, "omitted consumer base");
+        assert_eq!(world.objects[&child].power_consumed, 4, "inherited signed prefix");
+        assert_eq!(world.players[&1].power_consumed, 4);
+        assert_eq!(peer.players[&1].power_consumed, 13);
+        world.update_player_resources(0.);
+        assert_eq!(world.players[&1].power_produced, 0);
+        assert_eq!(world.players[&1].power_consumed, 4);
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let mut snapshot = builder.create_world_snapshot(&world).unwrap();
+        for (id, provided, required) in [(plant, 10, 0), (relay, 0, -3)] {
+            let ObjectTypeSnapshot::Building(saved) =
+                &mut snapshot.objects.get_mut(&id).unwrap().object_type
+            else {
+                panic!("expected saved structure {id:?}");
+            };
+            saved.power_provided = provided;
+            saved.power_required = required;
+        }
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let mut restored = receiving_energy_defaults_world();
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+        assert_eq!(restored.objects[&plant].power_provided, 0);
+        assert_eq!(restored.objects[&relay].power_consumed, 0);
+        assert_eq!(restored.players[&1].power_produced, 0);
+        assert_eq!(restored.players[&1].power_consumed, 4);
+        assert_eq!(peer.players[&1].power_consumed, 13);
+    }
+
     #[test]
     fn instant_power_plant_completion_restores_grid_while_construction_flag_remains_set() {
         let (mut world, plant, scaffold) = power_scaffold_world();

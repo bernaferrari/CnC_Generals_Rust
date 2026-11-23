@@ -1964,29 +1964,11 @@ impl GameLogic {
         use crate::command_system::special_power_type_from_template_name;
         use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
         use game_engine::common::ini::ini_science::{ScienceType, get_science_store};
+        use game_engine::common::ini::parse_decimal_integer_prefix;
         use game_engine::common::rts::special_power::{SCIENCE_INVALID, get_special_power_store};
 
         fn stripped_value(value: &str) -> &str {
             value.split(';').next().unwrap_or_default().trim()
-        }
-
-        // C++ `INI::parseInt` accepts a signed numeric prefix.  A malformed
-        // authored EnergyProduction remains unavailable rather than silently
-        // borrowing the historical Particle/Nuke name table.
-        fn parse_cxx_int(value: &str) -> Option<i32> {
-            let value = stripped_value(value).trim_start();
-            let sign_len = if value.starts_with('+') || value.starts_with('-') {
-                1
-            } else {
-                0
-            };
-            let digits_len = value[sign_len..]
-                .bytes()
-                .take_while(u8::is_ascii_digit)
-                .count();
-            (digits_len > 0)
-                .then(|| &value[..sign_len + digits_len])
-                .and_then(|integer| integer.parse::<i32>().ok())
         }
 
         fn parse_bool(value: &str) -> Option<bool> {
@@ -1997,8 +1979,11 @@ impl GameLogic {
             }
         }
 
-        template.energy_production = Self::object_definition_attr(definition, "energyproduction")
-            .and_then(|value| parse_cxx_int(&value));
+        if receiving.is_none() {
+            template.energy_production =
+                Self::object_definition_attr(definition, "energyproduction")
+                    .and_then(|value| parse_decimal_integer_prefix(&value));
+        }
         template.max_simultaneous_link_key =
             Self::object_definition_attr(definition, "maxsimultaneouslinkkey")
                 .map(|value| stripped_value(&value).to_string())
@@ -2010,7 +1995,9 @@ impl GameLogic {
             if token.eq_ignore_ascii_case("DeterminedBySuperweaponRestriction") {
                 template.max_simultaneous_determined_by_superweapon_restriction = true;
                 template.max_simultaneous_of_type = 0;
-            } else if let Some(n) = parse_cxx_int(token).and_then(|v| u16::try_from(v).ok()) {
+            } else if let Some(n) = parse_decimal_integer_prefix(token)
+                .and_then(|v| u16::try_from(v).ok())
+            {
                 template.max_simultaneous_of_type = n;
                 template.max_simultaneous_determined_by_superweapon_restriction = false;
             }

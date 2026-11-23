@@ -3423,7 +3423,7 @@ impl ThingTemplate {
                 }
 
                 "EnergyProduction" => {
-                    if let Ok(v) = trimmed.parse::<i32>() {
+                    if let Some(v) = crate::common::ini::parse_decimal_integer_prefix(trimmed) {
                         self.energy_production = v;
                     }
                 }

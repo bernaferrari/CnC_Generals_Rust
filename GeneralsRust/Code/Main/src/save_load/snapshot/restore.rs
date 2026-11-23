@@ -1328,8 +1328,18 @@ impl SnapshotBuilder {
             ObjectTypeSnapshot::Building(building_snapshot) => {
                 object.object_type = ObjectType::Building;
                 object.construction_percent = building_snapshot.construction_progress;
-                object.power_provided = building_snapshot.power_provided;
-                object.power_consumed = building_snapshot.power_required;
+                let template = object.get_template();
+                let detached = template.receiving_client_template.is_none();
+                let has_power_bonus = template.energy_bonus.unwrap_or(0) != 0;
+                // Original consumption comes from the receiving template.
+                // Older Rust saves may mirror a guessed building requirement.
+                if detached {
+                    object.power_consumed = building_snapshot.power_required;
+                }
+                // An upgrade can change gross production during a match.
+                if detached || has_power_bonus {
+                    object.power_provided = building_snapshot.power_provided;
+                }
             }
             ObjectTypeSnapshot::Projectile(projectile_snapshot) => {
                 object.object_type = ObjectType::Projectile;

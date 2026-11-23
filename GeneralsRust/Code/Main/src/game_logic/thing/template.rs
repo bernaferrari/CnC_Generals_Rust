@@ -904,9 +904,9 @@ pub struct ThingTemplate {
     /// identity, not a replacement for the HDB paired-channel metadata above.
     #[serde(default)]
     pub special_power_modules: Vec<SpecialPowerModuleMetadata>,
-    /// C++ Object INI `EnergyProduction`.  It is an Object field, not a
-    /// SpecialPowerModule property: Scud/Particle/Nuke must not borrow a
-    /// template-name fallback to affect team power.
+    /// Effective C++ Object INI `EnergyProduction` for receiving content,
+    /// including the inherited or built-in default. Detached templates may
+    /// leave this unset for the older building compatibility path.
     #[serde(default)]
     pub energy_production: Option<i32>,
     /// C++ Object INI `MaxSimultaneousLinkKey`; kept independently because a

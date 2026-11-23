@@ -144,6 +144,9 @@ impl ThingTemplate {
         self.buildable_status = plan.buildable_status();
         self.reskinned_from = plan.reskin_name().map(str::to_owned);
         self.build_variations = plan.build_variations().map(str::to_owned).collect();
+        // ThingTemplate.cpp initializes this field to zero before the factory
+        // copies any defaults or applies authored overrides.
+        self.energy_production = Some(plan.template().get_energy_production());
         self.power_plant_sabotage_rules = sabotage_rules;
         Ok(())
     }
