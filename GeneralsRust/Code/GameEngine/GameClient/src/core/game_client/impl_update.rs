@@ -2896,6 +2896,8 @@ impl GameClient {
         menu_world: Option<crate::gui::campaign_launch_host_bridge::MenuWorldFacts>,
         eva_logic_frame: Option<u32>,
     ) -> GameClientResult<()> {
+        self.script_display
+            .bind(self.subsystem_manager.display.as_ref());
         {
             let mut shell = self.window_manager_owner.shell_handle();
             let mut messages = Vec::new();
@@ -2915,7 +2917,7 @@ impl GameClient {
                 menus: Some(self.menu_manager.receiving_menus(self.input_authority)),
                 ime: Some(&mut self.ime),
                 manager: None,
-                script_display: None,
+                script_display: Some(&mut self.script_display),
                 window_videos: Some(&mut self.window_videos.challenge),
                 window_manager_owner: Some(&self.window_manager_owner),
                 selected_window: None,

@@ -305,3 +305,185 @@ fn native_fullscreen_receives_pixels_from_the_retail_provider() {
     );
     assert!(client.script_display.fx().current_movie_frame().is_none());
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+#[ignore = "requires the mounted retail WND and movies prepared by mount_score_assets.py"]
+fn native_score_post_draw_opens_receiving_movie_and_peer_ok_pops_to_mounted_main_menu() {
+    use crate::core::script_action_handler::{
+        is_script_display_movie_playing, play_script_display_movie,
+    };
+    use crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot;
+    use crate::gui::campaign_launch_host_bridge::{MenuWorldFacts, ShellMapSettings};
+    use crate::system::SubsystemInterface;
+    use crate::video_player::{VideoIniCatalogSources, init_video_player_slot};
+    use game_engine::common::{common_services::CommonServicesScope, game_lod, ini};
+    use std::rc::Rc;
+
+    crate::test_support::ensure_ambient_host();
+    let _common = CommonServicesScope::new();
+    let preferences = tempfile::tempdir().expect("isolated score-screen preferences");
+    ini::ini_game_data::init_global_data();
+    ini::get_global_data()
+        .expect("receiving application startup data")
+        .write()
+        .set_path_user_data(preferences.path().to_string_lossy().into_owned());
+    game_lod::reset_static_lod_state_for_tests();
+    game_lod::set_mem_passed_override_for_tests(Some(true));
+    game_lod::set_ideal_static_lod_from_string("High");
+    assert!(!game_lod::prefers_low_res_movies());
+
+    let root = PathBuf::from(
+        std::env::var_os("GENERALS_ASSETS_DIR").expect("mounted ScoreScreen and MainMenu assets"),
+    );
+    for wnd in ["ScoreScreen.wnd", "MainMenu.wnd", "BlankWindow.wnd"] {
+        assert!(root.join("Window/Menus").join(wnd).is_file(), "{wnd}");
+    }
+    let catalog = VideoIniCatalogSources::read_from(|name| std::fs::read(root.join(name)).ok());
+    let facts = MenuWorldFacts::default();
+    let make_client = |campaign_name: &str, final_movie: Option<&str>| {
+        let mut client = GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted)
+            .expect("receiving native GameClient");
+        client.configure_shell_map(ShellMapSettings {
+            enabled: false,
+            ..ShellMapSettings::default()
+        });
+
+        // Normal receiving window callback setup creates this client's InGameUI.
+        client.with_window_event_effects(Some(facts), |_| {});
+        let slot = client.ensure_video_player_slot();
+        init_video_player_slot(
+            &slot,
+            &VideoSearchPaths::new(None, root.clone(), "English"),
+            &catalog,
+        );
+        client.script_display.bind_video_player_slot(slot);
+
+        let campaigns = client.campaign_manager_mut();
+        let campaign = campaigns.new_campaign(campaign_name.into());
+        campaign.first_mission = "terminal".into();
+        campaign.new_mission("terminal".into()).map_name = "terminal.map".into();
+        campaign.final_movie_name = final_movie.unwrap_or_default().into();
+        campaigns.set_campaign(campaign_name);
+        campaigns.set_victorious(final_movie.is_some());
+
+        client
+            .with_receiving_shell(Some(facts), |shell, effects| {
+                shell.init().expect("receiving Shell init");
+                shell
+                    .push("Menus/MainMenu.wnd", false, effects)
+                    .expect("retail MainMenu layout");
+            })
+            .expect("receiving Shell");
+        let menu = client
+            .window_manager_owner_ref()
+            .with_manager_ref(|manager| {
+                manager
+                    .find_window_by_name("MainMenu.wnd:MainMenuParent")
+                    .expect("materialized retail MainMenu")
+            });
+
+        // Starting the match hides MainMenu. Complete the window callback
+        // before the later score push checks the layout's visibility.
+        client
+            .with_receiving_shell(Some(facts), |shell, effects| {
+                shell.hide_with_effects(true, effects);
+            })
+            .expect("receiving Shell");
+        client
+            .with_receiving_shell(Some(facts), |shell, effects| {
+                assert!(shell.top().unwrap().is_hidden());
+                shell
+                    .push_score_screen(
+                        ScoreScreenAcademySnapshot {
+                            end_frame: 900,
+                            advice: Default::default(),
+                            show_advice: false,
+                            player_roster: Some(Vec::new()),
+                            is_single_player: Some(true),
+                            is_skirmish: Some(false),
+                            session_difficulty: Some(1),
+                            skirmish_outcome: None,
+                        },
+                        false,
+                        effects,
+                    )
+                    .expect("retail ScoreScreen layout");
+                shell
+                    .show_shell(false, effects)
+                    .expect("receiving score shell");
+                assert_eq!(shell.get_screen_count(), 2);
+                assert_eq!(shell.top_filename(), Some("Menus/ScoreScreen.wnd"));
+            })
+            .expect("receiving Shell");
+        (client, menu)
+    };
+
+    // USACampaignVictory is the stock registered title for USA_end.BIK.
+    let (mut victory, _) = make_client("victory-fixture", Some("USACampaignVictory"));
+    let (mut peer, peer_menu) = make_client("peer-fixture", None);
+    assert!(play_script_display_movie(
+        peer.script_display_receiver(),
+        "EALogoMovie"
+    ));
+    peer.update_display_only().unwrap();
+    assert!(peer.script_display.fx().current_movie_frame().is_some());
+
+    // Shell owns a real 33 ms Update cadence. Exercise Main's actual entry.
+    std::thread::sleep(std::time::Duration::from_millis(40));
+    peer.update_post_draw_ui(Some(facts), None)
+        .expect("the ordinary no-movie score update finalizes its controls");
+    victory
+        .update_post_draw_ui(Some(facts), None)
+        .expect("the victory score update has its receiving display");
+    assert!(is_script_display_movie_playing(
+        victory.script_display_receiver()
+    ));
+    victory.update_display_only().unwrap();
+    assert!(victory.script_display.fx().current_movie_frame().is_some());
+
+    const OK: &str = "ScoreScreen.wnd:ButtonOk";
+    for (client, hidden) in [(&victory, true), (&peer, false)] {
+        client
+            .window_manager_owner_ref()
+            .with_manager_ref(|manager| {
+                let ok = manager
+                    .find_window_by_name(OK)
+                    .expect("retail ScoreScreen OK");
+                assert_eq!(ok.borrow().is_hidden(), hidden);
+            });
+    }
+
+    assert!(peer.with_window_event_effects(Some(facts), |effects| {
+        crate::gui::dispatch_os_click_named_window(OK, effects)
+    }));
+    assert!(peer.campaign_manager().get_current_campaign().is_none());
+    let peer_shell = peer.window_manager_owner_ref().shell_handle();
+    assert_eq!(peer_shell.get_screen_count(), 1);
+    assert_eq!(
+        peer_shell.top_filename().as_deref(),
+        Some("Menus/MainMenu.wnd")
+    );
+    peer.window_manager_owner_ref().with_manager_ref(|manager| {
+        assert!(manager.find_window_by_name(OK).is_none());
+        let menu = manager
+            .find_window_by_name("MainMenu.wnd:MainMenuParent")
+            .unwrap();
+        assert!(Rc::ptr_eq(&menu, &peer_menu));
+        assert!(!menu.borrow().is_hidden());
+    });
+    assert_eq!(
+        victory
+            .window_manager_owner_ref()
+            .shell_handle()
+            .get_screen_count(),
+        2
+    );
+    assert!(victory.campaign_manager().get_current_campaign().is_some());
+    assert!(is_script_display_movie_playing(
+        victory.script_display_receiver()
+    ));
+    assert!(is_script_display_movie_playing(
+        peer.script_display_receiver()
+    ));
+}
