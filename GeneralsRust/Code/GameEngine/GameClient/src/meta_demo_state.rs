@@ -7,8 +7,6 @@
 
 use game_engine::common::ini::DynamicGameLODLevel;
 
-const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
-
 /// Screen-space point for demo camera adjust (avoids message_stream import cycle).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DemoCoord2D {
@@ -19,29 +17,6 @@ pub struct DemoCoord2D {
 impl DemoCoord2D {
     pub fn new(x: i32, y: i32) -> Self {
         Self { x, y }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct LowerDetailToggleState {
-    pub is_low_details: bool,
-    pub old_use_shadow_volumes: bool,
-    pub old_use_light_map: bool,
-    pub old_use_cloud_map: bool,
-    pub old_show_behind_building_markers: bool,
-    pub old_max_particle_count: i32,
-}
-
-impl Default for LowerDetailToggleState {
-    fn default() -> Self {
-        Self {
-            is_low_details: false,
-            old_use_shadow_volumes: false,
-            old_use_light_map: false,
-            old_use_cloud_map: false,
-            old_show_behind_building_markers: false,
-            old_max_particle_count: DROPPED_MAX_PARTICLE_COUNT,
-        }
     }
 }
 
@@ -56,7 +31,6 @@ pub struct DemoCameraAdjustState {
 /// Per-client meta-event demo/cheat latch (was meta_event_impl/state TLS).
 #[derive(Debug, Default)]
 pub struct MetaDemoState {
-    pub lower_detail_toggle: LowerDetailToggleState,
     pub motion_blur_zoom_saturate: bool,
     pub demo_camera_adjust: DemoCameraAdjustState,
     pub hand_of_god_mode: bool,

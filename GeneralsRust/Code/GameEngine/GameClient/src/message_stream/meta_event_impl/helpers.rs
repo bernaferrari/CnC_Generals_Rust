@@ -553,6 +553,7 @@ pub(crate) fn execute_ui_input_action(
             }
             active
         }
+        Action::GraphicsMeta(_) => false,
         Action::ActivateHotKey(key) => {
             let Some(key) = char::from_u32(key) else {
                 return false;

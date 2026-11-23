@@ -80,7 +80,7 @@ const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 const EXTENT_BIG_CHANGE: f32 = 10.0;
 const DEMO_CAMERA_ADJUST_FACTOR: f32 = 0.01;
 
-use crate::meta_demo_state::{DemoCameraAdjustState, LowerDetailToggleState, MetaDemoState};
+use crate::meta_demo_state::{DemoCameraAdjustState, MetaDemoState};
 
 #[derive(Debug, Clone, Copy)]
 enum ExtentAdjustAxis {

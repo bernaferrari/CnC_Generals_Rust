@@ -220,39 +220,71 @@ fn command_map_labels_match(stored: &str, query: &str) -> bool {
         || translate_command_map_label(stored).eq_ignore_ascii_case(query)
 }
 
-/// C++ CommandXlat.cpp:3098-3140 `MSG_META_TOGGLE_LOWER_DETAILS`.
-/// Returns `Some(now_low)` after a successful toggle.
-pub fn apply_toggle_lower_details(ui: &mut crate::message_stream::ReceivingUi<'_>) -> Option<bool> {
-    let global_data = get_global_data()?;
-    let mut global = global_data.write();
-    let state = &mut ui.state.meta_demo.lower_detail_toggle;
-    let message;
-    if state.is_low_details {
-        global.use_shadow_volumes = state.old_use_shadow_volumes;
-        global.use_light_map = state.old_use_light_map;
-        global.use_cloud_map = state.old_use_cloud_map;
-        global.max_particle_count = state.old_max_particle_count;
-        TheGameLogic::set_show_behind_building_markers(state.old_show_behind_building_markers);
-        message = "GUI:ReturnGraphicsToPreviousSettings";
-    } else {
-        state.old_use_shadow_volumes = global.use_shadow_volumes;
-        global.use_shadow_volumes = false;
-        state.old_use_light_map = global.use_light_map;
-        global.use_light_map = false;
-        state.old_use_cloud_map = global.use_cloud_map;
-        global.use_cloud_map = false;
-        state.old_show_behind_building_markers =
-            TheGameLogic::get_show_behind_building_markers();
+const LOWEST_GRAPHICS_DETAIL_NOTICE: &str = "GUI:DetailsSetToLowest";
+
+/// C++ CommandXlat.cpp:3098–3140. The standalone command uses its Core flag.
+fn apply_toggle_lower_details(ui: &mut crate::message_stream::ReceivingUi<'_>) {
+    let common = game_engine::common::common_services::common_services();
+    if lower_graphics_detail(&common).is_some() {
         TheGameLogic::set_show_behind_building_markers(false);
-        state.old_max_particle_count = global.max_particle_count;
-        global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
-        message = "GUI:DetailsSetToLowest";
+        ui.message(LOWEST_GRAPHICS_DETAIL_NOTICE);
     }
-    state.is_low_details = !state.is_low_details;
-    let now_low = state.is_low_details;
-    drop(global);
-    ui.message(message);
-    Some(now_low)
+}
+
+/// Apply the native graphics command to the receiving match and its GameData.
+/// The caller delivers the original localization key to its own HUD.
+pub fn apply_receiving_graphics_meta(
+    action: game_engine::common::message_stream::GraphicsMetaAction,
+    common: &game_engine::common::common_services::CommonServices,
+    show_markers: &mut bool,
+) -> Option<&'static str> {
+    use game_engine::common::message_stream::GraphicsMetaAction as Action;
+    match action {
+        Action::ToggleBehindBuildings => {
+            let data = common.system.global_data.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            data.as_ref()?;
+            Some(toggle_behind_buildings(show_markers))
+        }
+        Action::ToggleLowerDetails => {
+            lower_graphics_detail(common)?;
+            *show_markers = false;
+            Some(LOWEST_GRAPHICS_DETAIL_NOTICE)
+        }
+    }
+}
+
+fn toggle_behind_buildings(show_markers: &mut bool) -> &'static str {
+    // CommandXlat.cpp:3929–3937 emits the heat-signature notice.
+    *show_markers = !*show_markers;
+    if *show_markers {
+        "GUI:HideBehindBuildings"
+    } else {
+        "GUI:ShowBehindBuildings"
+    }
+}
+
+fn lower_graphics_detail(
+    common: &game_engine::common::common_services::CommonServices,
+) -> Option<()> {
+    // CommandXlat.cpp:3102 initializes isLowDetails to FALSE and never
+    // assigns to it. Every invocation reaches the lowering branch.
+    let authored = common.system.global_data.lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()?;
+    {
+        let mut data = authored.write();
+        data.use_shadow_volumes = false;
+        data.use_light_map = false;
+        data.use_cloud_map = false;
+        data.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
+    }
+    let mut runtime = common.system.runtime_global_data.write();
+    runtime.writable.use_shadow_volumes = false;
+    runtime.use_light_map = false;
+    runtime.use_cloud_map = false;
+    runtime.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
+    Some(())
 }
 
 pub fn update_command_map_entry(

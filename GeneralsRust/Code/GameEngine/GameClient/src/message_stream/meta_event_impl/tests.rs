@@ -189,6 +189,164 @@ mod tests {
         let _ = with_receiving_ui(|ui| apply_toggle_lower_details(ui));
     }
 
+    type MetaGraphicsDetails = (bool, bool, bool, i32);
+
+    fn set_graphics_details(
+        world: &gamelogic::system::engine_stores::WorldServices,
+        details: MetaGraphicsDetails,
+    ) {
+        let common = world.common();
+        let authored = common.system.global_data.lock().unwrap().clone().unwrap();
+        let (shadows, light, cloud, particles) = details;
+        {
+            let mut data = authored.write();
+            data.use_shadow_volumes = shadows;
+            data.use_light_map = light;
+            data.use_cloud_map = cloud;
+            data.max_particle_count = particles;
+        }
+        let mut data = common.system.runtime_global_data.write();
+        data.writable.use_shadow_volumes = shadows;
+        data.use_light_map = light;
+        data.use_cloud_map = cloud;
+        data.max_particle_count = particles;
+    }
+
+    fn graphics_details(
+        world: &gamelogic::system::engine_stores::WorldServices,
+    ) -> (MetaGraphicsDetails, MetaGraphicsDetails) {
+        let common = world.common();
+        let authored = common.system.global_data.lock().unwrap().clone().unwrap();
+        let data = authored.read();
+        let authored = (
+            data.use_shadow_volumes,
+            data.use_light_map,
+            data.use_cloud_map,
+            data.max_particle_count,
+        );
+        drop(data);
+        let data = common.system.runtime_global_data.read();
+        (
+            authored,
+            (
+                data.writable.use_shadow_volumes,
+                data.use_light_map,
+                data.use_cloud_map,
+                data.max_particle_count,
+            ),
+        )
+    }
+
+    #[test]
+    fn receiving_graphics_meta_reapplies_low_detail_and_uses_its_match_marker() {
+        use game_engine::common::message_stream::{
+            UiInputAction, WindowInputDispatch, WindowInputDispatchResult,
+        };
+        use gamelogic::system::engine_stores::{new_world_services, with_world_services};
+
+        let owner = new_world_services();
+        let peer = new_world_services();
+        let stock = (true, true, true, 1800);
+        let low = (false, false, false, 1000);
+        for world in [&owner, &peer] {
+            with_world_services(world, game_engine::common::ini::ini_game_data::init_global_data);
+            set_graphics_details(world, stock);
+        }
+        let mut show_markers = true;
+        let mut client = crate::core::subsystems::InGameUISubsystem::default();
+        with_world_services(&peer, || {
+            TheGameLogic::set_show_behind_building_markers(true);
+            let dispatch = |name: &str, show_markers: &mut bool, client: &mut crate::core::subsystems::InGameUISubsystem| {
+                let mut emitted = Vec::new();
+                let ui = &mut crate::message_stream::ReceivingUi::new(client, 10, 10)
+                    .with_emitter(&mut emitted);
+                let mut driver = |request,
+                                  _: &mut Vec<crate::message_stream::GameMessage>,
+                                  client: &mut dyn std::any::Any| {
+                    let WindowInputDispatch::Ui(UiInputAction::GraphicsMeta(action)) = request else {
+                        panic!("expected a receiving graphics meta request");
+                    };
+                    let client = client.downcast_mut::<crate::core::subsystems::InGameUISubsystem>()
+                        .unwrap();
+                    let label = apply_receiving_graphics_meta(
+                        action, owner.common(), show_markers,
+                    ).unwrap();
+                    client.message(label, 10);
+                    Some(WindowInputDispatchResult::Ui(true))
+                };
+                assert_eq!(
+                    dispatch_map_entry(
+                        &alias_record(name), &mut driver, Some(&owner), false, true, 10, ui,
+                    ),
+                    Some(GameMessageDisposition::DestroyMessage),
+                );
+                assert!(emitted.is_empty());
+                assert!(TheGameLogic::get_show_behind_building_markers());
+                let text = client.hud_messages().back().unwrap().text.clone();
+                (*show_markers, text)
+            };
+            assert_eq!(
+                dispatch("TOGGLE_LOWER_DETAILS", &mut show_markers, &mut client),
+                (false, "GUI:DetailsSetToLowest".into()),
+            );
+            assert_eq!(graphics_details(&owner), (low, low));
+            if cfg!(any(debug_assertions, feature = "internal")) {
+                assert_eq!(
+                    dispatch("DEMO_TOGGLE_BEHIND_BUILDINGS", &mut show_markers, &mut client),
+                    (true, "GUI:HideBehindBuildings".into()),
+                );
+            } else {
+                let ui = &mut crate::message_stream::ReceivingUi::new(&mut client, 10, 10);
+                assert_eq!(
+                    dispatch_map_entry(
+                        &alias_record("DEMO_TOGGLE_BEHIND_BUILDINGS"),
+                        &mut noop_display_dispatch, Some(&owner), false, true, 10, ui,
+                    ),
+                    None,
+                );
+                show_markers = true;
+            }
+            set_graphics_details(&owner, stock);
+            assert_eq!(
+                dispatch("TOGGLE_LOWER_DETAILS", &mut show_markers, &mut client),
+                (false, "GUI:DetailsSetToLowest".into()),
+            );
+            assert_eq!(graphics_details(&owner), (low, low));
+            assert_eq!(graphics_details(&peer), (stock, stock));
+        });
+    }
+
+    #[test]
+    fn standalone_graphics_meta_reapplies_low_detail_after_marker_enable() {
+        use gamelogic::system::engine_stores::{new_world_services, with_world_services};
+
+        let owner = new_world_services();
+        let peer = new_world_services();
+        let stock = (true, false, true, 2100);
+        let low = (false, false, false, 1000);
+        for world in [&owner, &peer] {
+            with_world_services(world, game_engine::common::ini::ini_game_data::init_global_data);
+            set_graphics_details(world, stock);
+        }
+        with_world_services(&peer, || TheGameLogic::set_show_behind_building_markers(true));
+        let mut client = crate::core::subsystems::InGameUISubsystem::default();
+        with_world_services(&owner, || {
+            let mut ui = crate::message_stream::ReceivingUi::new(&mut client, 61, 61);
+            TheGameLogic::set_show_behind_building_markers(true);
+            apply_toggle_lower_details(&mut ui);
+            assert!(!TheGameLogic::get_show_behind_building_markers());
+            assert_eq!(graphics_details(&owner), (low, low));
+            TheGameLogic::set_show_behind_building_markers(true);
+            set_graphics_details(&owner, stock);
+            apply_toggle_lower_details(&mut ui);
+            assert!(!TheGameLogic::get_show_behind_building_markers());
+            assert_eq!(graphics_details(&owner), (low, low));
+            assert_eq!(ui.drain_hud_messages(), ["GUI:DetailsSetToLowest"; 2]);
+        });
+        assert!(with_world_services(&peer, TheGameLogic::get_show_behind_building_markers));
+        assert_eq!(graphics_details(&peer), (stock, stock));
+    }
+
     #[test]
     fn test_lookup_meta_message_type_uses_cpp_attack_move_spelling() {
         crate::test_support::ensure_ambient_host();
@@ -732,6 +890,8 @@ mod tests {
         ];
         for alias in aliases {
             let expected = match alias {
+                "DEMO_TOGGLE_BEHIND_BUILDINGS"
+                    if !cfg!(any(debug_assertions, feature = "internal")) => None,
                 "DEMO_TOGGLE_RENDER"
                 | "DEMO_SHOW_EXTENTS"
                 | "DEMO_SHOW_AUDIO_LOCATIONS"
@@ -768,7 +928,10 @@ mod tests {
         assert!(global.special_power_uses_delay);
         assert_eq!(global.feather_water, 5);
         assert_eq!(global.debug_ai.value, 1);
-        assert!(TheGameLogic::get_show_behind_building_markers());
+        assert_eq!(
+            TheGameLogic::get_show_behind_building_markers(),
+            cfg!(any(debug_assertions, feature = "internal")),
+        );
     }
 
     #[test]

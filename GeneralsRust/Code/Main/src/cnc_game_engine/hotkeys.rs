@@ -1288,31 +1288,21 @@ impl CnCGameEngine {
         info!("{msg}");
     }
 
-    /// C++ CommandXlat.cpp:3098-3140 MSG_META_TOGGLE_LOWER_DETAILS.
-    pub(super) fn toggle_lower_details_hotkey(&mut self) {
-        #[cfg(feature = "game_client")]
-        {
-            let logic_frame = self.game_logic.get_frame();
-            let client_frame = self.game_client.get_frame();
-            let ui = self
-                .game_client
-                .in_game_ui_subsystem_mut()
-                .expect("detail hotkey requires receiving InGameUI");
-            let Some(now_low) = game_client::message_stream::meta_event::apply_toggle_lower_details(
-                &mut game_client::message_stream::ReceivingUi::new(ui, logic_frame, client_frame),
-            ) else {
-                return;
-            };
-            let key = if now_low {
-                "GUI:DetailsSetToLowest"
-            } else {
-                "GUI:ReturnGraphicsToPreviousSettings"
-            };
-            // C++ TheInGameUI->message(TheGameText->fetch(key)): the receiving
-            // client's text, "MISSING: '...'" included.
-            let msg = self.receiving_game_text(key).0;
-            self.host_push_info_message(&msg);
-        }
+    /// C++ CommandXlat.cpp:3098–3140 and :3924–3941.
+    #[cfg(feature = "game_client")]
+    fn apply_graphics_meta_hotkey(
+        &mut self,
+        action: game_engine::common::message_stream::GraphicsMetaAction,
+    ) {
+        let Some(key) = game_client::message_stream::meta_event::apply_receiving_graphics_meta(
+            action,
+            self.game_logic.world_services.common(),
+            &mut self.game_logic.show_behind_building_markers,
+        ) else {
+            return;
+        };
+        let message = self.receiving_game_text(key).0;
+        self.host_push_info_message(&message);
     }
 
     /// Consult Keyboard Options / CommandMap.ini remaps. Returns true when the
@@ -1394,7 +1384,16 @@ impl CnCGameEngine {
                     true
                 }
                 "TOGGLE_LOWER_DETAILS" => {
-                    self.toggle_lower_details_hotkey();
+                    self.apply_graphics_meta_hotkey(
+                        game_engine::common::message_stream::GraphicsMetaAction::ToggleLowerDetails,
+                    );
+                    true
+                }
+                #[cfg(any(debug_assertions, feature = "internal"))]
+                "DEMO_TOGGLE_BEHIND_BUILDINGS" => {
+                    self.apply_graphics_meta_hotkey(
+                        game_engine::common::message_stream::GraphicsMetaAction::ToggleBehindBuildings,
+                    );
                     true
                 }
                 "SELECT_ALL" => {

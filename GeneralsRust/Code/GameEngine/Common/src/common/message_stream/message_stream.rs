@@ -129,10 +129,18 @@ pub enum DisplayDebugKind {
     Audio,
 }
 
+/// CommandXlat graphics commands whose marker flag belongs to GameLogic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphicsMetaAction {
+    ToggleBehindBuildings,
+    ToggleLowerDetails,
+}
+
 /// Synchronous UI operations execute with the receiving manager and callback
 /// effects before the translator advances; they are never end-of-frame queues.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiInputAction {
+    GraphicsMeta(GraphicsMetaAction),
     DemoMilitarySubtitle,
     ToggleDiplomacy { immediate: bool },
     ToggleControlBar,

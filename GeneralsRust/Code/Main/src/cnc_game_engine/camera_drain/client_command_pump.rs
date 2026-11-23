@@ -180,6 +180,8 @@ impl CnCGameEngine {
             let preferences = self.ui_manager.options_preferences_mut();
             let control_bar = &mut self.control_bar;
             let viewport = &mut self.game_logic.session_view.camera;
+            let common = self.game_logic.world_services.common();
+            let show_markers = &mut self.game_logic.show_behind_building_markers;
             let mut driver = |menu_audio: &mut dyn game_client::gui::menu_audio::MenuAudioEffects, owner: &game_client::gui::window_manager::WindowManagerOwner,
                               campaign: &mut game_client::gui::campaign_manager::CampaignManager,
                               main_menu: &mut game_client::gui::shell::main_menu::MainMenu,
@@ -192,9 +194,21 @@ impl CnCGameEngine {
                               cursor_mouse: Option<&mut game_client::input::Mouse>,
                               request,
                               messages: &mut Vec<game_engine::common::message_stream::GameMessage>| {
-                if let game_engine::common::message_stream::WindowInputDispatch::RankScience(action) = request {
+                use game_engine::common::message_stream::{
+                    UiInputAction, WindowInputDispatch, WindowInputDispatchResult,
+                };
+                if let WindowInputDispatch::Ui(UiInputAction::GraphicsMeta(action)) = request {
+                    if let Some(key) = game_client::message_stream::meta_event::apply_receiving_graphics_meta(
+                        action, common, show_markers,
+                    ) {
+                        let localized = ui.game_text(key).0;
+                        ui.push_hud_message_at(localized, menu_world.logic_frame);
+                    }
+                    return Some(WindowInputDispatchResult::Ui(true));
+                }
+                if let WindowInputDispatch::RankScience(action) = request {
                     rank_action.set(Some(action));
-                    return Some(game_engine::common::message_stream::WindowInputDispatchResult::RankScienceAccepted);
+                    return Some(WindowInputDispatchResult::RankScienceAccepted);
                 }
                 let mut context = game_client::gui::window_manager::ControlBarInputContext {
             control_bar_observation:Some(control_bar_observation.clone()),

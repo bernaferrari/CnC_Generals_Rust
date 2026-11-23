@@ -11,8 +11,8 @@ fn dispatch_map_entry(
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Option<GameMessageDisposition> {
     use game_engine::common::message_stream::{
-        ReceivingRankScienceAction as RankAction, WindowInputDispatch,
-        WindowInputDispatchResult,
+        GraphicsMetaAction, ReceivingRankScienceAction as RankAction, UiInputAction,
+        WindowInputDispatch, WindowInputDispatchResult,
     };
     let action = if record.name.eq_ignore_ascii_case("DEMO_GIVE_RANKLEVEL") {
         Some(RankAction::GiveRank)
@@ -84,7 +84,15 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("TOGGLE_LOWER_DETAILS") {
-        let _ = apply_toggle_lower_details(ui);
+        if receiving_hosted {
+            assert!(try_dispatch_ui_input(
+                UiInputAction::GraphicsMeta(GraphicsMetaAction::ToggleLowerDetails),
+                display_dispatch,
+                ui,
+            ), "native low-detail command requires its receiving world");
+        } else {
+            apply_toggle_lower_details(ui);
+        }
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -650,17 +658,22 @@ fn dispatch_map_entry(
         return None; // C++ KEEP_MESSAGE
     }
 
+    #[cfg(any(debug_assertions, feature = "internal"))]
     if record
         .name
         .eq_ignore_ascii_case("DEMO_TOGGLE_BEHIND_BUILDINGS")
     {
-        let show_markers = TheGameLogic::get_show_behind_building_markers();
-        if show_markers {
-            TheGameLogic::set_show_behind_building_markers(false);
-            ui.message("GUI:ShowBehindBuildings");
-        } else {
-            TheGameLogic::set_show_behind_building_markers(true);
-            ui.message("GUI:HideBehindBuildings");
+        if receiving_hosted {
+            assert!(try_dispatch_ui_input(
+                UiInputAction::GraphicsMeta(GraphicsMetaAction::ToggleBehindBuildings),
+                display_dispatch,
+                ui,
+            ), "native marker toggle requires its receiving world");
+        } else if get_global_data().is_some() {
+            let mut show_markers = TheGameLogic::get_show_behind_building_markers();
+            let label = toggle_behind_buildings(&mut show_markers);
+            TheGameLogic::set_show_behind_building_markers(show_markers);
+            ui.message(label);
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
