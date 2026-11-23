@@ -3,28 +3,33 @@
 use super::*;
 
 impl GameLogic {
-    fn fire_authored_stationary_mine_weapon(
+    /// C++ MinefieldBehavior::detonateOnce (MinefieldBehavior.cpp:251-292):
+    /// the authored module owns the detonation whenever its receiving
+    /// definition declares a MinefieldBehavior — `DetonationWeapon` fires as
+    /// a temporary shot regardless of projectile kind before the charge is
+    /// spent, and a missing/`None` weapon still spends the charge with no
+    /// blast or residual effects. Returns true when the authored track ran.
+    fn try_fire_authored_mine_weapon(
         &mut self,
         mine: ObjectId,
         position: Vec3,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
-        let Some(weapon_name) = self.objects.get(&mine)
+        let Some(module) = self.objects.get(&mine)
             .and_then(|object| object.thing().template.receiving_object_definition.as_deref())
             .and_then(|definition| definition.behavior_modules.iter()
                 .find(|module| module.class_name.eq_ignore_ascii_case("MinefieldBehavior")))
-            .and_then(|module| module.attribute("DetonationWeapon"))
         else {
             return Ok(false);
         };
-        let stationary = self.weapon_definitions.as_ref()
-            .and_then(|definitions| definitions.get(&weapon_name.trim().to_ascii_lowercase()))
-            .is_some_and(|weapon| self.receives_stationary_projectile(&weapon.projectile_name));
-        if !stationary {
-            return Ok(false);
+        let weapon = module
+            .attribute("DetonationWeapon")
+            .and_then(|value| value.split_whitespace().next())
+            .filter(|value| !value.eq_ignore_ascii_case("None"))
+            .map(str::to_owned);
+        if let Some(weapon) = weapon {
+            self.fire_owned_temporary_weapon_at(mine, &weapon, position, effects)?;
         }
-        let weapon_name = weapon_name.to_owned();
-        self.fire_owned_temporary_weapon_at(mine, &weapon_name, position, effects)?;
         Ok(true)
     }
 
@@ -340,10 +345,10 @@ impl GameLogic {
 
         let mut destroy_ids: Vec<(ObjectId, Team, std::sync::Weak<()>)> = Vec::new();
         let mut chain_ids: Vec<ObjectId> = Vec::new();
-        let fired = self.fire_authored_stationary_mine_weapon(mine_id, blast_pos, effects)?;
-        if !fired && neutron_blast {
+        let authored = self.try_fire_authored_mine_weapon(mine_id, blast_pos, effects)?;
+        if !authored && neutron_blast {
             destroy_ids = self.apply_neutron_mine_blast(mine_id, blast_pos, mine_team);
-        } else if !fired {
+        } else if !authored {
             let victim_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
             for vid in victim_ids {
                 if vid == mine_id {
@@ -424,7 +429,7 @@ impl GameLogic {
             );
         }
 
-        if !fired {
+        if !authored {
             // Audio + particle residual.
             self.queue_audio_event(
                 AudioEventRequest::new(kind.detonate_audio())
@@ -505,7 +510,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_mines::damage_at_distance;
-        if self.fire_authored_stationary_mine_weapon(mine_id, blast_pos, effects)? {
+        if self.try_fire_authored_mine_weapon(mine_id, blast_pos, effects)? {
             return Ok(());
         }
         let neutron_blast = self

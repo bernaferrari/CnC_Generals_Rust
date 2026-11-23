@@ -884,6 +884,8 @@ impl GameLogic {
             return Ok(false);
         }
         let mine_pos = mine.get_position();
+        let generation = mine.visual_object_generation;
+        let epoch = self.visual_world_epoch;
         let blast_pos =
             clip_point_to_mine_footprint(mine_pos, victim_pos, LAND_MINE_GEOMETRY_RADIUS);
         // CPP detonateOnce fires the weapon synchronously before decrementing
@@ -901,6 +903,11 @@ impl GameLogic {
         self.apply_mine_splash_with_effects(
             mine_id, blast_pos, damage, radius, kind, mine_team, producer, effects,
         )?;
+        if !self.spawn_identity_matches(mine_id, generation, epoch) {
+            // The authored blast (e.g. its FireOCL) may have replaced the pad;
+            // the charge of a different canonical object is not ours to spend.
+            return Ok(true);
+        }
         let destroy_pad = {
             let Some(obj) = self.objects.get_mut(&mine_id) else {
                 return Ok(false);

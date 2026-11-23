@@ -1484,10 +1484,9 @@ pub fn residual_data_for_template(
 /// the module class selects the runtime; the module's own INI fields set
 /// its data. Returns `None` when no mine module is declared, even if the
 /// name looks like a mine. StickyBomb timed vs remote follows LifetimeUpdate
-/// presence (StickyBombUpdate.cpp:83-104); curated weapon profiles remain name residual.
+/// presence (StickyBombUpdate.cpp:83-104).
 pub fn admitted_data_for_modules(
     modules: &[crate::assets::ini_parser::BehaviorModuleDefinition],
-    template_name: &str,
     current_frame: u32,
 ) -> Option<HostMineData> {
     let has = |class: &str| {
@@ -1497,7 +1496,13 @@ pub fn admitted_data_for_modules(
     };
     let parse_bool = |v: &str| matches!(v.trim().to_ascii_lowercase().as_str(), "yes" | "true" | "1");
     if let Some(module) = has("MinefieldBehavior") {
-        let mut data = HostMineData::land_mine_for_template(template_name);
+        // MinefieldBehaviorModuleData ctor defaults (m_numVirtualMines=1,
+        // m_regenerates=false, m_scootFromStartingPointTime=0); the authored
+        // detonation track fires DetonationWeapon, so the dormant synthetic
+        // splash stays zero on bound pads.
+        let mut data = HostMineData::land_mine();
+        data.detonation_damage = 0.0;
+        data.detonation_radius = 0.0;
         if let Some(v) = module.attribute("NumVirtualMines").and_then(|v| v.trim().parse::<u32>().ok()) {
             data.num_virtual_mines = v;
             data.virtual_mines_remaining = v;

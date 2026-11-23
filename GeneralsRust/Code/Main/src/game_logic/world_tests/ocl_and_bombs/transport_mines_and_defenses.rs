@@ -3203,3 +3203,161 @@ fn authored_virtual_mine_places_neutron_emitter_before_charge_is_consumed() {
     assert!(world.host_object(target).unwrap().is_unmanned());
     assert_eq!(world.host_object(target).unwrap().team, Team::Neutral);
 }
+
+#[test]
+fn authored_minefield_pad_fires_detonation_weapon_and_spends_one_charge() {
+    use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
+
+    let mut world = GameLogic::new();
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![0; 1024];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
+    world.initialize_receiving_partition_grid().unwrap();
+    admit_fixture_content(
+        &mut world,
+        &[
+            FixtureObject::new("RenamedMinefieldPad")
+                .kind_of("MINE IMMOBILE")
+                .health(100.0)
+                .field("Geometry = Cylinder")
+                .field("GeometryMajorRadius = 10.0")
+                .module(
+                    "Behavior = MinefieldBehavior Mine\nDetonationWeapon = PadCustomShot\n\
+                     NumVirtualMines = 2\nRegenerates = Yes\nEnd",
+                ),
+            FixtureObject::new("PadBlastVictim")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(400.0),
+            FixtureObject::new("PadOutOfRange")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(400.0),
+        ],
+        &[FixtureWeapon::new("PadCustomShot")
+            .damage(31.0)
+            .radius(5.0)
+            .damage_type("LAND_MINE")
+            .field("SecondaryDamage = 11")
+            .field("SecondaryDamageRadius = 20")
+            .field("ProjectileObject = NONE")
+            .field("WeaponSpeed = 999999")
+            .field("RadiusDamageAffects = ENEMIES")],
+    );
+    use crate::game_logic::{Player, PlayerSideRole};
+    let mut neutral = Player::new(0, Team::Neutral, "Neutral", false);
+    neutral.map_side.role = PlayerSideRole::Neutral;
+    neutral.map_side.map_player_name.clear();
+    world.add_player(neutral);
+    for (id, team) in [(1, Team::China), (2, Team::USA)] {
+        let mut player = Player::new(id, team, "mine fixture", id == 1);
+        player.alliance_team = id as i32;
+        world.add_player(player);
+    }
+    let pad_pos = Vec3::new(100.0, 0.0, 100.0);
+    let pad = world.create_object_for_player("RenamedMinefieldPad", 1, pad_pos).unwrap();
+    let victim = world
+        .create_object_for_player("PadBlastVictim", 2, pad_pos + Vec3::new(3.0, 0.0, 0.0))
+        .unwrap();
+    // Beyond contact reach (mine trigger 30 + victim circle) and beyond the
+    // authored secondary ring: must stay untouched by the real blast.
+    let out_of_range = world
+        .create_object_for_player("PadOutOfRange", 2, pad_pos + Vec3::new(60.0, 0.0, 0.0))
+        .unwrap();
+    let data = world.host_object(pad).unwrap().mine_data.as_ref().unwrap();
+    assert_eq!(data.num_virtual_mines, 2);
+    assert!(data.regenerates);
+
+    world.update_mines_and_demo_traps().unwrap();
+
+    let victim = world.host_object(victim).unwrap();
+    assert_eq!(
+        victim.health.current,
+        369.0,
+        "authored DetonationWeapon delivers exactly its PrimaryDamage"
+    );
+    assert_eq!(victim.last_damage_source, Some(pad));
+    assert_eq!(world.host_object(out_of_range).unwrap().health.current, 400.0);
+    let pad = world.host_object(pad).unwrap();
+    let mine = pad.mine_data.as_ref().unwrap();
+    assert_eq!(mine.virtual_mines_remaining, 1);
+    // C++ detonateOnce drains the pad to fraction * max health (>= MIN_HEALTH).
+    assert_eq!(pad.health.current, 50.0);
+}
+
+#[test]
+fn authored_minefield_without_detonation_weapon_spends_charge_silently() {
+    use crate::fixture_content::{FixtureObject, FixtureWeapon, admit_fixture_content};
+
+    let mut world = GameLogic::new();
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![0; 1024];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    world.world_services.terrain().write().unwrap().try_load_map_geometry(map).unwrap();
+    world.initialize_receiving_partition_grid().unwrap();
+    admit_fixture_content(
+        &mut world,
+        &[
+            // Retail name on purpose: the bound MinefieldBehavior, not the
+            // name-inferred standardmine profile, owns data.
+            FixtureObject::new("ChinaStandardMine")
+                .kind_of("MINE IMMOBILE")
+                .health(100.0)
+                .field("Geometry = Cylinder")
+                .field("GeometryMajorRadius = 10.0")
+                .module("Behavior = MinefieldBehavior Mine\nEnd"),
+            FixtureObject::new("SilentMineVisitor")
+                .kind_of("VEHICLE SELECTABLE")
+                .health(400.0),
+        ],
+        &[] as &[FixtureWeapon],
+    );
+    use crate::game_logic::{Player, PlayerSideRole};
+    let mut neutral = Player::new(0, Team::Neutral, "Neutral", false);
+    neutral.map_side.role = PlayerSideRole::Neutral;
+    neutral.map_side.map_player_name.clear();
+    world.add_player(neutral);
+    for (id, team) in [(1, Team::China), (2, Team::USA)] {
+        let mut player = Player::new(id, team, "mine fixture", id == 1);
+        player.alliance_team = id as i32;
+        world.add_player(player);
+    }
+    let pad_pos = Vec3::new(100.0, 0.0, 100.0);
+    let pad = world.create_object_for_player("ChinaStandardMine", 1, pad_pos).unwrap();
+    let visitor = world
+        .create_object_for_player("SilentMineVisitor", 2, pad_pos + Vec3::new(3.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let pad_obj = world.host_object(pad).unwrap();
+        let mine = pad_obj.mine_data.as_ref().unwrap();
+        // MinefieldBehaviorModuleData ctor defaults: 1 charge, no regen/scoot;
+        // the name-inferred standardmine profile must not leak through.
+        assert_eq!(mine.num_virtual_mines, 1);
+        assert_eq!(mine.virtual_mines_remaining, 1);
+        assert!(!mine.regenerates);
+        assert_eq!(mine.scoot_from_starting_point_time, 0);
+        assert_eq!(mine.detonation_damage, 0.0);
+        assert_eq!(mine.detonation_radius, 0.0);
+        assert_eq!(pad_obj.health.current, 100.0);
+    }
+
+    world.update_mines_and_demo_traps().unwrap();
+
+    assert_eq!(
+        world.host_object(visitor).unwrap().health.current,
+        400.0,
+        "a missing DetonationWeapon spends the charge with no blast"
+    );
+    let pad_obj = world.host_object(pad).unwrap();
+    assert_eq!(
+        pad_obj.mine_data.as_ref().unwrap().virtual_mines_remaining,
+        0
+    );
+    assert!(
+        pad_obj.status.destroyed,
+        "last charge consumed: C++ requests destroyObject on the pad"
+    );
+}

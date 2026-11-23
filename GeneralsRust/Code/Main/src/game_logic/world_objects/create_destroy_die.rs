@@ -2129,7 +2129,6 @@ impl GameLogic {
             {
                 Some(definition) => crate::game_logic::host_mines::admitted_data_for_modules(
                     &definition.behavior_modules,
-                    template_name,
                     self.frame,
                 ),
                 None => crate::game_logic::host_mines::residual_data_for_template(
