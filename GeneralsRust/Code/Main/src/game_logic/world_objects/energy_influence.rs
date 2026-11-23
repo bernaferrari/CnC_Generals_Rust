@@ -543,6 +543,9 @@ Object PeriodicPlant
   Body = ActiveBody BodyTag
     MaxHealth = 100
     InitialHealth = 100
+    SubdualDamageCap = 200
+    SubdualDamageHealRate = 100
+    SubdualDamageHealAmount = 150
   End
   Behavior = DestroyDie DeathTag
   End
@@ -656,6 +659,89 @@ End";
             world.players[&1].power_produced, 0,
             "EMP already removed this output"
         );
+    }
+
+    #[test]
+    fn subdual_damage_and_decay_update_power_without_a_grid_scan() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use crate::game_logic::object::DamageHitContext;
+
+        for emp_overlaps_decay in [false, true] {
+            let (mut world, plant, _) = power_scaffold_world();
+            let consumer = world
+                .create_object_for_player("PeriodicPowered", 1, Vec3::X)
+                .unwrap();
+            world.set_current_frame(5);
+            let hit = |world: &mut GameLogic, amount| {
+                world
+                    .apply_owned_damage(
+                        plant,
+                        amount,
+                        None,
+                        DamageType::SubdualUnresistable,
+                        HostDeathType::Normal,
+                        None,
+                        &DamageHitContext::default(),
+                    )
+                    .unwrap();
+            };
+            hit(&mut world, 60.);
+            assert!(!world.objects[&plant].status.disabled_subdued);
+            assert_eq!(world.players[&1].power_available, 10);
+            hit(&mut world, 60.);
+            assert!(world.objects[&plant].status.disabled_subdued);
+            assert_eq!(world.objects[&plant].health.current, 100.);
+            assert_eq!(world.players[&1].power_produced, 0, "threshold-crossing hit");
+            assert_eq!(world.players[&1].power_available, -10);
+            assert!(!world.players[&1].has_radar());
+            assert!(world.objects[&consumer].status.disabled_underpowered);
+
+            hit(&mut world, 20.);
+            if emp_overlaps_decay {
+                assert!(world.apply_owned_emp_disabled(plant, 30));
+            }
+            assert_eq!(world.players[&1].power_produced, 0);
+
+            let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+            let snapshot = builder.create_world_snapshot(&world).unwrap();
+            let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+            let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+            let (mut restored, _, _) = power_scaffold_world();
+            builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+            for owner in [&mut world, &mut restored] {
+                assert_eq!(owner.players[&1].power_produced, 0);
+                assert!(owner.objects[&plant].status.disabled_subdued);
+                for frame in 6..=15 {
+                    owner.set_current_frame(frame);
+                    owner.update_ai(&[plant], LOGIC_FRAME_TIMESTEP).unwrap();
+                    if !owner.objects[&plant].status.disabled_subdued {
+                        break;
+                    }
+                    assert_eq!(owner.players[&1].power_produced, 0);
+                }
+                assert!(!owner.objects[&plant].status.disabled_subdued);
+                assert_eq!(
+                    owner.players[&1].power_produced,
+                    if emp_overlaps_decay { 0 } else { 20 },
+                    "decay frame"
+                );
+                assert_eq!(owner.players[&1].has_radar(), !emp_overlaps_decay);
+                assert_eq!(
+                    owner.objects[&consumer].status.disabled_underpowered,
+                    emp_overlaps_decay
+                );
+                if emp_overlaps_decay {
+                    assert!(owner.objects[&plant].status.disabled_emp);
+                    owner.set_current_frame(30);
+                    owner.expire_owned_disabled_statuses();
+                    assert_eq!(owner.players[&1].power_produced, 20);
+                    assert!(owner.players[&1].has_radar());
+                    assert!(!owner.objects[&consumer].status.disabled_underpowered);
+                }
+            }
+        }
     }
 
     #[test]

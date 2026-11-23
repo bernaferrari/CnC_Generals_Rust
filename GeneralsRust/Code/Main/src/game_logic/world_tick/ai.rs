@@ -317,26 +317,28 @@ impl GameLogic {
                         .and_then(|d| d.ini.open_idle_audio.clone());
                     missile_idle_audio = Some((play, stop, stop_name, ml_pos));
                 }
-                // Wave 761: continuous-fire coast + repulsor expire peel under coupled.
-                // Wave 761: CF coast + repulsor peel under coupled.
-                // Wave 765: subdual heal owned by GW when coupled.
-                // Wave 767: fire-sound loop stop owned by GW tick_status_timer_expirations
-                // when coupled (non-coupled still via tick_continuous_fire_coast).
-                {
-                    obj.tick_continuous_fire_coast(
-                        self.frame,
-                        &mut self.combat_system.fire_sound_loop_events,
-                        &mut self.health_events,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
-                    obj.tick_repulsor_status(self.frame);
-                }
+                let was_subdued = obj.status.disabled_subdued;
+                obj.tick_continuous_fire_coast(
+                    self.frame,
+                    &mut self.combat_system.fire_sound_loop_events,
+                    &mut self.health_events,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                );
+                // ActiveBody::onSubdualChange clears the aggregate disabled
+                // edge only when subdual was the last disable reason.
+                let reenabled_from_subdual =
+                    was_subdued && !obj.status.disabled_subdued && !obj.has_disabled_type();
+                obj.tick_repulsor_status(self.frame);
                 // Wave 763: under coupled shadow, force-reload-when-idle is owned by
                 // GW tick_status_timer_expirations + weapon_stats/continuous-fire writeback.
                 {
                     obj.tick_force_reload_when_idle(self.frame);
                 }
                 let _ = obj;
+                if reenabled_from_subdual {
+                    self.admit_host_radar_disabled_edges(object_id);
+                    self.admit_owned_producer_energy_edge(object_id, false);
+                }
                 self.tick_owned_firing_tracker_coast(object_id);
                 let Some(object) = self.objects.get(&object_id) else {
                     continue;

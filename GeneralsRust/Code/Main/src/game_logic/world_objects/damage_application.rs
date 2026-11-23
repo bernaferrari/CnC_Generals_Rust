@@ -533,7 +533,13 @@ impl GameLogic {
             return Ok(Some(result));
         }
         let frame = self.frame;
-        let Some(before_hp) = self.objects.get(&victim_id).map(|victim| victim.health.current) else { return Ok(None) };
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return Ok(None);
+        };
+        let before_hp = victim.health.current;
+        let can_subdue_active_producer = damage_type.is_subdual()
+            && victim.producer_energy_on_disabled_edge().is_some()
+            && !victim.has_disabled_type();
         let callback_player = self.local_player_id();
         #[cfg(feature = "game_client")]
         let begin_player = callback_player;
@@ -862,8 +868,12 @@ impl GameLogic {
         let victim_identity = self.live_draw_playback_identity(victim);
         let victim_position = victim.get_position();
         let victim_team = victim.team;
+        let subdued_producer = can_subdue_active_producer && victim.status.disabled_subdued;
         self.admit_object_drawable_deselection(victim_id);
         self.admit_host_radar_disabled_edges(victim_id);
+        if subdued_producer {
+            self.admit_owned_producer_energy_edge(victim_id, true);
+        }
         // CPP ActiveBody585–600 calls onDamage before scoreTheKill/onDie.
         // Release the body loan before forceFireWeapon can damage other owners
         // or reenter this same object; every next hit resolves it afresh.
