@@ -509,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn save_load_menu_lists_host_cpp_v2_game_state() {
+    fn save_load_menu_lists_current_game_state_header() {
         use crate::save_load::save_file::SaveFileManager;
         let dir = std::env::temp_dir().join(format!(
             "menu_v2_{}_{}",

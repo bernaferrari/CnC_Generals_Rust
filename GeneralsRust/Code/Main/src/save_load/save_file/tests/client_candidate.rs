@@ -15,7 +15,7 @@ fn archive(bytes: &[u8], description: &str, directory: &Path) -> Vec<u8> {
         &info,
         bytes,
         directory,
-        CPP_GAME_SINGLE_PLAYER,
+        SAVED_GAME_MODE_SINGLE_PLAYER,
     )
     .unwrap()
 }

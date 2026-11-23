@@ -348,7 +348,7 @@ fn direct_archive_bad_terrain_tail_preserves_running_foreign_world() {
                 &[1],
                 Some(&bytes),
                 directory.path(),
-                CPP_GAME_SINGLE_PLAYER,
+                SAVED_GAME_MODE_SINGLE_PLAYER,
                 &game_engine::System::CampaignManagerXferState::default(),
             )
             .unwrap();

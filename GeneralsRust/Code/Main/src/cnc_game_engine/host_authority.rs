@@ -2135,7 +2135,7 @@ impl CnCGameEngine {
             return Err("network and replay save restore is deferred".to_string());
         }
 
-        if let Some(saved) = saved_game_mode.and_then(crate::save_load::live_game_mode_from_cpp) {
+        if let Some(saved) = saved_game_mode.and_then(crate::save_load::decode_saved_game_mode) {
             return match saved {
                 GameMode::SinglePlayer | GameMode::Skirmish => Ok(saved),
                 GameMode::Multiplayer | GameMode::Internet | GameMode::Lan | GameMode::Replay => {

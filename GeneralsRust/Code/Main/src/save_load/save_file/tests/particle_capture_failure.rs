@@ -23,7 +23,7 @@ mod particle_capture_failure_control {
                 let prior_archive = SaveFileManager::write_common_sav_chunks(
                     &WorldSnapshot::default(),
                     &save_info,
-                    CPP_GAME_SINGLE_PLAYER,
+                    SAVED_GAME_MODE_SINGLE_PLAYER,
                 )
                 .unwrap();
                 let directory = tempfile::tempdir().unwrap();

@@ -5,7 +5,7 @@ fn campaign_archive(mut rank: i32) -> Vec<u8> {
     let bytes = SaveFileManager::write_common_sav_chunks(
         &WorldSnapshot::default(),
         &fixture_save_info(),
-        CPP_GAME_SINGLE_PLAYER,
+        SAVED_GAME_MODE_SINGLE_PLAYER,
     )
     .unwrap();
     let mut blocks = walk_named_chunks(&bytes).unwrap();

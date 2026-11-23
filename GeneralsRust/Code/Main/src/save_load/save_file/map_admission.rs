@@ -17,9 +17,9 @@ pub(super) fn read_source(payload: &[u8]) -> SaveLoadResult<(i32, Option<Skirmis
     }
     let mut bytes = payload;
     let version = *take(&mut bytes, 1)?.first().unwrap();
-    if version != CPP_GAME_STATE_MAP_XFER_VERSION {
+    if version != GAME_STATE_MAP_VERSION {
         return Err(SaveLoadError::VersionMismatch {
-            expected: u32::from(CPP_GAME_STATE_MAP_XFER_VERSION),
+            expected: u32::from(GAME_STATE_MAP_VERSION),
             actual: u32::from(version),
         });
     }
@@ -35,7 +35,7 @@ pub(super) fn read_source(payload: &[u8]) -> SaveLoadResult<(i32, Option<Skirmis
     if bytes.is_empty() {
         return Ok((mode, None));
     }
-    if mode != CPP_GAME_SKIRMISH {
+    if mode != SAVED_GAME_MODE_SKIRMISH {
         return Err(SaveLoadError::Corrupted(
             "unexpected GameStateMap suffix outside Skirmish".into(),
         ));
@@ -73,7 +73,7 @@ pub(super) fn validate_native(
     normalize_map: impl Fn(&str) -> String,
 ) -> SaveLoadResult<()> {
     let initial = crate::save_load::snapshot::initial_skirmish::read(snapshot)?;
-    if mode != CPP_GAME_SKIRMISH {
+    if mode != SAVED_GAME_MODE_SKIRMISH {
         if source.is_some()
             || initial.is_some()
             || crate::save_load::snapshot::initial_skirmish::source(snapshot)?.is_some()
@@ -186,11 +186,11 @@ mod tests {
             &info,
             Path::new("Save"),
             Some(source),
-            CPP_GAME_SKIRMISH,
+            SAVED_GAME_MODE_SKIRMISH,
         )
         .unwrap();
         let (mode, observed) = read_source(bytes.get_ref()).unwrap();
-        assert_eq!(mode, CPP_GAME_SKIRMISH);
+        assert_eq!(mode, SAVED_GAME_MODE_SKIRMISH);
         let mut expected = source.clone();
         expected.map_name = r"maps\alpine\alpine.map".into(); // Xfer.cpp151 + GameState848–875
         assert_eq!(observed, Some(expected));
@@ -231,7 +231,7 @@ mod tests {
             );
             validate_native(
                 &original_only,
-                CPP_GAME_SKIRMISH,
+                SAVED_GAME_MODE_SKIRMISH,
                 Some(source),
                 str::to_owned,
             )
@@ -244,14 +244,14 @@ mod tests {
         observed.map_name = r"maps\alpine\alpine.map".into();
         let normalize =
             |map: &str| crate::save_load::map_paths::to_portable(map, Path::new("Save"), "");
-        validate_native(&world, CPP_GAME_SKIRMISH, Some(&observed), normalize).unwrap();
+        validate_native(&world, SAVED_GAME_MODE_SKIRMISH, Some(&observed), normalize).unwrap();
         observed.starting_cash += 1;
-        assert!(validate_native(&world, CPP_GAME_SKIRMISH, Some(&observed), normalize).is_err());
+        assert!(validate_native(&world, SAVED_GAME_MODE_SKIRMISH, Some(&observed), normalize).is_err());
         observed.starting_cash -= 1;
         observed.map_name = r"maps\other\other.map".into();
-        assert!(validate_native(&world, CPP_GAME_SKIRMISH, Some(&observed), normalize).is_err());
+        assert!(validate_native(&world, SAVED_GAME_MODE_SKIRMISH, Some(&observed), normalize).is_err());
         assert!(
-            validate_native(&world, CPP_GAME_SINGLE_PLAYER, Some(&observed), normalize).is_err()
+            validate_native(&world, SAVED_GAME_MODE_SINGLE_PLAYER, Some(&observed), normalize).is_err()
         );
     }
 }

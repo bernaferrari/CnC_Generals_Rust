@@ -127,23 +127,37 @@ fn real_archives_keep_receiving_modes_across_peer_decode_failure_reset_and_drop(
             assert_eq!(selected(&a, GameMode::Skirmish), GameMode::SinglePlayer);
 
             let original = std::fs::read(saves_a.get_save_path("a")).unwrap();
-            for (slot, variant) in [("v1", Some(None)), ("omitted", None)] {
-                std::fs::write(
-                    saves_a.get_save_path(slot),
-                    map_mode_variant(&original, variant),
-                )
-                .unwrap();
-                let historical = saves_a.load_game_snapshot(slot).unwrap();
-                assert_eq!(historical.saved_game_mode, None);
-                assert_eq!(
-                    selected(&historical, GameMode::SinglePlayer),
-                    GameMode::SinglePlayer
-                );
-                assert_eq!(
-                    selected(&historical, GameMode::Skirmish),
-                    GameMode::Skirmish
-                );
-            }
+            // GameStateMap v1 predates the mode word; only the current v2
+            // header is accepted, so the downgraded archive rejects outright.
+            std::fs::write(
+                saves_a.get_save_path("v1"),
+                map_mode_variant(&original, Some(None)),
+            )
+            .unwrap();
+            assert!(matches!(
+                saves_a.load_game_snapshot("v1"),
+                Err(crate::save_load::SaveLoadError::VersionMismatch {
+                    expected: 2,
+                    actual: 1
+                })
+            ));
+            // An archive without CHUNK_GameStateMap stores no mode: restore
+            // falls back to the explicit active default, not a saved default.
+            std::fs::write(
+                saves_a.get_save_path("omitted"),
+                map_mode_variant(&original, None),
+            )
+            .unwrap();
+            let historical = saves_a.load_game_snapshot("omitted").unwrap();
+            assert_eq!(historical.saved_game_mode, None);
+            assert_eq!(
+                selected(&historical, GameMode::SinglePlayer),
+                GameMode::SinglePlayer
+            );
+            assert_eq!(
+                selected(&historical, GameMode::Skirmish),
+                GameMode::Skirmish
+            );
             assert_eq!(selected(&a, GameMode::Skirmish), GameMode::SinglePlayer);
         },
     );
@@ -220,7 +234,7 @@ fn actual_mapless_replay_writer_load_selects_saved_observer_without_bootstrap_ow
             assert_eq!(
                 decoded
                     .saved_game_mode
-                    .and_then(crate::save_load::live_game_mode_from_cpp),
+                    .and_then(crate::save_load::decode_saved_game_mode),
                 Some(GameMode::Replay)
             );
             assert!(

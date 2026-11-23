@@ -20,7 +20,7 @@ pub use decoded::{DecodedGameSave, MapAdmissionIntent};
 /// and System `TheGameState` (`SAVELOAD_BLOCK_NAMES`).
 ///
 /// Host pause-save writes the 17 named chunks then `SG_EOF`. `CHUNK_GameState`
-/// is the C++ v2 header (`GameState.cpp:1539-1642`). `CHUNK_GameLogic` is still
+/// is the v2 save header (`GameState.cpp:1539-1642`). `CHUNK_GameLogic` is still
 /// host `bincode` `WorldSnapshot` on write. A C++ `GameLogic::xfer` payload
 /// cannot be restored into the live host world; load fails closed instead of
 /// reporting success with an empty snapshot. `CHUNK_InGameUI`,
@@ -48,11 +48,11 @@ const CHUNK_RADAR: &str = "CHUNK_Radar";
 const CHUNK_HOST_MAP_INTENT: &str = "CHUNK_HostMapIntent";
 const CHUNK_HOST_SAVE_KIND: &str = "CHUNK_HostSaveKind";
 const SAVE_FILE_EOF: &str = "SG_EOF";
-const CPP_GAME_STATE_XFER_VERSION: u8 = 2;
-const CPP_GAME_STATE_MAP_XFER_VERSION: u8 = 2;
-const CPP_SAVE_FILE_TYPE_NORMAL: i32 = 0;
-const CPP_SAVE_FILE_TYPE_MISSION: i32 = 1;
-const CPP_INVALID_MISSION_NUMBER: i32 = -1;
+const GAME_STATE_HEADER_VERSION: u8 = 2;
+const GAME_STATE_MAP_VERSION: u8 = 2;
+const SAVE_TYPE_CODE_NORMAL: i32 = 0;
+const SAVE_TYPE_CODE_MISSION: i32 = 1;
+const NO_MISSION_NUMBER: i32 = -1;
 
 /// GameState.h defines normal and mission saves. Preserve the Rust host's
 /// automatic and quick-save types in a separate named block that C++ skips.
@@ -105,38 +105,39 @@ impl HostSaveKind {
 
 const SAVELOAD_BLOCK_NAMES: &[&str] = game_engine::System::SaveGame::SAVELOAD_BLOCK_NAMES;
 
-/// C++ `GameLogic.h` game-mode integers written by `GameStateMap::xfer` v2.
-const CPP_GAME_SINGLE_PLAYER: i32 = 0;
-const CPP_GAME_LAN: i32 = 1;
-const CPP_GAME_SKIRMISH: i32 = 2;
-const CPP_GAME_REPLAY: i32 = 3;
-const CPP_GAME_SHELL: i32 = 4;
-const CPP_GAME_INTERNET: i32 = 5;
-const CPP_GAME_NONE: i32 = 6;
+/// Stored game-mode integers written by `GameStateMap::xfer` v2
+/// (`GameLogic.h`, `GameStateMap.cpp:324-329`).
+const SAVED_GAME_MODE_SINGLE_PLAYER: i32 = 0;
+const SAVED_GAME_MODE_LAN: i32 = 1;
+const SAVED_GAME_MODE_SKIRMISH: i32 = 2;
+const SAVED_GAME_MODE_REPLAY: i32 = 3;
+const SAVED_GAME_MODE_SHELL: i32 = 4;
+const SAVED_GAME_MODE_INTERNET: i32 = 5;
+const SAVED_GAME_MODE_NONE: i32 = 6;
 
-fn cpp_game_mode_from_live(mode: crate::game_logic::GameMode) -> i32 {
+fn encode_saved_game_mode(mode: crate::game_logic::GameMode) -> i32 {
     use crate::game_logic::GameMode;
     match mode {
-        GameMode::SinglePlayer => CPP_GAME_SINGLE_PLAYER,
-        GameMode::Lan | GameMode::Multiplayer => CPP_GAME_LAN,
-        GameMode::Skirmish => CPP_GAME_SKIRMISH,
-        GameMode::Replay => CPP_GAME_REPLAY,
-        GameMode::Shell => CPP_GAME_SHELL,
-        GameMode::Internet => CPP_GAME_INTERNET,
-        GameMode::None => CPP_GAME_NONE,
+        GameMode::SinglePlayer => SAVED_GAME_MODE_SINGLE_PLAYER,
+        GameMode::Lan | GameMode::Multiplayer => SAVED_GAME_MODE_LAN,
+        GameMode::Skirmish => SAVED_GAME_MODE_SKIRMISH,
+        GameMode::Replay => SAVED_GAME_MODE_REPLAY,
+        GameMode::Shell => SAVED_GAME_MODE_SHELL,
+        GameMode::Internet => SAVED_GAME_MODE_INTERNET,
+        GameMode::None => SAVED_GAME_MODE_NONE,
     }
 }
 
-pub fn live_game_mode_from_cpp(mode: i32) -> Option<crate::game_logic::GameMode> {
+pub fn decode_saved_game_mode(mode: i32) -> Option<crate::game_logic::GameMode> {
     use crate::game_logic::GameMode;
     match mode {
-        CPP_GAME_SINGLE_PLAYER => Some(GameMode::SinglePlayer),
-        CPP_GAME_LAN => Some(GameMode::Lan),
-        CPP_GAME_SKIRMISH => Some(GameMode::Skirmish),
-        CPP_GAME_REPLAY => Some(GameMode::Replay),
-        CPP_GAME_SHELL => Some(GameMode::Shell),
-        CPP_GAME_INTERNET => Some(GameMode::Internet),
-        CPP_GAME_NONE => Some(GameMode::None),
+        SAVED_GAME_MODE_SINGLE_PLAYER => Some(GameMode::SinglePlayer),
+        SAVED_GAME_MODE_LAN => Some(GameMode::Lan),
+        SAVED_GAME_MODE_SKIRMISH => Some(GameMode::Skirmish),
+        SAVED_GAME_MODE_REPLAY => Some(GameMode::Replay),
+        SAVED_GAME_MODE_SHELL => Some(GameMode::Shell),
+        SAVED_GAME_MODE_INTERNET => Some(GameMode::Internet),
+        SAVED_GAME_MODE_NONE => Some(GameMode::None),
         _ => None,
     }
 }
@@ -155,17 +156,17 @@ fn map_leaf_name(path: &str) -> String {
         .to_string()
 }
 
-fn cpp_save_file_type(save_type: SaveFileType) -> i32 {
+fn save_type_code(save_type: SaveFileType) -> i32 {
     match save_type {
-        SaveFileType::Mission => CPP_SAVE_FILE_TYPE_MISSION,
-        _ => CPP_SAVE_FILE_TYPE_NORMAL,
+        SaveFileType::Mission => SAVE_TYPE_CODE_MISSION,
+        _ => SAVE_TYPE_CODE_NORMAL,
     }
 }
 
-/// Exact C++ `GameState::xfer` record shared by the writer and listing reader.
+/// Exact save header record shared by the writer and listing reader.
 /// Field order and primitive widths mirror GameState.cpp:1539-1642.
 #[derive(Default)]
-struct CppGameStateHeader {
+struct GameStateHeader {
     version: u8,
     file_type: i32,
     mission_map_name: String,
@@ -176,11 +177,11 @@ struct CppGameStateHeader {
     mission_number: i32,
 }
 
-impl CppGameStateHeader {
+impl GameStateHeader {
     fn for_save_info(save_info: &SaveGameInfo) -> Self {
         Self {
-            version: CPP_GAME_STATE_XFER_VERSION,
-            file_type: cpp_save_file_type(save_info.save_type),
+            version: GAME_STATE_HEADER_VERSION,
+            file_type: save_type_code(save_info.save_type),
             mission_map_name: if save_info.save_type == SaveFileType::Mission {
                 save_info.map_name.clone()
             } else {
@@ -193,12 +194,12 @@ impl CppGameStateHeader {
             mission_number: save_info
                 .mission_number
                 .map(|number| number as i32)
-                .unwrap_or(CPP_INVALID_MISSION_NUMBER),
+                .unwrap_or(NO_MISSION_NUMBER),
         }
     }
 
     fn into_save_info(self) -> SaveGameInfo {
-        let save_type = if self.file_type == CPP_SAVE_FILE_TYPE_MISSION {
+        let save_type = if self.file_type == SAVE_TYPE_CODE_MISSION {
             SaveFileType::Mission
         } else {
             SaveFileType::Normal
@@ -252,20 +253,20 @@ impl CppGameStateHeader {
 }
 
 /// Transfer the single typed GameState layout. The wrappers only adapt
-/// SaveGameInfo to/from this C++ record; field order lives here once.
-fn transfer_cpp_game_state_header(
+/// SaveGameInfo to/from this save format; field order lives here once.
+fn transfer_game_state_header(
     xfer: &mut impl CommonXfer,
-    header: &mut CppGameStateHeader,
+    header: &mut GameStateHeader,
 ) -> SaveLoadResult<()> {
     let serialization_error = |error: std::io::Error| {
         SaveLoadError::Serialization(error.to_string())
     };
     xfer
-        .xfer_version(&mut header.version, CPP_GAME_STATE_XFER_VERSION)
+        .xfer_version(&mut header.version, GAME_STATE_HEADER_VERSION)
         .map_err(serialization_error)?;
-    if header.version != CPP_GAME_STATE_XFER_VERSION {
+    if header.version != GAME_STATE_HEADER_VERSION {
         return Err(SaveLoadError::VersionMismatch {
-            expected: u32::from(CPP_GAME_STATE_XFER_VERSION),
+            expected: u32::from(GAME_STATE_HEADER_VERSION),
             actual: u32::from(header.version),
         });
     }
@@ -294,12 +295,12 @@ fn write_ascii<W: Write + Seek>(xfer: &mut CommonXferSave<W>, value: &str) -> Sa
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))
 }
 
-/// C++ `GameState::xfer` v2 (`GameState.cpp:1539-1642`).
-fn write_cpp_game_state_header<W: Write + Seek>(
+/// Save header v2 (`GameState.cpp:1539-1642`).
+fn write_game_state_header<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
     save_info: &SaveGameInfo,
 ) -> SaveLoadResult<()> {
-    transfer_cpp_game_state_header(xfer, &mut CppGameStateHeader::for_save_info(save_info))
+    transfer_game_state_header(xfer, &mut GameStateHeader::for_save_info(save_info))
 }
 
 /// C++ `CampaignManager::xfer` v5 (`CampaignManager.cpp`) for CHUNK_Campaign.
@@ -519,18 +520,18 @@ fn read_ascii(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<String
     Ok(value)
 }
 
-/// Parse C++ `GameState::xfer` enough to list a save. Version 2 is accepted.
-fn parse_cpp_game_state_header(payload: &[u8]) -> SaveLoadResult<SaveGameInfo> {
+/// Read the save header enough to list a save. Version 2 is accepted.
+fn read_game_state_header(payload: &[u8]) -> SaveLoadResult<SaveGameInfo> {
     let actual = *payload.first().ok_or(SaveLoadError::InvalidFormat)?;
-    if actual != CPP_GAME_STATE_XFER_VERSION {
+    if actual != GAME_STATE_HEADER_VERSION {
         return Err(SaveLoadError::VersionMismatch {
-            expected: u32::from(CPP_GAME_STATE_XFER_VERSION),
+            expected: u32::from(GAME_STATE_HEADER_VERSION),
             actual: u32::from(actual),
         });
     }
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
-    let mut header = CppGameStateHeader::default();
-    transfer_cpp_game_state_header(&mut xfer, &mut header)?;
+    let mut header = GameStateHeader::default();
+    transfer_game_state_header(&mut xfer, &mut header)?;
     Ok(header.into_save_info())
 }
 
@@ -635,7 +636,7 @@ fn apply_persist_chunks(
     }
 }
 
-/// C++ `GameStateMap::xfer` v2 map embed (`GameStateMap.cpp:224-394`).
+/// Save format v2 map embed (`GameStateMap.cpp:224-394`).
 fn write_game_state_map_block<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
     save_info: &SaveGameInfo,
@@ -643,8 +644,8 @@ fn write_game_state_map_block<W: Write + Seek>(
     source: Option<&game_engine::common::system::skirmish_game_info::SkirmishGameInfo>,
     mut game_mode: i32,
 ) -> SaveLoadResult<()> {
-    let mut version = CPP_GAME_STATE_MAP_XFER_VERSION;
-    xfer.xfer_version(&mut version, CPP_GAME_STATE_MAP_XFER_VERSION)
+    let mut version = GAME_STATE_MAP_VERSION;
+    xfer.xfer_version(&mut version, GAME_STATE_MAP_VERSION)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     let leaf = map_leaf_name(&save_info.map_name);
     write_ascii(xfer, &format!("Save\\{leaf}"))?;
@@ -703,9 +704,9 @@ fn extract_embedded_map(
 ) -> Option<(PathBuf, String)> {
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
     let mut version = 0u8;
-    xfer.xfer_version(&mut version, CPP_GAME_STATE_MAP_XFER_VERSION)
+    xfer.xfer_version(&mut version, GAME_STATE_MAP_VERSION)
         .ok()?;
-    if version != CPP_GAME_STATE_MAP_XFER_VERSION {
+    if version != GAME_STATE_MAP_VERSION {
         return None;
     }
     let save_game_map = read_ascii(&mut xfer).ok()?;
@@ -1153,7 +1154,7 @@ impl SaveFileManager {
             &effective_info,
             &client_xfer_bytes,
             Some(&terrain_visual_bytes),
-            cpp_game_mode_from_live(game_logic.game_mode()),
+            encode_saved_game_mode(game_logic.game_mode()),
             &campaign_state,
             map_intent,
         );
@@ -1571,7 +1572,7 @@ impl SaveFileManager {
         let source_game_info =
             crate::save_load::snapshot::initial_skirmish::source(world_snapshot)?;
         let mode = if initial.is_some() || source_game_info.is_some() {
-            CPP_GAME_SKIRMISH
+            SAVED_GAME_MODE_SKIRMISH
         } else {
             supplied_game_mode
         };
@@ -1614,7 +1615,7 @@ impl SaveFileManager {
             }
             for &name in block_names {
                 write_named_block(&mut xfer, name, |xfer| match name {
-                    CHUNK_GAME_STATE => write_cpp_game_state_header(xfer, save_info),
+                    CHUNK_GAME_STATE => write_game_state_header(xfer, save_info),
                     CHUNK_GAME_LOGIC => {
                         if !logic_payload.is_empty() {
                             xfer.xfer_readonly(&logic_payload)
@@ -1708,7 +1709,7 @@ impl SaveFileManager {
         let mut host_save_kind = None;
         for (token, payload) in &blocks {
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
-                info = Some(parse_cpp_game_state_header(payload)?);
+                info = Some(read_game_state_header(payload)?);
             } else if token.eq_ignore_ascii_case(CHUNK_HOST_SAVE_KIND) {
                 HostSaveKind::read(&mut host_save_kind, payload)?;
             } else if token.eq_ignore_ascii_case(CHUNK_CAMPAIGN) {
@@ -1791,7 +1792,7 @@ impl SaveFileManager {
                 continue;
             }
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
-                save_info = parse_cpp_game_state_header(&payload)?;
+                save_info = read_game_state_header(&payload)?;
                 saw_game_state = true;
             } else if token.eq_ignore_ascii_case(CHUNK_HOST_SAVE_KIND) {
                 HostSaveKind::read(&mut host_save_kind, &payload)?;
@@ -1901,7 +1902,7 @@ impl SaveFileManager {
                 super::map_paths::to_portable(map, save_dir, &user_data)
             })?;
         }
-        // C++ GameStateMap.cpp324–329 carries the mode at the current version.
+        // GameStateMap.cpp324–329 carries the stored game mode at the current version.
         // Retain the already-decoded header with this archive even when its
         // map block is empty. Extraction must not publish match selection.
         let saved_game_mode = map_admission.as_ref().map(|(mode, _)| *mode);
@@ -1939,7 +1940,7 @@ impl SaveFileManager {
     fn decode_chunk_game_logic_for_host(payload: &[u8]) -> SaveLoadResult<WorldSnapshot> {
         decode_bincode_world_snapshot(payload).map_err(|host_err| {
             SaveLoadError::Corrupted(format!(
-                "CHUNK_GameLogic is not a current host WorldSnapshot; C++ GameLogic::xfer (GameLogic.cpp:4666) was not restored ({host_err})"
+                "CHUNK_GameLogic is not a current world snapshot ({host_err})"
             ))
         })
     }

@@ -79,7 +79,7 @@ fn default_save_directory_is_user_data_save_like_popup() {
 }
 
 #[test]
-fn host_save_kind_survives_listing_and_archive_decode_with_a_cpp_normal_header() {
+fn host_save_kind_survives_listing_and_archive_decode_with_a_normal_header() {
     let directory = tempfile::tempdir().unwrap();
     let mut manager = SaveFileManager::with_save_directory(directory.path());
     let world = GameLogic::new();
@@ -96,12 +96,12 @@ fn host_save_kind_survives_listing_and_archive_decode_with_a_cpp_normal_header()
 
         let data = std::fs::read(manager.get_save_path(filename)).unwrap();
         let blocks = walk_named_chunks(&data).unwrap();
-        let (_, cpp_header) = blocks
+        let (_, header_payload) = blocks
             .iter()
             .find(|(name, _)| name == CHUNK_GAME_STATE)
             .unwrap();
         assert_eq!(
-            parse_cpp_game_state_header(cpp_header).unwrap().save_type,
+            read_game_state_header(header_payload).unwrap().save_type,
             SaveFileType::Normal
         );
 
@@ -118,7 +118,7 @@ fn host_save_kind_survives_listing_and_archive_decode_with_a_cpp_normal_header()
 }
 
 #[test]
-fn host_pause_save_writes_cpp_17_named_chunks_and_v2_header() {
+fn host_pause_save_writes_17_named_chunks_and_v2_header() {
     // C++ GameState::init (GameState.cpp:289-305) + xferSaveData
     // (GameState.cpp:1313-1381) writes 17 CHUNK_* tokens then SG_EOF.
     // Pre-fix host wrote only GameState/GameLogic/GhostObject with a
@@ -126,7 +126,7 @@ fn host_pause_save_writes_cpp_17_named_chunks_and_v2_header() {
     let snapshot = WorldSnapshot::default();
     let save_info = fixture_save_info();
     let bytes =
-        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info, CPP_GAME_SINGLE_PLAYER)
+        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info, SAVED_GAME_MODE_SINGLE_PLAYER)
             .expect("write 17-block sav");
     let text = String::from_utf8_lossy(&bytes);
     for name in SAVELOAD_BLOCK_NAMES {
@@ -147,7 +147,7 @@ fn host_pause_save_writes_cpp_17_named_chunks_and_v2_header() {
         SAVELOAD_BLOCK_NAMES.to_vec()
     );
 
-    let header = parse_cpp_game_state_header(&blocks[0].1).expect("C++ v2 header");
+    let header = read_game_state_header(&blocks[0].1).expect("C++ v2 header");
     assert_eq!(header.description, save_info.description);
     assert_eq!(header.map_name, "LegacyMap");
     assert_eq!(header.save_type, SaveFileType::Normal);
@@ -178,7 +178,7 @@ fn host_pause_save_persists_terrain_scorches_and_particle_systems() {
         &[],
         Some(&terrain_bytes),
         Path::new("Save"),
-        CPP_GAME_SINGLE_PLAYER,
+        SAVED_GAME_MODE_SINGLE_PLAYER,
         &game_engine::System::CampaignManagerXferState::default(),
     )
     .expect("write sav with FX chunks");
@@ -214,7 +214,7 @@ fn host_pause_save_persists_terrain_scorches_and_particle_systems() {
 }
 
 #[test]
-fn host_lists_cpp_game_state_version_2_without_rejecting() {
+fn host_lists_current_game_state_header() {
     // C++ GameState::xfer (GameState.cpp:1543-1559) writes version=2.
     // Pre-fix CommonGameState::xfer currentVersion=1 rejected it.
     let mut payload = Vec::new();
@@ -235,7 +235,7 @@ fn host_lists_cpp_game_state_version_2_without_rejecting() {
             difficulty: GameDifficulty::Medium,
             save_type: SaveFileType::Mission,
         };
-        write_cpp_game_state_header(&mut xfer, &info).expect("encode v2");
+        write_game_state_header(&mut xfer, &info).expect("encode v2");
     }
     assert_eq!(payload.first().copied(), Some(2), "C++ currentVersion is 2");
 
@@ -283,14 +283,14 @@ fn game_state_header_transfer_preserves_genuine_retail_header_bytes() {
             .iter()
             .find(|(name, _)| name == CHUNK_GAME_STATE)
             .expect("retail GameState chunk");
-        let info = parse_cpp_game_state_header(payload).expect("decode retail header");
+        let info = read_game_state_header(payload).expect("decode retail header");
         assert_eq!(info.save_type, SaveFileType::Normal);
-        let mut header = CppGameStateHeader::default();
+        let mut header = GameStateHeader::default();
         let mut reader = CommonXferLoad::new(Cursor::new(payload.as_slice()), SAVE_FILE_VERSION);
-        transfer_cpp_game_state_header(&mut reader, &mut header).expect("read retail header record");
+        transfer_game_state_header(&mut reader, &mut header).expect("read retail header record");
         let mut encoded = Cursor::new(Vec::new());
         let mut writer = CommonXferSave::new(&mut encoded, SAVE_FILE_VERSION);
-        transfer_cpp_game_state_header(&mut writer, &mut header).expect("write retail header record");
+        transfer_game_state_header(&mut writer, &mut header).expect("write retail header record");
         assert_eq!(encoded.get_ref(), payload);
     }
 }
@@ -302,7 +302,7 @@ fn game_state_header_writes_empty_campaign_and_invalid_mission() {
     {
         let mut cursor = Cursor::new(&mut payload);
         let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-        write_cpp_game_state_header(
+        write_game_state_header(
             &mut xfer,
             &SaveGameInfo {
                 pristine_map_name: None,
@@ -379,7 +379,7 @@ fn cpp_chunk_game_logic_does_not_report_successful_empty_world() {
     {
         let mut cursor = Cursor::new(&mut header);
         let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-        write_cpp_game_state_header(
+        write_game_state_header(
             &mut xfer,
             &SaveGameInfo {
                 pristine_map_name: None,
@@ -425,7 +425,7 @@ fn cpp_chunk_game_logic_does_not_report_successful_empty_world() {
         .expect_err("C++ GameLogic::xfer must not succeed as an empty host world");
     let err = err.to_string();
     assert!(
-        err.contains("GameLogic::xfer") || err.contains("not a host WorldSnapshot"),
+        err.contains("not a current world snapshot"),
         "error must say C++ objects were not restored, got {err}"
     );
 
@@ -444,7 +444,7 @@ fn cpp_chunk_game_logic_does_not_report_successful_empty_world() {
     );
     let load_err = load_err.to_string();
     assert!(
-        load_err.contains("GameLogic::xfer") || load_err.contains("not a host WorldSnapshot"),
+        load_err.contains("not a current world snapshot"),
         "live load error must name the unrestored C++ stream, got {load_err}"
     );
     let _ = std::fs::remove_file(path);
@@ -459,7 +459,7 @@ fn mission_save_writes_only_game_state_and_campaign_chunks() {
     save_info.map_name = "Maps\\Alpine Assault.map".into();
     save_info.description = "MissionSave".into();
     let bytes =
-        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info, CPP_GAME_SINGLE_PLAYER)
+        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info, SAVED_GAME_MODE_SINGLE_PLAYER)
             .expect("write mission sav");
     let blocks = walk_named_chunks(&bytes).expect("walk mission chunks");
     let names: Vec<&str> = blocks.iter().map(|(name, _)| name.as_str()).collect();
@@ -538,7 +538,7 @@ fn campaign_block_writes_runtime_difficulty_and_challenge() {
                 &[],
                 None,
                 Path::new("Save"),
-                CPP_GAME_SINGLE_PLAYER,
+                SAVED_GAME_MODE_SINGLE_PLAYER,
                 &campaign_state,
             )
             .expect("write mission");
@@ -587,7 +587,7 @@ fn load_prefers_embedded_scratch_over_installed_same_named_map() {
     {
         let mut cursor = Cursor::new(&mut header);
         let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-        write_cpp_game_state_header(&mut xfer, &save_info).expect("encode header");
+        write_game_state_header(&mut xfer, &save_info).expect("encode header");
     }
 
     let mut map_payload = Vec::new();
@@ -661,7 +661,7 @@ fn game_state_map_round_trips_live_game_mode() {
             difficulty: GameDifficulty::Medium,
             save_type: SaveFileType::Normal,
         };
-        write_game_state_map_block(&mut xfer, &info, Path::new("Save"), None, CPP_GAME_SKIRMISH)
+        write_game_state_map_block(&mut xfer, &info, Path::new("Save"), None, SAVED_GAME_MODE_SKIRMISH)
             .expect("write map");
     }
     // Independently pin the native v2 wire layout: version byte, two
@@ -675,7 +675,7 @@ fn game_state_map_round_trips_live_game_mode() {
     }
     assert_eq!(
         payload.get(mode_offset..mode_offset + 4),
-        Some(&CPP_GAME_SKIRMISH.to_le_bytes()[..]),
+        Some(&SAVED_GAME_MODE_SKIRMISH.to_le_bytes()[..]),
         "v2 mode i32 immediately follows map and pristine-map strings"
     );
     let mode = map_admission::read_source(&payload)
@@ -683,7 +683,7 @@ fn game_state_map_round_trips_live_game_mode() {
         .ok();
     assert_eq!(
         mode,
-        Some(CPP_GAME_SKIRMISH),
+        Some(SAVED_GAME_MODE_SKIRMISH),
         "CHUNK_GameStateMap v2 must persist TheGameLogic game mode"
     );
 }
@@ -752,7 +752,7 @@ fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
             {
                 let mut cursor = Cursor::new(&mut header);
                 let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-                write_cpp_game_state_header(
+                write_game_state_header(
                     &mut xfer,
                     &SaveGameInfo {
                         pristine_map_name: None,
@@ -793,8 +793,7 @@ fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
                 .expect_err("C++ GameLogic must fail closed");
             let decode_err = decode_err.to_string();
             assert!(
-                decode_err.contains("GameLogic::xfer")
-                    || decode_err.contains("not a host WorldSnapshot"),
+                decode_err.contains("not a current world snapshot"),
                 "unexpected decode error: {decode_err}"
             );
             let after_decode = capture_live_campaign_state();
@@ -831,7 +830,7 @@ fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
                 &[],
                 None,
                 Path::new("Save"),
-                CPP_GAME_SINGLE_PLAYER,
+                SAVED_GAME_MODE_SINGLE_PLAYER,
                 &archive_campaign,
             )
             .expect("write mission sav");
