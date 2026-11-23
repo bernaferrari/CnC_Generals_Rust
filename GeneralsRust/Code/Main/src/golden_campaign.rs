@@ -29,7 +29,6 @@ use crate::game_logic::script_loader::{find_map_file, load_map_scripts};
 use crate::game_logic::victory_conditions::{MapVictoryRules, VictoryType, victory_rules_for_map};
 use crate::game_logic::{GameLogic, GameMode, Resources};
 use crate::map_frame_scenario::resolve_first_map;
-use crate::save_load::SaveLoadManager;
 use crate::save_load::campaign::{
     CampaignId, CampaignManager, MissionCompletionData, MissionDifficulty, MissionInfo,
     MissionObjective, MissionStatus, ObjectiveReward, ObjectiveTarget, ObjectiveType,
@@ -291,7 +290,17 @@ pub fn run_golden_campaign_ex(
     force_full_campaign: bool,
 ) -> gamelogic::GameLogicResult<GoldenCampaignResult> {
     let frames = frames.max(1);
-    let _ = std::fs::create_dir_all(SaveLoadManager::default_save_directory().join("Campaign"));
+    let mut logic = GameLogic::new();
+    #[cfg(not(target_arch = "wasm32"))]
+    let profile = tempfile::tempdir().map_err(|error| {
+        gamelogic::GameLogicError::Configuration(format!("campaign gate profile: {error}"))
+    })?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let campaign_dir = profile.path().join("Campaign");
+    #[cfg(target_arch = "wasm32")]
+    let campaign_dir = logic.with_own_services(|| {
+        crate::save_load::SaveLoadManager::default_save_directory().join("Campaign")
+    });
     // Preserve the demo's legacy loose-file source order without an ambient
     // OnceLock. Production engines receive the same ordered texts through the
     // startup archive/content loader.
@@ -302,13 +311,15 @@ pub fn run_golden_campaign_ex(
     let map_victory_rules = Arc::new(MapVictoryRules::from_ordered_sources(&map_victory_sources));
 
     // --- Campaign progression manager (local production API) ---
-    let mut progression = CampaignManager::new();
-    let _ = progression.init();
+    let mut progression = CampaignManager::with_campaign_directory(campaign_dir);
+    progression.init().map_err(|error| {
+        gamelogic::GameLogicError::Configuration(format!("campaign gate progress: {error}"))
+    })?;
 
-    let campaign_resolved = match map_name {
+    let campaign_resolved = logic.with_own_services(|| match map_name {
         Some(name) => resolve_path_candidate(name).map(|p| (name.to_string(), p)),
         None => resolve_first_existing(CAMPAIGN_MAP_CANDIDATES),
-    };
+    });
 
     let (
         campaign_map_identity,
@@ -402,7 +413,6 @@ pub fn run_golden_campaign_ex(
             .unwrap_or(false);
 
     // --- SinglePlayer world ---
-    let mut logic = GameLogic::new();
     crate::cnc_game_engine::start_standalone_game(&mut logic, GameMode::SinglePlayer)
         .map_err(gamelogic::GameLogicError::Configuration)?;
     let single_player = matches!(logic.game_mode(), GameMode::SinglePlayer);
@@ -554,7 +564,14 @@ pub fn run_golden_campaign_ex(
     let script_engine_residual_ok = honesty_script_engine_table_capacity_residual_ok();
 
     #[cfg(feature = "game_client")]
-    let playthrough = game_client::gui::run_retail_campaign_and_challenge_playthrough();
+    let playthrough = logic.with_own_services(|| -> gamelogic::GameLogicResult<_> {
+        use crate::subsystem_manager::{FileSystemSubsystem, SubsystemInterface};
+        let mut filesystem = FileSystemSubsystem::new();
+        filesystem.init().map_err(|error| {
+            gamelogic::GameLogicError::Configuration(format!("campaign gate assets: {error}"))
+        })?;
+        Ok(game_client::gui::run_retail_campaign_and_challenge_playthrough())
+    })?;
     #[cfg(feature = "game_client")]
     let client_campaign_playthrough_ok = playthrough.playthrough_ok();
     #[cfg(feature = "game_client")]
@@ -864,8 +881,8 @@ mod tests {
 
     #[test]
     fn campaign_victory_override_is_nounits() {
-        let _ = std::fs::create_dir_all(SaveLoadManager::default_save_directory().join("Campaign"));
-        let mut manager = CampaignManager::new();
+        let profile = tempfile::tempdir().unwrap();
+        let mut manager = CampaignManager::with_campaign_directory(profile.path().join("Campaign"));
         register_mission(&mut manager, "UnitTestCampaignMap");
         let context = manager.map_context_for("UnitTestCampaignMap");
         let rules = victory_rules_for_map("UnitTestCampaignMap", Some(&context));
