@@ -193,16 +193,23 @@ impl GameLogic {
         }
     }
 
-    /// Player.cpp:1028–1037 and Object.cpp:3770–3784. Disabled producers
-    /// already left the grid, but a disabled consumer still draws power.
+    /// Player.cpp:1028–1037 excludes construction from Team membership
+    /// accounting. Player's completion callback admits that energy separately.
     fn team_membership_energy(object: &Object) -> Option<i32> {
-        let energy = object.get_template().energy_production?;
-        (!object.status.under_construction
-            && (energy < 0 || (energy > 0 && !object.has_disabled_type())))
-            .then_some(energy)
+        if object.status.under_construction {
+            return None;
+        }
+        Self::template_energy_for_player(object)
     }
 
-    fn signal_template_energy_delta(&mut self, owner: u32, energy: i32, incoming: bool) {
+    /// Object.cpp:3770–3784 excludes disabled producers from influence.
+    /// Consumers continue to draw power regardless of the disabled mask.
+    pub(super) fn template_energy_for_player(object: &Object) -> Option<i32> {
+        let energy = object.get_template().energy_production?;
+        (energy < 0 || (energy > 0 && !object.has_disabled_type())).then_some(energy)
+    }
+
+    pub(super) fn signal_template_energy_delta(&mut self, owner: u32, energy: i32, incoming: bool) {
         let Some(player) = self.players.get_mut(&owner) else {
             return;
         };
@@ -336,7 +343,7 @@ impl GameLogic {
                 }) else {
                     continue;
                 };
-                let was_disabled = object.is_disabled();
+                let was_disabled = object.has_disabled_type();
                 let was_power = object.status.disabled_underpowered;
                 if brownout && !was_power && !object.is_power_style_disabled() {
                     object.queue_power_disable_misc_audio(true, &mut self.health_events);
@@ -349,7 +356,7 @@ impl GameLogic {
                     object.queue_power_disable_misc_audio(false, &mut self.health_events);
                 }
                 object.set_status_disabled_underpowered(brownout);
-                let now_disabled = object.is_disabled();
+                let now_disabled = object.has_disabled_type();
                 let producer_edge = if was_disabled != now_disabled {
                     object.producer_energy_on_disabled_edge()
                 } else {
@@ -659,6 +666,67 @@ End";
             world.players[&1].power_produced, 0,
             "EMP already removed this output"
         );
+    }
+
+    #[test]
+    fn instant_power_plant_completion_restores_grid_while_construction_flag_remains_set() {
+        let (mut world, plant, scaffold) = power_scaffold_world();
+        let (peer, peer_plant, peer_scaffold) = power_scaffold_world();
+        assert_eq!((plant, scaffold), (peer_plant, peer_scaffold));
+        let consumer = world
+            .create_object_for_player("PeriodicPowered", 1, Vec3::X)
+            .unwrap();
+        world.set_current_frame(5);
+        assert!(world.apply_owned_emp_disabled(plant, 30));
+        assert_eq!(world.players[&1].power_available, -10);
+        assert!(!world.players[&1].has_radar());
+        assert!(world.objects[&consumer].status.disabled_underpowered);
+
+        let instant = world
+            .create_instant_line_build_object_for_player(
+                "PeriodicPlant",
+                1,
+                Vec3::new(40., 0., 50.),
+                0.,
+                plant,
+            )
+            .unwrap();
+        assert!(world.objects[&instant].status.under_construction);
+        assert!(world.objects[&instant].construction_power_admitted);
+        assert_eq!(world.players[&1].power_produced, 20, "Player completion");
+        assert_eq!(world.players[&1].power_available, 10);
+        assert!(world.players[&1].has_radar());
+        assert!(!world.objects[&consumer].status.disabled_underpowered);
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let (mut restored, _, _) = power_scaffold_world();
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+        for owner in [&mut world, &mut restored] {
+            assert!(owner.objects[&instant].status.under_construction);
+            assert!(owner.objects[&instant].construction_power_admitted);
+            assert_eq!(owner.players[&1].power_produced, 20);
+            owner.update_player_resources(0.);
+            assert_eq!(owner.players[&1].power_produced, 20);
+            assert_eq!(owner.players[&1].power_consumed, 10);
+            assert!(owner.players[&1].has_radar());
+            assert!(!owner.objects[&consumer].status.disabled_underpowered);
+            assert!(owner.objects[&plant].status.disabled_emp);
+            assert!(owner.apply_owned_emp_disabled(instant, 12));
+            assert_eq!(owner.players[&1].power_produced, 0);
+            assert!(!owner.players[&1].has_radar());
+            owner.set_current_frame(12);
+            owner.expire_owned_disabled_statuses();
+            assert_eq!(owner.players[&1].power_produced, 20);
+            assert!(owner.players[&1].has_radar());
+            assert!(owner.objects[&instant].status.under_construction);
+        }
+        assert!(peer.players[&1].has_radar());
+        assert_eq!(peer.players[&1].power_produced, 20);
+        assert_eq!(peer.players[&1].power_consumed, 0);
     }
 
     #[test]

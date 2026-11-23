@@ -232,6 +232,11 @@ fn assert_owned_completion(world: &GameLogic, id: ObjectId) {
 #[test]
 fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules() {
     let (mut world, builder) = construction_world(1000, 7);
+    world
+        .templates
+        .get_mut("OwnedScaffold")
+        .unwrap()
+        .energy_production = Some(-15);
     let id = world
         .create_dozer_scaffold(
             "OwnedScaffold",
@@ -285,6 +290,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
         );
         assert!(!object.construction_power_admitted);
         assert_eq!(world.get_player(0).unwrap().statistics.resources_spent(), 0);
+        assert_eq!(world.get_player(0).unwrap().power_consumed, 0);
         assert_eq!(world.supply_create_center_registers, 0);
         assert_eq!(world.ai_manager.ai_players[&0].next_building_time, 700.0);
         assert!(
@@ -296,6 +302,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
     .unwrap();
     assert!(observed);
     assert_owned_completion(&world, id);
+    assert_eq!(world.get_player(0).unwrap().power_consumed, 15);
     assert!(
         crate::game_logic::host_preorder_create::has_preorder_model_bit(
             world.host_object(id).unwrap().model_condition_bits
@@ -307,6 +314,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
     );
     assert_eq!(world.supply_create_center_registers, 1);
     world.notify_structure_construction_complete(id).unwrap();
+    assert_eq!(world.get_player(0).unwrap().power_consumed, 15);
     assert_eq!(
         world.get_player(0).unwrap().statistics.resources_spent(),
         300

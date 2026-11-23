@@ -164,7 +164,7 @@ impl GameLogic {
         if let Some(object) = self.objects.get_mut(&structure) {
             object.construction_power_admitted = true;
         }
-        self.admit_completed_structure_power(owner, structure);
+        self.admit_completed_structure_power(structure);
         // The AI owner callback follows power admission; CreateModules are
         // invoked by BuildAssistant only after this entire Player callback.
         self.notify_owned_ai_structure_produced_with_effects(structure, interpreter, ui);

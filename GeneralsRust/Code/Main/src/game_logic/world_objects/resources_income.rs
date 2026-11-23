@@ -32,26 +32,31 @@ impl GameLogic {
         object.is_constructed() || object.construction_power_admitted
     }
 
-    pub(crate) fn admit_completed_structure_power(&mut self, player_id: u32, structure: ObjectId) {
-        // Object::friend_adjustPowerForPlayer skips disabled producers. Energy
-        // signals the Player for any other nonzero template contribution.
-        let signals_power = self.objects.get(&structure).is_some_and(|object| {
-            let energy = object.get_template().energy_production.unwrap_or_default();
-            energy < 0 || (energy > 0 && !object.is_disabled())
-        });
-        let totals = self.power_totals_for_player(player_id);
-        let Some(player) = self.players.get_mut(&player_id) else {
+    /// Player.cpp:1653 calls Object::friend_adjustPowerForPlayer even when
+    /// BuildAssistant leaves UNDER_CONSTRUCTION set after instant building.
+    pub(crate) fn admit_completed_structure_power(&mut self, id: ObjectId) {
+        let Some(object) = self.objects.get(&id) else {
             return;
         };
-        Self::apply_derived_power(player, totals, self.frame);
-        if signals_power {
-            let brownout = !player.has_sufficient_energy_at(self.frame);
-            self.admit_player_energy_brownout(player_id, brownout);
+        let Some(owner) = object.owner_player_id else {
+            return;
+        };
+        if let Some(energy) = Self::template_energy_for_player(object) {
+            self.signal_template_energy_delta(owner, energy, true);
+        } else if object.get_template().energy_production.is_none()
+            && (object.power_provided != 0 || object.power_consumed != 0)
+        {
+            // Older templates can still have power from BuildingData defaults.
+            // Preserve their derived totals until those defaults are migrated.
+            let totals = self.power_totals_for_player(owner);
+            if let Some(player) = self.players.get_mut(&owner) {
+                Self::apply_derived_power(player, totals, self.frame);
+            }
         }
     }
 
     pub(super) fn omit_disabled_production_from_grid(object: &Object) -> bool {
-        object.is_disabled()
+        object.has_disabled_type()
             && object
                 .get_template()
                 .energy_production
