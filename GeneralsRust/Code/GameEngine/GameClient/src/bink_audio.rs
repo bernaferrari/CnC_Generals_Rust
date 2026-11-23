@@ -7,6 +7,9 @@
 
 use std::f32::consts::PI;
 
+mod dct;
+use dct::BinkDct;
+
 const MAX_BANDS: usize = 25;
 const CRITICAL_FREQS: [u16; 25] = [
     100, 200, 300, 400, 510, 630, 770, 920, 1080, 1270, 1480, 1720, 2000, 2320, 2700, 3150, 3700,
@@ -219,6 +222,7 @@ pub fn split_frame_audio_and_video<'a>(
 }
 
 pub struct BinkAudioDecoder {
+    dct: Option<BinkDct>,
     track: BinkAudioTrack,
     len: usize,
     duration: usize,
@@ -250,16 +254,24 @@ impl BinkAudioDecoder {
         if single {
             duration >>= 1;
         }
-        let scale = if !track.use_dct {
-            1.0 / (32768.0 * (len as f32).sqrt())
-        } else {
+        let dct = track.use_dct && !track.version_b;
+        let scale = if dct {
+            (len as f32).sqrt() / 32768.0
+        } else if track.use_dct {
             (2.0 / (len as f32)).sqrt() / 1024.0
+        } else {
+            1.0 / (32768.0 * (len as f32).sqrt())
         };
-        let s_srate = if single { srate } else { srate >> 1 } as usize;
         let mut num_bands = 0;
         let mut bands = [0usize; MAX_BANDS + 1];
-        init_bands(s_srate, len, &mut num_bands, &mut bands);
+        if dct {
+            init_dct_bands(srate.div_ceil(2) as usize, len, &mut num_bands, &mut bands);
+        } else {
+            let s_srate = if single { srate } else { srate >> 1 } as usize;
+            init_bands(s_srate, len, &mut num_bands, &mut bands);
+        }
         Self {
+            dct: dct.then(|| BinkDct::new(len)),
             track,
             len,
             duration,
@@ -337,6 +349,9 @@ impl BinkAudioDecoder {
         if self.track.version_b {
             self.coeffs[0] = br.read_f32_bits()? * self.scale;
             self.coeffs[1] = br.read_f32_bits()? * self.scale;
+        } else if self.dct.is_some() {
+            self.coeffs[0] = read_dct_float(br)? * self.scale;
+            self.coeffs[1] = read_dct_float(br)? * self.scale;
         } else {
             self.coeffs[0] = read_bink_float(br)? * self.scale;
             self.coeffs[1] = read_bink_float(br)? * self.scale;
@@ -381,7 +396,9 @@ impl BinkAudioDecoder {
     }
 
     fn output(&mut self, dst: &mut [f32], off0: usize, off1: usize, chno: usize) {
-        if self.track.use_dct {
+        if let Some(dct) = &mut self.dct {
+            dct.run(&mut self.coeffs[..self.len]);
+        } else if self.track.use_dct {
             dct_iii_inplace(&mut self.coeffs[..self.len]);
         } else {
             rdft_inplace(&mut self.coeffs[..self.len]);
@@ -396,7 +413,18 @@ impl BinkAudioDecoder {
                 return;
             }
             let out = &mut dst[base..];
-            overlap(&self.delay[chno], &self.coeffs, out, overlap_len, 1);
+            if self.dct.is_some() {
+                let channels = usize::from(self.track.channels);
+                let weight = overlap_len * channels;
+                for (i, sample) in out.iter_mut().take(overlap_len).enumerate() {
+                    let incoming = i * channels + chno;
+                    *sample = (self.delay[chno][i] * (weight - incoming) as f32
+                        + self.coeffs[i] * incoming as f32)
+                        / weight as f32;
+                }
+            } else {
+                overlap(&self.delay[chno], &self.coeffs, out, overlap_len, 1);
+            }
             let copy_end = self.duration.min(out.len());
             if overlap_len < copy_end {
                 out[overlap_len..copy_end].copy_from_slice(&self.coeffs[overlap_len..copy_end]);
@@ -468,6 +496,15 @@ fn overlap(a: &[f32], b: &[f32], dst: &mut [f32], len: usize, step: usize) {
     }
 }
 
+/// Bink's DCT stores an explicit mantissa and a separate sign.
+fn read_dct_float(br: &mut BitReader) -> Result<f32, ()> {
+    let exponent = br.read(5)? as i32;
+    let mantissa = br.read(23)?;
+    let negative = br.read_bool()?;
+    let magnitude = mantissa as f32 * 2.0_f32.powi(exponent - 23);
+    Ok(if negative { -magnitude } else { magnitude })
+}
+
 fn read_bink_float(br: &mut BitReader) -> Result<f32, ()> {
     let exp = br.read(5)? as u8;
     let mant = br.read(23)?;
@@ -483,6 +520,24 @@ fn quant_table() -> [f32; 96] {
         *slot = (i as f32 * 0.152_891_65).exp();
     }
     q
+}
+
+/// Bink DCT quantizer boundaries are even coefficient indices.
+fn init_dct_bands(
+    sample_rate_half: usize,
+    frame_len: usize,
+    num_bands: &mut usize,
+    bands: &mut [usize],
+) {
+    *num_bands = 1 + CRITICAL_FREQS[..MAX_BANDS - 1]
+        .iter()
+        .take_while(|&&freq| sample_rate_half > usize::from(freq))
+        .count();
+    bands[0] = 2;
+    for (band, &freq) in bands[1..*num_bands].iter_mut().zip(&CRITICAL_FREQS) {
+        *band = (usize::from(freq) * frame_len / sample_rate_half.max(1)) & !1;
+    }
+    bands[*num_bands] = frame_len;
 }
 
 fn init_bands(sample_rate: usize, frame_len: usize, num_bands: &mut usize, bands: &mut [usize]) {

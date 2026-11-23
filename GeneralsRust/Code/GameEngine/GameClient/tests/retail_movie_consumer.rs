@@ -64,18 +64,54 @@ fn retail_ea_logo_decoded_audio_length_uses_pcm_bytes() {
     let decoder = BinkDecoder::from_bytes(bytes).expect("open the real Bink container");
     assert_eq!(decoder.header().audio_track_count, 1);
 
-    for (frame, declared_bytes) in [(0, 145_920), (1, 7_680)] {
+    // Stock waveform witnesses from FFmpeg's Bink DCT decoder. Both
+    // packets include independent left and right values after overlap.
+    let expected = [
+        (
+            0,
+            145_920,
+            [
+                (26_870, 0.253_387_81),
+                (26_871, 0.100_617_826),
+                (41_321, -0.067_972_109),
+                (56_510, 0.019_652_925),
+                (56_511, 0.104_742_85),
+                (72_959, 0.144_397_5),
+            ],
+        ),
+        (
+            1,
+            7_680,
+            [
+                (0, 0.149_031_03),
+                (1, 0.158_363_33),
+                (47, 0.174_890_07),
+                (48, -0.002_807_607_4),
+                (216, -0.096_859_68),
+                (217, -0.140_356_65),
+            ],
+        ),
+    ];
+    for (frame, declared_bytes, samples) in expected {
         let (packets, _) = split_frame_audio_and_video(decoder.packet(frame), layout.tracks.len());
         let packet = packets[0];
         let pcm_bytes = u32::from_le_bytes(packet[..4].try_into().unwrap()) as usize;
         assert_eq!(pcm_bytes, declared_bytes);
+        let started = std::time::Instant::now();
         let pcm = audio.decode_packet(packet);
+        eprintln!("EA_LOGO audio packet {frame} decode {:?}", started.elapsed());
         assert_eq!(
             pcm.len(),
             pcm_bytes / std::mem::size_of::<i16>(),
             "retail EA logo audio packet {frame}",
         );
-        assert!(pcm.iter().any(|&sample| sample != 0.0));
+        for (sample, expected) in samples {
+            assert!(
+                (pcm[sample] - expected).abs() < 2e-6,
+                "EA_LOGO packet {frame} sample {sample}: {} vs {expected}",
+                pcm[sample],
+            );
+        }
     }
 
     let impossible_size = [0xfc, 0xff, 0xff, 0xff, 0x00];

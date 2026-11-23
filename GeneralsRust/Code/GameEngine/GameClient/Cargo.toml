@@ -83,6 +83,7 @@ tiff = {workspace = true}
 # Audio support
 # Single comprehensive game audio library (replaces cpal + rodio + hound)
 kira = {workspace = true, features = ["symphonia", "wav", "ogg", "flac", "mp3"]}
+realfft = { workspace = true }
 num_cpus = {workspace = true}
 
 # Video playback - using simpler alternatives for now
