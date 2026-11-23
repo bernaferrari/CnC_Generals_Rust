@@ -191,7 +191,9 @@ End
     world.mark_object_for_destruction(id, None);
     assert_corpse(&world, id);
     world.update_player_resources(0.0);
-    assert_eq!(world.get_player(0).unwrap().power_produced, 0);
+    // Original onDie leaves this structure on its Team. The destructor
+    // removes its energy contribution with setTeam(NULL).
+    assert_eq!(world.get_player(0).unwrap().power_produced, 10);
     (world, id, victim)
 }
 
@@ -242,7 +244,7 @@ fn exercise_retained_body(coupled: bool) {
             }
             assert_corpse(&world, id);
             assert!(world.get_next_mood_target(id, true, true).is_none());
-            assert_eq!(world.get_player(0).unwrap().power_produced, 0);
+            assert_eq!(world.get_player(0).unwrap().power_produced, 10);
             completed = finished(&world, id, collapse);
             if completed {
                 break;
@@ -292,8 +294,10 @@ fn exercise_retained_body(coupled: bool) {
                 .count(),
             1
         );
+        assert_eq!(world.get_player(0).unwrap().power_produced, 10);
         world.process_destroy_list();
         assert!(world.host_object(id).is_none());
+        assert_eq!(world.get_player(0).unwrap().power_produced, 0);
     }
 }
 
