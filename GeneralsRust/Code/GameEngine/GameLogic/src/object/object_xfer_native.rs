@@ -90,6 +90,7 @@ pub(crate) struct ObjectXferDefinitions<'a> {
     pub body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
     module_factory: &'a game_engine::common::thing::module_factory::ModuleFactory,
     pub frame: u32,
+    repulsors_enabled: bool,
 }
 
 impl<'a> ObjectXferDefinitions<'a> {
@@ -103,6 +104,7 @@ impl<'a> ObjectXferDefinitions<'a> {
         weapon_sets: Arc<ObjectWeaponSetCatalog>,
         module_factory: &'a game_engine::common::thing::module_factory::ModuleFactory,
         frame: u32,
+        repulsors_enabled: bool,
     ) -> Result<Self, String> {
         weapon_sets.validate_owners(things, weapons)?;
         Ok(Self {
@@ -115,6 +117,7 @@ impl<'a> ObjectXferDefinitions<'a> {
             body_definitions,
             module_factory,
             frame,
+            repulsors_enabled,
         })
     }
 
@@ -140,12 +143,6 @@ impl<'a> ObjectXferDefinitions<'a> {
         let template = self
             .thing(name)
             .ok_or_else(|| format!("missing receiving ThingTemplate {name}"))?;
-        // This helper's construction branch would otherwise consult TheAI.
-        if template.is_kind_of(KindOf::CanBeRepulsed) {
-            return Err(
-                "native Object restore requires supplied repulsor construction rules".into(),
-            );
-        }
         // Base energy follows the receiving team membership callbacks.
         // The module admission below controls upgrade and overcharge effects.
         for entry in template.get_behavior_module_info() {
@@ -218,6 +215,7 @@ impl<'a> ObjectXferDefinitions<'a> {
                 &mut |name| Ok(self.locomotor(name)),
                 self.body_definitions.clone(),
                 self.module_factory,
+                Some(self.repulsors_enabled),
             )
             .map_err(|error| error.to_string())?;
         let owner = factory
@@ -252,6 +250,7 @@ impl<'a> ObjectXferDefinitions<'a> {
                 &mut |name| Ok(self.locomotor(name)),
                 self.body_definitions.clone(),
                 self.module_factory,
+                Some(self.repulsors_enabled),
             )
             .map_err(|error| error.to_string())?;
         let owner = factory

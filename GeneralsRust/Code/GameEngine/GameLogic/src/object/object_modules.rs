@@ -540,7 +540,7 @@ impl Object {
     }
 
     /// C++ Object.cpp:299-384 — helpers first on `m_behaviors`, then template modules.
-    pub(super) fn install_ctor_helpers(&mut self) {
+    pub(super) fn install_ctor_helpers(&mut self, repulsors_enabled: Option<bool>) {
         // Object.cpp:301-305 — always ObjectSMCHelper / ModuleTag_SMCHelper.
         if self.smc_helper.is_none() {
             self.smc_helper = Some(crate::object::helper::ObjectSMCHelper::new(
@@ -574,7 +574,8 @@ impl Object {
 
         // Object.cpp:337-347 — TheAI && enableRepulsors && KINDOF_CAN_BE_REPULSED.
         if self.repulsor_helper.is_none()
-            && template_wants_repulsor_helper(self.thing_template.as_ref())
+            && self.thing_template.is_kind_of(KindOf::CanBeRepulsed)
+            && repulsors_enabled.unwrap_or_else(compatibility_repulsors_enabled)
         {
             self.repulsor_helper = Some(crate::object::helper::ObjectRepulsorHelper::new(
                 crate::object::helper::ObjectRepulsorHelperModuleData::new(),
@@ -997,6 +998,7 @@ impl Object {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -1009,6 +1011,7 @@ impl Object {
         module_factory: Option<&ModuleFactory>,
         cave_system: Option<crate::object::ObjectWorld>,
         module_birth_frame: Option<u32>,
+        repulsors_enabled: Option<bool>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let unpublished = !object
             .read()
@@ -1347,7 +1350,7 @@ impl Object {
             }
 
             // Helpers first on m_behaviors, then template modules (Object.cpp:299-437).
-            guard.install_ctor_helpers();
+            guard.install_ctor_helpers(repulsors_enabled);
         }
 
         if prepare_unit_ai {
@@ -1565,10 +1568,7 @@ impl Object {
     }
 }
 
-fn template_wants_repulsor_helper(template: &dyn ThingTemplate) -> bool {
-    if !template.is_kind_of(KindOf::CanBeRepulsed) {
-        return false;
-    }
+fn compatibility_repulsors_enabled() -> bool {
     crate::ai::the_ai()
         .read()
         .ok()

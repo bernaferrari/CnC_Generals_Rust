@@ -285,6 +285,7 @@ impl ObjectFactory {
             None,
             None,
             None,
+            None,
             borrowed_head,
         )
     }
@@ -316,6 +317,7 @@ impl ObjectFactory {
             game_logic.owned_object_world(),
             game_logic.owned_player_list(),
             None,
+            None,
         )?;
         let owner = self
             .get_object(id)
@@ -338,6 +340,7 @@ impl ObjectFactory {
         lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
         body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
         module_factory: &ModuleFactory,
+        repulsors_enabled: Option<bool>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         let name = template.get_name().to_string();
         self.template_cache.insert(name.clone(), template);
@@ -355,6 +358,7 @@ impl ObjectFactory {
             Some(module_factory),
             game_logic.owned_object_world(),
             game_logic.owned_player_list(),
+            repulsors_enabled,
             None,
         )?;
         let owner = self
@@ -375,6 +379,7 @@ impl ObjectFactory {
         lookup: &mut crate::locomotor::LocomotorTemplateLookup<'_>,
         body_definitions: Arc<crate::object::body::active_body::BodyDefinitionCatalog>,
         module_factory: &ModuleFactory,
+        repulsors_enabled: Option<bool>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         if object_id == crate::common::INVALID_ID
             || object_id == ObjectID::MAX
@@ -399,6 +404,7 @@ impl ObjectFactory {
             Some(module_factory),
             None,
             None,
+            repulsors_enabled,
             None,
         )
     }
@@ -418,6 +424,7 @@ impl ObjectFactory {
         module_factory: Option<&ModuleFactory>,
         mut cave_system: Option<crate::object::ObjectWorld>,
         mut owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
+        repulsors_enabled: Option<bool>,
         borrowed_head: Option<&mut Object>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Get template
@@ -487,6 +494,7 @@ impl ObjectFactory {
             cave_system,
             owner_roster,
             module_birth_frame,
+            repulsors_enabled,
         )?;
 
         // Set object ID and position

@@ -228,7 +228,7 @@ impl MinefieldPlacementServices for OwnedMinefieldPlacementServices<'_> {
         // C++ ThingFactory::newObject under the identity GameLogic allocated.
         let mut lookup = |_name: &str| Ok(None);
         self.factory
-            .prepare_saved_object(definition, id, &mut lookup, self.bodies.clone(), self.modules)
+            .prepare_saved_object(definition, id, &mut lookup, self.bodies.clone(), self.modules, None)
             .map_err(|e| unavailable(e.to_string()))?;
         let mine = self
             .factory
@@ -482,6 +482,7 @@ mod tests {
                 &mut lookup,
                 bodies.clone(),
                 &modules,
+                Some(false),
             )
             .unwrap();
         let mut services = OwnedMinefieldPlacementServices {
@@ -612,6 +613,7 @@ mod tests {
                 &mut lookup,
                 bodies.clone(),
                 &modules,
+                Some(false),
             )
             .unwrap();
         let mut services = OwnedMinefieldPlacementServices {

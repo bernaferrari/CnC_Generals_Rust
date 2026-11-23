@@ -107,10 +107,11 @@ fn receiving_damage_world_kinded(physics: bool, kind: KindOf) -> NativeMatch {
             &mut lookup,
             Arc::clone(&definitions),
             &catalog,
+            Some(false),
         )
         .unwrap();
     factory
-        .prepare_saved_object(target_template, 2, &mut lookup, definitions, &catalog)
+        .prepare_saved_object(target_template, 2, &mut lookup, definitions, &catalog, Some(false))
         .unwrap();
     game.source = factory.get_object(1).unwrap().get_base_object().unwrap();
     game.target = factory.get_object(2).unwrap().get_base_object().unwrap();
@@ -186,7 +187,7 @@ fn undead_native_nonlethal_damage_is_owned_and_first_death_is_rejected_before_mu
             HashMap::new(), HashMap::new(),
         ).unwrap());
         let mut factory = ObjectFactory::new();
-        factory.prepare_saved_object(template, 1, &mut |_name: &str| Ok(None), definitions, &catalog).unwrap();
+        factory.prepare_saved_object(template, 1, &mut |_name: &str| Ok(None), definitions, &catalog, Some(false)).unwrap();
         game.source = factory.get_object(1).unwrap().get_base_object().unwrap();
         game.factory = factory;
         game

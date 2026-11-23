@@ -64,6 +64,7 @@ impl MinefieldFixture {
                 &mut lookup,
                 fixture.bodies.clone(),
                 &fixture.modules,
+                Some(false),
             )
             .unwrap();
         let owner = fixture
@@ -135,6 +136,7 @@ impl MinefieldFixture {
                 &mut lookup,
                 self.bodies.clone(),
                 &self.modules,
+                Some(false),
             )
             .unwrap();
         self.position(id, position, orientation);

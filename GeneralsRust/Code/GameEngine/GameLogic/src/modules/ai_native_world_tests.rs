@@ -392,6 +392,7 @@ impl NativeMatch {
                 &mut lookup,
                 bodies.clone(),
                 &module_catalog,
+                Some(false),
             )
             .unwrap();
         let expects_containment = template
@@ -417,6 +418,7 @@ impl NativeMatch {
                 &mut lookup,
                 bodies,
                 &module_catalog,
+                Some(false),
             )
             .unwrap();
         team.write().unwrap().add_member(source_id);

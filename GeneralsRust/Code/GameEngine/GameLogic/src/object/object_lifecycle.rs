@@ -130,6 +130,7 @@ impl Object {
             cave_system,
             owner_roster,
             None,
+            None,
         )
     }
 
@@ -158,6 +159,7 @@ impl Object {
             cave_system,
             owner_roster,
             None,
+            None,
         )
     }
 
@@ -174,6 +176,7 @@ impl Object {
         cave_system: Option<crate::object::ObjectWorld>,
         owner_roster: Option<Arc<RwLock<crate::player::PlayerList>>>,
         module_birth_frame: Option<u32>,
+        repulsors_enabled: Option<bool>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         // set_team runs on the still-unshared object: registration below is
         // what publishes the id, so the previous uniquely-owned write guard
@@ -231,6 +234,7 @@ impl Object {
             module_factory.or(local_catalog.as_ref()),
             cave_system,
             module_birth_frame,
+            repulsors_enabled,
         ) {
             if publish && object_id != INVALID_ID {
                 OBJECT_REGISTRY.unregister_object(object_id);
@@ -1826,7 +1830,7 @@ impl Object {
             crate::object::body::active_body::ActiveBody::new_with_owner(module_data, obj.get_id()),
         ));
         obj.body = Some(body);
-        obj.install_ctor_helpers();
+        obj.install_ctor_helpers(None);
         obj
     }
 
@@ -1852,7 +1856,7 @@ impl Object {
             crate::object::body::active_body::ActiveBody::new_with_owner(module_data, obj.get_id()),
         ));
         obj.body = Some(body);
-        obj.install_ctor_helpers();
+        obj.install_ctor_helpers(None);
         obj
     }
 

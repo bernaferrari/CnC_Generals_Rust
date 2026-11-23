@@ -162,6 +162,7 @@ fn lifecycle_world_with_tunnel_count(
                 &mut lookup,
                 Arc::clone(&bodies),
                 &catalog,
+                Some(false),
             )
             .unwrap();
         let object = factory.get_object(id).unwrap().get_base_object().unwrap();

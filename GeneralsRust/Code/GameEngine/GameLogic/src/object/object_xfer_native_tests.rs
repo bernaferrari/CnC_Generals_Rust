@@ -154,6 +154,14 @@ impl Definitions {
         }
     }
     fn borrowed(&self, frame: u32) -> ObjectXferDefinitions<'_> {
+        self.borrowed_with_repulsors(frame, false)
+    }
+
+    fn borrowed_with_repulsors(
+        &self,
+        frame: u32,
+        repulsors_enabled: bool,
+    ) -> ObjectXferDefinitions<'_> {
         ObjectXferDefinitions::with_catalog(
             &self.things,
             &self.weapons,
@@ -164,9 +172,53 @@ impl Definitions {
             self.weapon_sets.clone(),
             &self.module_factory,
             frame,
+            repulsors_enabled,
         )
         .unwrap()
     }
+}
+
+#[test]
+fn native_repulsor_helper_uses_receiving_rules_for_birth_and_restore() {
+    use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
+    use crate::system::game_logic::GameLogic;
+
+    let name = "RepulsibleConstruction";
+    let mut template = DefaultThingTemplate::new(name.into());
+    template.add_kind_of(KindOf::CanBeRepulsed);
+    let mut definitions = Definitions::new(100.0);
+    definitions.things.insert(name.into(), Arc::new(template));
+    definitions.weapon_sets = Arc::new(
+        ObjectWeaponSetCatalog::from_definitions(&definitions.things, &definitions.weapons)
+            .unwrap(),
+    );
+    let unrelated_services = crate::system::engine_stores::new_world_services();
+    crate::system::engine_stores::with_world_services(&unrelated_services, || {
+        for enabled in [true, false] {
+            let rules = definitions.borrowed_with_repulsors(41, enabled);
+            let mut factory = ObjectFactory::new();
+            let mut logic = GameLogic::new();
+            let actor = rules
+                .prepare_new_object(
+                    &mut factory,
+                    &mut logic,
+                    name,
+                    Coord3D::new(50.0, 50.0, 0.0),
+                    None,
+                    ObjectCreationFlags::NO_AI,
+                )
+                .unwrap();
+            let actor = actor.read().unwrap();
+            assert_eq!(actor.repulsor_helper.is_some(), enabled);
+
+            let restored = rules
+                .prepare_object(&mut ObjectFactory::new(), name, actor.get_id())
+                .unwrap();
+            let restored = restored.read().unwrap();
+            assert_eq!(restored.get_id(), actor.get_id());
+            assert_eq!(restored.ctor_helper_xfer_tags(), actor.ctor_helper_xfer_tags());
+        }
+    });
 }
 
 // This family's zero-energy/no-radar templates cannot issue an edge. A bad

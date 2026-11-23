@@ -113,6 +113,7 @@ pub(super) fn native_world_with_templates(
                 &mut lookup,
                 bodies.clone(),
                 &catalog,
+                Some(false),
             )
             .unwrap();
         let object = factory.get_object(id).unwrap().get_base_object().unwrap();

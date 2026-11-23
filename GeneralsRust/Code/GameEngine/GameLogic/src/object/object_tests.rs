@@ -431,7 +431,7 @@ mod tests {
                 None,
             );
             object.ambient_lifecycle_admitted = false;
-            object.install_ctor_helpers();
+            object.install_ctor_helpers(None);
             object
         };
         let mut first = helper_owner(77);

@@ -99,6 +99,7 @@ impl Catalog {
             self.weapon_sets.clone(),
             &self.module_factory,
             frame,
+            false,
         )
         .unwrap()
     }

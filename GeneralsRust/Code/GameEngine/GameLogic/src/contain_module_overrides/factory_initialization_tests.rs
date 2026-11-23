@@ -139,6 +139,7 @@ fn cave_factory_uses_the_supplied_owner_when_a_foreign_world_is_active() {
             &mut scheduler, template, Coord3D::ZERO, None,
             crate::object::object_factory::ObjectCreationFlags::NO_AI,
             &mut |_name: &str| Ok(None), bodies, &catalog,
+            Some(false),
         ).expect("owned cave assembly");
         let object = objects.get_object(id).unwrap().get_base_object().unwrap();
         object.write().unwrap().on_build_complete();
@@ -268,6 +269,7 @@ fn failed_native_factory_assembly_does_not_admit_object_or_schedule() {
             &mut lookup,
             bodies,
             &catalog(),
+            Some(false),
         )
         .err()
         .expect("failed module must abort unpublished object assembly");

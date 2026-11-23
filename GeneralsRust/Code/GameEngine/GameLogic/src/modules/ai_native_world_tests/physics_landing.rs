@@ -118,7 +118,7 @@ fn game_config(
     );
     let mut lookup = |_name: &str| Ok(None);
     factory
-        .prepare_saved_object(template, 1, &mut lookup, definitions, &catalog)
+        .prepare_saved_object(template, 1, &mut lookup, definitions, &catalog, Some(false))
         .unwrap();
     game.source = factory.get_object(1).unwrap().get_base_object().unwrap();
     game.factory = factory;

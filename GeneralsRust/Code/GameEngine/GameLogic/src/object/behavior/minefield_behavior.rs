@@ -1426,6 +1426,7 @@ mod tests {
                     &mut |_: &str| Ok(None),
                     definitions,
                     get_module_factory().unwrap().as_ref().unwrap(),
+                    Some(false),
                 )
                 .unwrap();
             assert_eq!(id, peer.read().unwrap().get_id());
@@ -1511,6 +1512,7 @@ mod tests {
                     &mut |_: &str| Ok(None),
                     Arc::clone(&definitions),
                     modules,
+                    Some(false),
                 )
                 .unwrap();
             let field = logic
@@ -1533,7 +1535,7 @@ mod tests {
             logic.set_current_frame(717);
             let mut restored = ObjectFactory::new();
             restored
-                .prepare_saved_object(template, id, &mut |_: &str| Ok(None), definitions, modules)
+                .prepare_saved_object(template, id, &mut |_: &str| Ok(None), definitions, modules, Some(false))
                 .unwrap();
             restored
                 .get_object(id)
