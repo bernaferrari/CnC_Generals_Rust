@@ -42,16 +42,6 @@ pub(crate) struct OwnedObjectTransform {
     pub(crate) pose_changed: bool,
 }
 
-/// Active map extent of the actor's world, as in Object.cpp:1764–1771.
-/// Detached compatibility actors may still use the installed services.
-fn receiving_terrain_extent(object: &Object) -> Option<crate::common::Region3D> {
-    let services = object
-        .owning_world_services()
-        .or_else(crate::system::engine_stores::try_active_services)?;
-    let terrain = services.terrain().read().ok()?;
-    Some(active_compatibility_extent(&terrain))
-}
-
 fn active_compatibility_extent(terrain: &crate::terrain::TerrainLogic) -> crate::common::Region3D {
     let extent = terrain.get_extent();
     if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
@@ -121,30 +111,44 @@ impl Object {
         }
     }
 
-    /// Set the object's transform matrix
-    /// C++ Reference: Object.cpp - transform matrix setter
+    /// C++ Thing::setTransformMatrix. Detached compatibility callers retain
+    /// the current facade, with rejected terrain borrows reported at the edge.
     pub fn set_transform_matrix(&mut self, matrix: &Matrix3D) {
-        self.set_transform_matrix_with_trigger_context(matrix, None, &mut |id| {
+        if let Err(error) = self.set_transform_matrix_with_trigger_context(matrix, None, &mut |id| {
             crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id);
-        });
+        }) {
+            warn!("Object {} transform rejected: {error}", self.id);
+        }
     }
 
-    /// The object load caller already borrows its driving GameLogic. Trigger
-    /// notifications remain synchronous, without reacquiring that same owner.
+    /// The object-load caller already borrows its driving GameLogic. Observe
+    /// the receiving terrain before writing any pose or firing a callback.
     pub(super) fn set_transform_matrix_with_trigger_context(
         &mut self,
         matrix: &Matrix3D,
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
-    ) {
-        self.set_transform_matrix_with_pose_and_extent(
-            matrix,
-            None,
-            frame,
-            changed,
-            &mut Self::calculate_height_above_terrain,
-            receiving_terrain_extent,
-        );
+    ) -> Result<(), String> {
+        let position = matrix.w_axis.truncate();
+        let services = self
+            .owning_world_services()
+            .or_else(crate::system::engine_stores::try_active_services);
+        let (height, extent) = if let Some(services) = services {
+            let terrain = services
+                .terrain()
+                .try_read()
+                .map_err(|_| "Object transform terrain is already borrowed")?;
+            let ground = crate::helpers::TheTerrainLogic::get_layer_height_in(
+                &terrain, position.x, position.y, self.layer,
+            );
+            let extent = is_position_different(self.geometry_info.position, position)
+                .then(|| active_compatibility_extent(&terrain));
+            (position.z - ground, extent)
+        } else {
+            (position.z, None)
+        };
+        self.set_transform_matrix_with_pose_and_extent(matrix, None, frame, changed, height, extent);
+        Ok(())
     }
 
     fn set_transform_matrix_with_pose_and_extent(
@@ -153,8 +157,8 @@ impl Object {
         cached_pose: Option<(Coord3D, Real)>,
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
-        height: &mut dyn FnMut(&Object) -> Real,
-        extent_for_refresh: impl FnOnce(&Object) -> Option<crate::common::Region3D>,
+        height: Real,
+        extent: Option<crate::common::Region3D>,
     ) {
         let (pos_diff, ang_diff) = self.apply_transform_local(matrix, cached_pose, height);
         let translation = self.geometry_info.position;
@@ -183,7 +187,7 @@ impl Object {
         if pos_diff {
             self.set_trigger_area_flags_with_context(frame, changed);
             // C++ reactToTransformChange refreshes OFF_MAP from active bounds.
-            if let Some(extent) = extent_for_refresh(self) {
+            if let Some(extent) = extent {
                 self.refresh_off_map_status(&extent);
             }
         }
@@ -194,7 +198,7 @@ impl Object {
         &mut self,
         matrix: &Matrix3D,
         cached_pose: Option<(Coord3D, Real)>,
-        height: &mut dyn FnMut(&Object) -> Real,
+        height: Real,
     ) -> (bool, bool) {
         // Thing.cpp:226-241 copies the rows directly. Translation does not
         // require decomposition: finite shear/singular bases are valid rows.
@@ -205,7 +209,7 @@ impl Object {
         self.transform_matrix = *matrix;
         self.geometry_info.position = translation;
         self.geometry_info.angle = new_angle;
-        self.geometry_info.height_above_terrain = height(self);
+        self.geometry_info.height_above_terrain = height;
 
         if let Some(drawable) = &self.drawable {
             if let Ok(mut drawable) = drawable.write() {
@@ -311,16 +315,8 @@ impl Object {
         } else {
             None
         };
-        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, None, &mut |object| {
-            let p = object.get_position();
-            p.z - terrain.get_layer_height(
-                p.x,
-                p.y,
-                crate::path::PathfindLayerEnum::from_u32(object.get_layer() as u32),
-                None,
-                false,
-            )
-        });
+        let height = self.native_transform_height(translation, terrain);
+        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, None, height);
         if pos_diff || ang_diff {
             if let Some(contain) = empty_contain.as_mut() {
                 contain.redeploy_riders_at(&self.geometry_info.position, &[]);
@@ -352,24 +348,28 @@ impl Object {
         if !matrix.is_finite() {
             return Err("owned transform is nonfinite".into());
         }
-        let (position_changed, angle_changed) =
-            self.apply_transform_local(matrix, None, &mut |object| {
-                let position = object.get_position();
-                position.z
-                    - terrain.get_layer_height(
-                        position.x,
-                        position.y,
-                        crate::path::PathfindLayerEnum::from_u32(object.get_layer() as u32),
-                        None,
-                        false,
-                    )
-            });
+        let height = self.native_transform_height(matrix.w_axis.truncate(), terrain);
+        let (position_changed, angle_changed) = self.apply_transform_local(matrix, None, height);
         let pose_changed = position_changed || angle_changed;
         self.dirty_partition_for_owned_pose(pose_changed, collision)?;
         Ok(OwnedObjectTransform {
             position_changed,
             pose_changed,
         })
+    }
+
+    fn native_transform_height(
+        &self,
+        position: Coord3D,
+        terrain: &crate::terrain::TerrainLogic,
+    ) -> Real {
+        position.z - terrain.get_layer_height(
+            position.x,
+            position.y,
+            crate::path::PathfindLayerEnum::from_u32(self.layer as u32),
+            None,
+            false,
+        )
     }
 
     fn dirty_partition_for_owned_pose(
@@ -746,8 +746,8 @@ impl Object {
                 None,
                 None,
                 &mut |id| crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id),
-                &mut |_| height,
-                |_| Some(extent),
+                height,
+                Some(extent),
             );
             return Ok(());
         }
@@ -1211,8 +1211,8 @@ impl Object {
             Some((position, normalize_orientation_angle(angle))),
             None,
             &mut |id| crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id),
-            &mut |_| height,
-            |_| extent,
+            height,
+            extent,
         );
         Ok(())
     }
@@ -1630,9 +1630,11 @@ mod trigger_identity_tests {
         let mut second_notifications = Vec::new();
         let transform = Matrix3D::from_translation(Coord3D::new(21.0, 20.0, 0.0));
 
-        first.set_transform_matrix_with_trigger_context(&transform, Some(7), &mut |object_id| {
-            first_notifications.push(object_id);
-        });
+        first
+            .set_transform_matrix_with_trigger_context(&transform, Some(7), &mut |object_id| {
+                first_notifications.push(object_id);
+            })
+            .unwrap();
         assert!(first.trigger_info[0].exited);
         assert!(!first.trigger_info[0].is_inside);
         assert_eq!(first.entered_or_exited_frame, 7);
@@ -1640,9 +1642,11 @@ mod trigger_identity_tests {
         assert!(!second.trigger_info[0].exited);
         assert_eq!(second.entered_or_exited_frame, 0);
 
-        second.set_transform_matrix_with_trigger_context(&transform, Some(19), &mut |object_id| {
-            second_notifications.push(object_id);
-        });
+        second
+            .set_transform_matrix_with_trigger_context(&transform, Some(19), &mut |object_id| {
+                second_notifications.push(object_id);
+            })
+            .unwrap();
         assert!(second.trigger_info[0].exited);
         assert_eq!(second.entered_or_exited_frame, 19);
         assert_eq!(second_notifications.first(), Some(&id));

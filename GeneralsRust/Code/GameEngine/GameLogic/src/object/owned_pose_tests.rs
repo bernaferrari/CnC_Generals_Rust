@@ -333,3 +333,58 @@ fn compatibility_position_caches_height_from_the_receiving_map() {
         });
     }
 }
+
+#[test]
+fn compatibility_matrix_observes_owner_height_and_rejects_borrow_conflicts() {
+    use crate::system::engine_stores::{EngineStores, new_for_world, with_active_stores};
+    use crate::system::map_loader::MapData;
+
+    fn populated(height: u8, active_cells: i32) -> Arc<EngineStores> {
+        let stores = new_for_world();
+        let mut map = MapData::new();
+        map.width = 10;
+        map.height = 10;
+        map.heightmap = vec![height; 100];
+        map.boundaries = vec![
+            crate::common::ICoord2D::new(10, 10),
+            crate::common::ICoord2D::new(active_cells, active_cells),
+        ];
+        let mut terrain = stores.services().terrain().write().unwrap();
+        terrain.load_map_data(map);
+        terrain.restore_active_boundary_from_snapshot(1);
+        drop(terrain);
+        stores
+    }
+
+    let owner = populated(40, 5);
+    let peer = populated(0, 10);
+    let mut object = inert_object();
+    object.bind_owner_world_for_test(owner.services());
+    let inside = Coord3D::new(30.0, 25.0, 100.0);
+    let outside = Coord3D::new(60.0, 25.0, 100.0);
+    with_active_stores(&peer, || {
+        let initial = Matrix3D::from_translation(inside);
+        object.set_transform_matrix(&initial);
+        assert_eq!(object.get_height_above_terrain(), 75.0);
+        assert!(!object.is_off_map());
+
+        let next = Matrix3D::from_translation(outside);
+        let owner_write = owner.services().terrain().write().unwrap();
+        let result = object.set_transform_matrix_with_trigger_context(
+            &next,
+            Some(30),
+            &mut |_| panic!("terrain rejection precedes trigger notifications"),
+        );
+        assert!(result.is_err());
+        assert_eq!(object.get_transform_matrix(), initial);
+        assert_eq!(*object.get_position(), inside);
+        assert_eq!(object.get_height_above_terrain(), 75.0);
+        assert!(!object.is_off_map());
+        drop(owner_write);
+
+        object.set_transform_matrix(&next);
+        assert_eq!(*object.get_position(), outside);
+        assert_eq!(object.get_height_above_terrain(), 75.0);
+        assert!(object.is_off_map());
+    });
+}

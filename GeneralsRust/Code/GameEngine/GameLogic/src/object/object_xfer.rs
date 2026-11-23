@@ -595,8 +595,7 @@ impl Object {
         changed: &mut dyn FnMut(ObjectID),
     ) -> Result<(), ObjectXferError> {
         let mut prefix = self.xfer_prefix(xfer, &mut |object, matrix| {
-            object.set_transform_matrix_with_trigger_context(&matrix, frame, changed);
-            Ok(())
+            object.set_transform_matrix_with_trigger_context(&matrix, frame, changed)
         })?;
         prefix.frame = frame;
         let is_loading = prefix.mode == game_engine::system::XferMode::Load;
