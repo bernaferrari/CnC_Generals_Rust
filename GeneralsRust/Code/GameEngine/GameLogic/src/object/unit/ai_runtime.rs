@@ -2469,6 +2469,13 @@ impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
             Ok(())
         }
     }
+    fn wake_after_state_change(&mut self) -> Result<(), String> {
+        if let Some(world) = self.world.as_deref_mut() {
+            let owner = self.runtime.owner_object_id().ok_or("waking AI has no owner")?;
+            world.shorten_ai_queue_wake(owner, 1)?;
+        }
+        Ok(())
+    }
     fn is_temporarily_preventing_aim_success(&self) -> bool {
         self.runtime.is_temporarily_preventing_aim_success()
     }

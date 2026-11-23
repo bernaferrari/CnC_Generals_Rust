@@ -4,21 +4,23 @@ use crate::ai::states::AIStateType;
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 
 #[test]
-fn factory_busy_enters_actual_machine_and_clears_owned_path_timer() {
+fn factory_busy_enters_actual_machine_and_preserves_owned_path_timer() {
     if !child(concat!(
         module_path!(),
-        "::factory_busy_enters_actual_machine_and_clears_owned_path_timer"
+        "::factory_busy_enters_actual_machine_and_preserves_owned_path_timer"
     )) {
         return;
     }
     let _serial = crate::test_sync::lock();
     definitions();
-    let _frame = RestoreAmbientFrame::set(17);
+    let frame = 17_u32;
+    let delay = 123;
+    let _frame = RestoreAmbientFrame::set(frame.into());
     let actual = FactoryRuntime::new();
     let mut ai = actual.ai.lock().unwrap();
-    ai.set_queue_for_path_time(123);
-    // CPP AIUpdate.cpp4002-4007: clear, set source, enter AI_BUSY. The
-    // machine-change callback clears the owned path timer synchronously.
+    ai.set_queue_for_path_time(delay);
+    // CPP AIUpdate.cpp4002-4007: clear, set source, enter AI_BUSY.
+    // CPP975 wakes the AI and leaves the stored path deadline alone.
     ai.execute_command(&AiCommandParams::new(
         AiCommandType::Busy,
         CommandSourceType::FromPlayer,
@@ -56,7 +58,7 @@ fn factory_busy_enters_actual_machine_and_clears_owned_path_timer() {
             .xfer_ai_update_state(&mut XferLoad::new(Cursor::new(bytes.into_inner()), 1))
             .unwrap()
     );
-    assert_eq!(loaded.runtime.data.queue_for_path_frame, 0);
+    assert_eq!(loaded.runtime.data.queue_for_path_frame, frame + delay);
 }
 
 #[test]

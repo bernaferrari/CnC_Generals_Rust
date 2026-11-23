@@ -161,6 +161,9 @@ pub(crate) trait AiStateRuntime {
         self.set_queue_for_path_time(frames);
         Ok(())
     }
+    fn wake_after_state_change(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 
     fn is_temporarily_preventing_aim_success(&self) -> bool;
     fn add_targeter(&mut self, _id: ObjectID, _add: bool);

@@ -136,11 +136,10 @@ impl DozerAIUpdate {
     ) -> Result<DozerStep, String> {
         use super::action_kernel::{ActionFacts, ActionStep};
         if self.task_owner.primary.state == PrimaryState::Idle {
-            if self.task_owner.current == DozerTask::Build && self.dozer_task.is_some() {
+            if self.owned_build_is_admitted() && self.task_owner.current == DozerTask::Build {
                 // set_build_task records the request and the original dock
                 // before the primary Dozer state machine enters BUILD.
-                self.task_owner.primary.state = PrimaryState::Build;
-                self.task_owner.primary.control.initialized = true;
+                self.task_owner.enter_primary_task(DozerTask::Build);
             } else {
                 self.update_primary_with_world(regular_idle, world)?;
                 return Ok(DozerStep::Continue);
@@ -494,12 +493,23 @@ impl DozerAIUpdate {
         }
     }
 }
+impl DozerTaskOwner<DozerTaskEntry, DozerDockPointInfo> {
+    pub(super) fn build_is_admitted(&self) -> bool {
+        self.primary.control.initialized
+            && !self.primary.control.locked
+            && self.requests[DozerTask::Build.as_index()].target_id != INVALID_ID
+            && self.requests[DozerTask::Repair.as_index()].target_id == INVALID_ID
+            && self.requests[DozerTask::Fortify.as_index()].target_id == INVALID_ID
+            && matches!(
+                (self.primary.state, self.current),
+                (PrimaryState::Idle, DozerTask::Invalid | DozerTask::Build)
+                    | (PrimaryState::Build, DozerTask::Build)
+            )
+    }
+}
 impl DozerAIUpdate {
     pub(crate) fn owned_build_is_admitted(&self) -> bool {
-        self.task_owner.current == DozerTask::Build
-            && matches!(self.task_owner.primary.state, PrimaryState::Idle | PrimaryState::Build)
-            && !self.task_owner.primary.control.locked
-            && self.dozer_task.as_ref().is_some_and(|task| task.task_type == DozerTask::Build)
+        self.task_owner.build_is_admitted()
     }
     pub(crate) fn owned_primary_is_admitted(&self) -> bool {
         self.owned_fortify_is_admitted() || self.owned_build_is_admitted()

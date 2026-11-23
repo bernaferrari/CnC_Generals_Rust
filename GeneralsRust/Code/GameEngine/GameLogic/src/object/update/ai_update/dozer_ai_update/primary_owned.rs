@@ -1,6 +1,6 @@
 //! Borrowed DozerPrimary Idle admission and condition phase.
 //! Source: DozerAIUpdate.cpp1009-1079,1195-1233,1314-1390,1948-2010.
-//! Build/repair docking and action bodies require their own supplied services.
+//! Action bodies and automatic repair queries have separate admission.
 
 use super::*;
 use crate::modules::ai_world::AiWorld;
@@ -82,7 +82,7 @@ impl DozerAIUpdate {
         if self.task_owner.current != DozerTask::Invalid {
             return Err("supplied Dozer action body unavailable".into());
         }
-        if self.is_task_pending(DozerTask::Build) || self.is_task_pending(DozerTask::Repair) {
+        if self.is_task_pending(DozerTask::Repair) {
             return Err("supplied Dozer idle scanning/docking services unavailable".into());
         }
         if !self.task_owner.primary.control.initialized {
@@ -123,15 +123,17 @@ impl DozerAIUpdate {
         }
         if !regular_idle {
             idle.idle_since = world.frame();
+            return Ok(());
         }
-        if regular_idle && self.get_most_recent_command() == DozerTask::Fortify {
+        let next_task = self.get_most_recent_command();
+        if matches!(next_task, DozerTask::Build | DozerTask::Fortify) {
             let idle = &mut self.task_owner.primary.idle;
             if idle.marked {
                 world.idle_worker_event(&owner, idle.player, false)?;
                 idle.player = -1;
                 idle.marked = false;
             }
-            self.task_owner.enter_primary_task(DozerTask::Fortify);
+            self.task_owner.enter_primary_task(next_task);
             self.action_state = DozerActionState::PickActionPos;
         }
         Ok(())

@@ -68,12 +68,15 @@ fn source_template_with_locomotor(locomotor: crate::locomotor::LocomotorTemplate
     })
 }
 fn target_template(is_scaffold: bool) -> Arc<dyn ThingTemplate> {
+    target_template_with_power(is_scaffold, 12)
+}
+fn target_template_with_power(is_scaffold: bool, power: i32) -> Arc<dyn ThingTemplate> {
     let mut base = DefaultThingTemplate::new("OwnedFortifyTarget".into());
     base.add_kind_of(KindOf::Structure);
     if is_scaffold {
         base.add_kind_of(KindOf::Score);
         base.set_build_time(0.1);
-        base.set_energy_production(12);
+        base.set_energy_production(power);
     }
     Arc::new(EntryTemplate {
         base,
@@ -530,6 +533,151 @@ fn full_object_restore_rebinds_fortify_and_restarts_original_nested_action() {
         original,
         "same-ID original owner remains untouched"
     );
+}
+
+#[test]
+fn full_object_restore_resumes_active_dozer_build_without_a_new_order() {
+    use super::object_restore_tests::{Catalog, capture_at, fresh_with_templates};
+    use crate::common::ObjectStatusTypes;
+    use crate::object::update::ai_update::dozer_ai_update::DozerBuildSubTask;
+
+    let mut locomotor = ground();
+    locomotor.max_turn_rate = 0.2;
+    let catalog = Catalog::from_templates(
+        source_template_with_locomotor(locomotor.clone()),
+        target_template_with_power(true, 0),
+        locomotor,
+    );
+    let fresh = |records, frame| {
+        fresh_with_templates(
+            &catalog,
+            records,
+            "OwnedFortifyDozer",
+            "OwnedFortifyTarget",
+            true,
+            frame,
+        )
+        .unwrap()
+    };
+    let mut game = fresh(None, 17);
+    let builder = game.source.clone();
+    let builder_id = builder.read().unwrap().get_id();
+    let scaffold_id = game.target.read().unwrap().get_id();
+    let scaffold_position = Coord3D::new(220.0, 100.0, 0.0);
+    let start = scaffold_position - Coord3D::new(30.0, 0.0, 0.0);
+    let scaffold = game.target.clone();
+    game.operate(18, |world| {
+        world.set_object_position_handle(&scaffold, &scaffold_position)?;
+        world.set_object_position_handle(&builder, &(start - Coord3D::X))
+    })
+    .unwrap();
+    register_receiving_geometry(&mut game);
+    idle(&mut game, 18);
+    {
+        let mut scaffold = scaffold.write().unwrap();
+        scaffold.set_builder_id(builder_id);
+        scaffold.set_status(ObjectStatusTypes::UnderConstruction.into(), true);
+        scaffold.set_construction_percent(0.0);
+        scaffold.set_health(10.0).unwrap();
+    }
+    ai(&game)
+        .lock()
+        .unwrap()
+        .get_dozer_ai_update_interface_mut()
+        .unwrap()
+        .admit_placed_build(&scaffold.read().unwrap(), start, 3, 100.0, 18)
+        .unwrap();
+    let tick = |game: &mut NativeMatch, frame| {
+        game.with_native_services(frame, |factory, players, services, scheduler| {
+            crate::modules::ai_native_world::update_game_logic_with_native_modules(
+                factory, players, services, scheduler, || None,
+            )
+        })
+        .unwrap();
+    };
+    let frame = (19..139)
+        .find(|&frame| {
+            tick(&mut game, frame);
+            let scaffold = game.target.read().unwrap();
+            scaffold.is_under_construction() && scaffold.get_construction_percent() > 0.0
+        })
+        .expect("the live Dozer must reach active construction before saving");
+    let before_save = observation(&game);
+    assert_eq!(before_save.action, 2);
+    let (progress, health) = {
+        let scaffold = game.target.read().unwrap();
+        (scaffold.get_construction_percent(), scaffold.get_health())
+    };
+    let records = capture_at(&mut game, &catalog, frame);
+    let mut restored = fresh(Some(&records), frame);
+    let restored_dozer = observation(&restored);
+    assert_eq!(restored_dozer.current_task, DozerTask::Build);
+    assert_eq!(restored_dozer.primary, before_save.primary);
+    assert_eq!(
+        restored_dozer.action, 0,
+        "the C++ action machine restarts at Pick"
+    );
+    assert_eq!(
+        ai(&restored)
+            .lock()
+            .unwrap()
+            .get_dozer_ai_update_interface_mut()
+            .unwrap()
+            .build_dock_sub_task_for_test(),
+        DozerBuildSubTask::DoBuildAtDock,
+    );
+    {
+        let target = restored.target.read().unwrap();
+        assert_eq!(target.get_builder_id(), builder_id);
+        assert_eq!(target.get_construction_percent(), progress);
+        assert_eq!(target.get_health(), health);
+    }
+    register_receiving_geometry(&mut restored);
+    tick(&mut restored, frame + 1);
+    let reapproach = observation(&restored);
+    assert_eq!(reapproach.action, 1);
+    assert_eq!(reapproach.goal, scaffold_id);
+    assert_eq!(reapproach.position, start);
+    assert_eq!(
+        restored.target.read().unwrap().get_construction_percent(),
+        progress,
+    );
+    let player = restored.players.get_player(0).unwrap().clone();
+    let structures_built = || player.read().unwrap().get_score_keeper().get_total_buildings_built();
+    let score = structures_built();
+    let runtime = ai(&restored);
+    let mut saw_delayed_request = false;
+    let finished_at = (frame + 2..frame + 90).find(|&now| {
+        tick(&mut restored, now);
+        let mut runtime = runtime.lock().unwrap();
+        let movement = runtime
+            .unit_ai_for_test()
+            .unwrap()
+            .native_waypoint_observation_for_test();
+        saw_delayed_request |= movement.waiting_for_path
+            && movement.queue_for_path_frame > now
+            && movement.requested_destination == start;
+        !restored.target.read().unwrap().is_under_construction()
+    }).expect("restored Dozer must finish after reapproaching its action dock");
+    assert!(saw_delayed_request, "the second dock request must survive the AI wake");
+    for now in finished_at + 1..=finished_at + 30 {
+        tick(&mut restored, now);
+    }
+    assert_eq!(
+        restored.target.read().unwrap().get_construction_percent(),
+        crate::object::CONSTRUCTION_COMPLETE,
+    );
+    assert_eq!(structures_built(), score + 1);
+    assert_eq!(
+        restored.dirty_ui.iter().filter(|&&id| id == scaffold_id).count(),
+        1,
+    );
+    assert_eq!(observation(&game), before_save);
+    assert_eq!(
+        game.target.read().unwrap().get_construction_percent(),
+        progress,
+    );
+    assert_eq!(game.target.read().unwrap().get_health(), health);
 }
 
 #[test]

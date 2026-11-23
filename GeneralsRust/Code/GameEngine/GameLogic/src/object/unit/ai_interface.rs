@@ -307,10 +307,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         if machine.get_current_state_id() != previous {
             // Same callback as AIStateMachineDriver::set_state_with_ai, after
             // the actual terminal entry has completed synchronously.
-            crate::modules::ai_state_runtime::AiStateRuntime::set_queue_for_path_time_owned(
-                &mut runtime,
-                0,
-            )?;
+            crate::modules::ai_state_runtime::AiStateRuntime::wake_after_state_change(&mut runtime)?;
         }
         Ok(())
     }

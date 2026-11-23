@@ -35,7 +35,7 @@ impl AIStateMachineDriver<'_> {
         self.base.set_goal_squad(None);
         self.base.set_goal_polygon(None);
         if let Some(ai) = ai {
-            ai.set_queue_for_path_time_owned(0)?;
+            ai.wake_after_state_change()?;
         } else {
             self.notify_state_machine_changed();
         }
@@ -67,9 +67,9 @@ impl AIStateMachineDriver<'_> {
             .set_current_state_with_ai_and_owner(new_state_id, ai, &mut ());
 
         if old_id != Some(new_state_id) {
-            // C++ AIStateMachine::setState calls onStateMachineChanged synchronously.
-            // The caller already owns this AI, so do not try-lock the installed handle.
-            if ai.set_queue_for_path_time_owned(0).is_err() {
+            // AIUpdate.cpp:975 wakes the update without altering the path
+            // deadline the new state's onEnter may have just set.
+            if ai.wake_after_state_change().is_err() {
                 return StateReturnType::Failure;
             }
         }

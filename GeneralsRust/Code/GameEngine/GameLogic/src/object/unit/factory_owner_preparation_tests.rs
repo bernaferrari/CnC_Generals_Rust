@@ -312,7 +312,10 @@ fn prepared_native_driver_changes_real_goals_and_state_before_idle_sleep_finishe
             assert_eq!(driver.get_goal_position().unwrap(), goal);
             assert!(driver.is_busy());
             assert!(!driver.is_idle());
-            assert_eq!(ai.runtime.data.queue_for_path_frame, 0);
+            assert_eq!(
+                ai.runtime.data.queue_for_path_frame, 123,
+                "state-change wake leaves the path deadline intact"
+            );
         });
         assert!(
             called,

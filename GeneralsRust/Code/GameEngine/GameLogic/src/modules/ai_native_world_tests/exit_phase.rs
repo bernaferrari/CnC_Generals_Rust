@@ -145,8 +145,8 @@ fn owned_regular_exit_releases_ai_before_removal_then_completes_same_phase() {
             .unit_ai_for_test()
             .unwrap()
             .queue_deadline_for_test(),
-        0,
-        "the terminal state-change callback clears the actor's saved queue deadline"
+        1234,
+        "the terminal state-change wake preserves the actor's saved queue deadline"
     );
     assert_eq!(game.source.read().unwrap().get_contained_by(), None);
     assert!(
