@@ -1155,6 +1155,16 @@ pub trait ScriptExecutionDriver {
     ) -> Option<GameLogicResult<()>> {
         None
     }
+    fn team_panel_flag(
+        &mut self,
+        _team: &str,
+        _flag: &str,
+        _enabled: bool,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
     fn named_warehouse_value(
         &mut self,
         _name: &str,

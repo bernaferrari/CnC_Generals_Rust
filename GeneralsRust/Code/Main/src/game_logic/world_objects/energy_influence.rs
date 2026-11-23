@@ -1,6 +1,6 @@
 //! Immediate receiving Energy entry and synchronous brownout callbacks.
 use super::super::*;
-use crate::game_logic::object::TimedDisable;
+use crate::game_logic::object::{ObjectPanelFlag, ScriptDisable, TimedDisable};
 
 #[derive(Clone, Copy)]
 struct DisableUntil {
@@ -61,10 +61,85 @@ impl GameLogic {
         self.apply_owned_initial_disabled(id, DisableUntil { effect: TimedDisable::Held, deadline });
     }
 
+    pub(in crate::game_logic) fn set_owned_script_disable(
+        &mut self,
+        id: ObjectId,
+        flag: ScriptDisable,
+        disabled: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let Some(object) = self.objects.get_mut(&id) else {
+            return;
+        };
+        let script_bit = flag.flag_mut(&mut object.status);
+        if *script_bit == disabled {
+            return;
+        }
+        *script_bit = disabled;
+        // Object::setScriptStatus dirties the owner's partition before the
+        // actual mask callback. Inherited rider/spawn masks skip this step.
+        self.partition_manager.mark_receiving_object_dirty(
+            id.0,
+            &object.visual_draw_identity_token,
+            true,
+        );
+        let effect = flag.effect();
+        if disabled {
+            self.apply_owned_initial_disabled_with_effects(
+                id,
+                DisableUntil {
+                    effect,
+                    deadline: game_engine::common::game_common::FOREVER,
+                },
+                effects,
+            );
+        } else {
+            self.clear_owned_disabled(id, effect);
+        }
+    }
+
+    pub(in crate::game_logic) fn apply_owned_object_panel_flag(
+        &mut self,
+        id: ObjectId,
+        flag: &str,
+        value: bool,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
+        let Some(flag) = ObjectPanelFlag::parse(flag) else { return };
+        match flag {
+            ObjectPanelFlag::Enabled => {
+                self.set_owned_script_disable(id, ScriptDisable::Disabled, !value, effects);
+            }
+            ObjectPanelFlag::Powered => {
+                self.set_owned_script_disable(id, ScriptDisable::Underpowered, !value, effects);
+            }
+            ObjectPanelFlag::Indestructible => self.set_object_indestructible(id, value),
+            ObjectPanelFlag::Unsellable => {
+                if let Some(object) = self.objects.get_mut(&id) {
+                    object.set_script_unsellable(value);
+                }
+            }
+            ObjectPanelFlag::PlayerTargetable => {
+                if let Some(object) = self.objects.get_mut(&id) {
+                    object.set_script_targetable(value);
+                }
+            }
+        }
+    }
+
     fn apply_owned_initial_disabled(
         &mut self,
         id: ObjectId,
         request: DisableUntil,
+    ) -> bool {
+        self.apply_owned_initial_disabled_with_effects(id, request, &mut Default::default())
+    }
+
+    fn apply_owned_initial_disabled_with_effects(
+        &mut self,
+        id: ObjectId,
+        request: DisableUntil,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         let epoch = self.visual_world_epoch;
         let (birth, disable_callback, deadline_changed, fold_adjustment) = {
@@ -97,7 +172,7 @@ impl GameLogic {
         if deadline_changed {
             // C++ ContainModuleInterface::friend_getRider precedes SpawnBehavior.
             if let Some(rider) = self.containment_disable_rider(id) {
-                self.apply_owned_initial_disabled(rider, request);
+                self.apply_owned_initial_disabled_with_effects(rider, request, effects);
                 if !self.spawn_identity_matches(id, birth, epoch) {
                     return true;
                 }
@@ -109,7 +184,7 @@ impl GameLogic {
                 .filter(|children| !children.is_empty())
             {
                 self.apply_owned_spawn_children_disabled_until(
-                    id, birth, epoch, children, request,
+                    id, birth, epoch, children, request, effects,
                 );
                 if !self.spawn_identity_matches(id, birth, epoch) {
                     return true;
@@ -202,6 +277,7 @@ impl GameLogic {
         epoch: u64,
         children: Vec<(ObjectId, u64)>,
         request: DisableUntil,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         for (child_id, child_birth) in children {
             if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
@@ -218,7 +294,7 @@ impl GameLogic {
             }
 
             // aiIdle can reenter Main before setDisabledUntil.
-            if let Err(error) = self.unit_command_ai_idle_owned(child_id) {
+            if let Err(error) = self.unit_command_ai_idle_owned_with_effects(child_id, effects) {
                 log::error!("Spawned Object {child_id:?} failed its Idle callback: {error}");
             }
             if !self.spawn_identity_matches(parent_id, parent_birth, epoch) {
@@ -227,7 +303,7 @@ impl GameLogic {
             if !still_exact_child(self) {
                 continue;
             }
-            self.apply_owned_initial_disabled(child_id, request);
+            self.apply_owned_initial_disabled_with_effects(child_id, request, effects);
         }
     }
 
@@ -450,7 +526,7 @@ impl GameLogic {
                         },
                     );
                 } else {
-                    self.clear_owned_underpowered(id);
+                    self.clear_owned_disabled(id, TimedDisable::Underpowered);
                 }
             }
         }
@@ -460,6 +536,55 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn map_panel_flags_deliver_spawn_power_edges_and_keep_script_bits_separate() {
+        use game_engine::common::dict::Dict;
+        use game_engine::common::well_known_keys::{key_object_enabled, key_object_powered};
+
+        let (mut world, [parent, plant, spawned]) = spawned_radar_world();
+        let (peer, peer_ids) = spawned_radar_world();
+        assert_eq!([parent, plant, spawned], peer_ids);
+        let mut disabled = Dict::new();
+        disabled.set_bool(key_object_enabled(), false);
+        disabled.set_bool(key_object_powered(), false);
+        world.apply_update_obj_values_from_map_properties(parent, &disabled);
+
+        assert_eq!(world.players[&1].power_produced, 0, "same action observes lost power");
+        assert_eq!(world.players[&1].radar_count, 0);
+        for id in [plant, spawned] {
+            let object = &world.objects[&id];
+            assert!(object.status.disabled_script_disabled);
+            assert!(object.status.disabled_script_underpowered);
+            assert!(!object.is_script_disabled());
+            assert!(!object.is_script_underpowered(), "inherited mask is independent");
+        }
+        assert_eq!(peer.players[&1].power_produced, 20);
+        assert_eq!(peer.players[&1].radar_count, 1);
+
+        let mut unpowered = Dict::new();
+        unpowered.set_bool(key_object_powered(), false);
+        world.apply_update_obj_values_from_map_properties(plant, &unpowered);
+        assert!(world.objects[&plant].is_script_underpowered());
+        let mut enabled = Dict::new();
+        enabled.set_bool(key_object_enabled(), true);
+        enabled.set_bool(key_object_powered(), true);
+        world.apply_update_obj_values_from_map_properties(parent, &enabled);
+        assert!(world.objects[&plant].is_script_underpowered(), "child's own script flag");
+        assert!(!world.objects[&plant].has_disabled_type(), "inherited clear unwinds the mask");
+        assert_eq!(world.players[&1].power_produced, 20);
+        assert_eq!(world.players[&1].radar_count, 1);
+
+        let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&world).unwrap();
+        let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+        let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
+        let (mut restored, _) = spawned_radar_world();
+        builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+        assert!(restored.objects[&plant].is_script_underpowered());
+        assert!(!restored.objects[&plant].has_disabled_type());
+        assert_eq!(restored.players[&1].power_produced, 20);
+    }
 
     #[test]
     fn emp_and_hack_keep_orders_and_pause_each_authored_power_until_its_last_disable() {

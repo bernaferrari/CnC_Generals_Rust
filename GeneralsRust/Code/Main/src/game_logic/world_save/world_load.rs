@@ -1021,20 +1021,17 @@ impl GameLogic {
                                         created.set_script_unsellable(true);
                                     }
                                 }
-                                if obj.enabled == Some(false) {
-                                    if let Some(created) = self.objects.get_mut(&id) {
-                                        created.set_script_disabled_with_partition_owner(
-                                            true,
-                                            &mut self.partition_manager,
-                                        );
-                                    }
-                                }
-                                if obj.powered == Some(false) {
-                                    if let Some(created) = self.objects.get_mut(&id) {
-                                        created.set_script_underpowered_with_partition_owner(
-                                            true,
-                                            &mut self.partition_manager,
-                                        );
+                                use crate::game_logic::object::ScriptDisable;
+                                for (value, flag) in [
+                                    (obj.enabled, ScriptDisable::Disabled),
+                                    (obj.powered, ScriptDisable::Underpowered),
+                                ] {
+                                    if value == Some(false) {
+                                        self.set_owned_script_disable(id, flag, true, &mut effects);
+                                        if let Err(error) = birth.require_current(self) {
+                                            log::error!("Map object retired during panel flags: {error}");
+                                            return Ok(false);
+                                        }
                                     }
                                 }
                                 if let Some(indestructible) = obj.indestructible {

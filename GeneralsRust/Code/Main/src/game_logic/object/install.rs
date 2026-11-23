@@ -9,6 +9,31 @@ pub(in crate::game_logic) enum TimedDisable {
     Underpowered,
     Awestruck,
     Brainwashed,
+    ScriptDisabled,
+    ScriptUnderpowered,
+}
+
+/// The script bit and the propagated disabled mask are distinct in C++.
+#[derive(Clone, Copy)]
+pub(crate) enum ScriptDisable {
+    Disabled,
+    Underpowered,
+}
+
+impl ScriptDisable {
+    pub(in crate::game_logic) fn effect(self) -> TimedDisable {
+        match self {
+            Self::Disabled => TimedDisable::ScriptDisabled,
+            Self::Underpowered => TimedDisable::ScriptUnderpowered,
+        }
+    }
+
+    pub(in crate::game_logic) fn flag_mut(self, status: &mut ObjectStatus) -> &mut bool {
+        match self {
+            Self::Disabled => &mut status.script_status_disabled,
+            Self::Underpowered => &mut status.script_status_underpowered,
+        }
+    }
 }
 
 impl TimedDisable {
@@ -42,6 +67,14 @@ impl TimedDisable {
             Self::Brainwashed => (
                 &mut status.disabled_brainwashed,
                 &mut status.disabled_brainwashed_until_frame,
+            ),
+            Self::ScriptDisabled => (
+                &mut status.disabled_script_disabled,
+                &mut status.disabled_script_disabled_until_frame,
+            ),
+            Self::ScriptUnderpowered => (
+                &mut status.disabled_script_underpowered,
+                &mut status.disabled_script_underpowered_until_frame,
             ),
         }
     }
@@ -979,6 +1012,14 @@ impl Object {
                 self.status.disabled_brainwashed,
                 self.status.disabled_brainwashed_until_frame,
             ),
+            TimedDisable::ScriptDisabled => (
+                self.status.disabled_script_disabled,
+                self.script_disable_deadline(ScriptDisable::Disabled),
+            ),
+            TimedDisable::ScriptUnderpowered => (
+                self.status.disabled_script_underpowered,
+                self.script_disable_deadline(ScriptDisable::Underpowered),
+            ),
         };
         active.then_some(deadline)
     }
@@ -1031,6 +1072,21 @@ impl Object {
         deadline
     }
 
+    pub(crate) fn script_disable_deadline(&self, flag: ScriptDisable) -> u32 {
+        use game_engine::common::game_common::{FOREVER, NEVER};
+        let (active, deadline) = match flag {
+            ScriptDisable::Disabled => (
+                self.status.disabled_script_disabled,
+                self.status.disabled_script_disabled_until_frame,
+            ),
+            ScriptDisable::Underpowered => (
+                self.status.disabled_script_underpowered,
+                self.status.disabled_script_underpowered_until_frame,
+            ),
+        };
+        if active && deadline == NEVER { FOREVER } else { deadline }
+    }
+
     /// Object::setDisabledUntil updates the mask and module pause count
     /// before dispatching contained and spawned objects.
     pub(in crate::game_logic) fn begin_owned_timed_disable(
@@ -1046,6 +1102,8 @@ impl Object {
         let stored_deadline = match effect {
             TimedDisable::Held => self.held_disable_deadline(),
             TimedDisable::Underpowered => self.underpowered_disable_deadline(),
+            TimedDisable::ScriptDisabled => self.script_disable_deadline(ScriptDisable::Disabled),
+            TimedDisable::ScriptUnderpowered => self.script_disable_deadline(ScriptDisable::Underpowered),
             _ => stored_deadline,
         };
         if stored_deadline == deadline {

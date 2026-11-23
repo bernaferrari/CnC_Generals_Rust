@@ -665,6 +665,10 @@ impl SnapshotBuilder {
             &original_disabled.inactive_underpowered,
             &snapshot.objects,
         )?;
+        super::super::original_disabled_persist::validate_script_disables(
+            &original_disabled.script_disables,
+            &snapshot.objects,
+        )?;
         let repair_dock =
             super::super::repair_dock_persist::decode(original_disabled.legacy_tail.as_ref())?;
         super::super::repair_dock_persist::validate(
@@ -1166,6 +1170,10 @@ impl SnapshotBuilder {
         );
         super::super::original_disabled_persist::apply_inactive_underpowered_deadlines(
             &original_disabled.inactive_underpowered,
+            game_logic,
+        );
+        super::super::original_disabled_persist::apply_script_disables(
+            &original_disabled.script_disables,
             game_logic,
         );
         // OXOB's active Guard deadline must agree with the immutable nested

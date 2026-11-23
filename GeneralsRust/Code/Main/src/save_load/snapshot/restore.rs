@@ -959,6 +959,7 @@ impl SnapshotBuilder {
         // A world continuation restores the distinct script bit afterward.
         object.status.script_status_disabled = status.disabled_script_disabled;
         object.status.disabled_script_underpowered = status.disabled_script_underpowered;
+        object.status.script_status_underpowered = status.disabled_script_underpowered;
         object.script_unsellable = status.script_unsellable;
         object.script_unstealthed = status.script_unstealthed;
         // Wave 79 Drawable residual: restore StealthLook ordinal.

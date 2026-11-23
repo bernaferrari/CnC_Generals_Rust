@@ -4,10 +4,41 @@ use game_engine::common::system::object_status_types::ObjectStatusMaskType as Ma
 const PROJECTED_STATUS_MASK: u64 =
     Mask::STEALTHED.bits() | Mask::DETECTED.bits() | Mask::BOOBY_TRAPPED.bits();
 
+fn implied_script_disable_deadline(active: bool) -> u32 {
+    use game_engine::common::game_common::{FOREVER, NEVER};
+    if active { FOREVER } else { NEVER }
+}
+
 #[derive(PartialEq, Eq)]
 enum AiTransitionOrigin {
     External,
     StateResult,
+}
+
+pub(in crate::game_logic) enum ObjectPanelFlag {
+    Enabled,
+    Powered,
+    Unsellable,
+    Indestructible,
+    PlayerTargetable,
+}
+
+impl ObjectPanelFlag {
+    pub(in crate::game_logic) fn parse(flag: &str) -> Option<Self> {
+        let normalized = flag
+            .chars()
+            .filter(|c| !c.is_ascii_whitespace() && *c != '_')
+            .collect::<String>()
+            .to_ascii_lowercase();
+        match normalized.as_str() {
+            "enabled" => Some(Self::Enabled),
+            "powered" => Some(Self::Powered),
+            "unsellable" => Some(Self::Unsellable),
+            "indestructible" => Some(Self::Indestructible),
+            "playertargetable" => Some(Self::PlayerTargetable),
+            _ => None,
+        }
+    }
 }
 
 impl Object {
@@ -482,6 +513,7 @@ impl Object {
     pub fn set_status_disabled_script_disabled(&mut self, v: bool) {
         let was_disabled = self.has_disabled_type();
         self.status.disabled_script_disabled = v;
+        self.status.disabled_script_disabled_until_frame = implied_script_disable_deadline(v);
         self.note_disabled_status_transition(was_disabled);
     }
 
@@ -489,6 +521,7 @@ impl Object {
     pub fn set_status_disabled_script_underpowered(&mut self, v: bool) {
         let was_disabled = self.has_disabled_type();
         self.status.disabled_script_underpowered = v;
+        self.status.disabled_script_underpowered_until_frame = implied_script_disable_deadline(v);
         self.note_disabled_status_transition(was_disabled);
     }
 
@@ -533,7 +566,7 @@ impl Object {
     }
 
     pub fn is_script_underpowered(&self) -> bool {
-        self.status.disabled_script_underpowered
+        self.status.script_status_underpowered
     }
 
     /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_UNPOWERED, underpowered)`.
@@ -588,9 +621,10 @@ impl Object {
         partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
     ) {
         self.require_partition_owner(partition.as_deref());
-        if self.status.disabled_script_underpowered == underpowered {
+        if self.status.script_status_underpowered == underpowered {
             return;
         }
+        self.status.script_status_underpowered = underpowered;
         // C++ setScriptStatus1019: dirty before the single disabled callback.
         if let Some(partition) = partition {
             partition.mark_receiving_object_dirty(
@@ -674,42 +708,13 @@ impl Object {
 
     /// C++ `ScriptActions::changeObjectPanelFlagForSingleObject` live residual.
     pub fn apply_object_panel_flag(&mut self, flag_to_change: &str, new_val: bool) {
-        self.apply_object_panel_flag_with_partition_context(flag_to_change, new_val, None);
-    }
-    pub(crate) fn apply_object_panel_flag_with_partition_owner(
-        &mut self,
-        flag_to_change: &str,
-        new_val: bool,
-        partition: &mut crate::game_logic::partition_manager::PartitionManager,
-    ) {
-        self.apply_object_panel_flag_with_partition_context(
-            flag_to_change,
-            new_val,
-            Some(partition),
-        );
-    }
-    fn apply_object_panel_flag_with_partition_context(
-        &mut self,
-        flag_to_change: &str,
-        new_val: bool,
-        partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
-    ) {
-        let normalized = flag_to_change
-            .chars()
-            .filter(|c| !c.is_ascii_whitespace() && *c != '_')
-            .collect::<String>()
-            .to_ascii_lowercase();
-        match normalized.as_str() {
-            "enabled" => {
-                self.apply_script_status_disabled_with_partition_context(!new_val, partition)
-            }
-            "powered" => {
-                self.apply_script_status_underpowered_with_partition_context(!new_val, partition)
-            }
-            "unsellable" => self.set_script_unsellable(new_val),
-            "indestructible" => self.set_indestructible(new_val),
-            "playertargetable" => self.set_script_targetable(new_val),
-            _ => {}
+        match ObjectPanelFlag::parse(flag_to_change) {
+            Some(ObjectPanelFlag::Enabled) => self.set_script_disabled(!new_val),
+            Some(ObjectPanelFlag::Powered) => self.set_script_underpowered(!new_val),
+            Some(ObjectPanelFlag::Unsellable) => self.set_script_unsellable(new_val),
+            Some(ObjectPanelFlag::Indestructible) => self.set_indestructible(new_val),
+            Some(ObjectPanelFlag::PlayerTargetable) => self.set_script_targetable(new_val),
+            None => {}
         }
     }
 

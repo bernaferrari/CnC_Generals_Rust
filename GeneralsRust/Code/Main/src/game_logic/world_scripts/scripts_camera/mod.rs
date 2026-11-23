@@ -203,13 +203,6 @@ fn host_query_player_who_entered(
         .unwrap_or_default()
 }
 
-fn panel_flag_is_indestructible(flag: &str) -> bool {
-    flag.chars()
-        .filter(|c| !c.is_ascii_whitespace() && *c != '_')
-        .collect::<String>()
-        .eq_ignore_ascii_case("indestructible")
-}
-
 mod camera_motion;
 mod camera_reset;
 mod named_commands;

@@ -198,21 +198,19 @@ impl GameLogic {
             }
         }
 
-        if let Some(enabled) = get_bool(well_known_keys::key_object_enabled()) {
-            if let Some(created) = self.objects.get_mut(&id) {
-                created.set_script_disabled_with_partition_owner(
-                    !enabled,
-                    &mut self.partition_manager,
-                );
-            }
-        }
-
-        if let Some(powered) = get_bool(well_known_keys::key_object_powered()) {
-            if let Some(created) = self.objects.get_mut(&id) {
-                created.set_script_underpowered_with_partition_owner(
-                    !powered,
-                    &mut self.partition_manager,
-                );
+        use crate::game_logic::object::ScriptDisable;
+        for (key, flag) in [
+            (well_known_keys::key_object_enabled(), ScriptDisable::Disabled),
+            (well_known_keys::key_object_powered(), ScriptDisable::Underpowered),
+        ] {
+            if let Some(value) = get_bool(key) {
+                let Some(object) = self.host_object(id) else { return };
+                let birth = object.visual_object_generation;
+                let epoch = self.visual_world_epoch;
+                self.set_owned_script_disable(id, flag, !value, effects);
+                if !self.spawn_identity_matches(id, birth, epoch) {
+                    return;
+                }
             }
         }
 

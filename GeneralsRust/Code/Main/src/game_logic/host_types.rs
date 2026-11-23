@@ -512,6 +512,12 @@ pub struct ObjectStatus {
     /// The ODIS continuation carries this without changing positional saves.
     #[serde(skip)]
     pub(crate) script_status_disabled: bool,
+    #[serde(skip)]
+    pub(crate) script_status_underpowered: bool,
+    #[serde(skip)]
+    pub(crate) disabled_script_disabled_until_frame: u32,
+    #[serde(skip)]
+    pub(crate) disabled_script_underpowered_until_frame: u32,
     /// Original disabled mask bits 8/9. Companion framing preserves their
     /// continuation without changing positional ObjectStatus save bytes.
     #[serde(skip)]

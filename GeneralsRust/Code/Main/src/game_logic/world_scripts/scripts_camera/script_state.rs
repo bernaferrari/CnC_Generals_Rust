@@ -862,15 +862,7 @@ impl GameLogic {
         self.ai_manager = ai_mgr;
         for (unit_name, flag_name, enable) in unit_flags {
             if let Some(id) = self.host_object_id_by_script_name(&unit_name) {
-                if panel_flag_is_indestructible(&flag_name) {
-                    self.set_object_indestructible(id, enable);
-                } else if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.apply_object_panel_flag_with_partition_owner(
-                        &flag_name,
-                        enable,
-                        &mut self.partition_manager,
-                    );
-                }
+                self.apply_owned_object_panel_flag(id, &flag_name, enable, &mut Default::default());
             }
         }
         for (team_name, flag_name, enable) in team_flags {
@@ -878,7 +870,8 @@ impl GameLogic {
             if needle.is_empty() {
                 continue;
             }
-            let ids: Vec<ObjectId> = self
+            let epoch = self.visual_world_epoch;
+            let members: Vec<_> = self
                 .objects
                 .registered_values()
                 .filter(|obj| {
@@ -886,17 +879,11 @@ impl GameLogic {
                         && obj.team_instance_name.eq_ignore_ascii_case(needle))
                         || obj.team.get_name().eq_ignore_ascii_case(needle)
                 })
-                .map(|obj| obj.id)
+                .map(|obj| (obj.id, obj.visual_object_generation))
                 .collect();
-            for id in ids {
-                if panel_flag_is_indestructible(&flag_name) {
-                    self.set_object_indestructible(id, enable);
-                } else if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.apply_object_panel_flag_with_partition_owner(
-                        &flag_name,
-                        enable,
-                        &mut self.partition_manager,
-                    );
+            for (id, generation) in members {
+                if self.spawn_identity_matches(id, generation, epoch) {
+                    self.apply_owned_object_panel_flag(id, &flag_name, enable, &mut Default::default());
                 }
             }
         }
@@ -1250,7 +1237,7 @@ impl GameLogic {
         template_name: &str,
         enable: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
+    ) {
         // C++ Player::setObjectsEnabled walks the receiving Player's ordered
         // prototype list, then each prototype's live instance list and member
         // order. Re-resolve both membership and object identity before every
@@ -1307,190 +1294,11 @@ impl GameLogic {
                 {
                     continue;
                 }
-                self.set_script_disabled_for_receiving_object(id, !enable, effects)?;
+                self.set_owned_script_disable(
+                    id, crate::game_logic::object::ScriptDisable::Disabled, !enable, effects,
+                );
             }
         }
-        Ok(())
-    }
-
-    /// C++ setScriptStatus first changes the independent script bit and dirties
-    /// the partition, then delegates to setDisabled / clearDisabled.
-    fn set_script_disabled_for_receiving_object(
-        &mut self,
-        id: ObjectId,
-        disabled: bool,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> gamelogic::GameLogicResult<()> {
-        let Some(object) = self.objects.get_mut(&id) else {
-            return Ok(());
-        };
-        if object.status.script_status_disabled == disabled {
-            return Ok(());
-        }
-        object.status.script_status_disabled = disabled;
-        self.partition_manager.mark_receiving_object_dirty(
-            id.0,
-            &object.visual_draw_identity_token,
-            true,
-        );
-        self.propagate_script_disabled_mask(id, disabled, effects, &mut Vec::new())
-    }
-
-    /// RiderChangeContain and OverlordContain return their first contained Object.
-    /// SpawnBehavior then visits ordered spawn IDs, calling aiIdle before
-    /// setDisabledUntil; clear visits the same order without idle. Retain
-    /// each object's birth across reentrant callbacks.
-    fn propagate_script_disabled_mask(
-        &mut self,
-        id: ObjectId,
-        disabled: bool,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        visiting: &mut Vec<ObjectId>,
-    ) -> gamelogic::GameLogicResult<()> {
-        let Some(parent) = self.objects.get(&id) else {
-            return Ok(());
-        };
-        if parent.status.disabled_script_disabled == disabled {
-            return Ok(());
-        }
-        let was_disabled = parent.has_disabled_type();
-        if visiting.contains(&id) {
-            return Err(gamelogic::GameLogicError::Configuration(format!(
-                "cyclic SpawnBehavior disable roster at object {}",
-                id.0
-            )));
-        }
-        visiting.push(id);
-        let birth = std::sync::Arc::downgrade(&parent.visual_draw_identity_token);
-        if disabled {
-            self.objects
-                .get_mut(&id)
-                .unwrap()
-                .status
-                .disabled_script_disabled = true;
-        }
-        // Main stores structure passengers on BuildingData; the admitted
-        // contain interface still owns one ordered list in either case.
-        let first_contained = |parent: &Object| {
-            parent
-                .building_data
-                .as_ref()
-                .map_or(parent.occupants.as_slice(), |building| {
-                    building.garrisoned_units.as_slice()
-                })
-                .first()
-                .copied()
-        };
-        // Helix identifies its portable structure separately from passengers.
-        let rider_id_for = |parent: &Object| {
-            use gamelogic::contain_module_overrides::ContainModuleDataKind;
-            enum RiderSource { FirstContained, PortableStructure, None }
-            let receiving = parent.thing().template.receiving_client_template.as_ref()?;
-            let mut contains = receiving
-                .behavior_modules()
-                .iter()
-                .filter_map(|module| {
-                    let guard = module.data.read();
-                    ContainModuleDataKind::from_module_data(&*guard).map(|kind| match kind {
-                        ContainModuleDataKind::RiderChange(_) | ContainModuleDataKind::Overlord(_) => RiderSource::FirstContained,
-                        ContainModuleDataKind::Helix(_) => RiderSource::PortableStructure,
-                        _ => RiderSource::None,
-                    })
-                });
-            // Multiple contain interfaces are invalid in C++ and cannot be
-            // safely selected through a partial host metadata projection.
-            let kind = contains.next()?;
-            if contains.next().is_some() {
-                return None;
-            }
-            match kind {
-                RiderSource::FirstContained => first_contained(parent),
-                RiderSource::PortableStructure => parent.overlord_portable_occupant,
-                RiderSource::None => None,
-            }
-        };
-        let rider = self.host_object(id).and_then(|parent| {
-            let rider_id = rider_id_for(parent)?;
-            self.host_object(rider_id)
-                .filter(|rider| rider.contained_by == Some(id))
-                .map(|rider| {
-                    (
-                        rider_id,
-                        std::sync::Arc::downgrade(&rider.visual_draw_identity_token),
-                    )
-                })
-        });
-        if let Some((rider_id, rider_birth)) = rider {
-            let matches_births = self.host_object(id).is_some_and(|parent| {
-                birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &parent.visual_draw_identity_token,
-                )) && rider_id_for(parent) == Some(rider_id)
-                    && self.host_object(rider_id).is_some_and(|rider| {
-                        rider.contained_by == Some(id)
-                            && rider_birth.ptr_eq(&std::sync::Arc::downgrade(
-                                &rider.visual_draw_identity_token,
-                            ))
-                    })
-            });
-            if matches_births {
-                self.propagate_script_disabled_mask(rider_id, disabled, effects, visiting)?;
-            }
-        }
-        // C++ selects the SpawnBehavior interface after the rider callback;
-        // resolve the current parent and roster again at that observation point.
-        let children = self
-            .host_object(id)
-            .and_then(|parent| {
-                (birth.ptr_eq(&std::sync::Arc::downgrade(
-                    &parent.visual_draw_identity_token,
-                )) && parent.is_spawns_are_the_weapons())
-                .then(|| parent.spawn_behavior_children())
-            })
-            .unwrap_or_default();
-        for (child_id, child_birth) in children {
-            let matches_births = |world: &GameLogic| {
-                world.host_object(id).is_some_and(|parent| {
-                    birth.ptr_eq(&std::sync::Arc::downgrade(
-                        &parent.visual_draw_identity_token,
-                    )) && parent.contains_spawn_behavior_child(child_id, &child_birth)
-                        && world.host_object(child_id).is_some_and(|child| {
-                            parent.spawn_behavior_child_birth_matches(child_id, &child_birth, child)
-                        })
-                })
-            };
-            if !matches_births(self) {
-                continue;
-            }
-            if disabled {
-                self.unit_command_ai_idle_owned_with_effects(child_id, effects)?;
-            }
-            if matches_births(self) {
-                self.propagate_script_disabled_mask(child_id, disabled, effects, visiting)?;
-            }
-        }
-        let original_parent = self.host_object(id).is_some_and(|object| {
-            birth.ptr_eq(&std::sync::Arc::downgrade(
-                &object.visual_draw_identity_token,
-            ))
-        });
-        if original_parent {
-            let parent = self.objects.get_mut(&id).unwrap();
-            let aggregate_edge = if disabled {
-                !was_disabled
-            } else {
-                parent.status.disabled_script_disabled = false;
-                !parent.has_disabled_type()
-            };
-            if aggregate_edge {
-                parent.on_disabled_edge(disabled);
-            }
-            self.admit_host_radar_disabled_edges(id);
-            if aggregate_edge {
-                self.admit_owned_producer_energy_edge(id, disabled);
-            }
-        }
-        visiting.pop();
-        Ok(())
     }
 
     pub(super) fn template_mut_by_name(&mut self, name: &str) -> Option<&mut ThingTemplate> {

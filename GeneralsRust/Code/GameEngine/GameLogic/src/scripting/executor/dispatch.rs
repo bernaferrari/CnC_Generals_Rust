@@ -1763,7 +1763,21 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
             ScriptActionType::TeamAffectObjectPanelFlags => {
-                self.do_team_affect_object_panel_flags(action)
+                let team = self.get_string_param(action, 0)?;
+                let flag = self.get_string_param(action, 1)?;
+                let enabled = self.get_int_param(action, 2)? != 0;
+                let (calling, condition) = self
+                    .context
+                    .with_engine_ref(|engine| {
+                        (engine.get_calling_team_id(), engine.get_condition_team_id())
+                    })
+                    .unwrap_or_default();
+                if let Some(result) = driver.team_panel_flag(&team, &flag, enabled, calling, condition) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_affect_object_panel_flags(action)
+                }
             }
             ScriptActionType::TeamSetUnmannedStatus => self.do_team_set_unmanned_status(action),
             ScriptActionType::TeamSetBoobytrapped => self.do_team_set_boobytrapped(action),

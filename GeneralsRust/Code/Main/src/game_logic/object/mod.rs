@@ -2961,6 +2961,8 @@ mod fx;
 pub(in crate::game_logic) use fx::{BodyStateFx, BodyStateFxReceiver};
 mod install;
 pub(in crate::game_logic) use install::TimedDisable;
+pub(crate) use install::ScriptDisable;
+pub(in crate::game_logic) use status_bits::ObjectPanelFlag;
 mod jets;
 #[cfg(test)]
 #[path = "jet_attack_loco_owner_tests.rs"]

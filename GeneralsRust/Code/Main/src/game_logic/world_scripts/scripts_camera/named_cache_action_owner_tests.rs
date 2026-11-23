@@ -3,10 +3,15 @@ use super::*;
 use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 fn world() -> (GameLogic, ObjectId) {
+    world_with_energy(None)
+}
+
+fn world_with_energy(energy: Option<i32>) -> (GameLogic, ObjectId) {
     let mut world = GameLogic::new();
     world.add_player(Player::new(1, Team::USA, "ActionOwner", true));
     let mut template = ThingTemplate::new("NamedActionWarehouse");
     template.add_kind_of(KindOf::Structure).set_health(100.0);
+    template.energy_production = energy;
     template.dock_kind = crate::game_logic::DockKind::SupplyWarehouse;
     template
         .special_power_modules
@@ -52,6 +57,59 @@ fn action(kind: ScriptActionType, strings: &[&str], number: Option<i32>) -> Scri
             .unwrap();
     }
     action
+}
+
+#[test]
+fn team_panel_flag_updates_energy_before_the_next_named_action() {
+    let (mut owner, id) = world_with_energy(Some(20));
+    let (peer, peer_id) = world_with_energy(Some(20));
+    assert_eq!(id, peer_id);
+    let team = owner.host_default_team_id(1).unwrap();
+
+    let mut disable = ScriptAction::new(ScriptActionType::TeamAffectObjectPanelFlags);
+    disable
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            gamelogic::scripting::core::THIS_TEAM.into(),
+        ))
+        .unwrap();
+    disable
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "Powered".into(),
+        ))
+        .unwrap();
+    disable
+        .add_parameter(Parameter::with_int(ParameterType::Int, 0))
+        .unwrap();
+    disable.next_action = Some(Box::new(action(
+        ScriptActionType::UnitAffectObjectPanelFlags,
+        &["SourceName", "Powered"],
+        Some(1),
+    )));
+    let mut engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+    engine.set_external_eval_context(None, Some(team));
+    let mut observations = Vec::new();
+    {
+        let mut observer = |world: &GameLogic| {
+            observations.push((
+                world.players[&1].power_produced,
+                world.objects[&id].is_script_underpowered(),
+            ));
+        };
+        let frame = owner.frame;
+        let mut driver = HostScriptExecutionDriver::with_interpreter(&mut owner, &engine)
+            .with_after_action_observer(&mut observer);
+        engine.friend_execute_action_with_driver(
+            &disable,
+            None,
+            gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+            &mut driver,
+        );
+    }
+    assert_eq!(observations, [(0, true), (20, false)]);
+    assert_eq!(peer.players[&1].power_produced, 20);
+    assert!(!peer.objects[&id].is_script_underpowered());
 }
 
 #[test]

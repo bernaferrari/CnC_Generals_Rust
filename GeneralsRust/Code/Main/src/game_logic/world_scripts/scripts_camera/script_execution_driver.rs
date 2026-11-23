@@ -1888,12 +1888,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             ScriptPlayerConstructionRequest::Factories {
                 template, enabled, ..
             } => {
-                if let Err(error) =
-                    self.world
-                        .host_set_objects_enabled(player_id, &template, enabled, &mut self.ui)
-                {
-                    return Some(Err(error));
-                }
+                self.world
+                    .host_set_objects_enabled(player_id, &template, enabled, &mut self.ui);
             }
         }
         Some(Ok(()))
@@ -2269,6 +2265,17 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         this_object: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
         self.receive_named_panel_flag(name, flag, enabled, this_object)
+    }
+
+    fn team_panel_flag(
+        &mut self,
+        team: &str,
+        flag: &str,
+        enabled: bool,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.receive_team_panel_flag(team, flag, enabled, calling, condition))
     }
 
     fn named_warehouse_value(

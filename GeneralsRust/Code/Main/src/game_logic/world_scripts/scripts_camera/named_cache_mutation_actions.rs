@@ -68,15 +68,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))
         {
-            if panel_flag_is_indestructible(flag) {
-                self.world.set_object_indestructible(id, enabled);
-            } else if let Some(object) = self.world.objects.get_mut(&id) {
-                object.apply_object_panel_flag_with_partition_owner(
-                    flag,
-                    enabled,
-                    &mut self.world.partition_manager,
-                );
-            }
+            self.world.apply_owned_object_panel_flag(id, flag, enabled, &mut self.ui);
         }
         Some(Ok(()))
     }
@@ -94,6 +86,32 @@ impl<'a> HostScriptExecutionDriver<'a> {
             self.world.apply_warehouse_set_value_to_object(id, cash);
         }
         Some(Ok(()))
+    }
+
+    pub(super) fn receive_team_panel_flag(
+        &mut self,
+        team: &str,
+        flag: &str,
+        enabled: bool,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((team, members)) = self.world.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        let epoch = self.world.visual_world_epoch;
+        let roster: Vec<_> = members.into_iter().filter_map(|id| {
+            let id = ObjectId(id);
+            self.world.host_object(id).map(|object| (id, object.visual_object_generation))
+        }).collect();
+        for (id, generation) in roster {
+            if self.world.spawn_identity_matches(id, generation, epoch)
+                && self.world.host_object(id).is_some_and(|object| object.team_instance_id == Some(team))
+            {
+                self.world.apply_owned_object_panel_flag(id, flag, enabled, &mut self.ui);
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn receive_named_runtime(

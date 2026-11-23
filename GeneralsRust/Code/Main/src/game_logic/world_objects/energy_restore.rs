@@ -46,6 +46,7 @@ impl GameLogic {
             let status = &mut self.objects.get_mut(&id).unwrap().status;
             status.under_construction = saved_status.under_construction;
             status.script_status_disabled = saved_status.script_status_disabled;
+            status.script_status_underpowered = saved_status.script_status_underpowered;
             // Object::xfer changes Team before it transfers m_disabledMask.
             self.bind_loaded_team_for_energy(id, team)?;
             let object = self.objects.get_mut(&id).unwrap();

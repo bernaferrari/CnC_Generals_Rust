@@ -3,7 +3,7 @@ use super::super::*;
 use crate::game_logic::object::TimedDisable;
 
 // Relative order from C++ DisabledTypes.h for the modeled deadlines.
-const TIMED_DISABLE_ORDER: [TimedDisable; 7] = [
+const TIMED_DISABLE_ORDER: [TimedDisable; 9] = [
     TimedDisable::Hacked,
     TimedDisable::Emp,
     TimedDisable::Held,
@@ -11,11 +11,13 @@ const TIMED_DISABLE_ORDER: [TimedDisable; 7] = [
     TimedDisable::Underpowered,
     TimedDisable::Awestruck,
     TimedDisable::Brainwashed,
+    TimedDisable::ScriptDisabled,
+    TimedDisable::ScriptUnderpowered,
 ];
 
 impl GameLogic {
-    pub(in crate::game_logic) fn clear_owned_underpowered(&mut self, id: ObjectId) {
-        self.clear_owned_timed_disable(id, TimedDisable::Underpowered, &mut Vec::new());
+    pub(in crate::game_logic) fn clear_owned_disabled(&mut self, id: ObjectId, effect: TimedDisable) {
+        self.clear_owned_timed_disable(id, effect, &mut Vec::new());
     }
 
     pub(in super::super) fn expire_owned_disabled_statuses(&mut self) {
