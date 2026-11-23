@@ -666,6 +666,18 @@ impl AudioManagerSubsystem {
     /// C++ removeAudioEvent(handle)/removePlayingAudio(name), bound to this
     /// receiver's actual device and original accepted receipts only.
     fn stop_leftover_looping_audio(&mut self, object_id: Option<u32>, event_name: &str) {
+        self.stop_looping_audio(object_id, event_name, true);
+    }
+
+    /// `allow_name_fallback` preserves the generic by-name stop for legacy
+    /// callers; exact-object loop stops disable it so an untracked object never
+    /// cancels a same-name receipt belonging to another object.
+    fn stop_looping_audio(
+        &mut self,
+        object_id: Option<u32>,
+        event_name: &str,
+        allow_name_fallback: bool,
+    ) {
         let lookup = if event_name == "WeaponFireLoopStop" {
             "WeaponFireLoop"
         } else {
@@ -704,7 +716,7 @@ impl AudioManagerSubsystem {
                     device.remove_audio_event(handle);
                 }
             }
-            if fallback_by_name {
+            if allow_name_fallback && fallback_by_name {
                 device.remove_owned_playing_audio(lookup, &self.common_audio_handles);
             }
         }
@@ -752,9 +764,10 @@ impl AudioManagerSubsystem {
         for admitted in admitted {
             let (event, locality) = admitted.into_parts();
             if event.stop {
-                self.stop_leftover_looping_audio(
+                self.stop_looping_audio(
                     event.object_id.map(|id| id.0),
                     event.event_type.as_str(),
+                    !event.object_loop_stop_only,
                 );
                 continue;
             }
@@ -3068,6 +3081,58 @@ mod tests {
         assert_eq!(device.active_event_count(), 1, "only the peer loop survives");
         assert!(device.active_event_loop_count(1001).is_none(), "own loop stops");
         assert!(device.active_event_loop_count(1002).is_some(), "peer loop survives");
+    }
+
+    /// An exact-object loop stop never falls back to canceling a same-name
+    /// receipt tracked for another object when its own object is untracked.
+    #[test]
+    fn exact_object_loop_stop_never_cancels_untracked_object_peers() {
+        use game_engine::common::audio::{AudioEventRts, AudioManager};
+        let mut device = AudioManager::new();
+        let mut event = AudioEventRts::with_event_name("SharedLoop");
+        event.set_playing_handle(1001);
+        device.test_insert_active_audio_event(event);
+        let device = std::sync::Arc::new(std::sync::Mutex::new(device));
+        let mut audio = AudioManagerSubsystem::new();
+        audio.bind_common_audio_device(device.clone());
+        audio.common_audio_handles.push(1001);
+        audio.track_looping_object_audio(7, "SharedLoop".into(), 1001);
+
+        audio.queue_event(
+            crate::game_logic::AudioEventRequest::new("SharedLoop")
+                .with_object(crate::game_logic::ObjectId(8))
+                .stopping_object_loop(),
+        );
+        audio.drain_and_dispatch_queued_audio(&mut Default::default());
+        {
+            let device = device.lock().unwrap();
+            assert_eq!(
+                device.active_event_count(),
+                1,
+                "untracked object stop must not fall back to the name"
+            );
+            assert!(
+                device.active_event_loop_count(1001).is_some(),
+                "object 7 loop survives the unrelated stop"
+            );
+        }
+        assert!(audio.looping_object_audio.contains_key(&7));
+
+        audio.queue_event(
+            crate::game_logic::AudioEventRequest::new("SharedLoop")
+                .with_object(crate::game_logic::ObjectId(7))
+                .stopping_object_loop(),
+        );
+        audio.drain_and_dispatch_queued_audio(&mut Default::default());
+        let device = device.lock().unwrap();
+        assert_eq!(
+            device.active_event_count(),
+            0,
+            "exact object stop drains its tracked loop"
+        );
+        assert!(device.active_event_loop_count(1001).is_none());
+        drop(device);
+        assert!(audio.looping_object_audio.get(&7).is_none());
     }
 
     #[test]
