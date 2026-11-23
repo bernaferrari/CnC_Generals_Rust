@@ -4,7 +4,7 @@ use super::WorldSnapshot;
 use super::player_team_persist::*;
 use crate::game_logic::{GameLogic, ObjectId, PlayerSideRole};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
-use game_engine::common::system::xfer_save::XferSave;
+use game_engine::common::{fast_hash::FxHashMap, system::xfer_save::XferSave};
 use std::collections::HashSet;
 use std::io::Cursor;
 
@@ -673,21 +673,32 @@ pub(super) fn apply_before_objects(
 pub(super) fn apply_members(
     world: &mut GameLogic,
     chunks: &PlayerTeamChunks,
+    object_load_order: Option<&[ObjectId]>,
 ) -> SaveLoadResult<()> {
     let Some(teams) = &chunks.teams else {
         return Ok(());
     };
     // Resolve all secondary references before changing any host membership.
-    let mut bindings = Vec::new();
-    let mut unique = HashSet::new();
+    let mut bindings = FxHashMap::default();
     for team in &teams.teams {
-        for id in team.members.iter().flatten() {
-            if world.host_object(ObjectId(*id)).is_none() || !unique.insert(*id) {
+        for &id in team.members.iter().flatten() {
+            let object_id = ObjectId(id);
+            if world.host_object(object_id).is_none() || bindings.insert(object_id, team).is_some() {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid restored member {id}"
                 )));
             }
-            bindings.push((ObjectId(*id), team.team_name.clone(), team.team_id));
+        }
+    }
+    // Object.cpp:853 prepends as each record is read. Team::loadPostProcess
+    // validates membership and leaves that order in place. Team rows still
+    // recover membership and provide the fallback for pre-OLST saves.
+    let mut recreated_rosters = FxHashMap::<u32, Vec<u32>>::default();
+    if let Some(order) = object_load_order {
+        for object_id in order.iter().rev() {
+            if let Some(team) = bindings.get(object_id) {
+                recreated_rosters.entry(team.team_id).or_default().push(object_id.0);
+            }
         }
     }
     let factory = world
@@ -696,6 +707,11 @@ pub(super) fn apply_members(
         .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?;
     for team in &teams.teams {
         if let Some(members) = &team.members {
+            let members = if object_load_order.is_some() {
+                recreated_rosters.get(&team.team_id).map_or(&[][..], Vec::as_slice)
+            } else {
+                members
+            };
             let live = factory
                 .find_team_by_id(team.team_id)
                 .ok_or_else(|| SaveLoadError::Corrupted("Restored team is absent".into()))?;
@@ -705,10 +721,10 @@ pub(super) fn apply_members(
         }
     }
     drop(factory);
-    for (id, name, identity) in bindings {
+    for (id, team) in bindings {
         let object = world.host_object_mut(id).expect("validated owned member");
-        object.team_instance_name = name;
-        object.team_instance_id = Some(identity);
+        object.team_instance_name.clone_from(&team.team_name);
+        object.team_instance_id = Some(team.team_id);
     }
     Ok(())
 }
@@ -718,7 +734,7 @@ pub(super) fn apply_members(
 pub fn apply_pending(world: &mut GameLogic, chunks: &PlayerTeamChunks) -> SaveLoadResult<()> {
     validate_definitions(world, chunks)?;
     apply_before_objects(world, chunks)?;
-    apply_members(world, chunks)
+    apply_members(world, chunks, None)
 }
 
 #[cfg(test)]

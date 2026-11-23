@@ -58,6 +58,45 @@ fn snapshot_admits_records_in_saved_list_order_like_original_xfer() {
 }
 
 #[test]
+fn restored_team_roster_follows_object_admission_even_after_a_member_rejoined() {
+    let source = world();
+    let team_id = source.host_default_team_id(0).expect("source Team");
+    let source_team = source
+        .team_factory
+        .lock()
+        .unwrap()
+        .find_team_by_id(team_id)
+        .unwrap();
+    {
+        let mut team = source_team.write().unwrap();
+        // Leaving and rejoining changes Team order independently of the
+        // global Object list. Reversing the saved Team rows would also fail.
+        team.remove_member(9);
+        team.add_member(9);
+        assert_eq!(team.get_members(), &[9, 300, 700]);
+    }
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = super::super::decode_bincode_world_snapshot(&bytes).unwrap();
+    let mut restored = GameLogic::new();
+    restored.add_player(Player::new(0, Team::USA, "OrderOwner", true));
+    restored.templates = source.templates.clone();
+    builder.restore_from_snapshot(&decoded, &mut restored).unwrap();
+
+    let restored_team = restored
+        .team_factory
+        .lock()
+        .unwrap()
+        .find_team_by_id(team_id)
+        .unwrap();
+    // Object.cpp:853 prepends at setOrRestoreTeam. Team.cpp:2679–2724
+    // only checks the incoming IDs and performs no later reorder.
+    assert_eq!(restored_team.read().unwrap().get_members(), &[700, 9, 300]);
+    assert_eq!(source_team.read().unwrap().get_members(), &[9, 300, 700]);
+}
+
+#[test]
 fn order_codec_validates_exact_coverage_and_never_scans_opaque_bytes() {
     let world = world();
     let snapshot = SnapshotBuilder::new()

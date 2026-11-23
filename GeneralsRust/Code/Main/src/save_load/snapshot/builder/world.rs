@@ -1281,7 +1281,11 @@ impl SnapshotBuilder {
                 .set_seed_words(snapshot.logic_rng_seed_words);
         }
 
-        super::super::player_team_chunks::apply_members(game_logic, &player_team_chunks)?;
+        super::super::player_team_chunks::apply_members(
+            game_logic,
+            &player_team_chunks,
+            object_order.saved_order.as_deref(),
+        )?;
         // Saved destinations and paths are canonical state, not fresh movement
         // cues. Discard only this receiver's transient restore observations.
         game_logic.movement_events.clear();
