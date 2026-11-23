@@ -90,10 +90,11 @@ impl<'a> CommandExecutor<'a> {
             return false;
         }
 
-        // USA Pilot residual: pilots may Enter unmanned ground vehicles for recrew
-        // even when the vehicle is not a residual transport container.
-        let pilot_recrew = self.game_logic.can_execute_pilot_recrew(unit_id, target_id);
-        if pilot_recrew {
+        // C++ ActionManager admits an authored pilot's collision action
+        // before it checks normal transport capacity.
+        if self.game_logic.can_execute_pilot_recrew(unit_id, target_id)
+            || self.game_logic.can_execute_pilot_promotion(unit_id, target_id)
+        {
             return true;
         }
         // C++ canEnterObject: generic infantry steals DISABLED_UNMANNED husks.

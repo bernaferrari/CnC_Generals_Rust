@@ -193,3 +193,147 @@ fn parsed_nontrainable_ground_vehicle_rejects_pilot_entry() {
     owner.try_pilot_find_vehicle_residual(pilot);
     assert_eq!(owner.host_object(pilot).unwrap().target, None);
 }
+
+#[test]
+fn pilot_enter_promotes_a_manned_vehicle_without_recapturing_it() {
+    use crate::command_system::{CommandType, GameCommand, ModifierKeys};
+    use crate::game_logic::{AIState, VeterancyLevel};
+
+    let mut world = admitted_world("CrusaderLocomotor", "VEHICLE SELECTABLE", "Yes");
+    let pilot = world
+        .create_object_for_player("OwnedPilot", 1, Vec3::ZERO)
+        .unwrap();
+    let vehicle = world
+        .create_object_for_player("OwnedVehicle", 1, Vec3::X)
+        .unwrap();
+    world
+        .host_object_mut(vehicle)
+        .unwrap()
+        .set_experience_scalar(3.0);
+    world.host_object_mut(pilot).unwrap().name = "AuthoredPilotName".into();
+    world.initialize_receiving_named_cache_for_fixture();
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut world, 1);
+    let pilot_view = frame
+        .objects
+        .iter()
+        .find(|object| object.id == pilot)
+        .unwrap();
+    let vehicle_view = frame
+        .objects
+        .iter()
+        .find(|object| object.id == vehicle)
+        .unwrap();
+    assert_eq!(pilot_view.pilot_promotion_source_owner, Some(1));
+    assert_eq!(vehicle_view.pilot_promotion_target_owner, Some(1));
+    let team = world.host_object(vehicle).unwrap().team_instance_id;
+    assert!(!world.host_object(vehicle).unwrap().is_unmanned());
+    assert_eq!(
+        world.host_object(vehicle).unwrap().experience.level,
+        VeterancyLevel::Rookie
+    );
+    assert_eq!(
+        world.host_object(pilot).unwrap().experience.level,
+        VeterancyLevel::Veteran
+    );
+
+    world.queue_command(GameCommand {
+        command_type: CommandType::Enter { target_id: vehicle },
+        player_id: 1,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![pilot],
+        modifier_keys: ModifierKeys::default(),
+    });
+    world.process_commands();
+    let approaching = world.host_object(pilot).unwrap();
+    assert_eq!(approaching.ai_state(), AIState::Entering);
+    assert_eq!(approaching.target, Some(vehicle));
+    world
+        .update_support_states(&[pilot, vehicle], 1.0 / 30.0)
+        .unwrap();
+
+    let target = world.host_object(vehicle).unwrap();
+    assert_eq!(target.experience.level, VeterancyLevel::Veteran);
+    assert_eq!(
+        target.experience.current,
+        target.get_template().veterancy_xp_thresholds[0]
+    );
+    assert_eq!(target.team_instance_id, team);
+    assert_eq!(target.owner_player_id, Some(1));
+    assert!(!target.is_private_captured());
+    assert!(!target.is_unmanned());
+    assert_eq!(world.host_named_unit_id("AuthoredPilotName"), Some(vehicle));
+    assert!(
+        world
+            .host_object(pilot)
+            .is_none_or(|object| object.status.destroyed)
+    );
+}
+
+#[test]
+fn pilot_crate_collision_requires_a_matching_goal_and_exact_controller() {
+    use crate::game_logic::{AIState, VeterancyLevel};
+
+    let mut world = admitted_world("CrusaderLocomotor", "VEHICLE SELECTABLE", "Yes");
+    world.add_player(Player::new(2, Team::USA, "SameFactionPeer", false));
+    let pilot = world
+        .create_object_for_player("OwnedPilot", 1, Vec3::ZERO)
+        .unwrap();
+    let vehicle = world
+        .create_object_for_player("OwnedVehicle", 1, Vec3::X)
+        .unwrap();
+    let peer = world
+        .create_object_for_player("OwnedVehicle", 2, Vec3::Z)
+        .unwrap();
+    let mut effects = crate::game_logic::ScriptPresentationEffects::default();
+
+    world
+        .dispatch_host_collide_modules_with_effects(pilot, vehicle, &mut effects)
+        .unwrap();
+    assert_eq!(
+        world.host_object(vehicle).unwrap().experience.level,
+        VeterancyLevel::Rookie
+    );
+    assert!(world.host_object(pilot).unwrap().is_alive());
+
+    world
+        .unit_command_stop_moving_order_target(pilot, Some(peer))
+        .unwrap();
+    world
+        .unit_command_set_ai_state(pilot, AIState::Entering)
+        .unwrap();
+    world
+        .dispatch_host_collide_modules_with_effects(pilot, peer, &mut effects)
+        .unwrap();
+    assert_eq!(
+        world.host_object(peer).unwrap().experience.level,
+        VeterancyLevel::Rookie
+    );
+    assert!(world.host_object(pilot).unwrap().is_alive());
+
+    world
+        .unit_command_stop_moving_order_target(pilot, Some(vehicle))
+        .unwrap();
+    world
+        .unit_command_set_ai_state(pilot, AIState::Entering)
+        .unwrap();
+    world
+        .dispatch_host_collide_modules_with_effects(pilot, vehicle, &mut effects)
+        .unwrap();
+    assert_eq!(
+        world.host_object(vehicle).unwrap().experience.level,
+        VeterancyLevel::Veteran
+    );
+    world
+        .dispatch_host_collide_modules_with_effects(pilot, vehicle, &mut effects)
+        .unwrap();
+    assert_eq!(
+        world.host_object(vehicle).unwrap().experience.level,
+        VeterancyLevel::Veteran
+    );
+    assert!(
+        world
+            .host_object(pilot)
+            .is_none_or(|object| object.status.destroyed)
+    );
+}

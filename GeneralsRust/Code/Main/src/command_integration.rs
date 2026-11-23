@@ -867,6 +867,7 @@ impl InputCommandProcessor {
             enter_uses_transport_slots: o.normal_enter_uses_transport_slots(),
             enter_requires_infantry: o.normal_enter_requires_infantry(),
             enter_forbids_aircraft: o.normal_enter_forbids_aircraft(),
+            pilot_promotion_target_owner: o.pilot_promotion_target_owner,
             enter_disabled_subdued: o.disabled_subdued,
             enter_is_rider_change: o.contain_module_kind
                 == crate::game_logic::ContainModuleKind::RiderChange,
@@ -948,6 +949,7 @@ impl InputCommandProcessor {
                 can_request_service: o.contained_by.is_none(),
                 can_capture,
                 template_name: o.template_name.clone(),
+                pilot_promotion_source_owner: o.pilot_promotion_source_owner,
                 reject_unmanned: crate::presentation_frame::PresentationFrame::object_has_kind(
                     o,
                     crate::game_logic::KindOf::RejectUnmanned,

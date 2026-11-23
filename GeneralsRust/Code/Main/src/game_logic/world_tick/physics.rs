@@ -271,11 +271,12 @@ impl GameLogic {
         // C++ Object::onCollide walks only this object's collide modules.
         // Reverse side is the pair loop's second try_physics_collide.
         self.dispatch_host_collide_modules_with_effects(a_id, b_id, presentation_effects)?;
-        // C++ PhysicsUpdate.cpp:1167-1172 — container/occupant never bounce/crush.
+        // A crate module may have consumed this actor. C++ Object::onCollide
+        // then stops dispatching before Physics, which also skips containment pairs.
         if self
             .objects
             .get(&a_id)
-            .is_some_and(|a| a.contained_by == Some(b_id))
+            .is_none_or(|a| a.status.destroyed || a.contained_by == Some(b_id))
             || self
                 .objects
                 .get(&b_id)

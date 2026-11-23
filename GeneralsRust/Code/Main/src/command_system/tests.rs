@@ -1289,6 +1289,7 @@ fn crate_click_issues_do_salvage_for_salvager_selection() {
             enter_uses_transport_slots: false,
             enter_requires_infantry: false,
             enter_forbids_aircraft: false,
+            pilot_promotion_target_owner: None,
             enter_disabled_subdued: false,
             enter_is_rider_change: false,
             rider_change_allowed_templates: Vec::new(),
@@ -1320,6 +1321,7 @@ fn crate_click_issues_do_salvage_for_salvager_selection() {
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: salvager,
+            pilot_promotion_source_owner: None,
             reject_unmanned: false,
             is_alive: true,
             is_resource_collector: false,
@@ -1420,6 +1422,7 @@ fn ordinary_crate_click_issues_move_to_crate() {
             enter_uses_transport_slots: false,
             enter_requires_infantry: false,
             enter_forbids_aircraft: false,
+            pilot_promotion_target_owner: None,
             enter_disabled_subdued: false,
             enter_is_rider_change: false,
             rider_change_allowed_templates: Vec::new(),
@@ -1451,6 +1454,7 @@ fn ordinary_crate_click_issues_move_to_crate() {
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: unit,
+            pilot_promotion_source_owner: None,
             reject_unmanned: false,
             is_alive: true,
             is_resource_collector: false,
@@ -2186,6 +2190,7 @@ fn hijacker_context_click_issues_hijack_before_attack() {
             enter_uses_transport_slots: false,
             enter_requires_infantry: false,
             enter_forbids_aircraft: false,
+            pilot_promotion_target_owner: None,
             enter_disabled_subdued: false,
             enter_is_rider_change: false,
             rider_change_allowed_templates: Vec::new(),
@@ -2217,6 +2222,7 @@ fn hijacker_context_click_issues_hijack_before_attack() {
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: hijacker,
+            pilot_promotion_source_owner: None,
             reject_unmanned: false,
             is_alive: true,
             is_resource_collector: false,
@@ -2288,6 +2294,7 @@ fn lotus_context_click_auto_hacks_enemy_vehicle() {
             enter_uses_transport_slots: false,
             enter_requires_infantry: false,
             enter_forbids_aircraft: false,
+            pilot_promotion_target_owner: None,
             enter_disabled_subdued: false,
             enter_is_rider_change: false,
             rider_change_allowed_templates: Vec::new(),
@@ -2319,6 +2326,7 @@ fn lotus_context_click_auto_hacks_enemy_vehicle() {
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: lotus,
+            pilot_promotion_source_owner: None,
             reject_unmanned: false,
             is_alive: true,
             is_resource_collector: false,
@@ -2377,6 +2385,7 @@ fn active_special_power_destination_steers_world_click() {
         target_presentation: None,
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: puc,
+            pilot_promotion_source_owner: None,
             reject_unmanned: false,
             is_alive: true,
             is_resource_collector: false,
@@ -2444,6 +2453,7 @@ fn hint_target(id: ObjectId) -> PresentationTargetHint {
         enter_uses_transport_slots: false,
         enter_requires_infantry: false,
         enter_forbids_aircraft: false,
+        pilot_promotion_target_owner: None,
         enter_disabled_subdued: false,
         enter_is_rider_change: false,
         rider_change_allowed_templates: Vec::new(),
@@ -2500,6 +2510,7 @@ fn hint_selected(id: ObjectId, template: &str) -> PresentationSelectedUnitHint {
         is_salvager: false,
         can_override_special_power_destination: false,
 
+        pilot_promotion_source_owner: None,
         reject_unmanned: false,
     }
 }
@@ -2598,6 +2609,36 @@ fn infantry_rmb_enters_unmanned_husk() {
         CommandType::Enter { target_id } => assert_eq!(target_id, husk),
         other => panic!("expected Enter on unmanned husk, got {other:?}"),
     }
+}
+
+#[test]
+fn pilot_rmb_uses_frozen_controller_for_manned_veterancy_transfer() {
+    let pilot = ObjectId(1);
+    let vehicle = ObjectId(2);
+    let mut selected = hint_selected(pilot, "RenamedPilot");
+    selected.pilot_promotion_source_owner = Some(1);
+    let mut target = hint_target(vehicle);
+    target.is_vehicle = true;
+    target.is_unmanned = false;
+    target.can_be_entered = false;
+    target.pilot_promotion_target_owner = Some(1);
+
+    let mut system = CommandSystem::new();
+    let own = system
+        .process_mouse_input(
+            &rmb_ctx(target.clone(), vec![selected.clone()]),
+            &[pilot],
+            1,
+            None,
+        )
+        .unwrap();
+    assert!(matches!(own.command_type, CommandType::Enter { target_id } if target_id == vehicle));
+
+    target.pilot_promotion_target_owner = Some(2);
+    let peer = system
+        .process_mouse_input(&rmb_ctx(target, vec![selected]), &[pilot], 1, None)
+        .unwrap();
+    assert!(!matches!(peer.command_type, CommandType::Enter { .. }));
 }
 
 #[test]

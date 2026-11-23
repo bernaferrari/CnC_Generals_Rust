@@ -1093,7 +1093,7 @@ impl Object {
         feedback: &mut crate::game_logic::VeterancyFeedback<'_>,
         locomotors: Option<&game_engine::common::ini::ini_locomotor::LocomotorStore>,
     ) {
-        let Some((previous_level, new_level)) = self.commit_experience_gain_for_world(amount)
+        let Some((previous_level, new_level)) = self.commit_experience_gain_for_world(amount, true)
         else {
             return;
         };
@@ -1114,6 +1114,7 @@ impl Object {
     pub(crate) fn commit_experience_gain_for_world(
         &mut self,
         amount: f32,
+        scale_for_bonus: bool,
     ) -> Option<(VeterancyLevel, VeterancyLevel)> {
         // C++ addExperiencePoints: untrainable objects keep no XP (sink
         // forwarding is handled by GameLogic::award_experience).
@@ -1121,7 +1122,10 @@ impl Object {
             return None;
         }
         // C++ amountToGain *= m_experienceScalar when canScaleForBonus.
-        let scalar = if self.experience_scalar.is_finite() && self.experience_scalar > 0.0 {
+        let scalar = if scale_for_bonus
+            && self.experience_scalar.is_finite()
+            && self.experience_scalar > 0.0
+        {
             self.experience_scalar
         } else {
             1.0

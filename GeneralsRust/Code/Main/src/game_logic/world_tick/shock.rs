@@ -1534,6 +1534,26 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
+        self.award_experience_with_scaling(recipient_id, amount, true, interpreter, effects)
+    }
+
+    pub(in crate::game_logic) fn award_unscaled_experience_with_effects(
+        &mut self,
+        recipient_id: ObjectId,
+        amount: f32,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
+        self.award_experience_with_scaling(recipient_id, amount, false, None, effects)
+    }
+
+    fn award_experience_with_scaling(
+        &mut self,
+        recipient_id: ObjectId,
+        amount: f32,
+        scale_for_bonus: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<()> {
         if amount <= 0.0 || !amount.is_finite() {
             return Ok(());
         }
@@ -1562,7 +1582,7 @@ impl GameLogic {
         let transition = self
             .objects
             .get_mut(&dest_id)
-            .and_then(|object| object.commit_experience_gain_for_world(forwarded));
+            .and_then(|object| object.commit_experience_gain_for_world(forwarded, scale_for_bonus));
         if let Some((previous, level)) = transition {
             self.finish_experience_rank_change_with_upgrade_callback(
                 dest_id,

@@ -106,44 +106,20 @@ impl<'a> CommandExecutor<'a> {
             return Ok(CommandResult::Success);
         }
 
-        // USA Pilot residual: Enter unmanned vehicle for recrew (not transport contain).
-        // A non-container target is legal only when at least one selected
-        // source passes the parsed `VeterancyCrateCollide IsPilot` authority
-        // predicate OR C++ canEnterObject unmanned infantry (not REJECT_UNMANNED).
-        let has_unmanned_recrew_source = units.iter().copied().any(|unit_id| {
-            self.game_logic.can_execute_pilot_recrew(unit_id, target_id)
-                || self
-                    .game_logic
-                    .can_execute_infantry_unmanned_recrew(unit_id, target_id)
-        });
-        let target_pos = match self.game_logic.host_object(target_id) {
-            Some(transport)
-                if transport.is_alive()
-                    && !transport.status.under_construction
-                    && (transport.can_contain() || has_unmanned_recrew_source) =>
-            {
-                transport.get_position()
+        let (target_pos, target_radius, is_container) = match self.game_logic.host_object(target_id) {
+            Some(target) if target.is_alive() && !target.status.under_construction => {
+                (target.get_position(), target.selection_radius, target.can_contain())
             }
             _ => return Ok(CommandResult::InvalidTarget),
         };
 
+        let mut admitted = false;
         let mut issued = false;
         for &unit_id in units {
-            let unmanned_recrew = self.game_logic.host_object(unit_id).is_some_and(|unit| {
-                unit.is_alive()
-                    && unit.can_move()
-                    && (self.game_logic.can_execute_pilot_recrew(unit_id, target_id)
-                        || self
-                            .game_logic
-                            .can_execute_infantry_unmanned_recrew(unit_id, target_id))
-            });
-            let shrouded = self
-                .game_logic
-                .is_enter_target_shrouded_for_action(unit_id, target_id);
-            let can_issue = self.can_issue_enter(unit_id, target_id);
-            if shrouded || (!unmanned_recrew && !can_issue) {
+            if !self.can_issue_enter(unit_id, target_id) {
                 continue;
             }
+            admitted = true;
 
             let unit_in_tunnel = self
                 .game_logic
@@ -179,10 +155,9 @@ impl<'a> CommandExecutor<'a> {
             let in_enter_range = self
                 .game_logic
                 .host_object(unit_id)
-                .zip(self.game_logic.host_object(target_id))
-                .is_some_and(|(unit, container)| {
-                    unit.get_position().distance(container.get_position())
-                        <= unit.selection_radius + container.selection_radius + 4.0
+                .is_some_and(|unit| {
+                    unit.get_position().distance(target_pos)
+                        <= unit.selection_radius + target_radius + 4.0
                 });
             let issued_order = if in_enter_range {
                 self.game_logic
@@ -226,6 +201,8 @@ impl<'a> CommandExecutor<'a> {
             );
             self.game_logic.queue_picked_unit_voice(units, slot);
             CommandResult::Success
+        } else if !admitted && !is_container {
+            CommandResult::InvalidTarget
         } else {
             CommandResult::InvalidCommand
         })

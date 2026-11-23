@@ -1523,6 +1523,8 @@ impl PresentationFrame {
             reconstructing: ent.reconstructing,
             // Wave 490: XP/veterancy from GW entity.
             veterancy: PresentationVeterancy::from_ordinal(ent.veterancy_ordinal),
+            pilot_promotion_source_owner: None,
+            pilot_promotion_target_owner: None,
             experience_points: ent.experience_points,
             moving: moving || ent.moving,
             attacking: attack_target.is_some() || ent.attacking,

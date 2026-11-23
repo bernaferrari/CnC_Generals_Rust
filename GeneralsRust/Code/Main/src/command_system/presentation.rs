@@ -18,6 +18,9 @@ pub struct PresentationTargetHint {
     /// from the presentation frame.  It is never inferred from the template
     /// spelling at physical-input time.
     pub can_be_entered: bool,
+    /// Controlling player when a pilot can transfer veterancy to this vehicle.
+    #[serde(default)]
+    pub pilot_promotion_target_owner: Option<u32>,
     /// Remaining frozen capacity for normal Enter.  This is passenger slots
     /// for TransportContain/RailedTransportContain and bodies for garrison or
     /// tunnel containers; the selected rider is checked against it before
@@ -131,6 +134,9 @@ pub struct PresentationTargetHint {
 /// Wave 229: presentation-frozen selected-unit capability for RMB classification.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationSelectedUnitHint {
+    /// Controlling player when this pilot can transfer veterancy.
+    #[serde(default)]
+    pub pilot_promotion_source_owner: Option<u32>,
     #[serde(default = "missing_recrew_kind")]
     pub reject_unmanned: bool,
     pub id: ObjectId,

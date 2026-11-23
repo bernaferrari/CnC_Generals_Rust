@@ -22,7 +22,7 @@ impl super::super::GameLogic {
         if self_id == other_id {
             return Ok(());
         }
-        let (entering_other, crate_other) = {
+        let (entering_other, crate_other, pilot_targets_other) = {
             let Some(us) = self.objects.get(&self_id) else {
                 return Ok(());
             };
@@ -34,8 +34,13 @@ impl super::super::GameLogic {
                 && other.can_contain();
             let crate_name = other.template_name.to_ascii_lowercase();
             let is_crate = crate_name.contains("crate");
-            (entering, is_crate)
+            let pilot_targets_other = us.target == Some(other_id)
+                && us.get_template().veterancy_crate_collide.is_some();
+            (entering, is_crate, pilot_targets_other)
         };
+        if pilot_targets_other && self.complete_pilot_promotion(self_id, other_id, effects)? {
+            return Ok(());
+        }
         if entering_other {
             let tunnel_key = self.objects.get(&other_id).and_then(|container| {
                 container

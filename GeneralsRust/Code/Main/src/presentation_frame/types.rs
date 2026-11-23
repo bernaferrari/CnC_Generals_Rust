@@ -658,6 +658,12 @@ pub struct RenderableObject {
     pub reconstructing: bool,
     /// Veterancy rank residual for chevrons / UI.
     pub veterancy: PresentationVeterancy,
+    /// Exact controller of a grounded pilot with transferable veterancy.
+    #[serde(default)]
+    pub pilot_promotion_source_owner: Option<u32>,
+    /// Exact controller of a manned vehicle eligible to receive pilot XP.
+    #[serde(default)]
+    pub pilot_promotion_target_owner: Option<u32>,
     /// Experience points residual (display / debug).
     pub experience_points: f32,
     /// Host ObjectStatus::moving residual.

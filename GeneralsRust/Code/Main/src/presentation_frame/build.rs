@@ -906,6 +906,8 @@ impl PresentationFrame {
                 rebuild_reconstructing_id: obj.rebuild_reconstructing_id,
                 reconstructing: obj.status.reconstructing,
                 veterancy: PresentationVeterancy::from_host(obj.experience.level),
+                pilot_promotion_source_owner: logic.pilot_promotion_source_owner(obj),
+                pilot_promotion_target_owner: logic.pilot_promotion_target_owner(obj, ground_height),
                 experience_points: obj.experience.current.max(0.0),
                 moving: obj.status.moving,
                 attacking: obj.status.attacking,

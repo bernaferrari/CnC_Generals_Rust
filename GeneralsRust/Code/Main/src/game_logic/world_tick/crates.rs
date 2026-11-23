@@ -1938,6 +1938,46 @@ impl GameLogic {
         crate_obj.target == Some(picker_id)
     }
 
+    /// Retail zero-range `VeterancyCrateCollide::executeCrateBehavior`.
+    pub(in crate::game_logic) fn complete_pilot_promotion(
+        &mut self,
+        pilot_id: ObjectId,
+        vehicle_id: ObjectId,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<bool> {
+        if !self.objects.get(&pilot_id).is_some_and(|pilot| {
+            pilot.target == Some(vehicle_id)
+                && pilot.thing().template.veterancy_crate_collide.is_some()
+                && pilot.has_ai_update_interface()
+        }) {
+            return Ok(false);
+        }
+        let Some(levels) = self.pilot_promotion_levels(pilot_id, vehicle_id) else {
+            return Ok(false);
+        };
+
+        let pilot_birth =
+            std::sync::Arc::downgrade(&self.objects[&pilot_id].visual_draw_identity_token);
+        let vehicle = &self.objects[&vehicle_id];
+        let vehicle_birth = std::sync::Arc::downgrade(&vehicle.visual_draw_identity_token);
+        let current_rank = crate::game_logic::host_usa_pilot::veterancy_rank(vehicle.experience.level);
+        let thresholds = vehicle.get_template().veterancy_xp_thresholds;
+        let next_rank = usize::from(current_rank + levels).min(thresholds.len());
+        let needed = thresholds[next_rank - 1] - vehicle.experience.current;
+
+        // ExperienceTracker::gainExpForLevel(levels, !isPilot) commits
+        // only the XP needed for the final rank, then runs one transition.
+        self.award_unscaled_experience_with_effects(vehicle_id, needed, effects)?;
+        if !self.object_birth_matches(pilot_id, &pilot_birth) {
+            return Ok(true);
+        }
+        if self.object_birth_matches(vehicle_id, &vehicle_birth) {
+            let _ = self.transfer_script_object_name(pilot_id, vehicle_id);
+        }
+        self.destroy_object_with_effects(pilot_id, effects)?;
+        Ok(true)
+    }
+
     pub fn execute_veterancy_crate_behavior(
         &mut self,
         crate_id: ObjectId,

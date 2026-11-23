@@ -98,6 +98,7 @@ mod tests {
                 enter_uses_transport_slots: false,
                 enter_requires_infantry: false,
                 enter_forbids_aircraft: false,
+                pilot_promotion_target_owner: None,
                 enter_disabled_subdued: false,
                 enter_is_rider_change: false,
                 rider_change_allowed_templates: Vec::new(),
@@ -129,6 +130,7 @@ mod tests {
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: attacker,
+                pilot_promotion_source_owner: None,
                 reject_unmanned: false,
                 is_alive: true,
                 is_resource_collector: false,

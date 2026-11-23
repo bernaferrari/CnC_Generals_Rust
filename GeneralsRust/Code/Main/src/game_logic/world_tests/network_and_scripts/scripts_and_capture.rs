@@ -1343,6 +1343,7 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
         is_salvager: false,
         can_override_special_power_destination: false,
 
+        pilot_promotion_source_owner: None,
         reject_unmanned: false,
     };
     let service_context =
@@ -1365,6 +1366,7 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
                 enter_uses_transport_slots: false,
                 enter_requires_infantry: false,
                 enter_forbids_aircraft: false,
+                pilot_promotion_target_owner: None,
                 enter_disabled_subdued: false,
                 enter_is_rider_change: false,
                 rider_change_allowed_templates: Vec::new(),

@@ -1087,6 +1087,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 enter_uses_transport_slots: false,
                 enter_requires_infantry: false,
                 enter_forbids_aircraft: false,
+                pilot_promotion_target_owner: None,
                 enter_disabled_subdued: false,
                 enter_is_rider_change: false,
                 rider_change_allowed_templates: Vec::new(),
@@ -1118,6 +1119,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: collector_id,
+                pilot_promotion_source_owner: None,
                 reject_unmanned: false,
                 is_alive: true,
                 // Keep legacy Worker false: Gather must depend only on the

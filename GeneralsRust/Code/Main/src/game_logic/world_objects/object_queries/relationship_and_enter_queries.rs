@@ -484,67 +484,114 @@ impl GameLogic {
             && (self.players.is_empty() || self.unique_player_id_for_team(source.team).is_some())
     }
 
-    /// One live authority predicate for C++ `VeterancyCrateCollide IsPilot`
-    /// re-crew execution.  It is deliberately narrower than the generic
-    /// crate/experience system: only the retail `RequiredKindOf = VEHICLE`,
-    /// `ForbiddenKindOf = DOZER`, `EffectRange = 0`, and
-    /// `AddsOwnerVeterancy = Yes` pilot record is currently representable.
-    ///
-    /// The executor uses this before it queues Enter, and the arrival/physics
-    /// paths repeat it immediately before mutating the target.  This prevents
-    /// a frozen RMB decision, an owner change, or an airborne transition from
-    /// becoming a permanent authorization.
-    #[inline]
     pub fn can_execute_pilot_recrew(&self, pilot_id: ObjectId, vehicle_id: ObjectId) -> bool {
-        use crate::game_logic::host_usa_pilot::{
-            is_recrewable_unmanned_vehicle, is_significantly_above_terrain, pilot_levels_to_gain,
-            vehicle_can_gain_exp_for_levels,
-        };
+        self.host_object(pilot_id)
+            .zip(self.host_object(vehicle_id))
+            .is_some_and(|(pilot, vehicle)| {
+                pilot_id != vehicle_id
+                    && vehicle.is_unmanned()
+                    && Self::pilot_offered_levels(pilot).is_some()
+                    && Self::can_receive_pilot_veterancy(vehicle)
+                    && self.pilot_recrew_controller_matches(pilot_id, vehicle_id)
+                    && self.vehicle_is_grounded_for_pilot(vehicle)
+            })
+    }
 
+    /// ActionManager admits the authored pilot collision before capacity.
+    pub(crate) fn can_execute_pilot_promotion(
+        &self,
+        pilot_id: ObjectId,
+        vehicle_id: ObjectId,
+    ) -> bool {
+        self.pilot_promotion_levels(pilot_id, vehicle_id).is_some()
+    }
+
+    pub(in crate::game_logic) fn pilot_promotion_levels(
+        &self,
+        pilot_id: ObjectId,
+        vehicle_id: ObjectId,
+    ) -> Option<u8> {
         if pilot_id == vehicle_id {
-            return false;
+            return None;
         }
-        let Some(pilot) = self.host_object(pilot_id) else {
-            return false;
-        };
-        let Some(vehicle) = self.host_object(vehicle_id) else {
-            return false;
-        };
-        if !pilot.is_alive()
-            || !pilot
-                .thing()
-                .template
-                .veterancy_crate_collide
-                .as_ref()
-                .is_some_and(|metadata| metadata.supports_pilot_recrew())
-            || !self.pilot_recrew_controller_matches(pilot_id, vehicle_id)
+        let pilot = self.host_object(pilot_id)?;
+        let levels = Self::pilot_offered_levels(pilot)?;
+        let owner = self.active_grounded_pilot_owner(pilot)?;
+        let vehicle = self.host_object(vehicle_id)?;
+        if self.pilot_promotion_target_controller(vehicle) != Some(owner)
+            || !self.vehicle_is_grounded_for_pilot(vehicle)
         {
-            return false;
+            return None;
         }
+        Some(levels)
+    }
 
-        // `RequiredKindOf`/`ForbiddenKindOf` are exact authored KindOf masks;
-        // do not fall back to ObjectType, Worker, or a template basename.
-        let is_airborne_locomotor = vehicle.selected_locomotor_is_airborne();
-        let terrain_y = self
-            .terrain_height_at(vehicle.get_position())
-            .unwrap_or(0.0);
-        let significantly_above_terrain =
-            is_significantly_above_terrain(vehicle.get_position().y - terrain_y);
-        let recrewable = is_recrewable_unmanned_vehicle(
-            vehicle.is_alive(),
-            vehicle.is_kind_of(KindOf::Vehicle),
-            is_airborne_locomotor,
-            vehicle.is_unmanned(),
-            vehicle.status.under_construction,
-            vehicle.is_kind_of(KindOf::Dozer),
-        );
-        recrewable
-            && !significantly_above_terrain
+    fn pilot_offered_levels(pilot: &Object) -> Option<u8> {
+        use crate::game_logic::host_usa_pilot::pilot_levels_to_gain;
+
+        if !pilot
+            .get_template()
+            .veterancy_crate_collide
+            .as_ref()
+            .is_some_and(|metadata| metadata.supports_pilot_recrew())
+            || !pilot.is_alive()
+        {
+            return None;
+        }
+        let levels = pilot_levels_to_gain(pilot.experience.level);
+        (levels > 0).then_some(levels)
+    }
+
+    fn can_receive_pilot_veterancy(vehicle: &Object) -> bool {
+        vehicle.is_kind_of(KindOf::Vehicle)
+            && !vehicle.is_kind_of(KindOf::Dozer)
+            && vehicle.is_alive()
+            && !vehicle.status.under_construction
             && vehicle.is_trainable()
-            && vehicle_can_gain_exp_for_levels(
-                vehicle.experience.level,
-                pilot_levels_to_gain(pilot.experience.level),
-            )
+            && vehicle.experience.level != crate::game_logic::VeterancyLevel::Heroic
+            && !vehicle.selected_locomotor_is_airborne()
+    }
+
+    fn vehicle_is_grounded_for_pilot(&self, vehicle: &Object) -> bool {
+        let position = vehicle.get_position();
+        let terrain_y = self.terrain_height_at(position).unwrap_or(0.0);
+        !crate::game_logic::host_usa_pilot::is_significantly_above_terrain(position.y - terrain_y)
+    }
+
+    pub(crate) fn pilot_promotion_source_owner(&self, pilot: &Object) -> Option<u32> {
+        Self::pilot_offered_levels(pilot)?;
+        self.active_grounded_pilot_owner(pilot)
+    }
+
+    fn active_grounded_pilot_owner(&self, pilot: &Object) -> Option<u32> {
+        if !pilot.has_ai_update_interface() || pilot.is_above_terrain() {
+            return None;
+        }
+        self.player_owner_for_host_object(pilot)
+    }
+
+    fn pilot_promotion_target_controller(&self, vehicle: &Object) -> Option<u32> {
+        if !Self::can_receive_pilot_veterancy(vehicle)
+            || vehicle.is_unmanned()
+            || vehicle.team == Team::Neutral
+            || vehicle.status.sold
+            || vehicle.is_subdued_disabled()
+            || vehicle.is_kind_of(KindOf::Parachute)
+            || !vehicle.has_ai_update_interface()
+        {
+            return None;
+        }
+        self.player_owner_for_host_object(vehicle)
+    }
+
+    pub(crate) fn pilot_promotion_target_owner(
+        &self,
+        vehicle: &Object,
+        terrain_y: f32,
+    ) -> Option<u32> {
+        let owner = self.pilot_promotion_target_controller(vehicle)?;
+        let height = vehicle.get_position().y - terrain_y;
+        (!crate::game_logic::host_usa_pilot::is_significantly_above_terrain(height)).then_some(owner)
     }
 
     /// C++ `ActionManager::canEnterObject` unmanned branch (`:552-560`):

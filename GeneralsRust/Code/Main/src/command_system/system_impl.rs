@@ -1024,6 +1024,22 @@ impl CommandSystem {
                 return Some(CommandType::Enter { target_id });
             }
         }
+        // A pilot's authored collision action reaches the vehicle without a
+        // transport slot. The recipient must share the actual controller.
+        if !hint.sold
+            && !hint.under_construction
+            && !hint.enter_disabled_subdued
+            && hint.pilot_promotion_target_owner.is_some_and(|owner| {
+                selected_presentation.iter().any(|pilot| {
+                    pilot.id != target_id
+                        && pilot.is_alive
+                        && pilot.can_move
+                        && pilot.pilot_promotion_source_owner == Some(owner)
+                })
+            })
+        {
+            return Some(CommandType::Enter { target_id });
+        }
         // C++ `CommandXlat::translateMouseButton`: normal Enter is evaluated
         // before attack.  A non-owner empty *or stealth-garrison-only*
         // non-faction garrison remains a valid C++ `canEnterObject` target.
@@ -1399,7 +1415,12 @@ impl CommandSystem {
         units
             .iter()
             .copied()
-            .any(|unit_id| game_logic.can_unit_enter_normal_target(unit_id, target_id))
+            .any(|unit_id| {
+                (game_logic.unit_can_move(unit_id)
+                    && game_logic.can_execute_pilot_promotion(unit_id, target_id)
+                    && !game_logic.is_enter_target_shrouded_for_action(unit_id, target_id))
+                    || game_logic.can_unit_enter_normal_target(unit_id, target_id)
+            })
     }
 
     /// Validate if selected units can get services at target

@@ -29,11 +29,8 @@ impl GameLogic {
             return Ok(());
         };
 
-        // USA Pilot residual: Enter unmanned vehicle → recrew (not transport load).
-        // Retail VeterancyCrateCollide IsPilot path residual.  The
-        // same parsed authority predicate is repeated here at
-        // arrival so an Enter accepted before an owner/flight
-        // transition cannot re-crew a changed target.
+        // AIEnter approaches either kind of pilot target without requesting a
+        // transport slot. Revalidate the authored collision at arrival.
         {
             let pilot_snapshot = self.objects.get(&object_id).map(|o| {
                 (
@@ -61,7 +58,9 @@ impl GameLogic {
                 Some((vehicle_pos, vehicle_radius)),
             ) = (pilot_snapshot, vehicle_snapshot)
             {
-                if self.can_execute_pilot_recrew(object_id, container_id) {
+                let pilot_promotion = state == AIState::Entering
+                    && self.can_execute_pilot_promotion(object_id, container_id);
+                if pilot_promotion || self.can_execute_pilot_recrew(object_id, container_id) {
                     let enter_range = pilot_radius + vehicle_radius + 4.0;
                     if pilot_can_move && pilot_pos.distance(vehicle_pos) > enter_range {
                         // AIEnterState inherits AIInternalMoveToState's pending
@@ -95,6 +94,10 @@ impl GameLogic {
                                 Some(container_id),
                             );
                         }
+                        return Ok(());
+                    }
+                    if pilot_promotion {
+                        self.complete_pilot_promotion(object_id, container_id, effects)?;
                         return Ok(());
                     }
                     let health_bonus = self.veterancy_health_bonus;
